@@ -42,7 +42,7 @@
 | **Raspberry Pi 4** | Board xử lý chính | Chạy OpenClaw, lamp server, xử lý AI |
 | **Microphone** | Đầu vào giọng nói | Phát hiện từ khóa đánh thức, lệnh giọng nói, hội thoại |
 | **Speaker** | Đầu ra âm thanh | Phản hồi giọng nói AI, thông báo, cảnh báo |
-| **Camera** | Đầu vào hình ảnh | Nhận diện cử chỉ, phát hiện hiện diện, theo dõi khuôn mặt, video call |
+| **Camera** | Đầu vào hình ảnh (nằm trong lõi đèn) | Nhận diện cử chỉ, phát hiện hiện diện, theo dõi khuôn mặt, video call |
 | **Servo Motor** | Chuyển động cơ học | Xoay/nghiêng đầu đèn, hướng ánh sáng, theo dõi người dùng |
 | **LED (TBD)** | Đầu ra ánh sáng | Độ sáng, màu sắc, nhiệt độ màu |
 
@@ -317,7 +317,42 @@
 
 ---
 
-### UC-14: Điều Khiển Qua Mạng / Từ Xa (Tương Lai)
+### UC-14: Speaker — Phản Hồi Âm Thanh & Thông Báo
+
+**Người dùng**: Hệ thống / User
+**Mô tả**: Loa cung cấp phản hồi giọng nói, hiệu ứng âm thanh, và thông báo
+
+**Phản hồi giọng nói (qua OpenClaw TTS)**:
+- Trả lời giọng nói AI cho câu hỏi và lệnh
+- Xác nhận âm thanh: "Đèn đã chỉnh 50%", "Chế độ đọc sách đã bật"
+- Gợi ý chủ động: "Đã muộn rồi, bạn muốn chuyển sang chế độ đêm không?"
+
+**Thông báo âm thanh**:
+- Nhận từ khóa đánh thức: tiếng chuông ngắn
+- Hẹn giờ kết thúc: âm báo nhẹ
+- Lỗi hệ thống: âm cảnh báo
+- Lịch trình kích hoạt: âm thông báo
+
+**Âm thanh môi trường (Tương lai)**:
+- Tiếng mưa / thiên nhiên cho tập trung hoặc ngủ
+- Phát nhạc nền
+- Ánh sáng phản ứng theo nhạc (đồng bộ nhạc với hiệu ứng LED)
+
+**Ví dụ**:
+- "Phát tiếng mưa"
+- "Đặt hẹn 25 phút tập trung có chuông"
+- "Đọc tin tức cho tôi" (AI đọc to + điều chỉnh đèn cho chế độ nghe)
+
+**Tiêu chí chấp nhận**:
+- Giọng nói rõ ràng, âm lượng có thể tùy chỉnh
+- Điều khiển âm lượng bằng giọng nói: "To hơn", "Nhỏ hơn", "Tắt tiếng"
+- Phản hồi TTS độ trễ thấp (< 500ms sau khi AI xử lý xong)
+- Âm thông báo riêng biệt (không gây khó chịu)
+- Người dùng có thể tắt thông báo âm thanh nhưng vẫn giữ phản hồi giọng nói
+
+---
+
+### UC-15: Điều Khiển Qua Mạng / Từ Xa (Tương Lai)
 
 **Người dùng**: User (từ xa)
 **Mô tả**: Điều khiển đèn qua mạng nội bộ hoặc internet
@@ -351,7 +386,8 @@
 | UC-11: Phát hiện hiện diện | P1 - Cao | Có | Camera |
 | UC-12: Đèn video call | P2 - Trung bình | Không | Camera, Servo Motor |
 | UC-13: Hiển thị trạng thái | P1 - Cao | Có | LED |
-| UC-14: Điều khiển từ xa | P2 - Trung bình | Không | Wi-Fi/Mạng |
+| UC-14: Phản hồi âm thanh | P0 - Quan trọng | Có | Speaker |
+| UC-15: Điều khiển từ xa | P2 - Trung bình | Không | Wi-Fi/Mạng |
 
 ---
 
