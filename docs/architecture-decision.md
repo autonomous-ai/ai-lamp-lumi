@@ -15,12 +15,35 @@ The architecture went through several pivots before reaching the final design:
 
 ## 2. Final Architecture Decision
 
-**Fork lobster + Hybrid two-layer architecture + LeLamp Python bridge.**
+**Fork lobster + Hybrid two-layer architecture + LeLamp Python bridge + Hardware Plugin system.**
 
 - **Layer 1 (System)**: Intern server handles system-critical functions that work without OpenClaw.
 - **Layer 2 (Skills)**: OpenClaw's LLM reads SKILL.md files and calls intern HTTP endpoints, which bridge to LeLamp's Python hardware drivers.
 
 The LeLamp Python runtime is kept as the hardware driver layer. We do NOT rewrite drivers in Go — we bridge to them.
+
+### Hardware as Plugins (Plug & Play)
+
+Every hardware component is a **plugin** — if it's plugged in, its driver loads and its skill becomes available. If not, the system works fine without it.
+
+On startup, the intern server auto-detects connected hardware and:
+1. Loads only the drivers for detected hardware
+2. Enables only the corresponding HTTP API endpoints
+3. Deploys only the relevant SKILL.md files to OpenClaw
+
+| Plugin | Detection Method | If Missing |
+|---|---|---|
+| Servo Motors | USB serial port scan (Feetech) | No body language, lamp is static — still works as smart light |
+| LED (WS2812) | SPI device check (`/dev/spidev0.0`) | No light control — system LED only |
+| Camera | V4L2 device check (`/dev/video0`) | No gesture, presence, tracking — voice-only control |
+| Microphone | ALSA device enumeration | No voice input — app/text control only |
+| Speaker | ALSA device enumeration | No voice output — silent mode, LED-only feedback |
+| Display (Eyes) | I2C/SPI device scan (GC9A01/SSD1306) | No eyes — LED-only emotion feedback |
+
+This means the same codebase supports different product configurations:
+- **Full lamp**: All plugins → complete AI companion
+- **Simple lamp**: LED + Mic + Speaker only → smart light with voice
+- **Dev/test**: No hardware → stub drivers, API still works
 
 ## 3. Software Stack
 
@@ -41,6 +64,7 @@ Already running on the Pi4. Provides event-driven services with priority dispatc
 - **MotorsService** — 5x Feetech servo control (pan, tilt, 5-axis articulation)
 - **RGBService** — 64x WS2812 LED control (8x5 grid, per-pixel color via rpi_ws281x)
 - **Audio** — amixer volume, playback, TTS
+- **DisplayService** — small round display (GC9A01 1.28" or similar) for eyes, status, info
 
 Previously controlled via LiveKit `@function_tool`. Will be controlled via intern HTTP API instead.
 
@@ -99,7 +123,8 @@ How it works:
 | `servo-control` | `workspace/skills/servo-control/SKILL.md` | Pan, tilt, preset positions, expressions for 5 servo axes |
 | `camera` | `workspace/skills/camera/SKILL.md` | Presence detection, face tracking, gesture recognition, light analysis |
 | `audio` | `workspace/skills/audio/SKILL.md` | TTS output, sound effects, volume control, ambient sounds |
-| `emotion` | `workspace/skills/emotion/SKILL.md` | Combined emotional expression (servo + LED + audio) |
+| `display` | `workspace/skills/display/SKILL.md` | Eyes animation, status info, notifications on small display |
+| `emotion` | `workspace/skills/emotion/SKILL.md` | Combined emotional expression (servo + LED + audio + display) |
 
 ### HTTP API Endpoints
 
@@ -118,7 +143,9 @@ How it works:
 | `/api/audio/sound` | POST | Play notification or effect sound | Audio / amixer |
 | `/api/audio/volume` | POST | Set speaker volume | Audio / amixer |
 | `/api/audio/ambient` | POST | Play or stop ambient sounds | Audio / amixer |
-| `/api/emotion` | POST | Combined emotional expression | MotorsService + RGBService + Audio |
+| `/api/display` | GET | Get current display state | DisplayService |
+| `/api/display` | POST | Set eyes, show info, notification | DisplayService |
+| `/api/emotion` | POST | Combined emotional expression | MotorsService + RGBService + Audio + Display |
 
 ### Example
 
