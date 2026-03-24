@@ -1,0 +1,17 @@
+---
+description: Multi-IDE (Cursor + Claude Code) conventions
+alwaysApply: true
+---
+
+# Multi-IDE
+
+This project is developed with **Cursor** and **Claude Code**. Changes must work for both.
+
+## When Making Code Changes
+
+1. **Update docs** — Keep `docs/*_vi.md` in sync (see `docs-on-code-change` rule)
+2. **Comment in English** — Project standard
+3. **Single source of truth** — Code is truth; docs reflect it
+4. **Do not commit binary artifacts** — Version injected via ldflags
+
+See `docs/DEV-MULTI-IDE.md` for full conventions.
