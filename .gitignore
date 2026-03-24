@@ -1,0 +1,32 @@
+.DS_Store
+.env
+.env.local
+.env.*.local
+.idea/
+.vscode/
+*.log
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.coverprofile
+*.pprof
+bin/
+dist/
+
+lamp-server
+bootstrap-server
+
+vendor
+
+*.zip
+
+# Web frontend
+web/node_modules/
+web/dist/
