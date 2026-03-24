@@ -106,6 +106,26 @@ Hoạt động **KHÔNG cần OpenClaw**. Nếu OpenClaw ngừng, thiết bị v
 | Cập nhật OTA | Kiểm tra version, tải và cài đặt bản cập nhật |
 | Giao tiếp MQTT | Kết nối backend, báo cáo trạng thái, nhận lệnh |
 | Giám sát internet | Phát hiện mất kết nối, tự khôi phục |
+| **Autonomous sensing** | Sensing loop nhẹ, chạy liên tục: camera (presence, light level), mic (sound level, silence, voice tone), time (schedules), plug-in sensors. Đẩy event cho OpenClaw khi phát hiện thay đổi đáng kể. |
+
+### Autonomous Sensing Loop (Tầng 1.5)
+
+Lumi chạy sensing loop liên tục, chi phí thấp, phát hiện sự kiện trên thiết bị (**edge detection**). Khi phát hiện sự kiện đáng kể → đẩy context cho OpenClaw để AI quyết định hành động. Proactive behavior mà không tốn LLM tokens liên tục.
+
+```
+Sensing Loop (Lumi Server, luôn chạy):
+  Camera → presence.enter / presence.leave / light.level
+  Mic    → sound.level / sound.silence / sound.voice_tone
+  Time   → time.schedule (cron-like)
+  Sensor → sensor.* (plug-in: nhiệt độ, độ ẩm, ...)
+       │
+       │ event + context (chỉ khi có thay đổi đáng kể)
+       ▼
+  OpenClaw (AI Brain) → quyết định hành động → gọi Lumi HTTP API → phần cứng
+```
+
+**Rule-based** (không cần AI): auto-dim khi vắng, adjust brightness khi trời tối, idle animations.
+**AI-driven** (OpenClaw quyết định): chào hỏi, phản ứng mood, empathy, gợi ý theo lịch.
 
 **Kế thừa từ lobster:**
 
