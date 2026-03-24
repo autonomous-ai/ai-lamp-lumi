@@ -57,6 +57,80 @@ Expressiveness without utility is a toy. AI Lamp is a serious productivity and w
 - **Multi-channel presence**: Chat with your lamp via Telegram, Slack, or Discord when you are away from your desk. It is still "there."
 - **Open source platform**: Fork it, extend it, build products on it.
 
+### Pillar 4: "It Acts on Its Own" — Autonomous Sensing & Proactive Behavior
+
+Most smart devices are reactive — they wait for commands. Lumi is **proactive** — it continuously senses its environment and acts autonomously without being asked.
+
+This is the difference between a tool and a companion. A tool waits. A companion pays attention.
+
+#### How It Works — Hybrid Sensing Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Lumi Server (Go) — Lightweight Sensing Loop                    │
+│                                                                 │
+│  Continuous, low-cost edge detection:                           │
+│  • Camera: presence/absence, light level, face position         │
+│  • Mic: ambient sound level, silence duration, voice tone       │
+│  • Time: clock, schedule, duration since last interaction       │
+│  • Sensors: temperature, humidity (if plugged in)               │
+│                                                                 │
+│  When event detected → push context to OpenClaw                 │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ event + context
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  OpenClaw (AI Brain) — Decision & Action                        │
+│                                                                 │
+│  Receives sensor context → LLM decides what to do:              │
+│  • Adjust lighting? Move servo? Speak? Stay quiet?              │
+│  • Factor in: time of day, user history, current mood,          │
+│    long-term memory, personality                                │
+│  • Execute via SKILL.md → curl to Lumi HTTP API                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Lumi = senses (cheap, always-on).** **OpenClaw = brain (smart, called when needed).**
+
+#### Autonomous Behaviors
+
+| Trigger | What Lumi Senses | What Lumi Does | Who Decides |
+|---|---|---|---|
+| **Arrive** | Camera: person enters frame | Turn on, warm greeting, adjust light to preference | OpenClaw (personality) |
+| **Leave** | Camera: no presence for 15 min | Dim → sleep → off | Lumi (rule-based, configurable) |
+| **Darkness** | Camera: ambient light drops | Gradually increase brightness | Lumi (auto) + OpenClaw (scene choice) |
+| **Focus** | Mic: sustained silence + typing sounds | Hold steady, suppress interruptions | Lumi (detect) → OpenClaw (confirm) |
+| **Stress** | Mic: sighs, tense voice tone | Shift to warm light, offer break | OpenClaw (empathy, memory) |
+| **Joy** | Mic: laughter | Lumi bounces, warm flash, join the mood | OpenClaw (emotion skill) |
+| **Late night** | Time: past user's usual bedtime | Reduce blue light, gentle reminder | OpenClaw (memory: knows user schedule) |
+| **Idle** | No interaction for 30+ min | Idle animations — gentle breathing LED, occasional blink | Lumi (built-in, no AI needed) |
+| **Wake up** | Time: morning schedule | Sunrise simulation, gentle chime | Lumi (schedule) + OpenClaw (greeting) |
+| **Video call** | Camera: face centered + screen glow | Auto-optimize face lighting | Lumi (detect) → OpenClaw (adjust) |
+
+#### Sensing Event Types
+
+Lumi Server runs a lightweight sensing loop that emits events:
+
+| Event | Source | Frequency | Cost |
+|---|---|---|---|
+| `presence.enter` | Camera (face/body detection) | On change | Low (simple CV) |
+| `presence.leave` | Camera (no face timeout) | On change | Low |
+| `light.level` | Camera (frame brightness) | Every 30s | Minimal |
+| `sound.level` | Mic (RMS amplitude) | Every 5s | Minimal |
+| `sound.silence` | Mic (silence duration > threshold) | On change | Minimal |
+| `sound.voice_tone` | Mic (pitch/energy analysis) | On voice detected | Medium |
+| `time.schedule` | Clock (cron-like triggers) | Per schedule | None |
+| `sensor.*` | Plug-in sensors (temp, humidity) | Configurable | Low |
+
+Events are lightweight — no LLM tokens burned. Only when an event is significant enough does Lumi push context to OpenClaw for AI decision-making.
+
+#### Privacy & Control
+
+- User can disable any sensing channel independently (camera off, mic off, sensors off)
+- "Do Not Disturb" mode: all proactive behaviors paused, Lumi only responds to direct commands
+- All sensing runs **on-device** — no video/audio streamed to cloud for ambient processing
+- Privacy indicator: LED color change when camera/mic actively sensing
+
 ---
 
 ## 3. Competitive Analysis
@@ -122,7 +196,7 @@ The architecture is split into two layers with a clear boundary. This is **NOT M
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                                                                     │
-│                        INTERN SERVER (Go)                           │
+│                        LUMI SERVER (Go)                             │
 │                     (forked from openclaw-lobster)                   │
 │                                                                     │
 │  ┌──────────────────────────┐   ┌────────────────────────────────┐  │
@@ -166,7 +240,7 @@ The architecture is split into two layers with a clear boundary. This is **NOT M
 │   • Multi-channel (Telegram, Slack, Discord)                         │
 │   • Skill auto-discovery (skills.load.watch: true)                   │
 │                                                                      │
-│   LLM reads SKILL.md → understands API → calls intern via curl      │
+│   LLM reads SKILL.md → understands API → calls Lumi via curl        │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
                               │
@@ -178,7 +252,7 @@ The architecture is split into two layers with a clear boundary. This is **NOT M
                     └───────────────────┘
 ```
 
-### Layer 1 — System (Intern Server, Always Running)
+### Layer 1 — System (Lumi Server, Always Running)
 
 Handles system-critical functions that must work **before and without OpenClaw**.
 
@@ -197,7 +271,7 @@ Handles system-critical functions that must work **before and without OpenClaw**
 
 All user-facing hardware interaction follows a single pattern:
 
-1. **Intern server** exposes an HTTP endpoint for the hardware component
+1. **Lumi server** exposes an HTTP endpoint for the hardware component
 2. **SKILL.md** file describes that endpoint in natural language
 3. **OpenClaw's LLM** reads the SKILL.md, understands the API, and calls it via `curl`
 
@@ -243,7 +317,7 @@ This is a deliberate decision. OpenClaw's multi-provider LLM, long-term memory, 
 
 ### Inherited from Lobster (openclaw-lobster)
 
-The intern server is forked from openclaw-lobster. Approximately 70-80% of Layer 1 code is proven and production-ready:
+The Lumi server is forked from openclaw-lobster. Approximately 70-80% of Layer 1 code is proven and production-ready:
 
 | Component | Lobster Path | Status |
 |---|---|---|
@@ -640,8 +714,8 @@ The intern server is forked from openclaw-lobster. Approximately 70-80% of Layer
 ### Architecture
 
 - [ ] **Camera processing**: On-device (GoCV / OpenCV on Pi 4) or offload to OpenClaw's vision capabilities? Pi 4 has limited GPU — continuous vision processing may compete with LLM workload.
-- [ ] **Audio input ownership**: Does OpenClaw handle the microphone directly (via its own voice pipeline), or does the intern server capture audio and forward it? This affects latency and architecture boundaries.
-- [ ] **LeLamp driver integration**: How exactly does the Python LeLamp runtime communicate with the Go intern server? Options: subprocess, gRPC, REST, or shared hardware access with mutex.
+- [ ] **Audio input ownership**: Does OpenClaw handle the microphone directly (via its own voice pipeline), or does the Lumi server capture audio and forward it? This affects latency and architecture boundaries.
+- [ ] **LeLamp driver integration**: How exactly does the Python LeLamp runtime communicate with the Go Lumi server? Options: subprocess, gRPC, REST, or shared hardware access with mutex.
 
 ### Hardware
 

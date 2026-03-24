@@ -121,6 +121,78 @@ Một chiếc đèn bàn cute mà vô dụng sẽ bị bỏ xó sau 2 tuần. AI
 - Animations mới — ai cũng có thể đóng góp LED patterns
 - Multi-channel — nói chuyện qua Telegram/Slack/Discord khi bạn không ở nhà, nó vẫn "ở đó"
 
+### Trụ cột 4: "Nó tự hành" — Autonomous Sensing & Proactive Behavior
+
+Hầu hết thiết bị thông minh là **reactive** — chờ lệnh. Lumi là **proactive** — liên tục cảm nhận môi trường và tự hành động mà không cần ai hỏi.
+
+Đây là sự khác biệt giữa công cụ và người bạn. Công cụ thì chờ. Bạn đồng hành thì chú ý.
+
+#### Kiến trúc Hybrid Sensing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Lumi Server (Go) — Sensing Loop nhẹ, chạy liên tục            │
+│                                                                 │
+│  Edge detection on-device, chi phí thấp:                        │
+│  • Camera: có người / vắng / độ sáng môi trường                │
+│  • Mic: mức âm / im lặng / tông giọng                          │
+│  • Time: giờ, lịch, thời gian từ lần tương tác cuối            │
+│  • Sensors: nhiệt độ, độ ẩm (nếu có plug-in)                  │
+│                                                                 │
+│  Khi phát hiện sự kiện đáng kể → đẩy context cho OpenClaw      │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ event + context
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  OpenClaw (AI Brain) — Quyết định & Hành động                  │
+│                                                                 │
+│  Nhận context từ sensor → LLM quyết định:                      │
+│  • Điều chỉnh ánh sáng? Di chuyển servo? Nói? Im lặng?        │
+│  • Kết hợp: thời gian, lịch sử người dùng, mood hiện tại,     │
+│    long-term memory, personality                                │
+│  • Thực thi qua SKILL.md → curl đến Lumi HTTP API              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Lumi = giác quan (rẻ, chạy liên tục).** **OpenClaw = bộ não (thông minh, gọi khi cần).**
+
+#### Các hành vi tự hành
+
+| Trigger | Lumi cảm nhận | Lumi tự làm | Ai quyết định |
+|---|---|---|---|
+| **Có người** | Camera: người vào khung hình | Bật đèn, chào, adjust ánh sáng | OpenClaw (personality) |
+| **Vắng người** | Camera: không có ai 15 phút | Dim → sleep → tắt | Lumi (rule-based, tuỳ chỉnh) |
+| **Trời tối** | Camera: ánh sáng môi trường giảm | Tăng brightness từ từ | Lumi (auto) + OpenClaw (chọn scene) |
+| **Focus** | Mic: im lặng lâu + tiếng gõ phím | Giữ ổn định, không làm phiền | Lumi (detect) → OpenClaw (confirm) |
+| **Stress** | Mic: thở dài, giọng căng | Ánh sáng ấm, gợi ý nghỉ | OpenClaw (empathy, memory) |
+| **Vui** | Mic: tiếng cười | Lumi bounce, flash ấm, vui theo | OpenClaw (emotion skill) |
+| **Khuya** | Time: quá giờ ngủ thường ngày | Giảm blue light, nhắc nhẹ | OpenClaw (memory: biết lịch user) |
+| **Idle** | Không tương tác 30+ phút | Idle animation — LED thở nhẹ, nháy mắt | Lumi (built-in, không cần AI) |
+| **Sáng** | Time: lịch buổi sáng | Sunrise simulation, chime nhẹ | Lumi (schedule) + OpenClaw (chào) |
+| **Video call** | Camera: mặt centered + screen glow | Auto tối ưu ánh sáng mặt | Lumi (detect) → OpenClaw (adjust) |
+
+#### Loại sự kiện sensing
+
+| Event | Nguồn | Tần suất | Chi phí |
+|---|---|---|---|
+| `presence.enter` | Camera (face/body) | Khi thay đổi | Thấp (simple CV) |
+| `presence.leave` | Camera (timeout không có mặt) | Khi thay đổi | Thấp |
+| `light.level` | Camera (brightness frame) | Mỗi 30s | Rất thấp |
+| `sound.level` | Mic (RMS amplitude) | Mỗi 5s | Rất thấp |
+| `sound.silence` | Mic (thời gian im lặng > threshold) | Khi thay đổi | Rất thấp |
+| `sound.voice_tone` | Mic (phân tích pitch/energy) | Khi có giọng nói | Trung bình |
+| `time.schedule` | Clock (cron-like) | Theo lịch | Không |
+| `sensor.*` | Sensor plug-in (nhiệt độ, độ ẩm) | Tuỳ chỉnh | Thấp |
+
+Events rất nhẹ — không tốn LLM tokens. Chỉ khi sự kiện đủ đáng kể thì Lumi mới đẩy context cho OpenClaw để AI quyết định.
+
+#### Quyền riêng tư & Kiểm soát
+
+- Người dùng có thể tắt riêng từng kênh sensing (camera off, mic off, sensors off)
+- Chế độ "Không làm phiền": tất cả hành vi proactive tạm dừng, Lumi chỉ phản hồi lệnh trực tiếp
+- Toàn bộ sensing chạy **on-device** — không stream video/audio lên cloud cho ambient processing
+- Privacy indicator: LED đổi màu khi camera/mic đang sensing
+
 ---
 
 ## 3. Phân Tích Cạnh Tranh
@@ -273,7 +345,7 @@ Kiến trúc được thiết kế theo nguyên tắc **tách biệt rõ ràng**
 ┌─────────────────────────────────┼─────────────────────────────┐
 │                                 ▼                             │
 │  ┌──────────────────────────────────────────────────────────┐ │
-│  │              INTERN SERVER (Go)                          │ │
+│  │              LUMI SERVER (Go)                            │ │
 │  │         Fork từ openclaw-lobster                         │ │
 │  │                                                          │ │
 │  │  ┌─────────┐ ┌─────────┐ ┌──────┐ ┌──────┐ ┌────────┐  │ │
@@ -321,7 +393,7 @@ OpenClaw là bộ não AI của toàn bộ hệ thống. Nó thay thế hoàn to
 | **Voice I/O** | STT (Speech-to-Text) + TTS (Text-to-Speech) + emotion detection |
 | **Skills Ecosystem** | SKILL.md files mô tả API → LLM tự quyết định gọi khi nào |
 
-#### Intern Server — Tầng Hệ Thống (Go)
+#### Lumi Server — Tầng Hệ Thống (Go)
 
 Fork từ openclaw-lobster. Đây là tầng **luôn chạy**, hoạt động **không cần OpenClaw**.
 
@@ -377,7 +449,7 @@ Body: {"x": 3, "y": 2, "r": 255, "g": 0, "b": 0}
 2. OpenClaw LLM đọc SKILL.md → biết có endpoint `/led/color`
 3. LLM quyết định parameters: `{"r": 255, "g": 165, "b": 0, "brightness": 70}`
 4. Gọi `curl -X POST http://127.0.0.1:5000/led/color -d '...'`
-5. Intern server nhận request → gọi LeLamp runtime → LED thay đổi
+5. Lumi server nhận request → gọi LeLamp runtime → LED thay đổi
 
 ---
 
@@ -656,7 +728,7 @@ Những vấn đề cần quyết định trong quá trình phát triển:
 | S-01 | OpenClaw chạy trên Pi hay cần server riêng? | Kiến trúc, độ trễ, chi phí | Cần xác định |
 | S-02 | LLM nào làm default? Self-hosted model hay cloud? | Chi phí vận hành, độ trễ, privacy | Cần benchmark |
 | S-03 | Wake word engine nào? Porcupine? OpenWakeWord? Custom? | Trải nghiệm, licensing | Cần đánh giá |
-| S-04 | Giao thức giao tiếp giữa Intern server và LeLamp runtime? REST? gRPC? Unix socket? | Hiệu năng, complexity | Cần quyết định |
+| S-04 | Giao thức giao tiếp giữa Lumi server và LeLamp runtime? REST? gRPC? Unix socket? | Hiệu năng, complexity | Cần quyết định |
 
 ### Sản phẩm
 
