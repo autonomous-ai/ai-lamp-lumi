@@ -9,11 +9,11 @@
 Dự án AI Lamp trải qua nhiều giai đoạn tìm hướng kiến trúc trước khi đi đến quyết định cuối cùng:
 
 1. **Ban đầu**: Dự định xây dựng project Go độc lập, sử dụng MCP protocol để giao tiếp với phần cứng.
-2. **Phát hiện 1**: openclaw-lobster (Go intern server) chia sẻ ~70-80% kiến trúc với những gì AI Lamp cần. Không có lý do viết lại từ đầu.
+2. **Phát hiện 1**: openclaw-lobster (Go server, nay đổi tên thành Lumi) chia sẻ ~70-80% kiến trúc với những gì AI Lamp cần. Không có lý do viết lại từ đầu.
 3. **Quyết định fork**: Mỗi sản phẩm phần cứng có repo riêng. AI Lamp fork từ lobster và mở rộng cho phần cứng cụ thể.
 4. **Phát hiện 2**: LeLamp runtime (Python) **đã chạy** trên Raspberry Pi 4 với đầy đủ hardware drivers — motor, LED, audio. Không cần viết lại driver trong Go.
 5. **Phát hiện 3**: OpenClaw sử dụng **SKILL.md** (skill system native), **KHÔNG PHẢI MCP**. Skills là file Markdown mô tả API, LLM tự đọc và gọi.
-6. **Quyết định cuối**: Kiến trúc Hybrid — OpenClaw skills gọi intern HTTP API, intern bridge đến LeLamp Python services.
+6. **Quyết định cuối**: Kiến trúc Hybrid — OpenClaw skills gọi Lumi HTTP API, Lumi bridge đến LeLamp Python services.
 
 ### Phần Cứng (Raspberry Pi 4)
 
@@ -30,10 +30,10 @@ Dự án AI Lamp trải qua nhiều giai đoạn tìm hướng kiến trúc trư
 
 ## 2. Quyết Định Kiến Trúc Cuối Cùng
 
-**Kiến trúc Hybrid 3 tầng**: OpenClaw (AI) → Intern Server (Go) → LeLamp Runtime (Python) → Phần cứng.
+**Kiến trúc Hybrid 3 tầng**: OpenClaw (AI) → Lumi Server (Go) → LeLamp Runtime (Python) → Phần cứng.
 
 Nguyên tắc cốt lõi:
-- **Tầng hệ thống** (Go intern) hoạt động **KHÔNG cần OpenClaw** — thiết bị luôn phản hồi được.
+- **Tầng hệ thống** (Go Lumi) hoạt động **KHÔNG cần OpenClaw** — thiết bị luôn phản hồi được.
 - **Điều khiển hướng người dùng** thông qua OpenClaw skills gọi HTTP API.
 - **LeLamp runtime** chỉ làm hardware drivers — không chứa logic AI.
 - **Không dùng MCP** — dùng SKILL.md native của OpenClaw.
@@ -43,7 +43,7 @@ Nguyên tắc cốt lõi:
 
 Mọi thiết bị phần cứng là **plugin** — cắm vào thì driver load + skill available, không cắm thì hệ thống vẫn chạy bình thường.
 
-Khi khởi động, intern server tự phát hiện phần cứng và:
+Khi khởi động, Lumi server tự phát hiện phần cứng và:
 1. Chỉ load driver cho phần cứng được phát hiện
 2. Chỉ bật HTTP API endpoint tương ứng
 3. Chỉ deploy SKILL.md liên quan cho OpenClaw
@@ -84,9 +84,9 @@ Giữ nguyên từ dự án LeLamp hiện tại, nhưng bỏ phần AI/LiveKit:
 - **RGBService** — điều khiển 64 WS2812 LED (rpi_ws281x)
 - **Audio** — amixer, phát âm thanh
 - Event-driven **ServiceBase** với priority dispatch
-- Hiện tại được điều khiển qua LiveKit `@function_tool` → sẽ chuyển sang nhận lệnh từ Intern Server
+- Hiện tại được điều khiển qua LiveKit `@function_tool` → sẽ chuyển sang nhận lệnh từ Lumi Server
 
-### Intern Server (Go, fork từ openclaw-lobster) — Hệ Thống + HTTP API Bridge
+### Lumi Server (Go, fork từ openclaw-lobster) — Hệ Thống + HTTP API Bridge
 
 - Tầng hệ thống: LED trạng thái, reset button, mạng, OTA, MQTT
 - HTTP API bridge: nhận request từ OpenClaw skills, chuyển tiếp đến LeLamp Python services
@@ -94,7 +94,7 @@ Giữ nguyên từ dự án LeLamp hiện tại, nhưng bỏ phần AI/LiveKit:
 
 ---
 
-## 4. Tầng 1: Hệ Thống (Intern Server, Go, luôn chạy)
+## 4. Tầng 1: Hệ Thống (Lumi Server, Go, luôn chạy)
 
 Hoạt động **KHÔNG cần OpenClaw**. Nếu OpenClaw ngừng, thiết bị vẫn khởi động, hiển thị trạng thái, và có thể cấu hình lại.
 
@@ -130,8 +130,8 @@ Toàn bộ **điều khiển phần cứng hướng người dùng** thông qua 
 
 1. File **SKILL.md** trong `workspace/skills/` mô tả API cho LLM
 2. OpenClaw tự phát hiện skills (`skills.load.watch: true`)
-3. **LLM đọc SKILL.md** → hiểu API → tự gọi `curl` đến intern HTTP API tại `127.0.0.1:5000`
-4. Intern HTTP API bridge đến LeLamp Python services → điều khiển phần cứng
+3. **LLM đọc SKILL.md** → hiểu API → tự gọi `curl` đến Lumi HTTP API tại `127.0.0.1:5000`
+4. Lumi HTTP API bridge đến LeLamp Python services → điều khiển phần cứng
 
 Đây **KHÔNG phải MCP**. Cùng pattern với `led-control/SKILL.md` hiện có của lobster.
 
@@ -228,7 +228,7 @@ workspace/skills/
                             │ HTTP (curl)
                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Intern Server (Go, port 5000)                    │
+│                    Lumi Server (Go, port 5000)                      │
 │                                                                     │
 │  ┌──────────────────────┐    ┌────────────────────────────────────┐ │
 │  │  TẦNG 1: HỆ THỐNG    │    │  HTTP API (Tầng 2)                 │ │
@@ -285,7 +285,7 @@ POST /api/emotion
 
 ### Cách Hoạt Động
 
-Intern server nhận emotion request → chuyển đổi thành tổ hợp:
+Lumi server nhận emotion request → chuyển đổi thành tổ hợp:
 
 | Thành phần | Ví dụ "curious" (intensity 0.8) |
 |---|---|
@@ -325,7 +325,7 @@ OpenClaw (AI/LLM)
 curl HTTP API (127.0.0.1:5000)
     │
     ▼
-Intern Server (Go)
+Lumi Server (Go)
     │ bridge đến LeLamp
     │
     ▼
@@ -385,7 +385,7 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 | `server/audio/delivery/` | Audio HTTP handlers | `audio/SKILL.md` → `POST /api/audio/*` |
 | `server/emotion/delivery/` | Emotion HTTP handler (kết hợp servo + LED + audio) | `emotion/SKILL.md` → `POST /api/emotion` |
 | `resources/openclaw-skills/` | SKILL.md cho mỗi thiết bị | Deploy vào `workspace/skills/` |
-| Bridge layer | Giao tiếp giữa Go intern và Python LeLamp services | HTTP/gRPC/subprocess |
+| Bridge layer | Giao tiếp giữa Go Lumi server và Python LeLamp services | HTTP/gRPC/subprocess |
 
 ### Phần Cứng ↔ Tầng Mapping
 
@@ -403,8 +403,8 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 
 ## 11. Câu Hỏi Mở
 
-- [ ] **Bridge Go ↔ Python**: LeLamp expose HTTP API riêng? Hay Go gọi Python subprocess/pipe? Hay gRPC?
+- [ ] **Bridge Go ↔ Python**: LeLamp expose HTTP API riêng? Hay Lumi server gọi Python subprocess/pipe? Hay gRPC?
 - [ ] **Xử lý camera**: Trên thiết bị (OpenCV) hay giao cho OpenClaw vision? Latency vs capability trade-off.
-- [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay intern thu âm rồi chuyển tiếp stream?
+- [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay Lumi server thu âm rồi chuyển tiếp stream?
 - [ ] **LED driver**: Adapt SPI driver Go của lobster cho grid 64 LED, hay dùng rpi_ws281x Python driver của LeLamp (đã chạy)?
 - [ ] **Generative body language**: LLM tạo servo positions thế nào? Emotion presets với randomized parameters? Hay LLM tự generate raw positions?

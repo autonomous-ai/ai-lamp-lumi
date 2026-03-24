@@ -9,16 +9,16 @@ This project controls an AI-powered desk lamp built on a Raspberry Pi 4 with art
 The architecture went through several pivots before reaching the final design:
 
 1. **Standalone Go + MCP** — Initially planned as a new Go project using MCP protocol for hardware control. Abandoned when we discovered OpenClaw uses its own native skill system (SKILL.md), not MCP.
-2. **Fork lobster** — Discovered that openclaw-lobster (the Go intern server for OpenClaw hardware products) shares ~70-80% of the architecture we need. Decision: fork lobster, one repo per hardware product.
+2. **Fork lobster** — Discovered that openclaw-lobster (the Go server for OpenClaw hardware products, now renamed to Lumi) shares ~70-80% of the architecture we need. Decision: fork lobster, one repo per hardware product.
 3. **LeLamp runtime already exists** — Discovered a Python runtime is ALREADY running on the Pi4 with working hardware drivers for servos (MotorsService), LEDs (RGBService), and audio (amixer). It was previously controlled via LiveKit @function_tool decorators.
-4. **Final decision** — Hybrid architecture. OpenClaw replaces LiveKit + OpenAI entirely. OpenClaw skills call the intern HTTP API, which bridges to the existing LeLamp Python services for hardware access.
+4. **Final decision** — Hybrid architecture. OpenClaw replaces LiveKit + OpenAI entirely. OpenClaw skills call the Lumi HTTP API, which bridges to the existing LeLamp Python services for hardware access.
 
 ## 2. Final Architecture Decision
 
 **Fork lobster + Hybrid two-layer architecture + LeLamp Python bridge + Hardware Plugin system.**
 
-- **Layer 1 (System)**: Intern server handles system-critical functions that work without OpenClaw.
-- **Layer 2 (Skills)**: OpenClaw's LLM reads SKILL.md files and calls intern HTTP endpoints, which bridge to LeLamp's Python hardware drivers.
+- **Layer 1 (System)**: Lumi Server handles system-critical functions that work without OpenClaw.
+- **Layer 2 (Skills)**: OpenClaw's LLM reads SKILL.md files and calls Lumi HTTP endpoints, which bridge to LeLamp's Python hardware drivers.
 
 The LeLamp Python runtime is kept as the hardware driver layer. We do NOT rewrite drivers in Go — we bridge to them.
 
@@ -26,7 +26,7 @@ The LeLamp Python runtime is kept as the hardware driver layer. We do NOT rewrit
 
 Every hardware component is a **plugin** — if it's plugged in, its driver loads and its skill becomes available. If not, the system works fine without it.
 
-On startup, the intern server auto-detects connected hardware and:
+On startup, the Lumi server auto-detects connected hardware and:
 1. Loads only the drivers for detected hardware
 2. Enables only the corresponding HTTP API endpoints
 3. Deploys only the relevant SKILL.md files to OpenClaw
@@ -66,9 +66,9 @@ Already running on the Pi4. Provides event-driven services with priority dispatc
 - **Audio** — amixer volume, playback, TTS
 - **DisplayService** — small round display (GC9A01 1.28" or similar), dual-mode: eyes emotion (default) + info display (time, weather, timer, notifications)
 
-Previously controlled via LiveKit `@function_tool`. Will be controlled via intern HTTP API instead.
+Previously controlled via LiveKit `@function_tool`. Will be controlled via Lumi HTTP API instead.
 
-### Intern Server — System Layer + HTTP API Bridge (Go)
+### Lumi Server — System Layer + HTTP API Bridge (Go)
 
 Forked from openclaw-lobster. Provides:
 
@@ -76,7 +76,7 @@ Forked from openclaw-lobster. Provides:
 - HTTP API on port 5000 that bridges requests to LeLamp Python services
 - LED system states via direct SPI driver (independent of Python runtime)
 
-## 4. Layer 1: System (Intern Server, Always Running)
+## 4. Layer 1: System (Lumi Server, Always Running)
 
 Works **without OpenClaw**. If the AI is down, the device still boots, shows status via LED, and can be re-provisioned.
 
@@ -88,6 +88,26 @@ Works **without OpenClaw**. If the AI is down, the device still boots, shows sta
 | OTA updates | Version check, download, install via bootstrap |
 | MQTT communication | Auto-reconnect, message dispatch to backend |
 | Internet monitoring | Connectivity check, triggers LED error state on failure |
+| **Autonomous sensing** | Lightweight sensing loop: camera (presence, light level), mic (sound level, silence, voice tone), time (schedules), plug-in sensors. Emits events to OpenClaw when significant changes detected. |
+
+### Autonomous Sensing Loop (Layer 1.5)
+
+Lumi runs a continuous, low-cost sensing loop that does **edge detection** on-device. When a significant event is detected, Lumi pushes context to OpenClaw for AI decision-making. This enables proactive behavior without burning LLM tokens continuously.
+
+```
+Sensing Loop (Lumi Server, always running):
+  Camera → presence.enter / presence.leave / light.level
+  Mic    → sound.level / sound.silence / sound.voice_tone
+  Time   → time.schedule (cron-like)
+  Sensor → sensor.* (plug-in: temp, humidity, etc.)
+       │
+       │ event + context (only on significant change)
+       ▼
+  OpenClaw (AI Brain) → decides action → calls Lumi HTTP API → hardware
+```
+
+**Rule-based actions** (no AI needed): auto-dim on leave, brightness adjust on darkness, idle animations.
+**AI-driven actions** (OpenClaw decides): greetings, mood response, empathetic reactions, schedule-aware suggestions.
 
 Inherited from lobster:
 
@@ -111,8 +131,8 @@ How it works:
 1. SKILL.md files are placed in `workspace/skills/`
 2. OpenClaw auto-discovers them (`skills.load.watch: true`)
 3. The LLM reads the SKILL.md description and understands available APIs
-4. The LLM calls the intern HTTP API via `curl` at `127.0.0.1:5000`
-5. The intern server bridges the request to the appropriate LeLamp Python service
+4. The LLM calls the Lumi HTTP API via `curl` at `127.0.0.1:5000`
+5. The Lumi server bridges the request to the appropriate LeLamp Python service
 6. The Python service drives the hardware
 
 ### Skills
@@ -187,12 +207,12 @@ No command parsing logic needed — the LLM figures it out from the SKILL.md des
 │  ├── audio/SKILL.md                                                 │
 │  └── emotion/SKILL.md       ← key: combined emotional expression   │
 │                                                                     │
-│  LLM reads SKILL.md → calls curl → intern HTTP API                 │
+│  LLM reads SKILL.md → calls curl → Lumi HTTP API                  │
 └──────────────────────────────────┬──────────────────────────────────┘
                                    │ HTTP (127.0.0.1:5000)
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      Intern Server (Go, forked from lobster)        │
+│                      Lumi Server (Go, forked from lobster)          │
 │                                                                     │
 │  ┌───────────────────────────┐  ┌─────────────────────────────────┐ │
 │  │  Layer 1: System          │  │  Layer 2: HTTP API Bridge       │ │
@@ -245,7 +265,7 @@ POST /api/emotion
 {"emotion": "curious", "intensity": 0.8}
 ```
 
-The intern server translates this into coordinated hardware actions:
+The Lumi server translates this into coordinated hardware actions:
 
 - **Servo**: Tilt head forward and slightly to the side (curious posture)
 - **LED**: Shift to warm yellow-white, gentle pulse
@@ -263,9 +283,9 @@ User speaks
     → OpenClaw processes voice input
       → LLM generates response + decides on actions
         → LLM reads relevant SKILL.md files
-          → LLM calls curl to intern HTTP API (127.0.0.1:5000)
-            → Intern Server receives HTTP request
-              → Intern bridges to LeLamp Python service
+          → LLM calls curl to Lumi HTTP API (127.0.0.1:5000)
+            → Lumi Server receives HTTP request
+              → Lumi bridges to LeLamp Python service
                 → Python service drives hardware
                   → Servos move / LEDs change / Speaker outputs audio
 ```
@@ -297,12 +317,12 @@ User speaks
 | Audio HTTP handlers | `server/audio/delivery/` | Gin routes for `/api/audio/*`, bridges to audio / amixer |
 | Emotion HTTP handler | `server/emotion/delivery/` | Gin route for `/api/emotion`, coordinates servo + LED + audio |
 | OpenClaw skills | `resources/openclaw-skills/` | SKILL.md files for servo-control, camera, audio, emotion |
-| Python bridge layer | TBD | Communication layer between Go intern and LeLamp Python services (HTTP, gRPC, or subprocess) |
+| Python bridge layer | TBD | Communication layer between Go Lumi server and LeLamp Python services (HTTP, gRPC, or subprocess) |
 
 ## 11. Open Questions
 
-- [ ] **Go-to-Python bridge**: How does the intern server communicate with LeLamp Python services? Options: HTTP API on the Python side, gRPC, or subprocess/pipe.
+- [ ] **Go-to-Python bridge**: How does the Lumi server communicate with LeLamp Python services? Options: HTTP API on the Python side, gRPC, or subprocess/pipe.
 - [ ] **Camera processing**: Run vision on-device with OpenCV, or offload to OpenClaw's vision capabilities?
-- [ ] **Audio input**: Does OpenClaw handle the microphone directly, or does the intern server capture audio and forward it?
+- [ ] **Audio input**: Does OpenClaw handle the microphone directly, or does the Lumi server capture audio and forward it?
 - [ ] **LED driver**: Adapt lobster's pure Go SPI driver for the 64-LED grid, or use LeLamp's existing rpi_ws281x Python driver via the bridge?
 - [ ] **Generative body language**: How does the LLM generate servo positions for emotions? Predefined emotion presets with randomized parameters, or fully generative coordinates from the LLM?
