@@ -24,6 +24,7 @@ Dự án AI Lamp trải qua nhiều giai đoạn tìm hướng kiến trúc trư
 | Camera | Trong lõi đèn | Thị giác máy tính |
 | Microphone | — | Đầu vào giọng nói |
 | Speaker | — | Đầu ra giọng nói |
+| Display | GC9A01 1.28" tròn (SPI) | Mắt hoạt hình, thông tin, trạng thái |
 
 ---
 
@@ -36,6 +37,30 @@ Nguyên tắc cốt lõi:
 - **Điều khiển hướng người dùng** thông qua OpenClaw skills gọi HTTP API.
 - **LeLamp runtime** chỉ làm hardware drivers — không chứa logic AI.
 - **Không dùng MCP** — dùng SKILL.md native của OpenClaw.
+- **Hardware là plugin** — cắm vào thì play, không cắm thì bỏ qua.
+
+### Hardware Plugin (Plug & Play)
+
+Mọi thiết bị phần cứng là **plugin** — cắm vào thì driver load + skill available, không cắm thì hệ thống vẫn chạy bình thường.
+
+Khi khởi động, intern server tự phát hiện phần cứng và:
+1. Chỉ load driver cho phần cứng được phát hiện
+2. Chỉ bật HTTP API endpoint tương ứng
+3. Chỉ deploy SKILL.md liên quan cho OpenClaw
+
+| Plugin | Cách phát hiện | Nếu không có |
+|---|---|---|
+| Servo Motors | Quét USB serial (Feetech) | Không body language, đèn tĩnh — vẫn là smart light |
+| LED (WS2812) | Kiểm tra SPI (`/dev/spidev0.0`) | Không điều khiển ánh sáng — chỉ có system LED |
+| Camera | Kiểm tra V4L2 (`/dev/video0`) | Không gesture, presence, tracking — chỉ voice control |
+| Microphone | Quét ALSA device | Không voice input — chỉ điều khiển qua app/text |
+| Speaker | Quét ALSA device | Không voice output — chế độ im lặng, chỉ LED feedback |
+| Display | Quét I2C/SPI (GC9A01/SSD1306) | Không mắt/thông tin — chỉ LED status |
+
+Cùng codebase hỗ trợ nhiều cấu hình:
+- **Full lamp**: Tất cả plugin → AI companion đầy đủ
+- **Simple lamp**: LED + Mic + Speaker → đèn thông minh có voice
+- **Dev/test**: Không hardware → stub drivers, API vẫn hoạt động
 
 ---
 
@@ -118,7 +143,8 @@ workspace/skills/
 ├── servo-control/SKILL.md     ← MỚI
 ├── camera/SKILL.md            ← MỚI
 ├── audio/SKILL.md             ← MỚI
-└── emotion/SKILL.md           ← MỚI (quan trọng nhất)
+├── display/SKILL.md            ← MỚI
+└── emotion/SKILL.md           ← MỚI (quan trọng nhất, kết hợp tất cả)
 ```
 
 ### HTTP API Endpoints
@@ -160,7 +186,18 @@ workspace/skills/
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/emotion` | POST | Biểu cảm cảm xúc kết hợp servo + LED + audio |
+#### Display
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/display` | GET | Lấy trạng thái display hiện tại |
+| `/api/display` | POST | Hiển thị mắt, thông tin, notification |
+
+#### Emotion (Kết hợp tất cả)
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/emotion` | POST | Biểu cảm cảm xúc kết hợp servo + LED + audio + display |
 
 ---
 
