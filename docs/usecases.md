@@ -42,7 +42,7 @@
 | **Raspberry Pi 4** | Main compute board | Runs OpenClaw, lamp server, AI processing |
 | **Microphone** | Voice input | Wake word detection, voice commands, conversation |
 | **Speaker** | Audio output | AI voice responses, notifications, alerts |
-| **Camera** | Vision input | Gesture recognition, presence detection, face tracking, video call |
+| **Camera** | Vision input (inside lamp core) | Gesture recognition, presence detection, face tracking, video call |
 | **Servo Motor** | Mechanical movement | Pan/tilt lamp head, aim light direction, follow user |
 | **LED (TBD)** | Light output | Brightness, color, color temperature control |
 
@@ -387,7 +387,8 @@
 | UC-11: Presence Detection | P1 - High | Yes | Camera |
 | UC-12: Video Call Light | P2 - Medium | No | Camera, Servo Motor |
 | UC-13: Status Indication | P1 - High | Yes | LED |
-| UC-14: Remote Control | P2 - Medium | No | Wi-Fi/Network |
+| UC-14: Audio Feedback | P0 - Critical | Yes | Speaker |
+| UC-15: Remote Control | P2 - Medium | No | Wi-Fi/Network |
 
 ---
 
