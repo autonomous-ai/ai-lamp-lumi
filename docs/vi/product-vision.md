@@ -188,6 +188,7 @@ Một chiếc đèn bàn cute mà vô dụng sẽ bị bỏ xó sau 2 tuần. AI
 | **Camera** | Camera module (bên trong lõi đèn) | Nhận diện khuôn mặt, theo dõi, nhận diện cử chỉ, phát hiện hiện diện |
 | **Microphone** | Microphone module | Nhận giọng nói, phân tích cảm xúc qua giọng |
 | **Speaker** | Speaker module | Phát giọng nói TTS, thông báo, nhạc ambient, hiệu ứng âm thanh |
+| **Display** | GC9A01 1.28" LCD tròn (SPI) | Dual-mode: mắt cảm xúc pixel art (default) + hiển thị thông tin (giờ, thời tiết, timer, notification) |
 
 ### Sơ đồ kết nối phần cứng
 

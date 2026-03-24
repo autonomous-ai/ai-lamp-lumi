@@ -98,12 +98,13 @@ Expressiveness without utility is a toy. AI Lamp is a serious productivity and w
 | **Camera** | Camera module (inside lamp core) | Face tracking, gesture recognition, presence detection, light analysis |
 | **Microphone** | USB or I2S microphone | Voice input, wake word, conversation |
 | **Speaker** | USB or I2S speaker | Voice output (TTS), notifications, ambient sounds |
+| **Display** | GC9A01 1.28" round LCD (SPI) | Dual-mode: eyes emotion animation (default) + info display (time, weather, timer, notifications) |
 | **GPIO** | Reset button (GPIO 26) | Long-press: factory reset / power off |
 | **Connectivity** | Wi-Fi (built into Pi 4) | Network, OTA, MQTT, remote control |
 
 ### Physical Design Principles
 
-- The lamp head is the "face" — LEDs provide expression, camera provides eyes, servo provides neck movement
+- The lamp head is the "face" — round LCD display shows expressive pixel-art eyes (default) or useful info; LEDs provide ambient expression; camera provides vision; servo provides neck movement
 - 5 axes of freedom enable lifelike postures: curiosity (tilt), attention (lean forward), sadness (droop), excitement (bounce)
 - Camera is recessed inside the lamp core — visible but not intrusive
 - All cables route through the articulated arm internally
@@ -236,6 +237,7 @@ This is a deliberate decision. OpenClaw's multi-provider LLM, long-term memory, 
 | **Camera** | — | Presence, gesture, face tracking, light analysis |
 | **Microphone** | — | Voice input (handled by OpenClaw directly) |
 | **Speaker** | — | TTS, notifications, ambient sounds |
+| **Display (LCD)** | — | Dual-mode: eyes emotion (default) + info display (time, weather, timer, notifications) |
 | **Reset Button** | Long-press reset / power off | — |
 | **Network (Wi-Fi)** | AP/STA, provisioning, monitoring | — |
 
@@ -265,6 +267,7 @@ The intern server is forked from openclaw-lobster. Approximately 70-80% of Layer
 | `internal/servo/` | Servo PWM driver (5-axis) | `servo-control/SKILL.md` → `POST /api/servo` |
 | `internal/camera/` | Vision processing (OpenCV/V4L2) | `camera/SKILL.md` → `GET /api/camera/*` |
 | `internal/audio/` | Speaker + Mic (ALSA/PulseAudio) | `audio/SKILL.md` → `POST /api/audio/*` |
+| `internal/display/` | Display driver (GC9A01 SPI), dual-mode rendering | `display/SKILL.md` → `POST /api/display` |
 | `server/servo/delivery/` | Servo HTTP handlers | Gin routes |
 | `server/camera/delivery/` | Camera HTTP handlers | Gin routes |
 | `server/audio/delivery/` | Audio HTTP handlers | Gin routes |

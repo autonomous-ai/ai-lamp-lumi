@@ -143,7 +143,7 @@ workspace/skills/
 ├── servo-control/SKILL.md     ← MỚI
 ├── camera/SKILL.md            ← MỚI
 ├── audio/SKILL.md             ← MỚI
-├── display/SKILL.md            ← MỚI
+├── display/SKILL.md            ← MỚI (dual-mode: eyes + info)
 └── emotion/SKILL.md           ← MỚI (quan trọng nhất, kết hợp tất cả)
 ```
 
@@ -191,7 +191,7 @@ workspace/skills/
 | Endpoint | Method | Mô tả |
 |---|---|---|
 | `/api/display` | GET | Lấy trạng thái display hiện tại |
-| `/api/display` | POST | Hiển thị mắt, thông tin, notification |
+| `/api/display` | POST | Dual-mode: hiển thị mắt cảm xúc (default) hoặc thông tin (giờ, thời tiết, timer, notification, trạng thái) |
 
 #### Emotion (Kết hợp tất cả)
 

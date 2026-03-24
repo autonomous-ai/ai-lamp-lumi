@@ -64,7 +64,7 @@ Already running on the Pi4. Provides event-driven services with priority dispatc
 - **MotorsService** — 5x Feetech servo control (pan, tilt, 5-axis articulation)
 - **RGBService** — 64x WS2812 LED control (8x5 grid, per-pixel color via rpi_ws281x)
 - **Audio** — amixer volume, playback, TTS
-- **DisplayService** — small round display (GC9A01 1.28" or similar) for eyes, status, info
+- **DisplayService** — small round display (GC9A01 1.28" or similar), dual-mode: eyes emotion (default) + info display (time, weather, timer, notifications)
 
 Previously controlled via LiveKit `@function_tool`. Will be controlled via intern HTTP API instead.
 
@@ -123,7 +123,7 @@ How it works:
 | `servo-control` | `workspace/skills/servo-control/SKILL.md` | Pan, tilt, preset positions, expressions for 5 servo axes |
 | `camera` | `workspace/skills/camera/SKILL.md` | Presence detection, face tracking, gesture recognition, light analysis |
 | `audio` | `workspace/skills/audio/SKILL.md` | TTS output, sound effects, volume control, ambient sounds |
-| `display` | `workspace/skills/display/SKILL.md` | Eyes animation, status info, notifications on small display |
+| `display` | `workspace/skills/display/SKILL.md` | Dual-mode: eyes emotion animation (default) + info display (time, weather, timer, notifications, system status) |
 | `emotion` | `workspace/skills/emotion/SKILL.md` | Combined emotional expression (servo + LED + audio + display) |
 
 ### HTTP API Endpoints
@@ -144,7 +144,7 @@ How it works:
 | `/api/audio/volume` | POST | Set speaker volume | Audio / amixer |
 | `/api/audio/ambient` | POST | Play or stop ambient sounds | Audio / amixer |
 | `/api/display` | GET | Get current display state | DisplayService |
-| `/api/display` | POST | Set eyes, show info, notification | DisplayService |
+| `/api/display` | POST | Dual-mode: eyes emotion (default) or info display (time, weather, timer, notifications, system status) | DisplayService |
 | `/api/emotion` | POST | Combined emotional expression | MotorsService + RGBService + Audio + Display |
 
 ### Example
