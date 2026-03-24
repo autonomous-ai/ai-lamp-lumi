@@ -1,100 +1,311 @@
-# Quyết Định Kiến Trúc: Hybrid Hardware Control
+# Quyết Định Kiến Trúc: AI Lamp — Hybrid Hardware Control
 
 ## Ngày: 2026-03-24
 
-## Bối Cảnh
+---
 
-Dự án AI Lamp chia sẻ ~70-80% kiến trúc phần mềm với [openclaw-lobster](../../../openclaw-lobster) (tên mã "Intern"). Khác biệt chính là AI Lamp có nhiều thiết bị ngoại vi hơn: Servo Motor, Camera, Microphone, Speaker — ngoài LED.
+## 1. Bối Cảnh & Hành Trình Quyết Định
 
-Câu hỏi đặt ra: **Kiến trúc điều khiển phần cứng nên thiết kế thế nào?**
+Dự án AI Lamp trải qua nhiều giai đoạn tìm hướng kiến trúc trước khi đi đến quyết định cuối cùng:
 
-## Quyết Định: Fork Lobster + Kiến Trúc Hybrid
+1. **Ban đầu**: Dự định xây dựng project Go độc lập, sử dụng MCP protocol để giao tiếp với phần cứng.
+2. **Phát hiện 1**: openclaw-lobster (Go intern server) chia sẻ ~70-80% kiến trúc với những gì AI Lamp cần. Không có lý do viết lại từ đầu.
+3. **Quyết định fork**: Mỗi sản phẩm phần cứng có repo riêng. AI Lamp fork từ lobster và mở rộng cho phần cứng cụ thể.
+4. **Phát hiện 2**: LeLamp runtime (Python) **đã chạy** trên Raspberry Pi 4 với đầy đủ hardware drivers — motor, LED, audio. Không cần viết lại driver trong Go.
+5. **Phát hiện 3**: OpenClaw sử dụng **SKILL.md** (skill system native), **KHÔNG PHẢI MCP**. Skills là file Markdown mô tả API, LLM tự đọc và gọi.
+6. **Quyết định cuối**: Kiến trúc Hybrid — OpenClaw skills gọi intern HTTP API, intern bridge đến LeLamp Python services.
 
-### 1. Mỗi Thiết Bị Có Repo Riêng (Chiến Lược Fork)
+### Phần Cứng (Raspberry Pi 4)
 
-Mỗi sản phẩm phần cứng có codebase riêng. AI Lamp fork từ openclaw-lobster và điều chỉnh cho phần cứng cụ thể.
+| Thiết bị | Chi tiết | Chức năng |
+|---|---|---|
+| 5 Servo Motors | Feetech | Chuyển động 5 trục (xoay, nghiêng, biểu cảm) |
+| 64 WS2812 RGB LEDs | Grid 8x5 | Full color, điều khiển từng pixel |
+| Camera | Trong lõi đèn | Thị giác máy tính |
+| Microphone | — | Đầu vào giọng nói |
+| Speaker | — | Đầu ra giọng nói |
 
-**Lý do**: Đơn giản, rõ ràng, không over-engineering. Mỗi thiết bị phát triển độc lập.
+---
 
-### 2. Hybrid Hardware Control (Tầng Hệ Thống + Tầng OpenClaw Skills)
+## 2. Quyết Định Kiến Trúc Cuối Cùng
 
-Thay vì nhúng toàn bộ điều khiển phần cứng chỉ trong intern server, chia thành hai tầng:
+**Kiến trúc Hybrid 3 tầng**: OpenClaw (AI) → Intern Server (Go) → LeLamp Runtime (Python) → Phần cứng.
 
-#### Tầng 1 — Hệ Thống (Intern Server, luôn chạy)
+Nguyên tắc cốt lõi:
+- **Tầng hệ thống** (Go intern) hoạt động **KHÔNG cần OpenClaw** — thiết bị luôn phản hồi được.
+- **Điều khiển hướng người dùng** thông qua OpenClaw skills gọi HTTP API.
+- **LeLamp runtime** chỉ làm hardware drivers — không chứa logic AI.
+- **Không dùng MCP** — dùng SKILL.md native của OpenClaw.
 
-Xử lý các chức năng **quan trọng cho hệ thống**, phải hoạt động **trước và không cần OpenClaw**:
+---
 
-- Trạng thái LED hệ thống (khởi động, lỗi, mất mạng, factory reset)
-- Nút reset (GPIO)
-- Quản lý mạng (AP/STA, cấu hình WiFi)
-- Cập nhật OTA
-- Giao tiếp MQTT với backend
-- Giám sát internet
+## 3. Software Stack
 
-Kế thừa trực tiếp từ kiến trúc lobster:
-- `internal/led/` — State machine LED với auto-rollback
-- `internal/resetbutton/` — Phát hiện nhấn giữ GPIO
-- `internal/network/` — Quản lý WiFi
-- `internal/openclaw/` — Cấu hình OpenClaw & WebSocket
-- `lib/mqtt/` — MQTT client
+### OpenClaw — Bộ Não AI
 
-**Nguyên tắc chính**: Nếu OpenClaw ngừng hoạt động, thiết bị vẫn khởi động, hiển thị trạng thái qua LED, và có thể được cấu hình lại.
+Thay thế hoàn toàn LiveKit + OpenAI của LeLamp gốc.
 
-#### Tầng 2 — OpenClaw Skills (SKILL.md + Intern HTTP API)
+- Personality & nhân cách cho đèn
+- LLM multi-provider (Claude, GPT, Gemini, ...)
+- Skill system (SKILL.md)
+- Channels (giọng nói, text, ...)
+- Memory (nhớ ngữ cảnh, sở thích người dùng)
 
-Toàn bộ **điều khiển phần cứng hướng người dùng** theo đúng pattern của lobster với skill `led-control`:
+### LeLamp Runtime (Python) — CHỈ Hardware Drivers
 
-1. **Intern server** expose HTTP API endpoint cho mỗi thiết bị phần cứng
-2. **SKILL.md** mô tả API cho LLM của OpenClaw hiểu
-3. **LLM đọc SKILL.md** → hiểu API có gì → tự gọi qua `curl`
+Giữ nguyên từ dự án LeLamp hiện tại, nhưng bỏ phần AI/LiveKit:
 
-Đây **KHÔNG phải MCP**. Sử dụng hệ thống skill native của OpenClaw:
-- Skills là file Markdown (`SKILL.md`) đặt trong `workspace/skills/`
-- OpenClaw tự phát hiện (`skills.load.watch: true`)
-- LLM đọc mô tả skill và tự quyết định khi nào/cách nào gọi API
+- **MotorsService** — điều khiển 5 servo Feetech
+- **RGBService** — điều khiển 64 WS2812 LED (rpi_ws281x)
+- **Audio** — amixer, phát âm thanh
+- Event-driven **ServiceBase** với priority dispatch
+- Hiện tại được điều khiển qua LiveKit `@function_tool` → sẽ chuyển sang nhận lệnh từ Intern Server
 
-**Tham khảo**: Skill LED hiện tại của lobster tại `resources/openclaw-skills/led-control/SKILL.md`:
+### Intern Server (Go, fork từ openclaw-lobster) — Hệ Thống + HTTP API Bridge
+
+- Tầng hệ thống: LED trạng thái, reset button, mạng, OTA, MQTT
+- HTTP API bridge: nhận request từ OpenClaw skills, chuyển tiếp đến LeLamp Python services
+- Kế thừa phần lớn code từ lobster
+
+---
+
+## 4. Tầng 1: Hệ Thống (Intern Server, Go, luôn chạy)
+
+Hoạt động **KHÔNG cần OpenClaw**. Nếu OpenClaw ngừng, thiết bị vẫn khởi động, hiển thị trạng thái, và có thể cấu hình lại.
+
+| Chức năng | Mô tả |
+|---|---|
+| Trạng thái LED hệ thống | Khởi động, lỗi, mất mạng, factory reset — qua SPI driver trực tiếp |
+| Nút reset | GPIO 26 — nhấn giữ để factory reset |
+| Quản lý mạng | AP/STA mode, cấu hình WiFi, quét mạng |
+| Cập nhật OTA | Kiểm tra version, tải và cài đặt bản cập nhật |
+| Giao tiếp MQTT | Kết nối backend, báo cáo trạng thái, nhận lệnh |
+| Giám sát internet | Phát hiện mất kết nối, tự khôi phục |
+
+**Kế thừa từ lobster:**
+
 ```
-POST http://127.0.0.1:5000/api/led  →  {"state": "thinking"}
-GET  http://127.0.0.1:5000/api/led  →  {"state": "idle"}
+server/server.go          — HTTP server (Gin, port 5000)
+server/config/            — Quản lý cấu hình JSON
+internal/led/             — WS2812 SPI driver + state machine + auto-rollback
+internal/resetbutton/     — GPIO 26 nhấn giữ
+internal/network/         — WiFi AP/STA
+internal/openclaw/        — Cấu hình OpenClaw & WebSocket
+internal/beclient/        — Backend client, báo cáo trạng thái
+lib/mqtt/                 — MQTT client, tự kết nối lại
+bootstrap/                — OTA, kiểm tra version
+domain/                   — Struct dùng chung
 ```
 
-### Skills cho AI Lamp
+---
 
-Mỗi thiết bị phần cứng có thư mục skill riêng + HTTP API:
+## 5. Tầng 2: OpenClaw Skills (SKILL.md + HTTP API)
+
+Toàn bộ **điều khiển phần cứng hướng người dùng** thông qua skill system native của OpenClaw:
+
+1. File **SKILL.md** trong `workspace/skills/` mô tả API cho LLM
+2. OpenClaw tự phát hiện skills (`skills.load.watch: true`)
+3. **LLM đọc SKILL.md** → hiểu API → tự gọi `curl` đến intern HTTP API tại `127.0.0.1:5000`
+4. Intern HTTP API bridge đến LeLamp Python services → điều khiển phần cứng
+
+Đây **KHÔNG phải MCP**. Cùng pattern với `led-control/SKILL.md` hiện có của lobster.
+
+### Cấu trúc Skills
 
 ```
 workspace/skills/
-├── led-control/SKILL.md        ← kế thừa từ lobster (điều chỉnh)
-├── servo-control/SKILL.md      ← MỚI
-├── camera/SKILL.md             ← MỚI
-└── audio/SKILL.md              ← MỚI
+├── led-control/SKILL.md       ← kế thừa từ lobster (mở rộng cho 64 LED grid)
+├── servo-control/SKILL.md     ← MỚI
+├── camera/SKILL.md            ← MỚI
+├── audio/SKILL.md             ← MỚI
+└── emotion/SKILL.md           ← MỚI (quan trọng nhất)
 ```
 
-**HTTP API endpoint tương ứng trên Intern**:
+### HTTP API Endpoints
 
-| Endpoint | Method | Mô tả | Skill |
-|---|---|---|---|
-| `/api/led` | GET | Lấy trạng thái LED hiện tại | led-control |
-| `/api/led` | POST | Đặt trạng thái/độ sáng/màu/scene/hiệu ứng | led-control |
-| `/api/servo` | GET | Lấy vị trí servo hiện tại | servo-control |
-| `/api/servo` | POST | Đặt servo xoay/nghiêng/vị trí đặt sẵn | servo-control |
-| `/api/servo/home` | POST | Đưa servo về vị trí mặc định | servo-control |
-| `/api/camera/presence` | GET | Kiểm tra có người trong phòng | camera |
-| `/api/camera/face` | GET | Lấy tọa độ khuôn mặt | camera |
-| `/api/camera/gesture` | GET | Phát hiện cử chỉ tay | camera |
-| `/api/camera/light-analysis` | GET | Phân tích ánh sáng mặt | camera |
-| `/api/audio/speak` | POST | Chuyển text thành giọng nói | audio |
-| `/api/audio/sound` | POST | Phát âm thanh thông báo/hiệu ứng | audio |
-| `/api/audio/volume` | POST | Đặt âm lượng loa | audio |
-| `/api/audio/ambient` | POST | Phát/dừng âm thanh môi trường | audio |
+#### LED Control
 
-**Cách hoạt động — Ví dụ**:
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/led` | GET | Lấy trạng thái LED hiện tại |
+| `/api/led` | POST | Đặt màu, độ sáng, scene, hiệu ứng, pattern |
 
-Người dùng nói: *"Chiếu đèn xuống bàn, chế độ tập trung"*
+#### Servo Control
 
-OpenClaw LLM đọc `servo-control/SKILL.md` và `led-control/SKILL.md`, rồi thực thi:
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/servo` | GET | Lấy vị trí servo hiện tại |
+| `/api/servo` | POST | Đặt xoay, nghiêng, preset, biểu cảm |
+| `/api/servo/home` | POST | Đưa servo về vị trí mặc định |
+
+#### Camera
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/camera/presence` | GET | Kiểm tra có người trong phòng |
+| `/api/camera/face` | GET | Lấy tọa độ khuôn mặt |
+| `/api/camera/gesture` | GET | Phát hiện cử chỉ tay |
+| `/api/camera/light-analysis` | GET | Phân tích ánh sáng môi trường |
+
+#### Audio
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/audio/speak` | POST | Chuyển text thành giọng nói |
+| `/api/audio/sound` | POST | Phát âm thanh thông báo/hiệu ứng |
+| `/api/audio/volume` | POST | Đặt âm lượng loa |
+| `/api/audio/ambient` | POST | Phát/dừng âm thanh môi trường |
+
+#### Emotion (Kết hợp)
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/api/emotion` | POST | Biểu cảm cảm xúc kết hợp servo + LED + audio |
+
+---
+
+## 6. Sơ Đồ Kiến Trúc
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        NGƯỜI DÙNG                                   │
+│                  (Giọng nói / Cử chỉ / App)                        │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     OpenClaw (Bộ não AI/LLM)                        │
+│                                                                     │
+│  • Personality & nhân cách        • Memory                          │
+│  • LLM multi-provider             • Channels (giọng nói, text)      │
+│                                                                     │
+│  workspace/skills/                                                  │
+│  ├── led-control/SKILL.md                                           │
+│  ├── servo-control/SKILL.md                                         │
+│  ├── camera/SKILL.md                                                │
+│  ├── audio/SKILL.md                                                 │
+│  └── emotion/SKILL.md             ← skill quan trọng nhất          │
+│                                                                     │
+│  LLM đọc SKILL.md → gọi curl → 127.0.0.1:5000                     │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ HTTP (curl)
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Intern Server (Go, port 5000)                    │
+│                                                                     │
+│  ┌──────────────────────┐    ┌────────────────────────────────────┐ │
+│  │  TẦNG 1: HỆ THỐNG    │    │  HTTP API (Tầng 2)                 │ │
+│  │  (luôn chạy)         │    │                                    │ │
+│  │                      │    │  /api/led      → LED control       │ │
+│  │  • LED trạng thái    │    │  /api/servo    → Servo control     │ │
+│  │  • Nút reset GPIO 26 │    │  /api/camera/* → Camera            │ │
+│  │  • Quản lý mạng      │    │  /api/audio/*  → Audio             │ │
+│  │  • Cập nhật OTA      │    │  /api/emotion  → Emotion (kết hợp) │ │
+│  │  • MQTT backend      │    │                                    │ │
+│  │  • Giám sát internet │    │  Bridge đến LeLamp Python ──────┐  │ │
+│  │                      │    │                                 │  │ │
+│  │  Hoạt động KHÔNG     │    │                                 │  │ │
+│  │  cần OpenClaw        │    │                                 │  │ │
+│  └──────────────────────┘    └─────────────────────────────────┘  │ │
+│                                                                │  │ │
+└────────────────────────────────────────────────────────────────┼──┘ │
+                                                                 │
+                            ┌────────────────────────────────────┘
+                            │ HTTP/gRPC/subprocess (bridge)
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  LeLamp Runtime (Python, Raspberry Pi 4)            │
+│                                                                     │
+│  • MotorsService  — 5 servo Feetech (xoay, nghiêng, biểu cảm)     │
+│  • RGBService     — 64 WS2812 LED grid 8x5 (rpi_ws281x)           │
+│  • Audio          — amixer, phát âm thanh                           │
+│  • ServiceBase    — Event-driven, priority dispatch                 │
+│                                                                     │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        PHẦN CỨNG                                    │
+│                                                                     │
+│  🔧 5 Servo Motors (Feetech)    💡 64 WS2812 RGB LEDs (grid 8x5)  │
+│  📷 Camera (trong lõi đèn)      🎤 Microphone                     │
+│  🔊 Speaker                                                        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. Emotion Skill — Điểm Khác Biệt Quan Trọng
+
+Emotion là skill **mới quan trọng nhất** — kết hợp tất cả phần cứng để tạo **generative body language** cho đèn.
+
+### API
+
+```
+POST /api/emotion
+{"emotion": "curious", "intensity": 0.8}
+```
+
+### Cách Hoạt Động
+
+Intern server nhận emotion request → chuyển đổi thành tổ hợp:
+
+| Thành phần | Ví dụ "curious" (intensity 0.8) |
+|---|---|
+| **Servo** | Nghiêng nhẹ sang phải, ngẩng lên một chút |
+| **LED** | Chuyển sang tông vàng ấm, nhấp nháy nhẹ |
+| **Audio** | Phát âm thanh "hmm" nhỏ (tùy chọn) |
+
+Mỗi lần gọi tạo ra biểu cảm **unique** — không lặp lại y hệt nhờ randomized parameters trong preset.
+
+### Tại Sao Quan Trọng
+
+- LLM chỉ cần gọi **1 endpoint** thay vì phối hợp 3 endpoint riêng lẻ (servo + LED + audio)
+- Biểu cảm tự nhiên, không máy móc — nhờ randomization
+- Mở rộng dễ dàng: thêm emotion preset mới không cần thay đổi SKILL.md
+
+### Ví Dụ Sử Dụng
+
+Người dùng nói: *"Bạn nghĩ gì về bức tranh này?"*
+
+OpenClaw LLM:
+1. Gọi `POST /api/emotion {"emotion": "curious", "intensity": 0.7}` — đèn nghiêng, đổi màu
+2. Gọi `GET /api/camera/face` — phân tích biểu cảm người dùng
+3. Trả lời bằng giọng nói + gọi `POST /api/emotion {"emotion": "thoughtful", "intensity": 0.5}`
+
+---
+
+## 8. Luồng Giao Tiếp
+
+```
+Người dùng nói
+    │
+    ▼
+OpenClaw (AI/LLM)
+    │ đọc SKILL.md, quyết định hành động
+    │
+    ▼
+curl HTTP API (127.0.0.1:5000)
+    │
+    ▼
+Intern Server (Go)
+    │ bridge đến LeLamp
+    │
+    ▼
+LeLamp Python Services
+    │ MotorsService / RGBService / Audio
+    │
+    ▼
+Phần cứng (Servo / LED / Camera / Speaker)
+```
+
+**Ví dụ cụ thể:**
+
+Người dùng: *"Chiếu đèn xuống bàn, chế độ tập trung"*
+
 ```bash
+# OpenClaw LLM đọc servo-control/SKILL.md + led-control/SKILL.md, rồi gọi:
+
 curl -s -X POST http://127.0.0.1:5000/api/servo \
   -H "Content-Type: application/json" \
   -d '{"preset": "desk"}'
@@ -106,80 +317,17 @@ curl -s -X POST http://127.0.0.1:5000/api/led \
 
 Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.md**.
 
-## Sơ Đồ Kiến Trúc
+---
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      Intern Server (Go)                       │
-│                                                              │
-│  ┌─────────────────────┐    ┌──────────────────────────────┐ │
-│  │  Tầng 1: Hệ Thống   │    │  HTTP API (port 5000)        │ │
-│  │  (luôn chạy)        │    │                              │ │
-│  │                     │    │  /api/led    → internal/led/  │ │
-│  │  • LED khởi động/lỗi│    │  /api/servo  → internal/servo/│ │
-│  │  • Nút reset        │    │  /api/camera → internal/cam/  │ │
-│  │  • Quản lý mạng     │    │  /api/audio  → internal/audio/│ │
-│  │  • Cập nhật OTA     │    │                              │ │
-│  │  • MQTT dispatch    │    │  Được OpenClaw LLM gọi       │ │
-│  │  • Giám sát internet│    │  qua curl (mô tả trong       │ │
-│  │                     │    │  các file SKILL.md)          │ │
-│  │  Hoạt động KHÔNG    │    │                              │ │
-│  │  cần OpenClaw       │    │                              │ │
-│  └─────────────────────┘    └──────────────┬───────────────┘ │
-│                                             │                 │
-└─────────────────────────────────────────────┼─────────────────┘
-                                              │ HTTP (127.0.0.1:5000)
-                                              │
-                        ┌─────────────────────▼──────────────────────┐
-                        │              OpenClaw (AI/LLM)              │
-                        │                                            │
-                        │  workspace/skills/                         │
-                        │  ├── led-control/SKILL.md                  │
-                        │  ├── servo-control/SKILL.md                │
-                        │  ├── camera/SKILL.md                       │
-                        │  └── audio/SKILL.md                        │
-                        │                                            │
-                        │  LLM đọc SKILL.md → gọi intern HTTP API   │
-                        └────────────────────┬───────────────────────┘
-                                             │
-                                             ▼
-                                     ┌──────────────┐
-                                     │ Người dùng    │
-                                     │ (Giọng nói/   │
-                                     │  Cử chỉ/App) │
-                                     └──────────────┘
-```
+## 9. Kế Thừa Từ Lobster (openclaw-lobster)
 
-## Phần Cứng ↔ Tầng Mapping
-
-| Phần cứng | Tầng 1 (Hệ thống) | Tầng 2 (OpenClaw Skills) |
-|---|---|---|
-| **LED** | Khởi động, lỗi, trạng thái hệ thống | Độ sáng, màu sắc, scene, hiệu ứng |
-| **Servo Motor** | — | Xoay, nghiêng, vị trí đặt sẵn, theo dõi |
-| **Camera** | — | Phát hiện hiện diện, cử chỉ, theo dõi mặt, phân tích ánh sáng |
-| **Microphone** | — | Đầu vào giọng nói (OpenClaw xử lý trực tiếp) |
-| **Speaker** | — | Đầu ra TTS, thông báo, âm thanh môi trường |
-| **Nút Reset** | Nhấn giữ tắt nguồn / factory reset | — |
-| **Mạng** | AP/STA, cấu hình WiFi, giám sát internet | — |
-
-## Lợi Ích
-
-1. **Đáng tin cậy**: Chức năng quan trọng (LED trạng thái, mạng, OTA) hoạt động không cần OpenClaw
-2. **AI-native**: LLM đọc SKILL.md và tự quyết định gọi API nào — không cần parse lệnh thủ công
-3. **Dễ mở rộng**: Thêm phần cứng mới = thêm package `internal/` + HTTP endpoint + SKILL.md
-4. **Pattern đã chứng minh**: Cùng kiến trúc với LED control của lobster, đã chạy production
-5. **Hot-reload**: OpenClaw theo dõi thư mục skills — thêm/sửa SKILL.md không cần restart
-6. **Kế thừa từ lobster**: 70-80% code Tầng 1 đã được kiểm chứng, production-ready
-
-## Kế Thừa Từ Lobster (openclaw-lobster)
-
-| Thành phần | Đường dẫn Lobster | Ghi chú |
+| Thành phần | Đường dẫn | Ghi chú |
 |---|---|---|
 | HTTP Server | `server/server.go` | Gin framework, port 5000 |
 | Quản lý cấu hình | `server/config/` | JSON config với reload |
 | LED driver | `internal/led/` | WS2812 SPI driver (pure Go) |
 | LED state machine | `internal/led/engine.go` | States, effects, auto-rollback |
-| LED skill | `resources/openclaw-skills/led-control/SKILL.md` | Điều chỉnh cho đèn lamp |
+| LED skill | `resources/openclaw-skills/led-control/SKILL.md` | Mở rộng cho grid 64 LED |
 | Nút reset | `internal/resetbutton/` | GPIO 26 nhấn giữ |
 | Dịch vụ mạng | `internal/network/` | WiFi AP/STA, quét mạng |
 | Dịch vụ OpenClaw | `internal/openclaw/` | Tạo config, WebSocket |
@@ -189,22 +337,37 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 | Domain models | `domain/` | Struct dùng chung |
 | Build & deploy | `scripts/`, `Makefile` | Cross-compile, systemd |
 
-## Mới Cho AI Lamp
+---
 
-| Thành phần | Cần xây dựng | OpenClaw sử dụng thế nào |
+## 10. Cần Xây Dựng Mới
+
+| Thành phần | Mô tả | OpenClaw sử dụng |
 |---|---|---|
-| `internal/servo/` | Servo PWM driver (xoay/nghiêng) | `servo-control/SKILL.md` → `POST /api/servo` |
-| `internal/camera/` | Xử lý hình ảnh (OpenCV/V4L2) | `camera/SKILL.md` → `GET /api/camera/*` |
-| `internal/audio/` | Mic + Speaker (ALSA/PulseAudio) | `audio/SKILL.md` → `POST /api/audio/*` |
-| `server/servo/delivery/` | Servo HTTP handlers | Gin routes cho `/api/servo` |
-| `server/camera/delivery/` | Camera HTTP handlers | Gin routes cho `/api/camera/*` |
-| `server/audio/delivery/` | Audio HTTP handlers | Gin routes cho `/api/audio/*` |
+| `server/servo/delivery/` | Servo HTTP handlers, bridge đến LeLamp MotorsService | `servo-control/SKILL.md` → `POST /api/servo` |
+| `server/camera/delivery/` | Camera HTTP handlers | `camera/SKILL.md` → `GET /api/camera/*` |
+| `server/audio/delivery/` | Audio HTTP handlers | `audio/SKILL.md` → `POST /api/audio/*` |
+| `server/emotion/delivery/` | Emotion HTTP handler (kết hợp servo + LED + audio) | `emotion/SKILL.md` → `POST /api/emotion` |
 | `resources/openclaw-skills/` | SKILL.md cho mỗi thiết bị | Deploy vào `workspace/skills/` |
+| Bridge layer | Giao tiếp giữa Go intern và Python LeLamp services | HTTP/gRPC/subprocess |
 
-## Câu Hỏi Mở
+### Phần Cứng ↔ Tầng Mapping
 
-- [ ] Xử lý camera: trên thiết bị (GoCV) hay giao cho OpenClaw xử lý vision?
-- [ ] Đầu vào audio: OpenClaw xử lý mic trực tiếp, hay intern thu rồi chuyển tiếp?
-- [ ] Phần cứng servo: model servo nào? Bao nhiêu trục (1 xoay hay xoay+nghiêng)?
-- [ ] Loại LED: WS2812 như lobster, hay LED khác cho đèn?
-- [ ] LED skill: mở rộng SKILL.md hiện tại của lobster hay viết lại cho tính năng lamp (scene, hiệu ứng, màu sắc)?
+| Phần cứng | Tầng 1 (Hệ thống) | Tầng 2 (OpenClaw Skills) |
+|---|---|---|
+| **LED (64 WS2812)** | Khởi động, lỗi, trạng thái hệ thống | Màu, độ sáng, scene, hiệu ứng, pattern |
+| **Servo (5 trục)** | — | Xoay, nghiêng, preset, biểu cảm |
+| **Camera** | — | Hiện diện, khuôn mặt, cử chỉ, ánh sáng |
+| **Microphone** | — | Đầu vào giọng nói (OpenClaw xử lý) |
+| **Speaker** | — | TTS, thông báo, âm thanh môi trường |
+| **Nút Reset** | Nhấn giữ → factory reset | — |
+| **Mạng** | AP/STA, WiFi, giám sát internet | — |
+
+---
+
+## 11. Câu Hỏi Mở
+
+- [ ] **Bridge Go ↔ Python**: LeLamp expose HTTP API riêng? Hay Go gọi Python subprocess/pipe? Hay gRPC?
+- [ ] **Xử lý camera**: Trên thiết bị (OpenCV) hay giao cho OpenClaw vision? Latency vs capability trade-off.
+- [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay intern thu âm rồi chuyển tiếp stream?
+- [ ] **LED driver**: Adapt SPI driver Go của lobster cho grid 64 LED, hay dùng rpi_ws281x Python driver của LeLamp (đã chạy)?
+- [ ] **Generative body language**: LLM tạo servo positions thế nào? Emotion presets với randomized parameters? Hay LLM tự generate raw positions?
