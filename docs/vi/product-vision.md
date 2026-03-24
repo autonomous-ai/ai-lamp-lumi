@@ -12,7 +12,7 @@
 ## Mục Lục
 
 1. [Tầm Nhìn & Sứ Mệnh](#1-tầm-nhìn--sứ-mệnh)
-2. [3 Trụ Cột — Điều Gì Làm AI Lamp Hơn 10 Lần](#2-ba-trụ-cột--điều-gì-làm-ai-lamp-hơn-10-lần)
+2. [4 Trụ Cột — Điều Gì Làm AI Lamp Hơn 10 Lần](#2-bốn-trụ-cột--điều-gì-làm-ai-lamp-hơn-10-lần)
 3. [Phân Tích Cạnh Tranh](#3-phân-tích-cạnh-tranh)
 4. [Thông Số Phần Cứng](#4-thông-số-phần-cứng)
 5. [Kiến Trúc Phần Mềm](#5-kiến-trúc-phần-mềm)
@@ -52,9 +52,9 @@ Biến chiếc đèn bàn — vật dụng quen thuộc nhất trên mọi bàn 
 
 ---
 
-## 2. Ba Trụ Cột — Điều Gì Làm AI Lamp Hơn 10 Lần
+## 2. Bốn Trụ Cột — Điều Gì Làm AI Lamp Hơn 10 Lần
 
-Mỗi đối thủ có thể làm tốt một yếu tố. Không ai kết hợp được cả ba.
+Mỗi đối thủ có thể làm tốt một yếu tố. Không ai kết hợp được cả bốn.
 
 ### Trụ cột 1: "Nó hiểu tôi" — Deep Personal AI
 

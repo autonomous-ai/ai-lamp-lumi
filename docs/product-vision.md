@@ -14,9 +14,9 @@
 
 ---
 
-## 2. The Three Pillars — What Makes AI Lamp 10x Better
+## 2. The Four Pillars — What Makes AI Lamp 10x Better
 
-Every competitor delivers one of these partially. AI Lamp delivers all three completely.
+Every competitor delivers one of these partially. AI Lamp delivers all four completely.
 
 ### Pillar 1: "It Understands Me" — Deep Personal AI
 
