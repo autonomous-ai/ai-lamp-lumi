@@ -16,9 +16,9 @@ Mỗi sản phẩm phần cứng có codebase riêng. AI Lamp fork từ openclaw
 
 **Lý do**: Đơn giản, rõ ràng, không over-engineering. Mỗi thiết bị phát triển độc lập.
 
-### 2. Hybrid Hardware Control (Tầng Hệ Thống + Tầng MCP)
+### 2. Hybrid Hardware Control (Tầng Hệ Thống + Tầng OpenClaw Skills)
 
-Thay vì nhúng toàn bộ điều khiển phần cứng vào intern server (như lobster làm với LED), chia thành hai tầng:
+Thay vì nhúng toàn bộ điều khiển phần cứng chỉ trong intern server, chia thành hai tầng:
 
 #### Tầng 1 — Hệ Thống (Intern Server, luôn chạy)
 
@@ -40,99 +40,119 @@ Kế thừa trực tiếp từ kiến trúc lobster:
 
 **Nguyên tắc chính**: Nếu OpenClaw ngừng hoạt động, thiết bị vẫn khởi động, hiển thị trạng thái qua LED, và có thể được cấu hình lại.
 
-#### Tầng 2 — MCP Server (chạy cùng Intern, expose cho OpenClaw)
+#### Tầng 2 — OpenClaw Skills (SKILL.md + Intern HTTP API)
 
-Toàn bộ **điều khiển phần cứng hướng người dùng** được đóng gói thành MCP (Model Context Protocol) server. OpenClaw nhìn phần cứng như tools/skills có thể gọi trực tiếp.
+Toàn bộ **điều khiển phần cứng hướng người dùng** theo đúng pattern của lobster với skill `led-control`:
 
-**MCP Tools được expose**:
+1. **Intern server** expose HTTP API endpoint cho mỗi thiết bị phần cứng
+2. **SKILL.md** mô tả API cho LLM của OpenClaw hiểu
+3. **LLM đọc SKILL.md** → hiểu API có gì → tự gọi qua `curl`
 
-| Tool | Mô tả | Phần cứng |
-|---|---|---|
-| `led.set_brightness` | Đặt độ sáng LED (0-100%) | LED |
-| `led.set_color` | Đặt màu RGB hoặc nhiệt độ màu | LED |
-| `led.set_scene` | Kích hoạt scene (đọc sách, tập trung, thư giãn, phim, đêm, năng lượng) | LED |
-| `led.set_effect` | Kích hoạt hiệu ứng (thở, nến, cầu vồng, thông báo) | LED |
-| `servo.pan` | Xoay đèn theo chiều ngang (0-180°) | Servo Motor |
-| `servo.tilt` | Nghiêng đèn theo chiều dọc (0-90°) | Servo Motor |
-| `servo.set_position` | Di chuyển đến vị trí đặt sẵn (bàn, tường, giữa) | Servo Motor |
-| `servo.home` | Trở về vị trí mặc định | Servo Motor |
-| `camera.get_presence` | Kiểm tra có người trong phòng không | Camera |
-| `camera.get_face_position` | Lấy tọa độ khuôn mặt cho tracking | Camera |
-| `camera.get_gesture` | Phát hiện cử chỉ tay | Camera |
-| `camera.get_light_analysis` | Phân tích ánh sáng trên mặt (cho video call) | Camera |
-| `audio.speak` | Chuyển text thành giọng nói | Speaker |
-| `audio.play_sound` | Phát âm thanh thông báo/hiệu ứng | Speaker |
-| `audio.set_volume` | Đặt âm lượng loa (0-100%) | Speaker |
-| `audio.play_ambient` | Phát âm thanh môi trường (mưa, thiên nhiên) | Speaker |
+Đây **KHÔNG phải MCP**. Sử dụng hệ thống skill native của OpenClaw:
+- Skills là file Markdown (`SKILL.md`) đặt trong `workspace/skills/`
+- OpenClaw tự phát hiện (`skills.load.watch: true`)
+- LLM đọc mô tả skill và tự quyết định khi nào/cách nào gọi API
 
-**Cách hoạt động với OpenClaw**:
-
-LLM (qua OpenClaw) nhận đầu vào người dùng và **tự quyết định** gọi tool nào. Không cần intern server parse lệnh.
-
-Ví dụ — Người dùng nói: *"Chiếu đèn xuống bàn, chế độ tập trung"*
-
-OpenClaw LLM gọi:
-```json
-[
-  {"tool": "servo.set_position", "params": {"preset": "desk"}},
-  {"tool": "led.set_scene", "params": {"scene": "focus"}}
-]
+**Tham khảo**: Skill LED hiện tại của lobster tại `resources/openclaw-skills/led-control/SKILL.md`:
+```
+POST http://127.0.0.1:5000/api/led  →  {"state": "thinking"}
+GET  http://127.0.0.1:5000/api/led  →  {"state": "idle"}
 ```
 
-Ví dụ — Người dùng nói: *"Có ai trong phòng không?"*
+### Skills cho AI Lamp
 
-OpenClaw LLM gọi:
-```json
-[
-  {"tool": "camera.get_presence", "params": {}}
-]
+Mỗi thiết bị phần cứng có thư mục skill riêng + HTTP API:
+
 ```
-Rồi trả lời bằng giọng nói qua `audio.speak`.
+workspace/skills/
+├── led-control/SKILL.md        ← kế thừa từ lobster (điều chỉnh)
+├── servo-control/SKILL.md      ← MỚI
+├── camera/SKILL.md             ← MỚI
+└── audio/SKILL.md              ← MỚI
+```
+
+**HTTP API endpoint tương ứng trên Intern**:
+
+| Endpoint | Method | Mô tả | Skill |
+|---|---|---|---|
+| `/api/led` | GET | Lấy trạng thái LED hiện tại | led-control |
+| `/api/led` | POST | Đặt trạng thái/độ sáng/màu/scene/hiệu ứng | led-control |
+| `/api/servo` | GET | Lấy vị trí servo hiện tại | servo-control |
+| `/api/servo` | POST | Đặt servo xoay/nghiêng/vị trí đặt sẵn | servo-control |
+| `/api/servo/home` | POST | Đưa servo về vị trí mặc định | servo-control |
+| `/api/camera/presence` | GET | Kiểm tra có người trong phòng | camera |
+| `/api/camera/face` | GET | Lấy tọa độ khuôn mặt | camera |
+| `/api/camera/gesture` | GET | Phát hiện cử chỉ tay | camera |
+| `/api/camera/light-analysis` | GET | Phân tích ánh sáng mặt | camera |
+| `/api/audio/speak` | POST | Chuyển text thành giọng nói | audio |
+| `/api/audio/sound` | POST | Phát âm thanh thông báo/hiệu ứng | audio |
+| `/api/audio/volume` | POST | Đặt âm lượng loa | audio |
+| `/api/audio/ambient` | POST | Phát/dừng âm thanh môi trường | audio |
+
+**Cách hoạt động — Ví dụ**:
+
+Người dùng nói: *"Chiếu đèn xuống bàn, chế độ tập trung"*
+
+OpenClaw LLM đọc `servo-control/SKILL.md` và `led-control/SKILL.md`, rồi thực thi:
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/servo \
+  -H "Content-Type: application/json" \
+  -d '{"preset": "desk"}'
+
+curl -s -X POST http://127.0.0.1:5000/api/led \
+  -H "Content-Type: application/json" \
+  -d '{"scene": "focus"}'
+```
+
+Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.md**.
 
 ## Sơ Đồ Kiến Trúc
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Intern Server (Go)                    │
-│                                                          │
-│  ┌─────────────────────┐   ┌──────────────────────────┐  │
-│  │  Tầng 1: Hệ Thống   │   │  Tầng 2: MCP Server      │  │
-│  │  (luôn chạy)        │   │  (expose cho OpenClaw)   │  │
-│  │                     │   │                          │  │
-│  │  • LED khởi động/lỗi│   │  Tools:                  │  │
-│  │  • Nút reset        │   │  • led.set_brightness()  │  │
-│  │  • Quản lý mạng     │   │  • led.set_color()       │  │
-│  │  • Cập nhật OTA     │   │  • led.set_scene()       │  │
-│  │  • MQTT dispatch    │   │  • servo.pan()           │  │
-│  │  • Giám sát internet│   │  • servo.tilt()          │  │
-│  │                     │   │  • camera.get_presence() │  │
-│  │  Hoạt động KHÔNG    │   │  • camera.get_gesture()  │  │
-│  │  cần OpenClaw       │   │  • audio.speak()         │  │
-│  │                     │   │  • audio.set_volume()    │  │
-│  └─────────────────────┘   └────────────┬─────────────┘  │
-│                                          │                │
-└──────────────────────────────────────────┼────────────────┘
-                                           │ MCP (stdio/SSE)
-                                           ▼
-                                   ┌──────────────┐
-                                   │   OpenClaw    │
-                                   │   (AI/LLM)   │
-                                   │              │
-                                   │  Gọi tools   │
-                                   │  qua MCP     │
-                                   └──────┬───────┘
-                                          │
-                                          ▼
-                                   ┌──────────────┐
-                                   │ Người dùng    │
-                                   │ (Giọng nói/   │
-                                   │  Cử chỉ/App) │
-                                   └──────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Intern Server (Go)                       │
+│                                                              │
+│  ┌─────────────────────┐    ┌──────────────────────────────┐ │
+│  │  Tầng 1: Hệ Thống   │    │  HTTP API (port 5000)        │ │
+│  │  (luôn chạy)        │    │                              │ │
+│  │                     │    │  /api/led    → internal/led/  │ │
+│  │  • LED khởi động/lỗi│    │  /api/servo  → internal/servo/│ │
+│  │  • Nút reset        │    │  /api/camera → internal/cam/  │ │
+│  │  • Quản lý mạng     │    │  /api/audio  → internal/audio/│ │
+│  │  • Cập nhật OTA     │    │                              │ │
+│  │  • MQTT dispatch    │    │  Được OpenClaw LLM gọi       │ │
+│  │  • Giám sát internet│    │  qua curl (mô tả trong       │ │
+│  │                     │    │  các file SKILL.md)          │ │
+│  │  Hoạt động KHÔNG    │    │                              │ │
+│  │  cần OpenClaw       │    │                              │ │
+│  └─────────────────────┘    └──────────────┬───────────────┘ │
+│                                             │                 │
+└─────────────────────────────────────────────┼─────────────────┘
+                                              │ HTTP (127.0.0.1:5000)
+                                              │
+                        ┌─────────────────────▼──────────────────────┐
+                        │              OpenClaw (AI/LLM)              │
+                        │                                            │
+                        │  workspace/skills/                         │
+                        │  ├── led-control/SKILL.md                  │
+                        │  ├── servo-control/SKILL.md                │
+                        │  ├── camera/SKILL.md                       │
+                        │  └── audio/SKILL.md                        │
+                        │                                            │
+                        │  LLM đọc SKILL.md → gọi intern HTTP API   │
+                        └────────────────────┬───────────────────────┘
+                                             │
+                                             ▼
+                                     ┌──────────────┐
+                                     │ Người dùng    │
+                                     │ (Giọng nói/   │
+                                     │  Cử chỉ/App) │
+                                     └──────────────┘
 ```
 
 ## Phần Cứng ↔ Tầng Mapping
 
-| Phần cứng | Tầng 1 (Hệ thống) | Tầng 2 (MCP Tools) |
+| Phần cứng | Tầng 1 (Hệ thống) | Tầng 2 (OpenClaw Skills) |
 |---|---|---|
 | **LED** | Khởi động, lỗi, trạng thái hệ thống | Độ sáng, màu sắc, scene, hiệu ứng |
 | **Servo Motor** | — | Xoay, nghiêng, vị trí đặt sẵn, theo dõi |
@@ -145,14 +165,13 @@ Rồi trả lời bằng giọng nói qua `audio.speak`.
 ## Lợi Ích
 
 1. **Đáng tin cậy**: Chức năng quan trọng (LED trạng thái, mạng, OTA) hoạt động không cần OpenClaw
-2. **AI-native**: LLM tự quyết định điều khiển phần cứng nào — không cần parse lệnh thủ công
-3. **Dễ mở rộng**: Thêm phần cứng mới = thêm MCP tool definition
-4. **Phân tách rõ ràng**: Tầng hệ thống vs tầng người dùng được định nghĩa rõ
-5. **Kế thừa từ lobster**: 70-80% code Tầng 1 đã được kiểm chứng, production-ready
+2. **AI-native**: LLM đọc SKILL.md và tự quyết định gọi API nào — không cần parse lệnh thủ công
+3. **Dễ mở rộng**: Thêm phần cứng mới = thêm package `internal/` + HTTP endpoint + SKILL.md
+4. **Pattern đã chứng minh**: Cùng kiến trúc với LED control của lobster, đã chạy production
+5. **Hot-reload**: OpenClaw theo dõi thư mục skills — thêm/sửa SKILL.md không cần restart
+6. **Kế thừa từ lobster**: 70-80% code Tầng 1 đã được kiểm chứng, production-ready
 
 ## Kế Thừa Từ Lobster (openclaw-lobster)
-
-Các thành phần fork trực tiếp:
 
 | Thành phần | Đường dẫn Lobster | Ghi chú |
 |---|---|---|
@@ -160,6 +179,7 @@ Các thành phần fork trực tiếp:
 | Quản lý cấu hình | `server/config/` | JSON config với reload |
 | LED driver | `internal/led/` | WS2812 SPI driver (pure Go) |
 | LED state machine | `internal/led/engine.go` | States, effects, auto-rollback |
+| LED skill | `resources/openclaw-skills/led-control/SKILL.md` | Điều chỉnh cho đèn lamp |
 | Nút reset | `internal/resetbutton/` | GPIO 26 nhấn giữ |
 | Dịch vụ mạng | `internal/network/` | WiFi AP/STA, quét mạng |
 | Dịch vụ OpenClaw | `internal/openclaw/` | Tạo config, WebSocket |
@@ -171,18 +191,20 @@ Các thành phần fork trực tiếp:
 
 ## Mới Cho AI Lamp
 
-| Thành phần | Đường dẫn (dự kiến) | Mô tả |
+| Thành phần | Cần xây dựng | OpenClaw sử dụng thế nào |
 |---|---|---|
-| MCP Server | `mcp/` | Xử lý giao thức MCP, đăng ký tool |
-| Servo driver | `internal/servo/` | Điều khiển PWM cho servo xoay/nghiêng |
-| Dịch vụ camera | `internal/camera/` | OpenCV/GoCV hoặc V4L2 cho thị giác |
-| Dịch vụ audio | `internal/audio/` | ALSA/PulseAudio cho mic + speaker |
-| MCP tool definitions | `mcp/tools/` | LED, servo, camera, audio tool handlers |
+| `internal/servo/` | Servo PWM driver (xoay/nghiêng) | `servo-control/SKILL.md` → `POST /api/servo` |
+| `internal/camera/` | Xử lý hình ảnh (OpenCV/V4L2) | `camera/SKILL.md` → `GET /api/camera/*` |
+| `internal/audio/` | Mic + Speaker (ALSA/PulseAudio) | `audio/SKILL.md` → `POST /api/audio/*` |
+| `server/servo/delivery/` | Servo HTTP handlers | Gin routes cho `/api/servo` |
+| `server/camera/delivery/` | Camera HTTP handlers | Gin routes cho `/api/camera/*` |
+| `server/audio/delivery/` | Audio HTTP handlers | Gin routes cho `/api/audio/*` |
+| `resources/openclaw-skills/` | SKILL.md cho mỗi thiết bị | Deploy vào `workspace/skills/` |
 
 ## Câu Hỏi Mở
 
-- [ ] MCP transport: stdio hay SSE? (phụ thuộc cách OpenClaw khởi chạy MCP server)
 - [ ] Xử lý camera: trên thiết bị (GoCV) hay giao cho OpenClaw xử lý vision?
 - [ ] Đầu vào audio: OpenClaw xử lý mic trực tiếp, hay intern thu rồi chuyển tiếp?
 - [ ] Phần cứng servo: model servo nào? Bao nhiêu trục (1 xoay hay xoay+nghiêng)?
 - [ ] Loại LED: WS2812 như lobster, hay LED khác cho đèn?
+- [ ] LED skill: mở rộng SKILL.md hiện tại của lobster hay viết lại cho tính năng lamp (scene, hiệu ứng, màu sắc)?
