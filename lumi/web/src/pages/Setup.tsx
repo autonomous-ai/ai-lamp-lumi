@@ -297,7 +297,7 @@ export default function Setup() {
                       <Label htmlFor="fa_channel">FA Channel</Label>
                       <Input
                         id="fa_channel"
-                        placeholder="AiInternStg/f_a/device_id"
+                        placeholder="Lumi/f_a/device_id"
                         value={faChannel}
                         onChange={(e) => setFaChannel(e.target.value)}
                         autoComplete="off"
@@ -305,7 +305,7 @@ export default function Setup() {
                       <Label htmlFor="fd_channel">FD Channel</Label>
                       <Input
                         id="fd_channel"
-                        placeholder="AiInternStg/f_d/device_id"
+                        placeholder="Lumi/f_d/device_id"
                         value={fdChannel}
                         onChange={(e) => setFdChannel(e.target.value)}
                         autoComplete="off"
