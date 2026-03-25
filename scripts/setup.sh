@@ -361,7 +361,7 @@ stage_lelamp() {
     python3 -m venv "$LELAMP_DIR/.venv"
   fi
   if [ -f "$LELAMP_DIR/requirements.txt" ]; then
-    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
+    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
   fi
 
   cat >/etc/systemd/system/lumi-lelamp.service <<EOF
@@ -968,7 +968,7 @@ elif [ "$APP" = "lelamp" ]; then
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
   if [ -f "$LELAMP_DIR/requirements.txt" ]; then
-    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
+    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
   fi
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
