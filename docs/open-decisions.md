@@ -5,91 +5,7 @@
 
 ## Unresolved
 
-### 1. SKILL.md Content for New Skills
-
-**Question**: What goes inside the 5 new SKILL.md files (servo-control, camera, audio, display, emotion)?
-
-**Context**: OpenClaw's LLM reads SKILL.md to understand available APIs. The `led-control/SKILL.md` already exists (inherited from lobster). The 5 new skills need to describe the HTTP API endpoints defined in `architecture-decision.md` Section 5.
-
-**Blocks**: OpenClaw cannot control any new hardware without these files.
-
-**Suggested approach**: Draft based on API endpoints already defined. Can be iterated after testing with OpenClaw.
-
----
-
-### 2. OpenClaw Event Push — How Does Lumi Notify OpenClaw?
-
-**Question**: When Lumi's sensing loop detects an event (person arrives, light changes, stress detected), how does it push that context to OpenClaw for AI decision-making?
-
-**Options**:
-- A. WebSocket message to OpenClaw
-- B. HTTP callback to an OpenClaw API endpoint
-- C. Write to a shared file/pipe that OpenClaw watches
-- D. OpenClaw polls Lumi's `/api/events` endpoint
-
-**Context**: OpenClaw has a WebSocket connection with Lumi (inherited from lobster's `internal/openclaw/`). May be able to send messages through that channel.
-
-**Blocks**: All autonomous/proactive behavior (Pillar 4). Without this, Lumi can only respond to commands, never act on its own.
-
----
-
-### 3. Camera Processing — On-Device or OpenClaw?
-
-**Question**: Does camera vision processing (face detection, presence, gesture, light analysis) run on the Pi 4 locally, or does OpenClaw handle it via its vision capabilities?
-
-**Options**:
-- A. On-device with OpenCV/GoCV — fast, no network, but Pi 4 GPU is limited
-- B. OpenClaw vision — smarter, but adds latency and depends on LLM
-- C. Hybrid — simple CV on-device (presence, light level), complex tasks (gesture, face emotion) via OpenClaw
-
-**Blocks**: Camera skill, sensing loop, auto-tracking, video call optimization.
-
----
-
-### 4. Audio Input Ownership
-
-**Question**: Who owns the microphone — OpenClaw or Lumi?
-
-**Options**:
-- A. OpenClaw owns mic directly (via its own voice pipeline for STT → LLM → TTS)
-- B. Lumi captures audio, forwards stream to OpenClaw
-- C. Shared — OpenClaw owns voice pipeline, Lumi taps mic for ambient sensing (sound level, silence detection) independently
-
-**Context**: OpenClaw likely has its own voice input mechanism. Lumi's sensing loop also needs mic access for ambient sound analysis.
-
-**Blocks**: Voice pipeline architecture, sensing loop audio events.
-
----
-
----
-
-### 6. Emotion Presets — Specific Parameters
-
-**Question**: What are the actual hardware parameters for each emotion?
-
-**Example**: "curious" at intensity 0.8 =
-- Servo: which axes, what angles, what speed?
-- LED: which color, which pattern, what brightness?
-- Audio: which sound file, what volume?
-- Display: which eye animation?
-- Randomization: what range of variation per parameter?
-
-**Context**: Need LeLamp driver code first to understand actual servo ranges, LED capabilities. Can be defined iteratively.
-
-**Blocks**: Emotion skill implementation. Can be deferred — start with 3-4 basic emotions, expand later.
-
----
-
-### 7. Display Rendering — GC9A01 Driver & Eye Animation
-
-**Question**: What Python library drives the GC9A01 display? How are pixel-art eyes rendered?
-
-**Options for driver**: `luma.lcd`, `ST7789` compatible libs, `Pillow` direct SPI
-**Options for rendering**: Pre-rendered sprite sheets, Pillow draw calls, pygame
-
-**Context**: GC9A01 is 240x240 round LCD, SPI interface. Need smooth eye animations (blink, look direction, emotions). Display is NOT from LeLamp upstream — entirely new.
-
-**Blocks**: Display skill, eye animations in emotion skill. Can be deferred — start without display, add later (plugin architecture supports this).
+(None currently — all blocking decisions resolved.)
 
 ---
 
@@ -115,6 +31,16 @@
 | Scripts cleanup | Removed `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Added `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
 | Code directory rename | All code moved under `lumi/` subdirectory. "intern" references replaced with "lumi". | All docs |
 | LED driver ownership | LeLamp Python rpi_ws281x owns all LED control. Go SPI driver (`internal/led/`) removed entirely — this lamp's hardware uses LeLamp's LED driver exclusively. No SPI bus conflict. | `architecture-decision.md` §3, §4, §9, §11 |
+| SKILL.md content (#1) | 8 SKILL.md files: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. All describe HTTP API at `127.0.0.1:5001`. | `resources/openclaw-skills/` |
+| OpenClaw event push (#2) | WebSocket RPC `chat.send` with `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. | `server/sensing/delivery/http/handler.go` |
+| Camera processing (#3) | On-device OpenCV in LeLamp Python. Frame diff for motion detection in sensing loop. | `lelamp/service/sensing/sensing_service.py` |
+| Audio input ownership (#4) | LeLamp owns mic. Always-on Deepgram streaming STT. Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
+| Emotion presets (#6) | 8 presets implemented: curious, happy, sad, thinking, idle, excited, shy, shock. Each maps to servo recording + LED color + eye expression. | `lelamp/server.py` EMOTION_PRESETS |
+| Display rendering (#7) | `gc9a01-python` driver + PIL/Pillow rendering. 11 eye expressions drawn with ImageDraw. Dual-mode: eyes (default) + info text. Background render loop with auto-blink. | `lelamp/service/display/` |
+| Voice pipeline | Always-on Deepgram streaming STT. Wake word "Hey Lumi" via transcript regex + keyword boost (`lumi:3`). No openwakeword. | `lelamp/service/voice/voice_service.py` |
+| Lighting scenes | 6 presets: reading, focus, relax, movie, night, energize. Simulated color temp via RGB. | `lelamp/server.py` SCENE_PRESETS |
+| Presence auto-control | State machine: PRESENT → IDLE (5min) → AWAY (15min). Motion restores light. | `lelamp/service/sensing/presence_service.py` |
+| Scheduling/timers | OpenClaw built-in cron (enabled by default). SKILL.md teaches LLM to use `cron.add`. No custom code needed. | `resources/openclaw-skills/scheduling/SKILL.md` |
 
 ---
 
