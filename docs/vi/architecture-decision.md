@@ -423,7 +423,7 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 
 ## 11. Câu Hỏi Mở
 
-- [ ] **Bridge Go ↔ Python**: LeLamp expose HTTP API riêng? Hay Lumi server gọi Python subprocess/pipe? Hay gRPC?
+- [x] **Bridge Go ↔ Python**: HTTP proxy. LeLamp chạy FastAPI trên `127.0.0.1:5001`, Lumi Server proxy request từ port 5000. Đơn giản, dễ debug, không tight coupling.
 - [ ] **Xử lý camera**: Trên thiết bị (OpenCV) hay giao cho OpenClaw vision? Latency vs capability trade-off.
 - [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay Lumi server thu âm rồi chuyển tiếp stream?
 - [ ] **LED driver**: Adapt SPI driver Go của lobster cho grid 64 LED, hay dùng rpi_ws281x Python driver của LeLamp (đã chạy)?
