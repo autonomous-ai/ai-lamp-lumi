@@ -63,10 +63,11 @@ Already running on the Pi4. Provides event-driven services with priority dispatc
 
 - **MotorsService** — 5x Feetech servo control (pan, tilt, 5-axis articulation)
 - **RGBService** — 64x WS2812 LED control (8x5 grid, per-pixel color via rpi_ws281x)
-- **Audio** — amixer volume, playback, TTS
+- **Camera** — OpenCV capture, JPEG snapshot, MJPEG stream
+- **Audio** — Seeed mic/speaker, amixer volume, record WAV, play tone
 - **DisplayService** — small round display (GC9A01 1.28" or similar), dual-mode: eyes emotion (default) + info display (time, weather, timer, notifications)
 
-Previously controlled via LiveKit `@function_tool`. Will be controlled via Lumi HTTP API instead.
+All hardware exposed via FastAPI on `127.0.0.1:5001` (systemd service: `lumi-lelamp.service`). Nginx proxies `/hw/*` for external Swagger access.
 
 ### Lumi Server — System Layer + HTTP API Bridge (Go)
 
@@ -241,8 +242,12 @@ No command parsing logic needed — the LLM figures it out from the SKILL.md des
 │                                                                     │
 │  • MotorsService  — 5x Feetech servos (5-axis articulation)        │
 │  • RGBService     — 64x WS2812 LEDs (8x5 grid, rpi_ws281x)        │
-│  • Audio          — amixer volume, playback, TTS                    │
+│  • Camera         — OpenCV capture, snapshot, MJPEG stream          │
+│  • Audio          — Seeed mic/speaker, amixer volume, record WAV    │
 │  • ServiceBase    — event-driven with priority dispatch             │
+│                                                                     │
+│  FastAPI on :5001 | systemd: lumi-lelamp.service                    │
+│  nginx: /hw/* → 127.0.0.1:5001 (Swagger at /hw/docs)              │
 │                                                                     │
 └──────────────────────────────────┬──────────────────────────────────┘
                                    │
