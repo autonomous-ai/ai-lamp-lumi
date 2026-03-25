@@ -10,7 +10,7 @@ The AI Lamp device runs **5 software components** on a Raspberry Pi 4. All compo
 | **Bootstrap Server** | Go binary (ARM64) | Download zip from OTA | `bootstrap.service` | `/usr/local/bin/bootstrap-server` |
 | **Web (Setup SPA)** | React/Vite bundle | Download zip from OTA | nginx serves static | `/usr/share/nginx/html/setup/` |
 | **OpenClaw** | Node.js package | `npm install -g` | `openclaw.service` | Global npm |
-| **LeLamp Runtime** | Python package | Download zip from OTA | `lelamp.service` | `/opt/lelamp/` |
+| **LeLamp Runtime** | Python package | Download zip from OTA | `lumi-lelamp.service` | `/opt/lelamp/` |
 
 ### Architecture Diagram
 
@@ -140,7 +140,7 @@ stage_install_lelamp() {
     /opt/lelamp/venv/bin/pip install -r /opt/lelamp/requirements.txt
 
     # 5. Create systemd service
-    cat > /etc/systemd/system/lelamp.service << 'UNIT'
+    cat > /etc/systemd/system/lumi-lelamp.service << 'UNIT'
 [Unit]
 Description=LeLamp Python Runtime — Hardware Drivers
 After=network.target
@@ -160,8 +160,8 @@ WantedBy=multi-user.target
 UNIT
 
     systemctl daemon-reload
-    systemctl enable lelamp.service
-    systemctl start lelamp.service
+    systemctl enable lumi-lelamp.service
+    systemctl start lumi-lelamp.service
 
     echo "LeLamp $LELAMP_VERSION installed at /opt/lelamp/"
 }
@@ -174,8 +174,8 @@ UNIT
 | `lumi.service` | `/usr/local/bin/lumi-server` | 5000 | Main HTTP API, always running |
 | `bootstrap.service` | `/usr/local/bin/bootstrap-server` | 8080 | OTA worker, polls for updates |
 | `openclaw.service` | `xvfb-run ... openclaw gateway run` | — | AI brain, memory limit 1500M |
-| `lelamp.service` | `/opt/lelamp/venv/bin/python -m lelamp.server` | TBD | Hardware drivers (servo, LED, audio) |
-| nginx | `nginx` | 80 | Setup SPA + reverse proxy to Lumi |
+| `lumi-lelamp.service` | `uvicorn lelamp.server:app --host 127.0.0.1 --port 5001` | 5001 | Hardware drivers (servo, LED, camera, audio) |
+| nginx | `nginx` | 80 | Setup SPA + reverse proxy (`/api/` → Lumi 5000, `/hw/` → LeLamp 5001) |
 
 ### Service Dependency Order
 
@@ -183,7 +183,7 @@ UNIT
 boot
   → lumi.service      (system layer, LED boot animation)
   → bootstrap.service   (starts polling for updates)
-  → lelamp.service      (hardware drivers ready)
+  → lumi-lelamp.service      (hardware drivers ready)
   → openclaw.service    (AI brain, connects to lumi via HTTP)
   → nginx               (web UI for setup)
 ```
@@ -231,8 +231,9 @@ checkLoop():
 
 checkOnce():
   1. Fetch OTA metadata JSON
-  2. For each key [lumi, bootstrap, web, openclaw, lelamp]:
+  2. For each key [lumi, bootstrap, web, lelamp]:
      → reconcile(key, metadata[key])
+  NOTE: OpenClaw OTA is temporarily disabled (reconcileOpenClawFromNpm commented out)
   3. Save state
 
 reconcile(key, target):
@@ -278,7 +279,7 @@ Bash script installed by setup.sh. Called by bootstrap worker to apply updates.
     curl -fsSL "$URL" -o /tmp/lelamp-update.zip
 
     # Stop service before updating
-    systemctl stop lelamp.service
+    systemctl stop lumi-lelamp.service
 
     # Backup current
     cp -r /opt/lelamp /opt/lelamp.bak 2>/dev/null || true
@@ -290,7 +291,7 @@ Bash script installed by setup.sh. Called by bootstrap worker to apply updates.
     /opt/lelamp/venv/bin/pip install -r /opt/lelamp/requirements.txt --quiet
 
     # Restart
-    systemctl start lelamp.service
+    systemctl start lumi-lelamp.service
 
     # Cleanup
     rm -f /tmp/lelamp-update.zip
@@ -478,7 +479,7 @@ LeLamp version is a plain text `VERSION` file in the package root. Read by boots
 | Components | 4 (lumi, bootstrap, web, openclaw) | **5** (+ lelamp) |
 | OTA keys | lumi, bootstrap, web, openclaw | + **lelamp** |
 | Setup stages | 7 (stages -1 to 4) | **8** (+ stage 2b: LeLamp) |
-| Systemd services | 4 | **5** (+ lelamp.service) |
+| Systemd services | 4 | **5** (+ lumi-lelamp.service) |
 | Python runtime | None | **LeLamp** at /opt/lelamp/ with venv |
 | Hardware bridge | N/A | Lumi HTTP → LeLamp HTTP (localhost proxy) |
 | SPI usage | LED only | LED + **Display (GC9A01)** |
