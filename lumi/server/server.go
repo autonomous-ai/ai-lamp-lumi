@@ -23,10 +23,8 @@ import (
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
 	_deviceHttpDeliver "go-lamp.autonomous.ai/server/device/delivery/http"
 	_deviceMQTTDeliver "go-lamp.autonomous.ai/server/device/delivery/mqtt"
-	_gwsHttpDeliver "go-lamp.autonomous.ai/server/gws/delivery/http"
 	_healthHttpDeliver "go-lamp.autonomous.ai/server/health/delivery/http"
 	_ledHttpDeliver "go-lamp.autonomous.ai/server/led/delivery/http"
-	_llmHttpDeliver "go-lamp.autonomous.ai/server/llm/delivery/http"
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSseDeliver "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 )
@@ -42,8 +40,6 @@ type Server struct {
 	deviceHandler     _deviceHttpDeliver.DeviceHandler
 	deviceMQTTHandler _deviceMQTTDeliver.DeviceMQTTHandler
 	deviceGPIOHandler _deviceGPIODeliver.DeviceGPIOHandler
-	llmHandler        _llmHttpDeliver.LLMHandler
-	gwsHandler        _gwsHttpDeliver.GWSHandler
 	openclawHandler   _openclawSseDeliver.OpenClawHandler
 
 	openclawService *openclaw.Service
@@ -94,8 +90,6 @@ func ProvideServer(
 	dh _deviceHttpDeliver.DeviceHandler,
 	dqth _deviceMQTTDeliver.DeviceMQTTHandler,
 	dgph _deviceGPIODeliver.DeviceGPIOHandler,
-	lh _llmHttpDeliver.LLMHandler,
-	gwsH _gwsHttpDeliver.GWSHandler,
 	openclawH _openclawSseDeliver.OpenClawHandler,
 	ds *device.Service,
 	openclawSvc *openclaw.Service,
@@ -112,8 +106,6 @@ func ProvideServer(
 		deviceHandler:     dh,
 		deviceMQTTHandler: dqth,
 		deviceGPIOHandler: dgph,
-		llmHandler:        lh,
-		gwsHandler:        gwsH,
 		openclawHandler:   openclawH,
 		openclawService:   openclawSvc,
 		networkService:    ns,
@@ -234,11 +226,6 @@ func (s *Server) Serve(closeFn func()) error {
 	api.GET("led", s.ledHandler.GetState)
 	api.POST("led", s.ledHandler.UpdateState)
 
-	gws := api.Group("gws")
-	gws.POST("install", s.gwsHandler.InstallGWS)
-	gws.POST("credentials", s.gwsHandler.SetGoogleCredentials)
-	gws.DELETE("credentials", s.gwsHandler.RemoveGoogleCredentials)
-
 	log.Println("Start server completed")
 
 	errChan := make(chan error)
@@ -315,12 +302,6 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		go s.deviceService.StartStatusReporter(s.monitorCtx)
 
 		s.restartMQTT()
-
-		go func() {
-			if err := s.openclawService.EnsureOnboardingSkill(); err != nil {
-				log.Printf("[onboarding] failed to ensure skill: %v", err)
-			}
-		}()
 
 		go func() {
 			if ok := s.deviceService.WaitForOpenclawReady(120 * time.Second); ok {

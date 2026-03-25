@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
@@ -14,15 +13,6 @@ import (
 	"go-lamp.autonomous.ai/server/config"
 )
 
-const (
-	gwsCredentialsFile  = "google.json"
-	gwsRepo             = "https://github.com/googleworkspace/cli"
-	skillsDir           = "/root/openclaw/workspace/skills"
-	minNodeMajor        = 18
-	npmInstallTimeout   = 5 * time.Minute
-	skillInstallTimeout = 3 * time.Minute
-	maxErrorLength      = 500
-)
 
 // DeviceMQTTHandler handles incoming MQTT messages and dispatches to command handlers.
 type DeviceMQTTHandler struct {
@@ -76,12 +66,6 @@ func (h *DeviceMQTTHandler) HandleMessage(topic string, payload []byte) error {
 		return h.handleInfo(cmd)
 	case domain.CommandAddChannel:
 		return h.handleAddChannel(cmd)
-	case domain.CommandInstallGWS:
-		return h.handleInstallGWS(cmd)
-	case domain.CommandSetGoogleCredentials:
-		return h.handleSetGoogleCredentials(cmd)
-	case domain.CommandRemoveGoogleCredentials:
-		return h.handleRemoveGoogleCredentials(cmd)
 	default:
 		log.Printf("[mqtt] unknown command: %s", cmd.Cmd)
 		return nil
