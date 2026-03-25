@@ -25,6 +25,7 @@ import (
 	_healthHttpDeliver "go-lamp.autonomous.ai/server/health/delivery/http"
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSseDeliver "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
+	_sensingHttpDeliver "go-lamp.autonomous.ai/server/sensing/delivery/http"
 )
 
 type Server struct {
@@ -38,6 +39,7 @@ type Server struct {
 	deviceMQTTHandler _deviceMQTTDeliver.DeviceMQTTHandler
 	deviceGPIOHandler _deviceGPIODeliver.DeviceGPIOHandler
 	openclawHandler   _openclawSseDeliver.OpenClawHandler
+	sensingHandler    _sensingHttpDeliver.SensingHandler
 
 	openclawService *openclaw.Service
 	networkService  *network.Service
@@ -85,6 +87,7 @@ func ProvideServer(
 	dqth _deviceMQTTDeliver.DeviceMQTTHandler,
 	dgph _deviceGPIODeliver.DeviceGPIOHandler,
 	openclawH _openclawSseDeliver.OpenClawHandler,
+	sensingH _sensingHttpDeliver.SensingHandler,
 	ds *device.Service,
 	openclawSvc *openclaw.Service,
 	ns *network.Service,
@@ -99,6 +102,7 @@ func ProvideServer(
 		deviceMQTTHandler: dqth,
 		deviceGPIOHandler: dgph,
 		openclawHandler:   openclawH,
+		sensingHandler:    sensingH,
 		openclawService:   openclawSvc,
 		networkService:    ns,
 		deviceService:     ds,
@@ -208,6 +212,9 @@ func (s *Server) Serve(closeFn func()) error {
 	network.GET("", s.networkHandler.GetNetworks)
 	network.GET("current", s.networkHandler.GetCurrentNetwork)
 	network.GET("check-internet", s.networkHandler.CheckInternet)
+
+	sensing := api.Group("sensing")
+	sensing.POST("event", s.sensingHandler.PostEvent)
 
 	log.Println("Start server completed")
 

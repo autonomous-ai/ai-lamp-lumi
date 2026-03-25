@@ -18,6 +18,7 @@ import (
 	_healthHttpDeliver "go-lamp.autonomous.ai/server/health/delivery/http"
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSse "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
+	_sensingHttp "go-lamp.autonomous.ai/server/sensing/delivery/http"
 )
 
 func InitializeServer() (*Server, error) {
@@ -35,6 +36,7 @@ func InitializeServer() (*Server, error) {
 		_deviceMQTTDeliver.ProviderSet,
 		_deviceGPIODeliver.ProviderSet,
 		_openclawSse.ProviderSet,
+		_sensingHttp.ProviderSet,
 		ProvideServer,
 	))
 }

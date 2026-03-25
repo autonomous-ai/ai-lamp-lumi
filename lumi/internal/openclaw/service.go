@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,14 @@ type WSEventHandler func(ctx context.Context, evt domain.WSEvent) error
 type Service struct {
 	config      *config.Config
 	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+
+	// wsConn is the active WebSocket connection; guarded by wsMu.
+	wsConn *websocket.Conn
+	wsMu   sync.Mutex
+	// lastSessionKey is the most recent session key observed from agent lifecycle events.
+	lastSessionKey atomic.Value // string
+	// reqCounter is used to generate unique request IDs for outgoing RPC calls.
+	reqCounter atomic.Int64
 }
 
 // ProvideService constructs the openclaw service.
@@ -506,7 +515,12 @@ func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
 		}
 		return fmt.Errorf("dial %s: %w", defaultGatewayWSURL, err)
 	}
-	defer conn.Close()
+	defer func() {
+		s.wsMu.Lock()
+		s.wsConn = nil
+		s.wsMu.Unlock()
+		conn.Close()
+	}()
 
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := conn.ReadMessage()
@@ -534,7 +548,7 @@ func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
 				"mode":     "node",
 			},
 			"role":   "operator",
-			"scopes": []string{"operator.read", "events.read"},
+			"scopes": []string{"operator.read", "operator.write", "events.read"},
 			"auth":   map[string]interface{}{"token": token},
 		},
 	}
@@ -542,6 +556,9 @@ func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
 	if err := conn.WriteMessage(websocket.TextMessage, connectBody); err != nil {
 		return fmt.Errorf("write connect: %w", err)
 	}
+	s.wsMu.Lock()
+	s.wsConn = conn
+	s.wsMu.Unlock()
 	s.wsConnected.Store(true)
 
 	for {
@@ -818,4 +835,60 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
+}
+
+// SetSessionKey stores the session key for outgoing chat messages.
+func (s *Service) SetSessionKey(key string) {
+	s.lastSessionKey.Store(key)
+	log.Printf("[openclaw] session key stored: %s", key)
+}
+
+// GetSessionKey returns the last observed session key, or empty string if none.
+func (s *Service) GetSessionKey() string {
+	v, _ := s.lastSessionKey.Load().(string)
+	return v
+}
+
+// SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
+// Returns the runId on success. The agent will process the message and respond via skills.
+func (s *Service) SendChatMessage(message string) (string, error) {
+	sessionKey := s.GetSessionKey()
+	if sessionKey == "" {
+		return "", fmt.Errorf("no session key available; agent has not started yet")
+	}
+
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return "", fmt.Errorf("websocket not connected")
+	}
+
+	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
+	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "chat.send",
+		"params": map[string]interface{}{
+			"sessionKey":     sessionKey,
+			"message":        message,
+			"idempotencyKey": idempotencyKey,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("marshal chat.send: %w", err)
+	}
+
+	s.wsMu.Lock()
+	err = s.wsConn.WriteMessage(websocket.TextMessage, body)
+	s.wsMu.Unlock()
+	if err != nil {
+		return "", fmt.Errorf("write chat.send: %w", err)
+	}
+
+	log.Printf("[openclaw] chat.send: session=%s msg=%q id=%s", sessionKey, message, reqID)
+	return reqID, nil
 }
