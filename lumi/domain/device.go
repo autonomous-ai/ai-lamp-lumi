@@ -160,10 +160,7 @@ type SetupResponse struct {
 const (
 	CommandInfo                    = "info"
 	CommandAddChannel              = "add_channel"
-	CommandOTA                     = "ota"
-	CommandInstallGWS              = "install_gws"
-	CommandSetGoogleCredentials    = "set_google_credentials"
-	CommandRemoveGoogleCredentials = "remove_google_credentials"
+	CommandOTA = "ota"
 )
 
 // Message is the standard envelope for MQTT messages from the server (fa_channel).
@@ -240,46 +237,6 @@ type MQTTRemoveChannelRequest struct {
 
 type MQTTRemoveChannelResponse struct {
 	Success bool `json:"success"`
-}
-
-// MQTTInstallGWSCommand is the fa_channel payload for cmd:"install_gws".
-type MQTTInstallGWSCommand struct {
-	Skills string `json:"skills"`
-}
-
-// MQTTInstallGWSResponse extends MQTTInfoResponse with install result for fd_channel.
-type MQTTInstallGWSResponse struct {
-	MQTTInfoResponse
-	Status          string            `json:"status"`
-	GWSVersion      string            `json:"gws_version,omitempty"`
-	NodeVersion     string            `json:"node_version,omitempty"`
-	SkillsInstalled []string          `json:"skills_installed,omitempty"`
-	FailedSkills    map[string]string `json:"failed_skills,omitempty"`
-	Error           string            `json:"error,omitempty"`
-	ErrorStep       string            `json:"error_step,omitempty"`
-}
-
-// MQTTSetGoogleCredentialsCommand is the fa_channel payload for cmd:"set_google_credentials".
-type MQTTSetGoogleCredentialsCommand struct {
-	ClientID     string   `json:"client_id"`
-	ClientSecret string   `json:"client_secret"`
-	RefreshToken string   `json:"refresh_token"`
-	Scopes       []string `json:"scopes"`
-}
-
-// MQTTSetGoogleCredentialsResponse extends MQTTInfoResponse for fd_channel.
-type MQTTSetGoogleCredentialsResponse struct {
-	MQTTInfoResponse
-	Status      string `json:"status"`
-	GoogleEmail string `json:"google_email,omitempty"`
-	Error       string `json:"error,omitempty"`
-}
-
-// MQTTRemoveGoogleCredentialsResponse extends MQTTInfoResponse for fd_channel.
-type MQTTRemoveGoogleCredentialsResponse struct {
-	MQTTInfoResponse
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
 }
 
 // DeviceMessage is the base response published to fd_channel.
