@@ -1,84 +1,10 @@
-# Quyết Định Chưa Chốt — AI Lamp (Lumi)
+# Quyết Định — AI Lamp (Lumi)
 
-> Các quyết định cần đưa ra trước khi bắt đầu code. Mỗi cái chặn các tính năng cụ thể.
-> Khi chốt xong, chuyển xuống phần "Đã chốt" kèm quyết định và ngày.
+> Tất cả blocking decisions đã chốt. Document này track lại toàn bộ quyết định.
 
 ## Chưa chốt
 
-### 1. Nội dung SKILL.md cho các skill mới
-
-**Câu hỏi**: Viết gì trong 5 file SKILL.md mới (servo-control, camera, audio, display, emotion)?
-
-**Bối cảnh**: LLM của OpenClaw đọc SKILL.md để hiểu API. `led-control/SKILL.md` đã có (kế thừa từ lobster). 5 skill mới cần mô tả HTTP API endpoints đã define trong `architecture-decision.md` mục 5.
-
-**Chặn**: OpenClaw không điều khiển được hardware mới nào nếu thiếu.
-
-**Hướng đề xuất**: Draft dựa trên API endpoints đã có. Chỉnh sửa sau khi test với OpenClaw.
-
----
-
-### 2. OpenClaw Event Push — Lumi thông báo OpenClaw bằng cách nào?
-
-**Câu hỏi**: Khi sensing loop của Lumi phát hiện sự kiện (người đến, ánh sáng thay đổi, stress), đẩy context cho OpenClaw bằng cách nào?
-
-**Lựa chọn**:
-- A. WebSocket message đến OpenClaw
-- B. HTTP callback đến API endpoint của OpenClaw
-- C. Ghi vào shared file/pipe, OpenClaw watch
-- D. OpenClaw poll endpoint `/api/events` của Lumi
-
-**Bối cảnh**: OpenClaw có WebSocket connection với Lumi (kế thừa từ lobster `internal/openclaw/`). Có thể gửi message qua channel đó.
-
-**Chặn**: Toàn bộ hành vi tự hành/proactive (Trụ cột 4).
-
----
-
-### 3. Xử lý Camera — On-device hay OpenClaw?
-
-**Câu hỏi**: Vision processing (face detection, presence, gesture, light analysis) chạy trên Pi 4 hay giao cho OpenClaw?
-
-**Lựa chọn**:
-- A. On-device với OpenCV — nhanh, không cần mạng, nhưng Pi 4 GPU hạn chế
-- B. OpenClaw vision — thông minh hơn, nhưng thêm latency
-- C. Hybrid — simple CV on-device (presence, light level), phức tạp (gesture, face emotion) qua OpenClaw
-
-**Chặn**: Camera skill, sensing loop, auto-tracking, video call optimization.
-
----
-
-### 4. Audio Input — Ai sở hữu Microphone?
-
-**Câu hỏi**: OpenClaw hay Lumi own microphone?
-
-**Lựa chọn**:
-- A. OpenClaw own mic trực tiếp (voice pipeline: STT → LLM → TTS)
-- B. Lumi capture audio, forward stream cho OpenClaw
-- C. Chia sẻ — OpenClaw own voice pipeline, Lumi tap mic riêng cho ambient sensing (sound level, silence)
-
-**Chặn**: Voice pipeline, sensing loop audio events.
-
----
-
----
-
-### 6. Emotion Presets — Tham số cụ thể
-
-**Câu hỏi**: Mỗi emotion cụ thể tham số hardware bao nhiêu?
-
-**Ví dụ**: "curious" intensity 0.8 = servo angle bao nhiêu? LED color gì? Audio file nào? Eye animation nào? Randomization range?
-
-**Chặn**: Emotion skill. Có thể defer — bắt đầu với 3-4 emotion cơ bản, mở rộng sau.
-
----
-
-### 7. Display Rendering — GC9A01 Driver & Eye Animation
-
-**Câu hỏi**: Dùng Python lib nào cho GC9A01? Render pixel-art eyes bằng gì?
-
-**Lựa chọn driver**: `luma.lcd`, ST7789 compatible libs, Pillow direct SPI
-**Lựa chọn rendering**: Sprite sheets, Pillow draw, pygame
-
-**Chặn**: Display skill. Có thể defer — bắt đầu không có display, thêm sau (plugin architecture hỗ trợ).
+(Không còn.)
 
 ---
 
@@ -90,21 +16,84 @@
 | LeLamp source | Mono-repo. Copy drivers từ `humancomputerlab/lelamp_runtime` vào `lelamp/`. Track upstream qua `UPSTREAM.md`. | `bootstrap-ota.md` §6 |
 | Tên project/character | **Lumi** (from "luminous"). Binary: `lumi-server`. Service: `lumi.service`. Wake word: "Hey Lumi". | Tất cả docs |
 | Display concept | Dual-mode: pixel-art eyes (default) + info display (giờ, thời tiết, timer, notifications). | `architecture-decision.md` §3, `product-vision.md` §4 |
-| Autonomous sensing | Hybrid. Lumi chạy edge detection nhẹ. Đẩy event cho OpenClaw khi cần AI quyết định. | `product-vision.md` §2 Pillar 4, `architecture-decision.md` §4 |
-| OTA components | 5 thành phần: lumi, bootstrap, web, openclaw, lelamp. LeLamp = stage 2b. | `bootstrap-ota.md` §1-§3 |
+| Autonomous sensing | Hybrid. Lumi chạy edge detection nhẹ. Đẩy event cho OpenClaw khi cần AI quyết định. | `product-vision.md` §2 Pillar 4 |
+| OTA components | 5 thành phần: lumi, bootstrap, web, openclaw, lelamp. | `bootstrap-ota.md` §1-§3 |
 | Product pillars | 4 Trụ cột: "Hiểu tôi", "Sống thật", "Hữu ích thật", "Tự hành". | `product-vision.md` §2 |
 
 ## Đã chốt (2026-03-25)
 
-| Quyết định | Kết quả | Docs |
-|---|---|---|
-| Loại bỏ GWS | Xóa toàn bộ GWS (Google Workspace) handlers, scripts, domain types. MQTT commands chỉ còn: `info`, `add_channel`, `ota`. | `architecture-decision.md` §4 |
-| Inline LLM service | Xóa `internal/llm/` service. `ListModelsFromAPI` inline vào `internal/openclaw/service.go`. | `architecture-decision.md` §4 |
-| Loại bỏ onboarding | Xóa `onboarding.go` khỏi openclaw. Luồng setup đơn giản hóa. | `architecture-decision.md` §4 |
-| Dọn dẹp scripts | Xóa `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Thêm `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
-| Đổi tên thư mục code | Toàn bộ code chuyển vào thư mục `lumi/`. Tất cả "intern" đổi thành "lumi". | Tất cả docs |
-| LED driver ownership | LeLamp Python rpi_ws281x sở hữu toàn bộ LED control. Go SPI driver (`internal/led/`) đã xóa hoàn toàn. Không conflict SPI bus. | `architecture-decision.md` §3, §4, §9, §11 |
+| Quyết định | Kết quả |
+|---|---|
+| Loại bỏ GWS | Xóa toàn bộ GWS handlers, scripts, domain types. MQTT chỉ còn: `info`, `add_channel`, `ota`. |
+| Inline LLM service | Xóa `internal/llm/`. `ListModelsFromAPI` inline vào `openclaw/service.go`. |
+| Loại bỏ onboarding | Xóa `onboarding.go`. Setup flow đơn giản hóa. |
+| Dọn dẹp scripts | Xóa `release-*.sh`, GWS scripts. Thêm `upload-lelamp.sh`. |
+| Đổi tên thư mục | Toàn bộ code vào `lumi/`. |
+| LED driver ownership | LeLamp Python rpi_ws281x own toàn bộ LED. Go SPI driver đã xóa. |
+| SKILL.md (#1) | 9 skills: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. Tất cả mô tả HTTP API tại `127.0.0.1:5001`. |
+| Event push (#2) | WebSocket RPC `chat.send` với `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. |
+| Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion detection. |
+| Audio/Voice (#4) | LeLamp own mic/speaker. Always-on Deepgram streaming STT + keyword boost `lumi:3`. Không dùng openwakeword. |
+| Emotion presets (#6) | 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock) + 11 eye expressions trên display. |
+| Display rendering (#7) | `gc9a01-python` + PIL/Pillow. 240x240 round LCD. Dual-mode eyes/info. Auto-blink. Plugin — skip nếu không có. |
+| Lighting scenes | 6 presets: reading, focus, relax, movie, night, energize. Simulated color temp qua RGB mixing. |
+| Presence auto-control | State machine PRESENT → IDLE (5 phút) → AWAY (15 phút). Motion quay lại → restore light. |
+| Scheduling | OpenClaw built-in cron (default on). Chỉ cần SKILL.md, không cần code thêm. |
+| AGENTS.md | Dùng default của OpenClaw. Custom rules tune sau khi test trên Pi. |
 
 ---
 
-> Khi chốt quyết định, chuyển từ "Chưa chốt" xuống "Đã chốt" kèm ngày và cập nhật docs liên quan.
+## Implementation Status
+
+### P0 — First Prototype ✅ (code xong, cần test Pi)
+
+| UC | Feature | File chính |
+|---|---------|-----------|
+| UC-01 | Voice control lighting | `voice_service.py`, `led-control/SKILL.md` |
+| UC-02 | Color & color temp | `server.py /led/*`, `scene/SKILL.md` |
+| UC-14 | Audio feedback | `tts_service.py`, `audio/SKILL.md` |
+
+### P1 — v1.0 ✅ (code xong)
+
+| UC | Feature | File chính |
+|---|---------|-----------|
+| UC-03 | Scene/mood presets | `server.py SCENE_PRESETS`, `scene/SKILL.md` |
+| UC-04 | Timer & schedule | OpenClaw cron, `scheduling/SKILL.md` |
+| UC-06 | AI companion | OpenClaw + `SOUL.md` + `emotion/SKILL.md` |
+| UC-08 | Servo direction | `server.py /servo/*`, `servo-control/SKILL.md` |
+| UC-11 | Presence detection | `presence_service.py`, `sensing/SKILL.md` |
+| UC-13 | Status indication | 🟡 Partial — boot/error có, processing/timer chưa |
+
+### P2 — v1.x (chưa code, không blocking)
+
+| UC | Feature | Ghi chú |
+|---|---------|---------|
+| UC-05 | Circadian lighting | Cần scheduler + color temp curve |
+| UC-07 | Light effects (breathing, rainbow) | LED animation engine |
+| UC-09 | Auto-tracking (camera → servo) | Face detection → servo loop |
+| UC-10 | Gesture control | Hand pose estimation |
+| UC-12 | Video call optimization | Face lighting analysis |
+| UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel |
+
+### 4 Pillars ✅
+
+| Pillar | Status | Code |
+|--------|--------|------|
+| 1. "Hiểu tôi" | ✅ | OpenClaw + SOUL.md + long-term memory |
+| 2. "Sống thật" | ✅ | Servo + LED + emotion + display eyes (11 expressions) |
+| 3. "Hữu ích thật" | ✅ | Scenes, scheduling, voice assistant |
+| 4. "Tự hành" | ✅ | Sensing loop + presence auto on/off |
+
+### Skills (9 total) ✅
+
+| Skill | SKILL.md | Endpoints |
+|-------|----------|-----------|
+| led-control | ✅ | `/led/solid`, `/led/paint`, `/led/off` |
+| servo-control | ✅ | `/servo`, `/servo/play` |
+| camera | ✅ | `/camera`, `/camera/snapshot`, `/camera/stream` |
+| audio | ✅ | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
+| emotion | ✅ | `/emotion` (servo + LED + eyes coordinated) |
+| sensing | ✅ | Auto — motion/sound events + presence auto |
+| scene | ✅ | `/scene` (6 presets) |
+| display | ✅ | `/display/eyes`, `/display/info`, `/display/snapshot` |
+| scheduling | ✅ | OpenClaw cron (no custom endpoints) |
