@@ -80,6 +80,14 @@ try:
 except ImportError as e:
     logger.warning(f"TTS service not available: {e}")
 
+# --- Lazy import for display ---
+
+DisplayService = None
+try:
+    from lelamp.service.display.display_service import DisplayService
+except ImportError as e:
+    logger.warning(f"Display service not available: {e}")
+
 # --- Services (initialized on startup) ---
 
 animation_service = None
@@ -87,6 +95,7 @@ rgb_service = None
 camera_capture = None
 sensing_service = None
 voice_service = None
+display_service = None
 tts_service = None
 
 
@@ -114,7 +123,7 @@ seeed_input_device: Optional[int] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global animation_service, rgb_service, camera_capture, sensing_service
-    global voice_service, tts_service
+    global voice_service, tts_service, display_service
     global seeed_output_device, seeed_input_device
 
     # Start servo/animation service
@@ -180,9 +189,21 @@ async def lifespan(app: FastAPI):
             logger.warning(f"SensingService failed to start: {e}")
             sensing_service = None
 
+    # Start display (GC9A01 eyes)
+    if DisplayService:
+        try:
+            display_service = DisplayService()
+            display_service.start()
+            logger.info("DisplayService started")
+        except Exception as e:
+            logger.warning(f"DisplayService failed to start: {e}")
+            display_service = None
+
     yield
 
     # Shutdown
+    if display_service:
+        display_service.stop()
     if voice_service:
         voice_service.stop()
     if sensing_service:
@@ -383,6 +404,7 @@ class HealthResponse(BaseModel):
     sensing: bool
     voice: bool
     tts: bool
+    display: bool
 
 
 # --- Servo endpoints ---
@@ -618,6 +640,13 @@ def express_emotion(req: EmotionRequest):
         except Exception as e:
             logger.warning(f"Emotion LED failed: {e}")
 
+    # Set matching eye expression on display (if available)
+    if display_service:
+        try:
+            display_service.set_expression(req.emotion)
+        except Exception as e:
+            logger.warning(f"Emotion display failed: {e}")
+
     return {
         "status": "ok",
         "emotion": req.emotion,
@@ -692,6 +721,77 @@ def disable_presence():
         raise HTTPException(503, "Sensing not available")
     sensing_service.presence.disable()
     return {"status": "ok"}
+
+
+# --- Display endpoints ---
+
+class DisplayEyesRequest(BaseModel):
+    expression: str = Field(..., description="Expression: neutral, happy, sad, curious, thinking, excited, shy, shock, sleepy, angry, love")
+    pupil_x: float = Field(0.0, ge=-1.0, le=1.0, description="Pupil X: -1.0 (left) to 1.0 (right)")
+    pupil_y: float = Field(0.0, ge=-1.0, le=1.0, description="Pupil Y: -1.0 (up) to 1.0 (down)")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"expression": "happy", "pupil_x": 0.0, "pupil_y": 0.0}]
+        }
+    }
+
+
+class DisplayInfoRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=20, description="Main text (short, e.g. '14:30')")
+    subtitle: str = Field("", max_length=40, description="Subtitle (e.g. 'Good afternoon')")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"text": "14:30", "subtitle": "Good afternoon"}]
+        }
+    }
+
+
+@app.get("/display", tags=["Display"])
+def get_display_state():
+    """Get current display state (mode, expression, hardware availability)."""
+    if not display_service:
+        return {"mode": "unavailable", "hardware": False, "available_expressions": []}
+    return display_service.get_state()
+
+
+@app.post("/display/eyes", response_model=StatusResponse, tags=["Display"])
+def set_display_eyes(req: DisplayEyesRequest):
+    """Set eye expression on the round LCD display."""
+    if not display_service:
+        raise HTTPException(503, "Display not available")
+    display_service.set_expression(req.expression, req.pupil_x, req.pupil_y)
+    return {"status": "ok"}
+
+
+@app.post("/display/info", response_model=StatusResponse, tags=["Display"])
+def set_display_info(req: DisplayInfoRequest):
+    """Switch display to info mode with text content (time, weather, etc.)."""
+    if not display_service:
+        raise HTTPException(503, "Display not available")
+    display_service.set_info(req.text, req.subtitle)
+    return {"status": "ok"}
+
+
+@app.post("/display/eyes-mode", response_model=StatusResponse, tags=["Display"])
+def switch_to_eyes_mode():
+    """Switch display back to eyes mode (default)."""
+    if not display_service:
+        raise HTTPException(503, "Display not available")
+    display_service.set_eyes_mode()
+    return {"status": "ok"}
+
+
+@app.get("/display/snapshot", tags=["Display"])
+def display_snapshot():
+    """Get current display frame as JPEG (for web preview / debugging)."""
+    if not display_service:
+        raise HTTPException(503, "Display not available")
+    data = display_service.get_snapshot_bytes()
+    if not data:
+        raise HTTPException(404, "No frame rendered yet")
+    return Response(content=data, media_type="image/jpeg")
 
 
 # --- Voice endpoints ---
@@ -786,6 +886,7 @@ def health():
         "sensing": sensing_service is not None,
         "voice": voice_service is not None and voice_service.available if voice_service else False,
         "tts": tts_service is not None and tts_service.available if tts_service else False,
+        "display": display_service is not None,
     }
 
 

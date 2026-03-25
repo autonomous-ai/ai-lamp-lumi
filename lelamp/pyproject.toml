@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv",
     "requests>=2.31.0",
     "sounddevice>=0.5.2",
+    "Pillow>=10.0.0",
 ]
 
 [tool.uv.sources]
@@ -26,4 +27,5 @@ lerobot = { git = "https://github.com/huggingface/lerobot" }
 hardware = [
     "adafruit-circuitpython-neopixel",
     "rpi-ws281x",
+    "gc9a01-python>=0.1.0",
 ]
