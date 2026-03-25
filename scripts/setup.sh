@@ -395,7 +395,7 @@ EOF
 stage_openclaw() {
   echo "[stage] Install OpenClaw"
   OPENCLAW_VERSION="${OPENCLAW_VERSION:-latest}"
-  retry "npm install -g openclaw@${OPENCLAW_VERSION} --ignore-scripts --omit=optional" 5
+  retry "npm install -g openclaw@${OPENCLAW_VERSION}" 5
   openclaw --version || true
 
   # OpenClaw state root for root-run service (under root's home)
