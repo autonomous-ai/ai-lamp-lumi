@@ -493,15 +493,8 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-  # Download openclaw skills from CDN
-  SKILLS_DST="$OPENCLAW_HOME/workspace/skills"
-  SKILLS_CDN="https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/skills"
-  mkdir -p "$SKILLS_DST"
-  echo "[stage] Download openclaw skills from CDN"
-  # LED control skill disabled — lumi-server WS client handles LED via OpenClaw lifecycle events
-  # mkdir -p "$SKILLS_DST/led-control"
-  # curl -fsSL -o "$SKILLS_DST/led-control/SKILL.md" "$SKILLS_CDN/led-control/SKILL.md" || echo "[stage] WARN: failed to download led-control skill (non-fatal)"
-  # chmod 600 "$SKILLS_DST"/*/SKILL.md 2>/dev/null || true
+  # Skills are deployed via upload-skills.sh, not during setup
+  mkdir -p "$OPENCLAW_HOME/workspace/skills"
 
   systemctl daemon-reload
   systemctl enable openclaw
