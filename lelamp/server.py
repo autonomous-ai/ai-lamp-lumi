@@ -207,6 +207,22 @@ app = FastAPI(
 )
 
 
+class ProxyPrefixMiddleware:
+    """ASGI middleware: reads X-Forwarded-Prefix and sets root_path before FastAPI processes the request."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            prefix = headers.get(b"x-forwarded-prefix", b"").decode()
+            if prefix:
+                scope["root_path"] = prefix
+        await self.app(scope, receive, send)
+
+app.add_middleware(ProxyPrefixMiddleware)
+
+
 # --- Request/Response models ---
 
 class ServoRequest(BaseModel):
