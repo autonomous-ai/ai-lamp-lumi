@@ -42,6 +42,8 @@ type Config struct {
 	OTAMetadataURL  string `json:"ota_metadata_url" yaml:"otaMetadataURL"`
 	OTAPollInterval string `json:"ota_poll_interval" yaml:"otaPollInterval"`
 
+	DeepgramAPIKey string `json:"deepgram_api_key" yaml:"deepgramAPIKey"`
+
 	OpenclawConfigDir string `json:"openclaw_config_dir" yaml:"openclawConfigDir"`
 
 	NetworkSSID     string `json:"network_ssid" yaml:"networkSSID" validate:"required"`

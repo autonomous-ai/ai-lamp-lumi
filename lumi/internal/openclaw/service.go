@@ -841,6 +841,44 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
+func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error {
+	if deepgramKey == "" {
+		return nil
+	}
+	url := "http://127.0.0.1:5001/voice/start"
+	body, _ := json.Marshal(map[string]string{
+		"deepgram_api_key": deepgramKey,
+		"llm_api_key":      llmKey,
+		"llm_base_url":     llmBaseURL,
+	})
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("POST /voice/start: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		log.Println("[openclaw] LeLamp voice pipeline started")
+	}
+	return nil
+}
+
+// SendToLeLampTTS posts response text to LeLamp for TTS playback.
+func (s *Service) SendToLeLampTTS(text string) error {
+	url := "http://127.0.0.1:5001/voice/speak"
+	body, _ := json.Marshal(map[string]string{"text": text})
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("POST /voice/speak: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST /voice/speak returned %d", resp.StatusCode)
+	}
+	log.Printf("[openclaw] TTS sent: %s", text[:min(len(text), 80)])
+	return nil
+}
+
 // SetSessionKey stores the session key for outgoing chat messages.
 func (s *Service) SetSessionKey(key string) {
 	s.lastSessionKey.Store(key)
