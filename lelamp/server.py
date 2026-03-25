@@ -63,27 +63,86 @@ async def lifespan(app: FastAPI):
         rgb_service.stop()
 
 
-app = FastAPI(title="LeLamp Hardware Runtime", lifespan=lifespan)
+app = FastAPI(
+    title="LeLamp Hardware Runtime",
+    description="Hardware driver API for Lumi AI Lamp. "
+    "Controls servo motors (5-axis Feetech) and RGB LEDs (64x WS2812). "
+    "Lumi Server (Go, port 5000) bridges requests here.",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
 
 
-# --- Request models ---
+# --- Request/Response models ---
 
 class ServoRequest(BaseModel):
-    recording: str  # e.g. "nod", "curious", "happy_wiggle"
+    recording: str
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"recording": "curious"}]
+        }
+    }
+
+
+class ServoStateResponse(BaseModel):
+    available_recordings: list[str]
+    current: Optional[str]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{
+                "available_recordings": ["nod", "curious", "happy_wiggle", "idle", "sad", "excited", "shy", "shock"],
+                "current": "idle",
+            }]
+        }
+    }
 
 
 class LEDSolidRequest(BaseModel):
-    color: Union[list[int], int]  # [R, G, B] or packed int
+    color: Union[list[int], int]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"color": [255, 100, 0]},
+                {"color": 16711680},
+            ]
+        }
+    }
 
 
 class LEDPaintRequest(BaseModel):
-    colors: list[Union[list[int], int]]  # per-pixel colors
+    colors: list[Union[list[int], int]]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"colors": [[255, 0, 0], [0, 255, 0], [0, 0, 255]]}]
+        }
+    }
+
+
+class LEDStateResponse(BaseModel):
+    led_count: int
+
+
+class StatusResponse(BaseModel):
+    status: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    servo: bool
+    led: bool
 
 
 # --- Servo endpoints ---
 
-@app.get("/servo")
+@app.get("/servo", response_model=ServoStateResponse, tags=["Servo"])
 def get_servo_state():
+    """Get available recordings and current animation state."""
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     return {
@@ -92,8 +151,9 @@ def get_servo_state():
     }
 
 
-@app.post("/servo/play")
+@app.post("/servo/play", response_model=StatusResponse, tags=["Servo"])
 def play_recording(req: ServoRequest):
+    """Play a pre-recorded servo animation by name."""
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     animation_service.dispatch("play", req.recording)
@@ -102,15 +162,17 @@ def play_recording(req: ServoRequest):
 
 # --- LED endpoints ---
 
-@app.get("/led")
+@app.get("/led", response_model=LEDStateResponse, tags=["LED"])
 def get_led_state():
+    """Get LED strip info."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     return {"led_count": rgb_service.led_count}
 
 
-@app.post("/led/solid")
+@app.post("/led/solid", response_model=StatusResponse, tags=["LED"])
 def set_led_solid(req: LEDSolidRequest):
+    """Fill entire LED strip with a single color. Color as [R,G,B] or packed int."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     color = tuple(req.color) if isinstance(req.color, list) else req.color
@@ -118,8 +180,9 @@ def set_led_solid(req: LEDSolidRequest):
     return {"status": "ok"}
 
 
-@app.post("/led/paint")
+@app.post("/led/paint", response_model=StatusResponse, tags=["LED"])
 def set_led_paint(req: LEDPaintRequest):
+    """Set individual pixel colors. Array length up to 64 (one per LED)."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     colors = [tuple(c) if isinstance(c, list) else c for c in req.colors]
@@ -127,8 +190,9 @@ def set_led_paint(req: LEDPaintRequest):
     return {"status": "ok"}
 
 
-@app.post("/led/off")
+@app.post("/led/off", response_model=StatusResponse, tags=["LED"])
 def turn_off_leds():
+    """Turn off all LEDs."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     rgb_service.clear()
@@ -137,8 +201,9 @@ def turn_off_leds():
 
 # --- Health ---
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse, tags=["System"])
 def health():
+    """Check which hardware drivers are available."""
     return {
         "status": "ok",
         "servo": animation_service is not None,

@@ -1,21 +1,14 @@
 [project]
 name = "lelamp-runtime"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "LeLamp hardware driver runtime for Lumi AI Lamp"
 requires-python = ">=3.12"
 dependencies = [
     "feetech-servo-sdk>=1.0.0",
     "lerobot>=0.3.3",
-    "livekit-agents[openai]~=1.2",
-    "livekit-plugins-noise-cancellation~=0.2",
     "numpy>=2.2.6",
-    "pvporcupine>=3.0.5",
-    "pvrecorder>=1.2.7",
-    "pyarrow==20.0.0",
-    "pyaudio>=0.2.14",
-    "python-dotenv",
-    "sounddevice>=0.5.2",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
 ]
 
 [tool.uv.sources]
@@ -23,6 +16,13 @@ lerobot = { git = "https://github.com/huggingface/lerobot" }
 
 [project.optional-dependencies]
 hardware = [
-    "adafruit-circuitpython-neopixel",
     "rpi-ws281x",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lelamp*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
