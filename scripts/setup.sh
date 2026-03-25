@@ -364,9 +364,9 @@ stage_lelamp() {
     "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
   fi
 
-  cat >/etc/systemd/system/lelamp.service <<EOF
+  cat >/etc/systemd/system/lumi-lelamp.service <<EOF
 [Unit]
-Description=LeLamp Hardware Runtime
+Description=Lumi LeLamp Hardware Runtime
 After=network.target
 
 [Service]
@@ -379,15 +379,15 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=lelamp
+SyslogIdentifier=lumi-lelamp
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable lelamp
-  systemctl restart lelamp
+  systemctl enable lumi-lelamp
+  systemctl restart lumi-lelamp
 }
 
 # ----------------------------------------------------------
@@ -966,7 +966,7 @@ elif [ "$APP" = "lelamp" ]; then
   if [ -f "$LELAMP_DIR/requirements.txt" ]; then
     "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
   fi
-  systemctl restart lelamp
+  systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
 fi
 SOFTWAREUPDATE
@@ -1001,7 +1001,7 @@ echo "======================================"
 echo "✅ Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
-echo "Backends: systemctl status bootstrap lumi lelamp"
+echo "Backends: systemctl status bootstrap lumi lumi-lelamp"
 echo "Updates:  software-update <bootstrap|lumi|lelamp|web> [version]"
 echo "======================================"
 
