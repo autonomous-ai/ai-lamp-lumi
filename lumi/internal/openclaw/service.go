@@ -31,6 +31,7 @@ const (
 	defaultGatewayBind  = "loopback"
 	defaultGatewayPort  = 18789
 	openclawRuntimeUser = "root"
+	defaultModelKey     = "claude-haiku-4-5"
 )
 
 // WSEventHandler is called for each WebSocket event from the gateway. Return non-nil to stop the read loop.
@@ -109,6 +110,9 @@ func (s *Service) SetupOpenclaw(data domain.SetupRequest) error {
 	llmAPIKey := data.LLMAPIKey
 	llmBaseURL := data.LLMBaseURL
 	llmModel := data.LLMModel
+	if llmModel == "" {
+		llmModel = defaultModelKey
+	}
 	channel := data.EffectiveChannel()
 
 	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
