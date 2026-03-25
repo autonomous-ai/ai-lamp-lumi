@@ -1,64 +1,85 @@
 # LED Control
 
-You have access to an LED ring on this device via the intern-server API at `http://127.0.0.1:5000`.
+You have access to a 64-pixel WS2812 RGB LED strip on this device via the hardware API at `http://127.0.0.1:5001`.
 
-## When to change LED state
+## When to use
 
-- Set **thinking** when you start processing a user message.
-- Set **working** when you are executing a command, writing files, or doing any real work.
-- Set **idle** when you are done and waiting for the next message.
-- Set **error** when something went wrong.
+- Change LED color/pattern to match the mood of your response or the user's request.
+- Set solid colors for ambient lighting, focus mode, relaxation, etc.
+- Paint individual pixels for effects or status indicators.
+- Turn LEDs off when the user asks or when appropriate (e.g., goodnight).
 
 ## API
 
-Base URL: `http://127.0.0.1:5000`
+Base URL: `http://127.0.0.1:5001`
 
-### Set LED state
+### Get LED info
 
 ```
-POST /api/led
+GET /led
+```
+
+Response: `{"led_count": 64}`
+
+### Set solid color (fill all LEDs)
+
+```
+POST /led/solid
 Content-Type: application/json
 
-{"state": "<state>"}
+{"color": [R, G, B]}
 ```
 
-Accepted states: `thinking`, `working`, `idle`, `error`, `booting`, `connectionmode`.
+Color can be an RGB array `[255, 100, 0]` or a packed integer `16711680` (= 0xFF0000 = red).
 
-Example — set thinking:
+Example — warm white:
 
 ```bash
-curl -s -X POST http://127.0.0.1:5000/api/led \
+curl -s -X POST http://127.0.0.1:5001/led/solid \
   -H "Content-Type: application/json" \
-  -d '{"state": "thinking"}'
+  -d '{"color": [255, 180, 100]}'
 ```
 
-Response: `{"state": "thinking"}`
-
-### Get current LED state
+### Paint individual pixels
 
 ```
-GET /api/led
+POST /led/paint
+Content-Type: application/json
+
+{"colors": [[R,G,B], [R,G,B], ...]}
 ```
 
-Response: `{"state": "idle"}`
+Array of up to 64 colors, one per pixel. Use this for gradients, patterns, or per-pixel effects.
 
-## State reference
+Example — first 3 pixels red, green, blue:
 
-| State            | Color          | Effect               |
-|------------------|----------------|----------------------|
-| `thinking`       | Purple         | Rotating spot        |
-| `working`        | Blue           | Gentle pulse         |
-| `idle`           | Cyan           | Breath               |
-| `error`          | Red            | Fast blink           |
-| `booting`        | Green          | Breath               |
-| `connectionmode` | Orange         | Blink                |
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/paint \
+  -H "Content-Type: application/json" \
+  -d '{"colors": [[255,0,0], [0,255,0], [0,0,255]]}'
+```
 
-## Auto-rollback
+### Turn off all LEDs
 
-The LED engine automatically rolls back to `idle` after:
+```
+POST /led/off
+```
 
-- `thinking`: 30 seconds
-- `working`: 10 seconds
-- `error`: 10 seconds
+Example:
 
-So you don't need to manually reset to idle after these states — but you can if you want immediate feedback.
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/off
+```
+
+## Color suggestions
+
+| Mood / Scene | Color (RGB) | Notes |
+|---|---|---|
+| Warm / cozy | `[255, 180, 100]` | Warm white |
+| Focus / work | `[255, 255, 220]` | Cool white |
+| Relax | `[100, 50, 200]` | Soft purple |
+| Energy | `[255, 100, 0]` | Orange |
+| Night | `[50, 20, 0]` | Dim warm |
+| Error / alert | `[255, 0, 0]` | Red |
+| Happy | `[255, 220, 0]` | Yellow |
+| Calm | `[0, 150, 255]` | Blue |

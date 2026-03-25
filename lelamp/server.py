@@ -238,6 +238,37 @@ class CameraInfoResponse(BaseModel):
     height: Optional[int]
 
 
+class EmotionRequest(BaseModel):
+    emotion: str = Field(..., description="Emotion name: curious, happy, sad, thinking, idle, excited, shy, shock")
+    intensity: float = Field(0.7, ge=0.0, le=1.0, description="Intensity 0.0-1.0")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"emotion": "curious", "intensity": 0.8}]
+        }
+    }
+
+
+class EmotionResponse(BaseModel):
+    status: str
+    emotion: str
+    servo: Optional[str]
+    led: Optional[list[int]]
+
+
+# Emotion presets: maps emotion name to servo recording + LED color [R,G,B]
+EMOTION_PRESETS = {
+    "curious":  {"servo": "curious",      "color": [255, 200, 80]},   # warm yellow
+    "happy":    {"servo": "happy_wiggle",  "color": [255, 220, 0]},    # bright yellow
+    "sad":      {"servo": "sad",           "color": [80, 80, 200]},    # soft blue
+    "thinking": {"servo": "nod",           "color": [180, 100, 255]},  # purple
+    "idle":     {"servo": "idle",          "color": [100, 200, 220]},  # cyan
+    "excited":  {"servo": "excited",       "color": [255, 100, 0]},    # orange
+    "shy":      {"servo": "shy",           "color": [255, 150, 180]},  # pink
+    "shock":    {"servo": "shock",         "color": [255, 255, 255]},  # white flash
+}
+
+
 class HealthResponse(BaseModel):
     status: str
     servo: bool
@@ -437,6 +468,51 @@ def record_audio(duration_ms: int = 3000):
         wf.writeframes(recording.tobytes())
     buf.seek(0)
     return Response(content=buf.read(), media_type="audio/wav")
+
+
+# --- Emotion endpoint (orchestrates servo + LED + audio) ---
+
+@app.post("/emotion", response_model=EmotionResponse, tags=["Emotion"])
+def express_emotion(req: EmotionRequest):
+    """Express an emotion by coordinating servo animation + LED color simultaneously.
+
+    This is the key differentiator — a single call produces a coordinated,
+    expressive response instead of requiring separate servo + LED + audio calls.
+
+    Intensity scales the LED brightness (0.0 = dim, 1.0 = full).
+    """
+    preset = EMOTION_PRESETS.get(req.emotion)
+    if not preset:
+        available = list(EMOTION_PRESETS.keys())
+        raise HTTPException(400, f"Unknown emotion '{req.emotion}'. Available: {available}")
+
+    servo_played = None
+    led_color = None
+
+    # Play servo animation
+    if animation_service and preset.get("servo"):
+        try:
+            animation_service.dispatch("play", preset["servo"])
+            servo_played = preset["servo"]
+        except Exception as e:
+            logger.warning(f"Emotion servo failed: {e}")
+
+    # Set LED color scaled by intensity
+    if rgb_service and preset.get("color"):
+        base = preset["color"]
+        scaled = [int(c * req.intensity) for c in base]
+        try:
+            rgb_service.dispatch("solid", tuple(scaled))
+            led_color = scaled
+        except Exception as e:
+            logger.warning(f"Emotion LED failed: {e}")
+
+    return {
+        "status": "ok",
+        "emotion": req.emotion,
+        "servo": servo_played,
+        "led": led_color,
+    }
 
 
 # --- Health ---
