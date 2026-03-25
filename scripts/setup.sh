@@ -11,11 +11,11 @@ retry() {
   local max=$2
   local delay=${3:-2}
   local cmd="$1"
-  until [ $n -ge $max ]; do
+  until [ "$n" -ge "$max" ]; do
     eval "$cmd" && return 0
     n=$((n+1))
     echo "Retry $n/$max..."
-    sleep $delay
+    sleep "$delay"
   done
   echo "ERROR: Command failed after $max attempts: $cmd"
   return 1
@@ -237,7 +237,8 @@ EOF
 
   systemctl daemon-reload
   systemctl enable bootstrap lumi
-  systemctl restart bootstrap lumi
+  # Do NOT start lumi here — it switches to AP mode when unconfigured, killing internet.
+  # Services will start after reboot at the end of setup.
 
   # software-update: download and install binary from OTA metadata (or kind + version)
   # Usage: software-update <bootstrap|lumi|web> [version]
@@ -354,8 +355,8 @@ stage_lelamp() {
     echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
   fi
 
-  # Install Python venv + dependencies
-  apt install -y python3-venv python3-pip || true
+  # Install Python venv + dependencies + system libs for audio/camera
+  apt install -y python3-venv python3-pip libportaudio2 libatlas-base-dev || true
   if [ ! -d "$LELAMP_DIR/.venv" ]; then
     python3 -m venv "$LELAMP_DIR/.venv"
   fi
@@ -1008,7 +1009,7 @@ systemctl mask wpa_supplicant.service 2>/dev/null || true
 
 echo ""
 echo "======================================"
-echo "✅ Setup complete!"
+echo "Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
 echo "Backends: systemctl status bootstrap lumi lumi-lelamp"
