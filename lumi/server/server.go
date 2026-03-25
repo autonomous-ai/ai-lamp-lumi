@@ -299,6 +299,12 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			} else {
 				log.Println("[server] openclaw ready timeout")
 			}
+			// Start voice pipeline on LeLamp (if Deepgram key configured)
+			if s.config.DeepgramAPIKey != "" {
+				if err := s.openclawService.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL); err != nil {
+					log.Printf("[server] failed to start LeLamp voice: %v", err)
+				}
+			}
 		}()
 	} else {
 		s.monitorMu.Lock()

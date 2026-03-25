@@ -67,6 +67,7 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 		s.config.TelegramUserID = data.TelegramUserID
 	}
 	s.config.DeviceID = data.DeviceID
+	s.config.DeepgramAPIKey = data.DeepgramAPIKey
 	s.config.MQTTEndpoint = data.MQTTEndpoint
 	s.config.MQTTUsername = data.MQTTUsername
 	s.config.MQTTPassword = data.MQTTPassword

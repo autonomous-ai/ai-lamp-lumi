@@ -9,7 +9,7 @@ type WSEvent struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// AgentPayload
+// AgentPayload represents an agent lifecycle/stream event from the gateway.
 type AgentPayload struct {
 	RunID      string `json:"runId"`
 	Stream     string `json:"stream"`
@@ -22,4 +22,13 @@ type AgentPayload struct {
 		EndedAt   int64  `json:"endedAt,omitempty"`
 		Error     string `json:"error,omitempty"`
 	} `json:"data"`
+}
+
+// ChatPayload represents a chat stream event from the gateway.
+type ChatPayload struct {
+	RunID      string `json:"runId"`
+	SessionKey string `json:"sessionKey"`
+	State      string `json:"state"`   // "partial", "final"
+	Message    string `json:"message"` // the response text
+	Role       string `json:"role"`    // "assistant", "user"
 }
