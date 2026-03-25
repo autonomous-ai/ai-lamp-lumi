@@ -90,7 +90,7 @@ Tất cả hardware expose qua FastAPI trên `127.0.0.1:5001` (systemd: `lumi-le
 
 ### Lumi Server (Go, fork từ openclaw-lobster) — Hệ Thống + HTTP API Bridge
 
-- Tầng hệ thống: LED trạng thái, reset button, mạng, OTA, MQTT
+- Tầng hệ thống: reset button, mạng, OTA, MQTT
 - HTTP API bridge: nhận request từ OpenClaw skills, chuyển tiếp đến LeLamp Python services
 - Kế thừa phần lớn code từ lobster
 
@@ -102,7 +102,6 @@ Hoạt động **KHÔNG cần OpenClaw**. Nếu OpenClaw ngừng, thiết bị v
 
 | Chức năng | Mô tả |
 |---|---|
-| Trạng thái LED hệ thống | Khởi động, lỗi, mất mạng, factory reset — qua SPI driver trực tiếp |
 | Nút reset | GPIO 26 — nhấn giữ để factory reset |
 | Quản lý mạng | AP/STA mode, cấu hình WiFi, quét mạng |
 | Cập nhật OTA | Kiểm tra version, tải và cài đặt bản cập nhật |
@@ -134,7 +133,6 @@ Sensing Loop (Lumi Server, luôn chạy):
 ```
 server/server.go          — HTTP server (Gin, port 5000)
 server/config/            — Quản lý cấu hình JSON
-internal/led/             — WS2812 SPI driver + state machine + auto-rollback
 internal/resetbutton/     — GPIO 26 nhấn giữ
 internal/network/         — WiFi AP/STA
 internal/openclaw/        — Cấu hình OpenClaw & WebSocket
@@ -142,7 +140,7 @@ internal/beclient/        — Backend client, báo cáo trạng thái
 internal/device/          — Setup, xử lý lệnh MQTT, báo cáo trạng thái
 lib/mqtt/                 — MQTT client, tự kết nối lại
 bootstrap/                — OTA, kiểm tra version
-domain/                   — Struct dùng chung (device, LED, network, OTA, OpenClaw)
+domain/                   — Struct dùng chung (device, network, OTA, OpenClaw)
 ```
 
 **MQTT commands** (nhận qua fa_channel): `info`, `add_channel`, `ota`
@@ -195,10 +193,9 @@ workspace/skills/
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/camera/presence` | GET | Kiểm tra có người trong phòng |
-| `/api/camera/face` | GET | Lấy tọa độ khuôn mặt |
-| `/api/camera/gesture` | GET | Phát hiện cử chỉ tay |
-| `/api/camera/light-analysis` | GET | Phân tích ánh sáng môi trường |
+| `/api/camera` | GET | Kiểm tra camera và resolution |
+| `/api/camera/snapshot` | GET | Chụp 1 frame JPEG |
+| `/api/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) |
 
 #### Audio
 
@@ -261,12 +258,12 @@ workspace/skills/
 │  │  TẦNG 1: HỆ THỐNG    │    │  HTTP API (Tầng 2)                 │ │
 │  │  (luôn chạy)         │    │                                    │ │
 │  │                      │    │  /api/led      → LED control       │ │
-│  │  • LED trạng thái    │    │  /api/servo    → Servo control     │ │
-│  │  • Nút reset GPIO 26 │    │  /api/camera/* → Camera            │ │
-│  │  • Quản lý mạng      │    │  /api/audio/*  → Audio             │ │
-│  │  • Cập nhật OTA      │    │  /api/emotion  → Emotion (kết hợp) │ │
-│  │  • MQTT backend      │    │                                    │ │
-│  │  • Giám sát internet │    │  Bridge đến LeLamp Python ──────┐  │ │
+│  │  • Nút reset GPIO 26 │    │  /api/servo    → Servo control     │ │
+│  │  • Quản lý mạng      │    │  /api/camera/* → Camera            │ │
+│  │  • Cập nhật OTA      │    │  /api/audio/*  → Audio             │ │
+│  │  • MQTT backend      │    │  /api/emotion  → Emotion (kết hợp) │ │
+│  │  • Giám sát internet │    │                                    │ │
+│  │                      │    │  Bridge đến LeLamp Python ──────┐  │ │
 │  │                      │    │                                 │  │ │
 │  │  Hoạt động KHÔNG     │    │                                 │  │ │
 │  │  cần OpenClaw        │    │                                 │  │ │
@@ -393,8 +390,6 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 |---|---|---|
 | HTTP Server | `server/server.go` | Gin framework, port 5000 |
 | Quản lý cấu hình | `server/config/` | JSON config với reload |
-| LED driver | `internal/led/` | WS2812 SPI driver (pure Go) |
-| LED state machine | `internal/led/engine.go` | States, effects, auto-rollback |
 | LED skill | `resources/openclaw-skills/led-control/SKILL.md` | Mở rộng cho grid 64 LED |
 | Nút reset | `internal/resetbutton/` | GPIO 26 nhấn giữ |
 | Dịch vụ mạng | `internal/network/` | WiFi AP/STA, quét mạng |
@@ -403,7 +398,7 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 | Device service | `internal/device/` | Setup, xử lý lệnh MQTT, báo cáo trạng thái |
 | MQTT client | `lib/mqtt/` | Tự kết nối lại, dispatch |
 | OTA bootstrap | `bootstrap/` | Kiểm tra version, cài đặt |
-| Domain models | `domain/` | Struct dùng chung (device, LED, network, OTA, OpenClaw) |
+| Domain models | `domain/` | Struct dùng chung (device, network, OTA, OpenClaw) |
 | Build & deploy | `scripts/`, `Makefile` | Cross-compile, systemd |
 
 ---
@@ -438,5 +433,5 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 - [x] **Bridge Go ↔ Python**: HTTP proxy. LeLamp chạy FastAPI trên `127.0.0.1:5001`, Lumi Server proxy request từ port 5000. Đơn giản, dễ debug, không tight coupling.
 - [ ] **Xử lý camera**: Trên thiết bị (OpenCV) hay giao cho OpenClaw vision? Latency vs capability trade-off.
 - [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay Lumi server thu âm rồi chuyển tiếp stream?
-- [ ] **LED driver**: Adapt SPI driver Go của lobster cho grid 64 LED, hay dùng rpi_ws281x Python driver của LeLamp (đã chạy)?
+- [x] **LED driver**: LeLamp Python rpi_ws281x driver sở hữu toàn bộ LED control. Go SPI driver đã xóa khỏi Lumi — đèn này dùng LED driver của LeLamp.
 - [ ] **Generative body language**: LLM tạo servo positions thế nào? Emotion presets với randomized parameters? Hay LLM tự generate raw positions?

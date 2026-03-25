@@ -59,19 +59,6 @@
 
 ---
 
-### 5. LED Driver — Go hay Python?
-
-**Câu hỏi**: User-facing LED control (scenes, effects, colors) dùng driver nào?
-
-**Lựa chọn**:
-- A. Go SPI driver (lobster `internal/led/`) — Lumi own LED trực tiếp
-- B. Python rpi_ws281x (LeLamp) — bridge qua HTTP
-- C. Cả hai — Go cho system states (boot, error), Python cho user-facing (scenes, effects)
-
-**Bối cảnh**: Lobster đã có Go WS2812 SPI driver. LeLamp có Python rpi_ws281x cho 64-LED grid. Dùng cả hai có thể conflict SPI bus.
-
-**Chặn**: LED skill implementation.
-
 ---
 
 ### 6. Emotion Presets — Tham số cụ thể
@@ -116,6 +103,7 @@
 | Loại bỏ onboarding | Xóa `onboarding.go` khỏi openclaw. Luồng setup đơn giản hóa. | `architecture-decision.md` §4 |
 | Dọn dẹp scripts | Xóa `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Thêm `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
 | Đổi tên thư mục code | Toàn bộ code chuyển vào thư mục `lumi/`. Tất cả "intern" đổi thành "lumi". | Tất cả docs |
+| LED driver ownership | LeLamp Python rpi_ws281x sở hữu toàn bộ LED control. Go SPI driver (`internal/led/`) đã xóa hoàn toàn. Không conflict SPI bus. | `architecture-decision.md` §3, §4, §9, §11 |
 
 ---
 
