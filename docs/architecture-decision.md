@@ -187,6 +187,61 @@ curl -s -X POST http://127.0.0.1:5000/api/led \
 
 No command parsing logic needed — the LLM figures it out from the SKILL.md description.
 
+## 5b. Monitor Dashboard & System API
+
+The web UI at `/monitor` provides real-time observability into the lamp's operation. The Go server exposes system/monitor endpoints alongside the skill-facing API.
+
+### Monitor API Endpoints (Lumi Server, port 5000)
+
+| Endpoint | Method | Description | Data Source |
+|---|---|---|---|
+| `/api/system/info` | GET | CPU load, RAM usage, temp, uptime, version | `/proc/loadavg`, `/proc/meminfo`, `/sys/class/thermal/`, `/proc/uptime` |
+| `/api/system/network` | GET | WiFi SSID, IP, signal, internet status | `iwgetid`, `ip addr`, `ping 8.8.8.8` |
+| `/api/system/dashboard` | GET | Combined status snapshot | OpenClaw + config |
+| `/api/openclaw/status` | GET | OpenClaw WS connection + session state | `openclaw.Service.IsReady()` |
+| `/api/openclaw/events` | GET | SSE stream of real-time workflow events | Event bus (ring buffer + SSE broadcast) |
+| `/api/openclaw/recent` | GET | Last 100 monitor events | Event bus ring buffer |
+
+### OpenClaw Event Bus
+
+The Go server maintains a **ring buffer (200 events)** in `openclaw.Service` that captures all observable events in the OpenClaw workflow. Events are broadcast to browser clients via Server-Sent Events (SSE).
+
+**Event types captured:**
+
+| Type | Source | Description |
+|---|---|---|
+| `sensing_input` | `POST /api/sensing/event` | LeLamp detected motion/sound |
+| `chat_send` | `SendChatMessage()` | Message forwarded to OpenClaw |
+| `lifecycle` | OpenClaw WS `agent.lifecycle` | Agent start/end/error |
+| `thinking` | OpenClaw WS `agent.thinking` | Chain-of-thought reasoning (requires `caps: ["thinking-events"]`) |
+| `tool_call` | OpenClaw WS `agent.tool` | Tool invocation start/end with name + args |
+| `assistant_delta` | OpenClaw WS `agent.assistant` | Streamed text generation |
+| `chat_response` | OpenClaw WS `chat` | Partial/final assistant response |
+| `tts` | `SendToLeLampTTS()` | Response sent to speaker |
+
+**Observable flow:**
+```
+👁 Sensing → ➜ Send → ⚙ Agent start → 🧠 Thinking → 🔧 Tool call → ✏ Writing → 💬 Response → 🔊 TTS
+```
+
+### Web Monitor Page (`/monitor`)
+
+Dashboard layout with 4 sections:
+1. **Status grid** (4 cards): OpenClaw connection, System info (CPU/RAM/temp/uptime), Network (SSID/IP/signal/internet), Hardware badges (servo/LED/cam/audio/sensing)
+2. **Presence bar**: Present/idle/away state from LeLamp `/hw/presence`
+3. **Workflow timeline**: Real-time SSE event stream with color-coded event types
+4. **Camera**: Collapsible MJPEG stream + snapshot from LeLamp `/hw/camera/stream`
+
+### LeLamp Status Endpoints (proxied via nginx `/hw/*`)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/hw/health` | GET | Hardware status: servo, LED, camera, audio, sensing (boolean each) |
+| `/hw/presence` | GET | Presence state: present/idle/away, seconds_since_motion, auto/manual |
+| `/hw/led` | GET | LED strip info (led_count) |
+| `/hw/camera/stream` | GET | MJPEG live stream |
+| `/hw/camera/snapshot` | GET | Single JPEG frame |
+
 ## 6. Architecture Diagram
 
 ```
