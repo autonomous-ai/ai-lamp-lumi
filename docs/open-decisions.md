@@ -42,6 +42,55 @@
 | Presence auto-control | State machine: PRESENT → IDLE (5min) → AWAY (15min). Motion restores light. | `lelamp/service/sensing/presence_service.py` |
 | Scheduling/timers | OpenClaw built-in cron (enabled by default). SKILL.md teaches LLM to use `cron.add`. No custom code needed. | `resources/openclaw-skills/scheduling/SKILL.md` |
 
+| AGENTS.md | Use OpenClaw default. Custom rules to be tuned after Pi testing. | N/A |
+
 ---
 
-*When a decision is made, move it from Unresolved to Resolved with the date and update the relevant docs.*
+## Implementation Status
+
+### P0 — First Prototype (code done, needs Pi testing)
+
+- **UC-01 Voice-Controlled Lighting** ✅ — Deepgram STT → OpenClaw → SKILL.md → LED
+- **UC-02 Color & Color Temp** ✅ — `/led/solid`, `/led/paint`, scene presets
+- **UC-14 Audio Feedback** ✅ — TTS `/voice/speak`, volume, play-tone
+
+### P1 — v1.0 (code done)
+
+- **UC-03 Scene/Mood Presets** ✅ — 6 scenes (reading, focus, relax, movie, night, energize)
+- **UC-04 Timer & Schedule** ✅ — OpenClaw built-in cron + `scheduling/SKILL.md`
+- **UC-06 AI Companion** ✅ — OpenClaw + SOUL.md + emotion + long-term memory
+- **UC-08 Servo Direction** ✅ — `/servo/play`, 8 animations
+- **UC-11 Presence Detection** ✅ — Sensing loop + presence state machine (auto on/dim/off)
+- **UC-13 Status Indication** 🟡 — Partial (boot/error states, needs processing/timer/OTA)
+
+### P2 — v1.x (not started, not blocking)
+
+- UC-05 Circadian Lighting
+- UC-07 Light Effects (breathing, candle, rainbow)
+- UC-09 Auto-Tracking (camera → servo follow)
+- UC-10 Gesture Control
+- UC-12 Video Call Optimization
+- UC-15 Remote Control (Telegram/Slack via OpenClaw multi-channel)
+
+### 4 Pillars — All Have Code ✅
+
+| Pillar | Status | Implementation |
+|---|---|---|
+| 1. "It understands me" | ✅ | OpenClaw + SOUL.md + long-term memory |
+| 2. "It feels alive" | ✅ | Servo + LED + emotion + display eyes (11 expressions, auto-blink) |
+| 3. "It's actually useful" | ✅ | Scenes, scheduling (cron), voice assistant |
+| 4. "It acts on its own" | ✅ | Sensing loop (motion + sound) + presence auto on/off |
+
+### Skills (9 total) ✅
+
+| Skill | Endpoints |
+|---|---|
+| led-control | `/led/solid`, `/led/paint`, `/led/off` |
+| servo-control | `/servo`, `/servo/play` |
+| camera | `/camera`, `/camera/snapshot`, `/camera/stream` |
+| audio | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
+| emotion | `/emotion` (coordinates servo + LED + display eyes) |
+| sensing | Auto — motion/sound events → OpenClaw + presence auto-control |
+| scene | `/scene` (6 lighting presets) |
+| display | `/display/eyes`, `/display/info`, `/display/snapshot` |
+| scheduling | OpenClaw cron (no custom endpoints needed) |
