@@ -61,19 +61,6 @@
 
 ---
 
-### 5. LED Driver Ownership — Go or Python?
-
-**Question**: For user-facing LED control (scenes, effects, colors), which driver is used?
-
-**Options**:
-- A. Go SPI driver (from lobster `internal/led/`) — Lumi owns LED directly, no bridge needed
-- B. Python rpi_ws281x (from LeLamp) — bridge via HTTP to LeLamp
-- C. Both — Go for system states (boot, error), Python for user-facing (scenes, effects, patterns)
-
-**Context**: Lobster already has a working pure Go WS2812 SPI driver with state machine and effects. LeLamp has Python rpi_ws281x with 64-LED grid support. Using both may cause SPI bus conflicts.
-
-**Blocks**: LED skill implementation, whether LED goes through bridge or not.
-
 ---
 
 ### 6. Emotion Presets — Specific Parameters
@@ -127,6 +114,7 @@
 | Onboarding removal | Removed `onboarding.go` from openclaw. Setup flow simplified. | `architecture-decision.md` §4 |
 | Scripts cleanup | Removed `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Added `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
 | Code directory rename | All code moved under `lumi/` subdirectory. "intern" references replaced with "lumi". | All docs |
+| LED driver ownership | LeLamp Python rpi_ws281x owns all LED control. Go SPI driver (`internal/led/`) removed entirely — this lamp's hardware uses LeLamp's LED driver exclusively. No SPI bus conflict. | `architecture-decision.md` §3, §4, §9, §11 |
 
 ---
 

@@ -75,7 +75,6 @@ Forked from openclaw-lobster. Provides:
 
 - All system-critical services (boot, network, OTA, reset, MQTT)
 - HTTP API on port 5000 that bridges requests to LeLamp Python services
-- LED system states via direct SPI driver (independent of Python runtime)
 
 ## 4. Layer 1: System (Lumi Server, Always Running)
 
@@ -83,12 +82,11 @@ Works **without OpenClaw**. If the AI is down, the device still boots, shows sta
 
 | Function | Description |
 |---|---|
-| LED system states | Boot animation, error indication, no-internet pulse, factory reset — via direct WS2812 SPI driver |
 | Reset button | GPIO 26 long-press detection for power off / factory reset |
 | Network management | AP mode for provisioning, STA mode for operation, WiFi scanning |
 | OTA updates | Version check, download, install via bootstrap |
 | MQTT communication | Auto-reconnect, message dispatch to backend |
-| Internet monitoring | Connectivity check, triggers LED error state on failure |
+| Internet monitoring | Connectivity check, auto-recovery |
 | **Autonomous sensing** | Lightweight sensing loop: camera (presence, light level), mic (sound level, silence, voice tone), time (schedules), plug-in sensors. Emits events to OpenClaw when significant changes detected. |
 
 ### Autonomous Sensing Loop (Layer 1.5)
@@ -114,7 +112,6 @@ Inherited from lobster (now in `lumi/` subdirectory):
 
 - `server/server.go` — Gin HTTP server on port 5000
 - `server/config/` — JSON config with reload
-- `internal/led/` — WS2812 SPI driver (pure Go) and state machine with auto-rollback
 - `internal/resetbutton/` — GPIO long-press detection
 - `internal/network/` — WiFi AP/STA management
 - `internal/openclaw/` — OpenClaw config generation and WebSocket
@@ -122,7 +119,7 @@ Inherited from lobster (now in `lumi/` subdirectory):
 - `internal/device/` — Setup, MQTT command handling, status reporting
 - `lib/mqtt/` — MQTT client with auto-reconnect
 - `bootstrap/` — OTA version check and install
-- `domain/` — Shared structs (device, LED, network, OTA, OpenClaw)
+- `domain/` — Shared structs (device, network, OTA, OpenClaw)
 
 **MQTT commands** (received via fa_channel): `info`, `add_channel`, `ota`
 
@@ -161,10 +158,9 @@ How it works:
 | `/api/servo` | GET | Get current servo positions | MotorsService |
 | `/api/servo` | POST | Set pan, tilt, preset, expression | MotorsService |
 | `/api/servo/home` | POST | Return all servos to home position | MotorsService |
-| `/api/camera/presence` | GET | Check if someone is in the room | Camera module |
-| `/api/camera/face` | GET | Get face position coordinates | Camera module |
-| `/api/camera/gesture` | GET | Detect current hand gesture | Camera module |
-| `/api/camera/light-analysis` | GET | Analyze face lighting quality | Camera module |
+| `/api/camera` | GET | Get camera availability and resolution | Camera module |
+| `/api/camera/snapshot` | GET | Capture single JPEG frame | Camera module |
+| `/api/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) | Camera module |
 | `/api/audio/speak` | POST | Text-to-speech output | Audio / amixer |
 | `/api/audio/sound` | POST | Play notification or effect sound | Audio / amixer |
 | `/api/audio/volume` | POST | Set speaker volume | Audio / amixer |
@@ -224,12 +220,11 @@ No command parsing logic needed — the LLM figures it out from the SKILL.md des
 │  │  Layer 1: System          │  │  Layer 2: HTTP API Bridge       │ │
 │  │  (always running)         │  │  (port 5000)                    │ │
 │  │                           │  │                                 │ │
-│  │  • LED boot/error (SPI)   │  │  /api/led     → LeLamp RGB     │ │
-│  │  • Reset button (GPIO 26) │  │  /api/servo   → LeLamp Motors  │ │
-│  │  • Network mgmt (AP/STA)  │  │  /api/camera  → Camera module  │ │
-│  │  • OTA updates            │  │  /api/audio   → Audio / amixer │ │
-│  │  • MQTT backend           │  │  /api/emotion → Motors+RGB+Audio│ │
-│  │  • Internet monitor       │  │                                 │ │
+│  │  • Reset button (GPIO 26) │  │  /api/led     → LeLamp RGB     │ │
+│  │  • Network mgmt (AP/STA)  │  │  /api/servo   → LeLamp Motors  │ │
+│  │  • OTA updates            │  │  /api/camera  → Camera module   │ │
+│  │  • MQTT backend           │  │  /api/audio   → Audio / amixer  │ │
+│  │  • Internet monitor       │  │  /api/emotion → Motors+RGB+Audio│ │
 │  │                           │  │  Bridges HTTP requests to       │ │
 │  │  Works WITHOUT OpenClaw   │  │  LeLamp Python services         │ │
 │  └───────────────────────────┘  └────────────────┬────────────────┘ │
@@ -306,8 +301,6 @@ User speaks
 |---|---|---|
 | HTTP server | `server/server.go` | Gin framework, port 5000 |
 | Config management | `server/config/` | JSON config with reload |
-| LED SPI driver | `internal/led/` | WS2812 SPI driver (pure Go) |
-| LED state machine | `internal/led/engine.go` | States, effects, auto-rollback |
 | LED skill | `resources/openclaw-skills/led-control/SKILL.md` | Adapted for 64-LED grid |
 | Reset button | `internal/resetbutton/` | GPIO 26 long-press |
 | Network service | `internal/network/` | WiFi AP/STA, scanning |
@@ -316,7 +309,7 @@ User speaks
 | Device service | `internal/device/` | Setup, MQTT command handling, status reporting |
 | MQTT client | `lib/mqtt/` | Auto-reconnect, dispatch |
 | OTA bootstrap | `bootstrap/` | Version check, install |
-| Domain models | `domain/` | Shared structs (device, LED, network, OTA, OpenClaw) |
+| Domain models | `domain/` | Shared structs (device, network, OTA, OpenClaw) |
 | Build and deploy | `scripts/`, `Makefile` | Cross-compile for ARM, systemd |
 
 ## 10. New to Build
@@ -335,5 +328,5 @@ User speaks
 - [x] **Go-to-Python bridge**: HTTP proxy. LeLamp runs FastAPI on `127.0.0.1:5001`, Lumi Server proxies requests from port 5000. Simple, debuggable, no tight coupling.
 - [ ] **Camera processing**: Run vision on-device with OpenCV, or offload to OpenClaw's vision capabilities?
 - [ ] **Audio input**: Does OpenClaw handle the microphone directly, or does the Lumi server capture audio and forward it?
-- [ ] **LED driver**: Adapt lobster's pure Go SPI driver for the 64-LED grid, or use LeLamp's existing rpi_ws281x Python driver via the bridge?
+- [x] **LED driver**: LeLamp Python rpi_ws281x driver owns all LED control. Go SPI driver removed from Lumi — this lamp's hardware uses LeLamp's LED driver exclusively.
 - [ ] **Generative body language**: How does the LLM generate servo positions for emotions? Predefined emotion presets with randomized parameters, or fully generative coordinates from the LLM?
