@@ -154,7 +154,6 @@ stage_ota_metadata() {
   LUMI_URL=$(jq -r '.lumi.url // empty' "$METADATA_TMP")
   BOOTSTRAP_VERSION=$(jq -r '.bootstrap.version // empty' "$METADATA_TMP")
   BOOTSTRAP_URL=$(jq -r '.bootstrap.url // empty' "$METADATA_TMP")
-  rm -f "$METADATA_TMP"
   LELAMP_VERSION=$(jq -r '.lelamp.version // empty' "$METADATA_TMP")
   LELAMP_URL=$(jq -r '.lelamp.url // empty' "$METADATA_TMP")
   rm -f "$METADATA_TMP"
