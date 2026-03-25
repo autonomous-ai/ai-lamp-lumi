@@ -8,6 +8,8 @@ Detectors:
   - Motion: camera frame differencing (grayscale → absdiff → threshold → contour area)
   - Sound: RMS level from microphone (loud noise detection)
 
+Also drives the PresenceService state machine for automatic light on/off.
+
 Events are POST-ed to http://localhost:5000/api/sensing/event as:
   {"type": "motion", "message": "Person detected — large movement in camera view"}
 """
@@ -18,6 +20,8 @@ import time
 from typing import Optional, Callable
 
 import requests
+
+from lelamp.service.sensing.presence_service import PresenceService
 
 logger = logging.getLogger("lelamp.sensing")
 
@@ -47,6 +51,7 @@ class SensingService:
         cv2_module=None,
         input_device: Optional[int] = None,
         poll_interval: float = 2.0,
+        rgb_service=None,
     ):
         self._camera = camera_capture
         self._sd = sound_device_module
@@ -61,6 +66,9 @@ class SensingService:
 
         # Previous frame for motion detection (grayscale)
         self._prev_gray = None
+
+        # Presence auto on/off state machine
+        self.presence = PresenceService(rgb_service=rgb_service)
 
     def start(self):
         if self._running:
@@ -96,6 +104,9 @@ class SensingService:
         if self._sd and self._np and self._input_device is not None:
             self._check_sound()
 
+        # Presence timeout check (dim/off)
+        self.presence.tick()
+
     # --- Motion detection ---
 
     def _check_motion(self):
@@ -121,6 +132,9 @@ class SensingService:
 
         if change_ratio < MOTION_MIN_AREA_RATIO:
             return
+
+        # Notify presence state machine (any motion = someone is here)
+        self.presence.on_motion()
 
         if change_ratio >= MOTION_LARGE_AREA_RATIO:
             msg = "Large movement detected in camera view — someone may have entered or left the room"

@@ -172,6 +172,7 @@ async def lifespan(app: FastAPI):
                 cv2_module=cv2,
                 input_device=seeed_input_device,
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
+                rgb_service=rgb_service,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -423,6 +424,9 @@ def set_led_solid(req: LEDSolidRequest):
         raise HTTPException(503, "LED not available")
     color = tuple(req.color) if isinstance(req.color, list) else req.color
     rgb_service.dispatch("solid", color)
+    # Track for presence restore
+    if sensing_service and isinstance(color, tuple):
+        sensing_service.presence.set_last_color(color)
     return {"status": "ok"}
 
 
@@ -649,12 +653,45 @@ def activate_scene(req: SceneRequest):
     except Exception as e:
         raise HTTPException(500, f"Failed to set scene: {e}")
 
+    # Track last color for presence restore
+    if sensing_service:
+        sensing_service.presence.set_last_color(tuple(scaled))
+
     return {
         "status": "ok",
         "scene": req.scene,
         "brightness": brightness,
         "color": scaled,
     }
+
+
+# --- Presence endpoints ---
+
+@app.get("/presence", tags=["Presence"])
+def get_presence():
+    """Get current presence state (present/idle/away) and config."""
+    if not sensing_service:
+        return {"state": "unknown", "enabled": False, "seconds_since_motion": 0,
+                "idle_timeout": 0, "away_timeout": 0}
+    return sensing_service.presence.to_dict()
+
+
+@app.post("/presence/enable", response_model=StatusResponse, tags=["Presence"])
+def enable_presence():
+    """Enable automatic presence-based light control."""
+    if not sensing_service:
+        raise HTTPException(503, "Sensing not available")
+    sensing_service.presence.enable()
+    return {"status": "ok"}
+
+
+@app.post("/presence/disable", response_model=StatusResponse, tags=["Presence"])
+def disable_presence():
+    """Disable automatic presence-based light control (manual mode)."""
+    if not sensing_service:
+        raise HTTPException(503, "Sensing not available")
+    sensing_service.presence.disable()
+    return {"status": "ok"}
 
 
 # --- Voice endpoints ---
