@@ -35,6 +35,9 @@ type SetupRequest struct {
 	LLMAPIKey  string `json:"llm_api_key" validate:"required"`
 	LLMModel   string `json:"llm_model"`
 
+	// voice pipeline (optional): Deepgram API key for STT
+	DeepgramAPIKey string `json:"deepgram_api_key"`
+
 	// optional
 	DeviceID string `json:"device_id" validate:"required"`
 

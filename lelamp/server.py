@@ -66,12 +66,28 @@ try:
 except ImportError as e:
     logger.warning(f"Sensing service not available: {e}")
 
+# --- Lazy import for voice ---
+
+VoiceService = None
+TTSService = None
+try:
+    from lelamp.service.voice.voice_service import VoiceService
+except ImportError as e:
+    logger.warning(f"Voice service not available: {e}")
+
+try:
+    from lelamp.service.voice.tts_service import TTSService
+except ImportError as e:
+    logger.warning(f"TTS service not available: {e}")
+
 # --- Services (initialized on startup) ---
 
 animation_service = None
 rgb_service = None
 camera_capture = None
 sensing_service = None
+voice_service = None
+tts_service = None
 
 
 def _find_seeed_device(output: bool = True) -> Optional[int]:
@@ -98,6 +114,7 @@ seeed_input_device: Optional[int] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global animation_service, rgb_service, camera_capture, sensing_service
+    global voice_service, tts_service
     global seeed_output_device, seeed_input_device
 
     # Start servo/animation service
@@ -165,6 +182,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if voice_service:
+        voice_service.stop()
     if sensing_service:
         sensing_service.stop()
     if animation_service:
@@ -298,6 +317,16 @@ EMOTION_PRESETS = {
 }
 
 
+class SpeakRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="Text to speak via TTS")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"text": "Xin chao! Toi la Lumi."}]
+        }
+    }
+
+
 class HealthResponse(BaseModel):
     status: str
     servo: bool
@@ -305,6 +334,8 @@ class HealthResponse(BaseModel):
     camera: bool
     audio: bool
     sensing: bool
+    voice: bool
+    tts: bool
 
 
 # --- Servo endpoints ---
@@ -545,6 +576,84 @@ def express_emotion(req: EmotionRequest):
     }
 
 
+# --- Voice endpoints ---
+
+
+class VoiceStartRequest(BaseModel):
+    deepgram_api_key: str = Field(..., min_length=1, description="Deepgram API key for STT")
+    llm_api_key: str = Field(..., min_length=1, description="OpenAI-compatible API key for TTS")
+    llm_base_url: str = Field(..., min_length=1, description="OpenAI-compatible base URL for TTS")
+
+
+@app.post("/voice/start", response_model=StatusResponse, tags=["Voice"])
+def start_voice(req: VoiceStartRequest):
+    """Start the voice pipeline (wake word + STT + TTS). Called by Lumi on boot."""
+    global voice_service, tts_service
+
+    # Start TTS
+    if TTSService and not (tts_service and tts_service.available):
+        try:
+            tts_service = TTSService(
+                api_key=req.llm_api_key,
+                base_url=req.llm_base_url,
+                sound_device_module=sd,
+                numpy_module=np,
+                output_device=seeed_output_device,
+            )
+            logger.info("TTSService started")
+        except Exception as e:
+            logger.warning(f"TTSService failed: {e}")
+
+    # Start voice (wake word + STT)
+    if voice_service and voice_service.available:
+        return {"status": "already_running"}
+    if not VoiceService:
+        raise HTTPException(503, "Voice service not available (missing deps)")
+    try:
+        voice_service = VoiceService(
+            deepgram_api_key=req.deepgram_api_key,
+            input_device=seeed_input_device,
+        )
+        voice_service.start()
+        return {"status": "ok"}
+    except Exception as e:
+        voice_service = None
+        raise HTTPException(500, f"Failed to start voice: {e}")
+
+
+@app.post("/voice/stop", response_model=StatusResponse, tags=["Voice"])
+def stop_voice():
+    """Stop the voice pipeline."""
+    global voice_service, tts_service
+    if voice_service:
+        voice_service.stop()
+        voice_service = None
+    tts_service = None
+    return {"status": "ok"}
+
+
+@app.post("/voice/speak", response_model=StatusResponse, tags=["Voice"])
+def speak_text(req: SpeakRequest):
+    """Synthesize text to speech and play through the speaker (Edge TTS)."""
+    if not tts_service or not tts_service.available:
+        raise HTTPException(503, "TTS not available")
+    started = tts_service.speak(req.text)
+    if not started:
+        raise HTTPException(409, "TTS is busy speaking")
+    return {"status": "ok"}
+
+
+@app.get("/voice/status", tags=["Voice"])
+def voice_status():
+    """Get voice pipeline status."""
+    return {
+        "voice_available": voice_service is not None and voice_service.available if voice_service else False,
+        "voice_listening": voice_service.listening if voice_service else False,
+        "tts_available": tts_service is not None and tts_service.available if tts_service else False,
+        "tts_speaking": tts_service.speaking if tts_service else False,
+    }
+
+
 # --- Health ---
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -557,6 +666,8 @@ def health():
         "camera": camera_capture is not None,
         "audio": seeed_output_device is not None or seeed_input_device is not None,
         "sensing": sensing_service is not None,
+        "voice": voice_service is not None and voice_service.available if voice_service else False,
+        "tts": tts_service is not None and tts_service.available if tts_service else False,
     }
 
 
