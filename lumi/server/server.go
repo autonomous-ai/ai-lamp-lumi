@@ -294,6 +294,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		s.restartMQTT()
 
 		go func() {
+			// Seed SOUL.md + IDENTITY.md into workspace (factory defaults, once only)
+			if err := s.openclawService.EnsureOnboarding(); err != nil {
+				log.Printf("[server] onboarding seed failed: %v", err)
+			}
+
 			if ok := s.deviceService.WaitForOpenclawReady(120 * time.Second); ok {
 				log.Println("[server] openclaw ready")
 			} else {
