@@ -531,6 +531,7 @@ stage_nginx() {
 
   cat >/etc/nginx/conf.d/lumi.conf <<EOF
 upstream backend { server 127.0.0.1:5000; }
+upstream lelamp  { server 127.0.0.1:5001; }
 
 server {
   listen 80 default_server;
@@ -544,6 +545,13 @@ server {
 
   location /api/ {
     proxy_pass http://backend;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+  }
+
+  location /hw/ {
+    proxy_pass http://lelamp/;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
