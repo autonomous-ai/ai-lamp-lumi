@@ -984,6 +984,11 @@ SOFTWAREUPDATE
 # Main
 # ----------------------------------------------------------
 ensure_root
+
+# Stop lumi if running from a previous setup — it switches to AP mode when unconfigured, killing internet.
+systemctl stop lumi.service 2>/dev/null || true
+systemctl disable lumi.service 2>/dev/null || true
+
 stage_locale
 stage_prerequisites
 stage_rpi5_wifi_stability
