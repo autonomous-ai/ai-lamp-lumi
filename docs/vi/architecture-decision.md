@@ -225,6 +225,60 @@ workspace/skills/
 
 ---
 
+## 5b. Monitor Dashboard & System API
+
+Web UI tại `/monitor` cung cấp khả năng quan sát real-time hoạt động của đèn.
+
+### Monitor API Endpoints (Lumi Server, port 5000)
+
+| Endpoint | Method | Mô tả | Nguồn dữ liệu |
+|---|---|---|---|
+| `/api/system/info` | GET | CPU load, RAM, nhiệt độ, uptime, version | `/proc/` |
+| `/api/system/network` | GET | WiFi SSID, IP, signal, internet | `iwgetid`, `ping` |
+| `/api/system/dashboard` | GET | Snapshot trạng thái tổng hợp | OpenClaw + config |
+| `/api/openclaw/status` | GET | Trạng thái kết nối OpenClaw WS | `openclaw.Service.IsReady()` |
+| `/api/openclaw/events` | GET | SSE stream events real-time | Event bus |
+| `/api/openclaw/recent` | GET | 100 events gần nhất | Ring buffer |
+
+### OpenClaw Event Bus
+
+Ring buffer 200 events trong `openclaw.Service`, broadcast qua SSE đến browser.
+
+**Các loại event:**
+
+| Type | Mô tả |
+|---|---|
+| `sensing_input` | LeLamp phát hiện motion/sound |
+| `chat_send` | Tin nhắn gửi đến OpenClaw |
+| `lifecycle` | Agent start/end/error |
+| `thinking` | Chain-of-thought reasoning |
+| `tool_call` | Tool invocation (tên + args) |
+| `assistant_delta` | Streaming text generation |
+| `chat_response` | Response partial/final |
+| `tts` | Gửi đến speaker |
+
+**Flow quan sát được:**
+```
+👁 Sensing → ➜ Send → ⚙ Agent → 🧠 Think → 🔧 Tool → ✏ Write → 💬 Response → 🔊 TTS
+```
+
+### Web Monitor Page (`/monitor`)
+
+Dashboard gồm 4 phần:
+1. **Status grid** (4 cards): OpenClaw, System (CPU/RAM/temp/uptime), Network (SSID/IP/signal), Hardware badges
+2. **Presence bar**: Present/idle/away từ LeLamp `/hw/presence`
+3. **Workflow timeline**: SSE event stream real-time, color-coded
+4. **Camera**: Collapsible MJPEG stream + snapshot
+
+### LeLamp Status Endpoints (qua nginx `/hw/*`)
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/hw/health` | GET | Trạng thái HW: servo, LED, camera, audio, sensing |
+| `/hw/presence` | GET | Presence: present/idle/away, last motion |
+| `/hw/camera/stream` | GET | MJPEG live stream |
+| `/hw/camera/snapshot` | GET | Chụp JPEG |
+
 ## 6. Sơ Đồ Kiến Trúc
 
 ```
