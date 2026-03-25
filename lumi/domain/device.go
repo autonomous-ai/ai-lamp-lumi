@@ -33,7 +33,7 @@ type SetupRequest struct {
 	// setup custom provider for openclaw
 	LLMBaseURL string `json:"llm_base_url" validate:"required"`
 	LLMAPIKey  string `json:"llm_api_key" validate:"required"`
-	LLMModel   string `json:"llm_model" validate:"required"`
+	LLMModel   string `json:"llm_model"`
 
 	// optional
 	DeviceID string `json:"device_id" validate:"required"`
