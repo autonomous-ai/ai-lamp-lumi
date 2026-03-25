@@ -10,7 +10,6 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/beclient"
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/config"
@@ -18,16 +17,14 @@ import (
 
 type Service struct {
 	config          *config.Config
-	ledEngine       *led.Engine
 	networkService  *network.Service
 	openclawService *openclaw.Service
 	beClient        *beclient.Client
 }
 
-func ProvideService(config *config.Config, ns *network.Service, le *led.Engine, openclawSvc *openclaw.Service, be *beclient.Client) *Service {
+func ProvideService(config *config.Config, ns *network.Service, openclawSvc *openclaw.Service, be *beclient.Client) *Service {
 	return &Service{
 		config:          config,
-		ledEngine:       le,
 		networkService:  ns,
 		openclawService: openclawSvc,
 		beClient:        be,
@@ -35,7 +32,7 @@ func ProvideService(config *config.Config, ns *network.Service, le *led.Engine, 
 }
 
 func (s *Service) Setup(data domain.SetupRequest) error {
-	s.ledEngine.SetState(led.ConnectionMode, "device-setup")
+	log.Println("[device] starting setup")
 	result, err := s.networkService.SetupNetwork(data.SSID, data.Password)
 	if err != nil {
 		return fmt.Errorf("setup network: %w", err)
@@ -92,10 +89,9 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	}
 
 	log.Println("SetupOpenclaw: openclaw is ready")
-	s.ledEngine.SetState(led.Working, "device-setup-done")
 	if s.beClient != nil && llmAPIKey != "" {
 		s.beClient.PingSafe(llmAPIKey, beclient.PingPayload{
-			Status:         s.ledEngine.GetState().String(),
+			Status:         "working",
 			SetupCompleted: true,
 			Mac:            GetDeviceMac(),
 			Version:        config.LumiVersion,
@@ -145,11 +141,11 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if s.ledEngine == nil || !s.openclawService.IsReady() {
+			if !s.openclawService.IsReady() {
 				continue
 			}
 			resp := s.beClient.PingSafe(s.config.LLMAPIKey, beclient.PingPayload{
-				Status:         s.ledEngine.GetState().String(),
+				Status:         "working",
 				SetupCompleted: s.config.SetUpCompleted,
 				Mac:            GetDeviceMac(),
 				Version:        config.LumiVersion,

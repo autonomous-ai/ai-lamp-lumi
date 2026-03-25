@@ -3,9 +3,7 @@ package http
 import (
 	"log"
 	"os/exec"
-	"time"
 
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/config"
@@ -16,15 +14,13 @@ type DeviceGPIOHandler struct {
 	config          *config.Config
 	networkService  *network.Service
 	openclawService *openclaw.Service
-	ledEngine       *led.Engine
 }
 
-func ProvideDeviceGPIOHandler(config *config.Config, networkService *network.Service, openclawService *openclaw.Service, ledEngine *led.Engine) DeviceGPIOHandler {
+func ProvideDeviceGPIOHandler(config *config.Config, networkService *network.Service, openclawService *openclaw.Service) DeviceGPIOHandler {
 	return DeviceGPIOHandler{
 		config:          config,
 		networkService:  networkService,
 		openclawService: openclawService,
-		ledEngine:       ledEngine,
 	}
 }
 
@@ -39,27 +35,18 @@ func (h *DeviceGPIOHandler) HandleResetButtonPress() {
 }
 
 // HandleResetButtonPowerOffThreshold is called when GPIO 26 hold crosses 3s (while still holding).
-// Used to change LED to indicate power-off imminent. Inhibits SetState so network monitor etc. cannot overwrite.
 func (h *DeviceGPIOHandler) HandleResetButtonPowerOffThreshold() {
 	log.Println("reset button: power off threshold (3s hold)")
-	h.ledEngine.UninhibitSetState("reset-btn-power-off-threshold")
-	h.ledEngine.SetState(led.PowerOff, "reset-btn-3s", led.WithInhibit())
 }
 
 // HandleResetButtonFactoryResetThreshold is called when GPIO 26 hold crosses 10s (while still holding).
-// Used to change LED to indicate factory reset imminent. Inhibits SetState so network monitor etc. cannot overwrite.
 func (h *DeviceGPIOHandler) HandleResetButtonFactoryResetThreshold() {
-	h.ledEngine.UninhibitSetState("reset-btn-factory-reset-threshold")
-	h.ledEngine.SetState(led.FactoryReset, "reset-btn-10s", led.WithInhibit())
+	log.Println("reset button: factory reset threshold (10s hold)")
 }
 
 // HandleResetButtonPowerOff is called when GPIO 26 is held for >= 3s then released. Powers off the device.
 func (h *DeviceGPIOHandler) HandleResetButtonPowerOff() {
 	log.Println("reset button: power off (3s hold)")
-	h.ledEngine.UninhibitSetState("reset-btn-power-off")
-	log.Println("reset button: power off close led")
-	h.ledEngine.Close()
-	time.Sleep(3 * time.Second)
 	if err := exec.Command("systemctl", "poweroff").Run(); err != nil {
 		log.Printf("reset button: power off: %v", err)
 	}
@@ -69,8 +56,6 @@ func (h *DeviceGPIOHandler) HandleResetButtonPowerOff() {
 // stays available, then resets config to default and saves.
 func (h *DeviceGPIOHandler) HandleResetButtonFactoryReset() {
 	log.Println("reset button: factory reset (10s hold)")
-	h.ledEngine.UninhibitSetState("reset-btn-factory-reset")
-	h.ledEngine.SetState(led.Booting, "reset-btn-factory")
 	if err := h.openclawService.ResetOpenclaw(); err != nil {
 		log.Printf("reset button: reset openclaw: %v", err)
 		return
@@ -89,6 +74,5 @@ func (h *DeviceGPIOHandler) HandleResetButtonFactoryReset() {
 	if err := h.networkService.SwitchToAPMode(); err != nil {
 		log.Printf("reset button: switch to AP mode: %v", err)
 	}
-	h.ledEngine.UninhibitSetState("reset-btn-done")
 	log.Println("reset button: config reset to default (factory reset)")
 }
