@@ -200,7 +200,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	api := r.Group("api")
 
-	health := r.Group("health")
+	health := api.Group("health")
 	health.GET("/live", s.healthHandler.Live)
 	health.GET("/readiness", s.healthHandler.Readiness)
 
