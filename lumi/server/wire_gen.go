@@ -20,6 +20,7 @@ import (
 	"go-lamp.autonomous.ai/server/health/delivery/http"
 	http2 "go-lamp.autonomous.ai/server/network/delivery/http"
 	"go-lamp.autonomous.ai/server/openclaw/delivery/sse"
+	http5 "go-lamp.autonomous.ai/server/sensing/delivery/http"
 )
 
 // Injectors from wire.go:
@@ -40,8 +41,9 @@ func InitializeServer() (*Server, error) {
 	}
 	deviceMQTTHandler := mqtthandler.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
 	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, openclawService)
-	openClawHandler := sse.ProvideOpenClawHandler()
+	openClawHandler := sse.ProvideOpenClawHandler(openclawService)
+	sensingHandler := http5.ProvideSensingHandler(openclawService)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
-	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, deviceService, openclawService, service, resetbuttonService, factory)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, openclawService, service, resetbuttonService, factory)
 	return server, nil
 }

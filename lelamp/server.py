@@ -58,11 +58,20 @@ CAMERA_INDEX = int(os.environ.get("LELAMP_CAMERA_INDEX", "0"))
 CAMERA_WIDTH = int(os.environ.get("LELAMP_CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 
+# --- Lazy import for sensing ---
+
+SensingService = None
+try:
+    from lelamp.service.sensing.sensing_service import SensingService
+except ImportError as e:
+    logger.warning(f"Sensing service not available: {e}")
+
 # --- Services (initialized on startup) ---
 
 animation_service = None
 rgb_service = None
 camera_capture = None
+sensing_service = None
 
 
 def _find_seeed_device(output: bool = True) -> Optional[int]:
@@ -88,7 +97,7 @@ seeed_input_device: Optional[int] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global animation_service, rgb_service, camera_capture
+    global animation_service, rgb_service, camera_capture, sensing_service
     global seeed_output_device, seeed_input_device
 
     # Start servo/animation service
@@ -135,9 +144,29 @@ async def lifespan(app: FastAPI):
         if seeed_input_device is not None:
             logger.info(f"Audio input device: {seeed_input_device}")
 
+    # Start sensing loop (motion + sound detection → push events to Lumi → OpenClaw)
+    sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in ("true", "1", "yes")
+    if SensingService and sensing_enabled:
+        try:
+            sensing_service = SensingService(
+                camera_capture=camera_capture,
+                sound_device_module=sd,
+                numpy_module=np,
+                cv2_module=cv2,
+                input_device=seeed_input_device,
+                poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
+            )
+            sensing_service.start()
+            logger.info("SensingService started")
+        except Exception as e:
+            logger.warning(f"SensingService failed to start: {e}")
+            sensing_service = None
+
     yield
 
     # Shutdown
+    if sensing_service:
+        sensing_service.stop()
     if animation_service:
         animation_service.stop()
     if rgb_service:
@@ -275,6 +304,7 @@ class HealthResponse(BaseModel):
     led: bool
     camera: bool
     audio: bool
+    sensing: bool
 
 
 # --- Servo endpoints ---
@@ -526,6 +556,7 @@ def health():
         "led": rgb_service is not None,
         "camera": camera_capture is not None,
         "audio": seeed_output_device is not None or seeed_input_device is not None,
+        "sensing": sensing_service is not None,
     }
 
 
