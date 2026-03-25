@@ -302,35 +302,90 @@ Bash script installed by setup.sh. Called by bootstrap worker to apply updates.
 
 ---
 
-## 6. LeLamp Runtime Package Structure
+## 6. LeLamp Runtime — Source & Integration
 
-The LeLamp zip distributed via OTA should contain:
+### Source Strategy: Copy + Track Manually
+
+LeLamp runtime code is **copied** from the upstream open-source project into this mono-repo, then modified heavily.
+
+**Why copy, not submodule/subtree:**
+- We need to **remove** LiveKit/OpenAI integration (replaced by OpenClaw)
+- We need to **add** HTTP API server (Flask/FastAPI) for Lumi Server to bridge to
+- We need to **add** DisplayService (GC9A01 eyes + info, not in original)
+- We need to **modify** services to work with our architecture
+- The overlap is drivers only (~30-40% of their code), the rest is rewritten
+
+**Upstream tracking:**
+- Source: `https://github.com/humancomputerlab/lelamp_runtime`
+- Record the upstream commit hash in `lelamp/UPSTREAM.md` when copying
+- Periodically check upstream for driver-level fixes (servo protocol, LED timing, etc.)
+- Cherry-pick relevant driver changes manually
+- Ignore upstream AI/LiveKit changes (we replaced that entirely)
+
+**Implementation steps:**
+1. Clone `humancomputerlab/lelamp_runtime` to a temp directory
+2. Copy driver code (`services/motors.py`, `services/rgb.py`, `services/audio.py`, `services/service_base.py`) into `lelamp/services/`
+3. Remove all LiveKit, OpenAI, and conversation code
+4. Add `lelamp/server.py` — new HTTP API server (FastAPI)
+5. Add `lelamp/services/display.py` — new DisplayService for GC9A01
+6. Create `lelamp/UPSTREAM.md` with source commit hash and date
+7. Test on Pi 4 with actual hardware
+
+### Mono-repo Layout
+
+LeLamp lives inside this repo as a Python subfolder alongside Go and TypeScript:
+
+```
+ai-lamp-openclaw/
+├── cmd/                  # Go entrypoints
+├── server/               # Go HTTP layer
+├── internal/             # Go business logic
+├── bootstrap/            # Go OTA worker
+├── web/                  # TypeScript/React SPA (already exists)
+├── lelamp/               # Python hardware drivers (NEW)
+│   ├── __init__.py       # Package init, exposes __version__
+│   ├── server.py         # HTTP API server (FastAPI) — NEW, not from upstream
+│   ├── services/
+│   │   ├── motors.py     # MotorsService — 5x Feetech servo (from upstream)
+│   │   ├── rgb.py        # RGBService — 64x WS2812 LED (from upstream)
+│   │   ├── audio.py      # Audio — amixer, playback (from upstream)
+│   │   ├── display.py    # DisplayService — GC9A01 LCD (NEW, not from upstream)
+│   │   └── service_base.py  # Event-driven ServiceBase (from upstream)
+│   ├── config.py         # Runtime config
+│   ├── requirements.txt  # Python dependencies
+│   ├── VERSION           # Plain text version string
+│   └── UPSTREAM.md       # Tracks source commit from humancomputerlab/lelamp_runtime
+├── resources/
+│   └── openclaw-skills/  # SKILL.md files
+├── scripts/
+│   └── setup.sh
+├── go.mod
+├── Makefile
+└── CLAUDE.md
+```
+
+3 languages (Go, Python, TypeScript), 3 folders, 1 repo. Each has its own build, but managed together.
+
+### LeLamp OTA Package
+
+For OTA distribution, LeLamp is zipped from the `lelamp/` folder:
 
 ```
 lelamp-{version}.zip
-├── lelamp/
-│   ├── __init__.py           # Package init, exposes __version__
-│   ├── server.py             # HTTP server exposing hardware control API
-│   ├── services/
-│   │   ├── motors.py         # MotorsService — 5x Feetech servo control
-│   │   ├── rgb.py            # RGBService — 64x WS2812 LED (rpi_ws281x)
-│   │   ├── audio.py          # Audio — amixer, playback, TTS
-│   │   ├── display.py        # DisplayService — GC9A01 LCD (eyes + info)
-│   │   └── service_base.py   # Event-driven ServiceBase with priority dispatch
-│   └── config.py             # Runtime config
-├── requirements.txt          # Python dependencies
-└── VERSION                   # Plain text version string (e.g., "1.0.0")
+├── lelamp/               # Full Python package
+├── requirements.txt
+└── VERSION
 ```
 
-### LeLamp HTTP API (for Intern Server to bridge to)
+### LeLamp HTTP API (for Lumi Server to bridge to)
 
-The LeLamp Python runtime exposes its own HTTP API on a local port (e.g., `127.0.0.1:5001`). The Intern Server (Go, port 5000) proxies/bridges OpenClaw skill requests to this API.
+The LeLamp Python runtime exposes its own HTTP API on a local port (e.g., `127.0.0.1:5001`). The Lumi Server (Go, port 5000) proxies/bridges OpenClaw skill requests to this API.
 
 ```
-OpenClaw LLM → curl 127.0.0.1:5000/api/servo → Intern Server → http://127.0.0.1:5001/servo → LeLamp Python → Hardware
+OpenClaw LLM → curl 127.0.0.1:5000/api/servo → Lumi Server → http://127.0.0.1:5001/servo → LeLamp Python → Hardware
 ```
 
-This is the **Go-to-Python bridge** — a simple HTTP proxy. LeLamp runtime runs its own lightweight HTTP server (Flask/FastAPI) that directly controls hardware.
+This is the **Go-to-Python bridge** — a simple HTTP proxy. LeLamp runtime runs its own lightweight HTTP server (FastAPI) that directly controls hardware.
 
 ---
 
@@ -427,9 +482,9 @@ LeLamp version is a plain text `VERSION` file in the package root. Read by boots
 
 ## 10. Open Questions
 
-- [ ] **LeLamp source**: Where does the LeLamp Python code live? Fork of `humancomputerlab/lelamp_runtime`? Or new code in this repo under `lelamp/`?
-- [ ] **LeLamp HTTP port**: What port does the LeLamp Python server listen on? Suggested: `5001` (intern is `5000`).
-- [ ] **Bridge protocol**: Simple HTTP proxy in Go? Or more structured (gRPC, Unix socket)?
+- [x] **LeLamp source**: Mono-repo. Driver code copied from `humancomputerlab/lelamp_runtime` into `lelamp/`, with LiveKit/OpenAI removed and HTTP API + DisplayService added. Upstream tracked manually via `lelamp/UPSTREAM.md`.
+- [x] **LeLamp HTTP port**: `5001` (Lumi Server is `5000`).
+- [x] **Bridge protocol**: Simple HTTP proxy. LeLamp runs FastAPI on `127.0.0.1:5001`, Lumi Server proxies from port 5000.
 - [ ] **Python version**: Pin to Python 3.11+? LeLamp's current Python version requirement?
 - [ ] **LeLamp packaging**: Include pre-built venv? Or install deps on-device? (Pi has limited resources for `pip install`)
 - [ ] **Display driver**: DisplayService (GC9A01) — part of LeLamp Python? Or new module?

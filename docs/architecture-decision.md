@@ -321,7 +321,7 @@ User speaks
 
 ## 11. Open Questions
 
-- [ ] **Go-to-Python bridge**: How does the Lumi server communicate with LeLamp Python services? Options: HTTP API on the Python side, gRPC, or subprocess/pipe.
+- [x] **Go-to-Python bridge**: HTTP proxy. LeLamp runs FastAPI on `127.0.0.1:5001`, Lumi Server proxies requests from port 5000. Simple, debuggable, no tight coupling.
 - [ ] **Camera processing**: Run vision on-device with OpenCV, or offload to OpenClaw's vision capabilities?
 - [ ] **Audio input**: Does OpenClaw handle the microphone directly, or does the Lumi server capture audio and forward it?
 - [ ] **LED driver**: Adapt lobster's pure Go SPI driver for the 64-LED grid, or use LeLamp's existing rpi_ws281x Python driver via the bridge?
