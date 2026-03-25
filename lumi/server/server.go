@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"go-lamp.autonomous.ai/internal/device"
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
@@ -24,7 +23,6 @@ import (
 	_deviceHttpDeliver "go-lamp.autonomous.ai/server/device/delivery/http"
 	_deviceMQTTDeliver "go-lamp.autonomous.ai/server/device/delivery/mqtt"
 	_healthHttpDeliver "go-lamp.autonomous.ai/server/health/delivery/http"
-	_ledHttpDeliver "go-lamp.autonomous.ai/server/led/delivery/http"
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSseDeliver "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 )
@@ -35,7 +33,6 @@ type Server struct {
 
 	// handlers
 	healthHandler     _healthHttpDeliver.HealthHandler
-	ledHandler        _ledHttpDeliver.LedHandler
 	networkHandler    _networkHttpDeliver.NetworkHandler
 	deviceHandler     _deviceHttpDeliver.DeviceHandler
 	deviceMQTTHandler _deviceMQTTDeliver.DeviceMQTTHandler
@@ -46,8 +43,6 @@ type Server struct {
 	networkService  *network.Service
 	deviceService   *device.Service
 
-	// ledEngine controls RGB LED state (Booting / ConnectionMode / Online / Error). Nil when not on Pi or GPIO unavailable.
-	ledEngine *led.Engine
 	// resetButton watches GPIO 23 for press-and-hold >= 10s to trigger factory reset. Nil when GPIO unavailable.
 	resetButton *resetbutton.Service
 	// mqttFactory is the optional MQTT factory (nil when broker not configured).
@@ -85,7 +80,6 @@ func (s *Server) GetContext(c *gin.Context) context.Context {
 func ProvideServer(
 	cfg *config.Config,
 	hh _healthHttpDeliver.HealthHandler,
-	ledH _ledHttpDeliver.LedHandler,
 	nh _networkHttpDeliver.NetworkHandler,
 	dh _deviceHttpDeliver.DeviceHandler,
 	dqth _deviceMQTTDeliver.DeviceMQTTHandler,
@@ -94,14 +88,12 @@ func ProvideServer(
 	ds *device.Service,
 	openclawSvc *openclaw.Service,
 	ns *network.Service,
-	ledEngine *led.Engine,
 	resetBtn *resetbutton.Service,
 	mqttFactory *mqtt.Factory,
 ) *Server {
 	return &Server{
 		config:            cfg,
 		healthHandler:     hh,
-		ledHandler:        ledH,
 		networkHandler:    nh,
 		deviceHandler:     dh,
 		deviceMQTTHandler: dqth,
@@ -110,7 +102,6 @@ func ProvideServer(
 		openclawService:   openclawSvc,
 		networkService:    ns,
 		deviceService:     ds,
-		ledEngine:         ledEngine,
 		resetButton:       resetBtn,
 		mqttFactory:       mqttFactory,
 	}
@@ -181,11 +172,6 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Serve(closeFn func()) error {
-	if s.ledEngine != nil {
-		s.ledEngine.SetState(led.Booting, "server-start")
-		defer s.ledEngine.Close()
-	}
-
 	if s.resetButton != nil {
 		resetCtx, cancelReset := context.WithCancel(context.Background())
 		defer cancelReset()
@@ -222,9 +208,6 @@ func (s *Server) Serve(closeFn func()) error {
 	network.GET("", s.networkHandler.GetNetworks)
 	network.GET("current", s.networkHandler.GetCurrentNetwork)
 	network.GET("check-internet", s.networkHandler.CheckInternet)
-
-	api.GET("led", s.ledHandler.GetState)
-	api.POST("led", s.ledHandler.UpdateState)
 
 	log.Println("Start server completed")
 
@@ -305,11 +288,9 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 
 		go func() {
 			if ok := s.deviceService.WaitForOpenclawReady(120 * time.Second); ok {
-				if s.ledEngine != nil {
-					s.ledEngine.SetState(led.Working, "server-ready")
-				}
-			} else if s.ledEngine != nil {
-				s.ledEngine.SetState(led.Error, "openclaw-ready-timeout")
+				log.Println("[server] openclaw ready")
+			} else {
+				log.Println("[server] openclaw ready timeout")
 			}
 		}()
 	} else {
