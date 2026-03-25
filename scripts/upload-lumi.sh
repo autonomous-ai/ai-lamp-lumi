@@ -3,8 +3,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LUMI_BIN="${ROOT_DIR}/lumi-server"
-VERSION_FILE="${ROOT_DIR}/${VERSION_FILE:-VERSION_LUMI}"
+LUMI_BIN="${ROOT_DIR}/lumi/lumi-server"
+VERSION_FILE="${ROOT_DIR}/lumi/${VERSION_FILE:-VERSION_LUMI}"
 
 # Bucket and path: lumi/ota/lumi/[semver].zip
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
@@ -74,5 +74,5 @@ echo "========== Upload metadata (backend: v${new_version}) =========="
 gsutil -h "Content-Type:application/json" -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$METADATA_TMP" "gs://${GCS_BUCKET}/${METADATA_PATH}"
 rm -f "$METADATA_TMP"
 
-rm -f "$ZIP_PATH"
+rm -f "$ZIP_PATH" "$LUMI_BIN"
 echo "Done: gs://${GCS_BUCKET}/${GCS_PATH} (v${new_version})"
