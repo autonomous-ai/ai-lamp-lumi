@@ -374,7 +374,7 @@ Type=simple
 User=root
 WorkingDirectory=$LELAMP_DIR
 Environment="PYTHONPATH=/opt"
-ExecStart=$LELAMP_DIR/.venv/bin/uvicorn lelamp.server:app --host 127.0.0.1 --port 5001
+ExecStart=$LELAMP_DIR/.venv/bin/uvicorn lelamp.server:app --host 0.0.0.0 --port 5001
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -548,6 +548,7 @@ server {
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Prefix /hw;
   }
 
   # Return 204 so OS does not detect captive portal (no auto-open browser)
