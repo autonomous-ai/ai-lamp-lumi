@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	onboardingSkillURL = "https://raw.githubusercontent.com/autonomous-ecm/intern-skills/main/autonomous-intern-onboarding/SKILL.md"
-	onboardingSkillRel = "autonomous-intern-onboarding/SKILL.md"
+	onboardingSkillURL = "https://raw.githubusercontent.com/autonomous-ecm/lumi-skills/main/autonomous-lumi-onboarding/SKILL.md"
+	onboardingSkillRel = "autonomous-lumi-onboarding/SKILL.md"
 
 	agentsMDMandatoryMarker = "<!-- DO NOT REMOVE -->"
-	agentsMDBlock           = "<!-- DO NOT REMOVE -->\n**MANDATORY:** Before ANY reply, check `skills/autonomous-intern-onboarding/` — read its SKILL.md and follow instructions.\n\n---"
+	agentsMDBlock           = "<!-- DO NOT REMOVE -->\n**MANDATORY:** Before ANY reply, check `skills/autonomous-lumi-onboarding/` — read its SKILL.md and follow instructions.\n\n---"
 
 	onboardingMaxRetries = 3
 	onboardingRetryDelay = 2 * time.Second

@@ -48,7 +48,7 @@ func ProvideService(cfg *config.Config, netSvc *network.Service) *Service {
 			Timeout: 15 * time.Second,
 		},
 		status: Status{
-			CurrentVersion: config.InternVersion,
+			CurrentVersion: config.LumiVersion,
 		},
 	}
 }
@@ -157,25 +157,25 @@ func (s *Service) poll() {
 		return
 	}
 
-	internMeta := meta[domain.OTAKeyIntern]
+	lumiMeta := meta[domain.OTAKeyLumi]
 	openclawMeta := meta[domain.OTAKeyOpenClaw]
 	webMeta := meta[domain.OTAKeyWeb]
 
 	s.mu.Lock()
 	s.metadata = &meta
-	current := config.InternVersion
-	available := internMeta.Version
+	current := config.LumiVersion
+	available := lumiMeta.Version
 	s.status = Status{
 		CurrentVersion:   current,
 		AvailableVersion: available,
-		UpdateURL:        internMeta.URL,
+		UpdateURL:        lumiMeta.URL,
 		UpdateAvailable:  available != "" && available != current,
 		OpenClaw:         openclawMeta,
 		Web:              webMeta,
 	}
 	s.mu.Unlock()
 
-	log.Printf("ota: metadata fetched, intern %s -> %s (update_available=%v)", current, available, s.status.UpdateAvailable)
+	log.Printf("ota: metadata fetched, lumi %s -> %s (update_available=%v)", current, available, s.status.UpdateAvailable)
 }
 
 // GetStatus returns the current OTA status for the API.

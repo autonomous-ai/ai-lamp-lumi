@@ -15,7 +15,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println(config.InternVersion)
+		fmt.Println(config.LumiVersion)
 		return
 	}
 

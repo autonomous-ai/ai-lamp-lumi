@@ -296,9 +296,9 @@ type MQTTInfoResponse struct {
 // NewDeviceMessage creates a base message with required fields populated from config.
 func NewMQTTInfoResponse(cfg *config.Config, msgType string, mac string) MQTTInfoResponse {
 	return MQTTInfoResponse{
-		Device:  "ai_intern",
+		Device:  "ai_lumi",
 		Type:    msgType,
-		Version: config.InternVersion,
+		Version: config.LumiVersion,
 		ID:      cfg.DeviceID,
 		Mac:     mac,
 		Time:    time.Now().UTC().Format(time.RFC3339Nano),

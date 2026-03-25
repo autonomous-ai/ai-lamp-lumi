@@ -142,7 +142,7 @@ func (s *Server) startMQTT() {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	client := s.mqttFactory.GetClient("intern-server-" + s.config.DeviceID)
+	client := s.mqttFactory.GetClient("lumi-server-" + s.config.DeviceID)
 	client.Subscribe(s.config.FAChannel, 1, func(topic string, payload []byte) {
 		log.Printf("[mqtt] received %s: %s", topic, string(payload))
 		s.deviceMQTTHandler.HandleMessage(topic, payload)
