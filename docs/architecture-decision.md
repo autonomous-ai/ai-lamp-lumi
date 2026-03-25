@@ -109,7 +109,7 @@ Sensing Loop (Lumi Server, always running):
 **Rule-based actions** (no AI needed): auto-dim on leave, brightness adjust on darkness, idle animations.
 **AI-driven actions** (OpenClaw decides): greetings, mood response, empathetic reactions, schedule-aware suggestions.
 
-Inherited from lobster:
+Inherited from lobster (now in `lumi/` subdirectory):
 
 - `server/server.go` — Gin HTTP server on port 5000
 - `server/config/` — JSON config with reload
@@ -118,9 +118,14 @@ Inherited from lobster:
 - `internal/network/` — WiFi AP/STA management
 - `internal/openclaw/` — OpenClaw config generation and WebSocket
 - `internal/beclient/` — Backend status reporter
+- `internal/device/` — Setup, MQTT command handling, status reporting
 - `lib/mqtt/` — MQTT client with auto-reconnect
 - `bootstrap/` — OTA version check and install
-- `domain/` — Shared structs
+- `domain/` — Shared structs (device, LED, network, OTA, OpenClaw)
+
+**MQTT commands** (received via fa_channel): `info`, `add_channel`, `ota`
+
+**Removed from lobster**: GWS (Google Workspace) handlers, internal/llm/ service (LLM model listing inlined into openclaw/service.go), onboarding flow, sendip scripts, release scripts.
 
 ## 5. Layer 2: OpenClaw Skills (SKILL.md + HTTP API)
 
@@ -292,7 +297,7 @@ User speaks
 
 ## 9. Inherited from Lobster
 
-| Component | Lobster Path | Notes |
+| Component | Path | Notes |
 |---|---|---|
 | HTTP server | `server/server.go` | Gin framework, port 5000 |
 | Config management | `server/config/` | JSON config with reload |
@@ -303,9 +308,10 @@ User speaks
 | Network service | `internal/network/` | WiFi AP/STA, scanning |
 | OpenClaw service | `internal/openclaw/` | Config generation, WebSocket |
 | Backend client | `internal/beclient/` | Status reporter |
+| Device service | `internal/device/` | Setup, MQTT command handling, status reporting |
 | MQTT client | `lib/mqtt/` | Auto-reconnect, dispatch |
 | OTA bootstrap | `bootstrap/` | Version check, install |
-| Domain models | `domain/` | Shared structs |
+| Domain models | `domain/` | Shared structs (device, LED, network, OTA, OpenClaw) |
 | Build and deploy | `scripts/`, `Makefile` | Cross-compile for ARM, systemd |
 
 ## 10. New to Build

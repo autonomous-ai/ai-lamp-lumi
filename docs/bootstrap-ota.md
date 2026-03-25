@@ -81,7 +81,7 @@ const (
     OTAKeyBootstrap = "bootstrap"
     OTAKeyWeb       = "web"
     OTAKeyOpenClaw  = "openclaw"
-    OTAKeyLeLamp    = "lelamp"    // NEW for AI Lamp
+    // OTAKeyLeLamp will be added when LeLamp OTA is implemented
 )
 
 type OTAMetadata map[string]OTAComponent
@@ -181,10 +181,10 @@ UNIT
 
 ```
 boot
-  → intern.service      (system layer, LED boot animation)
+  → lumi.service      (system layer, LED boot animation)
   → bootstrap.service   (starts polling for updates)
   → lelamp.service      (hardware drivers ready)
-  → openclaw.service    (AI brain, connects to intern via HTTP)
+  → openclaw.service    (AI brain, connects to lumi via HTTP)
   → nginx               (web UI for setup)
 ```
 
@@ -212,7 +212,7 @@ Tracks last known installed version per component:
 ```json
 {
   "components": {
-    "intern": "1.2.3",
+    "lumi": "1.2.3",
     "bootstrap": "1.0.5",
     "web": "0.9.0",
     "openclaw": "2026.3.8",
@@ -231,7 +231,7 @@ checkLoop():
 
 checkOnce():
   1. Fetch OTA metadata JSON
-  2. For each key [intern, bootstrap, web, openclaw, lelamp]:
+  2. For each key [lumi, bootstrap, web, openclaw, lelamp]:
      → reconcile(key, metadata[key])
   3. Save state
 
@@ -246,7 +246,7 @@ reconcile(key, target):
 
 | Component | How to Detect Current Version |
 |---|---|
-| `intern` | Run `intern-server --version`, parse output |
+| `lumi` | Run `lumi-server --version`, parse output |
 | `bootstrap` | Compiled-in constant `config.BootstrapVersion` (ldflags) |
 | `web` | Read file `/usr/share/nginx/html/setup/VERSION` |
 | `openclaw` | Run `openclaw --version`, extract semver with regex |
@@ -256,7 +256,7 @@ reconcile(key, target):
 
 | Component | Update Steps |
 |---|---|
-| `intern` | Run `software-update intern` (blocks up to 10 min) |
+| `lumi` | Run `software-update lumi` (blocks up to 10 min) |
 | `bootstrap` | Spawn detached `software-update bootstrap` (self-update, survives restart) |
 | `web` | Run `software-update web` |
 | `openclaw` | Run `npm install -g openclaw@{version}` → `systemctl restart openclaw` |
@@ -337,11 +337,13 @@ LeLamp lives inside this repo as a Python subfolder alongside Go and TypeScript:
 
 ```
 ai-lamp-openclaw/
-├── cmd/                  # Go entrypoints
-├── server/               # Go HTTP layer
-├── internal/             # Go business logic
-├── bootstrap/            # Go OTA worker
-├── web/                  # TypeScript/React SPA (already exists)
+├── lumi/                 # Go code (forked from lobster)
+│   ├── cmd/              # Go entrypoints
+│   ├── server/           # Go HTTP layer
+│   ├── internal/         # Go business logic
+│   ├── bootstrap/        # Go OTA worker
+│   └── domain/           # Shared structs
+├── web/                  # TypeScript/React SPA (copied from lobster, renamed intern→lumi)
 ├── lelamp/               # Python hardware drivers (NEW)
 │   ├── __init__.py       # Package init, exposes __version__
 │   ├── server.py         # HTTP API server (FastAPI) — NEW, not from upstream
@@ -401,8 +403,8 @@ set -euo pipefail
 
 VERSION_FILE="VERSION_LELAMP"
 BUCKET="s3-autonomous-upgrade-3"
-OTA_PATH="intern/ota/lelamp"
-METADATA_PATH="intern/ota/metadata.json"
+OTA_PATH="lumi/ota/lelamp"
+METADATA_PATH="lumi/ota/metadata.json"
 
 # Auto-increment patch version
 CURRENT=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
@@ -432,14 +434,17 @@ gsutil cp /tmp/metadata-updated.json "gs://${BUCKET}/${METADATA_PATH}"
 echo "LeLamp $NEW_VERSION published."
 ```
 
-### Existing Upload Scripts (inherited from lobster)
+### All Upload Scripts
 
 | Script | Component | Pattern |
 |---|---|---|
-| `scripts/upload-intern.sh` | Intern Server binary | Build → zip → GCS → update metadata |
+| `scripts/upload-lumi.sh` | Lumi Server binary | Build → zip → GCS → update metadata |
 | `scripts/upload-bootstrap.sh` | Bootstrap Server binary | Build → zip → GCS → update metadata |
 | `scripts/upload-web.sh` | Web SPA bundle | Build → zip → GCS → update metadata |
 | `scripts/upload-lelamp.sh` | LeLamp Python runtime (NEW) | Package → zip → GCS → update metadata |
+| `scripts/upload-setup.sh` | Setup script | Upload to GCS |
+| `scripts/upload-setup-ap.sh` | AP setup script | Upload to GCS |
+| `scripts/upload-skills.sh` | OpenClaw skill files | Upload to GCS |
 
 ---
 
@@ -451,13 +456,13 @@ echo "LeLamp $NEW_VERSION published."
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 LDFLAGS_BOOTSTRAP := -X go-lamp.autonomous.ai/bootstrap/config.BootstrapVersion=$(VERSION)
-LDFLAGS_INTERN    := -X go-lamp.autonomous.ai/server/config.InternVersion=$(VERSION)
+LDFLAGS_LAMP    := -X go-lamp.autonomous.ai/server/config.LumiVersion=$(VERSION)
 
 build-bootstrap:
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_BOOTSTRAP)" -o bootstrap-server ./cmd/bootstrap
 
 build-lamp:
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_INTERN)" -o intern-server ./cmd/lamp
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
 ```
 
 ### LeLamp (VERSION file)
@@ -470,12 +475,12 @@ LeLamp version is a plain text `VERSION` file in the package root. Read by boots
 
 | Aspect | Lobster (original) | AI Lamp (this project) |
 |---|---|---|
-| Components | 4 (intern, bootstrap, web, openclaw) | **5** (+ lelamp) |
-| OTA keys | intern, bootstrap, web, openclaw | + **lelamp** |
+| Components | 4 (lumi, bootstrap, web, openclaw) | **5** (+ lelamp) |
+| OTA keys | lumi, bootstrap, web, openclaw | + **lelamp** |
 | Setup stages | 7 (stages -1 to 4) | **8** (+ stage 2b: LeLamp) |
 | Systemd services | 4 | **5** (+ lelamp.service) |
 | Python runtime | None | **LeLamp** at /opt/lelamp/ with venv |
-| Hardware bridge | N/A | Intern HTTP → LeLamp HTTP (localhost proxy) |
+| Hardware bridge | N/A | Lumi HTTP → LeLamp HTTP (localhost proxy) |
 | SPI usage | LED only | LED + **Display (GC9A01)** |
 
 ---
@@ -488,7 +493,7 @@ LeLamp version is a plain text `VERSION` file in the package root. Read by boots
 - [ ] **Python version**: Pin to Python 3.11+? LeLamp's current Python version requirement?
 - [ ] **LeLamp packaging**: Include pre-built venv? Or install deps on-device? (Pi has limited resources for `pip install`)
 - [ ] **Display driver**: DisplayService (GC9A01) — part of LeLamp Python? Or new module?
-- [ ] **LeLamp config**: Does LeLamp need its own config file? Or configured via Intern Server?
+- [ ] **LeLamp config**: Does LeLamp need its own config file? Or configured via Lumi Server?
 
 ---
 

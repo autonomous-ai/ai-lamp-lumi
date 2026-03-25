@@ -6,7 +6,7 @@ AI Lamp chạy **5 thành phần phần mềm** trên Raspberry Pi 4. Tất cả
 
 | Thành phần | Loại | Cách cài | Service | Đường dẫn |
 |---|---|---|---|---|
-| **Intern Server** | Go binary (ARM64) | Tải zip từ OTA | `intern.service` | `/usr/local/bin/intern-server` |
+| **Lumi Server** | Go binary (ARM64) | Tải zip từ OTA | `lumi.service` | `/usr/local/bin/lumi-server` |
 | **Bootstrap Server** | Go binary (ARM64) | Tải zip từ OTA | `bootstrap.service` | `/usr/local/bin/bootstrap-server` |
 | **Web (Setup SPA)** | React/Vite | Tải zip từ OTA | nginx serve static | `/usr/share/nginx/html/setup/` |
 | **OpenClaw** | Node.js package | `npm install -g` | `openclaw.service` | Global npm |
@@ -18,7 +18,7 @@ AI Lamp chạy **5 thành phần phần mềm** trên Raspberry Pi 4. Tất cả
                     ┌──────────────────────────────┐
                     │   OTA Metadata (GCS JSON)     │
                     │                                │
-                    │  intern:    {version, url}     │
+                    │  lumi:    {version, url}     │
                     │  bootstrap: {version, url}     │
                     │  web:       {version, url}     │
                     │  openclaw:  {version}          │
@@ -47,28 +47,28 @@ AI Lamp chạy **5 thành phần phần mềm** trên Raspberry Pi 4. Tất cả
 
 File JSON duy nhất trên GCS. Tất cả thành phần tham chiếu file này.
 
-**URL**: `https://storage.googleapis.com/{BUCKET}/intern/ota/metadata.json`
+**URL**: `https://storage.googleapis.com/{BUCKET}/lumi/ota/metadata.json`
 
 ```json
 {
-  "intern": {
+  "lumi": {
     "version": "1.2.3",
-    "url": "https://storage.googleapis.com/{BUCKET}/intern/ota/intern/1.2.3/intern-1.2.3.zip"
+    "url": "https://storage.googleapis.com/{BUCKET}/lumi/ota/lumi/1.2.3/lumi-1.2.3.zip"
   },
   "bootstrap": {
     "version": "1.0.5",
-    "url": "https://storage.googleapis.com/{BUCKET}/intern/ota/bootstrap/1.0.5/bootstrap-1.0.5.zip"
+    "url": "https://storage.googleapis.com/{BUCKET}/lumi/ota/bootstrap/1.0.5/bootstrap-1.0.5.zip"
   },
   "web": {
     "version": "0.9.0",
-    "url": "https://storage.googleapis.com/{BUCKET}/intern/ota/web/0.9.0/setup-0.9.0.zip"
+    "url": "https://storage.googleapis.com/{BUCKET}/lumi/ota/web/0.9.0/setup-0.9.0.zip"
   },
   "openclaw": {
     "version": "2026.3.8"
   },
   "lelamp": {
     "version": "1.0.0",
-    "url": "https://storage.googleapis.com/{BUCKET}/intern/ota/lelamp/1.0.0/lelamp-1.0.0.zip"
+    "url": "https://storage.googleapis.com/{BUCKET}/lumi/ota/lelamp/1.0.0/lelamp-1.0.0.zip"
   }
 }
 ```
@@ -77,11 +77,11 @@ File JSON duy nhất trên GCS. Tất cả thành phần tham chiếu file này.
 
 ```go
 const (
-    OTAKeyIntern    = "intern"
+    OTAKeyLumi      = "lumi"
     OTAKeyBootstrap = "bootstrap"
     OTAKeyWeb       = "web"
     OTAKeyOpenClaw  = "openclaw"
-    OTAKeyLeLamp    = "lelamp"    // MỚI cho AI Lamp
+    // OTAKeyLeLamp sẽ được thêm khi LeLamp OTA được triển khai
 )
 
 type OTAMetadata map[string]OTAComponent
@@ -107,7 +107,7 @@ Script chạy **1 lần duy nhất** trên Pi mới. Thực thi tuần tự theo
 | 0a | WiFi stability | Tắt IPv6, WiFi power saving (RPi5) |
 | 0b | Enable SPI | Cho WS2812 LED driver + GC9A01 display |
 | 1 | Fetch OTA metadata | Tải metadata.json, trích xuất versions và URLs |
-| 1b | Install binaries | Tải + cài intern-server, bootstrap-server, tạo systemd services |
+| 1b | Install binaries | Tải + cài lumi-server, bootstrap-server, tạo systemd services |
 | 2 | Install OpenClaw | `npm install -g openclaw`, tạo config, systemd service |
 | **2b** | **Install LeLamp** | **Tải + cài LeLamp Python runtime, tạo systemd service** (MỚI) |
 | 3 | Setup nginx | Tải web bundle, cấu hình reverse proxy + captive portal |
@@ -169,7 +169,7 @@ UNIT
 
 | Service | Lệnh chạy | Port | Ghi chú |
 |---|---|---|---|
-| `intern.service` | `/usr/local/bin/intern-server` | 5000 | HTTP API chính, luôn chạy |
+| `lumi.service` | `/usr/local/bin/lumi-server` | 5000 | HTTP API chính, luôn chạy |
 | `bootstrap.service` | `/usr/local/bin/bootstrap-server` | 8080 | OTA worker, poll cập nhật |
 | `openclaw.service` | `xvfb-run ... openclaw gateway run` | — | AI brain, memory limit 1500M |
 | `lelamp.service` | `/opt/lelamp/venv/bin/python -m lelamp.server` | TBD | Hardware drivers (servo, LED, audio, display) |
@@ -179,10 +179,10 @@ UNIT
 
 ```
 boot
-  → intern.service      (tầng hệ thống, LED boot animation)
+  → lumi.service      (tầng hệ thống, LED boot animation)
   → bootstrap.service   (bắt đầu poll cập nhật)
   → lelamp.service      (hardware drivers sẵn sàng)
-  → openclaw.service    (AI brain, kết nối intern qua HTTP)
+  → openclaw.service    (AI brain, kết nối lumi qua HTTP)
   → nginx               (web UI cho setup)
 ```
 
@@ -195,7 +195,7 @@ boot
 ```json
 {
   "httpPort": 8080,
-  "metadata_url": "https://storage.googleapis.com/{BUCKET}/intern/ota/metadata.json",
+  "metadata_url": "https://storage.googleapis.com/{BUCKET}/lumi/ota/metadata.json",
   "poll_interval": "5m",
   "state_file": "/root/bootstrap/state.json"
 }
@@ -210,7 +210,7 @@ Lưu version đã cài của mỗi thành phần:
 ```json
 {
   "components": {
-    "intern": "1.2.3",
+    "lumi": "1.2.3",
     "bootstrap": "1.0.5",
     "web": "0.9.0",
     "openclaw": "2026.3.8",
@@ -229,7 +229,7 @@ checkLoop():
 
 checkOnce():
   1. Tải OTA metadata JSON
-  2. Với mỗi key [intern, bootstrap, web, openclaw, lelamp]:
+  2. Với mỗi key [lumi, bootstrap, web, openclaw, lelamp]:
      → reconcile(key, metadata[key])
   3. Lưu state
 
@@ -244,7 +244,7 @@ reconcile(key, target):
 
 | Thành phần | Cách phát hiện |
 |---|---|
-| `intern` | Chạy `intern-server --version`, parse output |
+| `lumi` | Chạy `lumi-server --version`, parse output |
 | `bootstrap` | Hằng số compile-time `config.BootstrapVersion` (ldflags) |
 | `web` | Đọc file `/usr/share/nginx/html/setup/VERSION` |
 | `openclaw` | Chạy `openclaw --version`, trích xuất semver bằng regex |
@@ -254,7 +254,7 @@ reconcile(key, target):
 
 | Thành phần | Các bước |
 |---|---|
-| `intern` | Chạy `software-update intern` (block tối đa 10 phút) |
+| `lumi` | Chạy `software-update lumi` (block tối đa 10 phút) |
 | `bootstrap` | Spawn detached `software-update bootstrap` (tự cập nhật, sống sót sau restart) |
 | `web` | Chạy `software-update web` |
 | `openclaw` | Chạy `npm install -g openclaw@{version}` → `systemctl restart openclaw` |
@@ -335,11 +335,13 @@ LeLamp nằm trong repo này dưới dạng subfolder Python, cùng với Go và
 
 ```
 ai-lamp-openclaw/
-├── cmd/                  # Go entrypoints
-├── server/               # Go HTTP layer
-├── internal/             # Go business logic
-├── bootstrap/            # Go OTA worker
-├── web/                  # TypeScript/React SPA (đã có)
+├── lumi/                 # Go code (fork từ lobster)
+│   ├── cmd/              # Go entrypoints
+│   ├── server/           # Go HTTP layer
+│   ├── internal/         # Go business logic
+│   ├── bootstrap/        # Go OTA worker
+│   └── domain/           # Struct dùng chung
+├── web/                  # TypeScript/React SPA (copy từ lobster, đổi intern→lumi)
 ├── lelamp/               # Python hardware drivers (MỚI)
 │   ├── __init__.py       # Package init, expose __version__
 │   ├── server.py         # HTTP API server (FastAPI) — MỚI, không từ upstream
@@ -404,8 +406,8 @@ set -euo pipefail
 
 VERSION_FILE="VERSION_LELAMP"
 BUCKET="s3-autonomous-upgrade-3"
-OTA_PATH="intern/ota/lelamp"
-METADATA_PATH="intern/ota/metadata.json"
+OTA_PATH="lumi/ota/lelamp"
+METADATA_PATH="lumi/ota/metadata.json"
 
 # Tự tăng patch version
 CURRENT=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
@@ -439,10 +441,13 @@ echo "LeLamp $NEW_VERSION published."
 
 | Script | Thành phần | Pattern |
 |---|---|---|
-| `scripts/upload-intern.sh` | Intern Server binary | Build → zip → GCS → update metadata |
+| `scripts/upload-lumi.sh` | Lumi Server binary | Build → zip → GCS → update metadata |
 | `scripts/upload-bootstrap.sh` | Bootstrap Server binary | Build → zip → GCS → update metadata |
 | `scripts/upload-web.sh` | Web SPA bundle | Build → zip → GCS → update metadata |
 | `scripts/upload-lelamp.sh` | LeLamp Python runtime (MỚI) | Package → zip → GCS → update metadata |
+| `scripts/upload-setup.sh` | Script setup | Upload lên GCS |
+| `scripts/upload-setup-ap.sh` | Script setup AP | Upload lên GCS |
+| `scripts/upload-skills.sh` | OpenClaw skill files | Upload lên GCS |
 
 ---
 
@@ -454,13 +459,13 @@ echo "LeLamp $NEW_VERSION published."
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 LDFLAGS_BOOTSTRAP := -X go-lamp.autonomous.ai/bootstrap/config.BootstrapVersion=$(VERSION)
-LDFLAGS_INTERN    := -X go-lamp.autonomous.ai/server/config.InternVersion=$(VERSION)
+LDFLAGS_LAMP    := -X go-lamp.autonomous.ai/server/config.LumiVersion=$(VERSION)
 
 build-bootstrap:
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_BOOTSTRAP)" -o bootstrap-server ./cmd/bootstrap
 
 build-lamp:
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_INTERN)" -o intern-server ./cmd/lamp
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
 ```
 
 ### LeLamp (VERSION file)
@@ -473,12 +478,12 @@ Version của LeLamp là file text `VERSION` trong thư mục gốc package. Boo
 
 | Khía cạnh | Lobster (gốc) | AI Lamp (project này) |
 |---|---|---|
-| Số thành phần | 4 (intern, bootstrap, web, openclaw) | **5** (+ lelamp) |
-| OTA keys | intern, bootstrap, web, openclaw | + **lelamp** |
+| Số thành phần | 4 (lumi, bootstrap, web, openclaw) | **5** (+ lelamp) |
+| OTA keys | lumi, bootstrap, web, openclaw | + **lelamp** |
 | Setup stages | 7 (stage -1 đến 4) | **8** (+ stage 2b: LeLamp) |
 | Systemd services | 4 | **5** (+ lelamp.service) |
 | Python runtime | Không có | **LeLamp** tại /opt/lelamp/ với venv |
-| Hardware bridge | Không có | Intern HTTP → LeLamp HTTP (localhost proxy) |
+| Hardware bridge | Không có | Lumi HTTP → LeLamp HTTP (localhost proxy) |
 | SPI usage | Chỉ LED | LED + **Display (GC9A01)** |
 
 ---
@@ -491,7 +496,7 @@ Version của LeLamp là file text `VERSION` trong thư mục gốc package. Boo
 - [ ] **Python version**: Pin Python 3.11+? Yêu cầu Python hiện tại của LeLamp?
 - [ ] **Đóng gói LeLamp**: Include venv sẵn? Hay cài deps trên thiết bị? (Pi resources hạn chế cho `pip install`)
 - [ ] **Display driver**: DisplayService (GC9A01) — nằm trong LeLamp Python? Hay module mới?
-- [ ] **LeLamp config**: LeLamp cần config file riêng? Hay cấu hình qua Intern Server?
+- [ ] **LeLamp config**: LeLamp cần config file riêng? Hay cấu hình qua Lumi Server?
 
 ---
 
