@@ -12,11 +12,11 @@ import (
 
 const configPath = "config/config.json"
 
-// InternVersion is injected at build time via ldflags.
+// LumiVersion is injected at build time via ldflags.
 // Example:
 //
-//	-X go-lamp.autonomous.ai/server/config.InternVersion=v1.2.3
-var InternVersion = "dev"
+//	-X go-lamp.autonomous.ai/server/config.LumiVersion=v1.2.3
+var LumiVersion = "dev"
 
 type Config struct {
 	HttpPort int `json:"httpPort" yaml:"httpPort" validate:"required"`

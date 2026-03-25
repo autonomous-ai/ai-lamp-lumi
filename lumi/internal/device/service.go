@@ -98,7 +98,7 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 			Status:         s.ledEngine.GetState().String(),
 			SetupCompleted: true,
 			Mac:            GetDeviceMac(),
-			Version:        config.InternVersion,
+			Version:        config.LumiVersion,
 		})
 	}
 	return nil
@@ -152,7 +152,7 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 				Status:         s.ledEngine.GetState().String(),
 				SetupCompleted: s.config.SetUpCompleted,
 				Mac:            GetDeviceMac(),
-				Version:        config.InternVersion,
+				Version:        config.LumiVersion,
 			})
 			dump, _ := json.Marshal(resp)
 			log.Printf("[status-reporter] received response from backend: %s", string(dump))

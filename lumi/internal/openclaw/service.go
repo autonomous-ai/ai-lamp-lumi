@@ -489,7 +489,7 @@ func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
 
 	connectReq := map[string]interface{}{
 		"type":   "req",
-		"id":     "intern-1",
+		"id":     "lumi-1",
 		"method": "connect",
 		"params": map[string]interface{}{
 			"minProtocol": 3,
