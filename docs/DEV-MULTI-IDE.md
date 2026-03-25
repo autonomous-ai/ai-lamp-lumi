@@ -4,8 +4,12 @@ This project is developed with **Cursor** and **Claude Code** (multi-IDE). Chang
 
 ## Conventions When Making Changes
 
-1. **Update docs** — When code changes, update the relevant files in `docs/`:
-   - `lamp-server_vi.md`, `led-control_vi.md`, `setup-flow_vi.md`, `web-ui_vi.md`, `overview_vi.md`, `bootstrap-server_vi.md`, `mqtt_vi.md`
+1. **Update docs** — When code changes, update the relevant files in `docs/` and `docs/vi/`:
+   - `architecture-decision.md` — Architecture, layers, inherited/new components
+   - `bootstrap-ota.md` — OTA system, setup stages, upload scripts
+   - `product-vision.md` — Product vision, use cases, hardware specs
+   - `open-decisions.md` — Unresolved/resolved architecture decisions
+   - Vietnamese translations in `docs/vi/` with same filenames
    - Keep numbers, flows, endpoints, and states accurate
 
 2. **Comment in English** — Per project rule

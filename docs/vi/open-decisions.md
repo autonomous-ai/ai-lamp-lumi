@@ -107,6 +107,16 @@
 | OTA components | 5 thành phần: lumi, bootstrap, web, openclaw, lelamp. LeLamp = stage 2b. | `bootstrap-ota.md` §1-§3 |
 | Product pillars | 4 Trụ cột: "Hiểu tôi", "Sống thật", "Hữu ích thật", "Tự hành". | `product-vision.md` §2 |
 
+## Đã chốt (2026-03-25)
+
+| Quyết định | Kết quả | Docs |
+|---|---|---|
+| Loại bỏ GWS | Xóa toàn bộ GWS (Google Workspace) handlers, scripts, domain types. MQTT commands chỉ còn: `info`, `add_channel`, `ota`. | `architecture-decision.md` §4 |
+| Inline LLM service | Xóa `internal/llm/` service. `ListModelsFromAPI` inline vào `internal/openclaw/service.go`. | `architecture-decision.md` §4 |
+| Loại bỏ onboarding | Xóa `onboarding.go` khỏi openclaw. Luồng setup đơn giản hóa. | `architecture-decision.md` §4 |
+| Dọn dẹp scripts | Xóa `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Thêm `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
+| Đổi tên thư mục code | Toàn bộ code chuyển vào thư mục `lumi/`. Tất cả "intern" đổi thành "lumi". | Tất cả docs |
+
 ---
 
 > Khi chốt quyết định, chuyển từ "Chưa chốt" xuống "Đã chốt" kèm ngày và cập nhật docs liên quan.

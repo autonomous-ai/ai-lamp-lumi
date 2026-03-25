@@ -127,7 +127,7 @@ Sensing Loop (Lumi Server, luôn chạy):
 **Rule-based** (không cần AI): auto-dim khi vắng, adjust brightness khi trời tối, idle animations.
 **AI-driven** (OpenClaw quyết định): chào hỏi, phản ứng mood, empathy, gợi ý theo lịch.
 
-**Kế thừa từ lobster:**
+**Kế thừa từ lobster (nay nằm trong thư mục `lumi/`):**
 
 ```
 server/server.go          — HTTP server (Gin, port 5000)
@@ -137,10 +137,15 @@ internal/resetbutton/     — GPIO 26 nhấn giữ
 internal/network/         — WiFi AP/STA
 internal/openclaw/        — Cấu hình OpenClaw & WebSocket
 internal/beclient/        — Backend client, báo cáo trạng thái
+internal/device/          — Setup, xử lý lệnh MQTT, báo cáo trạng thái
 lib/mqtt/                 — MQTT client, tự kết nối lại
 bootstrap/                — OTA, kiểm tra version
-domain/                   — Struct dùng chung
+domain/                   — Struct dùng chung (device, LED, network, OTA, OpenClaw)
 ```
+
+**MQTT commands** (nhận qua fa_channel): `info`, `add_channel`, `ota`
+
+**Đã loại bỏ từ lobster**: GWS (Google Workspace) handlers, internal/llm/ service (listing model đã inline vào openclaw/service.go), luồng onboarding, sendip scripts, release scripts.
 
 ---
 
@@ -389,9 +394,10 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 | Dịch vụ mạng | `internal/network/` | WiFi AP/STA, quét mạng |
 | Dịch vụ OpenClaw | `internal/openclaw/` | Tạo config, WebSocket |
 | Backend client | `internal/beclient/` | Báo cáo trạng thái |
+| Device service | `internal/device/` | Setup, xử lý lệnh MQTT, báo cáo trạng thái |
 | MQTT client | `lib/mqtt/` | Tự kết nối lại, dispatch |
 | OTA bootstrap | `bootstrap/` | Kiểm tra version, cài đặt |
-| Domain models | `domain/` | Struct dùng chung |
+| Domain models | `domain/` | Struct dùng chung (device, LED, network, OTA, OpenClaw) |
 | Build & deploy | `scripts/`, `Makefile` | Cross-compile, systemd |
 
 ---

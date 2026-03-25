@@ -118,6 +118,16 @@
 | OTA components | 5 components: lumi, bootstrap, web, openclaw, lelamp. LeLamp = setup stage 2b. | `bootstrap-ota.md` §1-§3 |
 | Product pillars | 4 Pillars: "It understands me", "It feels alive", "It's actually useful", "It acts on its own". | `product-vision.md` §2 |
 
+## Resolved (2026-03-25)
+
+| Decision | Resolution | Docs |
+|---|---|---|
+| GWS removal | Removed all GWS (Google Workspace) handlers, scripts, and domain types. MQTT commands reduced to: `info`, `add_channel`, `ota`. | `architecture-decision.md` §4 |
+| LLM service inlining | Removed `internal/llm/` service. `ListModelsFromAPI` inlined into `internal/openclaw/service.go`. | `architecture-decision.md` §4 |
+| Onboarding removal | Removed `onboarding.go` from openclaw. Setup flow simplified. | `architecture-decision.md` §4 |
+| Scripts cleanup | Removed `release-*.sh`, `setup-gws-cli.sh`, `upload-gws-cli.sh`, `install-sendip.sh`, `sendip.sh`. Added `upload-lelamp.sh`. | `bootstrap-ota.md` §7 |
+| Code directory rename | All code moved under `lumi/` subdirectory. "intern" references replaced with "lumi". | All docs |
+
 ---
 
 *When a decision is made, move it from Unresolved to Resolved with the date and update the relevant docs.*
