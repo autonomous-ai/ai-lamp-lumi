@@ -4,6 +4,7 @@
 .env.*.local
 .idea/
 .vscode/
+.cursor/
 *.log
 
 # Go build artifacts
@@ -17,23 +18,17 @@
 *.prof
 *.coverprofile
 *.pprof
-bin/
-dist/
 
-lumi-server
-bootstrap-server
-
-vendor
-
+# Lumi (Go)
+lumi/lumi-server
+lumi/bootstrap-server
+lumi/vendor/
+lumi/web/node_modules/
+lumi/web/dist/
 *.zip
 
-# Web frontend
-web/node_modules/
-web/dist/
-
-# LeLamp Python
+# LeLamp (Python)
 lelamp/.venv/
 lelamp/__pycache__/
 lelamp/**/__pycache__/
 lelamp/*.egg-info/
-lelamp/uv.lock

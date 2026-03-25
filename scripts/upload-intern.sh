@@ -3,10 +3,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-INTERN_BIN="${ROOT_DIR}/intern-server"
-VERSION_FILE="${ROOT_DIR}/${VERSION_FILE:-VERSION_INTERN}"
+LUMI_BIN="${ROOT_DIR}/lumi-server"
+VERSION_FILE="${ROOT_DIR}/${VERSION_FILE:-VERSION_LUMI}"
 
-# Bucket and path: intern/ota/intern/[semver].zip
+# Bucket and path: lumi/ota/lumi/[semver].zip
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
 
 # Auto-increment semver (patch) before build
@@ -23,27 +23,27 @@ else
   echo "========== Version initialized: ${new_version} =========="
 fi
 
-ZIP_NAME="intern-${new_version}.zip"
+ZIP_NAME="lumi-${new_version}.zip"
 ZIP_PATH="${ROOT_DIR}/${ZIP_NAME}"
-GCS_PATH="${GCS_PATH:-intern/ota/intern/${new_version}.zip}"
+GCS_PATH="${GCS_PATH:-lumi/ota/lumi/${new_version}.zip}"
 
-echo "========== Build intern binary (VERSION=${new_version}) =========="
-(cd "$ROOT_DIR" && make build-intern VERSION="$new_version")
+echo "========== Build lumi binary (VERSION=${new_version}) =========="
+(cd "$ROOT_DIR" && make lumi-build VERSION="$new_version")
 
-if [[ ! -f "$INTERN_BIN" ]]; then
-  echo "Error: intern binary not found at $INTERN_BIN after make build-intern"
+if [[ ! -f "$LUMI_BIN" ]]; then
+  echo "Error: lumi binary not found at $LUMI_BIN after make lumi-build"
   exit 1
 fi
 
-echo "========== Zipping intern binary to ${ZIP_NAME} =========="
+echo "========== Zipping lumi binary to ${ZIP_NAME} =========="
 rm -f "$ZIP_PATH"
-(cd "$ROOT_DIR" && zip "$ZIP_PATH" "$INTERN_BIN")
+(cd "$ROOT_DIR" && zip "$ZIP_PATH" "$LUMI_BIN")
 
 echo "========== Upload ${ZIP_NAME} to Google Cloud Storage (no-cache) =========="
 gsutil -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$ZIP_PATH" "gs://${GCS_BUCKET}/${GCS_PATH}"
 
-# Update metadata.json (intern/ota/metadata.json) - backend key
-METADATA_PATH="intern/ota/metadata.json"
+# Update metadata.json (lumi/ota/metadata.json) - backend key
+METADATA_PATH="lumi/ota/metadata.json"
 METADATA_TMP=$(mktemp)
 BACKEND_URL="${BACKEND_URL:-https://storage.googleapis.com/${GCS_BUCKET}/${GCS_PATH}}"
 
@@ -65,7 +65,7 @@ try:
     data = json.loads(raw) if raw.strip() else {}
 except json.JSONDecodeError:
     data = {}
-data['intern'] = {'version': sys.argv[1], 'url': sys.argv[2]}
+data['lumi'] = {'version': sys.argv[1], 'url': sys.argv[2]}
 print(json.dumps(data, indent=2))
 " "$new_version" "$BACKEND_URL")
 
