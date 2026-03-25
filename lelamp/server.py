@@ -13,11 +13,23 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from lelamp.service.motors.animation_service import AnimationService
-from lelamp.service.rgb.rgb_service import RGBService
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lelamp.server")
+
+# --- Lazy imports for hardware drivers (may not be available on dev machines) ---
+
+AnimationService = None
+RGBService = None
+
+try:
+    from lelamp.service.motors.animation_service import AnimationService
+except ImportError as e:
+    logger.warning(f"Servo drivers not available: {e}")
+
+try:
+    from lelamp.service.rgb.rgb_service import RGBService
+except ImportError as e:
+    logger.warning(f"LED drivers not available: {e}")
 
 # --- Config ---
 
@@ -28,8 +40,8 @@ HTTP_PORT = int(os.environ.get("LELAMP_HTTP_PORT", "5001"))
 
 # --- Services (initialized on startup) ---
 
-animation_service: Optional[AnimationService] = None
-rgb_service: Optional[RGBService] = None
+animation_service = None
+rgb_service = None
 
 
 @asynccontextmanager
@@ -37,22 +49,24 @@ async def lifespan(app: FastAPI):
     global animation_service, rgb_service
 
     # Start servo/animation service
-    try:
-        animation_service = AnimationService(port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS)
-        animation_service.start()
-        logger.info("AnimationService started")
-    except Exception as e:
-        logger.warning(f"AnimationService not available: {e}")
-        animation_service = None
+    if AnimationService:
+        try:
+            animation_service = AnimationService(port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS)
+            animation_service.start()
+            logger.info("AnimationService started")
+        except Exception as e:
+            logger.warning(f"AnimationService failed to start: {e}")
+            animation_service = None
 
     # Start RGB LED service
-    try:
-        rgb_service = RGBService(led_count=64)
-        rgb_service.start()
-        logger.info("RGBService started")
-    except Exception as e:
-        logger.warning(f"RGBService not available: {e}")
-        rgb_service = None
+    if RGBService:
+        try:
+            rgb_service = RGBService(led_count=64)
+            rgb_service.start()
+            logger.info("RGBService started")
+        except Exception as e:
+            logger.warning(f"RGBService failed to start: {e}")
+            rgb_service = None
 
     yield
 
