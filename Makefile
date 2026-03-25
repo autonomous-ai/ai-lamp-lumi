@@ -12,7 +12,7 @@ WEB_DIR        := $(LUMI_DIR)/web
 
 # Go build
 MODULE         := go-lamp.autonomous.ai
-LDFLAGS_LAMP   := -X $(MODULE)/server/config.InternVersion=$(VERSION)
+LDFLAGS_LAMP   := -X $(MODULE)/server/config.LumiVersion=$(VERSION)
 LDFLAGS_BOOT   := -X $(MODULE)/bootstrap/config.BootstrapVersion=$(VERSION)
 
 # LeLamp
@@ -48,7 +48,7 @@ lumi-deploy-bootstrap: lumi-build-bootstrap
 	ssh $(PI_USER)@$(PI_HOST) "systemctl restart bootstrap.service"
 
 lumi-upload: lumi-build
-	scripts/upload-intern.sh
+	scripts/upload-lumi.sh
 
 lumi-upload-bootstrap: lumi-build-bootstrap
 	scripts/upload-bootstrap.sh

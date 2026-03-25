@@ -842,11 +842,11 @@ CONNECTWIFI
 set -e
 OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/ota/metadata.json}"
 [ "$(id -u)" -ne 0 ] && { echo "Run as root."; exit 1; }
-[ $# -ne 1 ] && { echo "Usage: software-update <intern|openclaw|web>"; exit 1; }
+[ $# -ne 1 ] && { echo "Usage: software-update <lumi|openclaw|web>"; exit 1; }
 APP="$1"
 case "$APP" in
-  intern|openclaw|bootstrap|web) ;;
-  *) echo "Unknown app: $APP. Use intern, openclaw, bootstrap, or web."; exit 1 ;;
+  lumi|openclaw|bootstrap|web) ;;
+  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, or web."; exit 1 ;;
 esac
 
 METADATA_TMP=$(mktemp)
