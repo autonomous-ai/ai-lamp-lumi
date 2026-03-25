@@ -333,6 +333,36 @@ EMOTION_PRESETS = {
 }
 
 
+# --- Lighting scene presets ---
+# Simulated color temperature via RGB mixing
+# 2200K = very warm amber, 2700K = warm white, 4000K = neutral, 5000K = cool, 6500K = daylight
+SCENE_PRESETS = {
+    "reading":  {"brightness": 0.80, "color": [255, 225, 180]},  # ~4000K neutral
+    "focus":    {"brightness": 1.00, "color": [235, 240, 255]},  # ~5000K cool white
+    "relax":    {"brightness": 0.40, "color": [255, 180, 100]},  # ~2700K warm
+    "movie":    {"brightness": 0.15, "color": [255, 170, 80]},   # ~2700K dim amber
+    "night":    {"brightness": 0.05, "color": [255, 140, 40]},   # ~2200K very warm
+    "energize": {"brightness": 1.00, "color": [220, 235, 255]},  # ~6500K daylight
+}
+
+
+class SceneRequest(BaseModel):
+    scene: str = Field(..., description="Scene name: reading, focus, relax, movie, night, energize")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"scene": "reading"}]
+        }
+    }
+
+
+class SceneResponse(BaseModel):
+    status: str
+    scene: str
+    brightness: float
+    color: list[int]
+
+
 class SpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Text to speak via TTS")
 
@@ -589,6 +619,41 @@ def express_emotion(req: EmotionRequest):
         "emotion": req.emotion,
         "servo": servo_played,
         "led": led_color,
+    }
+
+
+# --- Scene endpoints ---
+
+@app.get("/scene", tags=["Scene"])
+def list_scenes():
+    """List all available lighting scene presets."""
+    return {"scenes": list(SCENE_PRESETS.keys())}
+
+
+@app.post("/scene", response_model=SceneResponse, tags=["Scene"])
+def activate_scene(req: SceneRequest):
+    """Activate a lighting scene preset. Sets LED color scaled by scene brightness."""
+    preset = SCENE_PRESETS.get(req.scene)
+    if not preset:
+        available = list(SCENE_PRESETS.keys())
+        raise HTTPException(400, f"Unknown scene '{req.scene}'. Available: {available}")
+
+    if not rgb_service:
+        raise HTTPException(503, "LED not available")
+
+    base = preset["color"]
+    brightness = preset["brightness"]
+    scaled = [int(c * brightness) for c in base]
+    try:
+        rgb_service.dispatch("solid", tuple(scaled))
+    except Exception as e:
+        raise HTTPException(500, f"Failed to set scene: {e}")
+
+    return {
+        "status": "ok",
+        "scene": req.scene,
+        "brightness": brightness,
+        "color": scaled,
     }
 
 
