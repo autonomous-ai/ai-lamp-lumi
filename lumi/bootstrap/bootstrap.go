@@ -119,7 +119,7 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 	}
 
 	changed := false
-	for _, key := range []string{domain.OTAKeyIntern, domain.OTAKeyBootstrap, domain.OTAKeyWeb} {
+	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb} {
 		component, ok := meta[key]
 		if !ok {
 			continue
@@ -223,8 +223,8 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 	defer cancel()
 
 	switch key {
-	case domain.OTAKeyIntern:
-		out, err := system.Run(runCtx, "intern-server", "--version")
+	case domain.OTAKeyLumi:
+		out, err := system.Run(runCtx, "lumi-server", "--version")
 		if err != nil {
 			return ""
 		}
@@ -252,7 +252,7 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 // applyUpdate runs the appropriate update command for the given component.
 func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domain.OTAComponent) error {
 	switch key {
-	case domain.OTAKeyIntern, domain.OTAKeyWeb:
+	case domain.OTAKeyLumi, domain.OTAKeyWeb:
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		out, err := system.Run(runCtx, "software-update", key)
@@ -306,7 +306,7 @@ func openclawNormalizeVersion(raw string) string {
 }
 
 // normalizeVersion extracts a semver-like version from command output (e.g. "1.0.83" or "intern-server 1.0.83" -> "1.0.83").
-// Used for OTAKeyIntern and bootstrap-style version output (intern-server --version, bootstrap-server --version).
+// Used for OTAKeyLumi and bootstrap-style version output (lumi-server --version, bootstrap-server --version).
 func normalizeVersion(raw string) string {
 	line := strings.TrimSpace(strings.TrimRight(raw, "\r\n"))
 	if line == "" {
