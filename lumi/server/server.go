@@ -204,6 +204,11 @@ func (s *Server) Serve(closeFn func()) error {
 	health.GET("/live", s.healthHandler.Live)
 	health.GET("/readiness", s.healthHandler.Readiness)
 
+	system := api.Group("system")
+	system.GET("info", s.healthHandler.SystemInfo)
+	system.GET("network", s.healthHandler.NetworkInfo)
+	system.GET("dashboard", s.healthHandler.Dashboard)
+
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
 	device.POST("channel", s.deviceHandler.ChangeChannel)
@@ -215,6 +220,11 @@ func (s *Server) Serve(closeFn func()) error {
 
 	sensing := api.Group("sensing")
 	sensing.POST("event", s.sensingHandler.PostEvent)
+
+	oc := api.Group("openclaw")
+	oc.GET("status", s.openclawHandler.Status)
+	oc.GET("events", s.openclawHandler.Events)
+	oc.GET("recent", s.openclawHandler.Recent)
 
 	log.Println("Start server completed")
 
