@@ -5,12 +5,15 @@ Only starts the drivers we need. LiveKit/OpenAI code stays untouched but never i
 Lumi Server (Go, port 5000) bridges requests here.
 """
 
+import io
 import os
 import logging
+import subprocess
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 from typing import Optional, Union
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +23,8 @@ logger = logging.getLogger("lelamp.server")
 
 AnimationService = None
 RGBService = None
+sd = None
+np = None
 
 try:
     from lelamp.service.motors.animation_service import AnimationService
@@ -31,22 +36,60 @@ try:
 except ImportError as e:
     logger.warning(f"LED drivers not available: {e}")
 
+try:
+    import sounddevice as sd
+    import numpy as np
+except ImportError as e:
+    logger.warning(f"Audio drivers not available: {e}")
+
+cv2 = None
+try:
+    import cv2
+except ImportError as e:
+    logger.warning(f"Camera drivers (opencv) not available: {e}")
+
 # --- Config ---
 
 SERVO_PORT = os.environ.get("LELAMP_SERVO_PORT", "/dev/ttyACM0")
 LAMP_ID = os.environ.get("LELAMP_LAMP_ID", "lumi")
 SERVO_FPS = int(os.environ.get("LELAMP_SERVO_FPS", "30"))
 HTTP_PORT = int(os.environ.get("LELAMP_HTTP_PORT", "5001"))
+CAMERA_INDEX = int(os.environ.get("LELAMP_CAMERA_INDEX", "0"))
+CAMERA_WIDTH = int(os.environ.get("LELAMP_CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 
 # --- Services (initialized on startup) ---
 
 animation_service = None
 rgb_service = None
+camera_capture = None
+
+
+def _find_seeed_device(output: bool = True) -> Optional[int]:
+    """Find Seeed audio device index."""
+    if not sd:
+        return None
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            if "seeed" not in d["name"].lower():
+                continue
+            if output and d["max_output_channels"] > 0:
+                return i
+            if not output and d["max_input_channels"] > 0:
+                return i
+    except Exception:
+        pass
+    return None
+
+
+seeed_output_device: Optional[int] = None
+seeed_input_device: Optional[int] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global animation_service, rgb_service
+    global animation_service, rgb_service, camera_capture
+    global seeed_output_device, seeed_input_device
 
     # Start servo/animation service
     if AnimationService:
@@ -68,6 +111,30 @@ async def lifespan(app: FastAPI):
             logger.warning(f"RGBService failed to start: {e}")
             rgb_service = None
 
+    # Open camera
+    if cv2:
+        try:
+            cap = cv2.VideoCapture(CAMERA_INDEX)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            if cap.isOpened():
+                camera_capture = cap
+                logger.info(f"Camera opened (index={CAMERA_INDEX}, {CAMERA_WIDTH}x{CAMERA_HEIGHT})")
+            else:
+                cap.release()
+                logger.warning("Camera failed to open")
+        except Exception as e:
+            logger.warning(f"Camera failed to start: {e}")
+
+    # Detect audio devices
+    if sd:
+        seeed_output_device = _find_seeed_device(output=True)
+        seeed_input_device = _find_seeed_device(output=False)
+        if seeed_output_device is not None:
+            logger.info(f"Audio output device: {seeed_output_device}")
+        if seeed_input_device is not None:
+            logger.info(f"Audio input device: {seeed_input_device}")
+
     yield
 
     # Shutdown
@@ -75,14 +142,17 @@ async def lifespan(app: FastAPI):
         animation_service.stop()
     if rgb_service:
         rgb_service.stop()
+    if camera_capture:
+        camera_capture.release()
 
 
 app = FastAPI(
     title="LeLamp Hardware Runtime",
     description="Hardware driver API for Lumi AI Lamp. "
-    "Controls servo motors (5-axis Feetech) and RGB LEDs (64x WS2812). "
+    "Controls servo motors (5-axis Feetech), RGB LEDs (64x WS2812), "
+    "camera, and audio (mic/speaker). "
     "Lumi Server (Go, port 5000) bridges requests here.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -146,10 +216,34 @@ class StatusResponse(BaseModel):
     status: str
 
 
+class VolumeRequest(BaseModel):
+    volume: int = Field(..., ge=0, le=100, description="Volume percentage 0-100")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"volume": 75}]
+        }
+    }
+
+
+class AudioDevicesResponse(BaseModel):
+    output_device: Optional[int]
+    input_device: Optional[int]
+    available: bool
+
+
+class CameraInfoResponse(BaseModel):
+    available: bool
+    width: Optional[int]
+    height: Optional[int]
+
+
 class HealthResponse(BaseModel):
     status: str
     servo: bool
     led: bool
+    camera: bool
+    audio: bool
 
 
 # --- Servo endpoints ---
@@ -171,7 +265,7 @@ def play_recording(req: ServoRequest):
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     animation_service.dispatch("play", req.recording)
-    return {"status": "ok", "recording": req.recording}
+    return {"status": "ok"}
 
 
 # --- LED endpoints ---
@@ -213,6 +307,138 @@ def turn_off_leds():
     return {"status": "ok"}
 
 
+# --- Camera endpoints ---
+
+@app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
+def get_camera_info():
+    """Get camera availability and resolution."""
+    if not camera_capture:
+        return {"available": False, "width": None, "height": None}
+    return {
+        "available": True,
+        "width": int(camera_capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        "height": int(camera_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+    }
+
+
+@app.get("/camera/snapshot", tags=["Camera"])
+def camera_snapshot():
+    """Capture a single JPEG frame from the camera."""
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+    ret, frame = camera_capture.read()
+    if not ret:
+        raise HTTPException(500, "Failed to capture frame")
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
+
+
+@app.get("/camera/stream", tags=["Camera"])
+def camera_stream():
+    """MJPEG stream from the camera (multipart/x-mixed-replace)."""
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+
+    def generate():
+        while True:
+            ret, frame = camera_capture.read()
+            if not ret:
+                break
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+            )
+
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+# --- Audio endpoints ---
+
+@app.get("/audio", response_model=AudioDevicesResponse, tags=["Audio"])
+def get_audio_info():
+    """Get audio device availability."""
+    return {
+        "output_device": seeed_output_device,
+        "input_device": seeed_input_device,
+        "available": seeed_output_device is not None or seeed_input_device is not None,
+    }
+
+
+@app.post("/audio/volume", response_model=StatusResponse, tags=["Audio"])
+def set_volume(req: VolumeRequest):
+    """Set system speaker volume (0-100%). Uses amixer on the Pi."""
+    controls = ["Line", "Line DAC", "HP"]
+    for ctrl in controls:
+        try:
+            subprocess.run(
+                ["amixer", "sset", ctrl, f"{req.volume}%"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            pass
+    return {"status": "ok"}
+
+
+@app.get("/audio/volume", tags=["Audio"])
+def get_volume():
+    """Get current speaker volume from amixer."""
+    for ctrl in ["Line", "Line DAC", "HP"]:
+        try:
+            result = subprocess.run(
+                ["amixer", "sget", ctrl],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                # Parse percentage from amixer output like [75%]
+                import re
+                match = re.search(r"\[(\d+)%\]", result.stdout)
+                if match:
+                    return {"control": ctrl, "volume": int(match.group(1))}
+        except Exception:
+            continue
+    raise HTTPException(503, "Audio volume control not available")
+
+
+@app.post("/audio/play-tone", response_model=StatusResponse, tags=["Audio"])
+def play_tone(frequency: int = 440, duration_ms: int = 500):
+    """Play a test tone through the speaker."""
+    if not sd or not np:
+        raise HTTPException(503, "Audio not available")
+    if seeed_output_device is None:
+        raise HTTPException(503, "No output audio device found")
+    sample_rate = 44100
+    t = np.linspace(0, duration_ms / 1000, int(sample_rate * duration_ms / 1000), endpoint=False)
+    tone = 0.5 * np.sin(2 * np.pi * frequency * t).astype(np.float32)
+    sd.play(tone, samplerate=sample_rate, device=seeed_output_device)
+    return {"status": "ok"}
+
+
+@app.post("/audio/record", tags=["Audio"])
+def record_audio(duration_ms: int = 3000):
+    """Record audio from the microphone. Returns WAV bytes."""
+    if not sd or not np:
+        raise HTTPException(503, "Audio not available")
+    if seeed_input_device is None:
+        raise HTTPException(503, "No input audio device found")
+    import wave
+    sample_rate = 44100
+    channels = 1
+    frames = int(sample_rate * duration_ms / 1000)
+    recording = sd.rec(frames, samplerate=sample_rate, channels=channels,
+                       dtype="int16", device=seeed_input_device)
+    sd.wait()
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(recording.tobytes())
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="audio/wav")
+
+
 # --- Health ---
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -222,6 +448,8 @@ def health():
         "status": "ok",
         "servo": animation_service is not None,
         "led": rgb_service is not None,
+        "camera": camera_capture is not None,
+        "audio": seeed_output_device is not None or seeed_input_device is not None,
     }
 
 

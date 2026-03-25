@@ -134,9 +134,10 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 		}
 	}
 
-	if b.reconcileOpenClawFromNpm(ctx) {
-		changed = true
-	}
+	// TODO: openclaw OTA temporarily disabled
+	// if b.reconcileOpenClawFromNpm(ctx) {
+	// 	changed = true
+	// }
 
 	if changed {
 		if err := state.Save(b.cfg.StateFile, b.state); err != nil {
