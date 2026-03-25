@@ -4,9 +4,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SETUP_FILE="${SCRIPT_DIR}/setup-gws-cli.sh"
 
-# Bucket and path matching https://storage.googleapis.com/s3-autonomous-upgrade-3/intern/setup-gws-cli.sh
+# Bucket and path matching https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/setup-gws-cli.sh
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
-GCS_PATH="${GCS_PATH:-intern/setup-gws-cli.sh}"
+GCS_PATH="${GCS_PATH:-lumi/setup-gws-cli.sh}"
 
 if [[ ! -f "$SETUP_FILE" ]]; then
   echo "Error: setup-gws-cli.sh not found at $SETUP_FILE"
