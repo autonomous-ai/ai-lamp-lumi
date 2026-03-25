@@ -9,18 +9,16 @@ package server
 import (
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
-	http6 "go-lamp.autonomous.ai/server/device/delivery/gpio"
-	http4 "go-lamp.autonomous.ai/server/device/delivery/http"
-	http5 "go-lamp.autonomous.ai/server/device/delivery/mqtt"
+	http4 "go-lamp.autonomous.ai/server/device/delivery/gpio"
+	http3 "go-lamp.autonomous.ai/server/device/delivery/http"
+	"go-lamp.autonomous.ai/server/device/delivery/mqtt"
 	"go-lamp.autonomous.ai/server/health/delivery/http"
-	http2 "go-lamp.autonomous.ai/server/led/delivery/http"
-	http3 "go-lamp.autonomous.ai/server/network/delivery/http"
+	http2 "go-lamp.autonomous.ai/server/network/delivery/http"
 	"go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 )
 
@@ -29,27 +27,21 @@ import (
 func InitializeServer() (*Server, error) {
 	configConfig := config.ProvideConfig()
 	healthHandler := http.ProvideHealthHandler()
-	driver, err := led.ProvideDriver()
-	if err != nil {
-		return nil, err
-	}
-	engine := led.ProvideEngine(driver)
-	ledHandler := http2.ProvideLedHandler(engine)
-	service := network.ProvideService(configConfig, engine)
+	service := network.ProvideService(configConfig)
 	openclawService := openclaw.ProvideService(configConfig)
 	client := beclient.ProvideClient(configConfig)
-	deviceService := device.ProvideService(configConfig, service, engine, openclawService, client)
-	networkHandler := http3.ProvideNetworkHandler(configConfig, service, deviceService)
-	deviceHandler := http4.ProvideDeviceHandler(deviceService, service, engine)
+	deviceService := device.ProvideService(configConfig, service, openclawService, client)
+	networkHandler := http2.ProvideNetworkHandler(configConfig, service, deviceService)
+	deviceHandler := http3.ProvideDeviceHandler(deviceService, service)
 	mqttConfig := config.ProvideMQTTConfig(configConfig)
 	factory, err := mqtt.ProvideFactory(mqttConfig)
 	if err != nil {
 		return nil, err
 	}
-	deviceMQTTHandler := http5.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
-	deviceGPIOHandler := http6.ProvideDeviceGPIOHandler(configConfig, service, openclawService, engine)
-	openClawHandler := sse.ProvideOpenClawHandler(engine)
+	deviceMQTTHandler := mqtthandler.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
+	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, openclawService)
+	openClawHandler := sse.ProvideOpenClawHandler()
 	resetbuttonService := resetbutton.ProvideServiceOptional()
-	server := ProvideServer(configConfig, healthHandler, ledHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, deviceService, openclawService, service, engine, resetbuttonService, factory)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, deviceService, openclawService, service, resetbuttonService, factory)
 	return server, nil
 }
