@@ -98,6 +98,11 @@ type OTAComponent struct {
 
 One-time provisioning script run on a fresh Raspberry Pi. Executes stages sequentially.
 
+**Quick install from CDN:**
+```bash
+curl -fsSL https://cdn.autonomous.ai/lumi/install.sh | sudo bash
+```
+
 ### Stage Overview
 
 | Stage | Name | Description |
@@ -260,8 +265,8 @@ reconcile(key, target):
 | `lumi` | Run `software-update lumi` (blocks up to 10 min) |
 | `bootstrap` | Spawn detached `software-update bootstrap` (self-update, survives restart) |
 | `web` | Run `software-update web` |
-| `openclaw` | Run `npm install -g openclaw@{version}` → `systemctl restart openclaw` |
-| `lelamp` | Run `software-update lelamp` |
+| `openclaw` | ~~Run `npm install -g openclaw@{version}` → `systemctl restart openclaw`~~ (temporarily disabled) |
+| `lelamp` | Run `software-update lelamp` → `systemctl restart lumi-lelamp` |
 
 ---
 
@@ -380,15 +385,34 @@ lelamp-{version}.zip
 └── VERSION
 ```
 
-### LeLamp HTTP API (for Lumi Server to bridge to)
+### LeLamp HTTP API (FastAPI on port 5001)
 
-The LeLamp Python runtime exposes its own HTTP API on a local port (e.g., `127.0.0.1:5001`). The Lumi Server (Go, port 5000) proxies/bridges OpenClaw skill requests to this API.
+The LeLamp Python runtime exposes its own HTTP API on `127.0.0.1:5001`. Lumi Server (Go, port 5000) bridges OpenClaw skill requests to this API. Nginx also exposes it externally at `/hw/*` for debugging/Swagger access.
 
 ```
 OpenClaw LLM → curl 127.0.0.1:5000/api/servo → Lumi Server → http://127.0.0.1:5001/servo → LeLamp Python → Hardware
+External     → http://<device-ip>/hw/docs    → nginx → http://127.0.0.1:5001/docs (Swagger UI)
 ```
 
-This is the **Go-to-Python bridge** — a simple HTTP proxy. LeLamp runtime runs its own lightweight HTTP server (FastAPI) that directly controls hardware.
+#### Endpoints (v0.2.0)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Hardware availability (servo, led, camera, audio) |
+| `/servo` | GET | Available recordings + current state |
+| `/servo/play` | POST | Play animation by name |
+| `/led` | GET | LED strip info |
+| `/led/solid` | POST | Fill with single color |
+| `/led/paint` | POST | Set per-pixel colors |
+| `/led/off` | POST | Turn off all LEDs |
+| `/camera` | GET | Camera info (resolution, availability) |
+| `/camera/snapshot` | GET | Capture single JPEG frame |
+| `/camera/stream` | GET | MJPEG stream |
+| `/audio` | GET | Audio device info (Seeed mic/speaker) |
+| `/audio/volume` | GET | Get current volume |
+| `/audio/volume` | POST | Set volume (0-100%) |
+| `/audio/play-tone` | POST | Play test tone |
+| `/audio/record` | POST | Record from mic, return WAV |
 
 ---
 
@@ -446,6 +470,7 @@ echo "LeLamp $NEW_VERSION published."
 | `scripts/upload-setup.sh` | Setup script | Upload to GCS |
 | `scripts/upload-setup-ap.sh` | AP setup script | Upload to GCS |
 | `scripts/upload-skills.sh` | OpenClaw skill files | Upload to GCS |
+| `scripts/install.sh` | CDN install shortcut | `curl ... \| sudo bash` on Pi |
 
 ---
 
