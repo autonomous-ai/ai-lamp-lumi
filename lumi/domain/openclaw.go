@@ -10,6 +10,7 @@ type WSEvent struct {
 }
 
 // AgentPayload represents an agent lifecycle/stream event from the gateway.
+// The Stream field distinguishes: "lifecycle", "tool", "assistant", "thinking".
 type AgentPayload struct {
 	RunID      string `json:"runId"`
 	Stream     string `json:"stream"`
@@ -21,6 +22,14 @@ type AgentPayload struct {
 		StartedAt int64  `json:"startedAt,omitempty"`
 		EndedAt   int64  `json:"endedAt,omitempty"`
 		Error     string `json:"error,omitempty"`
+		// Tool stream fields
+		Tool          string `json:"tool,omitempty"`
+		ToolArgs      string `json:"toolArgs,omitempty"`
+		Result        string `json:"result,omitempty"`
+		PartialResult string `json:"partialResult,omitempty"`
+		// Thinking/assistant stream fields
+		Text  string `json:"text,omitempty"`
+		Delta string `json:"delta,omitempty"`
 	} `json:"data"`
 }
 
