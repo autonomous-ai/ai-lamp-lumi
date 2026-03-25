@@ -155,11 +155,14 @@ stage_ota_metadata() {
   BOOTSTRAP_VERSION=$(jq -r '.bootstrap.version // empty' "$METADATA_TMP")
   BOOTSTRAP_URL=$(jq -r '.bootstrap.url // empty' "$METADATA_TMP")
   rm -f "$METADATA_TMP"
+  LELAMP_VERSION=$(jq -r '.lelamp.version // empty' "$METADATA_TMP")
+  LELAMP_URL=$(jq -r '.lelamp.url // empty' "$METADATA_TMP")
+  rm -f "$METADATA_TMP"
   if [ -z "$WEB_URL" ] || [ -z "$LUMI_URL" ] || [ -z "$BOOTSTRAP_URL" ]; then
     echo "ERROR: OTA metadata missing web.url, lumi.url or bootstrap.url. Check $OTA_METADATA_URL"
     exit 1
   fi
-  echo "[stage] OTA versions: web=$WEB_VERSION lumi=$LUMI_VERSION bootstrap=$BOOTSTRAP_VERSION"
+  echo "[stage] OTA versions: web=$WEB_VERSION lumi=$LUMI_VERSION bootstrap=$BOOTSTRAP_VERSION lelamp=$LELAMP_VERSION"
 }
 
 # Download zip from URL, unzip, copy single binary to dest path (handles lumi-server, bootstrap-server in zip)
@@ -332,6 +335,59 @@ if [ "$KIND" = "bootstrap" ]; then
 fi
 SOFTWAREUPDATE
   chmod +x /usr/local/bin/software-update
+}
+
+# ----------------------------------------------------------
+# Stage 1a: LeLamp (Python hardware runtime)
+# ----------------------------------------------------------
+stage_lelamp() {
+  echo "[stage] Install LeLamp (Python hardware drivers)"
+
+  LELAMP_DIR="/opt/lelamp"
+  mkdir -p "$LELAMP_DIR"
+
+  if [ -n "$LELAMP_URL" ]; then
+    echo "[stage] Downloading LeLamp from OTA..."
+    retry "curl -fsSL -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o /tmp/lelamp.zip \"$LELAMP_URL\"" 5
+    unzip -o -q /tmp/lelamp.zip -d "$LELAMP_DIR"
+    rm -f /tmp/lelamp.zip
+  else
+    echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
+  fi
+
+  # Install Python venv + dependencies
+  apt install -y python3-venv python3-pip || true
+  if [ ! -d "$LELAMP_DIR/.venv" ]; then
+    python3 -m venv "$LELAMP_DIR/.venv"
+  fi
+  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
+    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
+  fi
+
+  cat >/etc/systemd/system/lelamp.service <<EOF
+[Unit]
+Description=LeLamp Hardware Runtime
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$LELAMP_DIR
+Environment="PYTHONPATH=/opt"
+ExecStart=$LELAMP_DIR/.venv/bin/uvicorn lelamp.server:app --host 127.0.0.1 --port 5001
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lelamp
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable lelamp
+  systemctl restart lelamp
 }
 
 # ----------------------------------------------------------
@@ -845,8 +901,8 @@ OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomo
 [ $# -ne 1 ] && { echo "Usage: software-update <lumi|openclaw|web>"; exit 1; }
 APP="$1"
 case "$APP" in
-  lumi|openclaw|bootstrap|web) ;;
-  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, or web."; exit 1 ;;
+  lumi|openclaw|bootstrap|web|lelamp) ;;
+  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, web, or lelamp."; exit 1 ;;
 esac
 
 METADATA_TMP=$(mktemp)
@@ -901,6 +957,17 @@ elif [ "$APP" = "web" ]; then
   cp -a "$DIR_TMP"/* "$WEB_ROOT"
   systemctl restart nginx
   echo "web updated to $VERSION"
+elif [ "$APP" = "lelamp" ]; then
+  [ -z "$URL" ] && { echo "Metadata has no url for lelamp"; exit 1; }
+  ZIP_TMP=$(mktemp)
+  curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lelamp"; exit 1; }
+  LELAMP_DIR="/opt/lelamp"
+  unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
+  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
+    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --quiet
+  fi
+  systemctl restart lelamp
+  echo "lelamp updated to $VERSION"
 fi
 SOFTWAREUPDATE
   chmod +x /usr/local/bin/software-update
@@ -919,6 +986,7 @@ stage_rpi5_wifi_stability
 stage_enable_spi
 stage_ota_metadata
 stage_backend
+stage_lelamp
 stage_openclaw
 stage_nginx
 stage_ap
@@ -933,8 +1001,8 @@ echo "======================================"
 echo "✅ Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
-echo "Backends: systemctl status bootstrap lumi"
-echo "Updates:  software-update <bootstrap|lumi|web> [version]"
+echo "Backends: systemctl status bootstrap lumi lelamp"
+echo "Updates:  software-update <bootstrap|lumi|lelamp|web> [version]"
 echo "======================================"
 
 echo ""
