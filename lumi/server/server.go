@@ -13,9 +13,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
@@ -41,7 +41,7 @@ type Server struct {
 	openclawHandler   _openclawSseDeliver.OpenClawHandler
 	sensingHandler    _sensingHttpDeliver.SensingHandler
 
-	openclawService *openclaw.Service
+	agentGateway domain.AgentGateway
 	networkService  *network.Service
 	deviceService   *device.Service
 
@@ -89,7 +89,7 @@ func ProvideServer(
 	openclawH _openclawSseDeliver.OpenClawHandler,
 	sensingH _sensingHttpDeliver.SensingHandler,
 	ds *device.Service,
-	openclawSvc *openclaw.Service,
+	agentGW domain.AgentGateway,
 	ns *network.Service,
 	resetBtn *resetbutton.Service,
 	mqttFactory *mqtt.Factory,
@@ -103,7 +103,7 @@ func ProvideServer(
 		deviceGPIOHandler: dgph,
 		openclawHandler:   openclawH,
 		sensingHandler:    sensingH,
-		openclawService:   openclawSvc,
+		agentGateway:      agentGW,
 		networkService:    ns,
 		deviceService:     ds,
 		resetButton:       resetBtn,
@@ -191,7 +191,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	defer cancelEvents()
-	go s.openclawService.StartWS(eventCtx, s.openclawHandler.HandleEvent)
+	go s.agentGateway.StartWS(eventCtx, s.openclawHandler.HandleEvent)
 
 	r := gin.Default()
 	r.RedirectTrailingSlash = false // avoid 301 redirect loop on /network vs /network/
@@ -305,18 +305,18 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 
 		go func() {
 			// Seed SOUL.md + IDENTITY.md into workspace (factory defaults, once only)
-			if err := s.openclawService.EnsureOnboarding(); err != nil {
+			if err := s.agentGateway.EnsureOnboarding(); err != nil {
 				log.Printf("[server] onboarding seed failed: %v", err)
 			}
 
-			if ok := s.deviceService.WaitForOpenclawReady(120 * time.Second); ok {
-				log.Println("[server] openclaw ready")
+			if ok := s.deviceService.WaitForAgentReady(120 * time.Second); ok {
+				log.Println("[server] agent gateway ready")
 			} else {
-				log.Println("[server] openclaw ready timeout")
+				log.Println("[server] agent gateway ready timeout")
 			}
 			// Start voice pipeline on LeLamp (if Deepgram key configured)
 			if s.config.DeepgramAPIKey != "" {
-				if err := s.openclawService.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL); err != nil {
+				if err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL); err != nil {
 					log.Printf("[server] failed to start LeLamp voice: %v", err)
 				}
 			}

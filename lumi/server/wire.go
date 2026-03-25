@@ -5,10 +5,11 @@ package server
 import (
 	"github.com/google/wire"
 
+	"go-lamp.autonomous.ai/internal/agent"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
+	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
@@ -26,8 +27,9 @@ func InitializeServer() (*Server, error) {
 		config.ProviderSet,
 		mqtt.ProviderSet,
 		beclient.ProviderSet,
+		monitor.ProviderSet,
+		agent.ProviderSet,
 		network.ProviderSet,
-		openclaw.ProviderSet,
 		device.ProviderSet,
 		resetbutton.ProviderSet,
 		_healthHttpDeliver.ProviderSet,

@@ -11,23 +11,22 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/config"
 )
 
 type Service struct {
-	config          *config.Config
-	networkService  *network.Service
-	openclawService *openclaw.Service
-	beClient        *beclient.Client
+	config         *config.Config
+	networkService *network.Service
+	agentGateway   domain.AgentGateway
+	beClient       *beclient.Client
 }
 
-func ProvideService(config *config.Config, ns *network.Service, openclawSvc *openclaw.Service, be *beclient.Client) *Service {
+func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentGateway, be *beclient.Client) *Service {
 	return &Service{
-		config:          config,
-		networkService:  ns,
-		openclawService: openclawSvc,
-		beClient:        be,
+		config:         config,
+		networkService: ns,
+		agentGateway:   gw,
+		beClient:       be,
 	}
 }
 
@@ -41,7 +40,7 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 		return fmt.Errorf("network setup failed")
 	}
 
-	if err := s.openclawService.SetupOpenclaw(data); err != nil {
+	if err := s.agentGateway.SetupAgent(data); err != nil {
 		return err
 	}
 
@@ -75,21 +74,21 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.FAChannel = data.FAChannel
 	s.config.FDChannel = data.FDChannel
 	if err := s.config.Save(); err != nil {
-		log.Printf("SetupOpenclaw: save config: %v", err)
+		log.Printf("[device] save config: %v", err)
 	}
-	log.Println("SetupOpenclaw: config saved")
+	log.Println("[device] config saved")
 
-	// Wait for OpenClaw gateway to be ready before marking device as working.
-	if ok := s.WaitForOpenclawReady(120 * time.Second); !ok {
-		return fmt.Errorf("openclaw ready timeout, something went wrong")
+	// Wait for agent gateway to be ready before marking device as working.
+	if ok := s.WaitForAgentReady(120 * time.Second); !ok {
+		return fmt.Errorf("agent gateway ready timeout, something went wrong")
 	}
 
 	s.config.SetUpCompleted = true
 	if err := s.config.Save(); err != nil {
-		log.Printf("SetupOpenclaw: save config: %v", err)
+		log.Printf("[device] save config: %v", err)
 	}
 
-	log.Println("SetupOpenclaw: openclaw is ready")
+	log.Println("[device] agent gateway is ready")
 	if s.beClient != nil && llmAPIKey != "" {
 		s.beClient.PingSafe(llmAPIKey, beclient.PingPayload{
 			Status:         "working",
@@ -101,10 +100,10 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	return nil
 }
 
-// AddChannel adds a messaging channel to openclaw without re-running full setup.
+// AddChannel adds a messaging channel to the agent without re-running full setup.
 func (s *Service) AddChannel(data domain.AddChannelRequest) error {
-	if err := s.openclawService.AddChannel(data); err != nil {
-		return fmt.Errorf("add channel in openclaw: %w", err)
+	if err := s.agentGateway.AddChannel(data); err != nil {
+		return fmt.Errorf("add channel in agent: %w", err)
 	}
 
 	channel := data.EffectiveChannel()
@@ -142,7 +141,7 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !s.openclawService.IsReady() {
+			if !s.agentGateway.IsReady() {
 				continue
 			}
 			resp := s.beClient.PingSafe(s.config.LLMAPIKey, beclient.PingPayload{
@@ -174,14 +173,14 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 	}
 }
 
-// WaitForOpenclawReady polls openclawService.IsReady until it returns true or the timeout elapses.
-func (s *Service) WaitForOpenclawReady(timeout time.Duration) bool {
-	if s.openclawService == nil {
+// WaitForAgentReady polls agentGateway.IsReady until it returns true or the timeout elapses.
+func (s *Service) WaitForAgentReady(timeout time.Duration) bool {
+	if s.agentGateway == nil {
 		return false
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		if s.openclawService.IsReady() {
+		if s.agentGateway.IsReady() {
 			return true
 		}
 		if time.Now().After(deadline) {

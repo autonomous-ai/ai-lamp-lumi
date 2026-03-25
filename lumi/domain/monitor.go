@@ -1,6 +1,6 @@
 package domain
 
-// MonitorEvent represents a single observable event in the OpenClaw workflow.
+// MonitorEvent represents a single observable event in the agent workflow.
 type MonitorEvent struct {
 	ID      string `json:"id"`
 	Time    string `json:"time"`

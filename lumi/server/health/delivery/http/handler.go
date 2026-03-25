@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -19,11 +19,11 @@ import (
 type HealthHandler struct {
 	config         *config.Config
 	networkService *network.Service
-	openclawSvc    *openclaw.Service
+	agentGateway   domain.AgentGateway
 }
 
-func ProvideHealthHandler(cfg *config.Config, ns *network.Service, ocs *openclaw.Service) HealthHandler {
-	return HealthHandler{config: cfg, networkService: ns, openclawSvc: ocs}
+func ProvideHealthHandler(cfg *config.Config, ns *network.Service, gw domain.AgentGateway) HealthHandler {
+	return HealthHandler{config: cfg, networkService: ns, agentGateway: gw}
 }
 
 func (h *HealthHandler) Live(c *gin.Context) {
@@ -91,8 +91,8 @@ func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 func (h *HealthHandler) Dashboard(c *gin.Context) {
 	dash := map[string]any{
 		"openclaw": map[string]any{
-			"connected":  h.openclawSvc.IsReady(),
-			"sessionKey": h.openclawSvc.GetSessionKey() != "",
+			"connected":  h.agentGateway.IsReady(),
+			"sessionKey": h.agentGateway.GetSessionKey() != "",
 		},
 		"version":  config.LumiVersion,
 		"deviceId": h.config.DeviceID,
