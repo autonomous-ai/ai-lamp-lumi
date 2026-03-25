@@ -5,35 +5,53 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 PI_HOST ?= lumi.local
 PI_USER ?= root
 
+# Directories
+LUMI_DIR       := lumi
+LELAMP_DIR     := lelamp
+WEB_DIR        := $(LUMI_DIR)/web
+
 # Go build
 MODULE         := go-lamp.autonomous.ai
 LDFLAGS_LAMP   := -X $(MODULE)/server/config.InternVersion=$(VERSION)
 LDFLAGS_BOOT   := -X $(MODULE)/bootstrap/config.BootstrapVersion=$(VERSION)
 
 # LeLamp
-LELAMP_DIR     := lelamp
 LELAMP_PORT    := 5001
 
 # ============================================================================
-# Go
+# Lumi (Go) — build | generate | lint | test | deploy | upload
 # ============================================================================
 
-.PHONY: build-lamp build-bootstrap generate lint test
+.PHONY: lumi-build lumi-build-bootstrap lumi-generate lumi-lint lumi-test lumi-deploy lumi-deploy-bootstrap lumi-upload lumi-upload-bootstrap
 
-build-lamp:
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
+lumi-build:
+	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
 
-build-bootstrap:
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_BOOT)" -o bootstrap-server ./cmd/bootstrap
+lumi-build-bootstrap:
+	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_BOOT)" -o bootstrap-server ./cmd/bootstrap
 
-generate:
-	GOFLAGS=-mod=mod go generate ./...
+lumi-generate:
+	cd $(LUMI_DIR) && GOFLAGS=-mod=mod go generate ./...
 
-lint:
-	golangci-lint run
+lumi-lint:
+	cd $(LUMI_DIR) && golangci-lint run
 
-test:
-	go test ./...
+lumi-test:
+	cd $(LUMI_DIR) && go test ./...
+
+lumi-deploy: lumi-build
+	scp $(LUMI_DIR)/lumi-server $(PI_USER)@$(PI_HOST):/usr/local/bin/lumi-server
+	ssh $(PI_USER)@$(PI_HOST) "systemctl restart lumi.service"
+
+lumi-deploy-bootstrap: lumi-build-bootstrap
+	scp $(LUMI_DIR)/bootstrap-server $(PI_USER)@$(PI_HOST):/usr/local/bin/bootstrap-server
+	ssh $(PI_USER)@$(PI_HOST) "systemctl restart bootstrap.service"
+
+lumi-upload: lumi-build
+	scripts/upload-intern.sh
+
+lumi-upload-bootstrap: lumi-build-bootstrap
+	scripts/upload-bootstrap.sh
 
 # ============================================================================
 # LeLamp (Python) — install | dev | run | test | deploy | upload
@@ -44,7 +62,7 @@ test:
 lelamp: lelamp-dev
 
 lelamp-install:
-	cd $(LELAMP_DIR) && python3 -m .venv .venv && .venv/bin/pip install -r requirements.txt
+	cd $(LELAMP_DIR) && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 lelamp-dev:
 	cd $(LELAMP_DIR) && PYTHONPATH=.. .venv/bin/uvicorn lelamp.server:app --host 0.0.0.0 --port $(LELAMP_PORT) --reload
@@ -75,49 +93,29 @@ lelamp-clean:
 web: web-dev
 
 web-install:
-	cd web && npm install
+	cd $(WEB_DIR) && npm install
 
 web-dev:
-	cd web && npm run dev
+	cd $(WEB_DIR) && npm run dev
 
 web-build:
-	cd web && npm run build
+	cd $(WEB_DIR) && npm run build
 
 web-deploy: web-build
-	rsync -avz web/dist/ $(PI_USER)@$(PI_HOST):/usr/share/nginx/html/setup/
+	rsync -avz $(WEB_DIR)/dist/ $(PI_USER)@$(PI_HOST):/usr/share/nginx/html/setup/
 
 web-upload: web-build
 	scripts/upload-web.sh
 
 # ============================================================================
-# Deploy & Upload (all components)
+# All — deploy | clean
 # ============================================================================
 
-.PHONY: deploy-lamp deploy-bootstrap deploy-all upload-lamp upload-bootstrap
+.PHONY: deploy-all clean
 
-deploy-lamp: build-lamp
-	scp lumi-server $(PI_USER)@$(PI_HOST):/usr/local/bin/lumi-server
-	ssh $(PI_USER)@$(PI_HOST) "systemctl restart lumi.service"
-
-deploy-bootstrap: build-bootstrap
-	scp bootstrap-server $(PI_USER)@$(PI_HOST):/usr/local/bin/bootstrap-server
-	ssh $(PI_USER)@$(PI_HOST) "systemctl restart bootstrap.service"
-
-deploy-all: deploy-lamp deploy-bootstrap lelamp-deploy web-deploy
-
-upload-lamp: build-lamp
-	scripts/upload-intern.sh
-
-upload-bootstrap: build-bootstrap
-	scripts/upload-bootstrap.sh
-
-# ============================================================================
-# Dev shortcuts
-# ============================================================================
-
-.PHONY: clean
+deploy-all: lumi-deploy lumi-deploy-bootstrap lelamp-deploy web-deploy
 
 clean:
-	rm -f lumi-server bootstrap-server
+	rm -f $(LUMI_DIR)/lumi-server $(LUMI_DIR)/bootstrap-server
 	rm -rf $(LELAMP_DIR)/.venv $(LELAMP_DIR)/__pycache__
-	rm -rf web/dist web/node_modules
+	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/node_modules
