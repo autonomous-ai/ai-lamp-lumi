@@ -76,7 +76,7 @@ lelamp-test:
 lelamp-deploy:
 	rsync -avz --exclude='.venv' --exclude='__pycache__' --exclude='.git' \
 		$(LELAMP_DIR)/ $(PI_USER)@$(PI_HOST):/opt/lelamp/
-	ssh $(PI_USER)@$(PI_HOST) "cd /opt/lelamp && .venv/bin/pip install -r requirements.txt --quiet && systemctl restart lelamp.service"
+	ssh $(PI_USER)@$(PI_HOST) "cd /opt/lelamp && .venv/bin/pip install -r requirements.txt --quiet && systemctl restart lumi-lelamp.service"
 
 lelamp-upload:
 	scripts/upload-lelamp.sh
@@ -106,6 +106,18 @@ web-deploy: web-build
 
 web-upload: web-build
 	scripts/upload-web.sh
+
+# ============================================================================
+# Setup — upload setup scripts to GCS
+# ============================================================================
+
+.PHONY: setup-upload setup-upload-ap
+
+setup-upload:
+	scripts/upload-setup.sh
+
+setup-upload-ap:
+	scripts/upload-setup-ap.sh
 
 # ============================================================================
 # All — deploy | clean
