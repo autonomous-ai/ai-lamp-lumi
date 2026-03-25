@@ -24,6 +24,8 @@ import (
 	"go-lamp.autonomous.ai/server/config"
 )
 
+const monitorBufferSize = 200
+
 const (
 	defaultGatewayWSURL = "ws://127.0.0.1:18789"
 	customProviderName  = "autonomous"
@@ -49,6 +51,13 @@ type Service struct {
 	lastSessionKey atomic.Value // string
 	// reqCounter is used to generate unique request IDs for outgoing RPC calls.
 	reqCounter atomic.Int64
+
+	// Monitor event bus
+	monitorEvents []domain.MonitorEvent
+	monitorMu     sync.RWMutex
+	monitorSubs   map[int]chan domain.MonitorEvent
+	monitorSubID  int
+	monitorEvtID  atomic.Int64
 }
 
 // ProvideService constructs the openclaw service.
@@ -553,6 +562,7 @@ func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
 			},
 			"role":   "operator",
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
+			"caps":   []string{"thinking-events"},
 			"auth":   map[string]interface{}{"token": token},
 		},
 	}
@@ -876,6 +886,12 @@ func (s *Service) SendToLeLampTTS(text string) error {
 		return fmt.Errorf("POST /voice/speak returned %d", resp.StatusCode)
 	}
 	log.Printf("[openclaw] TTS sent: %s", text[:min(len(text), 80)])
+
+	s.PushMonitorEvent(domain.MonitorEvent{
+		Type:    "tts",
+		Summary: text,
+	})
+
 	return nil
 }
 
@@ -889,6 +905,72 @@ func (s *Service) SetSessionKey(key string) {
 func (s *Service) GetSessionKey() string {
 	v, _ := s.lastSessionKey.Load().(string)
 	return v
+}
+
+// PushMonitorEvent adds an event to the ring buffer and notifies all SSE subscribers.
+func (s *Service) PushMonitorEvent(evt domain.MonitorEvent) {
+	if evt.ID == "" {
+		evt.ID = fmt.Sprintf("evt-%d", s.monitorEvtID.Add(1))
+	}
+	if evt.Time == "" {
+		evt.Time = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+
+	s.monitorMu.Lock()
+	s.monitorEvents = append(s.monitorEvents, evt)
+	if len(s.monitorEvents) > monitorBufferSize {
+		s.monitorEvents = s.monitorEvents[len(s.monitorEvents)-monitorBufferSize:]
+	}
+	// Copy subs slice under lock to avoid holding lock during channel send
+	subs := make([]chan domain.MonitorEvent, 0, len(s.monitorSubs))
+	for _, ch := range s.monitorSubs {
+		subs = append(subs, ch)
+	}
+	s.monitorMu.Unlock()
+
+	for _, ch := range subs {
+		select {
+		case ch <- evt:
+		default:
+			// subscriber too slow, drop event
+		}
+	}
+}
+
+// SubscribeMonitorEvents returns a channel that receives new monitor events and an unsubscribe function.
+func (s *Service) SubscribeMonitorEvents() (<-chan domain.MonitorEvent, func()) {
+	ch := make(chan domain.MonitorEvent, 32)
+	s.monitorMu.Lock()
+	if s.monitorSubs == nil {
+		s.monitorSubs = make(map[int]chan domain.MonitorEvent)
+	}
+	s.monitorSubID++
+	id := s.monitorSubID
+	s.monitorSubs[id] = ch
+	s.monitorMu.Unlock()
+
+	unsub := func() {
+		s.monitorMu.Lock()
+		delete(s.monitorSubs, id)
+		s.monitorMu.Unlock()
+		// drain
+		for range ch {
+		}
+	}
+	return ch, unsub
+}
+
+// RecentMonitorEvents returns the last n events from the ring buffer.
+func (s *Service) RecentMonitorEvents(n int) []domain.MonitorEvent {
+	s.monitorMu.RLock()
+	defer s.monitorMu.RUnlock()
+	total := len(s.monitorEvents)
+	if n <= 0 || n > total {
+		n = total
+	}
+	result := make([]domain.MonitorEvent, n)
+	copy(result, s.monitorEvents[total-n:])
+	return result
 }
 
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
@@ -932,5 +1014,12 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	log.Printf("[openclaw] chat.send: session=%s msg=%q id=%s", sessionKey, message, reqID)
+
+	s.PushMonitorEvent(domain.MonitorEvent{
+		Type:    "chat_send",
+		Summary: message,
+		RunID:   reqID,
+	})
+
 	return reqID, nil
 }

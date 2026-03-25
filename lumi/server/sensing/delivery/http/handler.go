@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 
+	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -45,6 +46,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("openclaw gateway not connected"))
 		return
 	}
+
+	// Push sensing input to monitor before forwarding
+	h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+		Type:    "sensing_input",
+		Summary: "[" + req.Type + "] " + req.Message,
+	})
 
 	// Format the sensing event as a message for OpenClaw
 	msg := "[sensing:" + req.Type + "] " + req.Message
