@@ -657,8 +657,11 @@ EOF
     sed -i 's/^interface=wlan0/#interface=wlan0  # use dnsmasq.d/99-lumi.conf/' /etc/dnsmasq.conf 2>/dev/null || true
   fi
 
-  # dhcpcd: remove only the wlan0 block so eth0/other blocks are preserved
-  sed -i '/^interface wlan0$/,/^$/d' /etc/dhcpcd.conf
+  # dhcpcd: remove wlan0 block (including when it's at end-of-file with no trailing blank line)
+  sed -i '/^interface wlan0$/,/^$\|^interface /{ /^interface [^w]/!d; }' /etc/dhcpcd.conf
+  # Remove any leftover lines from previous runs
+  sed -i '/^static ip_address=192\.168\.100\.1/d' /etc/dhcpcd.conf
+  sed -i '/^nohook wpa_supplicant$/d' /etc/dhcpcd.conf
   cat >>/etc/dhcpcd.conf <<EOF
 
 interface wlan0
