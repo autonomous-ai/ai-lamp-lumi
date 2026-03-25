@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LELAMP_DIR="${ROOT_DIR}/lelamp"
-VERSION_FILE="${ROOT_DIR}/${VERSION_FILE:-VERSION_LELAMP}"
+VERSION_FILE="${ROOT_DIR}/lelamp/${VERSION_FILE:-VERSION_LELAMP}"
 
 # Bucket and path: lumi/ota/lelamp/[semver].zip
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
@@ -35,7 +35,8 @@ fi
 echo "========== Zipping lelamp to ${ZIP_NAME} =========="
 rm -f "$ZIP_PATH"
 (cd "$LELAMP_DIR" && zip -r "$ZIP_PATH" . \
-  -x ".venv/*" "__pycache__/*" "*/__pycache__/*" ".git/*" "*.pyc" "recordings/*" "uv.lock")
+  -x ".venv/*" "__pycache__/*" "*/__pycache__/*" ".git/*" "*.pyc" \
+  "recordings/*" "uv.lock" ".env" ".python-version" "test/*")
 
 echo "========== Upload ${ZIP_NAME} to Google Cloud Storage (no-cache) =========="
 gsutil -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$ZIP_PATH" "gs://${GCS_BUCKET}/${GCS_PATH}"

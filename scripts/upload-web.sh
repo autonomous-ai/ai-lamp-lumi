@@ -3,16 +3,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
-DIST_DIR="${PROJECT_ROOT}/web/dist"
+DIST_DIR="${PROJECT_ROOT}/lumi/web/dist"
 ZIP_NAME="setup-web.zip"
 ZIP_PATH="${PROJECT_ROOT}/${ZIP_NAME}"
-VERSION_FILE="${PROJECT_ROOT}/VERSION_WEB"
+VERSION_FILE="${PROJECT_ROOT}/lumi/VERSION_WEB"
 
 # Bucket for web bundle
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
 
 echo "========== npm install =========="
-(cd "$PROJECT_ROOT/web" && npm install)
+(cd "$PROJECT_ROOT/lumi/web" && npm install)
 
 # Auto-increment semver (patch) before upload
 if [[ -f "$VERSION_FILE" ]]; then
@@ -31,7 +31,7 @@ fi
 GCS_PATH="${GCS_PATH:-lumi/ota/web/${new_version}.zip}"
 
 echo "========== npm run build =========="
-(cd "$PROJECT_ROOT/web" && npm run build)
+(cd "$PROJECT_ROOT/lumi/web" && npm run build)
 
 if [[ ! -d "$DIST_DIR" ]]; then
   echo "Error: dist not found at $DIST_DIR"
@@ -79,4 +79,5 @@ echo "========== Upload metadata (web: v${new_version}) =========="
 gsutil -h "Content-Type:application/json" -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$METADATA_TMP" "gs://${GCS_BUCKET}/${METADATA_PATH}"
 rm -f "$METADATA_TMP"
 
+rm -f "$ZIP_PATH"
 echo "Done: gs://${GCS_BUCKET}/${GCS_PATH} (v${new_version})"
