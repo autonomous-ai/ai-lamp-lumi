@@ -4,31 +4,31 @@ import (
 	"log"
 	"os/exec"
 
+	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/server/config"
 )
 
 // DeviceGPIOHandler represents the GPIO handler for device
 type DeviceGPIOHandler struct {
-	config          *config.Config
-	networkService  *network.Service
-	openclawService *openclaw.Service
+	config         *config.Config
+	networkService *network.Service
+	agentGateway   domain.AgentGateway
 }
 
-func ProvideDeviceGPIOHandler(config *config.Config, networkService *network.Service, openclawService *openclaw.Service) DeviceGPIOHandler {
+func ProvideDeviceGPIOHandler(config *config.Config, networkService *network.Service, gw domain.AgentGateway) DeviceGPIOHandler {
 	return DeviceGPIOHandler{
-		config:          config,
-		networkService:  networkService,
-		openclawService: openclawService,
+		config:         config,
+		networkService: networkService,
+		agentGateway:   gw,
 	}
 }
 
 // HandleResetButtonPress is called on short press (click) of GPIO 26. Not called when the button is long-pressed.
 func (h *DeviceGPIOHandler) HandleResetButtonPress() {
-	log.Println("reset button: restarting openclaw")
-	if err := h.openclawService.RestartOpenclaw(); err != nil {
-		log.Printf("reset button: restart openclaw: %v", err)
+	log.Println("reset button: restarting agent")
+	if err := h.agentGateway.RestartAgent(); err != nil {
+		log.Printf("reset button: restart agent: %v", err)
 		return
 	}
 	log.Println("reset button: done")
@@ -56,8 +56,8 @@ func (h *DeviceGPIOHandler) HandleResetButtonPowerOff() {
 // stays available, then resets config to default and saves.
 func (h *DeviceGPIOHandler) HandleResetButtonFactoryReset() {
 	log.Println("reset button: factory reset (10s hold)")
-	if err := h.openclawService.ResetOpenclaw(); err != nil {
-		log.Printf("reset button: reset openclaw: %v", err)
+	if err := h.agentGateway.ResetAgent(); err != nil {
+		log.Printf("reset button: reset agent: %v", err)
 		return
 	}
 	log.Println("reset button: resetting config to default")

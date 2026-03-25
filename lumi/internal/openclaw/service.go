@@ -21,10 +21,9 @@ import (
 	"github.com/gorilla/websocket"
 
 	"go-lamp.autonomous.ai/domain"
+	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/server/config"
 )
-
-const monitorBufferSize = 200
 
 const (
 	defaultGatewayWSURL = "ws://127.0.0.1:18789"
@@ -36,12 +35,13 @@ const (
 	defaultModelKey     = "claude-haiku-4-5"
 )
 
-// WSEventHandler is called for each WebSocket event from the gateway. Return non-nil to stop the read loop.
-type WSEventHandler func(ctx context.Context, evt domain.WSEvent) error
+// Compile-time check: *Service implements domain.AgentGateway.
+var _ domain.AgentGateway = (*Service)(nil)
 
 // Service provides setup, reset, restart of openclaw config/gateway and StartWS.
 type Service struct {
 	config      *config.Config
+	monitorBus  *monitor.Bus
 	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
@@ -51,19 +51,13 @@ type Service struct {
 	lastSessionKey atomic.Value // string
 	// reqCounter is used to generate unique request IDs for outgoing RPC calls.
 	reqCounter atomic.Int64
-
-	// Monitor event bus
-	monitorEvents []domain.MonitorEvent
-	monitorMu     sync.RWMutex
-	monitorSubs   map[int]chan domain.MonitorEvent
-	monitorSubID  int
-	monitorEvtID  atomic.Int64
 }
 
 // ProvideService constructs the openclaw service.
-func ProvideService(cfg *config.Config) *Service {
+func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 	return &Service{
-		config: cfg,
+		config:     cfg,
+		monitorBus: bus,
 	}
 }
 
@@ -108,8 +102,8 @@ func (s *Service) IsReady() bool {
 	return s.wsConnected.Load()
 }
 
-// SetupOpenclaw writes openclaw.json from the setup request and restarts the gateway.
-func (s *Service) SetupOpenclaw(data domain.SetupRequest) error {
+// SetupAgent writes openclaw.json from the setup request and restarts the gateway.
+func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	log.Println("SetupOpenclaw: checking openclaw in PATH")
 	if _, err := exec.LookPath("openclaw"); err != nil {
 		return fmt.Errorf("openclaw not found in PATH: %w", err)
@@ -450,8 +444,8 @@ func (s *Service) AddChannel(data domain.AddChannelRequest) error {
 	return nil
 }
 
-// ResetOpenclaw overwrites openclaw.json with a minimal default config and restarts the gateway.
-func (s *Service) ResetOpenclaw() error {
+// ResetAgent overwrites openclaw.json with a minimal default config and restarts the gateway.
+func (s *Service) ResetAgent() error {
 	log.Println("ResetOpenclaw: checking openclaw in PATH")
 	if _, err := exec.LookPath("openclaw"); err != nil {
 		return fmt.Errorf("openclaw not found in PATH: %w", err)
@@ -481,8 +475,8 @@ func (s *Service) ResetOpenclaw() error {
 	return nil
 }
 
-// RestartOpenclaw restarts the openclaw gateway only.
-func (s *Service) RestartOpenclaw() error {
+// RestartAgent restarts the openclaw gateway only.
+func (s *Service) RestartAgent() error {
 	log.Println("RestartOpenclaw: restarting openclaw gateway")
 	if err := restartOpenclawGateway(); err != nil {
 		return err
@@ -493,7 +487,7 @@ func (s *Service) RestartOpenclaw() error {
 
 // StartWS connects to the gateway WebSocket and runs the read loop, calling handler for each event.
 // It runs until ctx is cancelled. Auto-reconnects when disconnected.
-func (s *Service) StartWS(ctx context.Context, handler WSEventHandler) {
+func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler) {
 	backoff := 5 * time.Second
 	for {
 		select {
@@ -516,7 +510,7 @@ func (s *Service) StartWS(ctx context.Context, handler WSEventHandler) {
 	}
 }
 
-func (s *Service) runWSConn(ctx context.Context, handler WSEventHandler) error {
+func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandler) error {
 	s.wsConnected.Store(false)
 	defer s.wsConnected.Store(false)
 
@@ -887,7 +881,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 	}
 	log.Printf("[openclaw] TTS sent: %s", text[:min(len(text), 80)])
 
-	s.PushMonitorEvent(domain.MonitorEvent{
+	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "tts",
 		Summary: text,
 	})
@@ -905,72 +899,6 @@ func (s *Service) SetSessionKey(key string) {
 func (s *Service) GetSessionKey() string {
 	v, _ := s.lastSessionKey.Load().(string)
 	return v
-}
-
-// PushMonitorEvent adds an event to the ring buffer and notifies all SSE subscribers.
-func (s *Service) PushMonitorEvent(evt domain.MonitorEvent) {
-	if evt.ID == "" {
-		evt.ID = fmt.Sprintf("evt-%d", s.monitorEvtID.Add(1))
-	}
-	if evt.Time == "" {
-		evt.Time = time.Now().UTC().Format(time.RFC3339Nano)
-	}
-
-	s.monitorMu.Lock()
-	s.monitorEvents = append(s.monitorEvents, evt)
-	if len(s.monitorEvents) > monitorBufferSize {
-		s.monitorEvents = s.monitorEvents[len(s.monitorEvents)-monitorBufferSize:]
-	}
-	// Copy subs slice under lock to avoid holding lock during channel send
-	subs := make([]chan domain.MonitorEvent, 0, len(s.monitorSubs))
-	for _, ch := range s.monitorSubs {
-		subs = append(subs, ch)
-	}
-	s.monitorMu.Unlock()
-
-	for _, ch := range subs {
-		select {
-		case ch <- evt:
-		default:
-			// subscriber too slow, drop event
-		}
-	}
-}
-
-// SubscribeMonitorEvents returns a channel that receives new monitor events and an unsubscribe function.
-func (s *Service) SubscribeMonitorEvents() (<-chan domain.MonitorEvent, func()) {
-	ch := make(chan domain.MonitorEvent, 32)
-	s.monitorMu.Lock()
-	if s.monitorSubs == nil {
-		s.monitorSubs = make(map[int]chan domain.MonitorEvent)
-	}
-	s.monitorSubID++
-	id := s.monitorSubID
-	s.monitorSubs[id] = ch
-	s.monitorMu.Unlock()
-
-	unsub := func() {
-		s.monitorMu.Lock()
-		delete(s.monitorSubs, id)
-		s.monitorMu.Unlock()
-		// drain
-		for range ch {
-		}
-	}
-	return ch, unsub
-}
-
-// RecentMonitorEvents returns the last n events from the ring buffer.
-func (s *Service) RecentMonitorEvents(n int) []domain.MonitorEvent {
-	s.monitorMu.RLock()
-	defer s.monitorMu.RUnlock()
-	total := len(s.monitorEvents)
-	if n <= 0 || n > total {
-		n = total
-	}
-	result := make([]domain.MonitorEvent, n)
-	copy(result, s.monitorEvents[total-n:])
-	return result
 }
 
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
@@ -1015,7 +943,7 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 
 	log.Printf("[openclaw] chat.send: session=%s msg=%q id=%s", sessionKey, message, reqID)
 
-	s.PushMonitorEvent(domain.MonitorEvent{
+	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
 		Summary: message,
 		RunID:   reqID,
