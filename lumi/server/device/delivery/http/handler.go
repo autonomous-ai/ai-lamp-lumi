@@ -9,7 +9,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -17,15 +16,13 @@ import (
 // DeviceHandler represents the HTTP handler for device
 type DeviceHandler struct {
 	service        *device.Service
-	ledEngine      *led.Engine
 	networkService *network.Service
 }
 
-func ProvideDeviceHandler(ds *device.Service, ns *network.Service, le *led.Engine) DeviceHandler {
+func ProvideDeviceHandler(ds *device.Service, ns *network.Service) DeviceHandler {
 	return DeviceHandler{
 		service:        ds,
 		networkService: ns,
-		ledEngine:      le,
 	}
 }
 
@@ -57,7 +54,6 @@ func (h *DeviceHandler) Setup(c *gin.Context) {
 	go func() {
 		time.Sleep(2 * time.Second)
 		if err := h.service.Setup(req); err != nil {
-			h.ledEngine.SetState(led.Error, "setup-failed")
 			log.Println("Setup failed", err)
 			h.networkService.SwitchToAPMode()
 			return
@@ -96,7 +92,6 @@ func (h *DeviceHandler) ChangeChannel(c *gin.Context) {
 
 	go func() {
 		if err := h.service.AddChannel(req); err != nil {
-			h.ledEngine.SetState(led.Error, "add-channel-failed")
 			log.Println("AddChannel failed", err)
 			return
 		}

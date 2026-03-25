@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
-	"go-lamp.autonomous.ai/internal/led"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -32,9 +31,8 @@ const (
 // Service provides network scan, current network, and setup. When wifiManager is non-nil (production Pi),
 // it uses iw for scan and delegates current/setup to the wifi manager (no NetworkManager).
 type Service struct {
-	config    *config.Config
-	networks  []domain.Network
-	ledEngine *led.Engine
+	config   *config.Config
+	networks []domain.Network
 
 	// network monitor state (guarded by networkMonitorMu)
 	networkMonitorMu          sync.Mutex
@@ -42,11 +40,10 @@ type Service struct {
 }
 
 // ProvideService returns a network service. Pass nil for wifiManager when not using WiFi manager (e.g. dev with NM).
-func ProvideService(config *config.Config, ledEngine *led.Engine) *Service {
+func ProvideService(config *config.Config) *Service {
 	return &Service{
-		config:    config,
-		networks:  []domain.Network{},
-		ledEngine: ledEngine,
+		config:   config,
+		networks: []domain.Network{},
 	}
 }
 
@@ -57,7 +54,7 @@ func (s *Service) ListNetworks() ([]domain.Network, error) {
 
 // listNetworksIW runs `iw dev wlan0 scan` and parses BSS/SSID/signal etc.
 func (s *Service) listNetworksIW() ([]domain.Network, error) {
-	s.ledEngine.SetState(led.ConnectionMode, "wifi-scan")
+	log.Println("[network] wifi scan started")
 	cmd := exec.Command("iw", "dev", defaultInterface, "scan")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -67,7 +64,7 @@ func (s *Service) listNetworksIW() ([]domain.Network, error) {
 	}
 	networks := parseIWScan(outBuf.String())
 	s.networks = networks
-	s.ledEngine.SetState(led.Booting, "wifi-scan-done")
+	log.Println("[network] wifi scan done")
 	return networks, nil
 }
 
@@ -221,15 +218,6 @@ func (s *Service) runNetworkMonitorTick() {
 		s.networkMonitorMu.Lock()
 		if s.networkMonitorConsecutive > 0 {
 			log.Printf("[network-monitor] Internet restored (was %d fail(s))", s.networkMonitorConsecutive)
-			if s.ledEngine != nil && s.ledEngine.GetState() == led.WorkingNoInternet {
-				s.ledEngine.RestoreFromNoInternet(s.config.SetUpCompleted, "net-monitor-restored")
-			}
-			s.networkMonitorConsecutive = 0
-			s.networkMonitorMu.Unlock()
-			return
-		}
-		if s.ledEngine != nil && s.ledEngine.GetState() == led.WorkingNoInternet {
-			s.ledEngine.RestoreFromNoInternet(s.config.SetUpCompleted, "net-monitor-restored")
 		}
 		s.networkMonitorConsecutive = 0
 		s.networkMonitorMu.Unlock()
@@ -241,15 +229,6 @@ func (s *Service) runNetworkMonitorTick() {
 	s.networkMonitorMu.Unlock()
 
 	log.Printf("[network-monitor] No internet (ping %s failed, %d/%d)", networkMonitorPingTarget, n, networkMonitorFailsRequired)
-
-	// Fire WorkingNoInternet every N consecutive failures (e.g. at 5,10,15... when N=5).
-	// Counter is reset only on success, not here.
-	if n%networkMonitorFailsRequired == 0 {
-		if s.ledEngine != nil {
-			log.Printf("[network-monitor] Setting LED to WorkingNoInternet (fails=%d)", n)
-			s.ledEngine.SetState(led.WorkingNoInternet, "net-monitor-no-internet")
-		}
-	}
 }
 
 // ResetNetwork resets the network to the default state (clears credentials and writes minimal
@@ -283,7 +262,6 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 	log.Println("SetupNetwork cmd", cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		s.ledEngine.SetState(led.Error, "wifi-connect-failed")
 		return false, fmt.Errorf("connect-wifi: %w: %s", err, string(out))
 	}
 	log.Println("SetupNetwork out", string(out))
@@ -309,7 +287,6 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 		time.Sleep(1 * time.Second)
 	}
 	if !success {
-		s.ledEngine.SetState(led.Error, "wifi-setup-timeout")
 		return false, fmt.Errorf("network setup failed, no internet or SSID did not match within 60s")
 	}
 	s.config.NetworkSSID = ssid
@@ -328,6 +305,6 @@ func (s *Service) SwitchToAPMode() error {
 	if err != nil {
 		return fmt.Errorf("device-ap-mode: %w: %s", err, string(out))
 	}
-	s.ledEngine.SetState(led.Booting, "switch-to-ap")
+	log.Println("[network] switched to AP mode")
 	return nil
 }
