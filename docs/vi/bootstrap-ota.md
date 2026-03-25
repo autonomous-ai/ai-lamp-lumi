@@ -98,6 +98,11 @@ type OTAComponent struct {
 
 Script chạy **1 lần duy nhất** trên Pi mới. Thực thi tuần tự theo stages.
 
+**Cài nhanh từ CDN:**
+```bash
+curl -fsSL https://cdn.autonomous.ai/lumi/install.sh | sudo bash
+```
+
 ### Tổng quan stages
 
 | Stage | Tên | Mô tả |
@@ -172,8 +177,8 @@ UNIT
 | `lumi.service` | `/usr/local/bin/lumi-server` | 5000 | HTTP API chính, luôn chạy |
 | `bootstrap.service` | `/usr/local/bin/bootstrap-server` | 8080 | OTA worker, poll cập nhật |
 | `openclaw.service` | `xvfb-run ... openclaw gateway run` | — | AI brain, memory limit 1500M |
-| `lumi-lelamp.service` | `/opt/lelamp/venv/bin/python -m lelamp.server` | TBD | Hardware drivers (servo, LED, audio, display) |
-| nginx | `nginx` | 80 | Setup SPA + reverse proxy |
+| `lumi-lelamp.service` | `uvicorn lelamp.server:app --host 127.0.0.1 --port 5001` | 5001 | Hardware drivers (servo, LED, camera, audio) |
+| nginx | `nginx` | 80 | Setup SPA + reverse proxy (`/api/` → Lumi 5000, `/hw/` → LeLamp 5001) |
 
 ### Thứ tự khởi động
 
@@ -229,8 +234,9 @@ checkLoop():
 
 checkOnce():
   1. Tải OTA metadata JSON
-  2. Với mỗi key [lumi, bootstrap, web, openclaw, lelamp]:
+  2. Với mỗi key [lumi, bootstrap, web, lelamp]:
      → reconcile(key, metadata[key])
+  GHI CHÚ: OpenClaw OTA tạm thời bị tắt (reconcileOpenClawFromNpm đã comment out)
   3. Lưu state
 
 reconcile(key, target):
@@ -257,8 +263,8 @@ reconcile(key, target):
 | `lumi` | Chạy `software-update lumi` (block tối đa 10 phút) |
 | `bootstrap` | Spawn detached `software-update bootstrap` (tự cập nhật, sống sót sau restart) |
 | `web` | Chạy `software-update web` |
-| `openclaw` | Chạy `npm install -g openclaw@{version}` → `systemctl restart openclaw` |
-| `lelamp` | Chạy `software-update lelamp` |
+| `openclaw` | ~~Chạy `npm install -g openclaw@{version}` → `systemctl restart openclaw`~~ (tạm thời tắt) |
+| `lelamp` | Chạy `software-update lelamp` → `systemctl restart lumi-lelamp` |
 
 ---
 
@@ -377,20 +383,34 @@ lelamp-{version}.zip
 └── VERSION
 ```
 
-### LeLamp HTTP API (để Lumi Server bridge đến)
+### LeLamp HTTP API (FastAPI trên port 5001)
 
-LeLamp Python runtime expose HTTP API riêng trên port local (ví dụ `127.0.0.1:5001`). Lumi Server (Go, port 5000) proxy/bridge request từ OpenClaw skills đến API này.
+LeLamp Python runtime expose HTTP API trên `127.0.0.1:5001`. Lumi Server (Go, port 5000) bridge request từ OpenClaw skills đến API này. Nginx cũng expose ra ngoài tại `/hw/*` để debug/truy cập Swagger.
 
 ```
-OpenClaw LLM
-  → curl 127.0.0.1:5000/api/servo
-    → Lumi Server (Go)
-      → http://127.0.0.1:5001/servo
-        → LeLamp Python
-          → Phần cứng (servo/LED/audio/display)
+OpenClaw LLM → curl 127.0.0.1:5000/api/servo → Lumi Server → http://127.0.0.1:5001/servo → LeLamp Python → Phần cứng
+Bên ngoài    → http://<device-ip>/hw/docs    → nginx → http://127.0.0.1:5001/docs (Swagger UI)
 ```
 
-Đây là **Go-to-Python bridge** — HTTP proxy đơn giản. LeLamp chạy HTTP server nhẹ (FastAPI) trực tiếp điều khiển phần cứng.
+#### Endpoints (v0.2.0)
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/health` | GET | Kiểm tra hardware (servo, led, camera, audio) |
+| `/servo` | GET | Recordings hiện có + trạng thái |
+| `/servo/play` | POST | Chạy animation theo tên |
+| `/led` | GET | Thông tin LED strip |
+| `/led/solid` | POST | Đổ 1 màu |
+| `/led/paint` | POST | Set màu từng pixel |
+| `/led/off` | POST | Tắt tất cả LED |
+| `/camera` | GET | Thông tin camera (resolution, availability) |
+| `/camera/snapshot` | GET | Chụp 1 frame JPEG |
+| `/camera/stream` | GET | MJPEG stream |
+| `/audio` | GET | Thông tin audio device (Seeed mic/speaker) |
+| `/audio/volume` | GET | Lấy volume hiện tại |
+| `/audio/volume` | POST | Set volume (0-100%) |
+| `/audio/play-tone` | POST | Phát test tone |
+| `/audio/record` | POST | Thu âm từ mic, trả WAV |
 
 ---
 
@@ -448,6 +468,7 @@ echo "LeLamp $NEW_VERSION published."
 | `scripts/upload-setup.sh` | Script setup | Upload lên GCS |
 | `scripts/upload-setup-ap.sh` | Script setup AP | Upload lên GCS |
 | `scripts/upload-skills.sh` | OpenClaw skill files | Upload lên GCS |
+| `scripts/install.sh` | CDN install shortcut | `curl ... \| sudo bash` trên Pi |
 
 ---
 

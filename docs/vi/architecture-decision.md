@@ -82,9 +82,11 @@ Giữ nguyên từ dự án LeLamp hiện tại, nhưng bỏ phần AI/LiveKit:
 
 - **MotorsService** — điều khiển 5 servo Feetech
 - **RGBService** — điều khiển 64 WS2812 LED (rpi_ws281x)
-- **Audio** — amixer, phát âm thanh
+- **Camera** — OpenCV capture, chụp JPEG, MJPEG stream
+- **Audio** — Seeed mic/speaker, amixer volume, thu WAV, phát tone
 - Event-driven **ServiceBase** với priority dispatch
-- Hiện tại được điều khiển qua LiveKit `@function_tool` → sẽ chuyển sang nhận lệnh từ Lumi Server
+
+Tất cả hardware expose qua FastAPI trên `127.0.0.1:5001` (systemd: `lumi-lelamp.service`). Nginx proxy `/hw/*` để truy cập Swagger từ bên ngoài.
 
 ### Lumi Server (Go, fork từ openclaw-lobster) — Hệ Thống + HTTP API Bridge
 
@@ -280,8 +282,12 @@ workspace/skills/
 │                                                                     │
 │  • MotorsService  — 5 servo Feetech (xoay, nghiêng, biểu cảm)     │
 │  • RGBService     — 64 WS2812 LED grid 8x5 (rpi_ws281x)           │
-│  • Audio          — amixer, phát âm thanh                           │
+│  • Camera         — OpenCV capture, snapshot, MJPEG stream          │
+│  • Audio          — Seeed mic/speaker, amixer volume, thu WAV       │
 │  • ServiceBase    — Event-driven, priority dispatch                 │
+│                                                                     │
+│  FastAPI :5001 | systemd: lumi-lelamp.service                       │
+│  nginx: /hw/* → 127.0.0.1:5001 (Swagger tại /hw/docs)             │
 │                                                                     │
 └───────────────────────────┬─────────────────────────────────────────┘
                             │
