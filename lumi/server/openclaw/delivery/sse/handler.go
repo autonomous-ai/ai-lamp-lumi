@@ -11,18 +11,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"go-lamp.autonomous.ai/domain"
-	"go-lamp.autonomous.ai/internal/openclaw"
+	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
 // OpenClawHandler handles OpenClaw gateway WebSocket events and exposes monitor endpoints.
 type OpenClawHandler struct {
-	openclawService *openclaw.Service
+	agentGateway domain.AgentGateway
+	monitorBus   *monitor.Bus
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
-func ProvideOpenClawHandler(svc *openclaw.Service) OpenClawHandler {
-	return OpenClawHandler{openclawService: svc}
+func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus) OpenClawHandler {
+	return OpenClawHandler{agentGateway: gw, monitorBus: bus}
 }
 
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
@@ -36,15 +37,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			return err
 		}
 		// Capture session key from any agent event
-		if payload.SessionKey != "" && h.openclawService.GetSessionKey() == "" {
-			h.openclawService.SetSessionKey(payload.SessionKey)
+		if payload.SessionKey != "" && h.agentGateway.GetSessionKey() == "" {
+			h.agentGateway.SetSessionKey(payload.SessionKey)
 		}
 
 		switch payload.Stream {
 		case "lifecycle":
-			log.Printf("[openclaw] lifecycle: phase=%s runId=%s session=%s",
+			log.Printf("[agent] lifecycle: phase=%s runId=%s session=%s",
 				payload.Data.Phase, payload.RunID, payload.SessionKey)
-			h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
 				RunID:   payload.RunID,
@@ -67,8 +68,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					summary += ": " + result
 				}
 			}
-			log.Printf("[openclaw] tool: %s phase=%s runId=%s", toolName, payload.Data.Phase, payload.RunID)
-			h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+			log.Printf("[agent] tool: %s phase=%s runId=%s", toolName, payload.Data.Phase, payload.RunID)
+			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "tool_call",
 				Summary: summary,
 				RunID:   payload.RunID,
@@ -88,7 +89,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				delta = delta[:150] + "..."
 			}
 			if delta != "" {
-				h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "thinking",
 					Summary: delta,
 					RunID:   payload.RunID,
@@ -104,7 +105,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				delta = delta[:150] + "..."
 			}
 			if delta != "" {
-				h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "assistant_delta",
 					Summary: delta,
 					RunID:   payload.RunID,
@@ -115,7 +116,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	case "chat":
 		var payload domain.ChatPayload
 		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-			log.Printf("[openclaw] chat parse error: %v", err)
+			log.Printf("[agent] chat parse error: %v", err)
 			return nil
 		}
 
@@ -124,7 +125,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if len(summary) > 120 {
 			summary = summary[:120] + "..."
 		}
-		h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+		h.monitorBus.Push(domain.MonitorEvent{
 			Type:    "chat_response",
 			Summary: summary,
 			RunID:   payload.RunID,
@@ -137,10 +138,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Only forward final assistant messages to TTS
 		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" {
-			log.Printf("[openclaw] chat response (final): %s", payload.Message[:min(len(payload.Message), 100)])
+			log.Printf("[agent] chat response (final): %s", payload.Message[:min(len(payload.Message), 100)])
 			go func() {
-				if err := h.openclawService.SendToLeLampTTS(payload.Message); err != nil {
-					log.Printf("[openclaw] TTS delivery failed: %v", err)
+				if err := h.agentGateway.SendToLeLampTTS(payload.Message); err != nil {
+					log.Printf("[agent] TTS delivery failed: %v", err)
 				}
 			}()
 		}
@@ -149,17 +150,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	return nil
 }
 
-// Status returns the current OpenClaw connection status.
+// Status returns the current agent connection status.
 func (h *OpenClawHandler) Status(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-		"connected":  h.openclawService.IsReady(),
-		"sessionKey": h.openclawService.GetSessionKey() != "",
+		"connected":  h.agentGateway.IsReady(),
+		"sessionKey": h.agentGateway.GetSessionKey() != "",
 	}))
 }
 
 // Recent returns the last N monitor events.
 func (h *OpenClawHandler) Recent(c *gin.Context) {
-	events := h.openclawService.RecentMonitorEvents(100)
+	events := h.monitorBus.Recent(100)
 	if events == nil {
 		events = []domain.MonitorEvent{}
 	}
@@ -173,7 +174,7 @@ func (h *OpenClawHandler) Events(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // disable nginx buffering
 
-	sub, unsub := h.openclawService.SubscribeMonitorEvents()
+	sub, unsub := h.monitorBus.Subscribe()
 	defer unsub()
 
 	c.Stream(func(w io.Writer) bool {

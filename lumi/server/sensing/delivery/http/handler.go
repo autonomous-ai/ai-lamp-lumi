@@ -8,7 +8,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"go-lamp.autonomous.ai/domain"
-	"go-lamp.autonomous.ai/internal/openclaw"
+	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
@@ -20,17 +20,18 @@ type SensingEventRequest struct {
 	Message string `json:"message" validate:"required"`
 }
 
-// SensingHandler handles incoming sensing events from LeLamp and forwards them to OpenClaw.
+// SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
 type SensingHandler struct {
-	openclawService *openclaw.Service
+	agentGateway domain.AgentGateway
+	monitorBus   *monitor.Bus
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
-func ProvideSensingHandler(svc *openclaw.Service) SensingHandler {
-	return SensingHandler{openclawService: svc}
+func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus) SensingHandler {
+	return SensingHandler{agentGateway: gw, monitorBus: bus}
 }
 
-// PostEvent receives a sensing event and sends it to OpenClaw as a chat message.
+// PostEvent receives a sensing event and sends it to the agent as a chat message.
 func (h *SensingHandler) PostEvent(c *gin.Context) {
 	var req SensingEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -42,20 +43,20 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	if !h.openclawService.IsReady() {
-		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("openclaw gateway not connected"))
+	if !h.agentGateway.IsReady() {
+		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("agent gateway not connected"))
 		return
 	}
 
 	// Push sensing input to monitor before forwarding
-	h.openclawService.PushMonitorEvent(domain.MonitorEvent{
+	h.monitorBus.Push(domain.MonitorEvent{
 		Type:    "sensing_input",
 		Summary: "[" + req.Type + "] " + req.Message,
 	})
 
-	// Format the sensing event as a message for OpenClaw
+	// Format the sensing event as a message for the agent
 	msg := "[sensing:" + req.Type + "] " + req.Message
-	runID, err := h.openclawService.SendChatMessage(msg)
+	runID, err := h.agentGateway.SendChatMessage(msg)
 	if err != nil {
 		log.Printf("[sensing] failed to send event: %v", err)
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))

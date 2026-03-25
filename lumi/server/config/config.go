@@ -44,6 +44,9 @@ type Config struct {
 
 	DeepgramAPIKey string `json:"deepgram_api_key" yaml:"deepgramAPIKey"`
 
+	// AgentRuntime selects which agentic backend to use: "openclaw" (default), "picoclaw", "claudecode", etc.
+	AgentRuntime string `json:"agent_runtime" yaml:"agentRuntime"`
+
 	OpenclawConfigDir string `json:"openclaw_config_dir" yaml:"openclawConfigDir"`
 
 	NetworkSSID     string `json:"network_ssid" yaml:"networkSSID" validate:"required"`

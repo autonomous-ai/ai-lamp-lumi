@@ -7,10 +7,11 @@
 package server
 
 import (
+	"go-lamp.autonomous.ai/internal/agent"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
+	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
@@ -27,11 +28,12 @@ import (
 
 func InitializeServer() (*Server, error) {
 	configConfig := config.ProvideConfig()
-	healthHandler := http.ProvideHealthHandler()
 	service := network.ProvideService(configConfig)
-	openclawService := openclaw.ProvideService(configConfig)
+	bus := monitor.ProvideBus()
+	agentGateway := agent.ProvideGateway(configConfig, bus)
+	healthHandler := http.ProvideHealthHandler(configConfig, service, agentGateway)
 	client := beclient.ProvideClient(configConfig)
-	deviceService := device.ProvideService(configConfig, service, openclawService, client)
+	deviceService := device.ProvideService(configConfig, service, agentGateway, client)
 	networkHandler := http2.ProvideNetworkHandler(configConfig, service, deviceService)
 	deviceHandler := http3.ProvideDeviceHandler(deviceService, service)
 	mqttConfig := config.ProvideMQTTConfig(configConfig)
@@ -40,10 +42,10 @@ func InitializeServer() (*Server, error) {
 		return nil, err
 	}
 	deviceMQTTHandler := mqtthandler.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
-	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, openclawService)
-	openClawHandler := sse.ProvideOpenClawHandler(openclawService)
-	sensingHandler := http5.ProvideSensingHandler(openclawService)
+	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, agentGateway)
+	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus)
+	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
-	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, openclawService, service, resetbuttonService, factory)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory)
 	return server, nil
 }
