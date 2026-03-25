@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BOOTSTRAP_BIN="${ROOT_DIR}/bootstrap-server"
 VERSION_FILE="${ROOT_DIR}/${VERSION_FILE:-VERSION_BOOTSTRAP}"
 
-# Bucket and path: intern/ota/bootstrap/[semver].zip
+# Bucket and path: lumi/ota/bootstrap/[semver].zip
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
 
 # Auto-increment semver (patch) before build
@@ -25,7 +25,7 @@ fi
 
 ZIP_NAME="bootstrap-${new_version}.zip"
 ZIP_PATH="${ROOT_DIR}/${ZIP_NAME}"
-GCS_PATH="${GCS_PATH:-intern/ota/bootstrap/${new_version}.zip}"
+GCS_PATH="${GCS_PATH:-lumi/ota/bootstrap/${new_version}.zip}"
 
 echo "========== Build bootstrap binary (VERSION=${new_version}) =========="
 (cd "$ROOT_DIR" && make build-bootstrap VERSION="$new_version")
@@ -42,8 +42,8 @@ rm -f "$ZIP_PATH"
 echo "========== Upload ${ZIP_NAME} to Google Cloud Storage (no-cache) =========="
 gsutil -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$ZIP_PATH" "gs://${GCS_BUCKET}/${GCS_PATH}"
 
-# Update metadata.json (intern/ota/metadata.json) - backend key
-METADATA_PATH="intern/ota/metadata.json"
+# Update metadata.json (lumi/ota/metadata.json) - backend key
+METADATA_PATH="lumi/ota/metadata.json"
 METADATA_TMP=$(mktemp)
 BACKEND_URL="${BACKEND_URL:-https://storage.googleapis.com/${GCS_BUCKET}/${GCS_PATH}}"
 

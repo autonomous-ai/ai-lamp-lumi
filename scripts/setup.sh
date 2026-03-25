@@ -1,5 +1,5 @@
 #!/bin/bash
-# Production setup for Raspberry Pi 5: single-interface AP/STA switch, nginx setup web + API proxy, intern backend.
+# Production setup for Raspberry Pi 5: single-interface AP/STA switch, nginx setup web + API proxy, lumi backend.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -77,16 +77,16 @@ stage_rpi5_wifi_stability() {
 
   # Disable IPv6 — can cause connection drops on RPi 5
   mkdir -p /etc/sysctl.d
-  cat >/etc/sysctl.d/99-intern-wifi.conf <<'EOF'
+  cat >/etc/sysctl.d/99-lumi-wifi.conf <<'EOF'
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
 EOF
-  sysctl -p /etc/sysctl.d/99-intern-wifi.conf 2>/dev/null || true
+  sysctl -p /etc/sysctl.d/99-lumi-wifi.conf 2>/dev/null || true
 
   # Disable WiFi power saving at boot (chip sleep causes STA drops)
   # device-ap-mode and device-sta-mode also run power_save off when switching modes
-  cat >/etc/systemd/system/intern-wifi-power-save.service <<'EOF'
+  cat >/etc/systemd/system/lumi-wifi-power-save.service <<'EOF'
 [Unit]
 Description=Disable WiFi power save on wlan0 (RPi 5 stability)
 After=network-online.target
@@ -101,13 +101,13 @@ ExecStart=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ip link show wlan0 >/dev
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable intern-wifi-power-save.service
+  systemctl enable lumi-wifi-power-save.service
   # Run now if wlan0 exists (e.g. already on STA from image)
-  systemctl start intern-wifi-power-save.service 2>/dev/null || true
+  systemctl start lumi-wifi-power-save.service 2>/dev/null || true
 }
 
 # ----------------------------------------------------------
-# Stage 0b: OTA metadata (web, intern, bootstrap URLs from GCS)
+# Stage 0b: OTA metadata (web, lumi, bootstrap URLs from GCS)
 # ----------------------------------------------------------
 # ----------------------------------------------------------
 # Stage 0c: Enable SPI in firmware config
@@ -132,7 +132,7 @@ stage_enable_spi() {
   else
     {
       echo ""
-      echo "# Enabled by intern setup.sh to turn on SPI"
+      echo "# Enabled by lumi setup.sh to turn on SPI"
       echo "dtparam=spi=on"
     } >>"$cfg"
     echo "[stage] Added dtparam=spi=on to $cfg"
@@ -141,28 +141,28 @@ stage_enable_spi() {
   echo "[stage] SPI enablement will take effect after reboot"
 }
 
-OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomous-upgrade-3/intern/ota/metadata.json}"
+OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/ota/metadata.json}"
 
 stage_ota_metadata() {
   echo "[stage] Fetch OTA metadata"
   METADATA_TMP="/tmp/ota-metadata.$$.json"
   retry "curl -fsSL -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o \"$METADATA_TMP\" \"$OTA_METADATA_URL\"" 5
-  export WEB_VERSION WEB_URL INTERN_VERSION INTERN_URL BOOTSTRAP_VERSION BOOTSTRAP_URL
+  export WEB_VERSION WEB_URL LUMI_VERSION LUMI_URL BOOTSTRAP_VERSION BOOTSTRAP_URL
   WEB_VERSION=$(jq -r '.web.version // empty' "$METADATA_TMP")
   WEB_URL=$(jq -r '.web.url // empty' "$METADATA_TMP")
-  INTERN_VERSION=$(jq -r '.intern.version // empty' "$METADATA_TMP")
-  INTERN_URL=$(jq -r '.intern.url // empty' "$METADATA_TMP")
+  LUMI_VERSION=$(jq -r '.lumi.version // empty' "$METADATA_TMP")
+  LUMI_URL=$(jq -r '.lumi.url // empty' "$METADATA_TMP")
   BOOTSTRAP_VERSION=$(jq -r '.bootstrap.version // empty' "$METADATA_TMP")
   BOOTSTRAP_URL=$(jq -r '.bootstrap.url // empty' "$METADATA_TMP")
   rm -f "$METADATA_TMP"
-  if [ -z "$WEB_URL" ] || [ -z "$INTERN_URL" ] || [ -z "$BOOTSTRAP_URL" ]; then
-    echo "ERROR: OTA metadata missing web.url, intern.url or bootstrap.url. Check $OTA_METADATA_URL"
+  if [ -z "$WEB_URL" ] || [ -z "$LUMI_URL" ] || [ -z "$BOOTSTRAP_URL" ]; then
+    echo "ERROR: OTA metadata missing web.url, lumi.url or bootstrap.url. Check $OTA_METADATA_URL"
     exit 1
   fi
-  echo "[stage] OTA versions: web=$WEB_VERSION intern=$INTERN_VERSION bootstrap=$BOOTSTRAP_VERSION"
+  echo "[stage] OTA versions: web=$WEB_VERSION lumi=$LUMI_VERSION bootstrap=$BOOTSTRAP_VERSION"
 }
 
-# Download zip from URL, unzip, copy single binary to dest path (handles intern-server, bootstrap-server in zip)
+# Download zip from URL, unzip, copy single binary to dest path (handles lumi-server, bootstrap-server in zip)
 install_binary_from_zip() {
   local url="$1"
   local dest_binary="$2"
@@ -173,7 +173,7 @@ install_binary_from_zip() {
   retry "curl -fsSL -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o \"$zip_tmp\" \"$url\"" 5
   unzip -o -q "$zip_tmp" -d "$dir_tmp"
   rm -f "$zip_tmp"
-  # Zip may contain intern-server, bootstrap-server or bare binary (at root or in subdir)
+  # Zip may contain lumi-server, bootstrap-server or bare binary (at root or in subdir)
   local bin_file
   bin_file=$(find "$dir_tmp" -type f -executable 2>/dev/null | head -1)
   [ -z "$bin_file" ] && bin_file=$(find "$dir_tmp" -type f 2>/dev/null | head -1)
@@ -188,13 +188,13 @@ install_binary_from_zip() {
 }
 
 # ----------------------------------------------------------
-# Stage 1: Backend (bootstrap + intern from OTA metadata)
+# Stage 1: Backend (bootstrap + lumi from OTA metadata)
 # ----------------------------------------------------------
 stage_backend() {
-  echo "[stage] Install backend (bootstrap + intern)"
+  echo "[stage] Install backend (bootstrap + lumi)"
 
   install_binary_from_zip "$BOOTSTRAP_URL" /usr/local/bin/bootstrap-server "bootstrap"
-  install_binary_from_zip "$INTERN_URL" /usr/local/bin/intern-server "intern"
+  install_binary_from_zip "$LUMI_URL" /usr/local/bin/lumi-server "lumi"
 
   cat >/etc/systemd/system/bootstrap.service <<EOF
 [Unit]
@@ -214,37 +214,37 @@ SyslogIdentifier=bootstrap
 WantedBy=multi-user.target
 EOF
 
-  cat >/etc/systemd/system/intern.service <<EOF
+  cat >/etc/systemd/system/lumi.service <<EOF
 [Unit]
-Description=Intern Backend
+Description=Lumi Backend
 After=network-online.target
 
 [Service]
 User=root
 WorkingDirectory=/root
-ExecStart=/usr/local/bin/intern-server
+ExecStart=/usr/local/bin/lumi-server
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=intern
+SyslogIdentifier=lumi
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable bootstrap intern
-  systemctl restart bootstrap intern
+  systemctl enable bootstrap lumi
+  systemctl restart bootstrap lumi
 
   # software-update: download and install binary from OTA metadata (or kind + version)
-  # Usage: software-update <bootstrap|intern|web> [version]
+  # Usage: software-update <bootstrap|lumi|web> [version]
   #   If version omitted or "latest": use URL from metadata.
   #   If version given: fetch metadata and install only if metadata version matches.
   cat >/usr/local/bin/software-update <<'SOFTWAREUPDATE'
 #!/bin/bash
 set -euo pipefail
-OTA_METADATA_URL="${OTA_METADATA_URL:-https://cdn.autonomous.ai/intern/ota/metadata.json}"
+OTA_METADATA_URL="${OTA_METADATA_URL:-https://cdn.autonomous.ai/lumi/ota/metadata.json}"
 retry() {
   local n=0 max="${2:-5}" delay="${3:-2}" cmd="$1"
   until [ "$n" -ge "$max" ]; do
@@ -255,15 +255,15 @@ retry() {
 }
 [ "$(id -u)" -ne 0 ] && { echo "Run as root or with sudo."; exit 1; }
 if [ $# -lt 1 ]; then
-  echo "Usage: software-update <bootstrap|intern|web> [version]"
+  echo "Usage: software-update <bootstrap|lumi|web> [version]"
   echo "  Download from OTA metadata. If version is given, install only when metadata version matches."
   exit 1
 fi
 KIND="$1"
 VERSION="${2:-}"
 case "$KIND" in
-  bootstrap|intern|web) ;;
-  *) echo "Unknown kind: $KIND (bootstrap, intern, web)"; exit 1 ;;
+  bootstrap|lumi|web) ;;
+  *) echo "Unknown kind: $KIND (bootstrap, lumi, web)"; exit 1 ;;
 esac
 METADATA_TMP="/tmp/ota-metadata.$$.json"
 retry "curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o '$METADATA_TMP' '$OTA_METADATA_URL'" 5
@@ -288,8 +288,8 @@ if [ "$KIND" = "web" ]; then
   systemctl restart nginx 2>/dev/null || true
   echo "Installed web to /usr/share/nginx/html/setup"
 fi
-if [ "$KIND" = "intern" ]; then
-  BIN_NAME="intern-server"
+if [ "$KIND" = "lumi" ]; then
+  BIN_NAME="lumi-server"
   zip_tmp="/tmp/${KIND}-zip.$$"
   dir_tmp="/tmp/${KIND}-dir.$$"
   mkdir -p "$dir_tmp"
@@ -439,10 +439,10 @@ WantedBy=multi-user.target
 EOF
   # Download openclaw skills from CDN
   SKILLS_DST="$OPENCLAW_HOME/workspace/skills"
-  SKILLS_CDN="https://storage.googleapis.com/s3-autonomous-upgrade-3/intern/skills"
+  SKILLS_CDN="https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/skills"
   mkdir -p "$SKILLS_DST"
   echo "[stage] Download openclaw skills from CDN"
-  # LED control skill disabled — intern-server WS client handles LED via OpenClaw lifecycle events
+  # LED control skill disabled — lumi-server WS client handles LED via OpenClaw lifecycle events
   # mkdir -p "$SKILLS_DST/led-control"
   # curl -fsSL -o "$SKILLS_DST/led-control/SKILL.md" "$SKILLS_CDN/led-control/SKILL.md" || echo "[stage] WARN: failed to download led-control skill (non-fatal)"
   # chmod 600 "$SKILLS_DST"/*/SKILL.md 2>/dev/null || true
@@ -473,7 +473,7 @@ stage_nginx() {
   unzip -o -q /tmp/setup.zip -d /usr/share/nginx/html/setup
   rm -f /tmp/setup.zip
 
-  cat >/etc/nginx/conf.d/intern.conf <<EOF
+  cat >/etc/nginx/conf.d/lumi.conf <<EOF
 upstream backend { server 127.0.0.1:5000; }
 
 server {
@@ -515,7 +515,7 @@ stage_ap() {
   # Pi 5: prefer device-tree serial; fallback to cpuinfo
   SERIAL=$(tr -d '\0' </proc/device-tree/serial-number 2>/dev/null) || SERIAL=$(awk '/Serial/ {print $3}' /proc/cpuinfo)
   SUFFIX=${SERIAL: -4}
-  AP_SSID="Intern-${SUFFIX}"
+  AP_SSID="Lumi-${SUFFIX}"
   echo "[stage] AP SSID = $AP_SSID"
 
   # Ignore Pi Imager WiFi credentials baked into the image.
@@ -587,7 +587,7 @@ EOF
 
   # dnsmasq: use .d drop-in so we don't break system config; bind range to wlan0 explicitly
   mkdir -p /etc/dnsmasq.d
-  cat >/etc/dnsmasq.d/99-intern.conf <<EOF
+  cat >/etc/dnsmasq.d/99-lumi.conf <<EOF
 interface=wlan0
 bind-interfaces
 dhcp-range=wlan0,192.168.100.50,192.168.100.150,255.255.255.0,24h
@@ -598,7 +598,7 @@ no-resolv
 EOF
   # Remove any conflicting global interface in main config (leave rest intact)
   if [ -f /etc/dnsmasq.conf ]; then
-    sed -i 's/^interface=wlan0/#interface=wlan0  # use dnsmasq.d/99-intern.conf/' /etc/dnsmasq.conf 2>/dev/null || true
+    sed -i 's/^interface=wlan0/#interface=wlan0  # use dnsmasq.d/99-lumi.conf/' /etc/dnsmasq.conf 2>/dev/null || true
   fi
 
   # dhcpcd: remove only the wlan0 block so eth0/other blocks are preserved
@@ -840,7 +840,7 @@ CONNECTWIFI
   cat >/usr/local/bin/software-update <<'SOFTWAREUPDATE'
 #!/bin/bash
 set -e
-OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomous-upgrade-3/intern/ota/metadata.json}"
+OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/ota/metadata.json}"
 [ "$(id -u)" -ne 0 ] && { echo "Run as root."; exit 1; }
 [ $# -ne 1 ] && { echo "Usage: software-update <intern|openclaw|web>"; exit 1; }
 APP="$1"
@@ -858,19 +858,19 @@ VERSION=$(jq -r --arg a "$APP" '.[$a].version // empty' "$METADATA_TMP")
 URL=$(jq -r --arg a "$APP" '.[$a].url // empty' "$METADATA_TMP")
 [ -z "$VERSION" ] && { echo "Metadata has no version for $APP"; exit 1; }
 
-if [ "$APP" = "intern" ]; then
-  [ -z "$URL" ] && { echo "Metadata has no url for intern"; exit 1; }
+if [ "$APP" = "lumi" ]; then
+  [ -z "$URL" ] && { echo "Metadata has no url for lumi"; exit 1; }
   ZIP_TMP=$(mktemp)
   DIR_TMP=$(mktemp -d)
-  curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download intern"; exit 1; }
+  curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lumi"; exit 1; }
   unzip -o -q "$ZIP_TMP" -d "$DIR_TMP"
   BIN=$(find "$DIR_TMP" -type f -executable 2>/dev/null | head -1)
   [ -z "$BIN" ] && BIN=$(find "$DIR_TMP" -type f 2>/dev/null | head -1)
-  [ -z "$BIN" ] || [ ! -f "$BIN" ] && { echo "No binary in intern zip"; exit 1; }
-  cp -f "$BIN" /usr/local/bin/intern-server
-  chmod +x /usr/local/bin/intern-server
-  systemctl restart intern
-  echo "intern updated to $VERSION"
+  [ -z "$BIN" ] || [ ! -f "$BIN" ] && { echo "No binary in lumi zip"; exit 1; }
+  cp -f "$BIN" /usr/local/bin/lumi-server
+  chmod +x /usr/local/bin/lumi-server
+  systemctl restart lumi
+  echo "lumi updated to $VERSION"
 elif [ "$APP" = "bootstrap" ]; then
   [ -z "$URL" ] && { echo "Metadata has no url for bootstrap"; exit 1; }
   ZIP_TMP=$(mktemp)
@@ -931,10 +931,10 @@ systemctl mask wpa_supplicant.service 2>/dev/null || true
 echo ""
 echo "======================================"
 echo "✅ Setup complete!"
-echo "AP SSID: Intern-XXXX (actual: $AP_SSID)"
+echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
-echo "Backends: systemctl status bootstrap intern"
-echo "Updates:  software-update <bootstrap|intern|web> [version]"
+echo "Backends: systemctl status bootstrap lumi"
+echo "Updates:  software-update <bootstrap|lumi|web> [version]"
 echo "======================================"
 
 echo ""

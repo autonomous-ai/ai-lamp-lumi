@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SKILLS_DIR="${ROOT_DIR}/resources/openclaw-skills"
 
 GCS_BUCKET="${GCS_BUCKET:-s3-autonomous-upgrade-3}"
-GCS_PREFIX="${GCS_PREFIX:-intern/skills}"
+GCS_PREFIX="${GCS_PREFIX:-lumi/skills}"
 
 if [[ ! -d "$SKILLS_DIR" ]]; then
   echo "Error: skills directory not found at $SKILLS_DIR"
