@@ -705,7 +705,7 @@ class VoiceStartRequest(BaseModel):
 
 @app.post("/voice/start", response_model=StatusResponse, tags=["Voice"])
 def start_voice(req: VoiceStartRequest):
-    """Start the voice pipeline (wake word + STT + TTS). Called by Lumi on boot."""
+    """Start the voice pipeline (always-on Deepgram STT + TTS). Called by Lumi on boot."""
     global voice_service, tts_service
 
     # Start TTS
@@ -722,7 +722,7 @@ def start_voice(req: VoiceStartRequest):
         except Exception as e:
             logger.warning(f"TTSService failed: {e}")
 
-    # Start voice (wake word + STT)
+    # Start voice (always-on Deepgram streaming STT)
     if voice_service and voice_service.available:
         return {"status": "already_running"}
     if not VoiceService:
