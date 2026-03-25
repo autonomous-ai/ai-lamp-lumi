@@ -305,7 +305,7 @@ func openclawNormalizeVersion(raw string) string {
 	return ""
 }
 
-// normalizeVersion extracts a semver-like version from command output (e.g. "1.0.83" or "intern-server 1.0.83" -> "1.0.83").
+// normalizeVersion extracts a semver-like version from command output (e.g. "1.0.83" or "lumi-server 1.0.83" -> "1.0.83").
 // Used for OTAKeyLumi and bootstrap-style version output (lumi-server --version, bootstrap-server --version).
 func normalizeVersion(raw string) string {
 	line := strings.TrimSpace(strings.TrimRight(raw, "\r\n"))

@@ -20,7 +20,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"go-lamp.autonomous.ai/domain"
-	"go-lamp.autonomous.ai/internal/llm"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -39,16 +38,50 @@ type WSEventHandler func(ctx context.Context, evt domain.WSEvent) error
 // Service provides setup, reset, restart of openclaw config/gateway and StartWS.
 type Service struct {
 	config      *config.Config
-	llmService  *llm.Service
 	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
 }
 
 // ProvideService constructs the openclaw service.
-func ProvideService(cfg *config.Config, llmSvc *llm.Service) *Service {
+func ProvideService(cfg *config.Config) *Service {
 	return &Service{
-		config:     cfg,
-		llmService: llmSvc,
+		config: cfg,
 	}
+}
+
+// defaultModels is the hardcoded list of supported models.
+var defaultModels = []domain.LLMModel{
+	{
+		Key:       "claude-opus-4-6",
+		Name:      "claude-opus-4-6",
+		Reasoning: true,
+		Input:     []string{"text"},
+		Privacy:   "private",
+		Capabilities: &domain.LLMModelCapabilities{
+			SupportsReasoning:       true,
+			SupportsVision:          false,
+			SupportsFunctionCalling: true,
+		},
+	},
+	{
+		Key:       "claude-haiku-4-5",
+		Name:      "claude-haiku-4-5",
+		Reasoning: true,
+		Input:     []string{"text"},
+		Privacy:   "private",
+		Capabilities: &domain.LLMModelCapabilities{
+			SupportsReasoning:       true,
+			SupportsVision:          false,
+			SupportsFunctionCalling: true,
+		},
+	},
+}
+
+// listModelsFromAPI returns the hardcoded default models list.
+func (s *Service) listModelsFromAPI(apiBaseURL string) (*domain.LLMModelsListResponse, error) {
+	return &domain.LLMModelsListResponse{
+		Count:  len(defaultModels),
+		Models: defaultModels,
+	}, nil
 }
 
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.
@@ -89,7 +122,7 @@ func (s *Service) SetupOpenclaw(data domain.SetupRequest) error {
 	}
 
 	log.Printf("SetupOpenclaw: listing models from API %s", llmBaseURL)
-	modelsResp, err := s.llmService.ListModelsFromAPI(llmBaseURL)
+	modelsResp, err := s.listModelsFromAPI(llmBaseURL)
 	if err != nil {
 		return fmt.Errorf("list llm models from api: %w", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/led"
-	llm "go-lamp.autonomous.ai/internal/llm"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/openclaw"
 	"go-lamp.autonomous.ai/internal/resetbutton"
@@ -17,10 +16,8 @@ import (
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
 	_deviceHttpDeliver "go-lamp.autonomous.ai/server/device/delivery/http"
 	_deviceMQTTDeliver "go-lamp.autonomous.ai/server/device/delivery/mqtt"
-	_gwsHttpDeliver "go-lamp.autonomous.ai/server/gws/delivery/http"
 	_healthHttpDeliver "go-lamp.autonomous.ai/server/health/delivery/http"
 	_ledHttpDeliver "go-lamp.autonomous.ai/server/led/delivery/http"
-	_llmHttpDeliver "go-lamp.autonomous.ai/server/llm/delivery/http"
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSse "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 )
@@ -33,7 +30,6 @@ func InitializeServer() (*Server, error) {
 		network.ProviderSet,
 		openclaw.ProviderSet,
 		device.ProviderSet,
-		llm.ProviderSet,
 		led.ProviderSet,
 		resetbutton.ProviderSet,
 		_healthHttpDeliver.ProviderSet,
@@ -42,8 +38,6 @@ func InitializeServer() (*Server, error) {
 		_deviceHttpDeliver.ProviderSet,
 		_deviceMQTTDeliver.ProviderSet,
 		_deviceGPIODeliver.ProviderSet,
-		_gwsHttpDeliver.ProviderSet,
-		_llmHttpDeliver.ProviderSet,
 		_openclawSse.ProviderSet,
 		ProvideServer,
 	))
