@@ -1,19 +1,19 @@
 """
-Voice Service — wake word detection + Deepgram STT streaming.
+Voice Service — always-on Deepgram streaming STT with "Hey Lumi" wake word detection.
 
 Pipeline:
-  1. openwakeword runs always-on, listens for "Hey Lumi"
-  2. On wake word → start Deepgram WebSocket streaming
-  3. Stream mic audio until silence detected (VAD) or timeout
-  4. Get transcript → POST to Lumi Server /api/sensing/event {type:"voice", message: transcript}
+  1. Mic streams continuously to Deepgram via WebSocket (always-on)
+  2. Deepgram returns real-time transcripts with keyword boost for "Lumi"
+  3. When transcript contains "Hey Lumi" (or similar) → capture the command after it
+  4. Command transcript → POST to Lumi Server /api/sensing/event {type:"voice", message: transcript}
   5. Lumi Go → chat.send → OpenClaw → AI responds → Go captures response → POST /voice/speak
   6. tts_service plays the response through the speaker
 
-This service runs in a background daemon thread, similar to SensingService.
+No openwakeword needed — Deepgram handles everything via streaming STT.
 """
 
 import logging
-import os
+import re
 import struct
 import threading
 import time
@@ -29,34 +29,31 @@ LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 DEEPGRAM_SAMPLE_RATE = 16000
 DEEPGRAM_CHANNELS = 1
 DEEPGRAM_ENCODING = "linear16"
+DEEPGRAM_FRAME_SIZE = 1024  # samples per frame
 
-# Recording timeout after wake word (seconds)
-LISTEN_TIMEOUT_S = 10.0
+# Wake word pattern — matches "hey lumi", "hei lumi", "hey lummy", etc.
+WAKE_WORD_PATTERN = re.compile(r"\bhey?\s+lumi\b", re.IGNORECASE)
 
-# Silence detection: stop recording after this many seconds of silence
-SILENCE_THRESHOLD_S = 1.5
-SILENCE_RMS_THRESHOLD = 500  # RMS below this = silence
+# After wake word detected, wait for speech_final to get the full command
+COMMAND_TIMEOUT_S = 10.0
 
 
 class VoiceService:
-    """Background voice pipeline: wake word → STT → forward to Lumi."""
+    """Always-on Deepgram streaming voice pipeline with wake word detection."""
 
     def __init__(
         self,
         deepgram_api_key: str,
         input_device: Optional[int] = None,
-        wake_word_model: str = "hey_jarvis",  # openwakeword built-in, closest to "Hey Lumi"
     ):
-        self._input_device = input_device
         self._deepgram_api_key = deepgram_api_key
-        self._wake_word_model = wake_word_model
+        self._input_device = input_device
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._listening = False  # True when actively recording for STT
+        self._listening = False  # True when wake word detected, capturing command
 
         # Lazy imports
-        self._pvrecorder = None
-        self._oww = None
+        self._sd = None
         self._np = None
         self._deepgram = None
 
@@ -67,19 +64,10 @@ class VoiceService:
             logger.warning("numpy not available for voice")
 
         try:
-            from pvrecorder import PvRecorder
-            self._pvrecorder = PvRecorder
+            import sounddevice as sd
+            self._sd = sd
         except ImportError:
-            logger.warning("pvrecorder not available — wake word disabled")
-
-        try:
-            import openwakeword
-            from openwakeword.model import Model as OWWModel
-            self._oww = OWWModel
-            openwakeword.utils.download_models()
-            logger.info("openwakeword loaded")
-        except ImportError:
-            logger.warning("openwakeword not available")
+            logger.warning("sounddevice not available")
 
         try:
             from deepgram import DeepgramClient
@@ -90,7 +78,12 @@ class VoiceService:
 
     @property
     def available(self) -> bool:
-        return self._oww is not None and self._deepgram is not None and self._deepgram_api_key != ""
+        return (
+            self._sd is not None
+            and self._np is not None
+            and self._deepgram is not None
+            and self._deepgram_api_key != ""
+        )
 
     @property
     def listening(self) -> bool:
@@ -100,7 +93,7 @@ class VoiceService:
         if self._running:
             return
         if not self.available:
-            logger.warning("VoiceService not starting — missing deps or DEEPGRAM_API_KEY")
+            logger.warning("VoiceService not starting — missing deps or API key")
             return
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="voice")
@@ -115,142 +108,134 @@ class VoiceService:
         logger.info("VoiceService stopped")
 
     def _loop(self):
-        """Main loop: listen for wake word, then stream to Deepgram."""
+        """Main loop: connect to Deepgram, stream mic, detect wake word."""
         time.sleep(3)  # Wait for hardware init
 
-        # Initialize openwakeword model
-        oww_model = self._oww(
-            wakeword_models=[self._wake_word_model],
-            inference_framework="onnx",
-        )
+        while self._running:
+            try:
+                self._run_stream()
+            except Exception as e:
+                logger.error("Voice stream error: %s", e)
+                time.sleep(5)  # Reconnect after error
 
-        # Initialize PvRecorder for always-on mic listening
-        # PvRecorder uses 512-sample frames at 16kHz
-        frame_length = 512
-        try:
-            recorder = self._pvrecorder(
-                frame_length=frame_length,
-                device_index=self._input_device if self._input_device is not None else -1,
-            )
-        except Exception as e:
-            logger.error("Failed to init PvRecorder: %s", e)
-            return
-
-        recorder.start()
-        logger.info("Wake word listener active (model=%s)", self._wake_word_model)
-
-        try:
-            while self._running:
-                try:
-                    pcm = recorder.read()
-                    # Convert to numpy int16 array
-                    np_frame = self._np.array(pcm, dtype=self._np.int16)
-
-                    # Feed to openwakeword
-                    prediction = oww_model.predict(np_frame)
-
-                    # Check if any wake word score exceeds threshold
-                    for model_name, score in prediction.items():
-                        if score > 0.5:
-                            logger.info("Wake word detected! (%s, score=%.2f)", model_name, score)
-                            oww_model.reset()
-                            self._on_wake_word(recorder, frame_length)
-                            break
-
-                except Exception as e:
-                    logger.error("Wake word loop error: %s", e)
-                    time.sleep(1)
-        finally:
-            recorder.stop()
-            recorder.delete()
-
-    def _on_wake_word(self, recorder, frame_length: int):
-        """Handle wake word detection: stream mic to Deepgram for STT."""
-        self._listening = True
-        try:
-            transcript = self._stream_to_deepgram(recorder, frame_length)
-            if transcript and transcript.strip():
-                logger.info("Transcript: %s", transcript)
-                self._send_to_lumi(transcript)
-            else:
-                logger.info("No speech detected after wake word")
-        except Exception as e:
-            logger.error("STT failed: %s", e)
-        finally:
-            self._listening = False
-
-    def _stream_to_deepgram(self, recorder, frame_length: int) -> Optional[str]:
-        """Stream audio to Deepgram and return the final transcript."""
+    def _run_stream(self):
+        """Single streaming session — reconnects on error."""
         from deepgram import DeepgramClient, LiveTranscriptEvents, LiveOptions
 
         client = DeepgramClient(self._deepgram_api_key)
         dg_connection = client.listen.live.v("1")
 
-        transcript_parts = []
-        done_event = threading.Event()
+        # State for wake word detection
+        wake_detected = False
+        command_parts = []
+        wake_time = 0.0
+        lock = threading.Lock()
 
-        def on_message(self_unused, result, **kwargs):
-            sentence = result.channel.alternatives[0].transcript
-            if sentence:
-                if result.is_final:
-                    transcript_parts.append(sentence)
-                    if result.speech_final:
-                        done_event.set()
+        def on_message(_self, result, **kwargs):
+            nonlocal wake_detected, command_parts, wake_time
 
-        def on_error(self_unused, error, **kwargs):
+            transcript = result.channel.alternatives[0].transcript
+            if not transcript or not transcript.strip():
+                return
+
+            is_final = result.is_final
+            is_speech_final = result.speech_final
+
+            with lock:
+                if not wake_detected:
+                    # Look for wake word in transcript
+                    match = WAKE_WORD_PATTERN.search(transcript)
+                    if match and is_final:
+                        wake_detected = True
+                        wake_time = time.time()
+                        self._listening = True
+                        # Extract command part after wake word
+                        command_after = transcript[match.end():].strip()
+                        if command_after:
+                            command_parts.append(command_after)
+                        logger.info("Wake word detected: '%s'", transcript)
+                else:
+                    # Capturing command after wake word
+                    if is_final and transcript.strip():
+                        command_parts.append(transcript.strip())
+
+                    # Command complete when speech_final or timeout
+                    if is_speech_final or (time.time() - wake_time) > COMMAND_TIMEOUT_S:
+                        full_command = " ".join(command_parts).strip()
+                        if full_command:
+                            logger.info("Command: '%s'", full_command)
+                            self._send_to_lumi(full_command)
+                        else:
+                            logger.info("Wake word detected but no command followed")
+
+                        # Reset state
+                        wake_detected = False
+                        command_parts = []
+                        wake_time = 0.0
+                        self._listening = False
+
+        def on_error(_self, error, **kwargs):
             logger.error("Deepgram error: %s", error)
-            done_event.set()
+
+        def on_close(_self, close, **kwargs):
+            logger.info("Deepgram connection closed")
 
         dg_connection.on(LiveTranscriptEvents.Transcript, on_message)
         dg_connection.on(LiveTranscriptEvents.Error, on_error)
+        dg_connection.on(LiveTranscriptEvents.Close, on_close)
 
         options = LiveOptions(
             model="nova-2",
-            language="vi",  # Vietnamese
+            language="vi",
             smart_format=True,
             encoding=DEEPGRAM_ENCODING,
             channels=DEEPGRAM_CHANNELS,
             sample_rate=DEEPGRAM_SAMPLE_RATE,
             interim_results=True,
-            endpointing=300,  # ms of silence to finalize
+            endpointing=300,
             vad_events=True,
+            keywords=["lumi:3"],
         )
 
         if not dg_connection.start(options):
             logger.error("Failed to start Deepgram connection")
-            return None
+            return
+
+        logger.info("Deepgram streaming connected (always-on, keyword boost: lumi)")
+
+        # Stream mic audio to Deepgram
+        sd = self._sd
+        np = self._np
 
         try:
-            start_time = time.time()
-            silence_start = None
-            np = self._np
+            with sd.InputStream(
+                samplerate=DEEPGRAM_SAMPLE_RATE,
+                channels=DEEPGRAM_CHANNELS,
+                dtype="int16",
+                blocksize=DEEPGRAM_FRAME_SIZE,
+                device=self._input_device,
+            ) as stream:
+                while self._running:
+                    data, overflowed = stream.read(DEEPGRAM_FRAME_SIZE)
+                    if overflowed:
+                        logger.debug("Audio buffer overflowed")
+                    audio_bytes = data.tobytes()
+                    dg_connection.send(audio_bytes)
 
-            while self._running and (time.time() - start_time) < LISTEN_TIMEOUT_S:
-                if done_event.is_set():
-                    break
+                    # Timeout check for stuck wake word state
+                    with lock:
+                        if wake_detected and (time.time() - wake_time) > COMMAND_TIMEOUT_S:
+                            full_command = " ".join(command_parts).strip()
+                            if full_command:
+                                self._send_to_lumi(full_command)
+                            wake_detected = False
+                            command_parts = []
+                            self._listening = False
 
-                pcm = recorder.read()
-                np_frame = np.array(pcm, dtype=np.int16)
-
-                # Check for silence (VAD)
-                rms = float(np.sqrt(np.mean(np_frame.astype(np.float64) ** 2)))
-                if rms < SILENCE_RMS_THRESHOLD:
-                    if silence_start is None:
-                        silence_start = time.time()
-                    elif (time.time() - silence_start) >= SILENCE_THRESHOLD_S:
-                        logger.debug("Silence timeout, ending recording")
-                        break
-                else:
-                    silence_start = None
-
-                # Send PCM bytes to Deepgram
-                audio_bytes = np_frame.tobytes()
-                dg_connection.send(audio_bytes)
-
+        except Exception as e:
+            logger.error("Mic stream error: %s", e)
         finally:
             dg_connection.finish()
-
-        return " ".join(transcript_parts) if transcript_parts else None
 
     def _send_to_lumi(self, transcript: str):
         """Send voice transcript to Lumi Server as a sensing event."""
