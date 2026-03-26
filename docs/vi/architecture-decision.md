@@ -108,6 +108,7 @@ Hoạt động **KHÔNG cần OpenClaw**. Nếu OpenClaw ngừng, thiết bị v
 | Giao tiếp MQTT | Kết nối backend, báo cáo trạng thái, nhận lệnh |
 | Giám sát internet | Phát hiện mất kết nối, tự khôi phục |
 | **Autonomous sensing** | Sensing loop nhẹ, chạy liên tục: camera (presence, light level), mic (sound level, silence, voice tone), time (schedules), plug-in sensors. Đẩy event cho OpenClaw khi phát hiện thay đổi đáng kể. |
+| **Ambient life** | Hành vi idle tạo cảm giác "sống": breathing LED (sine-wave brightness), color drift (xoay palette ấm), micro-movements (servo recordings an toàn), TTS self-talk (tự lẩm bẩm). Tự pause khi có interaction, resume sau 10s im lặng. |
 
 ### Autonomous Sensing Loop (Tầng 1.5)
 
@@ -138,6 +139,7 @@ internal/network/         — WiFi AP/STA
 internal/openclaw/        — Cấu hình OpenClaw & WebSocket
 internal/beclient/        — Backend client, báo cáo trạng thái
 internal/device/          — Setup, xử lý lệnh MQTT, báo cáo trạng thái
+internal/ambient/         — Hành vi idle "sinh vật sống" (breathing LED, color drift, servo micro-movements, TTS mumbles). Gọi LeLamp HTTP API. Tự pause/resume.
 lib/mqtt/                 — MQTT client, tự kết nối lại
 bootstrap/                — OTA, kiểm tra version
 domain/                   — Struct dùng chung (device, network, OTA, OpenClaw)

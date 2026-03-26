@@ -69,7 +69,7 @@
 | UC | Feature | Ghi chú |
 |---|---------|---------|
 | UC-05 | Circadian lighting | Cần scheduler + color temp curve |
-| UC-07 | Light effects (breathing, rainbow) | LED animation engine |
+| UC-07 | Light effects (breathing, rainbow) | ✅ Partial — breathing LED + color drift trong `internal/ambient/`. Rainbow/candle chưa có. |
 | UC-09 | Auto-tracking (camera → servo) | Face detection → servo loop |
 | UC-10 | Gesture control | Hand pose estimation |
 | UC-12 | Video call optimization | Face lighting analysis |
@@ -82,7 +82,7 @@
 | 1. "Hiểu tôi" | ✅ | OpenClaw + SOUL.md + long-term memory |
 | 2. "Sống thật" | ✅ | Servo + LED + emotion + display eyes (11 expressions) |
 | 3. "Hữu ích thật" | ✅ | Scenes, scheduling, voice assistant |
-| 4. "Tự hành" | ✅ | Sensing loop + presence auto on/off |
+| 4. "Tự hành" | ✅ | Sensing loop + presence auto on/off + ambient idle (breathing LED, color drift, servo micro-movements, TTS self-talk) |
 
 ### Skills (9 total) ✅
 

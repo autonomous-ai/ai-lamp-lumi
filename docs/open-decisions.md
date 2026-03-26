@@ -63,10 +63,10 @@
 - **UC-11 Presence Detection** ✅ — Sensing loop + presence state machine (auto on/dim/off)
 - **UC-13 Status Indication** 🟡 — Partial (boot/error states, needs processing/timer/OTA)
 
-### P2 — v1.x (not started, not blocking)
+### P2 — v1.x (partially started)
 
 - UC-05 Circadian Lighting
-- UC-07 Light Effects (breathing, candle, rainbow)
+- UC-07 Light Effects ✅ (partial) — Breathing LED + color drift implemented in `internal/ambient/` as idle behaviors. Rainbow/candle effects not yet implemented.
 - UC-09 Auto-Tracking (camera → servo follow)
 - UC-10 Gesture Control
 - UC-12 Video Call Optimization
@@ -79,7 +79,7 @@
 | 1. "It understands me" | ✅ | OpenClaw + SOUL.md + long-term memory |
 | 2. "It feels alive" | ✅ | Servo + LED + emotion + display eyes (11 expressions, auto-blink) |
 | 3. "It's actually useful" | ✅ | Scenes, scheduling (cron), voice assistant |
-| 4. "It acts on its own" | ✅ | Sensing loop (motion + sound) + presence auto on/off |
+| 4. "It acts on its own" | ✅ | Sensing loop (motion + sound) + presence auto on/off + ambient idle behaviors (breathing LED, color drift, servo micro-movements, TTS self-talk) |
 
 ### Skills (9 total) ✅
 
