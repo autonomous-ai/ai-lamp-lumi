@@ -429,6 +429,48 @@ def play_recording(req: ServoRequest):
     return {"status": "ok"}
 
 
+class ServoMoveRequest(BaseModel):
+    positions: dict[str, float] = Field(
+        ...,
+        description="Joint positions: base_yaw, base_pitch, elbow_pitch, wrist_roll, wrist_pitch (degrees)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"positions": {"base_yaw.pos": 0.0, "base_pitch.pos": 10.0, "elbow_pitch.pos": -5.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0}}]
+        }
+    }
+
+
+@app.post("/servo/move", response_model=StatusResponse, tags=["Servo"])
+def move_servo(req: ServoMoveRequest):
+    """Send direct joint positions to servo motors. Use to test hardware without recordings."""
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    try:
+        animation_service.robot.send_action(req.positions)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, f"Servo move failed: {e}")
+
+
+@app.get("/servo/position", tags=["Servo"])
+def get_servo_position():
+    """Read current servo joint positions."""
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    try:
+        obs = animation_service.robot.get_observation()
+        positions = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        return {"positions": positions}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to read position: {e}")
+
+
 # --- LED endpoints ---
 
 @app.get("/led", response_model=LEDStateResponse, tags=["LED"])
