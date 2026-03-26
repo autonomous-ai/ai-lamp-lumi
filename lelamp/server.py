@@ -601,10 +601,28 @@ def get_audio_info():
     }
 
 
+def _detect_playback_controls() -> list[str]:
+    """Auto-detect available playback mixer controls from amixer."""
+    try:
+        result = subprocess.run(
+            ["amixer", "scontrols"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            import re
+            # Parse lines like: Simple mixer control 'Speaker',0
+            return re.findall(r"Simple mixer control '([^']+)'", result.stdout)
+    except Exception:
+        pass
+    return []
+
+
 @app.post("/audio/volume", response_model=StatusResponse, tags=["Audio"])
 def set_volume(req: VolumeRequest):
     """Set system speaker volume (0-100%). Uses amixer on the Pi."""
-    controls = ["Line", "Line DAC", "HP"]
+    controls = _detect_playback_controls()
+    if not controls:
+        raise HTTPException(503, "No audio mixer controls found")
     for ctrl in controls:
         try:
             subprocess.run(
@@ -619,15 +637,14 @@ def set_volume(req: VolumeRequest):
 @app.get("/audio/volume", tags=["Audio"])
 def get_volume():
     """Get current speaker volume from amixer."""
-    for ctrl in ["Line", "Line DAC", "HP"]:
+    import re
+    for ctrl in _detect_playback_controls():
         try:
             result = subprocess.run(
                 ["amixer", "sget", ctrl],
                 capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0:
-                # Parse percentage from amixer output like [75%]
-                import re
                 match = re.search(r"\[(\d+)%\]", result.stdout)
                 if match:
                     return {"control": ctrl, "volume": int(match.group(1))}
