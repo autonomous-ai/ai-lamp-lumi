@@ -61,6 +61,7 @@ export default function Setup() {
       llmApiKey: searchParams.get("llm_api_key") ?? "",
       llmUrl: searchParams.get("llm_url") ?? "",
       llmModel: searchParams.get("llm_model") ?? "",
+      deepgramApiKey: searchParams.get("deepgram_api_key") ?? "",
       deviceId: searchParams.get("device_id") ?? "",
       // MQTT (optional)
       mqttEndpoint: searchParams.get("mqtt_endpoint") ?? "",
@@ -95,6 +96,9 @@ export default function Setup() {
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmModel, setLlmModel] = useState("");
+
+  // Deepgram (optional)
+  const [deepgramApiKey, setDeepgramApiKey] = useState("");
 
   // Channel credentials (optional when not in URL)
   const [teleToken, setTeleToken] = useState("");
@@ -188,6 +192,7 @@ export default function Setup() {
         llm_base_url: urlParams.llmUrl || llmUrl,
         llm_api_key: urlParams.llmApiKey || llmApiKey,
         llm_model: urlParams.llmModel || llmModel,
+        deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
         device_id: urlParams.deviceId,
       };
       const endpoint = mqttEndpoint || urlParams.mqttEndpoint;
@@ -317,6 +322,24 @@ export default function Setup() {
                           placeholder="gpt-4o-mini"
                           value={llmModel}
                           onChange={(e) => setLlmModel(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </details>
+                  )}
+
+                  {!urlParams.deepgramApiKey && (
+                    <details className="space-y-3 rounded-md border p-3">
+                      <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
+                        Deepgram STT (optional)
+                      </summary>
+                      <div className="space-y-2 pt-2">
+                        <Label htmlFor="deepgram_api_key">API Key</Label>
+                        <Input
+                          id="deepgram_api_key"
+                          placeholder="dg-..."
+                          value={deepgramApiKey}
+                          onChange={(e) => setDeepgramApiKey(e.target.value)}
                           autoComplete="off"
                         />
                       </div>
