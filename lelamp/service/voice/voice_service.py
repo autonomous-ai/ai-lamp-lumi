@@ -99,7 +99,14 @@ class VoiceService:
         if self._running:
             return
         if not self.available:
-            logger.warning("VoiceService not starting — missing deps or API key")
+            logger.warning(
+                "VoiceService not starting — sd=%s np=%s oww=%s dg=%s key=%s",
+                self._sd is not None,
+                self._np is not None,
+                self._oww is not None,
+                self._dg_available,
+                bool(self._deepgram_api_key),
+            )
             return
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="voice")
