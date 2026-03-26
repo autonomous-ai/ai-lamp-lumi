@@ -570,6 +570,29 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	if err := conn.WriteMessage(websocket.TextMessage, connectBody); err != nil {
 		return fmt.Errorf("write connect: %w", err)
 	}
+
+	// Read connect response — extract sessionKey if present
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, connectResp, err := conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("read connect response: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{})
+	log.Printf("[openclaw] connect response: %s", string(connectResp))
+
+	var connectResult struct {
+		Type   string `json:"type"`
+		Result struct {
+			SessionKey string `json:"sessionKey"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(connectResp, &connectResult); err == nil {
+		if connectResult.Result.SessionKey != "" {
+			s.SetSessionKey(connectResult.Result.SessionKey)
+			log.Printf("[openclaw] session key from connect: %s", connectResult.Result.SessionKey)
+		}
+	}
+
 	s.wsMu.Lock()
 	s.wsConn = conn
 	s.wsMu.Unlock()
@@ -585,6 +608,32 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
+		}
+
+		// Try to extract sessionKey from any message (fallback if connect response didn't have it)
+		if s.GetSessionKey() == "" {
+			var raw struct {
+				SessionKey string `json:"sessionKey"`
+				Result     struct {
+					SessionKey string `json:"sessionKey"`
+				} `json:"result"`
+				Payload json.RawMessage `json:"payload"`
+			}
+			if json.Unmarshal(msg, &raw) == nil {
+				sk := raw.SessionKey
+				if sk == "" {
+					sk = raw.Result.SessionKey
+				}
+				if sk == "" && len(raw.Payload) > 0 {
+					var p struct{ SessionKey string `json:"sessionKey"` }
+					if json.Unmarshal(raw.Payload, &p) == nil {
+						sk = p.SessionKey
+					}
+				}
+				if sk != "" {
+					s.SetSessionKey(sk)
+				}
+			}
 		}
 
 		var evt domain.WSEvent
