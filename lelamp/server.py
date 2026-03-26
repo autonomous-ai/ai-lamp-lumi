@@ -421,7 +421,7 @@ class SpeakRequest(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"text": "Xin chao! Toi la Lumi."}]
+            "examples": [{"text": "Hi there! I am Lumi."}]
         }
     }
 
