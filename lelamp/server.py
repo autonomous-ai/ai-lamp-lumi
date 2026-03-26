@@ -6,10 +6,14 @@ Lumi Server (Go, port 5000) bridges requests here.
 """
 
 import io
+import math
 import os
 import logging
 import logging.handlers
+import random
 import subprocess
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -254,6 +258,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    _stop_current_effect()
     if display_service:
         display_service.stop()
     if voice_service:
@@ -394,6 +399,32 @@ class LEDStateResponse(BaseModel):
     led_count: int
 
 
+VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse"]
+
+
+class LEDEffectRequest(BaseModel):
+    effect: str = Field(..., description="Effect name: breathing, candle, rainbow, notification_flash, pulse")
+    color: Optional[list[int]] = Field(None, description="Base RGB color for the effect (default: current color)")
+    speed: float = Field(1.0, ge=0.1, le=5.0, description="Speed multiplier (0.1=slow, 1.0=normal, 5.0=fast)")
+    duration_ms: Optional[int] = Field(None, ge=100, le=60000, description="Auto-stop after duration (null=indefinite)")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"effect": "breathing", "color": [255, 100, 0], "speed": 1.0},
+                {"effect": "rainbow", "speed": 0.5},
+                {"effect": "notification_flash", "color": [255, 0, 0], "duration_ms": 3000},
+            ]
+        }
+    }
+
+
+class LEDEffectResponse(BaseModel):
+    status: str
+    effect: str
+    speed: float
+
+
 class StatusResponse(BaseModel):
     status: str
 
@@ -464,6 +495,20 @@ SCENE_PRESETS = {
 }
 
 
+# --- Servo aim presets ---
+# Named lamp-head directions mapped to joint positions (degrees)
+AIM_PRESETS = {
+    "center":  {"base_yaw.pos": 0.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
+    "desk":    {"base_yaw.pos": 0.0, "base_pitch.pos": 15.0, "elbow_pitch.pos": 10.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 20.0},
+    "wall":    {"base_yaw.pos": 0.0, "base_pitch.pos": -15.0, "elbow_pitch.pos": -10.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -20.0},
+    "left":    {"base_yaw.pos": -30.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
+    "right":   {"base_yaw.pos": 30.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
+    "up":      {"base_yaw.pos": 0.0, "base_pitch.pos": -20.0, "elbow_pitch.pos": -15.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -10.0},
+    "down":    {"base_yaw.pos": 0.0, "base_pitch.pos": 20.0, "elbow_pitch.pos": 15.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 10.0},
+    "user":    {"base_yaw.pos": 0.0, "base_pitch.pos": 5.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 5.0},
+}
+
+
 class SceneRequest(BaseModel):
     scene: str = Field(..., description="Scene name: reading, focus, relax, movie, night, energize")
 
@@ -497,6 +542,22 @@ class VolumeResponse(BaseModel):
 
 
 class ServoPositionResponse(BaseModel):
+    positions: dict[str, float]
+
+
+class ServoAimRequest(BaseModel):
+    direction: str = Field(..., description="Named direction: desk, wall, left, right, up, down, center, user")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"direction": "desk"}, {"direction": "left"}]
+        }
+    }
+
+
+class ServoAimResponse(BaseModel):
+    status: str
+    direction: str
     positions: dict[str, float]
 
 
@@ -602,6 +663,32 @@ def get_servo_position():
         raise HTTPException(500, f"Failed to read position: {e}")
 
 
+@app.get("/servo/aim", tags=["Servo"])
+def list_aim_directions():
+    """List available aim directions."""
+    return {"directions": list(AIM_PRESETS.keys())}
+
+
+@app.post("/servo/aim", response_model=ServoAimResponse, tags=["Servo"])
+def aim_servo(req: ServoAimRequest):
+    """Aim the lamp head to a named direction (desk, wall, left, right, up, down, center, user)."""
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+
+    positions = AIM_PRESETS.get(req.direction)
+    if positions is None:
+        available = list(AIM_PRESETS.keys())
+        raise HTTPException(400, f"Unknown direction '{req.direction}'. Available: {available}")
+
+    try:
+        animation_service.robot.send_action(positions)
+        return {"status": "ok", "direction": req.direction, "positions": positions}
+    except Exception as e:
+        raise HTTPException(500, f"Servo aim failed: {e}")
+
+
 # --- LED endpoints ---
 
 @app.get("/led", response_model=LEDStateResponse, tags=["LED"])
@@ -640,7 +727,213 @@ def turn_off_leds():
     """Turn off all LEDs."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
+    _stop_current_effect()
     rgb_service.clear()
+    return {"status": "ok"}
+
+
+# --- LED effects helpers ---
+
+_effect_thread: Optional[threading.Thread] = None
+_effect_stop: threading.Event = threading.Event()
+_effect_name: Optional[str] = None
+
+
+def _stop_current_effect():
+    """Signal the running effect thread to stop and wait for it."""
+    global _effect_thread, _effect_name
+    if _effect_thread and _effect_thread.is_alive():
+        _effect_stop.set()
+        _effect_thread.join(timeout=2.0)
+    _effect_thread = None
+    _effect_name = None
+
+
+def _run_effect(effect: str, color: tuple, speed: float, duration_ms: Optional[int],
+                stop_event: threading.Event, svc):
+    """Dispatch to the appropriate effect loop. Runs in a background thread."""
+    deadline = None
+    if duration_ms is not None:
+        deadline = time.monotonic() + duration_ms / 1000.0
+
+    try:
+        if effect == "breathing":
+            _effect_breathing(color, speed, deadline, stop_event, svc)
+        elif effect == "candle":
+            _effect_candle(color, speed, deadline, stop_event, svc)
+        elif effect == "rainbow":
+            _effect_rainbow(speed, deadline, stop_event, svc)
+        elif effect == "notification_flash":
+            _effect_notification_flash(color, speed, stop_event, svc)
+        elif effect == "pulse":
+            _effect_pulse(color, speed, deadline, stop_event, svc)
+    except Exception as e:
+        logger.warning(f"LED effect '{effect}' error: {e}")
+
+
+def _is_done(deadline: Optional[float], stop_event: threading.Event) -> bool:
+    """Check if the effect should stop."""
+    if stop_event.is_set():
+        return True
+    if deadline is not None and time.monotonic() >= deadline:
+        return True
+    return False
+
+
+def _effect_breathing(color: tuple, speed: float, deadline: Optional[float],
+                      stop_event: threading.Event, svc):
+    """Fade in/out with the given color."""
+    step_delay = 0.03 / speed
+    while not _is_done(deadline, stop_event):
+        # Full cycle: 0 -> 1 -> 0 over ~3s at speed=1
+        for i in range(100):
+            if _is_done(deadline, stop_event):
+                return
+            brightness = math.sin(math.pi * i / 100.0)
+            scaled = tuple(int(c * brightness) for c in color)
+            svc.dispatch("solid", scaled)
+            time.sleep(step_delay)
+
+
+def _effect_candle(color: tuple, speed: float, deadline: Optional[float],
+                   stop_event: threading.Event, svc):
+    """Warm flicker effect with randomized warm tones."""
+    step_delay = 0.05 / speed
+    led_count = getattr(svc, "led_count", 64)
+    while not _is_done(deadline, stop_event):
+        pixels = []
+        for _ in range(led_count):
+            flicker = random.uniform(0.4, 1.0)
+            # Warm tone bias: keep red high, vary green, minimal blue
+            r = int(min(255, color[0] * flicker + random.randint(0, 20)))
+            g = int(min(255, color[1] * flicker * random.uniform(0.6, 0.9)))
+            b = int(min(255, color[2] * flicker * 0.3))
+            pixels.append((r, g, b))
+        svc.dispatch("paint", pixels)
+        time.sleep(step_delay)
+
+
+def _effect_rainbow(speed: float, deadline: Optional[float],
+                    stop_event: threading.Event, svc):
+    """Cycle through hue spectrum across all pixels."""
+    step_delay = 0.03 / speed
+    led_count = getattr(svc, "led_count", 64)
+    offset = 0.0
+    while not _is_done(deadline, stop_event):
+        pixels = []
+        for i in range(led_count):
+            hue = (offset + i / led_count) % 1.0
+            r, g, b = _hsv_to_rgb(hue, 1.0, 1.0)
+            pixels.append((r, g, b))
+        svc.dispatch("paint", pixels)
+        offset += 0.01
+        time.sleep(step_delay)
+
+
+def _effect_notification_flash(color: tuple, speed: float,
+                               stop_event: threading.Event, svc):
+    """3 quick flashes then stop."""
+    flash_on = 0.15 / speed
+    flash_off = 0.1 / speed
+    for _ in range(3):
+        if stop_event.is_set():
+            return
+        svc.dispatch("solid", color)
+        time.sleep(flash_on)
+        if stop_event.is_set():
+            return
+        svc.dispatch("solid", (0, 0, 0))
+        time.sleep(flash_off)
+
+
+def _effect_pulse(color: tuple, speed: float, deadline: Optional[float],
+                  stop_event: threading.Event, svc):
+    """Single color pulse outward from center."""
+    step_delay = 0.04 / speed
+    led_count = getattr(svc, "led_count", 64)
+    center = led_count // 2
+    max_radius = center + 1
+    while not _is_done(deadline, stop_event):
+        for radius in range(max_radius + 1):
+            if _is_done(deadline, stop_event):
+                return
+            pixels = [(0, 0, 0)] * led_count
+            for i in range(led_count):
+                dist = abs(i - center)
+                if dist <= radius:
+                    # Brightness falls off with distance from the wavefront
+                    falloff = max(0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1))
+                    pixels[i] = tuple(int(c * falloff) for c in color)
+            svc.dispatch("paint", pixels)
+            time.sleep(step_delay)
+
+
+def _hsv_to_rgb(h: float, s: float, v: float) -> tuple:
+    """Convert HSV (0-1 range) to RGB (0-255 ints)."""
+    if s == 0.0:
+        val = int(v * 255)
+        return (val, val, val)
+    i = int(h * 6.0)
+    f = (h * 6.0) - i
+    p = int(255 * v * (1.0 - s))
+    q = int(255 * v * (1.0 - s * f))
+    t = int(255 * v * (1.0 - s * (1.0 - f)))
+    v_int = int(255 * v)
+    i %= 6
+    if i == 0:
+        return (v_int, t, p)
+    if i == 1:
+        return (q, v_int, p)
+    if i == 2:
+        return (p, v_int, t)
+    if i == 3:
+        return (p, q, v_int)
+    if i == 4:
+        return (t, p, v_int)
+    return (v_int, p, q)
+
+
+# --- LED effect endpoints ---
+
+@app.post("/led/effect", response_model=LEDEffectResponse, tags=["LED"])
+def start_led_effect(req: LEDEffectRequest):
+    """Start a LED effect (breathing, candle, rainbow, notification_flash, pulse).
+
+    Any previously running effect is stopped first. Effects run in a background
+    thread and update LEDs continuously until stopped or duration expires.
+    """
+    global _effect_thread, _effect_name
+    if not rgb_service:
+        raise HTTPException(503, "LED not available")
+    if req.effect not in VALID_LED_EFFECTS:
+        raise HTTPException(400, f"Unknown effect '{req.effect}'. Available: {VALID_LED_EFFECTS}")
+
+    # Stop any running effect
+    _stop_current_effect()
+
+    # Default color: warm white if none provided
+    base_color = tuple(req.color) if req.color else (255, 180, 100)
+
+    _effect_stop.clear()
+    _effect_name = req.effect
+    _effect_thread = threading.Thread(
+        target=_run_effect,
+        args=(req.effect, base_color, req.speed, req.duration_ms, _effect_stop, rgb_service),
+        daemon=True,
+        name=f"led-effect-{req.effect}",
+    )
+    _effect_thread.start()
+    logger.info("LED effect started: %s (speed=%.1f, duration=%s)", req.effect, req.speed, req.duration_ms)
+
+    return {"status": "ok", "effect": req.effect, "speed": req.speed}
+
+
+@app.post("/led/effect/stop", response_model=StatusResponse, tags=["LED"])
+def stop_led_effect():
+    """Stop the currently running LED effect."""
+    if not rgb_service:
+        raise HTTPException(503, "LED not available")
+    _stop_current_effect()
     return {"status": "ok"}
 
 

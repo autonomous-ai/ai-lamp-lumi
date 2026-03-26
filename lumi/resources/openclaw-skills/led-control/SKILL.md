@@ -4,19 +4,18 @@ You have access to a 64-pixel WS2812 RGB LED strip on this device via the hardwa
 
 ## Priority
 
-**Low priority for ambiance.** Only use this when the user wants a SPECIFIC color or pattern. For activity-based lighting (reading, sleeping, relaxing), use the **Scene** skill — it has proper brightness control.
+**Low priority for ambiance.** For activity-based lighting (reading, sleeping, relaxing), use **Scene** skill. For expressing YOUR emotion, use **Emotion** skill. Use LED Control only for:
 
-## When to use
-
-- User asks for a specific color: "make it purple", "red light", "turn green"
-- Paint individual pixels for effects or status indicators
-- Turn LEDs off when the user asks
+- User asks for a SPECIFIC color ("make it purple", "red light")
+- User asks for an EFFECT ("breathing light", "candle mode", "rainbow")
+- Painting individual pixels for patterns
+- Turning LEDs off
 
 ## When NOT to use
 
-- **Sleeping, relaxing, reading, focus, movie** → use **Scene** skill (controls brightness + color)
-- **Expressing your emotion** → use **Emotion** skill (coordinates servo + LED + eyes)
-- Direct LED colors are always FULL BRIGHTNESS. If you set `[255, 180, 100]` for "warm light at bedtime", it will be blinding. Use Scene `night` instead.
+- **Sleeping, relaxing, reading, focus, movie** → use **Scene** (has brightness control)
+- **Expressing your emotion** → use **Emotion** (coordinates servo + LED + eyes)
+- Direct LED solid colors are always FULL BRIGHTNESS — too harsh for sleep/relax
 
 ## API
 
@@ -39,15 +38,7 @@ Content-Type: application/json
 {"color": [R, G, B]}
 ```
 
-Color can be an RGB array `[255, 100, 0]` or a packed integer `16711680` (= 0xFF0000 = red).
-
-Example — warm white:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/solid \
-  -H "Content-Type: application/json" \
-  -d '{"color": [255, 180, 100]}'
-```
+Color can be an RGB array `[255, 100, 0]` or a packed integer `16711680`.
 
 ### Paint individual pixels
 
@@ -58,7 +49,7 @@ Content-Type: application/json
 {"colors": [[R,G,B], [R,G,B], ...]}
 ```
 
-Array of up to 64 colors, one per pixel. Use this for gradients, patterns, or per-pixel effects.
+Array of up to 64 colors, one per pixel.
 
 ### Turn off all LEDs
 
@@ -66,19 +57,60 @@ Array of up to 64 colors, one per pixel. Use this for gradients, patterns, or pe
 POST /led/off
 ```
 
-## Color suggestions (for specific color requests only)
+### Start an effect
 
-| Mood / Scene | Color (RGB) | Notes |
+```
+POST /led/effect
+Content-Type: application/json
+
+{"effect": "breathing", "color": [255, 180, 100], "speed": 1.0, "duration_ms": null}
+```
+
+- `effect` (required): effect name (see table below)
+- `color` (optional): base RGB color, default uses current color
+- `speed` (optional): 0.1 (slow) to 5.0 (fast), default 1.0
+- `duration_ms` (optional): auto-stop after N ms, null = run until stopped
+
+Example — gentle breathing warm light:
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/effect \
+  -H "Content-Type: application/json" \
+  -d '{"effect": "breathing", "color": [255, 180, 100], "speed": 0.5}'
+```
+
+### Stop current effect
+
+```
+POST /led/effect/stop
+```
+
+## Available effects
+
+| Effect | Description | Best for |
 |---|---|---|
-| Warm / cozy | `[255, 180, 100]` | Warm white (full brightness!) |
-| Cool / work | `[255, 255, 220]` | Cool white |
-| Purple | `[100, 50, 200]` | Soft purple |
-| Energy | `[255, 100, 0]` | Orange |
-| Error / alert | `[255, 0, 0]` | Red |
-| Happy | `[255, 220, 0]` | Yellow |
-| Calm | `[0, 150, 255]` | Blue |
+| `breathing` | Slow fade in/out with given color | Relaxation, idle ambient, meditation |
+| `candle` | Warm flickering like a real candle | Cozy evening, romantic mood |
+| `rainbow` | Hue cycle across all pixels | Fun, party, showing off |
+| `notification_flash` | 3 quick flashes then auto-stops | Alerts, timer done, reminders |
+| `pulse` | Radial brightness wave from center | Attention, heartbeat, alive feeling |
+
+## Color suggestions (for solid color requests)
+
+| Mood | Color (RGB) |
+|---|---|
+| Warm / cozy | `[255, 180, 100]` |
+| Purple | `[100, 50, 200]` |
+| Energy | `[255, 100, 0]` |
+| Alert | `[255, 0, 0]` |
+| Happy | `[255, 220, 0]` |
+| Calm | `[0, 150, 255]` |
 
 ## Guidelines
 
-- All colors are at **full brightness** — there is no dimming. For dim/ambient lighting, use Scene skill.
-- If the user says "dim" or "soft", do NOT use this skill — use Scene with appropriate preset.
+- **Solid colors = full brightness.** For dim/ambient, use Scene skill.
+- **Effects run until stopped** (unless `duration_ms` is set). Starting a new effect auto-stops the previous one.
+- `/led/off` also stops any running effect.
+- For "make it cozy" or "candle light" → use `candle` effect, NOT a static orange color.
+- For "breathing" or "pulsing" requests → use the matching effect.
+- Combine effects with low speed (0.3-0.5) for calm moods, high speed (2.0-3.0) for energy.

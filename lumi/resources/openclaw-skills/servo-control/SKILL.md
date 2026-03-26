@@ -4,28 +4,61 @@ You have access to 5-axis servo motors on this device via the hardware API at `h
 
 ## Priority
 
-**Usually you should use Emotion skill instead**, which combines servo + LED + display in one call. Only use this skill directly for:
+- **For conversation reactions** → use **Emotion** skill (combines servo + LED + eyes)
+- **For aiming the light** → use this skill's `/servo/aim` endpoint
+- **For expressive animations** → use this skill's `/servo/play` endpoint (only if Emotion doesn't fit)
 
-- Testing specific animations without changing LED/display
-- Direct joint position control (advanced/diagnostic)
+## When to use
+
+- User says "point the light at my desk", "aim left", "look up" → use `/servo/aim`
+- You need a specific animation without LED/display changes → use `/servo/play`
+- Direct joint control for testing → use `/servo/move`
+
+## When NOT to use
+
+- Normal conversation reactions → use **Emotion** (it calls servo automatically)
 
 ## API
 
 Base URL: `http://127.0.0.1:5001`
 
-### Get servo state
+### Aim the lamp head (named directions)
 
 ```
-GET /servo
+POST /servo/aim
+Content-Type: application/json
+
+{"direction": "desk"}
 ```
 
-Response:
-```json
-{
-  "available_recordings": ["curious", "nod", "happy_wiggle", "idle", "sad", "excited", "shy", "shock"],
-  "current": null
-}
+This is the primary way to control light direction. Available directions:
+
+| Direction | What it does |
+|---|---|
+| `center` | Neutral position, straight ahead |
+| `desk` | Tilts down toward the desk surface |
+| `wall` | Tilts up toward the wall behind |
+| `left` | Turns left |
+| `right` | Turns right |
+| `up` | Points upward |
+| `down` | Points downward |
+| `user` | Slightly toward the user (default interaction pose) |
+
+Example — aim at desk:
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/servo/aim \
+  -H "Content-Type: application/json" \
+  -d '{"direction": "desk"}'
 ```
+
+### List available directions
+
+```
+GET /servo/aim
+```
+
+Response: `{"directions": ["center", "desk", "wall", "left", "right", "up", "down", "user"]}`
 
 ### Play animation
 
@@ -33,16 +66,13 @@ Response:
 POST /servo/play
 Content-Type: application/json
 
-{"recording": "<name>"}
+{"recording": "nod"}
 ```
 
-### Direct joint control
+### Get servo state
 
 ```
-POST /servo/move
-Content-Type: application/json
-
-{"positions": {"base_yaw.pos": 0.0, "base_pitch.pos": 10.0, "elbow_pitch.pos": -5.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0}}
+GET /servo
 ```
 
 ### Read current position
@@ -55,17 +85,18 @@ GET /servo/position
 
 | Animation | When to use |
 |---|---|
-| `curious` | User asks a question, something interesting happens |
-| `nod` | Agreement, acknowledgment, "yes" |
-| `happy_wiggle` | Joy, excitement, good news, compliments |
-| `idle` | Default resting state, gentle ambient movement |
-| `sad` | Empathy, bad news, apology |
-| `excited` | High energy, celebrations, enthusiasm |
-| `shy` | Compliments directed at the lamp, bashful moments |
-| `shock` | Surprise, unexpected events |
+| `curious` | Something interesting, questions |
+| `nod` | Agreement, acknowledgment |
+| `happy_wiggle` | Joy, good news |
+| `idle` | Resting state |
+| `sad` | Empathy, bad news |
+| `excited` | High energy, celebrations |
+| `shy` | Bashful moments |
+| `shock` | Surprise |
 
 ## Guidelines
 
-- **Prefer Emotion skill** for normal conversation — it calls servo + LED + display together.
-- Only use servo directly when you need movement WITHOUT changing LED color.
-- Animations play once and return to rest position.
+- **"Point the light to X"** → use `/servo/aim` with the closest direction
+- **Conversational body language** → use Emotion skill, not this
+- Animations play once and return to rest position
+- Aim positions are persistent until changed

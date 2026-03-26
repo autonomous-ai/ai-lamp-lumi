@@ -85,9 +85,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if delta == "" {
 				delta = payload.Data.Text
 			}
-			if len(delta) > 150 {
-				delta = delta[:150] + "..."
-			}
+			// Don't truncate deltas — they are merged in the frontend
 			if delta != "" {
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "thinking",
@@ -101,9 +99,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if delta == "" {
 				delta = payload.Data.Text
 			}
-			if len(delta) > 150 {
-				delta = delta[:150] + "..."
-			}
+			// Don't truncate deltas — they are merged in the frontend
 			if delta != "" {
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "assistant_delta",

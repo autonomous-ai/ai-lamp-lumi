@@ -106,6 +106,9 @@ interface MonitorEvent {
   error?: string;
 }
 
+// Types whose text can be long (merged deltas) — show full text instead of truncating
+const STREAMABLE_TYPES = new Set(["assistant_delta", "thinking", "chat_response"]);
+
 // --- Event type display config ---
 const EVENT_CFG: Record<string, { label: string; color: string; icon: string }> = {
   sensing_input:   { label: "Sensing",  color: "bg-blue-500",    icon: "👁" },
@@ -201,13 +204,38 @@ export default function Monitor() {
   }, []);
 
   // --- SSE subscription ---
+  // Mergeable event types: accumulate text instead of creating new rows
+  const MERGEABLE_TYPES = new Set(["assistant_delta", "thinking"]);
+
   useEffect(() => {
     const es = new EventSource(`${API}/openclaw/events`);
     es.onopen = () => setSseConnected(true);
     es.onmessage = (e) => {
       try {
         const evt: MonitorEvent = JSON.parse(e.data);
-        setEvents((prev) => [...prev.slice(-199), evt]);
+        setEvents((prev) => {
+          // For streaming deltas, merge into the last event with same type+runId
+          if (MERGEABLE_TYPES.has(evt.type) && prev.length > 0) {
+            const last = prev[prev.length - 1];
+            if (last.type === evt.type && last.runId === evt.runId) {
+              const merged = { ...last, summary: last.summary + evt.summary };
+              return [...prev.slice(0, -1), merged];
+            }
+          }
+          // For partial chat_response, update existing row with same runId
+          if (evt.type === "chat_response" && evt.state === "partial" && prev.length > 0) {
+            let idx = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].type === "chat_response" && prev[i].runId === evt.runId) { idx = i; break; }
+            }
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = { ...evt };
+              return updated;
+            }
+          }
+          return [...prev.slice(-199), evt];
+        });
       } catch { /* ignore */ }
     };
     es.onerror = () => setSseConnected(false);
@@ -639,7 +667,10 @@ function EventRow({ event }: { event: MonitorEvent }) {
             <Badge variant="destructive" className="text-[9px] py-0 px-1 h-3.5">error</Badge>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground truncate">{event.summary}</p>
+        <p className={cn(
+          "text-[11px] text-muted-foreground",
+          STREAMABLE_TYPES.has(event.type) ? "whitespace-pre-wrap break-words" : "truncate"
+        )}>{event.summary}</p>
       </div>
     </div>
   );
