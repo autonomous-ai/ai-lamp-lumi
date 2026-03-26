@@ -680,16 +680,22 @@ def move_servo(req: ServoMoveRequest):
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
 def release_servos():
-    """Disable torque on all servos (release / go limp)."""
+    """Disable torque on all servos (release / go limp). Skips offline servos."""
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
-    try:
-        animation_service.robot.bus.disable_torque()
-        return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(500, f"Servo release failed: {e}")
+    bus = animation_service.robot.bus
+    released = []
+    failed = []
+    for motor_name in bus.motors:
+        try:
+            bus.write("Torque_Enable", motor_name, 0)
+            released.append(motor_name)
+        except Exception:
+            failed.append(motor_name)
+    logger.info(f"Servo release: released={released}, failed={failed}")
+    return {"status": "ok"}
 
 
 @app.get("/servo/position", response_model=ServoPositionResponse, tags=["Servo"])
