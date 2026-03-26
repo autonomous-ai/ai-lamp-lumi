@@ -265,6 +265,15 @@ async def lifespan(app: FastAPI):
         voice_service.stop()
     if sensing_service:
         sensing_service.stop()
+    # Release servo torque before stopping to protect motors
+    if animation_service and animation_service.robot and animation_service.robot.bus:
+        bus = animation_service.robot.bus
+        for motor_name in bus.motors:
+            try:
+                bus.write("Torque_Enable", motor_name, 0)
+            except Exception as e:
+                logger.warning(f"Servo release on shutdown failed for {motor_name}: {e}")
+        logger.info("Servos released on shutdown")
     if animation_service:
         animation_service.stop()
     if rgb_service:
