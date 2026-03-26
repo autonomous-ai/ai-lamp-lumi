@@ -275,12 +275,17 @@ export default function Monitor() {
           {/* Hardware */}
           <StatusCard title="Hardware">
             {hwHealth ? (
-              <div className="flex flex-wrap gap-1.5">
-                <HWBadge label="Servo" ok={hwHealth.servo} />
-                <HWBadge label="LED" ok={hwHealth.led} />
-                <HWBadge label="Cam" ok={hwHealth.camera} />
-                <HWBadge label="Audio" ok={hwHealth.audio} />
-                <HWBadge label="Sense" ok={hwHealth.sensing} />
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-1.5">
+                  <HWBadge label="Servo" ok={hwHealth.servo} />
+                  <HWBadge label="LED" ok={hwHealth.led} />
+                  <HWBadge label="Cam" ok={hwHealth.camera} />
+                  <HWBadge label="Audio" ok={hwHealth.audio} />
+                  <HWBadge label="Sense" ok={hwHealth.sensing} />
+                </div>
+                <a href="/hw/docs" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+                  API Docs
+                </a>
               </div>
             ) : <Unavailable label="LeLamp" />}
           </StatusCard>
