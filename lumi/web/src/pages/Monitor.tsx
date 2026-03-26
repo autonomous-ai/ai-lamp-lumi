@@ -132,7 +132,6 @@ export default function Monitor() {
   const [events, setEvents] = useState<MonitorEvent[]>([]);
   const [sseConnected, setSseConnected] = useState(false);
   const [streaming, setStreaming] = useState(true);
-  const [cameraOpen, setCameraOpen] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
@@ -200,7 +199,7 @@ export default function Monitor() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold">Lumi Monitor</h1>
             {sysInfo?.version && (
@@ -211,7 +210,7 @@ export default function Monitor() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-4 space-y-4">
+      <main className="max-w-6xl mx-auto px-4 py-4 space-y-4">
         {/* ---- ROW 1: Status cards ---- */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* OpenClaw */}
@@ -307,57 +306,50 @@ export default function Monitor() {
           </Card>
         )}
 
-        {/* ---- ROW 3: Workflow ---- */}
-        <Card className="rounded-xl border shadow-sm">
-          <CardHeader className="pb-2 px-4 pt-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold">Workflow</CardTitle>
-              <div className="flex items-center gap-2">
-                <Badge
-                  variant={sseConnected ? "default" : "secondary"}
-                  className={cn("text-[10px]", sseConnected && "animate-pulse")}
-                >
-                  {sseConnected ? "Live" : "Reconnecting..."}
-                </Badge>
-                {events.length > 0 && (
-                  <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={() => setEvents([])}>
-                    Clear
-                  </Button>
-                )}
+        {/* ---- ROW 3: Workflow + Camera (side-by-side on desktop) ---- */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+          {/* Workflow — takes 3/5 on desktop */}
+          <Card className="rounded-xl border shadow-sm lg:col-span-3">
+            <CardHeader className="pb-2 px-4 pt-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Workflow</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={sseConnected ? "default" : "secondary"}
+                    className={cn("text-[10px]", sseConnected && "animate-pulse")}
+                  >
+                    {sseConnected ? "Live" : "Reconnecting..."}
+                  </Badge>
+                  {events.length > 0 && (
+                    <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={() => setEvents([])}>
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <ScrollArea className="h-[45vh] w-full rounded-md border bg-muted/20">
-              <div className="p-2 space-y-0.5">
-                {events.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-12">
-                    Waiting for events...
-                  </p>
-                )}
-                {events.map((evt) => (
-                  <EventRow key={evt.id} event={evt} />
-                ))}
-                <div ref={eventsEndRef} />
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              <ScrollArea className="h-[50vh] lg:h-[60vh] w-full rounded-md border bg-muted/20">
+                <div className="p-2 space-y-0.5">
+                  {events.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-12">
+                      Waiting for events...
+                    </p>
+                  )}
+                  {events.map((evt) => (
+                    <EventRow key={evt.id} event={evt} />
+                  ))}
+                  <div ref={eventsEndRef} />
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
 
-        {/* ---- ROW 4: Camera (collapsible) ---- */}
-        <Card className="rounded-xl border shadow-sm">
-          <CardHeader className="pb-2 px-4 pt-3">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setCameraOpen((p) => !p)}
-                className="flex items-center gap-2 text-base font-semibold hover:text-foreground/80 transition-colors"
-              >
-                <span className={cn("transition-transform text-xs", cameraOpen ? "rotate-90" : "")}>
-                  ▶
-                </span>
-                Camera
-              </button>
-              {cameraOpen && (
+          {/* Camera — takes 2/5 on desktop, always visible */}
+          <Card className="rounded-xl border shadow-sm lg:col-span-2">
+            <CardHeader className="pb-2 px-4 pt-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Camera</CardTitle>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="h-7 text-xs" onClick={takeSnapshot}>
                     Snapshot
@@ -371,10 +363,8 @@ export default function Monitor() {
                     {streaming ? "Stop" : "Start"}
                   </Button>
                 </div>
-              )}
-            </div>
-          </CardHeader>
-          {cameraOpen && (
+              </div>
+            </CardHeader>
             <CardContent className="px-4 pb-3">
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
                 {streaming ? (
@@ -392,8 +382,8 @@ export default function Monitor() {
                 )}
               </div>
             </CardContent>
-          )}
-        </Card>
+          </Card>
+        </div>
       </main>
     </div>
   );
