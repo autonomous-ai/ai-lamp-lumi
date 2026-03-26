@@ -10,13 +10,13 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
 
    | Code area | Doc to update |
    |-----------|---------------|
-   | lamp-server, API, startup | `docs/lamp-server_vi.md` |
-   | LED, effects, states, animations | `docs/led-control_vi.md` |
-   | Setup flow, provisioning | `docs/setup-flow_vi.md` |
-   | Web UI, configuration pages | `docs/web-ui_vi.md` |
-   | Overall structure | `docs/overview_vi.md` |
-   | MQTT, dispatch, publish | `docs/mqtt_vi.md` |
-   | OTA, bootstrap | `docs/bootstrap-server_vi.md` |
+   | lamp-server, API, startup | `docs/vi/lamp-server_vi.md` |
+   | LED, effects, states, animations | `docs/vi/led-control_vi.md` |
+   | Setup flow, provisioning | `docs/vi/setup-flow_vi.md` |
+   | Web UI, configuration pages | `docs/vi/web-ui_vi.md` |
+   | Overall structure | `docs/vi/overview_vi.md` |
+   | MQTT, dispatch, publish | `docs/vi/mqtt_vi.md` |
+   | OTA, bootstrap | `docs/vi/bootstrap-ota.md` |
 
 2. **Comments in English** — Project standard.
 3. **Code is the single source of truth** — Docs reflect code, not the other way around.
