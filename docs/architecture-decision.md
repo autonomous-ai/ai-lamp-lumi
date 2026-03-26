@@ -144,45 +144,56 @@ How it works:
 
 | Skill | SKILL.md Location | Description |
 |---|---|---|
-| `led-control` | `workspace/skills/led-control/SKILL.md` | Color, brightness, scenes, effects, patterns for 64-LED grid |
-| `servo-control` | `workspace/skills/servo-control/SKILL.md` | Pan, tilt, preset positions, expressions for 5 servo axes |
-| `camera` | `workspace/skills/camera/SKILL.md` | Presence detection, face tracking, gesture recognition, light analysis |
-| `audio` | `workspace/skills/audio/SKILL.md` | TTS output, sound effects, volume control, ambient sounds |
-| `display` | `workspace/skills/display/SKILL.md` | Dual-mode: eyes emotion animation (default) + info display (time, weather, timer, notifications, system status) |
-| `emotion` | `workspace/skills/emotion/SKILL.md` | Combined emotional expression (servo + LED + audio + display) |
+| `led-control` | `workspace/skills/led-control/SKILL.md` | Color, brightness, effects for 64-LED grid |
+| `servo-control` | `workspace/skills/servo-control/SKILL.md` | Aim, animations, positions for 5 servo axes |
+| `camera` | `workspace/skills/camera/SKILL.md` | Snapshot, MJPEG stream |
+| `audio` | `workspace/skills/audio/SKILL.md` | Volume, play-tone, record WAV |
+| `voice` | `workspace/skills/voice/SKILL.md` | TTS speak, voice status |
+| `display` | `workspace/skills/display/SKILL.md` | Eyes expressions + info text on round LCD |
+| `emotion` | `workspace/skills/emotion/SKILL.md` | Combined expression (servo + LED + display) |
+| `scene` | `workspace/skills/scene/SKILL.md` | 6 lighting presets |
+| `sensing` | `workspace/skills/sensing/SKILL.md` | Motion/sound events, presence |
+| `scheduling` | `workspace/skills/scheduling/SKILL.md` | Cron scheduler |
 
-### HTTP API Endpoints
+### HTTP API Endpoints (LeLamp FastAPI, :5001)
 
-| Endpoint | Method | Description | Bridges To |
-|---|---|---|---|
-| `/api/led` | GET | Get current LED state | RGBService |
-| `/api/led` | POST | Set color, brightness, scene, effect, pattern | RGBService |
-| `/api/servo` | GET | Get current servo positions | MotorsService |
-| `/api/servo` | POST | Set pan, tilt, preset, expression | MotorsService |
-| `/api/servo/home` | POST | Return all servos to home position | MotorsService |
-| `/api/camera` | GET | Get camera availability and resolution | Camera module |
-| `/api/camera/snapshot` | GET | Capture single JPEG frame | Camera module |
-| `/api/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) | Camera module |
-| `/api/audio/speak` | POST | Text-to-speech output | Audio / amixer |
-| `/api/audio/sound` | POST | Play notification or effect sound | Audio / amixer |
-| `/api/audio/volume` | POST | Set speaker volume | Audio / amixer |
-| `/api/audio/ambient` | POST | Play or stop ambient sounds | Audio / amixer |
-| `/api/display` | GET | Get current display state | DisplayService |
-| `/api/display` | POST | Dual-mode: eyes emotion (default) or info display (time, weather, timer, notifications, system status) | DisplayService |
-| `/api/emotion` | POST | Combined emotional expression | MotorsService + RGBService + Audio + Display |
+All hardware endpoints run on LeLamp. OpenClaw skills call `127.0.0.1:5001` directly.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/led/solid` | POST | Fill all LEDs with single RGB color |
+| `/led/paint` | POST | Set individual pixel colors (up to 64) |
+| `/led/off` | POST | Turn off all LEDs |
+| `/led/effect` | POST | Start effect (breathing, candle, rainbow, notification_flash, pulse) |
+| `/led/effect/stop` | POST | Stop current effect |
+| `/servo/play` | POST | Play animation (curious, nod, happy_wiggle, idle, sad, excited, shy, shock) |
+| `/servo/move` | POST | Send joint positions with smooth interpolation |
+| `/servo/aim` | POST | Aim lamp head (center, desk, wall, left, right, up, down, user) |
+| `/camera/snapshot` | GET | Capture single JPEG frame |
+| `/camera/stream` | GET | MJPEG live stream |
+| `/audio/volume` | GET/POST | Get/set speaker volume (0-100%) |
+| `/audio/play-tone` | POST | Play test tone |
+| `/audio/record` | POST | Record WAV from microphone |
+| `/voice/speak` | POST | Text-to-speech output |
+| `/voice/status` | GET | Voice pipeline status |
+| `/display/eyes` | POST | Set eye expression + pupil position |
+| `/display/info` | POST | Show info text (time, weather, etc.) |
+| `/emotion` | POST | Combined expression (servo + LED + display) |
+| `/scene` | POST | Activate lighting scene (reading, focus, relax, movie, night, energize) |
+| `/presence` | GET | Presence state (present/idle/away) |
 
 ### Example
 
 User says: *"Point the light at my desk, focus mode"*
 
-OpenClaw LLM reads `servo-control/SKILL.md` and `led-control/SKILL.md`, then executes:
+OpenClaw LLM reads `servo-control/SKILL.md` and `scene/SKILL.md`, then executes:
 
 ```bash
-curl -s -X POST http://127.0.0.1:5000/api/servo \
+curl -s -X POST http://127.0.0.1:5001/servo/aim \
   -H "Content-Type: application/json" \
-  -d '{"preset": "desk"}'
+  -d '{"direction": "desk"}'
 
-curl -s -X POST http://127.0.0.1:5000/api/led \
+curl -s -X POST http://127.0.0.1:5001/scene \
   -H "Content-Type: application/json" \
   -d '{"scene": "focus"}'
 ```

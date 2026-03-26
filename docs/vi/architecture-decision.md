@@ -180,50 +180,81 @@ workspace/skills/
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/led` | GET | Lấy trạng thái LED hiện tại |
-| `/api/led` | POST | Đặt màu, độ sáng, scene, hiệu ứng, pattern |
+| `/led` | GET | LED strip info |
+| `/led/color` | GET | Màu LED hiện tại |
+| `/led/solid` | POST | Fill toàn bộ 1 màu RGB |
+| `/led/paint` | POST | Set từng pixel (array tối đa 64) |
+| `/led/off` | POST | Tắt tất cả LED |
+| `/led/effect` | POST | Bật effect (breathing, candle, rainbow, notification_flash, pulse) |
+| `/led/effect/stop` | POST | Dừng effect |
 
 #### Servo Control
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/servo` | GET | Lấy vị trí servo hiện tại |
-| `/api/servo` | POST | Đặt xoay, nghiêng, preset, biểu cảm |
-| `/api/servo/home` | POST | Đưa servo về vị trí mặc định |
+| `/servo` | GET | Recordings + animation state |
+| `/servo/play` | POST | Phát animation (curious, nod, happy_wiggle, ...) |
+| `/servo/move` | POST | Joint positions với smooth interpolation |
+| `/servo/release` | POST | Tắt torque tất cả servo |
+| `/servo/position` | GET | Vị trí servo hiện tại |
+| `/servo/aim` | GET/POST | Aim đầu đèn (center, desk, wall, left, right, up, down, user) |
 
 #### Camera
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/camera` | GET | Kiểm tra camera và resolution |
-| `/api/camera/snapshot` | GET | Chụp 1 frame JPEG |
-| `/api/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) |
+| `/camera` | GET | Camera availability + resolution |
+| `/camera/snapshot` | GET | Chụp 1 frame JPEG |
+| `/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) |
 
 #### Audio
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/audio/speak` | POST | Chuyển text thành giọng nói |
-| `/api/audio/sound` | POST | Phát âm thanh thông báo/hiệu ứng |
-| `/api/audio/volume` | POST | Đặt âm lượng loa |
-| `/api/audio/ambient` | POST | Phát/dừng âm thanh môi trường |
+| `/audio` | GET | Audio device availability |
+| `/audio/volume` | GET/POST | Lấy/đặt âm lượng loa (0-100%) |
+| `/audio/play-tone` | POST | Phát test tone |
+| `/audio/record` | POST | Thu âm WAV |
 
-#### Emotion (Kết hợp)
-
-| Endpoint | Method | Mô tả |
-|---|---|---|
-#### Display
+#### Voice
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/display` | GET | Lấy trạng thái display hiện tại |
-| `/api/display` | POST | Dual-mode: hiển thị mắt cảm xúc (default) hoặc thông tin (giờ, thời tiết, timer, notification, trạng thái) |
+| `/voice/speak` | POST | TTS — chuyển text thành giọng nói |
+| `/voice/start` | POST | Start voice pipeline (Deepgram STT + TTS) |
+| `/voice/stop` | POST | Stop voice pipeline |
+| `/voice/status` | GET | Trạng thái voice pipeline |
 
-#### Emotion (Kết hợp tất cả)
+#### Display (GC9A01 1.28" LCD tròn)
 
 | Endpoint | Method | Mô tả |
 |---|---|---|
-| `/api/emotion` | POST | Biểu cảm cảm xúc kết hợp servo + LED + audio + display |
+| `/display` | GET | State hiện tại (mode, expression) |
+| `/display/eyes` | POST | Set eye expression + pupil position |
+| `/display/info` | POST | Chuyển sang info mode (text/subtitle) |
+| `/display/eyes-mode` | POST | Chuyển về eyes mode (default) |
+| `/display/snapshot` | GET | Frame hiện tại dưới dạng JPEG |
+
+#### Emotion (Kết hợp servo + LED + display)
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/emotion` | POST | Biểu cảm cảm xúc (8 presets: curious, happy, sad, thinking, idle, excited, shy, shock) |
+
+#### Scene
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/scene` | GET | Danh sách scene presets |
+| `/scene` | POST | Kích hoạt scene (reading, focus, relax, movie, night, energize) |
+
+#### Presence
+
+| Endpoint | Method | Mô tả |
+|---|---|---|
+| `/presence` | GET | State hiện tại (present/idle/away) |
+| `/presence/enable` | POST | Bật auto presence control |
+| `/presence/disable` | POST | Tắt auto presence (manual mode) |
 
 ---
 
@@ -459,16 +490,18 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 
 ---
 
-## 10. Cần Xây Dựng Mới
+## 10. Trạng Thái Triển Khai
 
-| Thành phần | Mô tả | OpenClaw sử dụng |
-|---|---|---|
-| `server/servo/delivery/` | Servo HTTP handlers, bridge đến LeLamp MotorsService | `servo-control/SKILL.md` → `POST /api/servo` |
-| `server/camera/delivery/` | Camera HTTP handlers | `camera/SKILL.md` → `GET /api/camera/*` |
-| `server/audio/delivery/` | Audio HTTP handlers | `audio/SKILL.md` → `POST /api/audio/*` |
-| `server/emotion/delivery/` | Emotion HTTP handler (kết hợp servo + LED + audio) | `emotion/SKILL.md` → `POST /api/emotion` |
-| `resources/openclaw-skills/` | SKILL.md cho mỗi thiết bị | Deploy vào `workspace/skills/` |
-| Bridge layer | Giao tiếp giữa Go Lumi server và Python LeLamp services | HTTP/gRPC/subprocess |
+Tất cả hardware endpoints chạy trực tiếp trên LeLamp FastAPI (:5001). OpenClaw skills gọi qua `127.0.0.1:5001`.
+
+| Thành phần | Trạng thái |
+|---|---|
+| 10 SKILL.md files | ✅ `lumi/resources/openclaw-skills/` |
+| LeLamp 38 endpoints | ✅ `lelamp/server.py` |
+| Sensing event routing | ✅ `lumi/server/sensing/` |
+| Local intent matching | ✅ `lumi/internal/intent/` |
+| Voice pipeline (VAD + Deepgram) | ✅ `lelamp/service/voice/` |
+| Ambient idle behaviors | ✅ `lumi/internal/ambient/` |
 
 ### Phần Cứng ↔ Tầng Mapping
 
@@ -487,7 +520,7 @@ Không cần logic parse lệnh — **LLM tự hiểu từ mô tả trong SKILL.
 ## 11. Câu Hỏi Mở
 
 - [x] **Bridge Go ↔ Python**: HTTP proxy. LeLamp chạy FastAPI trên `127.0.0.1:5001`, Lumi Server proxy request từ port 5000. Đơn giản, dễ debug, không tight coupling.
-- [ ] **Xử lý camera**: Trên thiết bị (OpenCV) hay giao cho OpenClaw vision? Latency vs capability trade-off.
-- [ ] **Đầu vào audio**: OpenClaw xử lý mic trực tiếp, hay Lumi server thu âm rồi chuyển tiếp stream?
+- [x] **Xử lý camera**: On-device OpenCV trong LeLamp Python. Frame diff cho motion detection trong sensing loop.
+- [x] **Đầu vào audio**: LeLamp owns mic. Local VAD (RMS energy) + on-demand Deepgram STT. Wake word "Hey Lumi" detected trong transcript.
 - [x] **LED driver**: LeLamp Python rpi_ws281x driver sở hữu toàn bộ LED control. Go SPI driver đã xóa khỏi Lumi — đèn này dùng LED driver của LeLamp.
-- [ ] **Generative body language**: LLM tạo servo positions thế nào? Emotion presets với randomized parameters? Hay LLM tự generate raw positions?
+- [x] **Generative body language**: Emotion presets với randomized parameters. 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock). Mỗi lần gọi tạo biểu cảm unique nhờ randomization.
