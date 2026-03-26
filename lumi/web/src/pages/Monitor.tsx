@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Progress } from "@/components/ui/progress";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { cn } from "@/lib/utils";
 
-// --- API URLs ---
 const API = "/api";
-const HW = "/hw";
+const HW  = "/hw";
+const HISTORY_LEN = 60;
 
-// --- Types ---
+// ─── Types ──────────────────────────────────────────────────────────────────
+
 interface SystemInfo {
   cpuLoad: number;
   memTotal: number;
@@ -23,14 +17,12 @@ interface SystemInfo {
   version: string;
   deviceId: string;
 }
-
 interface NetworkInfo {
   ssid: string;
   ip: string;
   signal: number;
   internet: boolean;
 }
-
 interface HWHealth {
   status: string;
   servo: boolean;
@@ -42,664 +34,1121 @@ interface HWHealth {
   tts: boolean;
   display: boolean;
 }
-
 interface OCStatus {
   name: string;
   connected: boolean;
   sessionKey: boolean;
 }
-
+interface PresenceInfo {
+  state: string;
+  enabled: boolean;
+  seconds_since_motion: number;
+}
 interface VoiceStatus {
   voice_available: boolean;
   voice_listening: boolean;
   tts_available: boolean;
   tts_speaking: boolean;
 }
-
-interface PresenceInfo {
-  state: string;
-  enabled: boolean;
-  seconds_since_motion: number;
-  idle_timeout: number;
-  away_timeout: number;
+interface ServoState {
+  available_recordings: string[];
+  current: string | null;
 }
-
-interface DisplayInfo {
+interface DisplayState {
   mode: string;
-  expression: string;
-  pupil_x: number;
-  pupil_y: number;
-  openness: number;
-  available_expressions: string[];
   hardware: boolean;
+  available_expressions: string[];
 }
-
-interface AudioInfo {
-  output_device: number | null;
-  input_device: number | null;
-  available: boolean;
+interface AudioVolume {
+  control: string;
+  volume: number;
 }
-
-interface LEDInfo {
+interface LEDColor {
   led_count: number;
+  color: [number, number, number];
+  hex: string;
 }
-
-interface SceneInfo {
-  scenes: string[];
-}
-
-interface ServoInfo {
-  available_recordings?: string[];
-  current?: string | null;
-}
-
-interface ServoPositions {
-  positions: Record<string, number>;
-}
-
 interface MonitorEvent {
   id: string;
   time: string;
   type: string;
   summary: string;
-  detail?: Record<string, string>;
+  detail?: Record<string, string> | null;
   runId?: string;
   phase?: string;
   state?: string;
   error?: string;
 }
+// UI-augmented version with local seq id
+interface DisplayEvent extends MonitorEvent {
+  _seq: number;
+}
 
-// Types whose text can be long (merged deltas) — show full text instead of truncating
-const STREAMABLE_TYPES = new Set(["assistant_delta", "thinking", "chat_response"]);
+type Section = "overview" | "system" | "workflow" | "camera";
 
-// --- Event type display config ---
-const EVENT_CFG: Record<string, { label: string; color: string; icon: string }> = {
-  sensing_input:   { label: "Sensing",  color: "bg-blue-500",    icon: "👁" },
-  chat_send:       { label: "Send",     color: "bg-indigo-500",  icon: "➜" },
-  lifecycle:       { label: "Agent",    color: "bg-yellow-500",  icon: "⚙" },
-  thinking:        { label: "Think",    color: "bg-amber-500",   icon: "🧠" },
-  tool_call:       { label: "Tool",     color: "bg-orange-500",  icon: "🔧" },
-  assistant_delta: { label: "Write",    color: "bg-emerald-500", icon: "✏" },
-  chat_response:   { label: "Response", color: "bg-green-500",   icon: "💬" },
-  tts:             { label: "TTS",      color: "bg-purple-500",  icon: "🔊" },
+const NAV: { id: Section; label: string; icon: string }[] = [
+  { id: "overview", label: "Overview",  icon: "◈" },
+  { id: "system",   label: "System",    icon: "⬡" },
+  { id: "workflow", label: "Workflow",  icon: "◎" },
+  { id: "camera",   label: "Camera",    icon: "⬟" },
+];
+
+// ─── CSS-in-JS helpers ───────────────────────────────────────────────────────
+
+const S = {
+  root: {
+    display: "flex",
+    height: "100vh",
+    background: "var(--lm-bg)",
+    color: "var(--lm-text)",
+    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+    fontSize: 13,
+  } as React.CSSProperties,
+  sidebar: {
+    width: 192,
+    flexShrink: 0,
+    background: "var(--lm-sidebar)",
+    borderRight: "1px solid var(--lm-border)",
+    display: "flex",
+    flexDirection: "column" as const,
+  },
+  sidebarLogo: {
+    padding: "18px 16px 14px",
+    borderBottom: "1px solid var(--lm-border)",
+  },
+  sidebarLogoName: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "var(--lm-amber)",
+    letterSpacing: "-0.3px",
+  },
+  sidebarLogoSub: {
+    fontSize: 10,
+    color: "var(--lm-text-muted)",
+    marginTop: 2,
+  },
+  navItem: (active: boolean): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    padding: "8px 14px",
+    borderRadius: 8,
+    margin: "2px 8px",
+    fontSize: 12.5,
+    fontWeight: active ? 600 : 400,
+    color: active ? "var(--lm-amber)" : "var(--lm-text-dim)",
+    background: active ? "var(--lm-amber-dim)" : "transparent",
+    cursor: "pointer",
+    transition: "all 0.15s",
+    border: "none",
+    width: "calc(100% - 16px)",
+    textAlign: "left" as const,
+  }),
+  main: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column" as const,
+    overflow: "hidden",
+  },
+  topbar: {
+    padding: "10px 20px",
+    borderBottom: "1px solid var(--lm-border)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexShrink: 0,
+  },
+  content: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto" as const,
+    padding: "20px",
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 14,
+  },
+  grid3: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr",
+    gap: 14,
+  },
+  card: {
+    background: "var(--lm-card)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 12,
+    padding: 16,
+  },
+  cardLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--lm-text-muted)",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+    marginBottom: 12,
+  },
 };
 
-// --- Helpers ---
-function formatUptime(sec: number): string {
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
+// ─── Utility components ──────────────────────────────────────────────────────
 
-function formatMB(kb: number): string {
-  return (kb / 1024).toFixed(0);
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
-
-function signalPercent(dbm: number): number {
-  if (dbm >= -30) return 100;
-  if (dbm <= -90) return 0;
-  return Math.round(((dbm + 90) / 60) * 100);
-}
-
-// --- Fetch helper ---
-async function fetchJSON<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (json?.status === 1) return json.data as T;
-    return json as T;
-  } catch {
-    return null;
-  }
-}
-
-// ============================================================
-// MONITOR PAGE
-// ============================================================
-export default function Monitor() {
-  const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
-  const [netInfo, setNetInfo] = useState<NetworkInfo | null>(null);
-  const [hwHealth, setHWHealth] = useState<HWHealth | null>(null);
-  const [ocStatus, setOCStatus] = useState<OCStatus | null>(null);
-  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
-  const [presence, setPresence] = useState<PresenceInfo | null>(null);
-  const [displayInfo, setDisplayInfo] = useState<DisplayInfo | null>(null);
-  const [audioInfo, setAudioInfo] = useState<AudioInfo | null>(null);
-  const [ledInfo, setLedInfo] = useState<LEDInfo | null>(null);
-  const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
-  const [servoInfo, setServoInfo] = useState<ServoInfo | null>(null);
-  const [servoPos, setServoPos] = useState<ServoPositions | null>(null);
-  const [events, setEvents] = useState<MonitorEvent[]>([]);
-  const [sseConnected, setSseConnected] = useState(false);
-  const [streaming, setStreaming] = useState(true);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const eventsEndRef = useRef<HTMLDivElement>(null);
-
-  // --- Polling ---
-  usePolling(() => fetchJSON<SystemInfo>(`${API}/system/info`).then(setSysInfo), 5000);
-  usePolling(() => fetchJSON<NetworkInfo>(`${API}/system/network`).then(setNetInfo), 10000);
-  usePolling(() => fetchJSON<HWHealth>(`${HW}/health`).then(setHWHealth), 5000);
-  usePolling(() => fetchJSON<OCStatus>(`${API}/openclaw/status`).then(setOCStatus), 3000);
-  usePolling(() => fetchJSON<VoiceStatus>(`${HW}/voice/status`).then(setVoiceStatus), 3000);
-  usePolling(() => fetchJSON<PresenceInfo>(`${HW}/presence`).then(setPresence), 5000);
-  usePolling(() => fetchJSON<DisplayInfo>(`${HW}/display`).then(setDisplayInfo), 5000);
-  usePolling(() => fetchJSON<AudioInfo>(`${HW}/audio`).then(setAudioInfo), 10000);
-  usePolling(() => fetchJSON<LEDInfo>(`${HW}/led`).then(setLedInfo), 10000);
-  usePolling(() => fetchJSON<SceneInfo>(`${HW}/scene`).then(setSceneInfo), 30000);
-  usePolling(() => fetchJSON<ServoInfo>(`${HW}/servo`).then(setServoInfo), 5000);
-  usePolling(() => fetchJSON<ServoPositions>(`${HW}/servo/position`).then(setServoPos), 2000);
-
-  // --- Load recent events on mount ---
-  useEffect(() => {
-    fetchJSON<MonitorEvent[]>(`${API}/openclaw/recent`).then((data) => {
-      if (data) setEvents(data);
-    });
-  }, []);
-
-  // --- SSE subscription ---
-  // Mergeable event types: accumulate text instead of creating new rows
-  const MERGEABLE_TYPES = new Set(["assistant_delta", "thinking"]);
-
-  useEffect(() => {
-    const es = new EventSource(`${API}/openclaw/events`);
-    es.onopen = () => setSseConnected(true);
-    es.onmessage = (e) => {
-      try {
-        const evt: MonitorEvent = JSON.parse(e.data);
-        setEvents((prev) => {
-          // For streaming deltas, merge into the last event with same type+runId
-          if (MERGEABLE_TYPES.has(evt.type) && prev.length > 0) {
-            const last = prev[prev.length - 1];
-            if (last.type === evt.type && last.runId === evt.runId) {
-              const merged = { ...last, summary: last.summary + evt.summary };
-              return [...prev.slice(0, -1), merged];
-            }
-          }
-          // For partial chat_response, update existing row with same runId
-          if (evt.type === "chat_response" && evt.state === "partial" && prev.length > 0) {
-            let idx = -1;
-            for (let i = prev.length - 1; i >= 0; i--) {
-              if (prev[i].type === "chat_response" && prev[i].runId === evt.runId) { idx = i; break; }
-            }
-            if (idx >= 0) {
-              const updated = [...prev];
-              updated[idx] = { ...evt };
-              return updated;
-            }
-          }
-          return [...prev.slice(-199), evt];
-        });
-      } catch { /* ignore */ }
-    };
-    es.onerror = () => setSseConnected(false);
-    return () => es.close();
-  }, []);
-
-  // --- Auto-scroll events ---
-  useEffect(() => {
-    eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events]);
-
-  const toggleStream = () => {
-    setStreaming((prev) => !prev);
-    if (imgRef.current && streaming) imgRef.current.src = "";
-  };
-
-  const takeSnapshot = async () => {
-    try {
-      const res = await fetch(`${HW}/camera/snapshot`);
-      if (!res.ok) return;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `lumi-snapshot-${Date.now()}.jpg`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch { /* ignore */ }
-  };
-
+function StatusDot({ ok }: { ok: boolean }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold">Lumi Monitor</h1>
-            {sysInfo?.version && (
-              <Badge variant="outline" className="text-[10px] font-mono">{sysInfo.version}</Badge>
-            )}
-            {sysInfo?.deviceId && (
-              <span className="text-[10px] text-muted-foreground font-mono">{sysInfo.deviceId}</span>
-            )}
-          </div>
-          <ThemeToggle />
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
-        {/* ---- ROW 1: Core status cards ---- */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* Agent */}
-          <StatusCard title={ocStatus?.name || "Agent"}>
-            {ocStatus ? (
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Dot color={ocStatus.connected ? "green" : "red"} pulse={ocStatus.connected} />
-                  <span className="text-sm font-medium">
-                    {ocStatus.connected ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-                {ocStatus.sessionKey && (
-                  <span className="text-[11px] text-muted-foreground">Session active</span>
-                )}
-              </div>
-            ) : <Unavailable label="Lumi" />}
-          </StatusCard>
-
-          {/* System */}
-          <StatusCard title="System">
-            {sysInfo ? (
-              <div className="flex gap-3 items-center">
-                <CircleGauge value={Math.min(100, (sysInfo.cpuLoad / 4) * 100)} label={`${Math.min(100, Math.round((sysInfo.cpuLoad / 4) * 100))}%`} sublabel="CPU" />
-                <div className="flex-1 space-y-1.5 min-w-0">
-                  <div className="space-y-0.5">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-muted-foreground">RAM</span>
-                      <span>{formatMB(sysInfo.memUsed)} / {formatMB(sysInfo.memTotal)} MB</span>
-                    </div>
-                    <Progress value={sysInfo.memPercent} className="h-1.5" />
-                  </div>
-                  <div className="flex gap-3 text-[11px]">
-                    <span title="CPU Temperature">{sysInfo.cpuTemp > 0 ? `${sysInfo.cpuTemp.toFixed(0)}°C` : "--"}</span>
-                    <span className="text-muted-foreground">up {formatUptime(sysInfo.uptime)}</span>
-                  </div>
-                </div>
-              </div>
-            ) : <Unavailable label="System" />}
-          </StatusCard>
-
-          {/* Network */}
-          <StatusCard title="Network">
-            {netInfo ? (
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Dot color={netInfo.internet ? "green" : "red"} />
-                  <span className="text-sm font-medium truncate">{netInfo.ssid || "No WiFi"}</span>
-                </div>
-                {netInfo.ip && (
-                  <span className="text-[11px] text-muted-foreground font-mono block">{netInfo.ip}</span>
-                )}
-                {netInfo.signal !== 0 && (
-                  <div className="flex items-center gap-1.5 text-[11px]">
-                    <span className="text-muted-foreground">Signal</span>
-                    <Progress value={signalPercent(netInfo.signal)} className="h-1 w-12" />
-                    <span>{netInfo.signal} dBm</span>
-                  </div>
-                )}
-              </div>
-            ) : <Unavailable label="Network" />}
-          </StatusCard>
-
-          {/* Voice & Audio */}
-          <StatusCard title="Voice">
-            {voiceStatus ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Dot color={voiceStatus.voice_available ? "green" : "red"} pulse={voiceStatus.voice_listening} />
-                  <span className="text-sm font-medium">
-                    {voiceStatus.voice_listening ? "Listening..." : voiceStatus.voice_available ? "Ready" : "Off"}
-                  </span>
-                  {voiceStatus.tts_speaking && (
-                    <Badge variant="default" className="text-[10px] py-0 px-1.5 animate-pulse">Speaking</Badge>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <HWBadge label="STT" ok={voiceStatus.voice_available} />
-                  <HWBadge label="TTS" ok={voiceStatus.tts_available} />
-                  {audioInfo && <HWBadge label="Mic" ok={audioInfo.input_device !== null} />}
-                  {audioInfo && <HWBadge label="Speaker" ok={audioInfo.output_device !== null} />}
-                </div>
-              </div>
-            ) : <Unavailable label="Voice" />}
-          </StatusCard>
-        </div>
-
-        {/* ---- ROW 2: Hardware subsystems ---- */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* Display / Eyes */}
-          <StatusCard title="Display">
-            {displayInfo ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Dot color={displayInfo.hardware ? "green" : "yellow"} />
-                  <span className="text-sm font-medium capitalize">{displayInfo.expression}</span>
-                </div>
-                <div className="flex flex-wrap gap-1 text-[10px]">
-                  <Badge variant="outline" className="py-0 px-1">{displayInfo.mode}</Badge>
-                  {!displayInfo.hardware && (
-                    <Badge variant="secondary" className="py-0 px-1">SW only</Badge>
-                  )}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {displayInfo.available_expressions.length} expressions
-                </div>
-              </div>
-            ) : <Unavailable label="Display" />}
-          </StatusCard>
-
-          {/* LED */}
-          <StatusCard title="LED">
-            {hwHealth ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Dot color={hwHealth.led ? "green" : "red"} />
-                  <span className="text-sm font-medium">{hwHealth.led ? "Active" : "Off"}</span>
-                </div>
-                {ledInfo && (
-                  <span className="text-[11px] text-muted-foreground">{ledInfo.led_count} LEDs (WS2812)</span>
-                )}
-              </div>
-            ) : <Unavailable label="LED" />}
-          </StatusCard>
-
-          {/* Servo */}
-          <StatusCard title="Servo">
-            {hwHealth ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Dot color={hwHealth.servo ? "green" : "red"} />
-                  <span className="text-sm font-medium">{hwHealth.servo ? "Active" : "Unavailable"}</span>
-                </div>
-                {servoInfo?.current && (
-                  <Badge variant="default" className="text-[10px] py-0 px-1.5 animate-pulse">
-                    Playing {servoInfo.current}
-                  </Badge>
-                )}
-                {servoInfo?.available_recordings && servoInfo.available_recordings.length > 0 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {servoInfo.available_recordings.length} recordings
-                  </span>
-                )}
-                {servoPos?.positions && (
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono mt-1">
-                    {Object.entries(servoPos.positions).map(([joint, val]) => (
-                      <div key={joint} className="flex justify-between">
-                        <span className="text-muted-foreground">{joint.replace(".pos", "").replace("_", " ")}</span>
-                        <span>{typeof val === "number" ? val.toFixed(1) : "—"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : <Unavailable label="Servo" />}
-          </StatusCard>
-
-          {/* Sensing & Presence */}
-          <StatusCard title="Sensing">
-            <div className="space-y-1.5">
-              {hwHealth && (
-                <div className="flex flex-wrap gap-1.5">
-                  <HWBadge label="Camera" ok={hwHealth.camera} />
-                  <HWBadge label="Motion" ok={hwHealth.sensing} />
-                </div>
-              )}
-              {presence && (
-                <div className="flex items-center gap-2">
-                  <PresenceBadge state={presence.state} />
-                  {presence.seconds_since_motion > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatUptime(presence.seconds_since_motion)} ago
-                    </span>
-                  )}
-                </div>
-              )}
-              {presence && (
-                <Badge variant={presence.enabled ? "default" : "secondary"} className="text-[10px] py-0 px-1.5">
-                  {presence.enabled ? "Auto-detect" : "Manual"}
-                </Badge>
-              )}
-            </div>
-          </StatusCard>
-        </div>
-
-        {/* ---- ROW 3: Scenes (if available) ---- */}
-        {sceneInfo && sceneInfo.scenes.length > 0 && (
-          <Card className="rounded-xl border shadow-sm">
-            <CardContent className="py-3 px-4">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Scenes</span>
-                {sceneInfo.scenes.map((scene) => (
-                  <Badge key={scene} variant="outline" className="text-[11px] capitalize">{scene}</Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ---- ROW 4: Workflow + Camera ---- */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Workflow */}
-          <Card className="rounded-xl border shadow-sm lg:col-span-3">
-            <CardHeader className="pb-2 px-4 pt-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Workflow</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={sseConnected ? "default" : "secondary"}
-                    className={cn("text-[10px]", sseConnected && "animate-pulse")}
-                  >
-                    {sseConnected ? "Live" : "Reconnecting..."}
-                  </Badge>
-                  {events.length > 0 && (
-                    <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={() => setEvents([])}>
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-3">
-              <ScrollArea className="h-[50vh] lg:h-[60vh] w-full rounded-md border bg-muted/20">
-                <div className="p-2 space-y-0.5">
-                  {events.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-12">
-                      Waiting for events...
-                    </p>
-                  )}
-                  {events.map((evt) => (
-                    <EventRow key={evt.id} event={evt} />
-                  ))}
-                  <div ref={eventsEndRef} />
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          {/* Camera */}
-          <Card className="rounded-xl border shadow-sm lg:col-span-2">
-            <CardHeader className="pb-2 px-4 pt-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Camera</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={takeSnapshot}>
-                    Snapshot
-                  </Button>
-                  <Button
-                    variant={streaming ? "destructive" : "default"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={toggleStream}
-                  >
-                    {streaming ? "Stop" : "Start"}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-3">
-              <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                {streaming ? (
-                  <img
-                    ref={imgRef}
-                    src={`${HW}/camera/stream`}
-                    alt="Camera stream"
-                    className="w-full h-full object-contain"
-                    onError={() => setStreaming(false)}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    Stream paused
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ---- Footer: HW API link ---- */}
-        <div className="text-center pb-4">
-          <a href="/hw/docs" target="_blank" rel="noopener noreferrer" className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
-            LeLamp API Docs
-          </a>
-        </div>
-      </main>
-    </div>
-  );
-}
-
-// ============================================================
-// SUB-COMPONENTS
-// ============================================================
-
-function StatusCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card className="rounded-xl border shadow-sm">
-      <CardHeader className="pb-1 px-3 pt-2.5">
-        <CardTitle className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-3 pb-2.5">{children}</CardContent>
-    </Card>
-  );
-}
-
-function Dot({ color, pulse }: { color: "green" | "red" | "yellow"; pulse?: boolean }) {
-  const c = color === "green" ? "bg-green-400" : color === "red" ? "bg-red-400" : "bg-yellow-400";
-  return <span className={cn("inline-block w-2 h-2 rounded-full shrink-0", c, pulse && "animate-pulse")} />;
-}
-
-function Unavailable({ label }: { label: string }) {
-  return <span className="text-xs text-muted-foreground">{label} unreachable</span>;
-}
-
-function CircleGauge({ value, label, sublabel }: { value: number; label: string; sublabel: string }) {
-  const size = 52;
-  const stroke = 4;
-  const r = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference - (value / 100) * circumference;
-  const strokeColor = value > 80 ? "#ef4444" : value > 50 ? "#eab308" : "#10b981";
-  const textColor = value > 80 ? "text-red-500" : value > 50 ? "text-yellow-500" : "text-emerald-500";
-
-  return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} stroke="currentColor" className="text-muted" />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke}
-          strokeDasharray={circumference} strokeDashoffset={offset}
-          strokeLinecap="round"
-          stroke={strokeColor}
-          style={{ transition: "stroke-dashoffset 500ms ease" }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={cn("text-[11px] font-semibold leading-none", textColor)}>{label}</span>
-        <span className="text-[8px] text-muted-foreground leading-none mt-0.5">{sublabel}</span>
-      </div>
-    </div>
+    <span
+      style={{
+        display: "inline-block",
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: ok ? "var(--lm-green)" : "var(--lm-red)",
+        boxShadow: ok ? "0 0 6px var(--lm-green)" : "none",
+        flexShrink: 0,
+      }}
+    />
   );
 }
 
 function HWBadge({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <Badge variant={ok ? "default" : "secondary"} className="text-[10px] py-0 px-1.5">
-      <span className={cn("inline-block w-1.5 h-1.5 rounded-full mr-1", ok ? "bg-green-400" : "bg-red-400")} />
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 10px",
+        borderRadius: 8,
+        background: ok ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+        border: `1px solid ${ok ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.2)"}`,
+        fontSize: 11.5,
+        fontWeight: 500,
+        color: ok ? "var(--lm-green)" : "var(--lm-red)",
+      }}
+    >
+      <StatusDot ok={ok} />
       {label}
-    </Badge>
+    </div>
   );
 }
 
-function PresenceBadge({ state }: { state: string }) {
-  const map: Record<string, { variant: "default" | "secondary" | "destructive"; label: string }> = {
-    present:  { variant: "default",     label: "Present" },
-    idle:     { variant: "secondary",   label: "Idle" },
-    away:     { variant: "secondary",   label: "Away" },
-    disabled: { variant: "destructive", label: "Disabled" },
-  };
-  const cfg = map[state] ?? { variant: "secondary" as const, label: state };
-  return <Badge variant={cfg.variant} className="text-[11px]">{cfg.label}</Badge>;
-}
-
-function EventRow({ event }: { event: MonitorEvent }) {
-  const cfg = EVENT_CFG[event.type] ?? { label: event.type, color: "bg-gray-500", icon: "?" };
-  const time = formatTime(event.time);
+function GaugeRing({
+  value,
+  label,
+  detail,
+  color = "var(--lm-amber)",
+  size = 110,
+}: {
+  value: number;
+  label: string;
+  detail?: string;
+  color?: string;
+  size?: number;
+}) {
+  const r = (size - 18) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = (Math.min(100, Math.max(0, value)) / 100) * circ;
+  const glowId = `glow-${label.replace(/\s/g, "")}`;
 
   return (
-    <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-muted/50 transition-colors group">
-      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-1.5", cfg.color)} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-medium">{cfg.icon} {cfg.label}</span>
-          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-            {time}
-          </span>
-          {event.runId && (
-            <span className="text-[9px] text-muted-foreground font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-              {event.runId}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <svg width={size} height={size} style={{ overflow: "visible" }}>
+        <defs>
+          <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        {/* Track */}
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke="var(--lm-border)"
+          strokeWidth={8}
+        />
+        {/* Filled arc */}
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={8}
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${circ}`}
+          strokeDashoffset={0}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ filter: `url(#${glowId})`, transition: "stroke-dasharray 0.7s ease" }}
+        />
+        {/* Center value */}
+        <text
+          x={size / 2} y={size / 2 - 4}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill={color}
+          fontSize={size * 0.18}
+          fontWeight={700}
+        >
+          {Math.round(value)}%
+        </text>
+        {detail && (
+          <text
+            x={size / 2} y={size / 2 + size * 0.15}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="var(--lm-text-muted)"
+            fontSize={size * 0.1}
+          >
+            {detail}
+          </text>
+        )}
+      </svg>
+      <span style={{ fontSize: 11, color: "var(--lm-text-dim)", fontWeight: 500 }}>{label}</span>
+    </div>
+  );
+}
+
+function Sparkline({
+  data,
+  color = "var(--lm-amber)",
+  height = 44,
+}: {
+  data: number[];
+  color?: string;
+  height?: number;
+}) {
+  if (data.length < 2) return <div style={{ height }} />;
+  const w = 280;
+  const h = height;
+  const max = Math.max(...data, 1);
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  });
+  const areaPath =
+    `M 0,${h} ` +
+    pts.join(" L ") +
+    ` L ${w},${h} Z`;
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <defs>
+        <linearGradient id={`sg-${color.replace(/[^a-z]/gi, "")}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#sg-${color.replace(/[^a-z]/gi, "")})`} />
+      <polyline
+        points={pts.join(" ")}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SignalBars({ value }: { value: number }) {
+  const bars = 4;
+  const active = value >= -50 ? 4 : value >= -65 ? 3 : value >= -75 ? 2 : value >= -85 ? 1 : 0;
+  return (
+    <div style={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
+      {Array.from({ length: bars }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            width: 4,
+            height: 6 + i * 3,
+            borderRadius: 1,
+            background: i < active ? "var(--lm-amber)" : "var(--lm-border-hi)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatPill({ label, value, color }: { label: string; value: string | number; color?: string }) {
+  return (
+    <div style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "6px 12px",
+      background: "var(--lm-surface)",
+      borderRadius: 8,
+      border: "1px solid var(--lm-border)",
+    }}>
+      <span style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: color || "var(--lm-text)" }}>{value}</span>
+    </div>
+  );
+}
+
+function formatUptime(s: number) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ─── Sections ────────────────────────────────────────────────────────────────
+
+function OverviewSection({
+  sys,
+  net,
+  hw,
+  oc,
+  presence,
+  voice,
+  servo,
+  displayState,
+  audio,
+  ledColor,
+}: {
+  sys: SystemInfo | null;
+  net: NetworkInfo | null;
+  hw: HWHealth | null;
+  oc: OCStatus | null;
+  presence: PresenceInfo | null;
+  voice: VoiceStatus | null;
+  servo: ServoState | null;
+  displayState: DisplayState | null;
+  audio: AudioVolume | null;
+  ledColor: LEDColor | null;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Top row: 4 status cards */}
+      <div style={S.grid2}>
+        {/* OpenClaw */}
+        <div style={S.card}>
+          <div style={S.cardLabel}>OpenClaw AI</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <StatusDot ok={oc?.connected ?? false} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)" }}>
+              {oc?.connected ? "Connected" : "Disconnected"}
             </span>
-          )}
-          {event.phase && (
-            <Badge variant="outline" className="text-[9px] py-0 px-1 h-3.5">{event.phase}</Badge>
-          )}
-          {event.state === "partial" && (
-            <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5">streaming</Badge>
-          )}
-          {event.error && (
-            <Badge variant="destructive" className="text-[9px] py-0 px-1 h-3.5">error</Badge>
+          </div>
+          {oc && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Agent: <span style={{ color: "var(--lm-text)" }}>{oc.name}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Session key:
+                <span style={{
+                  fontSize: 10, padding: "1px 6px", borderRadius: 4,
+                  background: oc.sessionKey ? "rgba(52,211,153,0.1)" : "rgba(80,74,60,0.4)",
+                  color: oc.sessionKey ? "var(--lm-green)" : "var(--lm-text-muted)",
+                  border: `1px solid ${oc.sessionKey ? "rgba(52,211,153,0.3)" : "var(--lm-border)"}`,
+                  fontWeight: 600,
+                }}>
+                  {oc.sessionKey ? "Acquired" : "Pending"}
+                </span>
+              </div>
+            </div>
           )}
         </div>
-        <p className={cn(
-          "text-[11px] text-muted-foreground",
-          STREAMABLE_TYPES.has(event.type) ? "whitespace-pre-wrap break-words" : "truncate"
-        )}>{event.summary}</p>
+
+        {/* Network */}
+        <div style={S.card}>
+          <div style={S.cardLabel}>Network</div>
+          {net ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <StatusDot ok={net.internet} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-text)" }}>{net.ssid || "—"}</span>
+                </div>
+                <SignalBars value={net.signal} />
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span></div>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>Signal: <span style={{ color: "var(--lm-text)" }}>{net.signal} dBm</span></div>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Internet: <span style={{ color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>{net.internet ? "OK" : "No"}</span>
+              </div>
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+        </div>
+
+        {/* Presence */}
+        <div style={S.card}>
+          <div style={S.cardLabel}>Presence</div>
+          {presence ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <StatusDot ok={presence.state === "active"} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: presence.state === "active" ? "var(--lm-amber)" : "var(--lm-text-dim)" }}>
+                  {presence.state}
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Sensing: <span style={{ color: presence.enabled ? "var(--lm-green)" : "var(--lm-red)" }}>{presence.enabled ? "Enabled" : "Disabled"}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Last motion: <span style={{ color: "var(--lm-text)" }}>{presence.seconds_since_motion}s ago</span>
+              </div>
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+        </div>
+
+        {/* Voice */}
+        <div style={S.card}>
+          <div style={S.cardLabel}>Voice & TTS</div>
+          {voice ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusDot ok={voice.voice_available} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>Mic</span>
+                {voice.voice_listening && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusDot ok={voice.tts_available} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>TTS</span>
+                {voice.tts_speaking && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                )}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                Volume: <span style={{ color: "var(--lm-amber)" }}>{audio?.volume ?? "—"}%</span>
+              </div>
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+        </div>
+      </div>
+
+      {/* Hardware status */}
+      <div style={S.card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={S.cardLabel}>Hardware</div>
+          {/* LED color swatch */}
+          {ledColor && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>LED color</span>
+              <div style={{
+                width: 22, height: 22, borderRadius: 6,
+                background: ledColor.hex,
+                boxShadow: `0 0 8px ${ledColor.hex}99`,
+                border: "1px solid rgba(255,255,255,0.1)",
+                flexShrink: 0,
+              }} title={`RGB(${ledColor.color.join(", ")})`} />
+              <span style={{
+                fontSize: 11, fontFamily: "monospace",
+                color: "var(--lm-text-dim)",
+              }}>{ledColor.hex}</span>
+            </div>
+          )}
+        </div>
+        {hw ? (
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+            <HWBadge label="Servo" ok={hw.servo} />
+            <HWBadge label="LED" ok={hw.led} />
+            <HWBadge label="Camera" ok={hw.camera} />
+            <HWBadge label="Audio" ok={hw.audio} />
+            <HWBadge label="Sensing" ok={hw.sensing} />
+            <HWBadge label="Voice" ok={hw.voice} />
+            <HWBadge label="TTS" ok={hw.tts} />
+            <HWBadge label="Display" ok={hw.display} />
+          </div>
+        ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+      </div>
+
+      {/* Servo + Display row */}
+      <div style={S.grid2}>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Servo Pose</div>
+          {servo ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber)" }}>
+                {servo.current || "idle"}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
+                {servo.available_recordings.length} poses available
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
+                {servo.available_recordings.slice(0, 8).map((p) => (
+                  <span key={p} style={{
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    background: p === servo.current ? "var(--lm-amber-dim)" : "var(--lm-surface)",
+                    border: `1px solid ${p === servo.current ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                    color: p === servo.current ? "var(--lm-amber)" : "var(--lm-text-dim)",
+                  }}>{p}</span>
+                ))}
+              </div>
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+        </div>
+
+        <div style={S.card}>
+          <div style={S.cardLabel}>Display Eyes</div>
+          {displayState ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusDot ok={displayState.hardware} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-teal)" }}>
+                  {displayState.mode}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
+                {displayState.available_expressions.length} expressions
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
+                {displayState.available_expressions.slice(0, 8).map((e) => (
+                  <span key={e} style={{
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    background: e === displayState.mode ? "rgba(45,212,191,0.12)" : "var(--lm-surface)",
+                    border: `1px solid ${e === displayState.mode ? "rgba(45,212,191,0.4)" : "var(--lm-border)"}`,
+                    color: e === displayState.mode ? "var(--lm-teal)" : "var(--lm-text-dim)",
+                  }}>{e}</span>
+                ))}
+              </div>
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+        </div>
+      </div>
+
+      {/* System quick stats */}
+      {sys && (
+        <div style={S.card}>
+          <div style={S.cardLabel}>System</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+            <StatPill label="CPU" value={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" />
+            <StatPill label="RAM" value={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" />
+            <StatPill label="Temp" value={`${sys.cpuTemp.toFixed(1)}°C`} color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"} />
+            <StatPill label="Uptime" value={formatUptime(sys.uptime)} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SystemSection({
+  sys,
+  net,
+  cpuHistory,
+  ramHistory,
+}: {
+  sys: SystemInfo | null;
+  net: NetworkInfo | null;
+  cpuHistory: number[];
+  ramHistory: number[];
+}) {
+  if (!sys) return <div style={{ color: "var(--lm-text-muted)", padding: 20 }}>Loading system data…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* 3 Gauge rings */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Performance</div>
+        <div style={{ display: "flex", justifyContent: "space-around", paddingTop: 8 }}>
+          <GaugeRing value={sys.cpuLoad} label="CPU" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={120} />
+          <GaugeRing value={sys.memPercent} label="Memory" detail={`${Math.round(sys.memUsed/1024)}/${Math.round(sys.memTotal/1024)} MB`} color="var(--lm-blue)" size={120} />
+          <GaugeRing
+            value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / 85) * 100) : 0}
+            label="Temp"
+            detail={`${sys.cpuTemp.toFixed(1)}°C`}
+            color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"}
+            size={120}
+          />
+        </div>
+      </div>
+
+      {/* Sparklines */}
+      <div style={S.grid2}>
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={S.cardLabel}>CPU History</div>
+            <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
+          </div>
+          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={52} />
+        </div>
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={S.cardLabel}>RAM History</div>
+            <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
+          </div>
+          <Sparkline data={ramHistory} color="var(--lm-blue)" height={52} />
+        </div>
+      </div>
+
+      {/* Detail stats */}
+      <div style={S.grid2}>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Process</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <StatPill label="Go Routines" value={sys.goRoutines} color="var(--lm-teal)" />
+            <StatPill label="Uptime" value={formatUptime(sys.uptime)} />
+            <StatPill label="Version" value={sys.version || "—"} />
+            <StatPill label="Device ID" value={sys.deviceId ? sys.deviceId.slice(0, 12) + "…" : "—"} />
+          </div>
+        </div>
+
+        <div style={S.card}>
+          <div style={S.cardLabel}>Network Detail</div>
+          {net ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <StatPill label="SSID" value={net.ssid || "—"} color="var(--lm-amber)" />
+              <StatPill label="IP" value={net.ip} color="var(--lm-teal)" />
+              <StatPill label="Signal" value={`${net.signal} dBm`} />
+              <StatPill label="Internet" value={net.internet ? "OK" : "No"} color={net.internet ? "var(--lm-green)" : "var(--lm-red)"} />
+            </div>
+          ) : <span style={{ color: "var(--lm-text-muted)" }}>No network data</span>}
+        </div>
       </div>
     </div>
   );
 }
 
-// ============================================================
-// HOOKS
-// ============================================================
-
-function usePolling(fn: () => void, intervalMs: number) {
+function WorkflowSection({ events }: { events: DisplayEvent[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    fn();
-    const id = setInterval(fn, intervalMs);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intervalMs]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [events]);
+
+  const typeColor = (t: string): string => {
+    switch (t) {
+      case "lifecycle":       return "var(--lm-amber)";
+      case "tool_call":       return "var(--lm-teal)";
+      case "thinking":        return "var(--lm-purple)";
+      case "assistant_delta": return "var(--lm-blue)";
+      case "chat_response":   return "var(--lm-green)";
+      default:
+        if (t.includes("error")) return "var(--lm-red)";
+        return "var(--lm-text-dim)";
+    }
+  };
+
+  const typeLabel = (t: string): string => {
+    switch (t) {
+      case "lifecycle":       return "Lifecycle";
+      case "tool_call":       return "Tool";
+      case "thinking":        return "Thinking";
+      case "assistant_delta": return "Assistant";
+      case "chat_response":   return "Chat";
+      default: return t;
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}>
+      <div style={{
+        ...S.card,
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        padding: 0,
+        overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--lm-border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <span style={S.cardLabel}>OpenClaw Event Feed</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>{events.length} events</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }} className="lm-hide-scroll">
+          {events.length === 0 ? (
+            <div style={{ padding: "20px 16px", color: "var(--lm-text-muted)", fontSize: 12 }}>
+              Waiting for workflow events…
+            </div>
+          ) : (
+            events.map((ev) => (
+              <div
+                key={ev._seq}
+                style={{
+                  padding: "7px 16px",
+                  borderLeft: `3px solid ${typeColor(ev.type)}`,
+                  marginLeft: 8,
+                  marginBottom: 2,
+                  borderRadius: "0 6px 6px 0",
+                  background: "var(--lm-surface)",
+                  marginRight: 8,
+                }}
+                className="lm-fade-in"
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" as const }}>
+                  <span style={{
+                    fontSize: 10, padding: "1px 6px", borderRadius: 4,
+                    background: `${typeColor(ev.type)}22`,
+                    color: typeColor(ev.type), fontWeight: 600,
+                  }}>{typeLabel(ev.type)}</span>
+                  {ev.phase && (
+                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontStyle: "italic" }}>{ev.phase}</span>
+                  )}
+                  {ev.runId && (
+                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontFamily: "monospace" }}>
+                      {ev.runId.slice(0, 8)}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{ev.time}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)", wordBreak: "break-all" as const }}>
+                  {ev.summary}
+                </div>
+                {ev.error && (
+                  <div style={{ fontSize: 11, color: "var(--lm-red)", marginTop: 3 }}>{ev.error}</div>
+                )}
+              </div>
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CameraSection({
+  displayTs: _displayTs,
+}: {
+  displayTs: number;
+}) {
+  const [snapTs, setSnapTs] = useState(Date.now());
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={S.grid2}>
+        {/* Live camera stream */}
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={S.cardLabel}>Camera Stream</div>
+            <span style={{
+              fontSize: 10,
+              padding: "2px 7px",
+              borderRadius: 4,
+              background: "rgba(248,113,113,0.15)",
+              color: "var(--lm-red)",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+            }}>LIVE</span>
+          </div>
+          <img
+            src={`${HW}/camera/stream`}
+            alt="camera"
+            style={{
+              width: "100%",
+              borderRadius: 8,
+              border: "1px solid var(--lm-border)",
+              display: "block",
+              background: "var(--lm-surface)",
+            }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        </div>
+
+        {/* Display eyes preview */}
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={S.cardLabel}>Display Eyes (GC9A01)</div>
+            <button
+              onClick={() => setSnapTs(Date.now())}
+              style={{
+                fontSize: 10,
+                padding: "3px 10px",
+                borderRadius: 6,
+                background: "var(--lm-amber-dim)",
+                border: "1px solid var(--lm-amber)",
+                color: "var(--lm-amber)",
+                cursor: "pointer",
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+          }}>
+            <img
+              src={`${HW}/display/snapshot?t=${snapTs}`}
+              alt="display"
+              style={{
+                width: 160,
+                height: 160,
+                borderRadius: "50%",
+                border: "3px solid var(--lm-amber)",
+                boxShadow: "0 0 20px var(--lm-amber-glow)",
+                objectFit: "cover",
+                display: "block",
+                background: "var(--lm-surface)",
+              }}
+              onError={(e) => {
+                const el = e.target as HTMLImageElement;
+                el.style.display = "none";
+              }}
+            />
+          </div>
+          <div style={{ textAlign: "center" as const, fontSize: 11, color: "var(--lm-text-muted)" }}>
+            1.28″ round LCD — 240×240
+          </div>
+        </div>
+      </div>
+
+      {/* Camera snapshot */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.cardLabel}>Camera Snapshot</div>
+          <button
+            onClick={() => setSnapTs(Date.now())}
+            style={{
+              fontSize: 10,
+              padding: "3px 10px",
+              borderRadius: 6,
+              background: "var(--lm-surface)",
+              border: "1px solid var(--lm-border)",
+              color: "var(--lm-text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            Capture
+          </button>
+        </div>
+        <img
+          src={`${HW}/camera/snapshot?t=${snapTs}`}
+          alt="snapshot"
+          style={{
+            width: "100%",
+            maxHeight: 280,
+            objectFit: "contain",
+            borderRadius: 8,
+            border: "1px solid var(--lm-border)",
+            display: "block",
+            background: "var(--lm-surface)",
+          }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function Monitor() {
+  const [section, setSection] = useState<Section>("overview");
+
+  const [sys, setSys] = useState<SystemInfo | null>(null);
+  const [net, setNet] = useState<NetworkInfo | null>(null);
+  const [hw, setHw] = useState<HWHealth | null>(null);
+  const [oc, setOc] = useState<OCStatus | null>(null);
+  const [presence, setPresence] = useState<PresenceInfo | null>(null);
+  const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  const [servo, setServo] = useState<ServoState | null>(null);
+  const [displayState, setDisplayState] = useState<DisplayState | null>(null);
+  const [audio, setAudio] = useState<AudioVolume | null>(null);
+  const [ledColor, setLedColor] = useState<LEDColor | null>(null);
+  const [events, setEvents] = useState<DisplayEvent[]>([]);
+  const [displayTs, setDisplayTs] = useState(0);
+
+  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
+  const [ramHistory, setRamHistory] = useState<number[]>([]);
+  const [lastUpdate, setLastUpdate] = useState<string>("");
+
+  const evtIdRef = useRef(0);
+
+  // Polling
+  useEffect(() => {
+    const fetchAll = async () => {
+      try {
+        const [sysR, netR, ocR] = await Promise.all([
+          fetch(`${API}/system/info`).then((r) => r.json()),
+          fetch(`${API}/system/network`).then((r) => r.json()),
+          fetch(`${API}/openclaw/status`).then((r) => r.json()),
+        ]);
+        if (sysR.status === 1) {
+          const d = sysR.data;
+          setSys(d);
+          setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
+          setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
+        }
+        if (netR.status === 1) setNet(netR.data);
+        if (ocR.status === 1) setOc(ocR.data);
+        setLastUpdate(new Date().toLocaleTimeString());
+      } catch {}
+
+      try {
+        const hwR = await fetch(`${HW}/health`).then((r) => r.json());
+        setHw(hwR);
+      } catch {}
+
+      try {
+        const presR = await fetch(`${HW}/presence`).then((r) => r.json());
+        setPresence(presR);
+      } catch {}
+
+      try {
+        const [voiceR, servoR, dispR, audioR, ledR] = await Promise.all([
+          fetch(`${HW}/voice/status`).then((r) => r.json()),
+          fetch(`${HW}/servo`).then((r) => r.json()),
+          fetch(`${HW}/display`).then((r) => r.json()),
+          fetch(`${HW}/audio/volume`).then((r) => r.json()),
+          fetch(`${HW}/led/color`).then((r) => r.json()),
+        ]);
+        setVoice(voiceR);
+        setServo(servoR);
+        setDisplayState(dispR);
+        setAudio(audioR);
+        if (ledR.hex) setLedColor(ledR);
+        setDisplayTs(Date.now());
+      } catch {}
+    };
+
+    fetchAll();
+    const t = setInterval(fetchAll, 3000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Seed recent events on mount
+  useEffect(() => {
+    fetch(`${API}/openclaw/recent`)
+      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === 1 && Array.isArray(r.data) && r.data.length > 0) {
+          const seeded = (r.data as MonitorEvent[]).map((ev) => ({
+            ...ev,
+            _seq: evtIdRef.current++,
+          }));
+          setEvents(seeded);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // SSE
+  useEffect(() => {
+    const es = new EventSource(`${API}/openclaw/events`);
+    es.onmessage = (e) => {
+      try {
+        const ev: MonitorEvent = JSON.parse(e.data);
+        setEvents((prev) => [
+          ...prev.slice(-299),
+          { ...ev, _seq: evtIdRef.current++ },
+        ]);
+      } catch {
+        setEvents((prev) => [
+          ...prev.slice(-299),
+          {
+            _seq: evtIdRef.current++,
+            id: "", time: new Date().toLocaleTimeString(),
+            type: "raw", summary: e.data,
+          },
+        ]);
+      }
+    };
+    return () => es.close();
+  }, []);
+
+  const ocOnline = oc?.connected ?? false;
+
+  return (
+    <div className="lm-root" style={S.root}>
+      {/* Sidebar */}
+      <aside style={S.sidebar}>
+        <div style={S.sidebarLogo}>
+          <div style={S.sidebarLogoName}>✦ Lumi</div>
+          <div style={S.sidebarLogoSub}>Monitor Dashboard</div>
+        </div>
+        <nav style={{ padding: "10px 0", flex: 1 }}>
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              style={S.navItem(section === item.id)}
+              onClick={() => setSection(item.id)}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div style={{
+          padding: "12px 16px",
+          borderTop: "1px solid var(--lm-border)",
+          fontSize: 10,
+          color: "var(--lm-text-muted)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <StatusDot ok={ocOnline} />
+            <span>{ocOnline ? "OpenClaw Online" : "OpenClaw Offline"}</span>
+          </div>
+          {lastUpdate && <div>Updated {lastUpdate}</div>}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main style={S.main}>
+        {/* Topbar */}
+        <div style={S.topbar}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>
+            {NAV.find((n) => n.id === section)?.label}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {sys && (
+              <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
+                CPU {sys.cpuLoad.toFixed(1)}% · RAM {sys.memPercent.toFixed(0)}% · {sys.cpuTemp.toFixed(0)}°C
+              </span>
+            )}
+            <span style={{
+              fontSize: 10,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: ocOnline ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+              color: ocOnline ? "var(--lm-green)" : "var(--lm-red)",
+              border: `1px solid ${ocOnline ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.25)"}`,
+              fontWeight: 600,
+            }}>
+              {ocOnline ? "● ONLINE" : "○ OFFLINE"}
+            </span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={S.content} className="lm-fade-in">
+          {section === "overview" && (
+            <OverviewSection
+              sys={sys}
+              net={net}
+              hw={hw}
+              oc={oc}
+              presence={presence}
+              voice={voice}
+              servo={servo}
+              displayState={displayState}
+              audio={audio}
+              ledColor={ledColor}
+            />
+          )}
+          {section === "system" && (
+            <SystemSection
+              sys={sys}
+              net={net}
+              cpuHistory={cpuHistory}
+              ramHistory={ramHistory}
+            />
+          )}
+          {section === "workflow" && <WorkflowSection events={events} />}
+          {section === "camera" && <CameraSection displayTs={displayTs} />}
+        </div>
+      </main>
+    </div>
+  );
 }
