@@ -154,9 +154,9 @@ class LeLampFollower(Robot):
             self.bus.configure_motors()
             for motor in self.bus.motors:
                 self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-                self.bus.write("P_Coefficient", motor, 16)
-                # Set I_Coefficient and D_Coefficient to default value 0 and 32
+                # P=32 (factory default) gives better holding against gravity.
+                # P=16 was too weak for base_pitch/elbow_pitch under load.
+                self.bus.write("P_Coefficient", motor, 32)
                 self.bus.write("I_Coefficient", motor, 0)
                 self.bus.write("D_Coefficient", motor, 32)
 
