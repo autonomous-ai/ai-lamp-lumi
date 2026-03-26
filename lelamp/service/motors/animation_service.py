@@ -280,6 +280,8 @@ class AnimationService:
         if not self.robot:
             raise RuntimeError("Robot not connected")
 
+        safe_targets = clamp_positions(target_positions)
+
         # Read current positions
         try:
             obs = self.robot.get_observation()
@@ -289,7 +291,7 @@ class AnimationService:
             if self._current_state:
                 current = self._current_state.copy()
             else:
-                self.robot.send_action(target_positions)
+                self.robot.send_action(safe_targets)
                 return
 
         total_frames = max(1, int(duration * self.fps))
@@ -299,7 +301,7 @@ class AnimationService:
             progress = frame / total_frames
 
             interpolated = {}
-            for joint, target_val in target_positions.items():
+            for joint, target_val in safe_targets.items():
                 cur_val = current.get(joint, target_val)
                 interpolated[joint] = cur_val + (target_val - cur_val) * progress
 
@@ -316,10 +318,10 @@ class AnimationService:
 
         # Send final target exactly
         try:
-            self.robot.send_action(target_positions)
+            self.robot.send_action(safe_targets)
         except Exception:
             pass
 
         # Update internal state
-        self._current_state = target_positions.copy()
+        self._current_state = safe_targets.copy()
     
