@@ -63,13 +63,6 @@ class AnimationService:
                 raise
         logger.info(f"Animation service connected to {self.port}")
 
-        # Move to home position smoothly over 5 seconds before starting playback
-        try:
-            self.move_to(HOME_POSITION, duration=HOME_MOVE_DURATION)
-            logger.info("Moved to home position")
-        except Exception as e:
-            logger.warning(f"Failed to move to home position: {e}")
-
         # Start event processing thread
         self._running.set()
         self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
