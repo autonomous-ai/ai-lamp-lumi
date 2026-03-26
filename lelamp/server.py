@@ -547,10 +547,11 @@ class ServoPositionResponse(BaseModel):
 
 class ServoAimRequest(BaseModel):
     direction: str = Field(..., description="Named direction: desk, wall, left, right, up, down, center, user")
+    duration: float = Field(2.0, ge=0.0, le=10.0, description="Move duration in seconds (default: 2.0)")
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"direction": "desk"}, {"direction": "left"}]
+            "examples": [{"direction": "desk"}, {"direction": "left", "duration": 3.0}]
         }
     }
 
@@ -626,23 +627,39 @@ class ServoMoveRequest(BaseModel):
         ...,
         description="Joint positions: base_yaw, base_pitch, elbow_pitch, wrist_roll, wrist_pitch (degrees)",
     )
+    duration: float = Field(
+        2.0,
+        ge=0.0,
+        le=10.0,
+        description="Move duration in seconds. 0 = instant jump, >0 = smooth interpolation (default: 2.0)",
+    )
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"positions": {"base_yaw.pos": 0.0, "base_pitch.pos": 10.0, "elbow_pitch.pos": -5.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0}}]
+            "examples": [
+                {"positions": {"base_yaw.pos": 0.0, "base_pitch.pos": 10.0, "elbow_pitch.pos": -5.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0}},
+                {"positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0}, "duration": 3.0},
+            ]
         }
     }
 
 
 @app.post("/servo/move", response_model=StatusResponse, tags=["Servo"])
 def move_servo(req: ServoMoveRequest):
-    """Send direct joint positions to servo motors. Use to test hardware without recordings."""
+    """Send joint positions to servo motors with smooth interpolation.
+
+    Uses software interpolation at 30 FPS to smoothly move from current position
+    to the target over the given duration. Set duration=0 for instant jump.
+    """
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     try:
-        animation_service.robot.send_action(req.positions)
+        if req.duration > 0:
+            animation_service.move_to(req.positions, duration=req.duration)
+        else:
+            animation_service.robot.send_action(req.positions)
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(500, f"Servo move failed: {e}")
@@ -683,7 +700,10 @@ def aim_servo(req: ServoAimRequest):
         raise HTTPException(400, f"Unknown direction '{req.direction}'. Available: {available}")
 
     try:
-        animation_service.robot.send_action(positions)
+        if req.duration > 0:
+            animation_service.move_to(positions, duration=req.duration)
+        else:
+            animation_service.robot.send_action(positions)
         return {"status": "ok", "direction": req.direction, "positions": positions}
     except Exception as e:
         raise HTTPException(500, f"Servo aim failed: {e}")

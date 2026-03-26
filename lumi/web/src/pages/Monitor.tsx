@@ -89,9 +89,12 @@ interface SceneInfo {
 }
 
 interface ServoInfo {
-  recordings?: string[];
-  playing?: boolean;
-  current_animation?: string;
+  available_recordings?: string[];
+  current?: string | null;
+}
+
+interface ServoPositions {
+  positions: Record<string, number>;
 }
 
 interface MonitorEvent {
@@ -177,6 +180,7 @@ export default function Monitor() {
   const [ledInfo, setLedInfo] = useState<LEDInfo | null>(null);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
   const [servoInfo, setServoInfo] = useState<ServoInfo | null>(null);
+  const [servoPos, setServoPos] = useState<ServoPositions | null>(null);
   const [events, setEvents] = useState<MonitorEvent[]>([]);
   const [sseConnected, setSseConnected] = useState(false);
   const [streaming, setStreaming] = useState(true);
@@ -195,6 +199,7 @@ export default function Monitor() {
   usePolling(() => fetchJSON<LEDInfo>(`${HW}/led`).then(setLedInfo), 10000);
   usePolling(() => fetchJSON<SceneInfo>(`${HW}/scene`).then(setSceneInfo), 30000);
   usePolling(() => fetchJSON<ServoInfo>(`${HW}/servo`).then(setServoInfo), 5000);
+  usePolling(() => fetchJSON<ServoPositions>(`${HW}/servo/position`).then(setServoPos), 2000);
 
   // --- Load recent events on mount ---
   useEffect(() => {
@@ -418,15 +423,25 @@ export default function Monitor() {
                   <Dot color={hwHealth.servo ? "green" : "red"} />
                   <span className="text-sm font-medium">{hwHealth.servo ? "Active" : "Unavailable"}</span>
                 </div>
-                {servoInfo?.playing && (
+                {servoInfo?.current && (
                   <Badge variant="default" className="text-[10px] py-0 px-1.5 animate-pulse">
-                    Playing {servoInfo.current_animation || ""}
+                    Playing {servoInfo.current}
                   </Badge>
                 )}
-                {servoInfo?.recordings && servoInfo.recordings.length > 0 && (
+                {servoInfo?.available_recordings && servoInfo.available_recordings.length > 0 && (
                   <span className="text-[10px] text-muted-foreground">
-                    {servoInfo.recordings.length} recordings
+                    {servoInfo.available_recordings.length} recordings
                   </span>
+                )}
+                {servoPos?.positions && (
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono mt-1">
+                    {Object.entries(servoPos.positions).map(([joint, val]) => (
+                      <div key={joint} className="flex justify-between">
+                        <span className="text-muted-foreground">{joint.replace(".pos", "").replace("_", " ")}</span>
+                        <span>{typeof val === "number" ? val.toFixed(1) : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             ) : <Unavailable label="Servo" />}

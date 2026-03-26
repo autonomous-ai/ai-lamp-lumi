@@ -12,7 +12,7 @@ You have access to 5-axis servo motors on this device via the hardware API at `h
 
 - User says "point the light at my desk", "aim left", "look up" → use `/servo/aim`
 - You need a specific animation without LED/display changes → use `/servo/play`
-- Direct joint control for testing → use `/servo/move`
+- Direct joint control for testing → use `/servo/move` (supports smooth interpolation via `duration` param)
 
 ## When NOT to use
 
@@ -44,12 +44,22 @@ This is the primary way to control light direction. Available directions:
 | `down` | Points downward |
 | `user` | Slightly toward the user (default interaction pose) |
 
-Example — aim at desk:
+Optional `duration` parameter controls move speed (seconds, default 2.0). Set to 0 for instant jump.
+
+Example — aim at desk (smooth 2s move):
 
 ```bash
 curl -s -X POST http://127.0.0.1:5001/servo/aim \
   -H "Content-Type: application/json" \
   -d '{"direction": "desk"}'
+```
+
+Example — aim slowly (3 seconds):
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/servo/aim \
+  -H "Content-Type: application/json" \
+  -d '{"direction": "left", "duration": 3.0}'
 ```
 
 ### List available directions
