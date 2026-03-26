@@ -38,10 +38,11 @@ class TTSService:
         self._speaking = False
 
         self._client = None
+        self._base_url = base_url
         try:
             from openai import OpenAI
             self._client = OpenAI(api_key=api_key, base_url=base_url)
-            logger.info("OpenAI TTS ready (voice=%s, model=%s)", self._voice, self._model)
+            logger.info("OpenAI TTS ready (voice=%s, model=%s, base_url=%s)", self._voice, self._model, base_url)
         except ImportError as e:
             logger.warning("openai SDK not available: %s", e)
 
@@ -76,6 +77,8 @@ class TTSService:
         """Run TTS synthesis and playback in a worker thread."""
         try:
             self._speaking = True
+            logger.info("TTS synthesizing: model=%s, voice=%s, base_url=%s, text='%s'",
+                        self._model, self._voice, self._base_url, text[:80])
             response = self._client.audio.speech.create(
                 model=self._model,
                 voice=self._voice,
@@ -83,9 +86,13 @@ class TTSService:
                 response_format="pcm",  # raw 24kHz 16-bit mono PCM
             )
             pcm_data = response.read()
+            logger.info("TTS received %d bytes PCM data", len(pcm_data))
+            if len(pcm_data) == 0:
+                logger.error("TTS returned empty audio data")
+                return
             self._play_pcm(pcm_data)
         except Exception as e:
-            logger.error("TTS speak failed: %s", e)
+            logger.error("TTS speak failed: %s (type=%s)", e, type(e).__name__)
         finally:
             self._speaking = False
             self._lock.release()
@@ -96,5 +103,9 @@ class TTSService:
         sd = self._sd
 
         audio = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32) / 32768.0
-        sd.play(audio, samplerate=24000, device=self._output_device, blocking=True)
-        logger.info("TTS playback complete (%d samples)", len(audio))
+        logger.info("TTS playing %d samples on device=%s", len(audio), self._output_device)
+        try:
+            sd.play(audio, samplerate=24000, device=self._output_device, blocking=True)
+            logger.info("TTS playback complete")
+        except Exception as e:
+            logger.error("TTS playback failed: %s (device=%s)", e, self._output_device)
