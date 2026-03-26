@@ -14,8 +14,8 @@ DEFAULT_MOVE_DURATION = 2.0
 # Startup position for base_pitch and elbow_pitch only.
 # Other servos (base_yaw, wrist_roll, wrist_pitch) are left released.
 STARTUP_POSITION = {
-    "base_pitch.pos": -10.0,
-    "elbow_pitch.pos": -10.0,
+    "base_pitch.pos": -15.0,
+    "elbow_pitch.pos": -15.0,
 }
 
 # Duration for the startup move (seconds)
