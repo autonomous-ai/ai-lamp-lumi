@@ -34,10 +34,10 @@
 | SKILL.md content (#1) | 8 SKILL.md files: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. All describe HTTP API at `127.0.0.1:5001`. | `resources/openclaw-skills/` |
 | OpenClaw event push (#2) | WebSocket RPC `chat.send` with `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. | `server/sensing/delivery/http/handler.go` |
 | Camera processing (#3) | On-device OpenCV in LeLamp Python. Frame diff for motion detection in sensing loop. | `lelamp/service/sensing/sensing_service.py` |
-| Audio input ownership (#4) | LeLamp owns mic. Always-on Deepgram streaming STT. Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
+| Audio input ownership (#4) | LeLamp owns mic. Local VAD gates Deepgram connection (cost saving). Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
 | Emotion presets (#6) | 8 presets implemented: curious, happy, sad, thinking, idle, excited, shy, shock. Each maps to servo recording + LED color + eye expression. | `lelamp/server.py` EMOTION_PRESETS |
 | Display rendering (#7) | `gc9a01-python` driver + PIL/Pillow rendering. 11 eye expressions drawn with ImageDraw. Dual-mode: eyes (default) + info text. Background render loop with auto-blink. | `lelamp/service/display/` |
-| Voice pipeline | Always-on Deepgram streaming STT. Wake word "Hey Lumi" via transcript regex + keyword boost (`lumi:3`). No openwakeword. | `lelamp/service/voice/voice_service.py` |
+| Voice pipeline | Local VAD (RMS energy) + on-demand Deepgram STT. Mic always on, Deepgram only when speech detected. Wake word "Hey Lumi" detected in transcript → `voice_command` event (priority). No wake word → `voice` event (ambient sensing). | `lelamp/service/voice/voice_service.py` |
 | Lighting scenes | 6 presets: reading, focus, relax, movie, night, energize. Simulated color temp via RGB. | `lelamp/server.py` SCENE_PRESETS |
 | Presence auto-control | State machine: PRESENT → IDLE (5min) → AWAY (15min). Motion restores light. | `lelamp/service/sensing/presence_service.py` |
 | Scheduling/timers | OpenClaw built-in cron (enabled by default). SKILL.md teaches LLM to use `cron.add`. No custom code needed. | `resources/openclaw-skills/scheduling/SKILL.md` |
