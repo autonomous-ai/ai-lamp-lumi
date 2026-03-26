@@ -668,12 +668,22 @@ class ServoMoveRequest(BaseModel):
     }
 
 
-@app.post("/servo/move", response_model=StatusResponse, tags=["Servo"])
+class ServoMoveResponse(BaseModel):
+    status: str
+    requested: dict[str, float]
+    clamped: dict[str, float]
+    duration: float
+    errors: Optional[dict[str, str]] = None
+
+
+@app.post("/servo/move", response_model=ServoMoveResponse, tags=["Servo"])
 def move_servo(req: ServoMoveRequest):
     """Send joint positions to servo motors with smooth interpolation.
 
     Uses software interpolation at 30 FPS to smoothly move from current position
     to the target over the given duration. Set duration=0 for instant jump.
+
+    Response includes requested vs clamped positions and any per-joint errors.
     """
     if not animation_service:
         raise HTTPException(503, "Servo not available")
@@ -684,15 +694,37 @@ def move_servo(req: ServoMoveRequest):
     unknown = [j for j in req.positions if j not in JOINT_LIMITS]
     if unknown:
         raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {list(JOINT_LIMITS.keys())}")
+
+    safe_positions = clamp_servo_positions(req.positions)
+    errors = {}
+
     try:
-        safe_positions = clamp_servo_positions(req.positions)
         if req.duration > 0:
             animation_service.move_to(safe_positions, duration=req.duration)
         else:
             animation_service.robot.send_action(safe_positions)
-        return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(500, f"Servo move failed: {e}")
+        errors["move"] = str(e)
+
+    # Read back actual positions to check errors
+    try:
+        obs = animation_service.robot.get_observation()
+        for joint, target in safe_positions.items():
+            actual = obs.get(joint)
+            if actual is not None:
+                error = abs(actual - target)
+                if error > 5.0:
+                    errors[joint] = f"position error {error:.1f} deg (target={target:.1f}, actual={actual:.1f})"
+    except Exception as e:
+        errors["read_position"] = str(e)
+
+    return {
+        "status": "error" if "move" in errors else "ok",
+        "requested": req.positions,
+        "clamped": safe_positions,
+        "duration": req.duration,
+        "errors": errors if errors else None,
+    }
 
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
