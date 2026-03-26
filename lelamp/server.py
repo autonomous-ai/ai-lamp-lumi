@@ -399,6 +399,12 @@ class LEDStateResponse(BaseModel):
     led_count: int
 
 
+class LEDColorResponse(BaseModel):
+    led_count: int
+    color: list[int]  # [R, G, B]
+    hex: str          # e.g. "#ff8800"
+
+
 VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse"]
 
 
@@ -717,6 +723,27 @@ def get_led_state():
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     return {"led_count": rgb_service.led_count}
+
+
+@app.get("/led/color", response_model=LEDColorResponse, tags=["LED"])
+def get_led_color():
+    """Get the current LED color (last color set on the strip)."""
+    if not rgb_service:
+        raise HTTPException(503, "LED not available")
+    # Use last_color tracked by presence service when available,
+    # otherwise fall back to reading the first pixel from the strip directly.
+    if sensing_service:
+        r, g, b = sensing_service.presence._last_color
+    else:
+        raw = rgb_service.strip.getPixelColor(0)
+        r = (raw >> 16) & 0xFF
+        g = (raw >> 8) & 0xFF
+        b = raw & 0xFF
+    return {
+        "led_count": rgb_service.led_count,
+        "color": [r, g, b],
+        "hex": f"#{r:02x}{g:02x}{b:02x}",
+    }
 
 
 @app.post("/led/solid", response_model=StatusResponse, tags=["LED"])
@@ -1140,6 +1167,9 @@ def express_emotion(req: EmotionRequest):
         try:
             rgb_service.dispatch("solid", tuple(scaled))
             led_color = scaled
+            # Track so GET /led/color returns the correct current color
+            if sensing_service:
+                sensing_service.presence.set_last_color(tuple(scaled))
         except Exception as e:
             logger.warning(f"Emotion LED failed: {e}")
 

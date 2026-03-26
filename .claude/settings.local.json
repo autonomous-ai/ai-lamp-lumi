@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://<DEVICE_IP>/api/system/info)",
+      "Bash(curl -s http://<DEVICE_IP>/api/network/info)",
+      "Bash(curl -s http://<DEVICE_IP>/api/openclaw/status)",
+      "Bash(curl -s http://<DEVICE_IP>/hw/health)",
+      "Bash(curl -s http://<DEVICE_IP>/api/network/status)",
+      "Bash(curl -s http://<DEVICE_IP>/hw/presence)",
+      "Bash(curl -s http://<DEVICE_IP>/hw/voice/status)",
+      "Bash(curl -s http://<DEVICE_IP>/hw/servo)",
+      "Bash(curl -s http://<DEVICE_IP>/hw/display)",
+      "Bash(curl -s http://<DEVICE_IP>/api/wifi/status)",
+      "Bash(curl -s http://<DEVICE_IP>/api/wifi/info)",
+      "Bash(curl -s http://<DEVICE_IP>/api/network)",
+      "Bash(curl -s http://<DEVICE_IP>/api/system/network)",
+      "Bash(curl -s http://<DEVICE_IP>/api/network/current)",
+      "Bash(curl -s http://<DEVICE_IP>/api/openclaw/recent)",
+      "Bash(curl -s http://<DEVICE_IP>/api/system/dashboard)",
+      "Bash(python3:*)",
+      "Bash(make lelamp-deploy:*)",
+      "Bash(make web-deploy:*)"
+    ]
+  }
+}
