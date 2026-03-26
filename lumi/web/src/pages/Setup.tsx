@@ -92,10 +92,10 @@ export default function Setup() {
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
 
-  // LLM (optional when not in URL)
-  const [llmApiKey, setLlmApiKey] = useState("");
-  const [llmUrl, setLlmUrl] = useState("");
-  const [llmModel, setLlmModel] = useState("");
+  // LLM: prefill from URL params, fallback to defaults
+  const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "pro-llm-key-57a4783fc9auto0001");
+  const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "https://campaign-api.autonomous.ai/api/v1/ai/v1");
+  const [llmModel, setLlmModel] = useState(urlParams.llmModel || "claude-haiku-4-5");
 
   // Deepgram (optional)
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
