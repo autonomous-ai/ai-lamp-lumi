@@ -497,8 +497,17 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-  # Skills are deployed via upload-skills.sh, not during setup
+  # Download skills from GCS into workspace/skills
+  SKILLS_GCS_PREFIX="https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/skills"
+  SKILLS_LIST="audio camera display emotion led-control scene scheduling sensing servo-control"
   mkdir -p "$OPENCLAW_HOME/workspace/skills"
+  for skill_name in $SKILLS_LIST; do
+    skill_dir="$OPENCLAW_HOME/workspace/skills/$skill_name"
+    mkdir -p "$skill_dir"
+    echo "[stage] Downloading skill: $skill_name"
+    curl -fsSL -H "Cache-Control: no-cache" -o "$skill_dir/SKILL.md" \
+      "$SKILLS_GCS_PREFIX/$skill_name/SKILL.md" 2>/dev/null || echo "[stage] WARN: failed to download skill $skill_name"
+  done
 
   systemctl daemon-reload
   systemctl enable openclaw
