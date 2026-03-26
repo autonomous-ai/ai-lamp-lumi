@@ -32,6 +32,3 @@ hardware = [
     "adafruit-circuitpython-neopixel",
     "rpi-ws281x",
 ]
-wakeword = [
-    "openwakeword>=0.6.0; python_version < '3.12'",
-]
