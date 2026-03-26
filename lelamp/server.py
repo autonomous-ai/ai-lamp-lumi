@@ -697,6 +697,20 @@ def move_servo(req: ServoMoveRequest):
         raise HTTPException(500, f"Servo move failed: {e}")
 
 
+@app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
+def release_servos():
+    """Disable torque on all servos (release / go limp)."""
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    try:
+        animation_service.robot.bus.disable_torque()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, f"Servo release failed: {e}")
+
+
 @app.get("/servo/position", response_model=ServoPositionResponse, tags=["Servo"])
 def get_servo_position():
     """Read current servo joint positions."""
