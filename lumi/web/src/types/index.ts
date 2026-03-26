@@ -26,6 +26,7 @@ export interface SetupRequest {
   llm_base_url: string;
   llm_api_key: string;
   llm_model: string;
+  deepgram_api_key?: string;
   device_id?: string;
   /** MQTT (optional): empty endpoint means MQTT disabled, auto-fetched via ping */
   mqtt_endpoint?: string;
