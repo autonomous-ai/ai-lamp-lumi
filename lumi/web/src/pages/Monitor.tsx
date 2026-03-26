@@ -233,18 +233,22 @@ export default function Monitor() {
           {/* System */}
           <StatusCard title="System">
             {sysInfo ? (
-              <div className="space-y-1.5">
-                <MiniStat label="CPU" value={`${sysInfo.cpuLoad.toFixed(1)}`} unit="load" />
-                <div className="space-y-0.5">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">RAM</span>
-                    <span>{formatMB(sysInfo.memUsed)} / {formatMB(sysInfo.memTotal)} MB</span>
+              <div className="flex gap-3 items-center">
+                {/* CPU circle gauge */}
+                <CircleGauge value={Math.min(100, (sysInfo.cpuLoad / 4) * 100)} label={`${sysInfo.cpuLoad.toFixed(1)}`} sublabel="CPU" />
+                {/* Stats */}
+                <div className="flex-1 space-y-1.5 min-w-0">
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-muted-foreground">RAM</span>
+                      <span>{formatMB(sysInfo.memUsed)} / {formatMB(sysInfo.memTotal)} MB</span>
+                    </div>
+                    <Progress value={sysInfo.memPercent} className="h-1.5" />
                   </div>
-                  <Progress value={sysInfo.memPercent} className="h-1.5" />
-                </div>
-                <div className="flex gap-3 text-[11px]">
-                  <span title="CPU Temperature">{sysInfo.cpuTemp > 0 ? `${sysInfo.cpuTemp.toFixed(0)}°C` : "--"}</span>
-                  <span className="text-muted-foreground">up {formatUptime(sysInfo.uptime)}</span>
+                  <div className="flex gap-3 text-[11px]">
+                    <span title="CPU Temperature">{sysInfo.cpuTemp > 0 ? `${sysInfo.cpuTemp.toFixed(0)}°C` : "--"}</span>
+                    <span className="text-muted-foreground">up {formatUptime(sysInfo.uptime)}</span>
+                  </div>
                 </div>
               </div>
             ) : <Unavailable label="System" />}
@@ -420,11 +424,29 @@ function Unavailable({ label }: { label: string }) {
   return <span className="text-xs text-muted-foreground">{label} unreachable</span>;
 }
 
-function MiniStat({ label, value, unit }: { label: string; value: string; unit?: string }) {
+function CircleGauge({ value, label, sublabel }: { value: number; label: string; sublabel: string }) {
+  const size = 52;
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (value / 100) * circumference;
+  const color = value > 80 ? "text-red-500" : value > 50 ? "text-yellow-500" : "text-emerald-500";
+
   return (
-    <div className="flex justify-between text-[11px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span>{value}{unit && <span className="text-muted-foreground ml-0.5">{unit}</span>}</span>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} className="stroke-muted" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke}
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          strokeLinecap="round"
+          className={cn("transition-all duration-500", color.replace("text-", "stroke-"))}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className={cn("text-[11px] font-semibold leading-none", color)}>{label}</span>
+        <span className="text-[8px] text-muted-foreground leading-none mt-0.5">{sublabel}</span>
+      </div>
     </div>
   );
 }
