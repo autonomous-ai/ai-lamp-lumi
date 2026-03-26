@@ -355,18 +355,14 @@ stage_lelamp() {
     echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
   fi
 
-  # Install uv + system libs for audio/camera
-  apt install -y libportaudio2 libatlas-base-dev || true
-  if ! command -v uv &>/dev/null; then
-    echo "[stage] Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+  # Install Python venv + dependencies + system libs for audio/camera
+  apt install -y python3-venv python3-pip libportaudio2 libatlas-base-dev || true
+  if [ ! -d "$LELAMP_DIR/.venv" ]; then
+    python3 -m venv "$LELAMP_DIR/.venv"
   fi
-
-  # uv sync handles Python version + venv + dependencies from pyproject.toml
-  cd "$LELAMP_DIR"
-  uv sync
-  cd /
+  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
+    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
+  fi
 
   cat >/etc/systemd/system/lumi-lelamp.service <<EOF
 [Unit]
@@ -972,9 +968,7 @@ elif [ "$APP" = "lelamp" ]; then
   curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lelamp"; exit 1; }
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
-  if command -v uv &>/dev/null; then
-    cd "$LELAMP_DIR" && uv sync && cd /
-  elif [ -f "$LELAMP_DIR/requirements.txt" ]; then
+  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
     "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
   fi
   systemctl restart lumi-lelamp
