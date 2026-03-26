@@ -223,7 +223,8 @@ async def lifespan(app: FastAPI):
                 numpy_module=np,
                 output_device=seeed_output_device,
             )
-            logger.info("TTSService auto-started from lumi config")
+            logger.info("TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
+                        llm_url, seeed_output_device, tts_service.available)
     except FileNotFoundError:
         logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
     except Exception as e:
@@ -941,9 +942,15 @@ def stop_voice():
 
 @app.post("/voice/speak", response_model=StatusResponse, tags=["Voice"])
 def speak_text(req: SpeakRequest):
-    """Synthesize text to speech and play through the speaker (Edge TTS)."""
-    if not tts_service or not tts_service.available:
-        raise HTTPException(503, "TTS not available")
+    """Synthesize text to speech and play through the speaker."""
+    if not tts_service:
+        logger.error("POST /voice/speak: tts_service is None (not initialized)")
+        raise HTTPException(503, "TTS not initialized — call /voice/start first or check lumi config has llm_api_key + llm_base_url")
+    if not tts_service.available:
+        logger.error("POST /voice/speak: tts_service not available — client=%s, sd=%s",
+                      tts_service._client is not None, tts_service._sd is not None)
+        raise HTTPException(503, "TTS not available — missing openai SDK or sounddevice")
+    logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
     started = tts_service.speak(req.text)
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
@@ -953,11 +960,19 @@ def speak_text(req: SpeakRequest):
 @app.get("/voice/status", tags=["Voice"])
 def voice_status():
     """Get voice pipeline status."""
+    tts_detail = None
+    if tts_service:
+        tts_detail = {
+            "has_client": tts_service._client is not None,
+            "has_sd": tts_service._sd is not None,
+            "base_url": getattr(tts_service, "_base_url", "unknown"),
+        }
     return {
         "voice_available": voice_service is not None and voice_service.available if voice_service else False,
         "voice_listening": voice_service.listening if voice_service else False,
         "tts_available": tts_service is not None and tts_service.available if tts_service else False,
         "tts_speaking": tts_service.speaking if tts_service else False,
+        "tts_detail": tts_detail,
     }
 
 
