@@ -38,6 +38,9 @@ interface HWHealth {
   camera: boolean;
   audio: boolean;
   sensing: boolean;
+  voice: boolean;
+  tts: boolean;
+  display: boolean;
 }
 
 interface OCStatus {
@@ -46,12 +49,49 @@ interface OCStatus {
   sessionKey: boolean;
 }
 
+interface VoiceStatus {
+  voice_available: boolean;
+  voice_listening: boolean;
+  tts_available: boolean;
+  tts_speaking: boolean;
+}
+
 interface PresenceInfo {
   state: string;
   enabled: boolean;
   seconds_since_motion: number;
   idle_timeout: number;
   away_timeout: number;
+}
+
+interface DisplayInfo {
+  mode: string;
+  expression: string;
+  pupil_x: number;
+  pupil_y: number;
+  openness: number;
+  available_expressions: string[];
+  hardware: boolean;
+}
+
+interface AudioInfo {
+  output_device: number | null;
+  input_device: number | null;
+  available: boolean;
+}
+
+interface LEDInfo {
+  led_count: number;
+}
+
+interface SceneInfo {
+  scenes: string[];
+}
+
+interface ServoInfo {
+  recordings?: string[];
+  playing?: boolean;
+  current_animation?: string;
 }
 
 interface MonitorEvent {
@@ -101,7 +141,6 @@ function formatTime(iso: string): string {
 }
 
 function signalPercent(dbm: number): number {
-  // dBm typically -30 (excellent) to -90 (unusable)
   if (dbm >= -30) return 100;
   if (dbm <= -90) return 0;
   return Math.round(((dbm + 90) / 60) * 100);
@@ -113,7 +152,6 @@ async function fetchJSON<T>(url: string): Promise<T | null> {
     const res = await fetch(url);
     if (!res.ok) return null;
     const json = await res.json();
-    // Lumi API wraps in {status, data}; LeLamp returns directly
     if (json?.status === 1) return json.data as T;
     return json as T;
   } catch {
@@ -129,27 +167,31 @@ export default function Monitor() {
   const [netInfo, setNetInfo] = useState<NetworkInfo | null>(null);
   const [hwHealth, setHWHealth] = useState<HWHealth | null>(null);
   const [ocStatus, setOCStatus] = useState<OCStatus | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [presence, setPresence] = useState<PresenceInfo | null>(null);
+  const [displayInfo, setDisplayInfo] = useState<DisplayInfo | null>(null);
+  const [audioInfo, setAudioInfo] = useState<AudioInfo | null>(null);
+  const [ledInfo, setLedInfo] = useState<LEDInfo | null>(null);
+  const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
+  const [servoInfo, setServoInfo] = useState<ServoInfo | null>(null);
   const [events, setEvents] = useState<MonitorEvent[]>([]);
   const [sseConnected, setSseConnected] = useState(false);
   const [streaming, setStreaming] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
-  // --- Polling: system info (5s) ---
+  // --- Polling ---
   usePolling(() => fetchJSON<SystemInfo>(`${API}/system/info`).then(setSysInfo), 5000);
-
-  // --- Polling: network info (10s) ---
   usePolling(() => fetchJSON<NetworkInfo>(`${API}/system/network`).then(setNetInfo), 10000);
-
-  // --- Polling: HW health (5s) ---
   usePolling(() => fetchJSON<HWHealth>(`${HW}/health`).then(setHWHealth), 5000);
-
-  // --- Polling: OpenClaw status (3s) ---
   usePolling(() => fetchJSON<OCStatus>(`${API}/openclaw/status`).then(setOCStatus), 3000);
-
-  // --- Polling: Presence (5s) ---
+  usePolling(() => fetchJSON<VoiceStatus>(`${HW}/voice/status`).then(setVoiceStatus), 3000);
   usePolling(() => fetchJSON<PresenceInfo>(`${HW}/presence`).then(setPresence), 5000);
+  usePolling(() => fetchJSON<DisplayInfo>(`${HW}/display`).then(setDisplayInfo), 5000);
+  usePolling(() => fetchJSON<AudioInfo>(`${HW}/audio`).then(setAudioInfo), 10000);
+  usePolling(() => fetchJSON<LEDInfo>(`${HW}/led`).then(setLedInfo), 10000);
+  usePolling(() => fetchJSON<SceneInfo>(`${HW}/scene`).then(setSceneInfo), 30000);
+  usePolling(() => fetchJSON<ServoInfo>(`${HW}/servo`).then(setServoInfo), 5000);
 
   // --- Load recent events on mount ---
   useEffect(() => {
@@ -200,21 +242,24 @@ export default function Monitor() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold">Lumi Monitor</h1>
             {sysInfo?.version && (
               <Badge variant="outline" className="text-[10px] font-mono">{sysInfo.version}</Badge>
+            )}
+            {sysInfo?.deviceId && (
+              <span className="text-[10px] text-muted-foreground font-mono">{sysInfo.deviceId}</span>
             )}
           </div>
           <ThemeToggle />
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-4 space-y-4">
-        {/* ---- ROW 1: Status cards ---- */}
+      <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
+        {/* ---- ROW 1: Core status cards ---- */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* OpenClaw */}
+          {/* Agent */}
           <StatusCard title={ocStatus?.name || "Agent"}>
             {ocStatus ? (
               <div className="space-y-1">
@@ -235,9 +280,7 @@ export default function Monitor() {
           <StatusCard title="System">
             {sysInfo ? (
               <div className="flex gap-3 items-center">
-                {/* CPU circle gauge */}
                 <CircleGauge value={Math.min(100, (sysInfo.cpuLoad / 4) * 100)} label={`${Math.min(100, Math.round((sysInfo.cpuLoad / 4) * 100))}%`} sublabel="CPU" />
-                {/* Stats */}
                 <div className="flex-1 space-y-1.5 min-w-0">
                   <div className="space-y-0.5">
                     <div className="flex justify-between text-[11px]">
@@ -277,48 +320,135 @@ export default function Monitor() {
             ) : <Unavailable label="Network" />}
           </StatusCard>
 
-          {/* Hardware */}
-          <StatusCard title="Hardware">
-            {hwHealth ? (
+          {/* Voice & Audio */}
+          <StatusCard title="Voice">
+            {voiceStatus ? (
               <div className="space-y-1.5">
-                <div className="flex flex-wrap gap-1.5">
-                  <HWBadge label="Servo" ok={hwHealth.servo} />
-                  <HWBadge label="LED" ok={hwHealth.led} />
-                  <HWBadge label="Cam" ok={hwHealth.camera} />
-                  <HWBadge label="Audio" ok={hwHealth.audio} />
-                  <HWBadge label="Sense" ok={hwHealth.sensing} />
+                <div className="flex items-center gap-2">
+                  <Dot color={voiceStatus.voice_available ? "green" : "red"} pulse={voiceStatus.voice_listening} />
+                  <span className="text-sm font-medium">
+                    {voiceStatus.voice_listening ? "Listening..." : voiceStatus.voice_available ? "Ready" : "Off"}
+                  </span>
+                  {voiceStatus.tts_speaking && (
+                    <Badge variant="default" className="text-[10px] py-0 px-1.5 animate-pulse">Speaking</Badge>
+                  )}
                 </div>
-                <a href="/hw/docs" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
-                  API Docs
-                </a>
+                <div className="flex flex-wrap gap-1.5">
+                  <HWBadge label="STT" ok={voiceStatus.voice_available} />
+                  <HWBadge label="TTS" ok={voiceStatus.tts_available} />
+                  {audioInfo && <HWBadge label="Mic" ok={audioInfo.input_device !== null} />}
+                  {audioInfo && <HWBadge label="Speaker" ok={audioInfo.output_device !== null} />}
+                </div>
               </div>
-            ) : <Unavailable label="LeLamp" />}
+            ) : <Unavailable label="Voice" />}
           </StatusCard>
         </div>
 
-        {/* ---- ROW 2: Presence + LED ---- */}
-        {presence && (
-          <Card className="rounded-xl border shadow-sm">
-            <CardContent className="py-3 px-4">
-              <div className="flex items-center gap-4 text-sm">
-                <span className="text-muted-foreground font-medium">Presence</span>
-                <PresenceBadge state={presence.state} />
-                {presence.seconds_since_motion > 0 && (
-                  <span className="text-[11px] text-muted-foreground">
-                    Last motion {formatUptime(presence.seconds_since_motion)} ago
+        {/* ---- ROW 2: Hardware subsystems ---- */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Display / Eyes */}
+          <StatusCard title="Display">
+            {displayInfo ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Dot color={displayInfo.hardware ? "green" : "yellow"} />
+                  <span className="text-sm font-medium capitalize">{displayInfo.expression}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 text-[10px]">
+                  <Badge variant="outline" className="py-0 px-1">{displayInfo.mode}</Badge>
+                  {!displayInfo.hardware && (
+                    <Badge variant="secondary" className="py-0 px-1">SW only</Badge>
+                  )}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {displayInfo.available_expressions.length} expressions
+                </div>
+              </div>
+            ) : <Unavailable label="Display" />}
+          </StatusCard>
+
+          {/* LED */}
+          <StatusCard title="LED">
+            {hwHealth ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Dot color={hwHealth.led ? "green" : "red"} />
+                  <span className="text-sm font-medium">{hwHealth.led ? "Active" : "Off"}</span>
+                </div>
+                {ledInfo && (
+                  <span className="text-[11px] text-muted-foreground">{ledInfo.led_count} LEDs (WS2812)</span>
+                )}
+              </div>
+            ) : <Unavailable label="LED" />}
+          </StatusCard>
+
+          {/* Servo */}
+          <StatusCard title="Servo">
+            {hwHealth ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Dot color={hwHealth.servo ? "green" : "red"} />
+                  <span className="text-sm font-medium">{hwHealth.servo ? "Active" : "Unavailable"}</span>
+                </div>
+                {servoInfo?.playing && (
+                  <Badge variant="default" className="text-[10px] py-0 px-1.5 animate-pulse">
+                    Playing {servoInfo.current_animation || ""}
+                  </Badge>
+                )}
+                {servoInfo?.recordings && servoInfo.recordings.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {servoInfo.recordings.length} recordings
                   </span>
                 )}
-                <Badge variant={presence.enabled ? "default" : "secondary"} className="text-[10px] ml-auto">
-                  {presence.enabled ? "Auto" : "Manual"}
+              </div>
+            ) : <Unavailable label="Servo" />}
+          </StatusCard>
+
+          {/* Sensing & Presence */}
+          <StatusCard title="Sensing">
+            <div className="space-y-1.5">
+              {hwHealth && (
+                <div className="flex flex-wrap gap-1.5">
+                  <HWBadge label="Camera" ok={hwHealth.camera} />
+                  <HWBadge label="Motion" ok={hwHealth.sensing} />
+                </div>
+              )}
+              {presence && (
+                <div className="flex items-center gap-2">
+                  <PresenceBadge state={presence.state} />
+                  {presence.seconds_since_motion > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatUptime(presence.seconds_since_motion)} ago
+                    </span>
+                  )}
+                </div>
+              )}
+              {presence && (
+                <Badge variant={presence.enabled ? "default" : "secondary"} className="text-[10px] py-0 px-1.5">
+                  {presence.enabled ? "Auto-detect" : "Manual"}
                 </Badge>
+              )}
+            </div>
+          </StatusCard>
+        </div>
+
+        {/* ---- ROW 3: Scenes (if available) ---- */}
+        {sceneInfo && sceneInfo.scenes.length > 0 && (
+          <Card className="rounded-xl border shadow-sm">
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Scenes</span>
+                {sceneInfo.scenes.map((scene) => (
+                  <Badge key={scene} variant="outline" className="text-[11px] capitalize">{scene}</Badge>
+                ))}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ---- ROW 3: Workflow + Camera (side-by-side on desktop) ---- */}
+        {/* ---- ROW 4: Workflow + Camera ---- */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Workflow — takes 3/5 on desktop */}
+          {/* Workflow */}
           <Card className="rounded-xl border shadow-sm lg:col-span-3">
             <CardHeader className="pb-2 px-4 pt-3">
               <div className="flex items-center justify-between">
@@ -355,7 +485,7 @@ export default function Monitor() {
             </CardContent>
           </Card>
 
-          {/* Camera — takes 2/5 on desktop, always visible */}
+          {/* Camera */}
           <Card className="rounded-xl border shadow-sm lg:col-span-2">
             <CardHeader className="pb-2 px-4 pt-3">
               <div className="flex items-center justify-between">
@@ -393,6 +523,13 @@ export default function Monitor() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* ---- Footer: HW API link ---- */}
+        <div className="text-center pb-4">
+          <a href="/hw/docs" target="_blank" rel="noopener noreferrer" className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+            LeLamp API Docs
+          </a>
         </div>
       </main>
     </div>
@@ -480,10 +617,7 @@ function EventRow({ event }: { event: MonitorEvent }) {
 
   return (
     <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-muted/50 transition-colors group">
-      {/* Dot */}
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-1.5", cfg.color)} />
-
-      {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] font-medium">{cfg.icon} {cfg.label}</span>
