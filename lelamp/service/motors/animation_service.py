@@ -11,17 +11,15 @@ logger = logging.getLogger(__name__)
 # Default interpolation duration for move_to (seconds)
 DEFAULT_MOVE_DURATION = 2.0
 
-# Default home position: all joints move here on startup (degrees from center)
-HOME_POSITION = {
-    "base_yaw.pos": 0.0,
-    "base_pitch.pos": 5.0,
-    "elbow_pitch.pos": 5.0,
-    "wrist_roll.pos": 0.0,
-    "wrist_pitch.pos": 0.0,
+# Startup position for base_pitch and elbow_pitch only (from idle.csv first frame)
+# Other servos (base_yaw, wrist_roll, wrist_pitch) are left released.
+STARTUP_POSITION = {
+    "base_pitch.pos": -44.68,
+    "elbow_pitch.pos": 82.83,
 }
 
-# Duration for the startup home move (seconds)
-HOME_MOVE_DURATION = 5.0
+# Duration for the startup move (seconds)
+STARTUP_MOVE_DURATION = 5.0
 
 
 class AnimationService:
@@ -63,13 +61,17 @@ class AnimationService:
                 raise
         logger.info(f"Animation service connected to {self.port}")
 
+        # Move base_pitch and elbow_pitch to startup position (same as idle.csv first frame)
+        try:
+            self.move_to(STARTUP_POSITION, duration=STARTUP_MOVE_DURATION)
+            logger.info("Servos 2,3 moved to startup position")
+        except Exception as e:
+            logger.warning(f"Failed to move to startup position: {e}")
+
         # Start event processing thread
         self._running.set()
         self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
         self._event_thread.start()
-
-        # Initialize with idle recording via self dispatch
-        self.dispatch("play", self.idle_recording)
 
     def stop(self, timeout: float = 5.0):
         # Stop event processing
