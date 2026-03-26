@@ -19,10 +19,10 @@ LDFLAGS_BOOT   := -X $(MODULE)/bootstrap/config.BootstrapVersion=$(VERSION)
 LELAMP_PORT    := 5001
 
 # ============================================================================
-# Lumi (Go) — build | generate | lint | test | deploy | upload
+# Lumi (Go) — build | generate | lint | test | deploy
 # ============================================================================
 
-.PHONY: lumi-build lumi-build-bootstrap lumi-generate lumi-lint lumi-test lumi-deploy lumi-deploy-bootstrap lumi-upload lumi-upload-bootstrap
+.PHONY: lumi-build lumi-build-bootstrap lumi-generate lumi-lint lumi-test lumi-deploy lumi-deploy-bootstrap
 
 lumi-build:
 	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
@@ -47,17 +47,11 @@ lumi-deploy-bootstrap: lumi-build-bootstrap
 	scp $(LUMI_DIR)/bootstrap-server $(PI_USER)@$(PI_HOST):/usr/local/bin/bootstrap-server
 	ssh $(PI_USER)@$(PI_HOST) "systemctl restart bootstrap.service"
 
-lumi-upload: lumi-build
-	scripts/upload-lumi.sh
-
-lumi-upload-bootstrap: lumi-build-bootstrap
-	scripts/upload-bootstrap.sh
-
 # ============================================================================
-# LeLamp (Python) — install | dev | run | test | deploy | upload
+# LeLamp (Python) — install | dev | run | test | deploy
 # ============================================================================
 
-.PHONY: lelamp lelamp-install lelamp-dev lelamp-run lelamp-test lelamp-deploy lelamp-upload lelamp-clean
+.PHONY: lelamp lelamp-install lelamp-dev lelamp-run lelamp-test lelamp-deploy lelamp-clean
 
 lelamp: lelamp-dev
 
@@ -78,17 +72,14 @@ lelamp-deploy:
 		$(LELAMP_DIR)/ $(PI_USER)@$(PI_HOST):/opt/lelamp/
 	ssh $(PI_USER)@$(PI_HOST) "cd /opt/lelamp && .venv/bin/pip install -r requirements.txt --quiet && systemctl restart lumi-lelamp.service"
 
-lelamp-upload:
-	scripts/upload-lelamp.sh
-
 lelamp-clean:
 	rm -rf $(LELAMP_DIR)/.venv $(LELAMP_DIR)/__pycache__
 
 # ============================================================================
-# Web (React/Vite/Tailwind) — install | dev | build | deploy | upload
+# Web (React/Vite/Tailwind) — install | dev | build | deploy
 # ============================================================================
 
-.PHONY: web web-install web-dev web-build web-deploy web-upload
+.PHONY: web web-install web-dev web-build web-deploy
 
 web: web-dev
 
@@ -104,29 +95,34 @@ web-build:
 web-deploy: web-build
 	rsync -avz $(WEB_DIR)/dist/ $(PI_USER)@$(PI_HOST):/usr/share/nginx/html/setup/
 
-web-upload: web-build
-	scripts/upload-web.sh
-
 # ============================================================================
-# Skills — upload OpenClaw skills to GCS
+# Upload (OTA to GCS) — unified format: make upload-<component>
 # ============================================================================
 
-.PHONY: upload-skills
+.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-setup upload-setup-ap upload-all
+
+upload-lumi:
+	bash scripts/upload-lumi.sh
+
+upload-bootstrap:
+	bash scripts/upload-bootstrap.sh
+
+upload-lelamp:
+	bash scripts/upload-lelamp.sh
+
+upload-web:
+	bash scripts/upload-web.sh
 
 upload-skills:
 	bash scripts/upload-skills.sh
 
-# ============================================================================
-# Setup — upload setup scripts to GCS
-# ============================================================================
+upload-setup:
+	bash scripts/upload-setup.sh
 
-.PHONY: setup-upload setup-upload-ap
+upload-setup-ap:
+	bash scripts/upload-setup-ap.sh
 
-setup-upload:
-	scripts/upload-setup.sh
-
-setup-upload-ap:
-	scripts/upload-setup-ap.sh
+upload-all: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills
 
 # ============================================================================
 # All — deploy | clean
