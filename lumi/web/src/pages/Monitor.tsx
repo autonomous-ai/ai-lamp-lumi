@@ -41,6 +41,7 @@ interface HWHealth {
 }
 
 interface OCStatus {
+  name: string;
   connected: boolean;
   sessionKey: boolean;
 }
@@ -214,7 +215,7 @@ export default function Monitor() {
         {/* ---- ROW 1: Status cards ---- */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* OpenClaw */}
-          <StatusCard title="OpenClaw">
+          <StatusCard title={ocStatus?.name || "Agent"}>
             {ocStatus ? (
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
