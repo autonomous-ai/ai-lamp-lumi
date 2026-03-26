@@ -88,3 +88,55 @@
     color: var(--foreground);
   }
 }
+
+/* ── Lumi Monitor — dark theme scope ── */
+.lm-root {
+  --lm-bg:          #0C0B09;
+  --lm-sidebar:     #111009;
+  --lm-card:        #17160F;
+  --lm-surface:     #1E1D14;
+  --lm-border:      #2A2820;
+  --lm-border-hi:   #3A3828;
+
+  --lm-amber:       #F59E0B;
+  --lm-amber-dim:   rgba(245,158,11,0.12);
+  --lm-amber-glow:  rgba(245,158,11,0.35);
+  --lm-teal:        #2DD4BF;
+  --lm-teal-dim:    rgba(45,212,191,0.12);
+  --lm-green:       #34D399;
+  --lm-red:         #F87171;
+  --lm-blue:        #60A5FA;
+  --lm-purple:      #A78BFA;
+  --lm-orange:      #FB923C;
+  --lm-yellow:      #FCD34D;
+
+  --lm-text:        #F0EEE8;
+  --lm-text-dim:    #9A9080;
+  --lm-text-muted:  #504A3C;
+
+  background: var(--lm-bg);
+  color: var(--lm-text);
+}
+
+/* Scrollbar */
+.lm-root ::-webkit-scrollbar        { width: 4px; height: 4px; }
+.lm-root ::-webkit-scrollbar-track  { background: transparent; }
+.lm-root ::-webkit-scrollbar-thumb  { background: var(--lm-border-hi); border-radius: 2px; }
+.lm-root ::-webkit-scrollbar-thumb:hover { background: var(--lm-amber); }
+.lm-hide-scroll { scrollbar-width: none; }
+.lm-hide-scroll::-webkit-scrollbar { display: none; }
+
+/* Animations */
+@keyframes lm-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lm-pulse-glow {
+  0%, 100% { box-shadow: 0 0 6px var(--lm-amber-glow); }
+  50%       { box-shadow: 0 0 14px var(--lm-amber-glow); }
+}
+.lm-fade-in  { animation: lm-fade-in 0.35s ease-out both; }
+.lm-d1 { animation-delay: 60ms; }
+.lm-d2 { animation-delay: 120ms; }
+.lm-d3 { animation-delay: 180ms; }
+.lm-d4 { animation-delay: 240ms; }
