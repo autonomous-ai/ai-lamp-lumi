@@ -1,9 +1,27 @@
 import os
 import csv
 import time
+import logging
 import threading
 from typing import Any, List, Dict, Optional, Tuple
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
+
+logger = logging.getLogger(__name__)
+
+# Default interpolation duration for move_to (seconds)
+DEFAULT_MOVE_DURATION = 2.0
+
+# Default home position: all joints move here on startup (degrees from center)
+HOME_POSITION = {
+    "base_yaw.pos": 0.0,
+    "base_pitch.pos": 5.0,
+    "elbow_pitch.pos": 5.0,
+    "wrist_roll.pos": 0.0,
+    "wrist_pitch.pos": 0.0,
+}
+
+# Duration for the startup home move (seconds)
+HOME_MOVE_DURATION = 5.0
 
 
 class AnimationService:
@@ -16,7 +34,7 @@ class AnimationService:
         self.robot_config = LeLampFollowerConfig(port=port, id=lamp_id)
         self.robot: LeLampFollower = None
         self.recordings_dir = os.path.join(os.path.dirname(__file__), "..", "..", "recordings")
-        
+
         # State management
         self._recording_cache: Dict[str, List[Dict[str, float]]] = {}
         self._current_state: Optional[Dict[str, float]] = None
@@ -25,23 +43,38 @@ class AnimationService:
         self._current_actions: List[Dict[str, float]] = []
         self._interpolation_frames: int = 0
         self._interpolation_target: Optional[Dict[str, float]] = None
-        
+
         # Custom event handling
         self._running = threading.Event()
         self._event_queue = []
         self._event_lock = threading.Lock()
         self._event_thread: Optional[threading.Thread] = None
-    
+
     def start(self):
         self.robot = LeLampFollower(self.robot_config)
-        self.robot.connect(calibrate=False)
-        print(f"Animation service connected to {self.port}")
-        
+        try:
+            self.robot.connect(calibrate=False)
+        except RuntimeError as e:
+            # Some servos may be offline — log warning but continue
+            # so the service can still operate with available servos
+            logger.warning(f"Robot connect error (some servos may be offline): {e}")
+            # Try to use the bus even if not all servos responded
+            if not self.robot.bus.is_connected:
+                raise
+        logger.info(f"Animation service connected to {self.port}")
+
+        # Move to home position smoothly over 5 seconds before starting playback
+        try:
+            self.move_to(HOME_POSITION, duration=HOME_MOVE_DURATION)
+            logger.info("Moved to home position")
+        except Exception as e:
+            logger.warning(f"Failed to move to home position: {e}")
+
         # Start event processing thread
         self._running.set()
         self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
         self._event_thread.start()
-        
+
         # Initialize with idle recording via self dispatch
         self.dispatch("play", self.idle_recording)
 
@@ -192,14 +225,14 @@ class AnimationService:
         # Check cache first
         if recording_name in self._recording_cache:
             return self._recording_cache[recording_name]
-        
+
         csv_filename = f"{recording_name}.csv"
         csv_path = os.path.join(self.recordings_dir, csv_filename)
-        
+
         if not os.path.exists(csv_path):
-            print(f"Recording not found: {csv_path}")
+            logger.warning(f"Recording not found: {csv_path}")
             return None
-        
+
         try:
             with open(csv_path, 'r') as csvfile:
                 csv_reader = csv.DictReader(csvfile)
@@ -208,13 +241,69 @@ class AnimationService:
                     # Extract action data (exclude timestamp column)
                     action = {key: float(value) for key, value in row.items() if key != 'timestamp'}
                     actions.append(action)
-            
+
             # Cache the recording
             self._recording_cache[recording_name] = actions
             return actions
-            
+
         except Exception as e:
-            print(f"Error loading recording {recording_name}: {e}")
+            logger.error(f"Error loading recording {recording_name}: {e}")
             return None
-    
+
+    def move_to(self, target_positions: Dict[str, float], duration: float = DEFAULT_MOVE_DURATION):
+        """Smoothly move servos to target positions using software interpolation.
+
+        Instead of sending the target in one shot (which causes jerky instant jumps),
+        this method reads the current position and interpolates at self.fps over the
+        given duration — the same approach used for animation playback.
+
+        Args:
+            target_positions: dict of joint positions, e.g. {"base_yaw.pos": 0.0, ...}
+            duration: time in seconds to reach the target (default 2.0)
+        """
+        if not self.robot:
+            raise RuntimeError("Robot not connected")
+
+        # Read current positions
+        try:
+            obs = self.robot.get_observation()
+            current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        except Exception:
+            # Fallback: use last known state or jump directly
+            if self._current_state:
+                current = self._current_state.copy()
+            else:
+                self.robot.send_action(target_positions)
+                return
+
+        total_frames = max(1, int(duration * self.fps))
+
+        for frame in range(1, total_frames + 1):
+            t0 = time.perf_counter()
+            progress = frame / total_frames
+
+            interpolated = {}
+            for joint, target_val in target_positions.items():
+                cur_val = current.get(joint, target_val)
+                interpolated[joint] = cur_val + (target_val - cur_val) * progress
+
+            try:
+                self.robot.send_action(interpolated)
+            except Exception as e:
+                logger.warning(f"Interpolated move frame {frame} failed: {e}")
+                break
+
+            dt = time.perf_counter() - t0
+            sleep_time = (1.0 / self.fps) - dt
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        # Send final target exactly
+        try:
+            self.robot.send_action(target_positions)
+        except Exception:
+            pass
+
+        # Update internal state
+        self._current_state = target_positions.copy()
     
