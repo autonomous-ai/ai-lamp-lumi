@@ -34,6 +34,9 @@ SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting Deepgram
 # Keyword boost for wake word detection via transcript
 KEYWORDS = ["lumi:3", "lu mi:2"]
 
+# Wake word patterns (lowercase match)
+WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+
 
 class VoiceService:
     """Local VAD + on-demand Deepgram STT for autonomous sensing."""
@@ -175,8 +178,22 @@ class VoiceService:
             if not result.is_final:
                 return
             text = transcript.strip()
-            logger.info("STT: '%s'", text)
-            self._send_to_lumi(text)
+            lower = text.lower()
+
+            # Check for wake word
+            is_command = any(w in lower for w in WAKE_WORDS)
+            if is_command:
+                # Strip wake word prefix to get the actual command
+                cmd = lower
+                for w in WAKE_WORDS:
+                    if cmd.startswith(w):
+                        cmd = text[len(w):].strip().lstrip(",").strip()
+                        break
+                logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
+                self._send_to_lumi(cmd or text, event_type="voice_command")
+            else:
+                logger.info("STT ambient: '%s'", text)
+                self._send_to_lumi(text, event_type="voice")
 
         def on_error(_self, error, **kwargs):
             logger.error("Deepgram error: %s", error)
@@ -235,12 +252,12 @@ class VoiceService:
             except Exception:
                 pass
 
-    def _send_to_lumi(self, transcript: str):
+    def _send_to_lumi(self, transcript: str, event_type: str = "voice"):
         """Send voice transcript to Lumi Server as a sensing event."""
         try:
             resp = requests.post(
                 LUMI_SENSING_URL,
-                json={"type": "voice", "message": transcript},
+                json={"type": event_type, "message": transcript},
                 timeout=5,
             )
             if resp.status_code != 200:
