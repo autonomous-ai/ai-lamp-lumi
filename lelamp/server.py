@@ -249,14 +249,58 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LeLamp Hardware Runtime",
-    description="Hardware driver API for Lumi AI Lamp. "
-    "Controls servo motors (5-axis Feetech), RGB LEDs (64x WS2812), "
-    "camera, and audio (mic/speaker). "
-    "Lumi Server (Go, port 5000) bridges requests here.",
+    description=(
+        "Hardware driver API for Lumi AI Lamp. "
+        "Controls servo motors (5-axis Feetech), RGB LEDs (64x WS2812), "
+        "camera, audio (mic/speaker), display, and AI voice pipeline. "
+        "Lumi Server (Go, port 5000) bridges requests here."
+    ),
     version="0.2.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "Servo",
+            "description": "5-axis Feetech servo motor control. Play pre-recorded animations or send direct joint positions.",
+        },
+        {
+            "name": "LED",
+            "description": "WS2812 RGB LED strip (64 LEDs). Set solid color, paint individual pixels, or turn off.",
+        },
+        {
+            "name": "Camera",
+            "description": "USB camera for snapshots and MJPEG streaming.",
+        },
+        {
+            "name": "Audio",
+            "description": "Low-level audio hardware control. Volume (amixer), raw recording (mic), and test tones. No AI — just hardware.",
+        },
+        {
+            "name": "Emotion",
+            "description": "High-level orchestration: single call coordinates servo animation + LED color + display expression for an emotion.",
+        },
+        {
+            "name": "Scene",
+            "description": "Lighting scene presets (reading, focus, relax, movie, night, energize). Sets LED color temperature and brightness.",
+        },
+        {
+            "name": "Presence",
+            "description": "PIR motion sensor presence detection. Auto-dims lights when user is idle/away.",
+        },
+        {
+            "name": "Display",
+            "description": "Round LCD display: pixel art eye expressions (default) or info mode (time, weather, text).",
+        },
+        {
+            "name": "Voice",
+            "description": "AI voice pipeline. Deepgram STT (always-on listening) + LLM-based TTS (text-to-speech). Requires API keys.",
+        },
+        {
+            "name": "System",
+            "description": "Health checks and system status.",
+        },
+    ],
 )
 
 
@@ -426,6 +470,41 @@ class SpeakRequest(BaseModel):
     }
 
 
+class VolumeResponse(BaseModel):
+    control: str
+    volume: int
+
+
+class ServoPositionResponse(BaseModel):
+    positions: dict[str, float]
+
+
+class SceneListResponse(BaseModel):
+    scenes: list[str]
+
+
+class PresenceResponse(BaseModel):
+    state: str
+    enabled: bool
+    seconds_since_motion: int
+    idle_timeout: int
+    away_timeout: int
+
+
+class DisplayStateResponse(BaseModel):
+    mode: str
+    hardware: bool
+    available_expressions: list[str]
+
+
+class VoiceStatusResponse(BaseModel):
+    voice_available: bool
+    voice_listening: bool
+    tts_available: bool
+    tts_speaking: bool
+    tts_detail: Optional[dict] = None
+
+
 class HealthResponse(BaseModel):
     status: str
     servo: bool
@@ -487,7 +566,7 @@ def move_servo(req: ServoMoveRequest):
         raise HTTPException(500, f"Servo move failed: {e}")
 
 
-@app.get("/servo/position", tags=["Servo"])
+@app.get("/servo/position", response_model=ServoPositionResponse, tags=["Servo"])
 def get_servo_position():
     """Read current servo joint positions."""
     if not animation_service:
@@ -635,7 +714,7 @@ def set_volume(req: VolumeRequest):
     return {"status": "ok"}
 
 
-@app.get("/audio/volume", tags=["Audio"])
+@app.get("/audio/volume", response_model=VolumeResponse, tags=["Audio"])
 def get_volume():
     """Get current speaker volume from amixer."""
     import re
@@ -747,7 +826,7 @@ def express_emotion(req: EmotionRequest):
 
 # --- Scene endpoints ---
 
-@app.get("/scene", tags=["Scene"])
+@app.get("/scene", response_model=SceneListResponse, tags=["Scene"])
 def list_scenes():
     """List all available lighting scene presets."""
     return {"scenes": list(SCENE_PRESETS.keys())}
@@ -786,7 +865,7 @@ def activate_scene(req: SceneRequest):
 
 # --- Presence endpoints ---
 
-@app.get("/presence", tags=["Presence"])
+@app.get("/presence", response_model=PresenceResponse, tags=["Presence"])
 def get_presence():
     """Get current presence state (present/idle/away) and config."""
     if not sensing_service:
@@ -838,7 +917,7 @@ class DisplayInfoRequest(BaseModel):
     }
 
 
-@app.get("/display", tags=["Display"])
+@app.get("/display", response_model=DisplayStateResponse, tags=["Display"])
 def get_display_state():
     """Get current display state (mode, expression, hardware availability)."""
     if not display_service:
@@ -957,7 +1036,7 @@ def speak_text(req: SpeakRequest):
     return {"status": "ok"}
 
 
-@app.get("/voice/status", tags=["Voice"])
+@app.get("/voice/status", response_model=VoiceStatusResponse, tags=["Voice"])
 def voice_status():
     """Get voice pipeline status."""
     tts_detail = None
