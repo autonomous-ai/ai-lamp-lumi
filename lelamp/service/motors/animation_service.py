@@ -21,13 +21,14 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
-# Safe joint limits (degrees). All send_action / move_to calls are clamped to these.
+# Safe joint limits (degrees). Keeps 10° margin from mechanical limits.
+# All send_action / move_to calls are clamped to these.
 JOINT_LIMITS = {
-    "base_yaw.pos":     (-90.0,  90.0),
-    "base_pitch.pos":   (-90.0,  30.0),
-    "elbow_pitch.pos":  (-25.0, 110.0),
-    "wrist_roll.pos":   (-80.0,  80.0),
-    "wrist_pitch.pos":  (-35.0,  80.0),
+    "base_yaw.pos":     (-78.0,  78.0),   # ID 1
+    "base_pitch.pos":   (-78.0,  20.0),   # ID 2
+    "elbow_pitch.pos":  (-15.0,  98.0),   # ID 3
+    "wrist_roll.pos":   (-68.0,  68.0),   # ID 4
+    "wrist_pitch.pos":  (-25.0,  68.0),   # ID 5
 }
 
 
