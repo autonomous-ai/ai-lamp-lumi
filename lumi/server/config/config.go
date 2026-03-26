@@ -65,6 +65,10 @@ type Config struct {
 	FAChannel    string `json:"fa_channel" yaml:"faChannel"`
 	FDChannel    string `json:"fd_channel" yaml:"fdChannel"`
 
+	// LocalIntent enables local keyword matching for common voice commands (default true).
+	// When false, all voice commands go through the agent (OpenClaw).
+	LocalIntent *bool `json:"local_intent,omitempty" yaml:"localIntent"`
+
 	notify chan bool
 }
 
@@ -168,6 +172,14 @@ func (c Config) Save() error {
 		}
 	}
 	return nil
+}
+
+// LocalIntentEnabled returns whether local intent matching is on (default true).
+func (c *Config) LocalIntentEnabled() bool {
+	if c.LocalIntent == nil {
+		return true
+	}
+	return *c.LocalIntent
 }
 
 func (c *Config) GetNotifyChannel() chan bool {
