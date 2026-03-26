@@ -97,6 +97,11 @@ func (s *Service) listModelsFromAPI(apiBaseURL string) (*domain.LLMModelsListRes
 	}, nil
 }
 
+// Name returns the display name of this agent gateway.
+func (s *Service) Name() string {
+	return "OpenClaw"
+}
+
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.
 func (s *Service) IsReady() bool {
 	return s.wsConnected.Load()
