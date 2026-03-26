@@ -153,6 +153,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 // Status returns the current agent connection status.
 func (h *OpenClawHandler) Status(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"name":       h.agentGateway.Name(),
 		"connected":  h.agentGateway.IsReady(),
 		"sessionKey": h.agentGateway.GetSessionKey() != "",
 	}))

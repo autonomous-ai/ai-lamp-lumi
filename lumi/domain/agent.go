@@ -7,6 +7,9 @@ type AgentEventHandler func(ctx context.Context, evt WSEvent) error
 
 // AgentGateway abstracts an agentic runtime (OpenClaw, PicoClaw, etc.).
 type AgentGateway interface {
+	// Name returns the display name of this agent gateway (e.g. "OpenClaw", "PicoClaw").
+	Name() string
+
 	// IsReady returns true when the agent runtime is connected and ready.
 	IsReady() bool
 
