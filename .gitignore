@@ -7,9 +7,6 @@
 .cursor/
 *.log
 
-# UPX backup files
-*.~
-
 # Go build artifacts
 *.exe
 *.exe~
@@ -24,7 +21,9 @@
 
 # Lumi (Go)
 lumi/lumi-server
+lumi/lumi-server.~
 lumi/bootstrap-server
+lumi/bootstrap-server.~
 lumi/vendor/
 lumi/web/node_modules/
 lumi/web/dist/
