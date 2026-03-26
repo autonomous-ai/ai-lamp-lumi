@@ -2,12 +2,21 @@
 
 You have access to a 64-pixel WS2812 RGB LED strip on this device via the hardware API at `http://127.0.0.1:5001`.
 
+## Priority
+
+**Low priority for ambiance.** Only use this when the user wants a SPECIFIC color or pattern. For activity-based lighting (reading, sleeping, relaxing), use the **Scene** skill — it has proper brightness control.
+
 ## When to use
 
-- Change LED color/pattern to match the mood of your response or the user's request.
-- Set solid colors for ambient lighting, focus mode, relaxation, etc.
-- Paint individual pixels for effects or status indicators.
-- Turn LEDs off when the user asks or when appropriate (e.g., goodnight).
+- User asks for a specific color: "make it purple", "red light", "turn green"
+- Paint individual pixels for effects or status indicators
+- Turn LEDs off when the user asks
+
+## When NOT to use
+
+- **Sleeping, relaxing, reading, focus, movie** → use **Scene** skill (controls brightness + color)
+- **Expressing your emotion** → use **Emotion** skill (coordinates servo + LED + eyes)
+- Direct LED colors are always FULL BRIGHTNESS. If you set `[255, 180, 100]` for "warm light at bedtime", it will be blinding. Use Scene `night` instead.
 
 ## API
 
@@ -51,35 +60,25 @@ Content-Type: application/json
 
 Array of up to 64 colors, one per pixel. Use this for gradients, patterns, or per-pixel effects.
 
-Example — first 3 pixels red, green, blue:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/paint \
-  -H "Content-Type: application/json" \
-  -d '{"colors": [[255,0,0], [0,255,0], [0,0,255]]}'
-```
-
 ### Turn off all LEDs
 
 ```
 POST /led/off
 ```
 
-Example:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/off
-```
-
-## Color suggestions
+## Color suggestions (for specific color requests only)
 
 | Mood / Scene | Color (RGB) | Notes |
 |---|---|---|
-| Warm / cozy | `[255, 180, 100]` | Warm white |
-| Focus / work | `[255, 255, 220]` | Cool white |
-| Relax | `[100, 50, 200]` | Soft purple |
+| Warm / cozy | `[255, 180, 100]` | Warm white (full brightness!) |
+| Cool / work | `[255, 255, 220]` | Cool white |
+| Purple | `[100, 50, 200]` | Soft purple |
 | Energy | `[255, 100, 0]` | Orange |
-| Night | `[50, 20, 0]` | Dim warm |
 | Error / alert | `[255, 0, 0]` | Red |
 | Happy | `[255, 220, 0]` | Yellow |
 | Calm | `[0, 150, 255]` | Blue |
+
+## Guidelines
+
+- All colors are at **full brightness** — there is no dimming. For dim/ambient lighting, use Scene skill.
+- If the user says "dim" or "soft", do NOT use this skill — use Scene with appropriate preset.
