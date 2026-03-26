@@ -23,10 +23,12 @@ LELAMP_PORT    := 5001
 .PHONY: lumi-build lumi-build-bootstrap lumi-generate lumi-lint lumi-test
 
 lumi-build:
-	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
+	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "-s -w $(LDFLAGS_LAMP)" -o lumi-server ./cmd/lamp
+	upx --best $(LUMI_DIR)/lumi-server
 
 lumi-build-bootstrap:
-	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS_BOOT)" -o bootstrap-server ./cmd/bootstrap
+	cd $(LUMI_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "-s -w $(LDFLAGS_BOOT)" -o bootstrap-server ./cmd/bootstrap
+	upx --best $(LUMI_DIR)/bootstrap-server
 
 lumi-generate:
 	cd $(LUMI_DIR) && GOFLAGS=-mod=mod go generate ./...
