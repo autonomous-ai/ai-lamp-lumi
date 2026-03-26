@@ -593,6 +593,36 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		}
 	}
 
+	// If no session key yet, request sessions.list to find an active session
+	if s.GetSessionKey() == "" {
+		listReq := map[string]interface{}{
+			"type":   "req",
+			"id":     "lumi-sessions",
+			"method": "sessions.list",
+		}
+		listBody, _ := json.Marshal(listReq)
+		if err := conn.WriteMessage(websocket.TextMessage, listBody); err == nil {
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			_, listResp, err := conn.ReadMessage()
+			conn.SetReadDeadline(time.Time{})
+			if err == nil {
+				log.Printf("[openclaw] sessions.list response: %s", string(listResp))
+				var listResult struct {
+					Result struct {
+						Sessions []struct {
+							SessionKey string `json:"sessionKey"`
+						} `json:"sessions"`
+					} `json:"result"`
+				}
+				if json.Unmarshal(listResp, &listResult) == nil && len(listResult.Result.Sessions) > 0 {
+					sk := listResult.Result.Sessions[0].SessionKey
+					s.SetSessionKey(sk)
+					log.Printf("[openclaw] session key from sessions.list: %s", sk)
+				}
+			}
+		}
+	}
+
 	s.wsMu.Lock()
 	s.wsConn = conn
 	s.wsMu.Unlock()
