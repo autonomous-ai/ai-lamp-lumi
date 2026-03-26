@@ -6,6 +6,7 @@ import (
 	"github.com/google/wire"
 
 	"go-lamp.autonomous.ai/internal/agent"
+	"go-lamp.autonomous.ai/internal/ambient"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/monitor"
@@ -32,6 +33,7 @@ func InitializeServer() (*Server, error) {
 		network.ProviderSet,
 		device.ProviderSet,
 		resetbutton.ProviderSet,
+		ambient.ProviderSet,
 		_healthHttpDeliver.ProviderSet,
 		_networkHttpDeliver.ProviderSet,
 		_deviceHttpDeliver.ProviderSet,

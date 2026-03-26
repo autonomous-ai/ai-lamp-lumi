@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"go-lamp.autonomous.ai/domain"
+	"go-lamp.autonomous.ai/internal/ambient"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
@@ -41,9 +42,10 @@ type Server struct {
 	openclawHandler   _openclawSseDeliver.OpenClawHandler
 	sensingHandler    _sensingHttpDeliver.SensingHandler
 
-	agentGateway domain.AgentGateway
-	networkService  *network.Service
-	deviceService   *device.Service
+	agentGateway   domain.AgentGateway
+	networkService *network.Service
+	deviceService  *device.Service
+	ambientService *ambient.Service
 
 	// resetButton watches GPIO 23 for press-and-hold >= 10s to trigger factory reset. Nil when GPIO unavailable.
 	resetButton *resetbutton.Service
@@ -93,6 +95,7 @@ func ProvideServer(
 	ns *network.Service,
 	resetBtn *resetbutton.Service,
 	mqttFactory *mqtt.Factory,
+	ambientSvc *ambient.Service,
 ) *Server {
 	return &Server{
 		config:            cfg,
@@ -108,6 +111,7 @@ func ProvideServer(
 		deviceService:     ds,
 		resetButton:       resetBtn,
 		mqttFactory:       mqttFactory,
+		ambientService:    ambientSvc,
 	}
 }
 
@@ -326,6 +330,9 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 					time.Sleep(5 * time.Second)
 				}
 			}
+
+			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
+			go s.ambientService.Start(s.monitorCtx)
 		}()
 	} else {
 		s.monitorMu.Lock()
