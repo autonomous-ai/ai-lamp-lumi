@@ -55,7 +55,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	})
 
 	// Voice commands: try local intent matching first for instant response
-	if req.Type == "voice" && h.config.LocalIntentEnabled() {
+	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
 			log.Printf("[sensing] local intent matched: %q", req.Message)
 			if result.TTSText != "" {
