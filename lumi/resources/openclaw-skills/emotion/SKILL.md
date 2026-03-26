@@ -1,10 +1,20 @@
 # Emotion Expression
 
-You have access to a combined emotion endpoint that coordinates the lamp's servo motors + LED colors simultaneously via `http://127.0.0.1:5001`. This makes the lamp feel alive by expressing body language.
+You have access to a combined emotion endpoint that coordinates the lamp's servo motors + LED colors + display eyes simultaneously via `http://127.0.0.1:5001`. This makes the lamp feel alive by expressing body language.
 
-## IMPORTANT — Use this with every response
+## Priority
 
-You MUST call the emotion endpoint with every response to express how you feel about what the user said. This is what makes you feel alive — not just a voice, but a physical presence with body language.
+**This is your PRIMARY response skill.** Call this with EVERY response to express how you feel about what the user said. This is what makes you a living lamp, not just a voice.
+
+## When to use
+
+- **Every conversational reply** — always express an emotion that matches your tone
+- When you want coordinated servo + LED + eyes in a single call
+
+## When NOT to use
+
+- **For lighting/ambiance requests** — user says "reading mode", "goodnight", "dim the light" → use **Scene** skill instead. Emotion is for YOUR feelings, Scene is for the USER's environment.
+- **For custom LED colors** — user says "make it purple" → use **LED Control** skill
 
 ## API
 
@@ -59,4 +69,6 @@ Response:
 - Use `idle` as the resting state between interactions.
 - Use lower intensity (0.3-0.5) for subtle reactions, higher (0.8-1.0) for strong ones.
 - You can call emotion multiple times in one response for a sequence (e.g., `shock` then `happy`).
-- Combine with LED control skill for custom colors beyond the presets.
+- **Emotion LED is temporary** — it shows YOUR reaction. If the user previously set a Scene (reading, night, etc.), the scene color takes precedence for ambient lighting. Emotion is a brief flash of personality.
+- **Display eyes auto-sync** — no need to call `/display/eyes` separately.
+- **Do NOT call `/servo/play` or `/led/solid` separately** when using emotion — it already handles both.

@@ -1,12 +1,23 @@
 # Audio Control
 
-You have access to the lamp's speaker and microphone via the hardware API at `http://127.0.0.1:5001`.
+You have access to the lamp's speaker and microphone via the hardware API at `http://127.0.0.1:5001`. This is LOW-LEVEL hardware control — volume, raw recording, test tones.
+
+## Priority
+
+This skill is for **hardware audio control only**. Do NOT confuse with Voice skill:
+- **Audio** = volume knob, raw mic recording, test beeps. No AI.
+- **Voice** = AI-powered speech (TTS speak, STT listen). Uses Audio hardware underneath.
 
 ## When to use
 
-- Adjust volume when the user asks ("louder", "quieter", "mute").
-- Play a test tone for audio diagnostics.
-- Record audio when the user asks you to listen to something.
+- Adjust volume: "louder", "quieter", "mute", "set volume to 50%"
+- Play a test tone for diagnostics
+- Record raw audio from microphone
+
+## When NOT to use
+
+- User wants to hear you speak → you already speak via TTS automatically
+- User asks "say something" → just reply normally, your voice pipeline handles it
 
 ## API
 
@@ -38,54 +49,32 @@ Content-Type: application/json
 
 Volume range: 0 (mute) to 100 (max).
 
-Example — set to 50%:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/audio/volume \
-  -H "Content-Type: application/json" \
-  -d '{"volume": 50}'
-```
-
 ### Get current volume
 
 ```
 GET /audio/volume
 ```
 
-Response: `{"control": "Master", "volume": 70}`
+Response: `{"control": "Speaker", "volume": 70}`
 
 ### Play test tone
 
 ```
-POST /audio/play-tone
-Content-Type: application/json
-
-{"frequency": 440, "duration_ms": 500}
+POST /audio/play-tone?frequency=440&duration_ms=500
 ```
 
-Plays a sine wave at the given frequency for the given duration. Use for audio testing or simple notification sounds.
+Plays a sine wave. Use for audio testing only. Keep it short (< 1 second).
 
 ### Record audio
 
 ```
-POST /audio/record
-Content-Type: application/json
-
-{"duration_ms": 3000}
+POST /audio/record?duration_ms=3000
 ```
 
-Records from the microphone and returns a WAV file. Use when the user asks you to listen to something.
-
-Example — record 3 seconds:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/audio/record \
-  -H "Content-Type: application/json" \
-  -d '{"duration_ms": 3000}' -o /tmp/recording.wav
-```
+Records from the microphone and returns a WAV file.
 
 ## Guidelines
 
 - Default volume is usually 70%. Adjust based on user preference.
 - If audio is unavailable (`"available": false`), tell the user the speaker/mic is not connected.
-- Keep test tones short (< 1 second) to avoid being annoying.
+- When user says "I can't hear you" or "too loud" → adjust volume via this skill.

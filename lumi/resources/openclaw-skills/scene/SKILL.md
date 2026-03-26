@@ -1,12 +1,24 @@
 # Lighting Scenes
 
-You have access to predefined lighting scene presets via `http://127.0.0.1:5001`. Scenes set the optimal color temperature and brightness for specific activities.
+You have access to predefined lighting scene presets via `http://127.0.0.1:5001`. Scenes set the optimal color temperature AND brightness for specific activities.
+
+## Priority
+
+**Use this for ALL activity/environment lighting requests.** Scenes control both color AND brightness — direct LED control only sets color at full brightness, which is often too harsh.
 
 ## When to use
 
-- User asks for a lighting mode: "reading mode", "focus mode", "movie time", "goodnight"
+- User asks for a lighting mode: "reading mode", "focus mode", "movie time"
+- User describes going to sleep, winding down, relaxing → `night`, `relax`, or `movie`
 - User describes an activity and you can infer the best scene
-- Combine with emotion skill — scene sets the ambient lighting, emotion adds the expressive reaction
+- **"buồn ngủ", "sleepy", "goodnight", "ngủ thôi", "đi ngủ"** → ALWAYS use `night` (5% brightness, ultra-dim)
+- **"thư giãn", "relax", "chill"** → use `relax` (40%)
+- **"xem phim", "movie"** → use `movie` (15%)
+
+## When NOT to use
+
+- User asks for a specific color ("make it purple") → use **LED Control**
+- You want to express YOUR emotion → use **Emotion** skill
 
 ## API
 
@@ -29,21 +41,21 @@ Content-Type: application/json
 {"scene": "<name>"}
 ```
 
-Example — activate reading mode:
+Example — activate night mode:
 
 ```bash
 curl -s -X POST http://127.0.0.1:5001/scene \
   -H "Content-Type: application/json" \
-  -d '{"scene": "reading"}'
+  -d '{"scene": "night"}'
 ```
 
 Response:
 ```json
 {
   "status": "ok",
-  "scene": "reading",
-  "brightness": 0.8,
-  "color": [204, 180, 144]
+  "scene": "night",
+  "brightness": 0.05,
+  "color": [12, 7, 2]
 }
 ```
 
@@ -60,7 +72,7 @@ Response:
 
 ## Guidelines
 
-- If the user says something like "I'm going to read", activate `reading` without being asked.
-- If the user says "goodnight" or "I'm going to sleep", activate `night`.
-- For custom lighting beyond these presets, use the LED control skill directly with specific RGB values.
+- **Scene = brightness + color.** This is why you must use Scene instead of direct LED for ambiance. LED `/led/solid` is always 100% brightness — useless for sleep/relax.
+- After activating a scene, you can ALSO call Emotion to show your personality — emotion is a brief reaction, scene is the persistent ambient light.
 - You can switch scenes smoothly — just call the endpoint, the LED update is immediate.
+- For custom lighting beyond these presets, use the LED control skill directly with specific RGB values.
