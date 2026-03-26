@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -19,11 +21,48 @@ import (
 type OpenClawHandler struct {
 	agentGateway domain.AgentGateway
 	monitorBus   *monitor.Bus
+
+	// assistantBuf accumulates assistant deltas per runId so we can send the
+	// full text to TTS when the agent turn ends (lifecycle "end").
+	assistantMu  sync.Mutex
+	assistantBuf map[string]*strings.Builder
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
 func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus) OpenClawHandler {
-	return OpenClawHandler{agentGateway: gw, monitorBus: bus}
+	return OpenClawHandler{
+		agentGateway: gw,
+		monitorBus:   bus,
+		assistantBuf: make(map[string]*strings.Builder),
+	}
+}
+
+// accumulateAssistantDelta appends a delta to the buffer for the given runId.
+func (h *OpenClawHandler) accumulateAssistantDelta(runID, delta string) {
+	if delta == "" {
+		return
+	}
+	h.assistantMu.Lock()
+	defer h.assistantMu.Unlock()
+	buf, ok := h.assistantBuf[runID]
+	if !ok {
+		buf = &strings.Builder{}
+		h.assistantBuf[runID] = buf
+	}
+	buf.WriteString(delta)
+}
+
+// flushAssistantText returns the accumulated text for runId and clears the buffer.
+func (h *OpenClawHandler) flushAssistantText(runID string) string {
+	h.assistantMu.Lock()
+	defer h.assistantMu.Unlock()
+	buf, ok := h.assistantBuf[runID]
+	if !ok || buf.Len() == 0 {
+		return ""
+	}
+	text := strings.TrimSpace(buf.String())
+	delete(h.assistantBuf, runID)
+	return text
 }
 
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
@@ -106,6 +145,23 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					Summary: delta,
 					RunID:   payload.RunID,
 				})
+			}
+
+			// When the agent turn ends, the final assistant text should be spoken.
+			// Accumulate deltas per runId and send to TTS when lifecycle "end" arrives.
+			h.accumulateAssistantDelta(payload.RunID, delta)
+
+		}
+
+		// When agent lifecycle ends, flush accumulated assistant text to TTS
+		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
+			if text := h.flushAssistantText(payload.RunID); text != "" {
+				log.Printf("[agent] assistant turn done, sending to TTS: %s", text[:min(len(text), 100)])
+				go func(t string) {
+					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+						log.Printf("[agent] TTS delivery failed: %v", err)
+					}
+				}(text)
 			}
 		}
 
