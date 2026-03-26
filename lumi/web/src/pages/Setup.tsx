@@ -91,6 +91,29 @@ export default function Setup() {
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
 
+  // LLM (optional when not in URL)
+  const [llmApiKey, setLlmApiKey] = useState("");
+  const [llmUrl, setLlmUrl] = useState("");
+  const [llmModel, setLlmModel] = useState("");
+
+  // Channel credentials (optional when not in URL)
+  const [teleToken, setTeleToken] = useState("");
+  const [teleUserId, setTeleUserId] = useState("");
+  const [slackBotToken, setSlackBotToken] = useState("");
+  const [slackAppToken, setSlackAppToken] = useState("");
+  const [slackUserId, setSlackUserId] = useState("");
+  const [discordBotToken, setDiscordBotToken] = useState("");
+  const [discordGuildId, setDiscordGuildId] = useState("");
+  const [discordUserId, setDiscordUserId] = useState("");
+
+  // Whether URL already has LLM / channel params
+  const hasLlmParams = !!(urlParams.llmApiKey || urlParams.llmUrl);
+  const hasChannelParams = !!(
+    urlParams.teleToken || urlParams.teleUserId ||
+    urlParams.slackBotToken || urlParams.slackAppToken ||
+    urlParams.discordBotToken || urlParams.discordGuildId
+  );
+
   useEffect(() => {
     const maxAttempts = 4; // 1 initial + 3 retries
     let attempt = 0;
@@ -138,22 +161,33 @@ export default function Setup() {
       let channelCredentials: Record<string, string>;
       switch (channel) {
         case "telegram":
-          channelCredentials = { telegram_bot_token: urlParams.teleToken, telegram_user_id: urlParams.teleUserId };
+          channelCredentials = {
+            telegram_bot_token: urlParams.teleToken || teleToken,
+            telegram_user_id: urlParams.teleUserId || teleUserId,
+          };
           break;
         case "slack":
-          channelCredentials = { slack_bot_token: urlParams.slackBotToken, slack_app_token: urlParams.slackAppToken, slack_user_id: urlParams.slackUserId };
+          channelCredentials = {
+            slack_bot_token: urlParams.slackBotToken || slackBotToken,
+            slack_app_token: urlParams.slackAppToken || slackAppToken,
+            slack_user_id: urlParams.slackUserId || slackUserId,
+          };
           break;
         default:
-          channelCredentials = { discord_bot_token: urlParams.discordBotToken, discord_guild_id: urlParams.discordGuildId, discord_user_id: urlParams.discordUserId };
+          channelCredentials = {
+            discord_bot_token: urlParams.discordBotToken || discordBotToken,
+            discord_guild_id: urlParams.discordGuildId || discordGuildId,
+            discord_user_id: urlParams.discordUserId || discordUserId,
+          };
       }
       const body: Parameters<typeof setupDevice>[0] = {
         ssid: ssid.trim(),
         password,
         channel,
         ...channelCredentials,
-        llm_base_url: urlParams.llmUrl,
-        llm_api_key: urlParams.llmApiKey,
-        llm_model: urlParams.llmModel,
+        llm_base_url: urlParams.llmUrl || llmUrl,
+        llm_api_key: urlParams.llmApiKey || llmApiKey,
+        llm_model: urlParams.llmModel || llmModel,
         device_id: urlParams.deviceId,
       };
       const endpoint = mqttEndpoint || urlParams.mqttEndpoint;
@@ -255,6 +289,126 @@ export default function Setup() {
                       </button>
                     </div>
                   </div>
+                  {!hasLlmParams && (
+                    <details className="space-y-3 rounded-md border p-3" open>
+                      <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
+                        LLM (optional)
+                      </summary>
+                      <div className="space-y-2 pt-2">
+                        <Label htmlFor="llm_api_key">API Key</Label>
+                        <Input
+                          id="llm_api_key"
+                          placeholder="sk-..."
+                          value={llmApiKey}
+                          onChange={(e) => setLlmApiKey(e.target.value)}
+                          autoComplete="off"
+                        />
+                        <Label htmlFor="llm_url">Base URL</Label>
+                        <Input
+                          id="llm_url"
+                          placeholder="https://api.openai.com/v1"
+                          value={llmUrl}
+                          onChange={(e) => setLlmUrl(e.target.value)}
+                          autoComplete="off"
+                        />
+                        <Label htmlFor="llm_model">Model</Label>
+                        <Input
+                          id="llm_model"
+                          placeholder="gpt-4o-mini"
+                          value={llmModel}
+                          onChange={(e) => setLlmModel(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </details>
+                  )}
+
+                  {!hasChannelParams && (
+                    <details className="space-y-3 rounded-md border p-3" open>
+                      <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
+                        {channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"} (optional)
+                      </summary>
+                      <div className="space-y-2 pt-2">
+                        {channel === "telegram" && (
+                          <>
+                            <Label htmlFor="tele_token">Bot Token</Label>
+                            <Input
+                              id="tele_token"
+                              placeholder="123456:ABC-DEF..."
+                              value={teleToken}
+                              onChange={(e) => setTeleToken(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <Label htmlFor="tele_user_id">User ID</Label>
+                            <Input
+                              id="tele_user_id"
+                              placeholder="123456789"
+                              value={teleUserId}
+                              onChange={(e) => setTeleUserId(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </>
+                        )}
+                        {channel === "slack" && (
+                          <>
+                            <Label htmlFor="slack_bot_token">Bot Token</Label>
+                            <Input
+                              id="slack_bot_token"
+                              placeholder="xoxb-..."
+                              value={slackBotToken}
+                              onChange={(e) => setSlackBotToken(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <Label htmlFor="slack_app_token">App Token</Label>
+                            <Input
+                              id="slack_app_token"
+                              placeholder="xapp-..."
+                              value={slackAppToken}
+                              onChange={(e) => setSlackAppToken(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <Label htmlFor="slack_user_id">User ID</Label>
+                            <Input
+                              id="slack_user_id"
+                              placeholder="U0123456789"
+                              value={slackUserId}
+                              onChange={(e) => setSlackUserId(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </>
+                        )}
+                        {channel === "discord" && (
+                          <>
+                            <Label htmlFor="discord_bot_token">Bot Token</Label>
+                            <Input
+                              id="discord_bot_token"
+                              placeholder="Bot token"
+                              value={discordBotToken}
+                              onChange={(e) => setDiscordBotToken(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <Label htmlFor="discord_guild_id">Guild ID</Label>
+                            <Input
+                              id="discord_guild_id"
+                              placeholder="123456789"
+                              value={discordGuildId}
+                              onChange={(e) => setDiscordGuildId(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <Label htmlFor="discord_user_id">User ID</Label>
+                            <Input
+                              id="discord_user_id"
+                              placeholder="123456789"
+                              value={discordUserId}
+                              onChange={(e) => setDiscordUserId(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </>
+                        )}
+                      </div>
+                    </details>
+                  )}
+
                   <details className="space-y-3 rounded-md border p-3 hidden">
                     <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
                       MQTT (optional)
