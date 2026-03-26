@@ -430,21 +430,23 @@ function CircleGauge({ value, label, sublabel }: { value: number; label: string;
   const r = (size - stroke) / 2;
   const circumference = 2 * Math.PI * r;
   const offset = circumference - (value / 100) * circumference;
-  const color = value > 80 ? "text-red-500" : value > 50 ? "text-yellow-500" : "text-emerald-500";
+  const strokeColor = value > 80 ? "#ef4444" : value > 50 ? "#eab308" : "#10b981";
+  const textColor = value > 80 ? "text-red-500" : value > 50 ? "text-yellow-500" : "text-emerald-500";
 
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} className="stroke-muted" />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} stroke="currentColor" className="text-muted" />
         <circle
           cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke}
           strokeDasharray={circumference} strokeDashoffset={offset}
           strokeLinecap="round"
-          className={cn("transition-all duration-500", color.replace("text-", "stroke-"))}
+          stroke={strokeColor}
+          style={{ transition: "stroke-dashoffset 500ms ease" }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={cn("text-[11px] font-semibold leading-none", color)}>{label}</span>
+        <span className={cn("text-[11px] font-semibold leading-none", textColor)}>{label}</span>
         <span className="text-[8px] text-muted-foreground leading-none mt-0.5">{sublabel}</span>
       </div>
     </div>
