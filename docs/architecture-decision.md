@@ -88,6 +88,7 @@ Works **without OpenClaw**. If the AI is down, the device still boots, shows sta
 | MQTT communication | Auto-reconnect, message dispatch to backend |
 | Internet monitoring | Connectivity check, auto-recovery |
 | **Autonomous sensing** | Lightweight sensing loop: camera (presence, light level), mic (sound level, silence, voice tone), time (schedules), plug-in sensors. Emits events to OpenClaw when significant changes detected. |
+| **Ambient life** | Idle behaviors that make Lumi feel alive: breathing LED (sine-wave brightness), color drift (warm palette rotation), micro-movements (safe servo recordings), TTS self-talk. Auto-pauses on interaction, resumes after 10s quiet. |
 
 ### Autonomous Sensing Loop (Layer 1.5)
 
@@ -117,6 +118,7 @@ Inherited from lobster (now in `lumi/` subdirectory):
 - `internal/openclaw/` — OpenClaw config generation and WebSocket
 - `internal/beclient/` — Backend status reporter
 - `internal/device/` — Setup, MQTT command handling, status reporting
+- `internal/ambient/` — Idle "living creature" behaviors (breathing LED, color drift, micro-movements, TTS mumbles). Runs when no interaction is happening; auto-pauses on real input, resumes after 10s silence. Calls LeLamp HTTP API.
 - `lib/mqtt/` — MQTT client with auto-reconnect
 - `bootstrap/` — OTA version check and install
 - `domain/` — Shared structs (device, network, OTA, OpenClaw)
