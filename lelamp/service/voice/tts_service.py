@@ -2,7 +2,7 @@
 TTS Service — converts text to speech via OpenAI TTS API and plays through speaker.
 
 Uses OpenAI-compatible API (same base_url and api_key as the LLM provider).
-Requests PCM format directly — no ffmpeg needed.
+Streams PCM chunks directly to the audio device — no buffering the entire response.
 Runs synthesis in a background thread to avoid blocking FastAPI.
 """
 
@@ -16,9 +16,16 @@ logger = logging.getLogger("lelamp.voice.tts")
 DEFAULT_VOICE = "alloy"
 DEFAULT_MODEL = "tts-1"
 
+# OpenAI TTS returns 24kHz 16-bit mono PCM
+TTS_SAMPLE_RATE = 24000
+TTS_CHANNELS = 1
+
+# Stream chunk size for iter_bytes (4KB = ~85ms of audio at 24kHz 16-bit)
+STREAM_CHUNK_SIZE = 4096
+
 
 class TTSService:
-    """Text-to-speech using OpenAI TTS API + sounddevice playback."""
+    """Text-to-speech using OpenAI TTS API + sounddevice streaming playback."""
 
     def __init__(
         self,
@@ -40,12 +47,22 @@ class TTSService:
 
         self._client = None
         self._base_url = base_url
+        self._device_rate = None
         try:
             from openai import OpenAI
             self._client = OpenAI(api_key=api_key, base_url=base_url)
             logger.info("OpenAI TTS ready (voice=%s, model=%s, base_url=%s)", self._voice, self._model, base_url)
         except ImportError as e:
             logger.warning("openai SDK not available: %s", e)
+
+        # Cache device sample rate
+        if self._sd and self._output_device is not None:
+            try:
+                info = self._sd.query_devices(self._output_device)
+                self._device_rate = int(info["default_samplerate"])
+                logger.info("Output device %d: rate=%d Hz", self._output_device, self._device_rate)
+            except Exception as e:
+                logger.warning("Failed to query output device: %s", e)
 
     @property
     def available(self) -> bool:
@@ -74,38 +91,6 @@ class TTSService:
         thread.start()
         return True
 
-    def _speak_sync(self, text: str):
-        """Run TTS synthesis and playback in a worker thread."""
-        try:
-            self._speaking = True
-            logger.info("TTS synthesizing: model=%s, voice=%s, base_url=%s, text='%s'",
-                        self._model, self._voice, self._base_url, text[:80])
-            response = self._client.audio.speech.create(
-                model=self._model,
-                voice=self._voice,
-                input=text,
-                response_format="pcm",  # raw 24kHz 16-bit mono PCM
-            )
-            pcm_data = response.read()
-            logger.info("TTS received %d bytes PCM data", len(pcm_data))
-            if len(pcm_data) == 0:
-                logger.error("TTS returned empty audio data")
-                return
-            self._play_pcm(pcm_data)
-        except Exception as e:
-            logger.error("TTS speak failed: %s (type=%s)", e, type(e).__name__)
-        finally:
-            self._speaking = False
-            self._lock.release()
-
-    def _get_device_samplerate(self) -> int:
-        """Get the default sample rate for the output device."""
-        try:
-            info = self._sd.query_devices(self._output_device)
-            return int(info["default_samplerate"])
-        except Exception:
-            return 48000
-
     def _resample(self, audio, src_rate: int, dst_rate: int):
         """Linear interpolation resample (no scipy needed)."""
         np = self._np
@@ -117,22 +102,62 @@ class TTSService:
         x_new = np.linspace(0, 1, n_out)
         return np.interp(x_new, x_old, audio).astype(np.float32)
 
-    def _play_pcm(self, pcm_data: bytes):
-        """Play raw PCM int16 mono 24kHz through sounddevice, resampling if needed."""
+    def _speak_sync(self, text: str):
+        """Stream TTS response directly to audio output — no full-buffer wait."""
         np = self._np
         sd = self._sd
-        src_rate = 24000
+        dst_rate = self._device_rate or 48000
 
-        audio = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32) / 32768.0
-
-        dst_rate = self._get_device_samplerate()
-        if dst_rate != src_rate:
-            logger.info("TTS resampling %d -> %d Hz (%d samples)", src_rate, dst_rate, len(audio))
-            audio = self._resample(audio, src_rate, dst_rate)
-
-        logger.info("TTS playing %d samples @ %d Hz on device=%s", len(audio), dst_rate, self._output_device)
         try:
-            sd.play(audio, samplerate=dst_rate, device=self._output_device, blocking=True)
-            logger.info("TTS playback complete")
+            self._speaking = True
+            logger.info("TTS synthesizing: text='%s'", text[:80])
+
+            with self._client.audio.speech.with_streaming_response.create(
+                model=self._model,
+                voice=self._voice,
+                input=text,
+                response_format="pcm",
+            ) as response:
+                # Remainder bytes from previous chunk (PCM frames must be 2-byte aligned)
+                remainder = b""
+                total_samples = 0
+
+                with sd.OutputStream(
+                    samplerate=dst_rate,
+                    channels=TTS_CHANNELS,
+                    dtype="float32",
+                    device=self._output_device,
+                ) as stream:
+                    for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
+                        raw = remainder + chunk
+                        # Ensure 2-byte alignment for int16
+                        usable = len(raw) - (len(raw) % 2)
+                        remainder = raw[usable:]
+
+                        if usable == 0:
+                            continue
+
+                        samples = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+
+                        if dst_rate != TTS_SAMPLE_RATE:
+                            samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+
+                        stream.write(samples.reshape(-1, 1))
+                        total_samples += len(samples)
+
+                    # Flush remainder
+                    if len(remainder) >= 2:
+                        usable = len(remainder) - (len(remainder) % 2)
+                        samples = np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+                        if dst_rate != TTS_SAMPLE_RATE:
+                            samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                        stream.write(samples.reshape(-1, 1))
+                        total_samples += len(samples)
+
+                logger.info("TTS playback complete (%d samples @ %d Hz)", total_samples, dst_rate)
+
         except Exception as e:
-            logger.error("TTS playback failed: %s (device=%s)", e, self._output_device)
+            logger.error("TTS speak failed: %s (type=%s)", e, type(e).__name__)
+        finally:
+            self._speaking = False
+            self._lock.release()
