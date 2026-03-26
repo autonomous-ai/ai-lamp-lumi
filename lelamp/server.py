@@ -8,16 +8,37 @@ Lumi Server (Go, port 5000) bridges requests here.
 import io
 import os
 import logging
+import logging.handlers
 import subprocess
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Union
 
-logging.basicConfig(level=logging.INFO)
+# --- Logging: stdout + rotating file ---
+LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+
+# Console handler (keep existing behavior)
+_console = logging.StreamHandler()
+_console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+_root.addHandler(_console)
+
+# File handler: 5 MB per file, keep 3 backups (~20 MB max)
+_file = logging.handlers.RotatingFileHandler(
+    LOG_DIR / "server.log", maxBytes=5 * 1024 * 1024, backupCount=3,
+)
+_file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+_root.addHandler(_file)
+
 logger = logging.getLogger("lelamp.server")
+logger.info("Logging to %s/server.log", LOG_DIR)
 
 # --- Lazy imports for hardware drivers (may not be available on dev machines) ---
 
