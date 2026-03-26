@@ -199,6 +199,36 @@ async def lifespan(app: FastAPI):
             logger.warning(f"DisplayService failed to start: {e}")
             display_service = None
 
+    # Auto-start voice pipeline from Lumi config if keys are available
+    lumi_config_path = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")
+    try:
+        import json
+        with open(lumi_config_path) as f:
+            lumi_cfg = json.load(f)
+        dgk = lumi_cfg.get("deepgram_api_key", "")
+        llm_key = lumi_cfg.get("llm_api_key", "")
+        llm_url = lumi_cfg.get("llm_base_url", "")
+        if dgk and VoiceService and not voice_service:
+            voice_service = VoiceService(
+                deepgram_api_key=dgk,
+                input_device=seeed_input_device,
+            )
+            voice_service.start()
+            logger.info("VoiceService auto-started from lumi config")
+        if llm_key and llm_url and TTSService and not tts_service:
+            tts_service = TTSService(
+                api_key=llm_key,
+                base_url=llm_url,
+                sound_device_module=sd,
+                numpy_module=np,
+                output_device=seeed_output_device,
+            )
+            logger.info("TTSService auto-started from lumi config")
+    except FileNotFoundError:
+        logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
+    except Exception as e:
+        logger.warning(f"Auto-start voice from lumi config failed: {e}")
+
     yield
 
     # Shutdown

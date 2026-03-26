@@ -315,9 +315,15 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				log.Println("[server] agent gateway ready timeout")
 			}
 			// Start voice pipeline on LeLamp (if Deepgram key configured)
+			// Retry because lumi-lelamp may not be running yet at setup time.
 			if s.config.DeepgramAPIKey != "" {
-				if err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL); err != nil {
-					log.Printf("[server] failed to start LeLamp voice: %v", err)
+				for attempt := 1; attempt <= 10; attempt++ {
+					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL)
+					if err == nil {
+						break
+					}
+					log.Printf("[server] start LeLamp voice attempt %d/10: %v", attempt, err)
+					time.Sleep(5 * time.Second)
 				}
 			}
 		}()
