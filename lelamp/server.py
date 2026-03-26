@@ -632,7 +632,12 @@ def play_recording(req: ServoRequest):
 class ServoMoveRequest(BaseModel):
     positions: dict[str, float] = Field(
         ...,
-        description="Joint positions: base_yaw, base_pitch, elbow_pitch, wrist_roll, wrist_pitch (degrees)",
+        description=(
+            "Joint positions (degrees). "
+            "base_yaw.pos (servo ID 1), base_pitch.pos (servo ID 2), "
+            "elbow_pitch.pos (servo ID 3), wrist_roll.pos (servo ID 4), "
+            "wrist_pitch.pos (servo ID 5)"
+        ),
     )
     duration: float = Field(
         2.0,
@@ -644,7 +649,16 @@ class ServoMoveRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "examples": [
-                {"positions": {"base_yaw.pos": 0.0, "base_pitch.pos": 10.0, "elbow_pitch.pos": -5.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0}},
+                {
+                    "positions": {
+                        "base_yaw.pos":     0.0,
+                        "base_pitch.pos":   10.0,
+                        "elbow_pitch.pos":  -5.0,
+                        "wrist_roll.pos":   0.0,
+                        "wrist_pitch.pos":  0.0,
+                    },
+                    "_comment": "base_yaw=ID1, base_pitch=ID2, elbow_pitch=ID3, wrist_roll=ID4, wrist_pitch=ID5",
+                },
                 {"positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0}, "duration": 3.0},
             ]
         }
