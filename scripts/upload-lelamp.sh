@@ -36,7 +36,7 @@ echo "========== Zipping lelamp to ${ZIP_NAME} =========="
 rm -f "$ZIP_PATH"
 (cd "$LELAMP_DIR" && zip -r "$ZIP_PATH" . \
   -x ".venv/*" "__pycache__/*" "*/__pycache__/*" ".git/*" "*.pyc" \
-  "recordings/*" "uv.lock" ".env" ".python-version" "test/*")
+  "uv.lock" ".env" ".python-version" "test/*")
 
 echo "========== Upload ${ZIP_NAME} to Google Cloud Storage (no-cache) =========="
 gsutil -h "Cache-Control:no-cache, no-store, must-revalidate" cp "$ZIP_PATH" "gs://${GCS_BUCKET}/${GCS_PATH}"
