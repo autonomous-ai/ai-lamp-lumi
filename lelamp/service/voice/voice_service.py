@@ -164,7 +164,7 @@ class VoiceService:
         from deepgram import DeepgramClient
 
         client = DeepgramClient(api_key=self._deepgram_api_key)
-        dg_connection = client.listen.live.v("1")
+        dg_connection = client.listen.websocket.v("1")
 
         session_closed = threading.Event()
 
