@@ -25,7 +25,7 @@ STARTUP_MOVE_DURATION = 5.0
 # All send_action / move_to calls are clamped to these.
 JOINT_LIMITS = {
     "base_yaw.pos":     (-78.0,  78.0),   # ID 1
-    "base_pitch.pos":   (-78.0,  20.0),   # ID 2
+    "base_pitch.pos":   (-78.0,  80.0),   # ID 2
     "elbow_pitch.pos":  (-60.0,  15.0),   # ID 3
     "wrist_roll.pos":   (-68.0,  68.0),   # ID 4
     "wrist_pitch.pos":  (-25.0,  68.0),   # ID 5
