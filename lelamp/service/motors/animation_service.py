@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 # Default interpolation duration for move_to (seconds)
 DEFAULT_MOVE_DURATION = 2.0
 
-# Startup position for base_pitch and elbow_pitch only (from idle.csv first frame)
+# Startup position for base_pitch and elbow_pitch only.
 # Other servos (base_yaw, wrist_roll, wrist_pitch) are left released.
 STARTUP_POSITION = {
-    "base_pitch.pos": -44.68,
-    "elbow_pitch.pos": 82.83,
+    "base_pitch.pos": -10.0,
+    "elbow_pitch.pos": -10.0,
 }
 
 # Duration for the startup move (seconds)
