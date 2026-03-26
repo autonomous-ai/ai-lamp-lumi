@@ -39,7 +39,7 @@ type SetupRequest struct {
 	DeepgramAPIKey string `json:"deepgram_api_key"`
 
 	// optional
-	DeviceID string `json:"device_id" validate:"required"`
+	DeviceID string `json:"device_id"`
 
 	// MQTT (optional): empty broker URL means MQTT disabled
 	MQTTEndpoint string `json:"mqtt_endpoint"`
