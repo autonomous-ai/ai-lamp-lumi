@@ -355,29 +355,18 @@ stage_lelamp() {
     echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
   fi
 
-  # Install Python 3.12 + venv + dependencies + system libs for audio/camera
-  # Bookworm ships Python 3.11 but lelamp requires >=3.12
-  apt install -y python3-pip libportaudio2 libatlas-base-dev || true
-  if ! command -v python3.12 &>/dev/null; then
-    echo "[stage] Installing Python 3.12 from source (Bookworm only has 3.11)..."
-    apt install -y build-essential libffi-dev libssl-dev zlib1g-dev libbz2-dev \
-      libreadline-dev libsqlite3-dev libncurses5-dev libgdbm-dev liblzma-dev
-    PYTHON_VER="3.12.8"
-    curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VER}/Python-${PYTHON_VER}.tgz" | tar xz -C /tmp
-    cd "/tmp/Python-${PYTHON_VER}"
-    ./configure --enable-optimizations --prefix=/usr/local
-    make -j"$(nproc)"
-    make altinstall
-    cd /
-    rm -rf "/tmp/Python-${PYTHON_VER}"
+  # Install uv + system libs for audio/camera
+  apt install -y libportaudio2 libatlas-base-dev || true
+  if ! command -v uv &>/dev/null; then
+    echo "[stage] Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
   fi
-  PYTHON_BIN="$(command -v python3.12)"
-  if [ ! -d "$LELAMP_DIR/.venv" ]; then
-    "$PYTHON_BIN" -m venv "$LELAMP_DIR/.venv"
-  fi
-  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
-    "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
-  fi
+
+  # uv sync handles Python version + venv + dependencies from pyproject.toml
+  cd "$LELAMP_DIR"
+  uv sync
+  cd /
 
   cat >/etc/systemd/system/lumi-lelamp.service <<EOF
 [Unit]
@@ -983,7 +972,9 @@ elif [ "$APP" = "lelamp" ]; then
   curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lelamp"; exit 1; }
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
-  if [ -f "$LELAMP_DIR/requirements.txt" ]; then
+  if command -v uv &>/dev/null; then
+    cd "$LELAMP_DIR" && uv sync && cd /
+  elif [ -f "$LELAMP_DIR/requirements.txt" ]; then
     "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
   fi
   systemctl restart lumi-lelamp
