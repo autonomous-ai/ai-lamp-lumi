@@ -680,21 +680,24 @@ def move_servo(req: ServoMoveRequest):
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
 def release_servos():
-    """Disable torque on all servos (release / go limp). Skips offline servos."""
+    """Disable torque on all 5 servos (release / go limp).
+
+    Sends Torque_Enable=0 to every servo. If a servo is temporarily
+    offline it will fail silently for that servo but still release the rest.
+    """
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     bus = animation_service.robot.bus
-    released = []
-    failed = []
+    errors = {}
     for motor_name in bus.motors:
         try:
             bus.write("Torque_Enable", motor_name, 0)
-            released.append(motor_name)
-        except Exception:
-            failed.append(motor_name)
-    logger.info(f"Servo release: released={released}, failed={failed}")
+        except Exception as e:
+            errors[motor_name] = str(e)
+    if errors:
+        logger.warning(f"Servo release errors (offline?): {errors}")
     return {"status": "ok"}
 
 
