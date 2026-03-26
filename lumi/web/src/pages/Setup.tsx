@@ -92,6 +92,9 @@ export default function Setup() {
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
 
+  // Device ID
+  const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
+
   // LLM: prefill from URL params, fallback to defaults
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "pro-llm-key-57a4783fc9auto0001");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "https://campaign-api.autonomous.ai/api/v1/ai/v1");
@@ -193,7 +196,7 @@ export default function Setup() {
         llm_api_key: urlParams.llmApiKey || llmApiKey,
         llm_model: urlParams.llmModel || llmModel,
         deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
-        device_id: urlParams.deviceId,
+        device_id: urlParams.deviceId || deviceId,
       };
       const endpoint = mqttEndpoint || urlParams.mqttEndpoint;
       if (endpoint) {
@@ -294,6 +297,19 @@ export default function Setup() {
                       </button>
                     </div>
                   </div>
+                  {!urlParams.deviceId && (
+                    <div className="space-y-2">
+                      <Label htmlFor="device_id">Device ID</Label>
+                      <Input
+                        id="device_id"
+                        placeholder="lumi-001"
+                        value={deviceId}
+                        onChange={(e) => setDeviceId(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  )}
+
                   {!hasLlmParams && (
                     <details className="space-y-3 rounded-md border p-3" open>
                       <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
