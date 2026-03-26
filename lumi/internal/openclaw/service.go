@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -872,8 +873,30 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 	return nil
 }
 
+// stripForTTS removes markdown formatting and emoji so TTS reads clean spoken text.
+func stripForTTS(text string) string {
+	// Remove emoji (Unicode emoji ranges)
+	emojiRe := regexp.MustCompile(`[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}\x{E0020}-\x{E007F}]`)
+	text = emojiRe.ReplaceAllString(text, "")
+	// Remove markdown bold/italic markers
+	text = regexp.MustCompile(`\*{1,3}([^*]+)\*{1,3}`).ReplaceAllString(text, "$1")
+	text = regexp.MustCompile(`_{1,3}([^_]+)_{1,3}`).ReplaceAllString(text, "$1")
+	// Remove markdown links [text](url) → text
+	text = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`).ReplaceAllString(text, "$1")
+	// Remove code blocks and inline code
+	text = regexp.MustCompile("```[\\s\\S]*?```").ReplaceAllString(text, "")
+	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
+	// Collapse whitespace
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+	return strings.TrimSpace(text)
+}
+
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
 func (s *Service) SendToLeLampTTS(text string) error {
+	text = stripForTTS(text)
+	if text == "" {
+		return nil
+	}
 	url := "http://127.0.0.1:5001/voice/speak"
 	body, _ := json.Marshal(map[string]string{"text": text})
 	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
