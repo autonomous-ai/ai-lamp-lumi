@@ -355,10 +355,25 @@ stage_lelamp() {
     echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
   fi
 
-  # Install Python venv + dependencies + system libs for audio/camera
-  apt install -y python3-venv python3-pip libportaudio2 libatlas-base-dev || true
+  # Install Python 3.12 + venv + dependencies + system libs for audio/camera
+  # Bookworm ships Python 3.11 but lelamp requires >=3.12
+  apt install -y python3-pip libportaudio2 libatlas-base-dev || true
+  if ! command -v python3.12 &>/dev/null; then
+    echo "[stage] Installing Python 3.12 from source (Bookworm only has 3.11)..."
+    apt install -y build-essential libffi-dev libssl-dev zlib1g-dev libbz2-dev \
+      libreadline-dev libsqlite3-dev libncurses5-dev libgdbm-dev liblzma-dev
+    PYTHON_VER="3.12.8"
+    curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VER}/Python-${PYTHON_VER}.tgz" | tar xz -C /tmp
+    cd "/tmp/Python-${PYTHON_VER}"
+    ./configure --enable-optimizations --prefix=/usr/local
+    make -j"$(nproc)"
+    make altinstall
+    cd /
+    rm -rf "/tmp/Python-${PYTHON_VER}"
+  fi
+  PYTHON_BIN="$(command -v python3.12)"
   if [ ! -d "$LELAMP_DIR/.venv" ]; then
-    python3 -m venv "$LELAMP_DIR/.venv"
+    "$PYTHON_BIN" -m venv "$LELAMP_DIR/.venv"
   fi
   if [ -f "$LELAMP_DIR/requirements.txt" ]; then
     "$LELAMP_DIR/.venv/bin/pip" install -r "$LELAMP_DIR/requirements.txt" --prefer-binary --quiet
