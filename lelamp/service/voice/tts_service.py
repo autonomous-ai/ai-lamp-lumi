@@ -7,6 +7,7 @@ Runs synthesis in a background thread to avoid blocking FastAPI.
 """
 
 import logging
+import math
 import threading
 from typing import Optional
 
@@ -97,15 +98,41 @@ class TTSService:
             self._speaking = False
             self._lock.release()
 
+    def _get_device_samplerate(self) -> int:
+        """Get the default sample rate for the output device."""
+        try:
+            info = self._sd.query_devices(self._output_device)
+            return int(info["default_samplerate"])
+        except Exception:
+            return 48000
+
+    def _resample(self, audio, src_rate: int, dst_rate: int):
+        """Linear interpolation resample (no scipy needed)."""
+        np = self._np
+        if src_rate == dst_rate:
+            return audio
+        ratio = dst_rate / src_rate
+        n_out = math.ceil(len(audio) * ratio)
+        x_old = np.linspace(0, 1, len(audio))
+        x_new = np.linspace(0, 1, n_out)
+        return np.interp(x_new, x_old, audio).astype(np.float32)
+
     def _play_pcm(self, pcm_data: bytes):
-        """Play raw PCM int16 mono 24kHz through sounddevice."""
+        """Play raw PCM int16 mono 24kHz through sounddevice, resampling if needed."""
         np = self._np
         sd = self._sd
+        src_rate = 24000
 
         audio = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32) / 32768.0
-        logger.info("TTS playing %d samples on device=%s", len(audio), self._output_device)
+
+        dst_rate = self._get_device_samplerate()
+        if dst_rate != src_rate:
+            logger.info("TTS resampling %d -> %d Hz (%d samples)", src_rate, dst_rate, len(audio))
+            audio = self._resample(audio, src_rate, dst_rate)
+
+        logger.info("TTS playing %d samples @ %d Hz on device=%s", len(audio), dst_rate, self._output_device)
         try:
-            sd.play(audio, samplerate=24000, device=self._output_device, blocking=True)
+            sd.play(audio, samplerate=dst_rate, device=self._output_device, blocking=True)
             logger.info("TTS playback complete")
         except Exception as e:
             logger.error("TTS playback failed: %s (device=%s)", e, self._output_device)
