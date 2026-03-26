@@ -636,7 +636,7 @@ class ServoMoveRequest(BaseModel):
             "Joint positions (degrees). Ordered by servo ID: "
             "base_yaw.pos (ID 1, min -78 max 78), "
             "base_pitch.pos (ID 2, min -78 max 20), "
-            "elbow_pitch.pos (ID 3, min -15 max 98), "
+            "elbow_pitch.pos (ID 3, min -60 max 15), "
             "wrist_roll.pos (ID 4, min -68 max 68), "
             "wrist_pitch.pos (ID 5, min -25 max 68). "
             "Values are clamped to safe limits automatically."
@@ -660,7 +660,7 @@ class ServoMoveRequest(BaseModel):
                         "wrist_roll.pos":   0.0,
                         "wrist_pitch.pos":  0.0,
                     },
-                    "_comment": "ID1 base_yaw [-78,78] | ID2 base_pitch [-78,20] | ID3 elbow_pitch [-15,98] | ID4 wrist_roll [-68,68] | ID5 wrist_pitch [-25,68]",
+                    "_comment": "ID1 base_yaw [-78,78] | ID2 base_pitch [-78,20] | ID3 elbow_pitch [-60,15] | ID4 wrist_roll [-68,68] | ID5 wrist_pitch [-25,68]",
                 },
                 {"positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0}, "duration": 3.0},
             ]
