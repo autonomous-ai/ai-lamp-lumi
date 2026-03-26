@@ -21,6 +21,27 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
+# Safe joint limits (degrees). All send_action / move_to calls are clamped to these.
+JOINT_LIMITS = {
+    "base_yaw.pos":     (-90.0,  90.0),
+    "base_pitch.pos":   (-90.0,  30.0),
+    "elbow_pitch.pos":  (-25.0, 110.0),
+    "wrist_roll.pos":   (-80.0,  80.0),
+    "wrist_pitch.pos":  (-35.0,  80.0),
+}
+
+
+def clamp_positions(positions: Dict[str, float]) -> Dict[str, float]:
+    """Clamp joint positions to safe limits."""
+    clamped = {}
+    for joint, value in positions.items():
+        limits = JOINT_LIMITS.get(joint)
+        if limits is not None:
+            clamped[joint] = max(limits[0], min(limits[1], value))
+        else:
+            clamped[joint] = value
+    return clamped
+
 
 class AnimationService:
     def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle"):
@@ -164,15 +185,15 @@ class AnimationService:
                     target_val = self._interpolation_target[joint]
                     interpolated_action[joint] = current_val + (target_val - current_val) * progress
                 
-                self.robot.send_action(interpolated_action)
+                self.robot.send_action(clamp_positions(interpolated_action))
                 self._current_state = interpolated_action.copy()
                 self._interpolation_frames -= 1
                 return
-            
+
             # Play current frame
             if self._current_frame_index < len(self._current_actions):
                 action = self._current_actions[self._current_frame_index]
-                self.robot.send_action(action)
+                self.robot.send_action(clamp_positions(action))
                 self._current_state = action.copy()
                 self._current_frame_index += 1
             else:

@@ -501,6 +501,29 @@ SCENE_PRESETS = {
 }
 
 
+# --- Servo joint safety limits (degrees) ---
+# Derived from all recordings + aim presets with ~10° margin.
+# Prevents /servo/move from driving servos beyond tested range.
+JOINT_LIMITS = {
+    "base_yaw.pos":     (-90.0,  90.0),
+    "base_pitch.pos":   (-90.0,  30.0),
+    "elbow_pitch.pos":  (-25.0, 110.0),
+    "wrist_roll.pos":   (-80.0,  80.0),
+    "wrist_pitch.pos":  (-35.0,  80.0),
+}
+
+
+def clamp_positions(positions: dict[str, float]) -> dict[str, float]:
+    """Clamp joint positions to safe limits. Reject unknown joints."""
+    clamped = {}
+    for joint, value in positions.items():
+        limits = JOINT_LIMITS.get(joint)
+        if limits is None:
+            raise ValueError(f"Unknown joint '{joint}'. Valid: {list(JOINT_LIMITS.keys())}")
+        clamped[joint] = max(limits[0], min(limits[1], value))
+    return clamped
+
+
 # --- Servo aim presets ---
 # Named lamp-head directions mapped to joint positions (degrees)
 AIM_PRESETS = {
@@ -662,11 +685,14 @@ def move_servo(req: ServoMoveRequest):
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     try:
+        safe_positions = clamp_positions(req.positions)
         if req.duration > 0:
-            animation_service.move_to(req.positions, duration=req.duration)
+            animation_service.move_to(safe_positions, duration=req.duration)
         else:
-            animation_service.robot.send_action(req.positions)
+            animation_service.robot.send_action(safe_positions)
         return {"status": "ok"}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"Servo move failed: {e}")
 
