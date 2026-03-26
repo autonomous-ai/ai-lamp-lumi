@@ -33,7 +33,7 @@
 | SKILL.md (#1) | 9 skills: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. Tất cả mô tả HTTP API tại `127.0.0.1:5001`. |
 | Event push (#2) | WebSocket RPC `chat.send` với `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. |
 | Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion detection. |
-| Audio/Voice (#4) | LeLamp own mic/speaker. Always-on Deepgram streaming STT + keyword boost `lumi:3`. Không dùng openwakeword. |
+| Audio/Voice (#4) | LeLamp own mic/speaker. Local VAD (RMS energy) + on-demand Deepgram STT. Wake word "Hey Lumi" trong transcript → `voice_command` (ưu tiên). Không có wake word → `voice` (ambient sensing). |
 | Emotion presets (#6) | 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock) + 11 eye expressions trên display. |
 | Display rendering (#7) | `gc9a01-python` + PIL/Pillow. 240x240 round LCD. Dual-mode eyes/info. Auto-blink. Plugin — skip nếu không có. |
 | Lighting scenes | 6 presets: reading, focus, relax, movie, night, energize. Simulated color temp qua RGB mixing. |
