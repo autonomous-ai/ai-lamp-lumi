@@ -11,8 +11,8 @@ import (
 //go:embed resources/SOUL.md
 var onboardingFS embed.FS
 
-// EnsureOnboarding seeds SOUL.md into the OpenClaw workspace if it doesn't
-// exist yet. Factory default — once created, the user owns it. We never override.
+// EnsureOnboarding seeds SOUL.md into the OpenClaw workspace, always overwriting
+// to ensure Lumi's personality is applied over any default.
 // IDENTITY.md is managed by OpenClaw itself (created during openclaw onboard).
 func (s *Service) EnsureOnboarding() error {
 	workspace := filepath.Join(s.config.OpenclawConfigDir, "workspace")
@@ -24,11 +24,9 @@ func (s *Service) EnsureOnboarding() error {
 	return nil
 }
 
-// seedFile writes the embedded file to dst only if dst does not exist.
+// seedFile writes the embedded file to dst, always overwriting to ensure
+// the latest version is applied (e.g. Lumi's SOUL.md replaces OpenClaw default).
 func seedFile(fs embed.FS, src, dst string) {
-	if _, err := os.Stat(dst); err == nil {
-		return
-	}
 	data, err := fs.ReadFile(src)
 	if err != nil {
 		log.Printf("[onboarding] read embedded %s: %v", src, err)
