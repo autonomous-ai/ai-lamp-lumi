@@ -235,7 +235,7 @@ export default function Monitor() {
             {sysInfo ? (
               <div className="flex gap-3 items-center">
                 {/* CPU circle gauge */}
-                <CircleGauge value={Math.min(100, (sysInfo.cpuLoad / 4) * 100)} label={`${sysInfo.cpuLoad.toFixed(1)}`} sublabel="CPU" />
+                <CircleGauge value={Math.min(100, (sysInfo.cpuLoad / 4) * 100)} label={`${Math.min(100, Math.round((sysInfo.cpuLoad / 4) * 100))}%`} sublabel="CPU" />
                 {/* Stats */}
                 <div className="flex-1 space-y-1.5 min-w-0">
                   <div className="space-y-0.5">
