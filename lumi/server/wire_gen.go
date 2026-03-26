@@ -8,6 +8,7 @@ package server
 
 import (
 	"go-lamp.autonomous.ai/internal/agent"
+	"go-lamp.autonomous.ai/internal/ambient"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/monitor"
@@ -46,6 +47,7 @@ func InitializeServer() (*Server, error) {
 	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus)
 	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
-	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory)
+	ambientService := ambient.ProvideService(bus)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory, ambientService)
 	return server, nil
 }
