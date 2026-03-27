@@ -230,6 +230,33 @@ class VoiceService:
         session_closed = threading.Event()
         listener_ready = threading.Event()
 
+        # Accumulate transcripts across the session, send once at the end
+        collected_parts = []
+        has_wake_word = False
+
+        def _flush_utterance():
+            """Send accumulated transcript parts as one message."""
+            nonlocal has_wake_word
+            if not collected_parts:
+                return
+            full_text = " ".join(collected_parts)
+            collected_parts.clear()
+            wake = has_wake_word
+            has_wake_word = False
+
+            if wake:
+                cmd = full_text.lower()
+                for w in WAKE_WORDS:
+                    if w in cmd:
+                        idx = cmd.index(w) + len(w)
+                        cmd = full_text[idx:].strip().lstrip(",").strip()
+                        break
+                logger.info("STT COMMAND (utterance): '%s'", cmd or full_text)
+                self._send_to_lumi(cmd or full_text, event_type="voice_command")
+            else:
+                logger.info("STT ambient (utterance): '%s'", full_text)
+                self._send_to_lumi(full_text, event_type="voice")
+
         try:
             with client.listen.v1.connect(
                 model="nova-2",
@@ -239,12 +266,13 @@ class VoiceService:
                 channels=CHANNELS,
                 sample_rate=SAMPLE_RATE,
                 interim_results="false",
-                endpointing=500,
+                endpointing=1500,
                 vad_events="true",
                 keywords=KEYWORDS,
             ) as connection:
 
                 def on_message(message):
+                    nonlocal has_wake_word
                     if not isinstance(message, ListenV1Results):
                         return
                     transcript = message.channel.alternatives[0].transcript
@@ -253,22 +281,12 @@ class VoiceService:
                     if not message.is_final:
                         return
                     text = transcript.strip()
-                    lower = text.lower()
+                    logger.info("STT partial: '%s'", text)
+                    collected_parts.append(text)
 
-                    # Check for wake word
-                    is_command = any(w in lower for w in WAKE_WORDS)
-                    if is_command:
-                        # Strip wake word prefix to get the actual command
-                        cmd = lower
-                        for w in WAKE_WORDS:
-                            if cmd.startswith(w):
-                                cmd = text[len(w):].strip().lstrip(",").strip()
-                                break
-                        logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
-                        self._send_to_lumi(cmd or text, event_type="voice_command")
-                    else:
-                        logger.info("STT ambient: '%s'", text)
-                        self._send_to_lumi(text, event_type="voice")
+                    # Track wake word across all parts
+                    if any(w in text.lower() for w in WAKE_WORDS):
+                        has_wake_word = True
 
                 def on_error(error):
                     logger.error("Deepgram error: %s", error)
@@ -332,9 +350,13 @@ class VoiceService:
                     listener_thread.join(timeout=5)
                     if listener_thread.is_alive():
                         logger.warning("Deepgram listener thread did not exit in 5s — will be orphaned")
+
         except Exception as e:
             logger.error("Deepgram session error: %s", e)
             self._listening = False
+
+        # Flush any remaining transcript parts after session ends
+        _flush_utterance()
 
     def _is_echo(self, transcript: str) -> bool:
         """Check if transcript is echo of last TTS output (Layer 3: transcript self-filter)."""
