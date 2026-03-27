@@ -2,12 +2,16 @@ package sse
 
 import (
 	"context"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +22,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
@@ -38,7 +43,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	// Init flow emitter here so ws_connect events (fired from StartWS before any HTTP request)
 	// are broadcast to SSE. Lumi is a single-user device so the global trace ID is sufficient;
 	// concurrent turn interleaving is not a concern in normal operation.
-	flow.Init(bus)
+	flow.Init(bus, config.LumiVersion)
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
@@ -293,6 +298,206 @@ func (h *OpenClawHandler) FlowLogs(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.Header("Content-Type", "application/x-ndjson")
 	io.Copy(c.Writer, f) //nolint:errcheck
+}
+
+// Analytics returns aggregated per-day metrics from flow JSONL files.
+// Query params: from=YYYY-MM-DD, to=YYYY-MM-DD (defaults to last 7 days).
+func (h *OpenClawHandler) Analytics(c *gin.Context) {
+	toDate := c.DefaultQuery("to", time.Now().Format("2006-01-02"))
+	fromDate := c.DefaultQuery("from", time.Now().AddDate(0, 0, -7).Format("2006-01-02"))
+
+	from, err := time.Parse("2006-01-02", fromDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("invalid from date"))
+		return
+	}
+	to, err := time.Parse("2006-01-02", toDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("invalid to date"))
+		return
+	}
+
+	type dayMetrics struct {
+		Date         string   `json:"date"`
+		TurnCount    int      `json:"turnCount"`
+		DurationAvg  float64  `json:"durationAvg"`
+		DurationP50  float64  `json:"durationP50"`
+		DurationP95  float64  `json:"durationP95"`
+		TokensTotal  int      `json:"tokensTotal"`
+		TokensInput  int      `json:"tokensInput"`
+		TokensOutput int      `json:"tokensOutput"`
+		TokensAvg    float64  `json:"tokensAvg"`
+		InnerAvg     float64  `json:"innerAvg"`
+		InnerMax     int      `json:"innerMax"`
+		Versions     []string `json:"versions"`
+	}
+
+	var days []dayMetrics
+
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", dateStr))
+		f, err := os.Open(path)
+		if err != nil {
+			continue // no data for this day
+		}
+
+		// Parse all events for the day
+		type flowEvent struct {
+			Kind       string         `json:"kind"`
+			Node       string         `json:"node"`
+			TS         float64        `json:"ts"`
+			TraceID    string         `json:"trace_id"`
+			DurationMs int64          `json:"duration_ms"`
+			Data       map[string]any `json:"data"`
+			Version    string         `json:"version"`
+		}
+
+		// Per-turn accumulators
+		type turnData struct {
+			durationMs int64
+			tokens     int
+			tokensIn   int
+			tokensOut  int
+			toolCalls  int
+		}
+
+		turns := make(map[string]*turnData)
+		versionSet := make(map[string]bool)
+
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 256*1024), 256*1024)
+		for scanner.Scan() {
+			var ev flowEvent
+			if json.Unmarshal(scanner.Bytes(), &ev) != nil {
+				continue
+			}
+			if ev.Version != "" {
+				versionSet[ev.Version] = true
+			}
+			tid := ev.TraceID
+			if tid == "" {
+				continue
+			}
+			if turns[tid] == nil {
+				turns[tid] = &turnData{}
+			}
+			td := turns[tid]
+
+			// lifecycle_start marks a turn
+			// lifecycle_end carries duration
+			if ev.Node == "lifecycle_end" && ev.DurationMs > 0 {
+				td.durationMs = ev.DurationMs
+			}
+
+			// token_usage event
+			if ev.Node == "token_usage" && ev.Data != nil {
+				if v, ok := ev.Data["total_tokens"]; ok {
+					td.tokens += toInt(v)
+				}
+				if v, ok := ev.Data["input_tokens"]; ok {
+					td.tokensIn += toInt(v)
+				}
+				if v, ok := ev.Data["output_tokens"]; ok {
+					td.tokensOut += toInt(v)
+				}
+			}
+
+			// tool_call events count as inner loop steps
+			if ev.Node == "tool_call" {
+				td.toolCalls++
+			}
+		}
+		f.Close()
+
+		if len(turns) == 0 {
+			continue
+		}
+
+		dm := dayMetrics{Date: dateStr, TurnCount: len(turns)}
+
+		var durations []float64
+		totalTokens, totalIn, totalOut := 0, 0, 0
+		totalTools, maxTools := 0, 0
+
+		for _, td := range turns {
+			if td.durationMs > 0 {
+				durations = append(durations, float64(td.durationMs))
+			}
+			totalTokens += td.tokens
+			totalIn += td.tokensIn
+			totalOut += td.tokensOut
+			totalTools += td.toolCalls
+			if td.toolCalls > maxTools {
+				maxTools = td.toolCalls
+			}
+		}
+
+		dm.TokensTotal = totalTokens
+		dm.TokensInput = totalIn
+		dm.TokensOutput = totalOut
+		if dm.TurnCount > 0 {
+			dm.TokensAvg = float64(totalTokens) / float64(dm.TurnCount)
+			dm.InnerAvg = float64(totalTools) / float64(dm.TurnCount)
+		}
+		dm.InnerMax = maxTools
+
+		if len(durations) > 0 {
+			sort.Float64s(durations)
+			dm.DurationAvg = avg(durations)
+			dm.DurationP50 = percentile(durations, 50)
+			dm.DurationP95 = percentile(durations, 95)
+		}
+
+		versions := make([]string, 0, len(versionSet))
+		for v := range versionSet {
+			versions = append(versions, v)
+		}
+		sort.Strings(versions)
+		dm.Versions = versions
+
+		days = append(days, dm)
+	}
+
+	if days == nil {
+		days = []dayMetrics{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(days))
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	}
+	return 0
+}
+
+func avg(vals []float64) float64 {
+	sum := 0.0
+	for _, v := range vals {
+		sum += v
+	}
+	return sum / float64(len(vals))
+}
+
+func percentile(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	rank := p / 100.0 * float64(len(sorted)-1)
+	lower := int(math.Floor(rank))
+	upper := int(math.Ceil(rank))
+	if lower == upper || upper >= len(sorted) {
+		return sorted[lower]
+	}
+	frac := rank - float64(lower)
+	return sorted[lower]*(1-frac) + sorted[upper]*frac
 }
 
 // Events streams monitor events via SSE.

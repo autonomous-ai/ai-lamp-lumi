@@ -1,4 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Bar, Line } from "react-chartjs-2";
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
 const API = "/api";
 const HW  = "/hw";
@@ -84,13 +99,14 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-type Section = "overview" | "system" | "flow" | "camera";
+type Section = "overview" | "system" | "flow" | "camera" | "analytics";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
-  { id: "overview", label: "Overview",  icon: "◈" },
-  { id: "system",   label: "System",    icon: "⬡" },
-  { id: "flow",     label: "Flow",      icon: "⬢" },
-  { id: "camera",   label: "Camera",    icon: "⬟" },
+  { id: "overview",   label: "Overview",   icon: "◈" },
+  { id: "system",     label: "System",     icon: "⬡" },
+  { id: "flow",       label: "Flow",       icon: "⬢" },
+  { id: "camera",     label: "Camera",     icon: "⬟" },
+  { id: "analytics",  label: "Analytics",  icon: "◉" },
 ];
 
 // ─── CSS-in-JS helpers ───────────────────────────────────────────────────────
@@ -1849,6 +1865,329 @@ function CameraSection({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// ─── Analytics types ─────────────────────────────────────────────────────────
+
+interface DayMetrics {
+  date: string;
+  turnCount: number;
+  durationAvg: number;
+  durationP50: number;
+  durationP95: number;
+  tokensTotal: number;
+  tokensInput: number;
+  tokensOutput: number;
+  tokensAvg: number;
+  innerAvg: number;
+  innerMax: number;
+  versions: string[];
+}
+
+type Preset = "7d" | "14d" | "30d" | "custom";
+
+function fmtDate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+const CHART_COLORS = {
+  amber: "rgba(245,158,11,0.85)",
+  amberFill: "rgba(245,158,11,0.15)",
+  green: "rgba(52,211,153,0.85)",
+  greenFill: "rgba(52,211,153,0.15)",
+  blue: "rgba(96,165,250,0.85)",
+  blueFill: "rgba(96,165,250,0.15)",
+  purple: "rgba(168,85,247,0.85)",
+  purpleFill: "rgba(168,85,247,0.15)",
+  teal: "rgba(45,212,191,0.85)",
+  tealFill: "rgba(45,212,191,0.15)",
+  red: "rgba(248,113,113,0.85)",
+  gridColor: "rgba(255,255,255,0.06)",
+  tickColor: "rgba(255,255,255,0.4)",
+};
+
+const chartScaleDefaults = {
+  grid: { color: CHART_COLORS.gridColor },
+  ticks: { color: CHART_COLORS.tickColor, font: { size: 10 } },
+};
+
+function AnalyticsSection() {
+  const [preset, setPreset] = useState<Preset>("7d");
+  const [customFrom, setCustomFrom] = useState(fmtDate(new Date(Date.now() - 7 * 86400000)));
+  const [customTo, setCustomTo] = useState(fmtDate(new Date()));
+  const [data, setData] = useState<DayMetrics[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const dateRange = useMemo(() => {
+    if (preset === "custom") return { from: customFrom, to: customTo };
+    const days = preset === "7d" ? 7 : preset === "14d" ? 14 : 30;
+    return { from: fmtDate(new Date(Date.now() - days * 86400000)), to: fmtDate(new Date()) };
+  }, [preset, customFrom, customTo]);
+
+  const fetchAnalytics = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/openclaw/analytics?from=${dateRange.from}&to=${dateRange.to}`);
+      const j = await r.json();
+      if (j.status === 1) setData(j.data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [dateRange]);
+
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
+
+  const labels = data.map((d) => d.date.slice(5)); // MM-DD
+  const allVersions = [...new Set(data.flatMap((d) => d.versions))].sort();
+
+  // Summary totals
+  const totalTurns = data.reduce((s, d) => s + d.turnCount, 0);
+  const totalTokens = data.reduce((s, d) => s + d.tokensTotal, 0);
+  const avgDuration = data.length > 0 ? data.reduce((s, d) => s + d.durationAvg, 0) / data.filter((d) => d.durationAvg > 0).length : 0;
+  const avgInner = data.length > 0 ? data.reduce((s, d) => s + d.innerAvg, 0) / data.filter((d) => d.innerAvg > 0).length : 0;
+
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: CHART_COLORS.tickColor, font: { size: 11 } } },
+    },
+    scales: { x: chartScaleDefaults, y: chartScaleDefaults },
+  };
+
+  const pillStyle = (active: boolean): React.CSSProperties => ({
+    padding: "5px 14px",
+    borderRadius: 6,
+    border: `1px solid ${active ? "var(--lm-amber)" : "var(--lm-border)"}`,
+    background: active ? "rgba(245,158,11,0.12)" : "transparent",
+    color: active ? "var(--lm-amber)" : "var(--lm-text-dim)",
+    fontSize: 11.5,
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+  });
+
+  const summaryCardStyle: React.CSSProperties = {
+    ...S.card,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    padding: "16px 12px",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Date range picker */}
+      <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: "var(--lm-text-muted)", fontWeight: 600 }}>RANGE</span>
+        {(["7d", "14d", "30d", "custom"] as Preset[]).map((p) => (
+          <button key={p} style={pillStyle(preset === p)} onClick={() => setPreset(p)}>
+            {p === "custom" ? "Custom" : p}
+          </button>
+        ))}
+        {preset === "custom" && (
+          <>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              style={{ background: "var(--lm-card)", color: "var(--lm-text)", border: "1px solid var(--lm-border)", borderRadius: 6, padding: "4px 8px", fontSize: 11 }}
+            />
+            <span style={{ color: "var(--lm-text-muted)" }}>—</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              style={{ background: "var(--lm-card)", color: "var(--lm-text)", border: "1px solid var(--lm-border)", borderRadius: 6, padding: "4px 8px", fontSize: 11 }}
+            />
+          </>
+        )}
+        {loading && <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading...</span>}
+        {allVersions.length > 0 && (
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--lm-text-muted)" }}>
+            Versions: {allVersions.join(", ")}
+          </span>
+        )}
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div style={summaryCardStyle}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-amber)" }}>{totalTurns}</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>TOTAL TURNS</span>
+        </div>
+        <div style={summaryCardStyle}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-green)" }}>{totalTokens.toLocaleString()}</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>TOTAL TOKENS</span>
+        </div>
+        <div style={summaryCardStyle}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-blue)" }}>{avgDuration ? (avgDuration / 1000).toFixed(1) + "s" : "—"}</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>AVG DURATION</span>
+        </div>
+        <div style={summaryCardStyle}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-purple)" }}>{avgInner ? avgInner.toFixed(1) : "—"}</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>AVG INNER STEPS</span>
+        </div>
+      </div>
+
+      {data.length === 0 && !loading && (
+        <div style={{ ...S.card, textAlign: "center", padding: 40, color: "var(--lm-text-muted)" }}>
+          No analytics data for selected range
+        </div>
+      )}
+
+      {data.length > 0 && (
+        <>
+          {/* Row 1: Turn count + Duration */}
+          <div style={S.grid2}>
+            <div style={{ ...S.card, height: 260 }}>
+              <div style={S.cardLabel}>Turn Count per Day</div>
+              <div style={{ height: 210 }}>
+                <Bar
+                  data={{
+                    labels,
+                    datasets: [{
+                      label: "Turns",
+                      data: data.map((d) => d.turnCount),
+                      backgroundColor: CHART_COLORS.amber,
+                      borderRadius: 4,
+                      barPercentage: 0.6,
+                    }],
+                  }}
+                  options={{ ...commonOptions, plugins: { ...commonOptions.plugins, legend: { display: false } } }}
+                />
+              </div>
+            </div>
+
+            <div style={{ ...S.card, height: 260 }}>
+              <div style={S.cardLabel}>Turn Duration (seconds)</div>
+              <div style={{ height: 210 }}>
+                <Line
+                  data={{
+                    labels,
+                    datasets: [
+                      {
+                        label: "Avg",
+                        data: data.map((d) => d.durationAvg / 1000),
+                        borderColor: CHART_COLORS.green,
+                        backgroundColor: CHART_COLORS.greenFill,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                      },
+                      {
+                        label: "P50",
+                        data: data.map((d) => d.durationP50 / 1000),
+                        borderColor: CHART_COLORS.blue,
+                        borderDash: [4, 4],
+                        tension: 0.3,
+                        pointRadius: 2,
+                      },
+                      {
+                        label: "P95",
+                        data: data.map((d) => d.durationP95 / 1000),
+                        borderColor: CHART_COLORS.red,
+                        borderDash: [2, 2],
+                        tension: 0.3,
+                        pointRadius: 2,
+                      },
+                    ],
+                  }}
+                  options={commonOptions}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Tokens stacked bar + Tokens per turn */}
+          <div style={S.grid2}>
+            <div style={{ ...S.card, height: 260 }}>
+              <div style={S.cardLabel}>Token Usage (stacked)</div>
+              <div style={{ height: 210 }}>
+                <Bar
+                  data={{
+                    labels,
+                    datasets: [
+                      {
+                        label: "Input",
+                        data: data.map((d) => d.tokensInput),
+                        backgroundColor: CHART_COLORS.blue,
+                        borderRadius: 2,
+                      },
+                      {
+                        label: "Output",
+                        data: data.map((d) => d.tokensOutput),
+                        backgroundColor: CHART_COLORS.purple,
+                        borderRadius: 2,
+                      },
+                    ],
+                  }}
+                  options={{
+                    ...commonOptions,
+                    scales: { ...commonOptions.scales, x: { ...chartScaleDefaults, stacked: true }, y: { ...chartScaleDefaults, stacked: true } },
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ ...S.card, height: 260 }}>
+              <div style={S.cardLabel}>Tokens per Turn</div>
+              <div style={{ height: 210 }}>
+                <Line
+                  data={{
+                    labels,
+                    datasets: [{
+                      label: "Tokens/Turn",
+                      data: data.map((d) => Math.round(d.tokensAvg)),
+                      borderColor: CHART_COLORS.teal,
+                      backgroundColor: CHART_COLORS.tealFill,
+                      fill: true,
+                      tension: 0.3,
+                      pointRadius: 3,
+                    }],
+                  }}
+                  options={commonOptions}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 3: Inner steps */}
+          <div style={{ ...S.card, height: 260 }}>
+            <div style={S.cardLabel}>Inner Loop Steps (Tool Calls per Turn)</div>
+            <div style={{ height: 210 }}>
+              <Line
+                data={{
+                  labels,
+                  datasets: [
+                    {
+                      label: "Avg",
+                      data: data.map((d) => +d.innerAvg.toFixed(1)),
+                      borderColor: CHART_COLORS.amber,
+                      backgroundColor: CHART_COLORS.amberFill,
+                      fill: true,
+                      tension: 0.3,
+                      pointRadius: 3,
+                    },
+                    {
+                      label: "Max",
+                      data: data.map((d) => d.innerMax),
+                      borderColor: CHART_COLORS.red,
+                      borderDash: [4, 4],
+                      tension: 0.3,
+                      pointRadius: 2,
+                    },
+                  ],
+                }}
+                options={commonOptions}
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ─────────────────────────────────────────────────────────
+
 export default function Monitor() {
   const [section, setSection] = useState<Section>("overview");
 
@@ -2053,8 +2392,9 @@ export default function Monitor() {
               ramHistory={ramHistory}
             />
           )}
-          {section === "flow"     && <FlowSection events={events} />}
-          {section === "camera"   && <CameraSection displayTs={displayTs} />}
+          {section === "flow"      && <FlowSection events={events} />}
+          {section === "camera"    && <CameraSection displayTs={displayTs} />}
+          {section === "analytics" && <AnalyticsSection />}
         </div>
       </main>
     </div>
