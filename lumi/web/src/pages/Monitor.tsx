@@ -715,7 +715,8 @@ function SystemSection({
 // Maps a MonitorEvent type/node to a flow stage ID
 type FlowStage =
   | "idle" | "sensing" | "intent_check" | "local_match"
-  | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak";
+  | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
+  | "output";
 
 interface FlowNodeDef {
   id: FlowStage;
@@ -802,6 +803,15 @@ const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "tts",
       "flow_event:tts_send", "flow_enter:tts_send", "flow_exit:tts_send",
+    ] },
+
+  { id: "output",
+    label: "Output", short: "OUT", color: "var(--lm-amber)", path: "main",
+    desc: "User sees/hears result · LED / Speaker / Display",
+    triggers: [
+      "tts", "flow_event:tts_send", "flow_exit:tts_send",
+      "intent_match", "flow_event:intent_match",
+      "flow_event:voice_pipeline_start",
     ] },
 ];
 
@@ -894,7 +904,7 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
   const info: Record<FlowStage, string[]> = {
     idle: [], sensing: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
-    agent_response: [], tts_speak: [],
+    agent_response: [], tts_speak: [], output: [],
   };
 
   for (const ev of events) {
@@ -950,6 +960,27 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
         info.idle.push(ev.error ? `❌ ${ev.error.slice(0, 30)}` : "✓ turn done");
       }
     }
+    // output — what the user finally sees/hears
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const text = d?.text ?? ev.summary;
+      if (text && info.output.length < 3) {
+        info.output.push(`🔊 "${text.slice(0, 40)}"`);
+      }
+    }
+    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const tts = d?.data?.tts ?? d?.tts ?? "";
+      if (tts && info.output.length < 3) info.output.push(`💡 ${tts.slice(0, 40)}`);
+      if (ev.summary && info.output.length < 3) info.output.push(`⚡ ${ev.summary.slice(0, 40)}`);
+    }
+    if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
+      const d = ev.detail as Record<string, string> | undefined;
+      const toolName = d?.tool ?? "";
+      if (toolName && info.output.length < 3) {
+        info.output.push(`⚙ ${toolName}`);
+      }
+    }
   }
   return info;
 }
@@ -967,7 +998,7 @@ function FlowDiagram({
   turnEvents?: DisplayEvent[];
 }) {
   // viewBox dimensions (logical coordinate space)
-  const VW = 820;
+  const VW = 940;
   const VH = 300;
 
   // Zoom / pan state
@@ -1017,6 +1048,7 @@ function FlowDiagram({
     tool_exec:      { x: 640, y: 55  },
     agent_response: { x: 640, y: 130 },
     tts_speak:      { x: 760, y: 130 },
+    output:         { x: 880, y: 130 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
@@ -1024,13 +1056,14 @@ function FlowDiagram({
     ["sensing",        "intent_check"],
     ["intent_check",   "local_match"],
     ["intent_check",   "agent_call"],
-    ["local_match",    "tts_speak"],
+    ["local_match",    "output"],
     ["agent_call",     "agent_thinking"],
     ["agent_thinking", "tool_exec"],
     ["agent_thinking", "agent_response"],
     ["tool_exec",      "agent_response"],
     ["agent_response", "tts_speak"],
-    ["tts_speak",      "idle"],
+    ["tts_speak",      "output"],
+    ["output",         "idle"],
   ];
 
   const nodeR = compact ? 26 : 32;
