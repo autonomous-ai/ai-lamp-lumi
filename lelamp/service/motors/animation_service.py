@@ -72,25 +72,52 @@ class AnimationService:
         self._event_lock = threading.Lock()
         self._event_thread: Optional[threading.Thread] = None
 
+    # P gain per servo ID. ID 2,3,4 need high P for gravity hold.
+    _SERVO_PGAIN = {1: 32, 2: 128, 3: 128, 4: 128, 5: 32}
+
+    def _configure_servos_raw(self):
+        """Configure servos directly via scservo_sdk, bypassing lerobot.
+
+        lerobot's bus.write() requires a fully successful connect() handshake.
+        When servos are offline, connect() fails and bus.write() raises
+        DeviceNotConnectedError. This method writes directly to the serial bus
+        to configure whichever servos are actually online.
+        """
+        ph = self.robot.bus.port_handler
+        pk = self.robot.bus.packet_handler
+        from scservo_sdk import COMM_SUCCESS
+        for motor_name, motor_obj in self.robot.bus.motors.items():
+            sid = motor_obj.id
+            pgain = self._SERVO_PGAIN.get(sid, 32)
+            # Ping first
+            _, result, _ = pk.ping(ph, sid)
+            if result != COMM_SUCCESS:
+                logger.warning(f"{motor_name} (ID {sid}): offline, skipping")
+                continue
+            pk.write1ByteTxRx(ph, sid, 40, 0)   # Torque_Enable = 0
+            pk.write1ByteTxRx(ph, sid, 33, 0)   # Operating_Mode = position
+            pk.write1ByteTxRx(ph, sid, 21, pgain)  # P_Coefficient
+            pk.write1ByteTxRx(ph, sid, 23, 0)   # I_Coefficient
+            pk.write1ByteTxRx(ph, sid, 22, 32)  # D_Coefficient
+            pk.write1ByteTxRx(ph, sid, 40, 1)   # Torque_Enable = 1
+            logger.info(f"{motor_name} (ID {sid}): P={pgain}, torque ON")
+
     def start(self):
         self.robot = LeLampFollower(self.robot_config)
         try:
             self.robot.connect(calibrate=False)
         except Exception as e:
-            # Some servos may be offline — log warning but continue.
-            # The port is open and online servos can still be controlled.
             logger.warning(f"Robot connect (partial): {e}")
 
-        # configure() may not have run inside connect() if bus.connect() threw.
-        # Call it explicitly to set P gain and torque on available servos.
+        # Configure servos directly — works even if connect() partially failed
         try:
-            self.robot.configure()
+            self._configure_servos_raw()
         except Exception as e:
-            logger.warning(f"configure (partial): {e}")
+            logger.warning(f"Raw configure failed: {e}")
 
         logger.info(f"Animation service connected to {self.port}")
 
-        # Move base_pitch and elbow_pitch to startup position (same as idle.csv first frame)
+        # Move base_pitch and elbow_pitch to startup position
         try:
             self.move_to(STARTUP_POSITION, duration=STARTUP_MOVE_DURATION)
             logger.info("Servos 2,3 moved to startup position")
