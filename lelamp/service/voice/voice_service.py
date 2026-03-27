@@ -276,16 +276,30 @@ class VoiceService:
             self._listening = False
 
     def _send_to_lumi(self, transcript: str, event_type: str = "voice"):
-        """Send voice transcript to Lumi Server as a sensing event."""
-        try:
-            resp = requests.post(
-                LUMI_SENSING_URL,
-                json={"type": event_type, "message": transcript},
-                timeout=5,
-            )
-            if resp.status_code != 200:
-                logger.warning("Lumi returned %d: %s", resp.status_code, resp.text)
-            else:
-                logger.info("Sent to Lumi: '%s'", transcript[:80])
-        except requests.RequestException as e:
-            logger.warning("Failed to send voice event to Lumi: %s", e)
+        """Send voice transcript to Lumi Server as a sensing event (with retry)."""
+        import json as _json
+        payload = {"type": event_type, "message": transcript}
+        logger.info("curl -s -X POST %s -H 'Content-Type: application/json' -d '%s'",
+                     LUMI_SENSING_URL, _json.dumps(payload))
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = requests.post(
+                    LUMI_SENSING_URL,
+                    json=payload,
+                    timeout=5,
+                )
+                if resp.status_code != 200:
+                    logger.warning("Lumi returned %d: %s", resp.status_code, resp.text)
+                else:
+                    logger.info("Sent to Lumi: '%s'", transcript[:80])
+                return
+            except requests.ConnectionError as e:
+                if attempt < max_retries:
+                    logger.warning("Lumi not reachable (attempt %d/%d), retrying in 2s...", attempt, max_retries)
+                    time.sleep(2)
+                else:
+                    logger.warning("Failed to send voice event to Lumi after %d attempts: %s", max_retries, e)
+            except requests.RequestException as e:
+                logger.warning("Failed to send voice event to Lumi: %s", e)
+                return

@@ -2,7 +2,10 @@ package openclaw
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -23,6 +26,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -277,6 +281,8 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		gatewayAuthMap["token"] = token
 	}
 	gatewayMap["auth"] = gatewayAuthMap
+	// Disable device identity checks — Lumi connects locally on loopback
+	gatewayMap["dangerouslyDisableDeviceAuth"] = true
 	configData["gateway"] = gatewayMap
 
 	slog.Debug("ensuring full-access tools defaults", "component", "openclaw")
@@ -506,8 +512,10 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 		}
 		if err != nil {
 			slog.Warn("websocket disconnected, reconnecting", "component", "openclaw", "error", err, "backoff", backoff)
+			flow.Log("ws_disconnect", map[string]any{"error": err.Error(), "backoff_s": backoff.Seconds()})
 		} else {
 			slog.Warn("websocket connection closed, reconnecting", "component", "openclaw", "backoff", backoff)
+			flow.Log("ws_disconnect", map[string]any{"reason": "closed", "backoff_s": backoff.Seconds()})
 		}
 		if !sleepCtx(ctx, backoff) {
 			return
@@ -519,12 +527,16 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConnected.Store(false)
 	defer s.wsConnected.Store(false)
 
+	connStart := flow.Start("ws_connect", map[string]any{"url": defaultGatewayWSURL})
+
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, resp, err := dialer.DialContext(ctx, defaultGatewayWSURL, http.Header{})
 	if err != nil {
 		if resp != nil {
+			flow.End("ws_connect", connStart, map[string]any{"error": err.Error(), "status": resp.Status})
 			return fmt.Errorf("dial %s: %w (status %s)", defaultGatewayWSURL, err, resp.Status)
 		}
+		flow.End("ws_connect", connStart, map[string]any{"error": err.Error()})
 		return fmt.Errorf("dial %s: %w", defaultGatewayWSURL, err)
 	}
 	defer func() {
@@ -534,17 +546,39 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		conn.Close()
 	}()
 
+	// Read connect.challenge from gateway
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := conn.ReadMessage()
-	if err == nil {
-		slog.Debug("initial event received", "component", "openclaw", "event", string(msg))
+	if err != nil {
+		return fmt.Errorf("read connect.challenge: %w", err)
 	}
 	conn.SetReadDeadline(time.Time{})
+	slog.Debug("initial event received", "component", "openclaw", "event", string(msg))
+
+	// Parse nonce from connect.challenge
+	var challenge struct {
+		Payload struct {
+			Nonce string `json:"nonce"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(msg, &challenge); err != nil || challenge.Payload.Nonce == "" {
+		return fmt.Errorf("parse connect.challenge nonce: %w", err)
+	}
+	nonce := challenge.Payload.Nonce
 
 	token, err := s.readGatewayToken()
 	if err != nil {
+		flow.End("ws_connect", connStart, map[string]any{"error": "read token: " + err.Error()})
 		return fmt.Errorf("read gateway token: %w", err)
 	}
+
+	di, err := s.loadOrCreateDeviceIdentity()
+	if err != nil {
+		return fmt.Errorf("device identity: %w", err)
+	}
+
+	signedAt := time.Now().UnixMilli()
+	signature := di.signConnectPayload(token, nonce, signedAt)
 
 	connectReq := map[string]interface{}{
 		"type":   "req",
@@ -563,6 +597,13 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
 			"caps":   []string{"thinking-events"},
 			"auth":   map[string]interface{}{"token": token},
+			"device": map[string]interface{}{
+				"id":        di.DeviceID,
+				"publicKey": base64.StdEncoding.EncodeToString(di.PublicKey),
+				"signature": signature,
+				"signedAt":  signedAt,
+				"nonce":     nonce,
+			},
 		},
 	}
 	connectBody, _ := json.Marshal(connectReq)
@@ -637,6 +678,8 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConn = conn
 	s.wsMu.Unlock()
 	s.wsConnected.Store(true)
+	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
+	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
 
 	for {
 		select {
@@ -929,6 +972,76 @@ func restartOpenclawGateway() error {
 	return fmt.Errorf("openclaw gateway restart: %w - output: %s", err, output)
 }
 
+// --- Device identity (Ed25519) for gateway auth ---
+
+const deviceKeyFile = "lumi-device-key.json"
+
+type deviceIdentity struct {
+	PublicKey  ed25519.PublicKey
+	PrivateKey ed25519.PrivateKey
+	DeviceID   string // hex(SHA-256(publicKey))
+}
+
+// loadOrCreateDeviceIdentity loads the Ed25519 keypair from disk, or generates
+// a new one and persists it for future connections.
+func (s *Service) loadOrCreateDeviceIdentity() (*deviceIdentity, error) {
+	keyPath := filepath.Join(s.config.OpenclawConfigDir, deviceKeyFile)
+	if data, err := os.ReadFile(keyPath); err == nil {
+		var stored struct {
+			PrivateKey string `json:"privateKey"` // hex-encoded 64-byte Ed25519 seed+pub
+		}
+		if err := json.Unmarshal(data, &stored); err == nil {
+			privBytes, err := hex.DecodeString(stored.PrivateKey)
+			if err == nil && len(privBytes) == ed25519.PrivateKeySize {
+				priv := ed25519.PrivateKey(privBytes)
+				pub := priv.Public().(ed25519.PublicKey)
+				id := deriveDeviceID(pub)
+				slog.Info("loaded device identity", "component", "openclaw", "deviceId", id)
+				return &deviceIdentity{PublicKey: pub, PrivateKey: priv, DeviceID: id}, nil
+			}
+		}
+	}
+
+	// Generate new keypair
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate ed25519 key: %w", err)
+	}
+	id := deriveDeviceID(pub)
+
+	stored := map[string]string{"privateKey": hex.EncodeToString(priv)}
+	data, _ := json.MarshalIndent(stored, "", "  ")
+	if err := os.WriteFile(keyPath, data, 0600); err != nil {
+		return nil, fmt.Errorf("write device key: %w", err)
+	}
+	_ = chownRuntimeUserIfRoot(keyPath, openclawRuntimeUser)
+	slog.Info("generated new device identity", "component", "openclaw", "deviceId", id)
+	return &deviceIdentity{PublicKey: pub, PrivateKey: priv, DeviceID: id}, nil
+}
+
+// deriveDeviceID returns hex(SHA-256(rawPublicKey)).
+func deriveDeviceID(pub ed25519.PublicKey) string {
+	h := sha256.Sum256(pub)
+	return hex.EncodeToString(h[:])
+}
+
+// signConnectPayload builds and signs the v2 payload for device auth.
+// Format: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+func (di *deviceIdentity) signConnectPayload(token, nonce string, signedAt int64) string {
+	payload := fmt.Sprintf("v2|%s|%s|%s|%s|%s|%d|%s|%s",
+		di.DeviceID,
+		"node-host",  // clientId
+		"node",       // clientMode
+		"operator",   // role
+		"operator.read,operator.write,events.read", // scopes
+		signedAt,
+		token,
+		nonce,
+	)
+	sig := ed25519.Sign(di.PrivateKey, []byte(payload))
+	return base64.StdEncoding.EncodeToString(sig)
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -958,6 +1071,7 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		slog.Info("LeLamp voice pipeline started", "component", "openclaw")
+		flow.Log("voice_pipeline_start", nil)
 	}
 	return nil
 }
@@ -1010,6 +1124,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 func (s *Service) SetSessionKey(key string) {
 	s.lastSessionKey.Store(key)
 	slog.Info("session key stored", "component", "openclaw", "key", key)
+	flow.Log("session_key_acquired", map[string]any{"key_len": len(key)})
 }
 
 // GetSessionKey returns the last observed session key, or empty string if none.
@@ -1019,9 +1134,7 @@ func (s *Service) GetSessionKey() string {
 }
 
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
-// Returns the runId on success. If no session key exists, sends without one so that
-// OpenClaw creates a new session automatically (the session key will be captured from
-// subsequent WS events).
+// Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
@@ -1031,13 +1144,10 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
-	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
 
 	params := map[string]interface{}{
-		"message":        message,
-		"idempotencyKey": idempotencyKey,
+		"message": message,
 	}
-	// Only include sessionKey if we have one; omitting it lets OpenClaw create a new session.
 	sessionKey := s.GetSessionKey()
 	if sessionKey != "" {
 		params["sessionKey"] = sessionKey
@@ -1062,6 +1172,7 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
+	flow.Log("chat_send", map[string]any{"run_id": reqID, "has_session": sessionKey != ""})
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
