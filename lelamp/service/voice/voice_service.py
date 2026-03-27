@@ -32,6 +32,13 @@ SILENCE_TIMEOUT_S = 5.0   # Disconnect Deepgram after this much silence
 SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting Deepgram
 SESSION_COOLDOWN_S = 1.0  # Cooldown between Deepgram sessions for cleanup
 
+# Echo cancellation config
+ECHO_RMS_FLOOR = 200          # RMS must drop below this before re-enabling VAD
+ECHO_GATE_MAX_WAIT_S = 3.0   # Max time to wait for reverb decay after TTS
+ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
+ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
+ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
+
 # Keyword boost for wake word detection via transcript
 KEYWORDS = ["lumi:3", "lu mi:2"]
 
@@ -129,16 +136,36 @@ class VoiceService:
         return self._tts is not None and self._tts.speaking
 
     def _wait_for_tts(self):
-        """Block until TTS finishes speaking, so we can reclaim the audio device."""
+        """Block until TTS finishes speaking, then wait for reverb to decay (adaptive RMS gate)."""
         if not self._tts_is_speaking():
             return
         logger.info("TTS is speaking, pausing mic until done...")
         while self._running and self._tts_is_speaking():
             time.sleep(0.2)
-        if self._running:
-            # Small grace period for ALSA to fully release the device
-            time.sleep(0.5)
-            logger.info("TTS done, resuming mic")
+        if not self._running:
+            return
+
+        # Adaptive RMS gate: wait for reverb/echo to decay instead of fixed sleep
+        logger.info("TTS done, waiting for reverb decay (RMS < %d)...", ECHO_RMS_FLOOR)
+        sd = self._sd
+        np = self._np
+        try:
+            window_frames = int(SAMPLE_RATE * ECHO_GATE_WINDOW_S)
+            elapsed = 0.0
+            while elapsed < ECHO_GATE_MAX_WAIT_S and self._running:
+                recording = sd.rec(
+                    window_frames, samplerate=SAMPLE_RATE, channels=CHANNELS,
+                    dtype="int16", device=self._input_device, blocking=True,
+                )
+                rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
+                elapsed += ECHO_GATE_WINDOW_S
+                if rms < ECHO_RMS_FLOOR:
+                    logger.info("Reverb decayed (RMS=%.0f < %d) after %.2fs", rms, ECHO_RMS_FLOOR, elapsed)
+                    return
+            logger.info("Reverb gate timeout after %.1fs, resuming anyway", ECHO_GATE_MAX_WAIT_S)
+        except Exception as e:
+            logger.warning("RMS gate failed, falling back to fixed delay: %s", e)
+            time.sleep(1.0)
 
     def _loop(self):
         """Main loop: local VAD → Deepgram on speech → disconnect on silence."""
@@ -309,8 +336,32 @@ class VoiceService:
             logger.error("Deepgram session error: %s", e)
             self._listening = False
 
+    def _is_echo(self, transcript: str) -> bool:
+        """Check if transcript is echo of last TTS output (Layer 3: transcript self-filter)."""
+        if not self._tts or not self._tts.last_spoken_text:
+            return False
+        # Only relevant within a time window after TTS finished
+        elapsed = time.time() - self._tts.last_spoken_time
+        if elapsed > ECHO_RELEVANCE_WINDOW_S:
+            return False
+        from difflib import SequenceMatcher
+        similarity = SequenceMatcher(
+            None, transcript.lower(), self._tts.last_spoken_text.lower()
+        ).ratio()
+        if similarity >= ECHO_SIMILARITY_THRESHOLD:
+            logger.info(
+                "Echo detected (similarity=%.2f): '%s' ≈ TTS:'%s' — dropping",
+                similarity, transcript[:60], self._tts.last_spoken_text[:60],
+            )
+            return True
+        return False
+
     def _send_to_lumi(self, transcript: str, event_type: str = "voice"):
         """Send voice transcript to Lumi Server as a sensing event (with retry)."""
+        # Layer 3: transcript self-filter — drop if it's echo of our own TTS
+        if self._is_echo(transcript):
+            return
+
         import json as _json
         payload = {"type": event_type, "message": transcript}
         logger.info("curl -s -X POST %s -H 'Content-Type: application/json' -d '%s'",

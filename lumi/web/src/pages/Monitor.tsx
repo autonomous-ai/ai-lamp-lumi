@@ -730,7 +730,7 @@ function SystemSection({
 
 // Maps a MonitorEvent type/node to a flow stage ID
 type FlowStage =
-  | "idle" | "sensing" | "intent_check" | "local_match"
+  | "idle" | "sensing" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "output";
 
@@ -762,6 +762,14 @@ const FLOW_NODES: FlowNodeDef[] = [
       "sensing_input",
       "flow_enter:sensing_input", "flow_exit:sensing_input", "flow_event:sensing_input",
       "flow_enter:voice_pipeline_start", "flow_event:voice_pipeline_start",
+    ] },
+
+  { id: "telegram_input",
+    label: "Telegram In", short: "TG IN", color: "#229ed9", path: "main",
+    desc: "Inbound message via Telegram / Slack / Discord",
+    triggers: [
+      "chat_input",
+      "flow_event:chat_input",
     ] },
 
   { id: "intent_check",
@@ -880,6 +888,19 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       };
       continue;
     }
+    // chat_input = inbound Telegram/Slack/Discord message — starts a new agent turn
+    if (ev.type === "chat_input") {
+      if (current) turns.push(current);
+      current = {
+        id: ev.runId || `telegram-${ev._seq}`,
+        startTime: ev.time,
+        type: "telegram",
+        path: "agent",
+        status: "active",
+        events: [ev],
+      };
+      continue;
+    }
     if (!current) {
       // Orphan events before first sensing_input (startup infra events) — skip
       continue;
@@ -918,7 +939,7 @@ const PATH_LABEL: Record<string, string> = { main: "MAIN", fast: "FAST", agent: 
 // Extract runtime info for each node from turn events
 function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
   const info: Record<FlowStage, string[]> = {
-    idle: [], sensing: [], intent_check: [], local_match: [],
+    idle: [], sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], output: [],
   };
@@ -929,6 +950,12 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
       else info.sensing.push(ev.summary);
+    }
+    // chat_input → telegram_input node
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      const m = ev.summary.match(/^\[telegram\]\s*(.*)/);
+      if (m) info.telegram_input.push(`"${m[1]}"`);
+      else if (ev.summary) info.telegram_input.push(ev.summary);
     }
     // intent_match → local_match node
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
@@ -1022,7 +1049,7 @@ function FlowDiagram({
 }) {
   // viewBox dimensions (logical coordinate space)
   const VW = 940;
-  const VH = 380;
+  const VH = 420;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -1062,31 +1089,33 @@ function FlowDiagram({
 
   // Node positions — wider spacing for info
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:           { x: 60,  y: 210 },
-    sensing:        { x: 170, y: 210 },
-    intent_check:   { x: 290, y: 210 },
-    local_match:    { x: 410, y: 80  },
-    agent_call:     { x: 410, y: 210 },
-    agent_thinking: { x: 520, y: 210 },
-    tool_exec:      { x: 640, y: 80  },
-    agent_response: { x: 640, y: 210 },
-    tts_speak:      { x: 760, y: 210 },
-    output:         { x: 880, y: 210 },
+    idle:            { x: 60,  y: 210 },
+    sensing:         { x: 170, y: 210 },
+    telegram_input:  { x: 170, y: 350 },
+    intent_check:    { x: 290, y: 210 },
+    local_match:     { x: 410, y: 80  },
+    agent_call:      { x: 410, y: 210 },
+    agent_thinking:  { x: 520, y: 210 },
+    tool_exec:       { x: 640, y: 80  },
+    agent_response:  { x: 640, y: 210 },
+    tts_speak:       { x: 760, y: 210 },
+    output:          { x: 880, y: 210 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
-    ["idle",           "sensing"],
-    ["sensing",        "intent_check"],
-    ["intent_check",   "local_match"],
-    ["intent_check",   "agent_call"],
-    ["local_match",    "output"],
-    ["agent_call",     "agent_thinking"],
-    ["agent_thinking", "tool_exec"],
-    ["agent_thinking", "agent_response"],
-    ["tool_exec",      "agent_response"],
-    ["agent_response", "tts_speak"],
-    ["tts_speak",      "output"],
-    ["output",         "idle"],
+    ["idle",            "sensing"],
+    ["sensing",         "intent_check"],
+    ["telegram_input",  "agent_call"],
+    ["intent_check",    "local_match"],
+    ["intent_check",    "agent_call"],
+    ["local_match",     "output"],
+    ["agent_call",      "agent_thinking"],
+    ["agent_thinking",  "tool_exec"],
+    ["agent_thinking",  "agent_response"],
+    ["tool_exec",       "agent_response"],
+    ["agent_response",  "tts_speak"],
+    ["tts_speak",       "output"],
+    ["output",          "idle"],
   ];
 
   const nodeR = compact ? 26 : 32;
@@ -1175,8 +1204,8 @@ function FlowDiagram({
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
           const descLines = node.desc.split(" · ").length;
-          // Info box position: below desc for main row (y=130), above for top row (y=55)
-          const infoBelow = pos.y > 80;
+          // Info box: below for mid row (y~210), above for top (y~80) and bottom (y~350) rows
+          const infoBelow = pos.y > 80 && pos.y < 300;
           const boxY = infoBelow
             ? pos.y + nodeR + 18 + descLines * 10 + 6
             : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
@@ -1291,6 +1320,7 @@ function FlowDiagram({
 // Source type → icon map
 const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", motion: "👁", sound: "🔊", environment: "🌡", system: "⚙", unknown: "❓",
+  telegram: "💬",
 };
 
 // Extract input/output summary from a turn
@@ -1298,10 +1328,14 @@ function turnIO(turn: Turn): { input: string; output: string } {
   let input = "";
   let output = "";
   for (const ev of turn.events) {
-    // Input: first sensing_input message
+    // Input: first sensing_input or chat_input message
     if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"))) {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       input = m ? m[2] : ev.summary;
+    }
+    if (!input && ev.type === "chat_input") {
+      const m = ev.summary.match(/^\[telegram\]\s*(.*)/);
+      input = m ? m[1] : ev.summary;
     }
     // Output: last tts or intent_match result
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
