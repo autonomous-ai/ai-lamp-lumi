@@ -21,14 +21,16 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
-# Safe joint limits (degrees). Keeps 10° margin from mechanical limits.
+# Safe joint limits. Keeps margin from mechanical limits.
+# Values are in the servo's native unit (degrees when use_degrees=True,
+# normalized -100..100 otherwise). Current recordings use degree-scale values.
 # All send_action / move_to calls are clamped to these.
 JOINT_LIMITS = {
     "base_yaw.pos":     (-78.0,  78.0),   # ID 1
     "base_pitch.pos":   (-78.0,  80.0),   # ID 2
-    "elbow_pitch.pos":  (-60.0,  15.0),   # ID 3
+    "elbow_pitch.pos":  (-25.0,  97.0),   # ID 3  (startup: -15, recordings: up to 96)
     "wrist_roll.pos":   (-68.0,  68.0),   # ID 4
-    "wrist_pitch.pos":  (-25.0,  68.0),   # ID 5
+    "wrist_pitch.pos":  (-25.0,  72.0),   # ID 5  (recordings: up to 70)
 }
 
 
