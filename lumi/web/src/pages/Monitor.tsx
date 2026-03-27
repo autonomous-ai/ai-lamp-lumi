@@ -84,12 +84,13 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-type Section = "overview" | "system" | "workflow" | "camera";
+type Section = "overview" | "system" | "workflow" | "flow" | "camera";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview", label: "Overview",  icon: "◈" },
   { id: "system",   label: "System",    icon: "⬡" },
   { id: "workflow", label: "Workflow",  icon: "◎" },
+  { id: "flow",     label: "Flow",      icon: "⬢" },
   { id: "camera",   label: "Camera",    icon: "⬟" },
 ];
 
@@ -813,6 +814,665 @@ function WorkflowSection({ events }: { events: DisplayEvent[] }) {
   );
 }
 
+// ─── Flow Panel ──────────────────────────────────────────────────────────────
+
+// Maps a MonitorEvent type/node to a flow stage ID
+type FlowStage =
+  | "idle" | "sensing" | "intent_check" | "local_match"
+  | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak";
+
+interface FlowNodeDef {
+  id: FlowStage;
+  label: string;
+  short: string;
+  color: string;
+  // event types or flow nodes that activate this stage
+  triggers: string[];
+  path: "main" | "fast" | "agent";
+}
+
+const FLOW_NODES: FlowNodeDef[] = [
+  // idle  — triggered by ambient resume or ws_ready (connection established)
+  { id: "idle",
+    label: "Idle", short: "IDLE", color: "var(--lm-text-muted)", path: "main",
+    triggers: ["ambient_resume", "flow_event:ambient_resume", "flow_event:ws_ready"] },
+
+  // sensing — triggered by sensing_input (HTTP POST /sensing/event received)
+  { id: "sensing",
+    label: "Sensing", short: "SENSE", color: "var(--lm-amber)", path: "main",
+    triggers: ["sensing_input", "flow_enter:sensing_input", "flow_exit:sensing_input"] },
+
+  // intent_check — triggered when we decide to route (agent_call dispatched or intent checked)
+  { id: "intent_check",
+    label: "Intent Check", short: "INTENT", color: "var(--lm-teal)", path: "main",
+    triggers: ["flow_event:agent_call", "flow_event:chat_send", "chat_send"] },
+
+  // local_match — fast path: matched a local intent rule
+  { id: "local_match",
+    label: "Local Match", short: "LOCAL", color: "var(--lm-green)", path: "fast",
+    triggers: ["intent_match", "flow_event:intent_match"] },
+
+  // agent_call — message sent to OpenClaw via chat.send WebSocket RPC
+  { id: "agent_call",
+    label: "Agent Call", short: "AGENT", color: "var(--lm-blue)", path: "agent",
+    triggers: ["flow_event:agent_call", "flow_event:chat_send", "flow_event:lifecycle_start"] },
+
+  // agent_thinking — agent is reasoning (thinking stream events)
+  { id: "agent_thinking",
+    label: "Thinking", short: "THINK", color: "var(--lm-purple)", path: "agent",
+    triggers: ["thinking", "flow_event:lifecycle_start"] },
+
+  // tool_exec — agent invoked a tool
+  { id: "tool_exec",
+    label: "Tool Exec", short: "TOOL", color: "#f59e0b", path: "agent",
+    triggers: ["tool_call", "flow_event:tool_call"] },
+
+  // agent_response — agent turn ended, response accumulated
+  { id: "agent_response",
+    label: "Response", short: "RESP", color: "var(--lm-green)", path: "agent",
+    triggers: ["chat_response", "flow_event:lifecycle_end"] },
+
+  // tts_speak — text sent to LeLamp /voice/speak for playback
+  { id: "tts_speak",
+    label: "TTS Speak", short: "TTS", color: "var(--lm-purple)", path: "agent",
+    triggers: ["tts", "flow_event:tts_send"] },
+];
+
+// Derive active stage from most recent relevant events
+function deriveActiveStage(events: DisplayEvent[]): FlowStage {
+  const recent = events.slice(-30);
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const ev = recent[i];
+    const key = ev.type === "flow_event" && ev.detail?.node
+      ? `flow_event:${ev.detail.node}`
+      : ev.type === "flow_enter" && ev.detail?.node
+      ? `flow_enter:${ev.detail.node}`
+      : ev.type === "flow_exit" && ev.detail?.node
+      ? `flow_exit:${ev.detail.node}`
+      : ev.type;
+    for (const node of [...FLOW_NODES].reverse()) {
+      if (node.triggers.includes(key)) return node.id;
+    }
+  }
+  return "idle";
+}
+
+// Group events into turns by runId (a new turn starts on each sensing_input)
+interface Turn {
+  id: string;          // runId or a synthetic id for local turns
+  startTime: string;
+  endTime?: string;
+  type: string;        // "voice", "motion", etc.
+  path: "local" | "agent" | "unknown";
+  status: "active" | "done" | "error";
+  events: DisplayEvent[];
+}
+
+function groupIntoTurns(events: DisplayEvent[]): Turn[] {
+  const turns: Turn[] = [];
+  let current: Turn | null = null;
+
+  for (const ev of events) {
+    // sensing_input always starts a new turn
+    if (ev.type === "sensing_input") {
+      if (current) turns.push(current);
+      const typeMatch = ev.summary.match(/^\[([^\]]+)\]/);
+      current = {
+        id: ev.runId || `local-${ev._seq}`,
+        startTime: ev.time,
+        type: typeMatch ? typeMatch[1] : "unknown",
+        path: "unknown",
+        status: "active",
+        events: [ev],
+      };
+      continue;
+    }
+    if (!current) {
+      // Orphan events before first sensing_input — create a synthetic turn
+      current = { id: "init", startTime: ev.time, type: "system", path: "unknown", status: "active", events: [] };
+    }
+    current.events.push(ev);
+
+    // Classify path
+    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+      current.path = "local";
+    } else if (ev.runId || ev.type === "lifecycle" || ev.type === "thinking") {
+      current.path = "agent";
+      if (ev.runId && current.id === "init") current.id = ev.runId;
+    }
+
+    // Detect turn end
+    if (ev.type === "lifecycle" && ev.phase === "end") {
+      current.status = ev.error ? "error" : "done";
+      current.endTime = ev.time;
+    }
+    if (ev.type === "intent_match") {
+      current.status = "done";
+      current.endTime = ev.time;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "tts_send") {
+      current.status = "done";
+      current.endTime = ev.time;
+    }
+  }
+  if (current) turns.push(current);
+  return turns.slice(-15).reverse(); // latest 15, newest first
+}
+
+// SVG Flow Diagram — renders the pipeline with highlighted active stage and visited stages
+function FlowDiagram({
+  activeStage,
+  visitedStages,
+  compact = false,
+}: {
+  activeStage: FlowStage;
+  visitedStages: Set<FlowStage>;
+  compact?: boolean;
+}) {
+  const W = compact ? 560 : 720;
+  const H = compact ? 160 : 200;
+
+  // Node positions (in 720x200 space, scaled for compact)
+  const positions: Record<FlowStage, { x: number; y: number }> = {
+    idle:           { x: 42,  y: 100 },
+    sensing:        { x: 140, y: 100 },
+    intent_check:   { x: 240, y: 100 },
+    local_match:    { x: 340, y: 44  },
+    agent_call:     { x: 340, y: 100 },
+    agent_thinking: { x: 440, y: 100 },
+    tool_exec:      { x: 540, y: 44  },
+    agent_response: { x: 540, y: 100 },
+    tts_speak:      { x: 640, y: 100 },
+  };
+
+  // Edges (from → to)
+  const edges: [FlowStage, FlowStage][] = [
+    ["idle",           "sensing"],
+    ["sensing",        "intent_check"],
+    ["intent_check",   "local_match"],
+    ["intent_check",   "agent_call"],
+    ["local_match",    "tts_speak"],
+    ["agent_call",     "agent_thinking"],
+    ["agent_thinking", "tool_exec"],
+    ["agent_thinking", "agent_response"],
+    ["tool_exec",      "agent_response"],
+    ["agent_response", "tts_speak"],
+    ["tts_speak",      "idle"],
+  ];
+
+  const nodeR = compact ? 22 : 28;
+  const fontSize = compact ? 7.5 : 9;
+
+  function nodeColor(id: FlowStage) {
+    if (id === activeStage) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
+    if (visitedStages.has(id)) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
+    return "var(--lm-text-muted)";
+  }
+  function nodeOpacity(id: FlowStage) {
+    if (id === activeStage) return 1;
+    if (visitedStages.has(id)) return 0.55;
+    return 0.25;
+  }
+  function edgeColor(from: FlowStage, to: FlowStage) {
+    const fromVisited = visitedStages.has(from) || from === activeStage;
+    const toVisited = visitedStages.has(to) || to === activeStage;
+    return fromVisited && toVisited ? "var(--lm-border-hi)" : "var(--lm-border)";
+  }
+
+  const glowId = "flow-glow";
+
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 720 200`}
+      style={{ display: "block", width: "100%", maxWidth: W, height: "auto" }}
+    >
+      <defs>
+        <filter id={glowId}>
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+
+      {/* Edges */}
+      {edges.map(([from, to]) => {
+        const f = positions[from];
+        const t = positions[to];
+        // Offset edge endpoints to circle edge
+        const dx = t.x - f.x, dy = t.y - f.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const x1 = f.x + (dx / len) * nodeR;
+        const y1 = f.y + (dy / len) * nodeR;
+        const x2 = t.x - (dx / len) * (nodeR + 4);
+        const y2 = t.y - (dy / len) * (nodeR + 4);
+        return (
+          <g key={`${from}-${to}`}>
+            <line x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={edgeColor(from, to)} strokeWidth={1.5}
+              markerEnd="url(#arrow)" opacity={0.6}
+            />
+          </g>
+        );
+      })}
+
+      {/* Arrow marker */}
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="var(--lm-border-hi)" />
+        </marker>
+      </defs>
+
+      {/* Nodes */}
+      {FLOW_NODES.map((node) => {
+        const pos = positions[node.id];
+        const isActive = node.id === activeStage;
+        const color = nodeColor(node.id);
+        const opacity = nodeOpacity(node.id);
+        return (
+          <g key={node.id} opacity={opacity}>
+            {/* Glow ring for active */}
+            {isActive && (
+              <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
+                fill="none" stroke={color} strokeWidth={2}
+                opacity={0.35} style={{ filter: `url(#${glowId})` }}
+              />
+            )}
+            {/* Node circle */}
+            <circle cx={pos.x} cy={pos.y} r={nodeR}
+              fill={isActive ? `${color}22` : "var(--lm-surface)"}
+              stroke={color} strokeWidth={isActive ? 2 : 1}
+              style={isActive ? { filter: `url(#${glowId})` } : undefined}
+            />
+            {/* Short label inside */}
+            <text x={pos.x} y={pos.y - 3} textAnchor="middle"
+              fill={color} fontSize={fontSize} fontWeight={isActive ? 700 : 500}>
+              {node.short}
+            </text>
+            {/* Full label below */}
+            <text x={pos.x} y={pos.y + 9} textAnchor="middle"
+              fill={color} fontSize={fontSize - 1} opacity={0.8}>
+              {node.label.split(" ")[1] ?? ""}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function TurnBadge({ turn }: { turn: Turn }) {
+  const pathColor = turn.path === "local" ? "var(--lm-green)"
+    : turn.path === "agent" ? "var(--lm-blue)"
+    : "var(--lm-text-muted)";
+  const statusColor = turn.status === "done" ? "var(--lm-green)"
+    : turn.status === "error" ? "var(--lm-red)"
+    : "var(--lm-amber)";
+
+  return (
+    <div style={{
+      padding: "7px 10px",
+      borderRadius: 8,
+      background: "var(--lm-surface)",
+      border: "1px solid var(--lm-border)",
+      fontSize: 11,
+      cursor: "default",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+        <span style={{
+          fontSize: 9, padding: "1px 5px", borderRadius: 3,
+          background: `${pathColor}18`, color: pathColor, fontWeight: 700,
+          textTransform: "uppercase" as const,
+        }}>{turn.path}</span>
+        <span style={{
+          fontSize: 9, padding: "1px 5px", borderRadius: 3,
+          background: `${statusColor}15`, color: statusColor, fontWeight: 600,
+        }}>{turn.status}</span>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
+          {turn.startTime}
+        </span>
+      </div>
+      <div style={{ color: "var(--lm-text-dim)", fontSize: 10.5, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
+        [{turn.type}] — {turn.events.length} events
+      </div>
+    </div>
+  );
+}
+
+// Canvas modal overlay
+function CanvasModal({
+  activeStage,
+  visitedStages,
+  onClose,
+}: {
+  activeStage: FlowStage;
+  visitedStages: Set<FlowStage>;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "var(--lm-card)", border: "1px solid var(--lm-border)",
+          borderRadius: 16, padding: 32, maxWidth: 820, width: "90vw",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--lm-text)" }}>Lumi Turn Workflow</span>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: "var(--lm-text-muted)",
+            cursor: "pointer", fontSize: 16, lineHeight: 1,
+          }}>✕</button>
+        </div>
+
+        {/* Full-size diagram */}
+        <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} />
+
+        {/* Legend */}
+        <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+          {FLOW_NODES.map((n) => (
+            <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "var(--lm-text-dim)" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: n.color, display: "inline-block", flexShrink: 0 }} />
+              {n.label}
+            </div>
+          ))}
+        </div>
+
+        {/* Path descriptions */}
+        <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 10.5, color: "var(--lm-text-dim)" }}>
+          <div style={{ padding: "8px 12px", borderRadius: 8, background: "var(--lm-surface)", border: "1px solid var(--lm-border)" }}>
+            <span style={{ color: "var(--lm-green)", fontWeight: 600 }}>Fast path (~50ms)</span><br />
+            Sensing → Intent Check → Local Match → TTS Speak → Idle
+          </div>
+          <div style={{ padding: "8px 12px", borderRadius: 8, background: "var(--lm-surface)", border: "1px solid var(--lm-border)" }}>
+            <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>Agent path (~2–5s)</span><br />
+            Sensing → Intent Check → Agent Call → Thinking → [Tools] → Response → TTS → Idle
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Preset sensing events for manual testing
+const FAKE_EVENTS: { label: string; type: string; message: string; color: string; tag: string }[] = [
+  { label: "bật đèn",          type: "voice",       message: "bật đèn",                            color: "var(--lm-green)",  tag: "LOCAL"  },
+  { label: "tắt đèn",          type: "voice",       message: "tắt đèn",                            color: "var(--lm-green)",  tag: "LOCAL"  },
+  { label: "reading mode",     type: "voice",       message: "reading mode",                       color: "var(--lm-green)",  tag: "LOCAL"  },
+  { label: "thời tiết?",       type: "voice",       message: "hôm nay thời tiết thế nào?",         color: "var(--lm-blue)",   tag: "AGENT"  },
+  { label: "kể chuyện",        type: "voice",       message: "kể cho tôi nghe một câu chuyện",     color: "var(--lm-blue)",   tag: "AGENT"  },
+  { label: "motion",           type: "motion",      message: "motion detected in living room",     color: "var(--lm-amber)",  tag: "SENSE"  },
+  { label: "environment",      type: "environment", message: "temperature 28C humidity 65%",       color: "var(--lm-teal)",   tag: "ENV"    },
+];
+
+function FlowSection({ events }: { events: DisplayEvent[] }) {
+  const [showCanvas, setShowCanvas] = useState(false);
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [firing, setFiring] = useState<string | null>(null);
+
+  async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
+    setFiring(ev.label);
+    try {
+      await fetch(`${API}/sensing/event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: ev.type, message: ev.message }),
+      });
+    } finally {
+      setTimeout(() => setFiring(null), 800);
+    }
+  }
+
+  const turns = groupIntoTurns(events);
+  const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
+
+  // Derive active stage and visited stages from selected (or latest) turn's events
+  const turnEvents = selectedTurn?.events ?? events.slice(-30);
+  const activeStage = deriveActiveStage(turnEvents);
+
+  const visitedStages = new Set<FlowStage>();
+  for (const ev of turnEvents) {
+    const key = ev.type === "flow_event" && ev.detail?.node
+      ? `flow_event:${ev.detail.node}` : ev.type;
+    for (const node of FLOW_NODES) {
+      if (node.triggers.includes(key)) visitedStages.add(node.id);
+    }
+  }
+
+  const activeNode = FLOW_NODES.find((n) => n.id === activeStage);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}>
+      {showCanvas && (
+        <CanvasModal
+          activeStage={activeStage}
+          visitedStages={visitedStages}
+          onClose={() => setShowCanvas(false)}
+        />
+      )}
+
+      {/* Header card */}
+      <div style={{ ...S.card, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={S.cardLabel}>Flow Panel</span>
+            {activeNode && (
+              <span style={{
+                fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                background: `${activeNode.color}20`, color: activeNode.color,
+                border: `1px solid ${activeNode.color}50`, fontWeight: 700,
+              }}>
+                ● {activeNode.label.toUpperCase()}
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <a
+              href={`${API}/openclaw/flow-logs`}
+              download
+              style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
+                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
+              }}
+            >
+              ↓ Logs
+            </a>
+            <button
+              onClick={() => setShowCanvas(true)}
+              style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                background: "var(--lm-amber-dim)", border: "1px solid var(--lm-amber)",
+                color: "var(--lm-amber)", cursor: "pointer", fontWeight: 600,
+              }}
+            >
+              ⬢ Canvas
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Simulate card — only on localhost */}
+      {window.location.hostname === "localhost" && (
+        <div style={{ ...S.card, padding: "10px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <span style={S.cardLabel}>Simulate Event</span>
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>dev only · fires POST /sensing/event on device</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+            {FAKE_EVENTS.map((ev) => (
+              <button
+                key={ev.label}
+                onClick={() => fireEvent(ev)}
+                disabled={firing !== null}
+                style={{
+                  fontSize: 11, padding: "4px 11px", borderRadius: 6, cursor: "pointer",
+                  background: firing === ev.label ? `${ev.color}25` : "var(--lm-surface)",
+                  border: `1px solid ${firing === ev.label ? ev.color : "var(--lm-border)"}`,
+                  color: firing === ev.label ? ev.color : "var(--lm-text-dim)",
+                  fontWeight: 600, transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: 5,
+                }}
+              >
+                <span style={{
+                  fontSize: 9, padding: "1px 4px", borderRadius: 3,
+                  background: `${ev.color}20`, color: ev.color, fontWeight: 700,
+                }}>{ev.tag}</span>
+                {firing === ev.label ? "…" : ev.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Flow diagram + turn list */}
+      <div style={{ display: "flex", gap: 14, minHeight: 0 }}>
+
+        {/* Turn history list */}
+        <div style={{
+          ...S.card,
+          width: 210,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column" as const,
+          minHeight: 0,
+          padding: 0,
+          overflow: "hidden",
+        }}>
+          <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
+            <span style={S.cardLabel}>Turns</span>
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{turns.length}</span>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
+            {turns.length === 0 ? (
+              <div style={{ padding: 12, color: "var(--lm-text-muted)", fontSize: 11 }}>No turns yet</div>
+            ) : (
+              turns.map((turn) => (
+                <div
+                  key={turn.id}
+                  onClick={() => setSelectedTurnId(turn.id === selectedTurn?.id ? null : turn.id)}
+                  style={{
+                    borderRadius: 8,
+                    outline: turn.id === selectedTurn?.id ? `2px solid var(--lm-amber)` : "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <TurnBadge turn={turn} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Center: flow diagram + icon guide */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ ...S.card }}>
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={S.cardLabel}>Turn Pipeline</span>
+              {selectedTurn && (
+                <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                  {selectedTurn.type} · {selectedTurn.events.length} events
+                  {selectedTurn.endTime ? ` · done` : ` · active`}
+                </span>
+              )}
+            </div>
+            <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} compact />
+          </div>
+
+          {/* Icon guide */}
+          <div style={{ ...S.card, padding: "12px 16px" }}>
+            <div style={S.cardLabel}>Guide</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {[
+                { icon: "●", color: "var(--lm-amber)",   label: "Active node — currently processing" },
+                { icon: "◌", color: "var(--lm-text-dim)", label: "Visited — stage was reached this turn" },
+                { icon: "◯", color: "var(--lm-border)",  label: "Inactive — not reached yet" },
+                { icon: "⬢", color: "var(--lm-amber)",   label: "Canvas — click to expand full diagram" },
+                { icon: "→", color: "var(--lm-green)",   label: "Fast path — local intent (~50ms)" },
+                { icon: "→", color: "var(--lm-blue)",    label: "Agent path — OpenClaw AI (~2–5s)" },
+                { icon: "⬡", color: "var(--lm-purple)",  label: "Flow Panel — this section" },
+                { icon: "◎", color: "var(--lm-teal)",    label: "Workflow — raw event feed" },
+              ].map((item, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "var(--lm-text-dim)" }}>
+                  <span style={{ color: item.color, fontSize: 12, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right: event timeline for selected turn */}
+        <div style={{
+          ...S.card,
+          width: 260,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column" as const,
+          minHeight: 0,
+          maxHeight: 420,
+          padding: 0,
+          overflow: "hidden",
+        }}>
+          <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
+            <span style={S.cardLabel}>
+              {selectedTurn ? `Turn Events` : "Latest Events"}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>
+              {turnEvents.length}
+            </span>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }} className="lm-hide-scroll">
+            {turnEvents.length === 0 ? (
+              <div style={{ padding: "12px 14px", color: "var(--lm-text-muted)", fontSize: 11 }}>No events</div>
+            ) : (
+              [...turnEvents].reverse().map((ev) => {
+                // Determine which flow node this event maps to
+                const key = ev.type === "flow_event" && ev.detail?.node ? `flow_event:${ev.detail.node}` : ev.type;
+                const matchNode = FLOW_NODES.find((n) => n.triggers.includes(key));
+                const dotColor = matchNode?.color ?? "var(--lm-text-muted)";
+                return (
+                  <div key={ev._seq} style={{
+                    padding: "5px 12px",
+                    borderLeft: `2px solid ${dotColor}`,
+                    marginLeft: 8, marginRight: 8, marginBottom: 2,
+                    borderRadius: "0 5px 5px 0",
+                    background: "var(--lm-surface)",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: dotColor, textTransform: "uppercase" as const }}>
+                        {matchNode?.short ?? ev.type.replace("flow_", "").replace("_", " ")}
+                      </span>
+                      <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{ev.time}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--lm-text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                      {ev.summary}
+                    </div>
+                    {ev.detail?.dur_ms && Number(ev.detail.dur_ms) > 0 && (
+                      <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 1 }}>
+                        {ev.detail.dur_ms}ms
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CameraSection({
   displayTs: _displayTs,
 }: {
@@ -1146,7 +1806,8 @@ export default function Monitor() {
             />
           )}
           {section === "workflow" && <WorkflowSection events={events} />}
-          {section === "camera" && <CameraSection displayTs={displayTs} />}
+          {section === "flow"     && <FlowSection events={events} />}
+          {section === "camera"   && <CameraSection displayTs={displayTs} />}
         </div>
       </main>
     </div>
