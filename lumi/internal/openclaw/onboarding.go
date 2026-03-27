@@ -32,6 +32,7 @@ var skills = []string{
 	"display",
 	"emotion",
 	"led-control",
+	"music",
 	"scene",
 	"scheduling",
 	"sensing",
