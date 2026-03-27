@@ -355,8 +355,21 @@ stage_lelamp() {
     echo "[stage] WARN: No lelamp URL in OTA metadata, skipping download"
   fi
 
-  # Install uv + system libs for audio/camera
-  apt install -y libportaudio2 libatlas-base-dev || true
+  # Install uv + system libs for audio/camera + PulseAudio echo cancellation
+  apt install -y libportaudio2 libatlas-base-dev pulseaudio pulseaudio-utils || true
+
+  # PulseAudio WebRTC AEC (echo cancellation for mic/speaker loopback)
+  PULSE_CONF="/etc/pulse/default.pa"
+  if [ -f "$PULSE_CONF" ] && ! grep -q "module-echo-cancel" "$PULSE_CONF"; then
+    echo "[stage] Configuring PulseAudio echo cancellation (WebRTC AEC)"
+    cat >> "$PULSE_CONF" <<'PULSE_EOF'
+
+### Echo cancellation (WebRTC AEC) for Lumi smart lamp
+load-module module-echo-cancel source_name=aec_source sink_name=aec_sink aec_method=webrtc aec_args="analog_gain_control=0 digital_gain_control=0" channels=1
+set-default-source aec_source
+set-default-sink aec_sink
+PULSE_EOF
+  fi
   if ! command -v uv &>/dev/null; then
     echo "[stage] Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
