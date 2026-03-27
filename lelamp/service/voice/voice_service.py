@@ -308,6 +308,11 @@ class VoiceService:
 
                 try:
                     while self._running and not session_closed.is_set():
+                        # If TTS starts speaking mid-session, stop streaming immediately
+                        if self._tts_is_speaking():
+                            logger.info("TTS started mid-session, closing Deepgram to avoid echo")
+                            break
+
                         data, overflowed = mic.read(FRAME_SIZE)
                         if overflowed:
                             continue
@@ -374,7 +379,11 @@ class VoiceService:
                     json=payload,
                     timeout=5,
                 )
-                if resp.status_code != 200:
+                if resp.status_code == 503 and attempt < max_retries:
+                    logger.warning("Lumi agent not ready (503), retrying in 2s... (attempt %d/%d)", attempt, max_retries)
+                    time.sleep(2)
+                    continue
+                elif resp.status_code != 200:
                     logger.warning("Lumi returned %d: %s", resp.status_code, resp.text)
                 else:
                     logger.info("Sent to Lumi: '%s'", transcript[:80])
