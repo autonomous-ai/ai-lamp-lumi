@@ -589,13 +589,20 @@ function OverviewSection({
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
                 {(servo.available_recordings ?? []).slice(0, 8).map((p) => (
-                  <span key={p} style={{
+                  <span key={p} role="button" onClick={() => {
+                    fetch(`${HW}/servo/play`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ recording: p }),
+                    }).catch(() => {});
+                  }} style={{
                     fontSize: 10,
                     padding: "2px 7px",
                     borderRadius: 4,
                     background: p === servo.current ? "var(--lm-amber-dim)" : "var(--lm-surface)",
                     border: `1px solid ${p === servo.current ? "var(--lm-amber)" : "var(--lm-border)"}`,
                     color: p === servo.current ? "var(--lm-amber)" : "var(--lm-text-dim)",
+                    cursor: "pointer",
                   }}>{p}</span>
                 ))}
               </div>
@@ -900,10 +907,14 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
     if (ev.type === "chat_input") return { type: "telegram", path: "agent" };
     // Ambient actions (breathing, movement, mumble) start their own turn
-    if (ev.type === "ambient_action" ||
-        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_"))) {
-      const sub = ev.detail?.node?.replace("ambient_", "") ?? "idle";
+    // BUT ambient_pause/ambient_resume are infra signals, NOT turns
+    const ambientNode = ev.detail?.node ?? "";
+    const isAmbientTurn = ev.type === "ambient_action" ||
+      ((ev.type === "flow_event" || ev.type === "flow_enter") &&
+       ambientNode.startsWith("ambient_") &&
+       ambientNode !== "ambient_pause" && ambientNode !== "ambient_resume");
+    if (isAmbientTurn) {
+      const sub = ambientNode.replace("ambient_", "") || "idle";
       return { type: `ambient:${sub}`, path: "local" };
     }
     // Schedule/cron triggers start a turn
@@ -983,13 +994,16 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
       else info.sensing.push(ev.summary);
     }
-    // ambient events → ambient node
-    if (ev.type === "ambient_action" ||
-        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_"))) {
-      const sub = ev.detail?.node?.replace("ambient_", "") ?? ev.summary ?? "";
-      if (info.ambient.length < 3) info.ambient.push(`${sub}: ${ev.summary || "active"}`);
+    // ambient events → ambient node (skip pause/resume infra signals)
+    {
+      const aNode = ev.detail?.node ?? "";
+      const isAmbientInfo = ev.type === "ambient_action" ||
+        ((ev.type === "flow_event" || ev.type === "flow_enter" || ev.type === "flow_exit") &&
+         aNode.startsWith("ambient_") && aNode !== "ambient_pause" && aNode !== "ambient_resume");
+      if (isAmbientInfo) {
+        const sub = aNode.replace("ambient_", "") || ev.summary || "";
+        if (info.ambient.length < 3) info.ambient.push(`${sub}: ${ev.summary || "active"}`);
+      }
     }
     // schedule events → schedule_trigger node
     if (ev.type === "schedule_trigger" || ev.type === "cron_fire" ||
@@ -1260,8 +1274,19 @@ function FlowDiagram({
           const boxY = infoBelow
             ? pos.y + nodeR + 18 + descLines * 10 + 6
             : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
+          const isClickable = node.id === "idle";
           return (
-            <g key={node.id} opacity={opacity}>
+            <g key={node.id} opacity={opacity}
+              style={isClickable ? { cursor: "pointer" } : undefined}
+              onClick={isClickable ? (e) => {
+                e.stopPropagation();
+                fetch(`${HW}/emotion`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ emotion: "idle", intensity: 0.7 }),
+                }).catch(() => {});
+              } : undefined}
+            >
               {/* Glow ring for active */}
               {isActive && (
                 <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
@@ -1269,7 +1294,10 @@ function FlowDiagram({
                   opacity={0.35} style={{ filter: `url(#${glowId})` }}
                 />
               )}
-              {/* Node circle */}
+              {/* Node circle — transparent hit area for clickable nodes */}
+              {isClickable && (
+                <circle cx={pos.x} cy={pos.y} r={nodeR} fill="transparent" />
+              )}
               <circle cx={pos.x} cy={pos.y} r={nodeR}
                 fill={isActive ? `${color}22` : "var(--lm-surface)"}
                 stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
@@ -1454,6 +1482,10 @@ function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ fontSize: 8, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
           {turn.startTime}
         </span>
+      </div>
+      {/* Turn ID for tracing */}
+      <div style={{ fontSize: 8, color: "var(--lm-text-muted)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
+        id: {turn.id}
       </div>
       {/* Row 2: input */}
       {input && (
