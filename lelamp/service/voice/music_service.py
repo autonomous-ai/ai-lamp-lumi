@@ -1,13 +1,14 @@
 """
 Music Service — search YouTube and stream audio through the speaker.
 
-Uses yt-dlp to search and resolve YouTube audio URLs, ffmpeg to decode to PCM,
-and sounddevice to play through the Seeed 2-mic HAT speaker.
+Uses yt-dlp to search and resolve YouTube audio URLs, ffmpeg to decode
+and output directly to ALSA device (bypassing sounddevice/PortAudio).
 """
 
 import json
 import logging
 import subprocess
+import sys
 import threading
 import time
 from typing import Optional
@@ -15,36 +16,31 @@ from typing import Optional
 logger = logging.getLogger("lelamp.voice.music")
 logger.setLevel(logging.DEBUG)
 
-# ffmpeg output format
-SAMPLE_RATE = 48000
-CHANNELS = 1
-CHUNK_SIZE = 8192  # bytes per read from ffmpeg stdout
+# ALSA device for Seeed 2-mic HAT
+ALSA_DEVICE = "hw:1,0"
 
 
 class MusicService:
-    """YouTube music search + streaming playback via yt-dlp + ffmpeg + sounddevice."""
+    """YouTube music search + streaming playback via yt-dlp + ffmpeg + ALSA."""
 
     def __init__(
         self,
-        sound_device_module=None,
-        numpy_module=None,
-        output_device: Optional[int] = None,
         tts_service=None,
+        alsa_device: str = ALSA_DEVICE,
     ):
-        self._sd = sound_device_module
-        self._np = numpy_module
-        self._output_device = output_device
         self._tts_service = tts_service
+        self._alsa_device = alsa_device
 
         self._lock = threading.Lock()
         self._playing = False
         self._stop_event = threading.Event()
+        self._ytdlp_proc: Optional[subprocess.Popen] = None
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._current_title: Optional[str] = None
 
     @property
     def available(self) -> bool:
-        return self._sd is not None and self._np is not None
+        return True
 
     @property
     def playing(self) -> bool:
@@ -56,14 +52,9 @@ class MusicService:
 
     def play(self, query: str) -> bool:
         """Search YouTube and play first result. Returns True if started."""
-        if not self.available:
-            logger.warning("MusicService not available (missing sounddevice or numpy)")
-            return False
-
         # Stop current playback if any
         if self._playing:
             self.stop()
-            # Wait briefly for cleanup
             time.sleep(0.3)
 
         if not self._lock.acquire(blocking=False):
@@ -83,17 +74,15 @@ class MusicService:
     def stop(self):
         """Stop current playback."""
         self._stop_event.set()
-        if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
-            try:
-                self._ffmpeg_proc.terminate()
-            except Exception:
-                pass
+        for proc in [self._ffmpeg_proc, self._ytdlp_proc]:
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
 
     def _play_sync(self, query: str):
-        """Search, resolve audio URL, pipe through ffmpeg, play via sounddevice."""
-        sd = self._sd
-        np = self._np
-
+        """Search, resolve audio URL, play via ffmpeg directly to ALSA."""
         try:
             self._playing = True
 
@@ -117,77 +106,72 @@ class MusicService:
             if self._stop_event.is_set():
                 return
 
-            # Pipe through ffmpeg to get raw PCM
-            logger.info("Starting ffmpeg stream for: '%s'", title[:80] if title else query[:80])
-            self._ffmpeg_proc = subprocess.Popen(
+            # Stream: yt-dlp stdout -> ffmpeg stdin -> ALSA (no temp file)
+            logger.info("Starting playback: '%s'", title[:80] if title else query[:80])
+            self._ytdlp_proc = subprocess.Popen(
                 [
-                    "ffmpeg",
-                    "-reconnect", "1",
-                    "-reconnect_streamed", "1",
-                    "-i", audio_url,
-                    "-f", "s16le",
-                    "-ar", str(SAMPLE_RATE),
-                    "-ac", str(CHANNELS),
-                    "pipe:1",
+                    sys.executable, "-m", "yt_dlp",
+                    "-f", "bestaudio",
+                    "-o", "-",
+                    audio_url,
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
+            self._ffmpeg_proc = subprocess.Popen(
+                [
+                    "ffmpeg",
+                    "-i", "pipe:0",
+                    "-ar", "16000",
+                    "-f", "alsa",
+                    self._alsa_device,
+                ],
+                stdin=self._ytdlp_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            self._ytdlp_proc.stdout.close()
 
-            total_samples = 0
-            with sd.OutputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="float32",
-                device=self._output_device,
-            ) as stream:
-                while not self._stop_event.is_set():
-                    chunk = self._ffmpeg_proc.stdout.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+            # Wait for ffmpeg to finish or stop signal
+            while not self._stop_event.is_set():
+                ret = self._ffmpeg_proc.poll()
+                if ret is not None:
+                    if ret != 0:
+                        stderr = self._ffmpeg_proc.stderr.read().decode(errors="replace")
+                        logger.error("ffmpeg exited with code %d: %s", ret, stderr[-500:])
+                    break
+                # Pause playback while TTS is speaking
+                if self._tts_service and self._tts_service.speaking:
+                    logger.debug("Pausing music for TTS")
+                    self._ffmpeg_proc.terminate()
+                    break
+                time.sleep(0.2)
 
-                    # Pause playback while TTS is speaking
-                    if self._tts_service and self._tts_service.speaking:
-                        logger.debug("Pausing music for TTS")
-                        while self._tts_service.speaking and not self._stop_event.is_set():
-                            time.sleep(0.1)
-                        if self._stop_event.is_set():
-                            break
-
-                    # Ensure 2-byte alignment for int16
-                    usable = len(chunk) - (len(chunk) % 2)
-                    if usable == 0:
-                        continue
-
-                    samples = (
-                        np.frombuffer(chunk[:usable], dtype=np.int16).astype(np.float32)
-                        / 32768.0
-                    )
-                    stream.write(samples.reshape(-1, 1))
-                    total_samples += len(samples)
-
-            logger.info("Music playback complete (%d samples)", total_samples)
+            logger.info("Music playback ended")
 
         except Exception as e:
             logger.error("Music play failed: %s (type=%s)", e, type(e).__name__)
         finally:
-            if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
-                self._ffmpeg_proc.terminate()
+            for proc in [self._ffmpeg_proc, self._ytdlp_proc]:
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
             self._ffmpeg_proc = None
+            self._ytdlp_proc = None
             self._playing = False
             self._current_title = None
             self._lock.release()
 
     def _resolve_audio_url(self, query: str) -> tuple[Optional[str], Optional[str]]:
-        """Use yt-dlp to search YouTube and return (audio_url, title)."""
+        """Use yt-dlp to search YouTube and return (watch_url, title)."""
         try:
-            import sys
             result = subprocess.run(
                 [
                     sys.executable, "-m", "yt_dlp",
                     "--dump-json",
                     "--no-download",
-                    "-f", "bestaudio",
                     f"ytsearch1:{query}",
                 ],
                 capture_output=True,
@@ -201,14 +185,14 @@ class MusicService:
 
             info = json.loads(result.stdout)
             title = info.get("title", query)
-            url = info.get("url")
+            watch_url = info.get("webpage_url")
 
-            if not url:
+            if not watch_url:
                 logger.warning("yt-dlp returned no URL for: '%s'", query[:80])
                 return None, None
 
-            logger.info("Found: '%s' (%s)", title, info.get("webpage_url", ""))
-            return url, title
+            logger.info("Found: '%s' (%s)", title, watch_url)
+            return watch_url, title
 
         except subprocess.TimeoutExpired:
             logger.error("yt-dlp timed out for: '%s'", query[:80])
