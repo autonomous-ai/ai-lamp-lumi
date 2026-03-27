@@ -224,15 +224,11 @@ async def lifespan(app: FastAPI):
         if seeed_input_device is not None:
             logger.info(f"Audio input device: {seeed_input_device}")
 
-    # Start music service (needs sounddevice only, no API keys)
-    if MusicService and sd and seeed_output_device is not None:
+    # Start music service (uses ffmpeg + ALSA directly, no sounddevice needed)
+    if MusicService:
         try:
-            music_service = MusicService(
-                sound_device_module=sd,
-                numpy_module=np,
-                output_device=seeed_output_device,
-            )
-            logger.info("MusicService started (output_device=%s)", seeed_output_device)
+            music_service = MusicService()
+            logger.info("MusicService started")
         except Exception as e:
             logger.warning(f"MusicService failed to start: {e}")
 
