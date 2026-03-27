@@ -163,94 +163,96 @@ class VoiceService:
                 speech_start = None
 
     def _stream_session(self, mic):
-        """Stream to Deepgram until silence, then disconnect."""
+        """Stream to Deepgram until silence, then disconnect (SDK v6)."""
         from deepgram import DeepgramClient
+        from deepgram.core.events import EventType
+        from deepgram.listen.v1.types import ListenV1Results
 
         client = DeepgramClient(api_key=self._deepgram_api_key)
-        dg_connection = client.listen.websocket.v("1")
-
         session_closed = threading.Event()
 
-        def on_message(_self, result, **kwargs):
-            transcript = result.channel.alternatives[0].transcript
-            if not transcript or not transcript.strip():
-                return
-            if not result.is_final:
-                return
-            text = transcript.strip()
-            lower = text.lower()
-
-            # Check for wake word
-            is_command = any(w in lower for w in WAKE_WORDS)
-            if is_command:
-                # Strip wake word prefix to get the actual command
-                cmd = lower
-                for w in WAKE_WORDS:
-                    if cmd.startswith(w):
-                        cmd = text[len(w):].strip().lstrip(",").strip()
-                        break
-                logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
-                self._send_to_lumi(cmd or text, event_type="voice_command")
-            else:
-                logger.info("STT ambient: '%s'", text)
-                self._send_to_lumi(text, event_type="voice")
-
-        def on_error(_self, error, **kwargs):
-            logger.error("Deepgram error: %s", error)
-            session_closed.set()
-
-        def on_close(_self, close, **kwargs):
-            logger.info("Deepgram connection closed")
-            session_closed.set()
-
-        dg_connection.on("Results", on_message)
-        dg_connection.on("Error", on_error)
-        dg_connection.on("Close", on_close)
-
-        options = {
-            "model": "nova-2",
-            "language": "vi",
-            "smart_format": True,
-            "encoding": "linear16",
-            "channels": CHANNELS,
-            "sample_rate": SAMPLE_RATE,
-            "interim_results": False,
-            "endpointing": 500,
-            "vad_events": True,
-            "keywords": KEYWORDS,
-        }
-
-        if not dg_connection.start(options):
-            logger.error("Failed to start Deepgram connection")
-            return
-
-        self._listening = True
-        logger.info("Deepgram connected — streaming speech...")
-
-        last_speech_time = time.time()
-
         try:
-            while self._running and not session_closed.is_set():
-                data, overflowed = mic.read(FRAME_SIZE)
-                if overflowed:
-                    continue
+            with client.listen.v1.connect(
+                model="nova-2",
+                language="vi",
+                smart_format=True,
+                encoding="linear16",
+                channels=CHANNELS,
+                sample_rate=SAMPLE_RATE,
+                interim_results=False,
+                endpointing=500,
+                vad_events=True,
+                keywords=KEYWORDS,
+            ) as connection:
 
-                dg_connection.send(data.tobytes())
+                def on_message(message):
+                    if not isinstance(message, ListenV1Results):
+                        return
+                    transcript = message.channel.alternatives[0].transcript
+                    if not transcript or not transcript.strip():
+                        return
+                    if not message.is_final:
+                        return
+                    text = transcript.strip()
+                    lower = text.lower()
 
-                rms = self._rms(data)
-                if rms >= RMS_THRESHOLD:
-                    last_speech_time = time.time()
-                elif (time.time() - last_speech_time) > SILENCE_TIMEOUT_S:
-                    logger.info("Silence detected, disconnecting Deepgram")
-                    break
+                    # Check for wake word
+                    is_command = any(w in lower for w in WAKE_WORDS)
+                    if is_command:
+                        # Strip wake word prefix to get the actual command
+                        cmd = lower
+                        for w in WAKE_WORDS:
+                            if cmd.startswith(w):
+                                cmd = text[len(w):].strip().lstrip(",").strip()
+                                break
+                        logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
+                        self._send_to_lumi(cmd or text, event_type="voice_command")
+                    else:
+                        logger.info("STT ambient: '%s'", text)
+                        self._send_to_lumi(text, event_type="voice")
+
+                def on_error(error):
+                    logger.error("Deepgram error: %s", error)
+                    session_closed.set()
+
+                def on_close(_):
+                    logger.info("Deepgram connection closed")
+                    session_closed.set()
+
+                connection.on(EventType.MESSAGE, on_message)
+                connection.on(EventType.ERROR, on_error)
+                connection.on(EventType.CLOSE, on_close)
+
+                self._listening = True
+                logger.info("Deepgram connected — streaming speech...")
+
+                last_speech_time = time.time()
+
+                try:
+                    while self._running and not session_closed.is_set():
+                        data, overflowed = mic.read(FRAME_SIZE)
+                        if overflowed:
+                            continue
+
+                        connection.send_media(data.tobytes())
+
+                        rms = self._rms(data)
+                        if rms >= RMS_THRESHOLD:
+                            last_speech_time = time.time()
+                        elif (time.time() - last_speech_time) > SILENCE_TIMEOUT_S:
+                            logger.info("Silence detected, disconnecting Deepgram")
+                            break
+                except Exception as e:
+                    logger.error("Stream error: %s", e)
+                finally:
+                    self._listening = False
+                    try:
+                        connection.send_close_stream()
+                    except Exception:
+                        pass
         except Exception as e:
-            logger.error("Stream error: %s", e)
-        finally:
+            logger.error("Deepgram session error: %s", e)
             self._listening = False
-            try:
-                dg_connection.finish()
-            except Exception:
-                pass
 
     def _send_to_lumi(self, transcript: str, event_type: str = "voice"):
         """Send voice transcript to Lumi Server as a sensing event."""
