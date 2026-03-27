@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -67,7 +67,7 @@ func (h *OpenClawHandler) flushAssistantText(runID string) string {
 
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
 func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) error {
-	log.Printf("OpenClawHandler event: %s", evt.Event)
+	slog.Debug("event received", "component", "agent", "event", evt.Event)
 
 	switch evt.Event {
 	case "agent":
@@ -82,8 +82,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		switch payload.Stream {
 		case "lifecycle":
-			log.Printf("[agent] lifecycle: phase=%s runId=%s session=%s",
-				payload.Data.Phase, payload.RunID, payload.SessionKey)
+			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
@@ -107,7 +106,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					summary += ": " + result
 				}
 			}
-			log.Printf("[agent] tool: %s phase=%s runId=%s", toolName, payload.Data.Phase, payload.RunID)
+			slog.Debug("tool event", "component", "agent", "tool", toolName, "phase", payload.Data.Phase, "runId", payload.RunID)
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "tool_call",
 				Summary: summary,
@@ -156,10 +155,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// When agent lifecycle ends, flush accumulated assistant text to TTS
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
 			if text := h.flushAssistantText(payload.RunID); text != "" {
-				log.Printf("[agent] assistant turn done, sending to TTS: %s", text[:min(len(text), 100)])
+				slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
 				go func(t string) {
 					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-						log.Printf("[agent] TTS delivery failed: %v", err)
+						slog.Error("TTS delivery failed", "component", "agent", "error", err)
 					}
 				}(text)
 			}
@@ -168,7 +167,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	case "chat":
 		var payload domain.ChatPayload
 		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-			log.Printf("[agent] chat parse error: %v", err)
+			slog.Error("chat parse error", "component", "agent", "error", err)
 			return nil
 		}
 
@@ -190,10 +189,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Only forward final assistant messages to TTS
 		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" {
-			log.Printf("[agent] chat response (final): %s", payload.Message[:min(len(payload.Message), 100)])
+			slog.Info("chat response (final)", "component", "agent", "message", payload.Message[:min(len(payload.Message), 100)])
 			go func() {
 				if err := h.agentGateway.SendToLeLampTTS(payload.Message); err != nil {
-					log.Printf("[agent] TTS delivery failed: %v", err)
+					slog.Error("TTS delivery failed", "component", "agent", "error", err)
 				}
 			}()
 		}

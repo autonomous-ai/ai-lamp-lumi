@@ -1,7 +1,7 @@
 package http
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -54,12 +54,12 @@ func (h *DeviceHandler) Setup(c *gin.Context) {
 	go func() {
 		time.Sleep(2 * time.Second)
 		if err := h.service.Setup(req); err != nil {
-			log.Println("Setup failed", err)
+			slog.Error("setup failed", "component", "device", "error", err)
 			h.networkService.SwitchToAPMode()
 			return
 		}
 
-		log.Println("Setup success")
+		slog.Info("setup success", "component", "device")
 	}()
 
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
@@ -92,10 +92,10 @@ func (h *DeviceHandler) ChangeChannel(c *gin.Context) {
 
 	go func() {
 		if err := h.service.AddChannel(req); err != nil {
-			log.Println("AddChannel failed", err)
+			slog.Error("add channel failed", "component", "device", "error", err)
 			return
 		}
-		log.Println("AddChannel success")
+		slog.Info("add channel success", "component", "device")
 	}()
 
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))

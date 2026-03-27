@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -135,25 +135,25 @@ func (s *Service) poll() {
 
 	resp, err := s.client.Get(url)
 	if err != nil {
-		log.Printf("ota: fetch %s: %v", url, err)
+		slog.Error("fetch metadata failed", "component", "ota", "url", url, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("ota: %s returned status %d", url, resp.StatusCode)
+		slog.Error("metadata returned non-OK status", "component", "ota", "url", url, "status", resp.StatusCode)
 		return
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("ota: read body: %v", err)
+		slog.Error("read body failed", "component", "ota", "error", err)
 		return
 	}
 
 	var meta domain.OTAMetadata
 	if err := json.Unmarshal(body, &meta); err != nil {
-		log.Printf("ota: unmarshal body: %v", err)
+		slog.Error("unmarshal body failed", "component", "ota", "error", err)
 		return
 	}
 
@@ -175,7 +175,7 @@ func (s *Service) poll() {
 	}
 	s.mu.Unlock()
 
-	log.Printf("ota: metadata fetched, lumi %s -> %s (update_available=%v)", current, available, s.status.UpdateAvailable)
+	slog.Info("metadata fetched", "component", "ota", "current", current, "available", available, "updateAvailable", s.status.UpdateAvailable)
 }
 
 // GetStatus returns the current OTA status for the API.
