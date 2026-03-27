@@ -93,12 +93,7 @@ class LeLampFollower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        try:
-            self.bus.connect()
-        except Exception as e:
-            # Some servos may be offline — log but continue with partial bus
-            logger.warning(f"bus.connect partial failure (offline servos?): {e}")
-
+        self.bus.connect()
         if not self.is_calibrated and calibrate:
             logger.info(
                 "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
@@ -154,34 +149,16 @@ class LeLampFollower(Robot):
         self._save_calibration()
         print("Calibration saved to", self.calibration_fpath)
 
-    # Servos that need P=128 for strong hold against gravity
-    _HIGH_PGAIN_MOTORS = {"base_pitch", "elbow_pitch", "wrist_roll"}  # ID 2, 3, 4
-
-    # STS3215 register addresses for direct writes
-    _REG = {
-        "Torque_Enable": (40, 1), "Operating_Mode": (33, 1),
-        "P_Coefficient": (21, 1), "I_Coefficient": (23, 1), "D_Coefficient": (22, 1),
-    }
-
     def configure(self) -> None:
-        # Write directly via scservo_sdk to bypass lerobot's is_connected checks.
-        # lerobot's bus.write() raises DeviceNotConnectedError after partial connect.
-        ph = self.bus.port_handler
-        pk = self.bus.packet_handler
-        for motor_name, motor_obj in self.bus.motors.items():
-            sid = motor_obj.id
-            pgain = 128 if motor_name in self._HIGH_PGAIN_MOTORS else 32
-            try:
-                # Disable torque to write EEPROM
-                pk.write1ByteTxRx(ph, sid, 40, 0)  # Torque_Enable = 0
-                pk.write1ByteTxRx(ph, sid, 33, 0)  # Operating_Mode = position
-                pk.write1ByteTxRx(ph, sid, 21, pgain)  # P_Coefficient
-                pk.write1ByteTxRx(ph, sid, 23, 0)  # I_Coefficient
-                pk.write1ByteTxRx(ph, sid, 22, 32)  # D_Coefficient
-                pk.write1ByteTxRx(ph, sid, 40, 1)  # Torque_Enable = 1
-                logger.info(f"{motor_name} (ID {sid}): configured P={pgain}, torque ON")
-            except Exception as e:
-                logger.warning(f"{motor_name} (ID {sid}): configure failed (offline?): {e}")
+        with self.bus.torque_disabled():
+            self.bus.configure_motors()
+            for motor in self.bus.motors:
+                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
+                self.bus.write("P_Coefficient", motor, 16)
+                # Set I_Coefficient and D_Coefficient to default value 0 and 32
+                self.bus.write("I_Coefficient", motor, 0)
+                self.bus.write("D_Coefficient", motor, 32)
 
     def setup_motors(self) -> None:
         for motor in reversed(self.bus.motors):
