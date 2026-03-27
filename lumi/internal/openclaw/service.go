@@ -623,17 +623,6 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		}
 	}
 
-	// If still no session key, create a new session
-	if s.GetSessionKey() == "" {
-		sk, err := s.createSession(conn)
-		if err != nil {
-			log.Printf("[openclaw] sessions.create failed: %v", err)
-		} else {
-			s.SetSessionKey(sk)
-			log.Printf("[openclaw] session key from sessions.create: %s", sk)
-		}
-	}
-
 	s.wsMu.Lock()
 	s.wsConn = conn
 	s.wsMu.Unlock()
@@ -1019,40 +1008,10 @@ func (s *Service) GetSessionKey() string {
 	return v
 }
 
-// createSession sends a sessions.create RPC on the given connection and returns the new session key.
-func (s *Service) createSession(conn *websocket.Conn) (string, error) {
-	createReq := map[string]interface{}{
-		"type":   "req",
-		"id":     "lumi-session-create",
-		"method": "sessions.create",
-	}
-	body, _ := json.Marshal(createReq)
-	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
-		return "", fmt.Errorf("write sessions.create: %w", err)
-	}
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, resp, err := conn.ReadMessage()
-	conn.SetReadDeadline(time.Time{})
-	if err != nil {
-		return "", fmt.Errorf("read sessions.create response: %w", err)
-	}
-	log.Printf("[openclaw] sessions.create response: %s", string(resp))
-	var result struct {
-		Result struct {
-			SessionKey string `json:"sessionKey"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return "", fmt.Errorf("parse sessions.create response: %w", err)
-	}
-	if result.Result.SessionKey == "" {
-		return "", fmt.Errorf("sessions.create returned empty session key")
-	}
-	return result.Result.SessionKey, nil
-}
-
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
-// Returns the runId on success. The agent will process the message and respond via skills.
+// Returns the runId on success. If no session key exists, sends without one so that
+// OpenClaw creates a new session automatically (the session key will be captured from
+// subsequent WS events).
 func (s *Service) SendChatMessage(message string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
@@ -1061,29 +1020,24 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 		return "", fmt.Errorf("websocket not connected")
 	}
 
-	// Auto-create session if none exists
-	sessionKey := s.GetSessionKey()
-	if sessionKey == "" {
-		sk, err := s.createSession(conn)
-		if err != nil {
-			return "", fmt.Errorf("no session key and create failed: %w", err)
-		}
-		s.SetSessionKey(sk)
-		sessionKey = sk
-	}
-
 	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
 	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+
+	params := map[string]interface{}{
+		"message":        message,
+		"idempotencyKey": idempotencyKey,
+	}
+	// Only include sessionKey if we have one; omitting it lets OpenClaw create a new session.
+	sessionKey := s.GetSessionKey()
+	if sessionKey != "" {
+		params["sessionKey"] = sessionKey
+	}
 
 	req := map[string]interface{}{
 		"type":   "req",
 		"id":     reqID,
 		"method": "chat.send",
-		"params": map[string]interface{}{
-			"sessionKey":     sessionKey,
-			"message":        message,
-			"idempotencyKey": idempotencyKey,
-		},
+		"params": params,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
