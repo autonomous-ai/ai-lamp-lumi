@@ -9,6 +9,7 @@ Runs synthesis in a background thread to avoid blocking FastAPI.
 import logging
 import math
 import threading
+import time
 from typing import Optional
 
 import numpy as np
@@ -49,6 +50,10 @@ class TTSService:
         self._lock = threading.Lock()
         self._speaking = False
         self._max_retries = max_retries
+
+        # Echo cancellation: store last spoken text for transcript self-filtering
+        self._last_spoken_text: str = ""
+        self._last_spoken_time: float = 0.0
 
         self._client = None
         self._base_url = base_url
@@ -105,6 +110,16 @@ class TTSService:
     def speaking(self) -> bool:
         return self._speaking
 
+    @property
+    def last_spoken_text(self) -> str:
+        """Last text sent to TTS (for echo cancellation transcript filtering)."""
+        return self._last_spoken_text
+
+    @property
+    def last_spoken_time(self) -> float:
+        """Timestamp when last TTS playback finished."""
+        return self._last_spoken_time
+
     def speak(self, text: str) -> bool:
         """Synthesize and play text. Returns True if started, False if busy or unavailable."""
         if not self.available:
@@ -139,6 +154,8 @@ class TTSService:
         """Stream TTS response directly to audio output — no full-buffer wait."""
         np = self._np
         sd = self._sd
+
+        self._last_spoken_text = text
 
         attempt = 0
         while attempt <= self._max_retries:
@@ -237,4 +254,5 @@ class TTSService:
             )
 
         self._speaking = False
+        self._last_spoken_time = time.time()
         self._lock.release()
