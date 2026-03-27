@@ -58,6 +58,14 @@ Text: max 20 chars. Subtitle: optional, max 40 chars.
 POST /display/eyes-mode
 ```
 
+### Get display snapshot
+
+```
+GET /display/snapshot
+```
+
+Returns a PNG image of what's currently shown on the display. Use when you need to verify display content or debug rendering.
+
 ## Available expressions
 
 | Expression | When to use |

@@ -91,6 +91,14 @@ GET /servo
 GET /servo/position
 ```
 
+### Release servos (disable motors)
+
+```
+POST /servo/release
+```
+
+Disables all servo motors so they can be moved freely by hand. Use when the user wants to manually adjust the lamp position or when servos should stop holding tension.
+
 ## Available animations
 
 | Animation | When to use |
