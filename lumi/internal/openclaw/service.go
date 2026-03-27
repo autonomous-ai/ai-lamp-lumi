@@ -539,12 +539,25 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		conn.Close()
 	}()
 
+	// Read connect.challenge from gateway
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := conn.ReadMessage()
-	if err == nil {
-		slog.Debug("initial event received", "component", "openclaw", "event", string(msg))
+	if err != nil {
+		return fmt.Errorf("read connect.challenge: %w", err)
 	}
 	conn.SetReadDeadline(time.Time{})
+	slog.Debug("initial event received", "component", "openclaw", "event", string(msg))
+
+	// Parse nonce from connect.challenge
+	var challenge struct {
+		Payload struct {
+			Nonce string `json:"nonce"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(msg, &challenge); err != nil || challenge.Payload.Nonce == "" {
+		return fmt.Errorf("parse connect.challenge nonce: %w", err)
+	}
+	nonce := challenge.Payload.Nonce
 
 	token, err := s.readGatewayToken()
 	if err != nil {
@@ -557,7 +570,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	}
 
 	signedAt := time.Now().UnixMilli()
-	signature := di.signConnectPayload(token, signedAt)
+	signature := di.signConnectPayload(token, nonce, signedAt)
 
 	connectReq := map[string]interface{}{
 		"type":   "req",
@@ -581,6 +594,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				"publicKey": base64.StdEncoding.EncodeToString(di.PublicKey),
 				"signature": signature,
 				"signedAt":  signedAt,
+				"nonce":     nonce,
 			},
 		},
 	}
@@ -1002,9 +1016,9 @@ func deriveDeviceID(pub ed25519.PublicKey) string {
 }
 
 // signConnectPayload builds and signs the v1 payload for device auth.
-// Format: v1|deviceId|clientId|clientMode|role|scopes|signedAtMs|token
-func (di *deviceIdentity) signConnectPayload(token string, signedAt int64) string {
-	payload := fmt.Sprintf("v1|%s|%s|%s|%s|%s|%d|%s",
+// Format: v1|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+func (di *deviceIdentity) signConnectPayload(token, nonce string, signedAt int64) string {
+	payload := fmt.Sprintf("v1|%s|%s|%s|%s|%s|%d|%s|%s",
 		di.DeviceID,
 		"node-host",  // clientId
 		"node",       // clientMode
@@ -1012,6 +1026,7 @@ func (di *deviceIdentity) signConnectPayload(token string, signedAt int64) strin
 		"operator.read,operator.write,events.read", // scopes
 		signedAt,
 		token,
+		nonce,
 	)
 	sig := ed25519.Sign(di.PrivateKey, []byte(payload))
 	return base64.StdEncoding.EncodeToString(sig)
