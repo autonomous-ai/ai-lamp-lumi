@@ -243,21 +243,23 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			})
 		}
 
-		// Push all chat events to monitor (partial + final)
-		summary := payload.Message
-		if len(summary) > 120 {
-			summary = summary[:120] + "..."
+		// Push assistant/partial chat events to monitor (skip inbound user messages — already tracked as chat_input)
+		if payload.Role != "user" {
+			summary := payload.Message
+			if len(summary) > 120 {
+				summary = summary[:120] + "..."
+			}
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_response",
+				Summary: summary,
+				RunID:   payload.RunID,
+				State:   payload.State,
+				Detail: map[string]string{
+					"role":    payload.Role,
+					"message": payload.Message,
+				},
+			})
 		}
-		h.monitorBus.Push(domain.MonitorEvent{
-			Type:    "chat_response",
-			Summary: summary,
-			RunID:   payload.RunID,
-			State:   payload.State,
-			Detail: map[string]string{
-				"role":    payload.Role,
-				"message": payload.Message,
-			},
-		})
 
 		// Only forward final assistant messages to TTS
 		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" {
