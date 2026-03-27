@@ -82,7 +82,7 @@ Defined at `.lm-root` in `index.css`:
 
 ## 4. Polling & Data Sources
 
-Monitor polls all APIs every **3 seconds** via `setInterval`. Endpoints called:
+Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid mode: REST seed + live stream.
 
 ### 4.1 Lumi Server (Go, port 5000, prefix `/api`)
 
@@ -91,8 +91,10 @@ Monitor polls all APIs every **3 seconds** via `setInterval`. Endpoints called:
 | `GET /api/system/info` | CPU load, RAM (KB), temperature, uptime, goroutines, version, deviceId |
 | `GET /api/system/network` | SSID, IP, signal (dBm), internet (bool) |
 | `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool) |
-| `GET /api/openclaw/recent` | 100 most recent MonitorEvents (seed on first load) |
-| `GET /api/openclaw/events` | SSE stream — real-time MonitorEvents |
+| `GET /api/openclaw/recent` | Latest flow events from today's JSONL file (`local/flow_events_<date>.jsonl`) |
+| `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | File-backed flow events API used for Flow seed/history |
+| `GET /api/openclaw/flow-stream` | File-backed live stream (SSE) for Flow updates when JSONL changes |
+| `GET /api/openclaw/events` | Monitor bus SSE endpoint (kept for compatibility) |
 
 > **Note on format**: Lumi API returns `{ status: 1, data: <payload>, message: null }` on success.
 
@@ -167,7 +169,7 @@ Cards included:
 
 ### 5.3 Workflow Section
 
-SSE event feed from `/api/openclaw/events`:
+File-backed hybrid feed:
 
 | Type | Color | Meaning |
 |------|-------|---------|
@@ -179,7 +181,10 @@ SSE event feed from `/api/openclaw/events`:
 
 Each event displays: type badge, phase (if any), runId (first 8 chars), timestamp, summary text, error (if any).
 
-Feed auto-scrolls to newest event. Seeded from `/api/openclaw/recent` on page load.
+- Initial/history load via `GET /api/openclaw/flow-events`.
+- Live updates via `GET /api/openclaw/flow-stream` (SSE emitted on file change).
+- Fallback polling (2s) is used only if live stream disconnects.
+- Displayed turns/events are fully derived from JSONL flow logs.
 
 Turn Pipeline grouping behavior:
 - Turns are still started by input/trigger events (`sensing_input`, `chat_input`, `schedule_trigger`, etc.).
@@ -187,12 +192,15 @@ Turn Pipeline grouping behavior:
 - If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
 - `OUT` text is only taken from `tts_send`/`intent_match` events matching the turn `run_id` (or events without run_id), preventing cross-turn input/output mismatch.
 - For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text.
+- Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
+- Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
 - Flow Panel header actions now include `↓ Logs`, `↓ Debug`, `✕ Clear`, and `🗑 Log`.
 - `↓ Debug` downloads raw OpenClaw debug payloads from `GET /api/openclaw/debug-logs` (file: `local/openclaw_debug_payloads.jsonl` on the server).
 - `✕ Clear` asks for confirmation, then clears all currently displayed Flow events/turns in the UI (client-side only).
 - `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate today's server flow log file, then clears current Flow UI events.
 - Turn history list shows the latest 100 turns (newest first).
-- Flow event memory is capped consistently at 500 events for both seed and live SSE updates to avoid visible shrinking/flicker after tab open.
+- Flow event memory is capped at 500 events.
+- Telegram stitching heuristic: if a Telegram fallback input turn (without real input text) is immediately followed by an agent-output turn within 30s, Monitor stitches them into one turn so the reply stays with the original Telegram input.
 
 ### 5.4 Camera Section
 
