@@ -36,6 +36,7 @@ type OpenClawHandler struct {
 	// full text to TTS when the agent turn ends (lifecycle "end").
 	assistantMu  sync.Mutex
 	assistantBuf map[string]*strings.Builder
+	debugMu      sync.Mutex
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
@@ -80,6 +81,30 @@ func (h *OpenClawHandler) flushAssistantText(runID string) string {
 	return text
 }
 
+// appendDebugJSONL appends a JSON object into local/openclaw_debug_payloads.jsonl.
+// Best-effort only: logging failures must not break event handling.
+func (h *OpenClawHandler) appendDebugJSONL(record map[string]any) {
+	h.debugMu.Lock()
+	defer h.debugMu.Unlock()
+
+	record["at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	b, err := json.Marshal(record)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(b, '\n'))
+}
+
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
 func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) error {
 	slog.Debug("event received", "component", "agent", "event", evt.Event)
@@ -102,6 +127,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
 			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
 			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" {
+				h.appendDebugJSONL(map[string]any{
+					"source":      "agent.lifecycle_start_fallback_chat_input",
+					"run_id":      payload.RunID,
+					"stream":      payload.Stream,
+					"phase":       payload.Data.Phase,
+					"raw_payload": string(evt.Payload),
+				})
 				flow.SetTrace(payload.RunID)
 				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"})
 				h.monitorBus.Push(domain.MonitorEvent{
@@ -244,6 +276,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			return nil
 		}
 		payload.ResolveChatMessage()
+		h.appendDebugJSONL(map[string]any{
+			"source":       "chat_event",
+			"run_id":       payload.RunID,
+			"role":         payload.Role,
+			"state":        payload.State,
+			"session_key":  payload.SessionKey,
+			"message":      payload.Message,
+			"raw_message":  string(payload.RawMessage),
+			"raw_payload":  string(evt.Payload),
+		})
 
 		// Inbound user message from Telegram/Slack/Discord → start a new flow trace
 		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
@@ -431,6 +473,46 @@ func (h *OpenClawHandler) FlowLogs(c *gin.Context) {
 	defer f.Close()
 	filename := fmt.Sprintf("lumi_flow_%s.jsonl", date)
 	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("Content-Type", "application/x-ndjson")
+	io.Copy(c.Writer, f) //nolint:errcheck
+}
+
+// ClearFlowLogs truncates the daily flow JSONL log file.
+// Query param ?date=YYYY-MM-DD selects a historical file; defaults to today.
+func (h *OpenClawHandler) ClearFlowLogs(c *gin.Context) {
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	path := fmt.Sprintf("local/flow_events_%s.jsonl", date)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"cleared": false,
+			"file":    path,
+			"note":    "file not found",
+		}))
+		return
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear flow log failed: "+err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"cleared": true,
+		"file":    path,
+	}))
+}
+
+// DebugLogs serves the OpenClaw raw debug payload log file for download.
+func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
+		return
+	}
+	defer f.Close()
+	c.Header("Content-Disposition", "attachment; filename=openclaw_debug_payloads.jsonl")
 	c.Header("Content-Type", "application/x-ndjson")
 	io.Copy(c.Writer, f) //nolint:errcheck
 }
