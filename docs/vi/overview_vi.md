@@ -74,8 +74,21 @@ Mic (always on) → Local VAD (RMS energy, free)
 ## Sensing Flow
 
 ```
-LeLamp sensing loop → POST /api/sensing/event (type + message)
+LeLamp sensing loop (mỗi 2s) → Đọc 1 frame camera, chạy tất cả detectors:
+    ├─ Motion detection (frame diff) → event nếu >8% pixel thay đổi
+    ├─ Face detection (Haar cascade, downscale 0.5x) → presence.enter / presence.leave
+    ├─ Light level (mean brightness, mỗi 30s) → event nếu thay đổi >30/255
+    └─ Sound detection (mic RMS) → event nếu > threshold
+
+Event có ảnh? (large motion, face enter) → encode frame 320px JPEG base64
+
+POST /api/sensing/event {type, message, image?}
     → Lumi Go:
-        1. Local intent match? → thực thi trực tiếp (~50ms)
-        2. Không match → forward OpenClaw → AI quyết định → gọi SKILL API
+        1. Voice event + local intent match? → thực thi trực tiếp (~50ms)
+        2. Không match → forward OpenClaw:
+           - Có image → SendChatMessageWithImage (text + vision content block)
+           - Không image → SendChatMessage (text only)
+        3. OpenClaw AI nhìn ảnh + đọc context → quyết định hành động → gọi SKILL API
 ```
+
+Cooldown bảo vệ chi phí LLM: motion/sound 60s, presence 10s, light.level 30s.

@@ -42,12 +42,28 @@
 
 **Request body:**
 ```json
-{"type": "voice_command|voice|motion|sound", "message": "..."}
+{
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|light.level",
+  "message": "...",
+  "image": "<base64 JPEG, optional>"
+}
 ```
 
+**Event types:**
+
+| Type | Nguồn | Có ảnh? | Mô tả |
+|------|-------|---------|-------|
+| `voice_command` / `voice` | Mic (Deepgram STT) | Không | Lệnh giọng nói |
+| `motion` | Camera (frame diff) | Có (large motion) | Phát hiện chuyển động |
+| `presence.enter` | Camera (Haar cascade face detection) | Có | Phát hiện khuôn mặt mới |
+| `presence.leave` | Camera (3 tick liên tục không thấy mặt) | Không | Người rời đi |
+| `light.level` | Camera (mean brightness) | Không | Ánh sáng môi trường thay đổi đáng kể (>30/255) |
+| `sound` | Mic (RMS energy) | Không | Tiếng động lớn |
+
 **Flow xử lý:**
-1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp
+1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms)
 2. Không match → forward OpenClaw qua WebSocket `chat.send`
+3. Nếu event có `image` → gọi `SendChatMessageWithImage` → gửi ảnh kèm text cho AI vision phân tích
 
 ### OpenClaw
 
