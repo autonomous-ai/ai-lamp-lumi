@@ -910,6 +910,25 @@ function parseTelegramSummary(summary: string): string {
   return (m[1] ?? "").trim();
 }
 
+const TELEGRAM_FALLBACK_MESSAGE = "Message content from telegram";
+const TURN_INPUT_FALLBACK = "Input not captured";
+
+function turnHasOutput(turn: Turn): boolean {
+  return turn.events.some((ev) =>
+    ev.type === "tts" ||
+    ev.type === "intent_match" ||
+    (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "intent_match")),
+  );
+}
+
+function turnHasRealTelegramInput(turn: Turn): boolean {
+  return turn.events.some((ev) => {
+    if (ev.type !== "chat_input") return false;
+    const msg = parseTelegramSummary(ev.summary);
+    return msg.length > 0;
+  });
+}
+
 function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   const turns: Turn[] = [];
   let current: Turn | null = null;
@@ -965,13 +984,15 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     // If event belongs to a different run_id, split into a new inferred turn
     // to avoid mixing input/output across runs in UI.
     if (current && current.runId && evRunId && current.runId !== evRunId) {
+      const inferredType: Turn["type"] = current.type !== "unknown" ? current.type : "agent";
+      const inferredPath: Turn["path"] = current.path !== "unknown" ? current.path : "agent";
       turns.push(current);
       current = {
         id: evRunId,
         runId: evRunId,
         startTime: ev.time,
-        type: "agent",
-        path: "agent",
+        type: inferredType,
+        path: inferredPath,
         status: "active",
         events: [ev],
       };
@@ -1044,10 +1065,36 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     turn.events.sort((a, b) => a._seq - b._seq);
   }
 
+  // Merge adjacent Telegram fallback + agent output fragments into one turn.
+  // This handles cases where upstream emits separate run_ids for chat_input and response.
+  const stitched: Turn[] = [];
+  for (const turn of merged) {
+    const prev = stitched[stitched.length - 1];
+    if (!prev) {
+      stitched.push(turn);
+      continue;
+    }
+    const prevIsTelegramFallback = prev.type === "telegram" && !turnHasRealTelegramInput(prev);
+    const prevHasNoOutput = !turnHasOutput(prev);
+    const currLooksAgentReply = turn.path === "agent" && turnHasOutput(turn);
+    const prevTs = new Date(prev.endTime || prev.startTime).getTime();
+    const currTs = new Date(turn.startTime).getTime();
+    const closeInTime = Number.isFinite(prevTs) && Number.isFinite(currTs) && (currTs - prevTs) <= 30_000;
+    if (prevIsTelegramFallback && prevHasNoOutput && currLooksAgentReply && closeInTime) {
+      prev.events.push(...turn.events);
+      prev.events.sort((a, b) => a._seq - b._seq);
+      prev.status = turn.status === "error" ? "error" : turn.status;
+      prev.endTime = turn.endTime || prev.endTime;
+      prev.path = "agent";
+      continue;
+    }
+    stitched.push(turn);
+  }
+
   // Detect session breaks: ws_connect after ws_disconnect gap or large time gap between turns
-  for (let i = 1; i < merged.length; i++) {
-    const prev = merged[i - 1];
-    const curr = merged[i];
+  for (let i = 1; i < stitched.length; i++) {
+    const prev = stitched[i - 1];
+    const curr = stitched[i];
     // Check if there's a ws_connect/ws_ready event between turns (BE restart)
     const prevEnd = new Date(prev.endTime || prev.startTime).getTime();
     const currStart = new Date(curr.startTime).getTime();
@@ -1057,7 +1104,7 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
   }
 
-  return merged.slice(-100).reverse(); // latest 100, newest first
+  return stitched.slice(-100).reverse(); // latest 100, newest first
 }
 
 // Path label for badge inside node
@@ -1098,7 +1145,7 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     // chat_input → telegram_input node
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
       const msg = parseTelegramSummary(ev.summary);
-      if (msg) info.telegram_input.push(`"${msg}"`);
+      info.telegram_input.push(`"${msg || TELEGRAM_FALLBACK_MESSAGE}"`);
     }
     // intent_match → local_match node
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
@@ -1510,7 +1557,7 @@ function turnIO(turn: Turn): { input: string; output: string } {
           inputIsPlaceholder = false;
         }
       } else if (!input) {
-        input = "Telegram message";
+        input = TELEGRAM_FALLBACK_MESSAGE;
         inputIsPlaceholder = true;
       }
     }
@@ -1584,15 +1631,13 @@ function TurnBadge({ turn }: { turn: Turn }) {
         id: {turn.id}
       </div>
       {/* Row 2: input */}
-      {input && (
-        <div style={{
-          fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 3,
-          wordBreak: "break-word" as const, lineHeight: 1.4,
-        }}>
-          <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
-          {input}
-        </div>
-      )}
+      <div style={{
+        fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 3,
+        wordBreak: "break-word" as const, lineHeight: 1.4,
+      }}>
+        <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
+        {input || TURN_INPUT_FALLBACK}
+      </div>
       {/* Row 3: output */}
       {output && (
         <div style={{
@@ -2562,59 +2607,49 @@ export default function Monitor() {
     return () => clearInterval(t);
   }, []);
 
-  // Seed recent events on mount, then open SSE — avoids race condition
-  const seededRef = useRef(false);
+  // Flow data source (Doggi-style): seed from file REST + live file stream.
   useEffect(() => {
     let es: EventSource | null = null;
-    const pendingSSE: DisplayEvent[] = [];
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const applyEvents = (rows: MonitorEvent[]) => {
+      const next = rows
+        .slice(-FLOW_EVENTS_MAX)
+        .map((ev, i) => ({ ...ev, _seq: i }));
+      setEvents(next);
+      evtIdRef.current = next.length;
+    };
+    const fetchRecentFlow = async () => {
+      try {
+        const r = await fetch(`${API}/openclaw/flow-events?last=${FLOW_EVENTS_MAX}`).then((x) => x.json());
+        const rows = (r?.data?.events ?? []) as MonitorEvent[];
+        if (!Array.isArray(rows)) return;
+        applyEvents(rows);
+      } catch {
+        // keep previous UI state on fetch failure
+      }
+    };
 
-    // Buffer SSE events until seed completes
-    function startSSE() {
-      es = new EventSource(`${API}/openclaw/events`);
-      es.onmessage = (e) => {
-        try {
-          const ev: MonitorEvent = JSON.parse(e.data);
-          const display: DisplayEvent = { ...ev, _seq: evtIdRef.current++ };
-          if (!seededRef.current) { pendingSSE.push(display); return; }
-          setEvents((prev) => [...prev.slice(-(FLOW_EVENTS_MAX - 1)), display]);
-        } catch {
-          const display: DisplayEvent = {
-            _seq: evtIdRef.current++,
-            id: "", time: new Date().toLocaleTimeString(),
-            type: "raw", summary: e.data,
-          };
-          if (!seededRef.current) { pendingSSE.push(display); return; }
-          setEvents((prev) => [...prev.slice(-(FLOW_EVENTS_MAX - 1)), display]);
-        }
-      };
-    }
-
-    // Seed then flush buffered SSE
-    fetch(`${API}/openclaw/recent`)
-      .then((r) => r.json())
-      .then((r) => {
-        if (r.status === 1 && Array.isArray(r.data) && r.data.length > 0) {
-          const seeded = (r.data as MonitorEvent[]).map((ev) => ({
-            ...ev,
-            _seq: evtIdRef.current++,
-          }));
-          setEvents((prev) => {
-            // Merge: seeded base + any SSE that arrived while fetching
-            const merged = [...seeded, ...pendingSSE].slice(-FLOW_EVENTS_MAX);
-            return prev.length > merged.length ? prev : merged;
-          });
-        } else if (pendingSSE.length > 0) {
-          setEvents(pendingSSE.slice(-FLOW_EVENTS_MAX));
-        }
-        seededRef.current = true;
-      })
-      .catch(() => {
-        seededRef.current = true;
-        if (pendingSSE.length > 0) setEvents(pendingSSE.slice(-FLOW_EVENTS_MAX));
-      });
-
-    startSSE();
-    return () => es?.close();
+    fetchRecentFlow();
+    es = new EventSource(`${API}/openclaw/flow-stream`);
+    es.onmessage = (msg) => {
+      try {
+        const payload = JSON.parse(msg.data) as { events?: MonitorEvent[] };
+        if (!Array.isArray(payload.events)) return;
+        applyEvents(payload.events);
+      } catch {
+        // ignore malformed stream payload
+      }
+    };
+    es.onerror = () => {
+      es?.close();
+      es = null;
+      // Fallback to polling if stream disconnects.
+      if (!pollTimer) pollTimer = setInterval(fetchRecentFlow, 2000);
+    };
+    return () => {
+      es?.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, []);
 
   const ocOnline = oc?.connected ?? false;

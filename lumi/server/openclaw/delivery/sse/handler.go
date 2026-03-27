@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -344,41 +345,19 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 	}))
 }
 
-// Recent returns the last N monitor events.
-// If the ring buffer has no turn-starting events (sensing_input, chat_input),
-// it falls back to reading today's JSONL flow log and converting to MonitorEvents.
+// Recent returns the latest flow events from today's JSONL file only.
+// This keeps Flow UI deterministic by using a single source of truth (file log).
 func (h *OpenClawHandler) Recent(c *gin.Context) {
-	events := h.monitorBus.Recent(100)
+	events := recentFlowFromJSONL(time.Now().Format("2006-01-02"), 500)
 	if events == nil {
 		events = []domain.MonitorEvent{}
 	}
-
-	// Check if ring buffer contains any turn-starting events
-	hasTurns := false
-	for _, ev := range events {
-		if ev.Type == "sensing_input" || ev.Type == "chat_input" {
-			hasTurns = true
-			break
-		}
-	}
-
-	// Fallback: read tail of today's JSONL flow log and convert to MonitorEvents
-	if !hasTurns {
-		if flowEvents := recentFlowFromJSONL(500); len(flowEvents) > 0 {
-			events = append(flowEvents, events...)
-			// Cap to 500 total
-			if len(events) > 500 {
-				events = events[len(events)-500:]
-			}
-		}
-	}
-
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(events))
 }
 
-// recentFlowFromJSONL reads the last n lines from today's flow JSONL and converts to MonitorEvents.
-func recentFlowFromJSONL(n int) []domain.MonitorEvent {
-	day := time.Now().Format("2006-01-02")
+// recentFlowFromJSONL reads the last n lines from flow JSONL for a given date (YYYY-MM-DD)
+// and converts them to MonitorEvents.
+func recentFlowFromJSONL(day string, n int) []domain.MonitorEvent {
 	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
 	f, err := os.Open(path)
 	if err != nil {
@@ -409,6 +388,68 @@ func recentFlowFromJSONL(n int) []domain.MonitorEvent {
 		events = append(events, ev)
 	}
 	return events
+}
+
+// FlowEvents returns flow events from JSONL file by date.
+// Query params: date=YYYY-MM-DD (default today), last=<n> (default 500, max 2000).
+func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 500
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 2000 {
+		last = 2000
+	}
+	events := recentFlowFromJSONL(day, last)
+	if events == nil {
+		events = []domain.MonitorEvent{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// FlowStream streams today's flow events when the JSONL file changes.
+// This is file-based live mode (no monitor bus dependency).
+func (h *OpenClawHandler) FlowStream(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	lastMtime := int64(0)
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		default:
+		}
+
+		day := time.Now().Format("2006-01-02")
+		path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
+		if st, err := os.Stat(path); err == nil {
+			mt := st.ModTime().UnixNano()
+			if mt > lastMtime {
+				lastMtime = mt
+				events := recentFlowFromJSONL(day, 500)
+				if events == nil {
+					events = []domain.MonitorEvent{}
+				}
+				payload := map[string]any{
+					"date":   day,
+					"events": events,
+				}
+				data, _ := json.Marshal(payload)
+				c.SSEvent("message", string(data))
+				c.Writer.Flush()
+			}
+		}
+		time.Sleep(1000 * time.Millisecond)
+	}
 }
 
 // flowEventToMonitor converts a flow.Event (JSONL) to a domain.MonitorEvent (for UI).
