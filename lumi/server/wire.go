@@ -12,6 +12,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
@@ -34,6 +35,7 @@ func InitializeServer() (*Server, error) {
 		device.ProviderSet,
 		resetbutton.ProviderSet,
 		ambient.ProviderSet,
+		statusled.ProviderSet,
 		_healthHttpDeliver.ProviderSet,
 		_networkHttpDeliver.ProviderSet,
 		_deviceHttpDeliver.ProviderSet,

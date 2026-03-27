@@ -14,6 +14,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
 	http4 "go-lamp.autonomous.ai/server/device/delivery/gpio"
@@ -44,7 +45,8 @@ func InitializeServer() (*Server, error) {
 	}
 	deviceMQTTHandler := mqtthandler.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
 	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, agentGateway)
-	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus)
+	statusledService := statusled.ProvideService()
+	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus, statusledService)
 	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
 	ambientService := ambient.ProvideService(bus)

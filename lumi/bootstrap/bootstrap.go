@@ -20,6 +20,7 @@ import (
 	"go-lamp.autonomous.ai/bootstrap/state"
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/core/system"
+	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
 // semverRe captures the first semver-like token (e.g. 2026.3.8 or v1.2.3-beta).
@@ -189,9 +190,17 @@ func (b *Bootstrap) reconcile(ctx context.Context, key string, target domain.OTA
 	}
 
 	slog.Info("update available", "component", "bootstrap", "key", key, "current", current, "target", targetVersion)
+
+	// Status LED: orange breathing while updating
+	lelamp.SetEffect("breathing", 255, 140, 0, 0.4)
+
 	if err := b.applyUpdate(ctx, key, target); err != nil {
+		lelamp.SetEffect("pulse", 255, 30, 30, 1.5) // red pulse on error
 		return false, err
 	}
+
+	// Brief green flash to confirm success, then stop
+	lelamp.SetEffect("notification_flash", 0, 255, 80, 1.0)
 	slog.Info("updated", "component", "bootstrap", "key", key, "version", targetVersion)
 	b.state.Components[key] = targetVersion
 	return true, nil
