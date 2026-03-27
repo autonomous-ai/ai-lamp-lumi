@@ -84,12 +84,11 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-type Section = "overview" | "system" | "workflow" | "flow" | "camera";
+type Section = "overview" | "system" | "flow" | "camera";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview", label: "Overview",  icon: "◈" },
   { id: "system",   label: "System",    icon: "⬡" },
-  { id: "workflow", label: "Workflow",  icon: "◎" },
   { id: "flow",     label: "Flow",      icon: "⬢" },
   { id: "camera",   label: "Camera",    icon: "⬟" },
 ];
@@ -705,109 +704,6 @@ function SystemSection({
               <StatPill label="Internet" value={net.internet ? "OK" : "No"} color={net.internet ? "var(--lm-green)" : "var(--lm-red)"} />
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>No network data</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WorkflowSection({ events }: { events: DisplayEvent[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events]);
-
-  const typeColor = (t: string): string => {
-    switch (t) {
-      case "lifecycle":       return "var(--lm-amber)";
-      case "tool_call":       return "var(--lm-teal)";
-      case "thinking":        return "var(--lm-purple)";
-      case "assistant_delta": return "var(--lm-blue)";
-      case "chat_response":   return "var(--lm-green)";
-      default:
-        if (t.includes("error")) return "var(--lm-red)";
-        return "var(--lm-text-dim)";
-    }
-  };
-
-  const typeLabel = (t: string): string => {
-    switch (t) {
-      case "lifecycle":       return "Lifecycle";
-      case "tool_call":       return "Tool";
-      case "thinking":        return "Thinking";
-      case "assistant_delta": return "Assistant";
-      case "chat_response":   return "Chat";
-      default: return t;
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}>
-      <div style={{
-        ...S.card,
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        padding: 0,
-        overflow: "hidden",
-      }}>
-        <div style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--lm-border)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}>
-          <span style={S.cardLabel}>OpenClaw Event Feed</span>
-          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>{events.length} events</span>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }} className="lm-hide-scroll">
-          {events.length === 0 ? (
-            <div style={{ padding: "20px 16px", color: "var(--lm-text-muted)", fontSize: 12 }}>
-              Waiting for workflow events…
-            </div>
-          ) : (
-            events.map((ev) => (
-              <div
-                key={ev._seq}
-                style={{
-                  padding: "7px 16px",
-                  borderLeft: `3px solid ${typeColor(ev.type)}`,
-                  marginLeft: 8,
-                  marginBottom: 2,
-                  borderRadius: "0 6px 6px 0",
-                  background: "var(--lm-surface)",
-                  marginRight: 8,
-                }}
-                className="lm-fade-in"
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" as const }}>
-                  <span style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 4,
-                    background: `${typeColor(ev.type)}22`,
-                    color: typeColor(ev.type), fontWeight: 600,
-                  }}>{typeLabel(ev.type)}</span>
-                  {ev.phase && (
-                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontStyle: "italic" }}>{ev.phase}</span>
-                  )}
-                  {ev.runId && (
-                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontFamily: "monospace" }}>
-                      {ev.runId.slice(0, 8)}
-                    </span>
-                  )}
-                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{ev.time}</span>
-                </div>
-                <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)", wordBreak: "break-all" as const }}>
-                  {ev.summary}
-                </div>
-                {ev.error && (
-                  <div style={{ fontSize: 11, color: "var(--lm-red)", marginTop: 3 }}>{ev.error}</div>
-                )}
-              </div>
-            ))
-          )}
-          <div ref={bottomRef} />
         </div>
       </div>
     </div>
@@ -1805,7 +1701,6 @@ export default function Monitor() {
               ramHistory={ramHistory}
             />
           )}
-          {section === "workflow" && <WorkflowSection events={events} />}
           {section === "flow"     && <FlowSection events={events} />}
           {section === "camera"   && <CameraSection displayTs={displayTs} />}
         </div>
