@@ -184,7 +184,7 @@ class MusicService:
             video = results.videos[0]
             logger.info("Found: '%s' (%s)", video.title, video.watch_url)
 
-            yt = YouTube(video.watch_url)
+            yt = YouTube(video.watch_url, client="WEB")
             audio_stream = yt.streams.get_audio_only()
             if not audio_stream:
                 logger.warning("No audio stream for: '%s'", video.title)
