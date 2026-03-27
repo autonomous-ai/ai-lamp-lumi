@@ -154,13 +154,19 @@ class LeLampFollower(Robot):
 
     def configure(self) -> None:
         with self.bus.torque_disabled():
-            self.bus.configure_motors()
+            try:
+                self.bus.configure_motors()
+            except Exception as e:
+                logger.warning(f"configure_motors failed (offline servos?): {e}")
             for motor in self.bus.motors:
-                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                pgain = 128 if motor in self._HIGH_PGAIN_MOTORS else 32
-                self.bus.write("P_Coefficient", motor, pgain)
-                self.bus.write("I_Coefficient", motor, 0)
-                self.bus.write("D_Coefficient", motor, 32)
+                try:
+                    self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                    pgain = 128 if motor in self._HIGH_PGAIN_MOTORS else 32
+                    self.bus.write("P_Coefficient", motor, pgain)
+                    self.bus.write("I_Coefficient", motor, 0)
+                    self.bus.write("D_Coefficient", motor, 32)
+                except Exception as e:
+                    logger.warning(f"configure {motor} failed (offline?): {e}")
 
     def setup_motors(self) -> None:
         for motor in reversed(self.bus.motors):
