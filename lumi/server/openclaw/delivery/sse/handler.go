@@ -99,6 +99,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
 
+			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
+			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
+			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" {
+				flow.SetTrace(payload.RunID)
+				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"})
+				h.monitorBus.Push(domain.MonitorEvent{
+					Type:    "chat_input",
+					Summary: "[telegram]",
+					RunID:   payload.RunID,
+					Detail:  map[string]string{"role": "user"},
+				})
+			}
+
 			// Status LED: show processing state while agent is thinking
 			if payload.Data.Phase == "start" {
 				h.statusLED.Set(statusled.StateProcessing)
