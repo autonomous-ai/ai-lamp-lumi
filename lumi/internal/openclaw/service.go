@@ -559,7 +559,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				"platform": "linux",
 				"mode":     "node",
 			},
-			"role":   "operator",
+			"role":   "node",
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
 			"caps":   []string{"thinking-events"},
 			"auth":   map[string]interface{}{"token": token},
