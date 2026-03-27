@@ -953,11 +953,18 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
         info.tts_speak.push(`🔊 "${ev.summary.slice(0, 40)}"`);
       }
     }
-    // lifecycle → idle / agent_call
+    // lifecycle → idle / agent_call + token usage on agent_response
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId?.slice(0, 12) ?? "?"}`);
       if (ev.phase === "end") {
         info.idle.push(ev.error ? `❌ ${ev.error.slice(0, 30)}` : "✓ turn done");
+        const d = ev.detail as Record<string, string> | undefined;
+        if (d?.inputTokens) {
+          const inp = parseInt(d.inputTokens, 10);
+          const out = parseInt(d.outputTokens ?? "0", 10);
+          const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+          info.agent_response.push(`tokens: ${fmt(inp)} in / ${fmt(out)} out`);
+        }
       }
     }
     // output — what the user finally sees/hears
@@ -1336,9 +1343,23 @@ function TurnBadge({ turn }: { turn: Turn }) {
           {output}
         </div>
       )}
-      {/* Row 4: event count */}
-      <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3 }}>
-        {turn.events.length} events
+      {/* Row 4: token usage + event count */}
+      <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3, display: "flex", gap: 8, alignItems: "center" }}>
+        <span>{turn.events.length} events</span>
+        {(() => {
+          const endEvt = turn.events.find((e) => e.type === "lifecycle" && e.phase === "end" && e.detail?.inputTokens);
+          if (!endEvt?.detail) return null;
+          const d = endEvt.detail as Record<string, string>;
+          const inp = parseInt(d.inputTokens ?? "0", 10);
+          const out = parseInt(d.outputTokens ?? "0", 10);
+          if (!inp && !out) return null;
+          const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+          return (
+            <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
+              {fmt(inp)} in / {fmt(out)} out
+            </span>
+          );
+        })()}
       </div>
     </div>
   );
