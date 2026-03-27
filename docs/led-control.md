@@ -40,16 +40,16 @@ POST /led/paint
 
 ```json
 POST /led/effect
-{"effect": "breathing", "color": [255, 100, 50], "speed": 1.0}
+{"effect": "breathing", "r": 255, "g": 100, "b": 50, "speed": 1.0}
 ```
 
 | Effect | Description | Params |
 |--------|-------------|--------|
-| `breathing` | Sine-wave brightness fade | color, speed |
-| `candle` | Warm random flicker | color |
+| `breathing` | Sine-wave brightness up/down | r, g, b, speed |
+| `candle` | Random flickering candle | r, g, b |
 | `rainbow` | Hue rotation across strip | speed |
-| `notification_flash` | 3 quick flashes then stop | color |
-| `pulse` | Wavefront expanding from center | color, speed |
+| `notification_flash` | Quick flash 3 times | r, g, b |
+| `pulse` | Single pulse from center outward | r, g, b, speed |
 
 ## Lighting Scenes
 
