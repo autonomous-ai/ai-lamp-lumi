@@ -558,6 +558,50 @@ func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
 	io.Copy(c.Writer, f) //nolint:errcheck
 }
 
+// DebugLogLines returns parsed tail lines from openclaw debug payload JSONL.
+// Query param: last=<n> (default 200, max 2000)
+func (h *OpenClawHandler) DebugLogLines(c *gin.Context) {
+	last := 200
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 2000 {
+		last = 2000
+	}
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"rows": []map[string]any{},
+		}))
+		return
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if len(lines) > last {
+		lines = lines[len(lines)-last:]
+	}
+	rows := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		var row map[string]any
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"rows": rows,
+	}))
+}
+
 // Analytics returns aggregated per-day metrics from flow JSONL files.
 // Query params: from=YYYY-MM-DD, to=YYYY-MM-DD (defaults to last 7 days).
 func (h *OpenClawHandler) Analytics(c *gin.Context) {

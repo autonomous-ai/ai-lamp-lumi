@@ -100,7 +100,7 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-type Section = "overview" | "system" | "flow" | "camera" | "analytics";
+type Section = "overview" | "system" | "flow" | "camera" | "analytics" | "logs";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview",   label: "Overview",   icon: "◈" },
@@ -108,6 +108,7 @@ const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "flow",       label: "Flow",       icon: "⬢" },
   { id: "camera",     label: "Camera",     icon: "⬟" },
   { id: "analytics",  label: "Analytics",  icon: "◉" },
+  { id: "logs",       label: "Logs",       icon: "☰" },
 ];
 
 // ─── CSS-in-JS helpers ───────────────────────────────────────────────────────
@@ -2528,6 +2529,120 @@ function AnalyticsSection() {
   );
 }
 
+function LogsSection() {
+  const [rows, setRows] = useState<Record<string, any>[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastN, setLastN] = useState(300);
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/openclaw/debug-lines?last=${lastN}`).then((x) => x.json());
+      const next = (r?.data?.rows ?? []) as Record<string, any>[];
+      setRows(Array.isArray(next) ? next : []);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [lastN]);
+
+  useEffect(() => {
+    fetchRows();
+    const t = setInterval(fetchRows, 2000);
+    return () => clearInterval(t);
+  }, [fetchRows]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%" }}>
+      <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ ...S.cardLabel, marginBottom: 0 }}>Runtime Logs</span>
+        <button
+          onClick={fetchRows}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+            color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
+          }}
+        >
+          ↻ Refresh
+        </button>
+        <select
+          value={lastN}
+          onChange={(e) => setLastN(Number(e.target.value))}
+          style={{
+            fontSize: 11, padding: "4px 8px", borderRadius: 6,
+            background: "var(--lm-surface)", border: "1px solid var(--lm-border)", color: "var(--lm-text)",
+          }}
+        >
+          {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>Last {n}</option>)}
+        </select>
+        <a
+          href={`${API}/openclaw/debug-logs`}
+          download
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+            color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600, textDecoration: "none",
+          }}
+        >
+          ↓ Debug file
+        </a>
+        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--lm-text-muted)" }}>
+          {loading ? "Loading..." : `${rows.length} rows`}
+        </span>
+      </div>
+
+      <div style={{ ...S.card, flex: 1, minHeight: 0, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
+          <span style={S.cardLabel}>OpenClaw Debug Tail</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }} className="lm-hide-scroll">
+          {rows.length === 0 ? (
+            <div style={{ padding: "12px 14px", color: "var(--lm-text-muted)", fontSize: 11 }}>
+              No debug rows yet. Send a Telegram message and watch this panel.
+            </div>
+          ) : (
+            [...rows].reverse().map((row, i) => {
+              const source = String(row.source ?? "");
+              const runId = String(row.run_id ?? "");
+              const role = String(row.role ?? "");
+              const message = String(row.message ?? "");
+              return (
+                <div key={`${runId}-${i}`} style={{
+                  padding: "7px 12px",
+                  borderLeft: `2px solid ${source.includes("chat_event") ? "var(--lm-green)" : "var(--lm-blue)"}`,
+                  marginLeft: 8, marginRight: 8, marginBottom: 4, borderRadius: "0 5px 5px 0",
+                  background: "var(--lm-surface)",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "var(--lm-amber)", textTransform: "uppercase" as const }}>
+                      {source || "unknown"}
+                    </span>
+                    {role && <span style={{ fontSize: 9, color: "var(--lm-teal)" }}>{role}</span>}
+                    {runId && <span style={{ fontSize: 9, color: "var(--lm-text-muted)", fontFamily: "monospace" }}>{runId}</span>}
+                    <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{String(row.at ?? "")}</span>
+                  </div>
+                  {message && (
+                    <div style={{ fontSize: 10.5, color: "var(--lm-text-dim)", wordBreak: "break-word" as const }}>
+                      {message}
+                    </div>
+                  )}
+                  {!message && (
+                    <div style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                      (no parsed message)
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export default function Monitor() {
@@ -2745,6 +2860,7 @@ export default function Monitor() {
           {section === "flow"      && <FlowSection events={events} onClearEvents={clearFlowEvents} />}
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
           {section === "analytics" && <AnalyticsSection />}
+          {section === "logs"      && <LogsSection />}
         </div>
       </main>
     </div>

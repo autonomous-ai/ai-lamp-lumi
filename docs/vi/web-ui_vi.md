@@ -94,6 +94,7 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 | `GET /api/openclaw/recent` | Các flow event mới nhất từ JSONL của ngày hiện tại (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | API flow theo file dùng cho seed/history của Flow |
 | `GET /api/openclaw/flow-stream` | Stream live theo file (SSE) khi JSONL thay đổi |
+| `GET /api/openclaw/debug-lines?last=300` | Tail log đã parse từ `openclaw_debug_payloads.jsonl` cho tab Logs |
 | `GET /api/openclaw/events` | SSE từ monitor bus, giữ để tương thích |
 
 > **Lưu ý format**: Lumi API trả `{ status: 1, data: <payload>, message: null }` khi thành công.
@@ -207,6 +208,13 @@ Hành vi gom nhóm Turn Pipeline:
 - **Camera Stream**: MJPEG live stream từ `GET /hw/camera/stream`
 - **Display Eyes (GC9A01)**: Snapshot màn hình tròn 1.28" từ `GET /hw/display/snapshot`, hiển thị dạng hình tròn với amber glow. Có nút Refresh.
 - **Camera Snapshot**: Ảnh tĩnh từ `GET /hw/camera/snapshot`, có nút Capture để chụp mới.
+
+### 5.5 Logs Section
+
+- Tab log runtime riêng để debug Telegram/OpenClaw input.
+- Poll `GET /api/openclaw/debug-lines` mỗi 2 giây, hiển thị dòng mới nhất ở trên.
+- Hiển thị `source`, `role`, `run_id`, `at` và `message` parse được (nếu có).
+- Có nút tải file debug qua `GET /api/openclaw/debug-logs`.
 
 > **Lưu ý**: Camera có vai trò kép — (1) hiển thị live stream cho user xem, (2) nguồn dữ liệu sensing tự động. Sensing service đọc frame từ camera mỗi 2s để detect motion, face (Haar cascade), và light level. Khi phát hiện sự kiện đáng kể (người xuất hiện, chuyển động lớn), auto-snapshot 320px JPEG được gửi kèm event tới OpenClaw AI để phân tích bằng vision.
 
