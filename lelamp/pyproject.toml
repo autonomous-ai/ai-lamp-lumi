@@ -21,7 +21,7 @@ dependencies = [
     "python-dotenv",
     "requests>=2.31.0",
     "sounddevice>=0.5.2",
-    "pytubefix>=10.3.0",
+    "yt-dlp>=2025.3.0",
     "Pillow>=10.0.0",
 ]
 
