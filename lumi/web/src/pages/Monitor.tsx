@@ -1249,6 +1249,34 @@ function FlowDiagram({
   );
 }
 
+// Source type → icon map
+const SOURCE_ICON: Record<string, string> = {
+  voice: "🎤", motion: "👁", sound: "🔊", environment: "🌡", system: "⚙", unknown: "❓",
+};
+
+// Extract input/output summary from a turn
+function turnIO(turn: Turn): { input: string; output: string } {
+  let input = "";
+  let output = "";
+  for (const ev of turn.events) {
+    // Input: first sensing_input message
+    if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"))) {
+      const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
+      input = m ? m[2] : ev.summary;
+    }
+    // Output: last tts or intent_match result
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      output = d?.data?.text ?? d?.text ?? ev.summary ?? output;
+    }
+    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
+    }
+  }
+  return { input: input.slice(0, 50), output: output.slice(0, 50) };
+}
+
 function TurnBadge({ turn }: { turn: Turn }) {
   const pathColor = turn.path === "local" ? "var(--lm-green)"
     : turn.path === "agent" ? "var(--lm-blue)"
@@ -1256,32 +1284,61 @@ function TurnBadge({ turn }: { turn: Turn }) {
   const statusColor = turn.status === "done" ? "var(--lm-green)"
     : turn.status === "error" ? "var(--lm-red)"
     : "var(--lm-amber)";
+  const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
+  const { input, output } = turnIO(turn);
 
   return (
     <div style={{
-      padding: "7px 10px",
+      padding: "8px 10px",
       borderRadius: 8,
       background: "var(--lm-surface)",
       border: "1px solid var(--lm-border)",
       fontSize: 11,
       cursor: "default",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+      {/* Row 1: source icon + type + path + status + time */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+        <span style={{ fontSize: 14, lineHeight: 1 }}>{icon}</span>
         <span style={{
-          fontSize: 9, padding: "1px 5px", borderRadius: 3,
+          fontSize: 10, fontWeight: 700, color: "var(--lm-text)",
+          textTransform: "uppercase" as const,
+        }}>{turn.type}</span>
+        <span style={{
+          fontSize: 8, padding: "1px 5px", borderRadius: 3,
           background: `${pathColor}18`, color: pathColor, fontWeight: 700,
           textTransform: "uppercase" as const,
         }}>{turn.path}</span>
         <span style={{
-          fontSize: 9, padding: "1px 5px", borderRadius: 3,
-          background: `${statusColor}15`, color: statusColor, fontWeight: 600,
-        }}>{turn.status}</span>
-        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
+          width: 6, height: 6, borderRadius: "50%",
+          background: statusColor, display: "inline-block", flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 8, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
           {turn.startTime}
         </span>
       </div>
-      <div style={{ color: "var(--lm-text-dim)", fontSize: 10.5, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
-        [{turn.type}] — {turn.events.length} events
+      {/* Row 2: input */}
+      {input && (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 2,
+          whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
+          {input}
+        </div>
+      )}
+      {/* Row 3: output */}
+      {output && (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-dim)",
+          whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>OUT</span>
+          {output}
+        </div>
+      )}
+      {/* Row 4: event count */}
+      <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3 }}>
+        {turn.events.length} events
       </div>
     </div>
   );
