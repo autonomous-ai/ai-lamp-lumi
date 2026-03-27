@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const API = "http://172.168.20.230/api";
-const HW  = "http://172.168.20.230/hw";
+const API = "/api";
+const HW  = "/hw";
 const HISTORY_LEN = 60;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
