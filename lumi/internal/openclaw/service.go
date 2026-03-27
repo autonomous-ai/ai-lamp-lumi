@@ -584,11 +584,22 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		Result struct {
 			SessionKey string `json:"sessionKey"`
 		} `json:"result"`
+		Payload struct {
+			Snapshot struct {
+				SessionDefaults struct {
+					MainSessionKey string `json:"mainSessionKey"`
+				} `json:"sessionDefaults"`
+			} `json:"snapshot"`
+		} `json:"payload"`
 	}
 	if err := json.Unmarshal(connectResp, &connectResult); err == nil {
-		if connectResult.Result.SessionKey != "" {
-			s.SetSessionKey(connectResult.Result.SessionKey)
-			slog.Info("session key from connect", "component", "openclaw", "sessionKey", connectResult.Result.SessionKey)
+		sk := connectResult.Result.SessionKey
+		if sk == "" {
+			sk = connectResult.Payload.Snapshot.SessionDefaults.MainSessionKey
+		}
+		if sk != "" {
+			s.SetSessionKey(sk)
+			slog.Info("session key from connect", "component", "openclaw", "sessionKey", sk)
 		}
 	}
 
