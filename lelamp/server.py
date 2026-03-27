@@ -126,6 +126,12 @@ try:
 except ImportError as e:
     logger.warning(f"TTS service not available: {e}")
 
+MusicService = None
+try:
+    from lelamp.service.voice.music_service import MusicService
+except ImportError as e:
+    logger.warning(f"Music service not available: {e}")
+
 # --- Lazy import for display ---
 
 DisplayService = None
@@ -143,6 +149,7 @@ sensing_service = None
 voice_service = None
 display_service = None
 tts_service = None
+music_service = None
 
 
 def _find_seeed_device(output: bool = True) -> Optional[int]:
@@ -208,6 +215,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Camera failed to start: {e}")
 
     # Detect audio devices
+    global music_service
     if sd:
         seeed_output_device = _find_seeed_device(output=True)
         seeed_input_device = _find_seeed_device(output=False)
@@ -215,6 +223,18 @@ async def lifespan(app: FastAPI):
             logger.info(f"Audio output device: {seeed_output_device}")
         if seeed_input_device is not None:
             logger.info(f"Audio input device: {seeed_input_device}")
+
+    # Start music service (needs sounddevice only, no API keys)
+    if MusicService and sd and seeed_output_device is not None:
+        try:
+            music_service = MusicService(
+                sound_device_module=sd,
+                numpy_module=np,
+                output_device=seeed_output_device,
+            )
+            logger.info("MusicService started (output_device=%s)", seeed_output_device)
+        except Exception as e:
+            logger.warning(f"MusicService failed to start: {e}")
 
     # Start sensing loop (motion + sound detection → push events to Lumi → OpenClaw)
     sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -268,6 +288,9 @@ async def lifespan(app: FastAPI):
             # Wire TTS to SensingService for echo suppression
             if sensing_service:
                 sensing_service.set_tts_service(tts_service)
+            # Wire TTS to MusicService so music pauses during speech
+            if music_service:
+                music_service._tts_service = tts_service
         if dgk and VoiceService and not voice_service:
             voice_service = VoiceService(
                 deepgram_api_key=dgk,
@@ -287,6 +310,8 @@ async def lifespan(app: FastAPI):
     _stop_current_effect()
     if display_service:
         display_service.stop()
+    if music_service and music_service.playing:
+        music_service.stop()
     if voice_service:
         voice_service.stop()
     if sensing_service:
@@ -578,6 +603,21 @@ class SpeakRequest(BaseModel):
     }
 
 
+class MusicPlayRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500, description="Song name or search query")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"query": "Bohemian Rhapsody Queen"}]
+        }
+    }
+
+
+class MusicStatusResponse(BaseModel):
+    available: bool
+    playing: bool
+
+
 class VolumeResponse(BaseModel):
     control: str
     volume: int
@@ -639,6 +679,7 @@ class HealthResponse(BaseModel):
     sensing: bool
     voice: bool
     tts: bool
+    music: bool
     display: bool
 
 
@@ -1466,6 +1507,9 @@ def start_voice(req: VoiceStartRequest):
                 output_device=seeed_output_device,
             )
             logger.info("TTSService started")
+            # Wire TTS to MusicService so music pauses during speech
+            if music_service:
+                music_service._tts_service = tts_service
         except Exception as e:
             logger.warning(f"TTSService failed: {e}")
 
@@ -1534,6 +1578,39 @@ def voice_status():
     }
 
 
+# --- Music ---
+
+@app.post("/audio/play", response_model=StatusResponse, tags=["Audio"])
+def audio_play(req: MusicPlayRequest):
+    """Search YouTube and play audio through the speaker."""
+    if not music_service:
+        raise HTTPException(503, "Music service not available")
+    if not music_service.available:
+        raise HTTPException(503, "Music service not available — missing sounddevice or numpy")
+    logger.info("POST /audio/play: query='%s'", req.query[:80])
+    started = music_service.play(req.query)
+    if not started:
+        raise HTTPException(409, "Music is busy playing")
+    return {"status": "ok"}
+
+
+@app.post("/audio/stop", response_model=StatusResponse, tags=["Audio"])
+def audio_stop():
+    """Stop current music playback."""
+    if music_service and music_service.playing:
+        music_service.stop()
+    return {"status": "ok"}
+
+
+@app.get("/audio/status", response_model=MusicStatusResponse, tags=["Audio"])
+def audio_status():
+    """Get music playback status."""
+    return {
+        "available": music_service is not None and music_service.available,
+        "playing": music_service.playing if music_service else False,
+    }
+
+
 # --- Health ---
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -1548,6 +1625,7 @@ def health():
         "sensing": sensing_service is not None,
         "voice": voice_service is not None and voice_service.available if voice_service else False,
         "tts": tts_service is not None and tts_service.available if tts_service else False,
+        "music": music_service is not None and music_service.available if music_service else False,
         "display": display_service is not None,
     }
 
