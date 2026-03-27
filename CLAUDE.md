@@ -6,17 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo is developed in both **Cursor** and **Claude Code**. The following rules (from `.cursor/rules/`) apply to all code changes:
 
-1. **Update docs on code change** — When you change code that affects behavior, architecture, or APIs, update the relevant `docs/*_vi.md` files to match. Docs are in Vietnamese (`*_vi.md`). Keep numbers, flows, endpoints, and states 100% accurate with the code.
+1. **Update docs on code change** — When you change code that affects behavior, architecture, or APIs, update **both** the English (`docs/`) and Vietnamese (`docs/vi/`) docs to match. Keep numbers, flows, endpoints, and states 100% accurate with the code.
 
-   | Code area | Doc to update |
-   |-----------|---------------|
-   | lamp-server, API, startup | `docs/vi/lamp-server_vi.md` |
-   | LED, effects, states, animations | `docs/vi/led-control_vi.md` |
-   | Setup flow, provisioning | `docs/vi/setup-flow_vi.md` |
-   | Web UI, configuration pages | `docs/vi/web-ui_vi.md` |
-   | Overall structure | `docs/vi/overview_vi.md` |
-   | MQTT, dispatch, publish | `docs/vi/mqtt_vi.md` |
-   | OTA, bootstrap | `docs/vi/bootstrap-ota.md` |
+   | Code area | English doc | Vietnamese doc |
+   |-----------|-------------|----------------|
+   | lamp-server, API, startup | `docs/lamp-server.md` | `docs/vi/lamp-server_vi.md` |
+   | LED, effects, states, animations | `docs/led-control.md` | `docs/vi/led-control_vi.md` |
+   | Setup flow, provisioning | `docs/setup-flow.md` | `docs/vi/setup-flow_vi.md` |
+   | Web UI, configuration pages | `docs/web-ui.md` | `docs/vi/web-ui_vi.md` |
+   | Overall structure | `docs/overview.md` | `docs/vi/overview_vi.md` |
+   | MQTT, dispatch, publish | `docs/mqtt.md` | `docs/vi/mqtt_vi.md` |
+   | OTA, bootstrap | `docs/bootstrap-ota.md` | `docs/vi/bootstrap-ota.md` |
 
 2. **Comments in English** — Project standard.
 3. **Code is the single source of truth** — Docs reflect code, not the other way around.
