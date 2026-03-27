@@ -888,6 +888,7 @@ function deriveActiveStage(events: DisplayEvent[]): FlowStage {
 interface Turn {
   id: string;          // runId or a synthetic id for local turns
   startTime: string;
+  sessionBreak?: boolean; // true if this turn starts after a BE restart (new session)
   endTime?: string;
   type: string;        // "voice", "motion", etc.
   path: "local" | "agent" | "unknown";
@@ -973,7 +974,21 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
   }
   if (current) turns.push(current);
-  return turns.slice(-15).reverse(); // latest 15, newest first
+
+  // Detect session breaks: ws_connect after ws_disconnect gap or large time gap between turns
+  for (let i = 1; i < turns.length; i++) {
+    const prev = turns[i - 1];
+    const curr = turns[i];
+    // Check if there's a ws_connect/ws_ready event between turns (BE restart)
+    const prevEnd = new Date(prev.endTime || prev.startTime).getTime();
+    const currStart = new Date(curr.startTime).getTime();
+    // Session break if >60s gap between turns
+    if (currStart - prevEnd > 60_000) {
+      curr.sessionBreak = true;
+    }
+  }
+
+  return turns.slice(-20).reverse(); // latest 20, newest first
 }
 
 // Path label for badge inside node
@@ -1752,17 +1767,28 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
             {turns.length === 0 ? (
               <div style={{ padding: 12, color: "var(--lm-text-muted)", fontSize: 11 }}>No turns yet</div>
             ) : (
-              turns.map((turn) => (
-                <div
-                  key={turn.id}
-                  onClick={() => setSelectedTurnId(turn.id === selectedTurn?.id ? null : turn.id)}
-                  style={{
-                    borderRadius: 8,
-                    outline: turn.id === selectedTurn?.id ? `2px solid var(--lm-amber)` : "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <TurnBadge turn={turn} />
+              turns.map((turn, i) => (
+                <div key={turn.id}>
+                  {/* Session break separator (reversed list: break on NEXT item means gap before this one) */}
+                  {i > 0 && turns[i - 1].sessionBreak && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "4px 0", margin: "2px 0",
+                    }}>
+                      <div style={{ flex: 1, borderTop: "1px dashed var(--lm-text-muted)", opacity: 0.4 }} />
+                      <span style={{ fontSize: 8, color: "var(--lm-text-muted)", whiteSpace: "nowrap" }}>session</span>
+                      <div style={{ flex: 1, borderTop: "1px dashed var(--lm-text-muted)", opacity: 0.4 }} />
+                    </div>
+                  )}
+                  <div
+                    onClick={() => setSelectedTurnId(turn.id === selectedTurn?.id ? null : turn.id)}
+                    style={{
+                      borderRadius: 8,
+                      outline: turn.id === selectedTurn?.id ? `2px solid var(--lm-amber)` : "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <TurnBadge turn={turn} />
+                  </div>
                 </div>
               ))
             )}
