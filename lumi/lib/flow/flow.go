@@ -136,6 +136,13 @@ func ClearTrace() {
 	global.mu.Unlock()
 }
 
+// GetTrace returns the current active trace ID, or "" if none is set.
+func GetTrace() string {
+	global.mu.Lock()
+	defer global.mu.Unlock()
+	return global.traceID
+}
+
 // Recent returns up to n most recent events from the ring buffer.
 func Recent(n int) []Event {
 	global.mu.Lock()
