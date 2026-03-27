@@ -6,6 +6,7 @@ package ambient
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -33,13 +34,18 @@ type Service struct {
 	paused bool
 	// lastInteraction tracks when the last real interaction happened.
 	lastInteraction time.Time
+
+	// baseColor is the RGB color the breathing loop uses. Updated from LeLamp
+	// on resume so ambient respects whatever color the agent/user last set.
+	baseColor [3]int
 }
 
 // ProvideService constructs an AmbientLifeService.
 func ProvideService(bus *monitor.Bus) *Service {
 	return &Service{
-		bus:    bus,
-		paused: true, // start paused until explicitly started
+		bus:       bus,
+		paused:    true, // start paused until explicitly started
+		baseColor: [3]int{180, 220, 255}, // default soft blue-white
 	}
 }
 
@@ -88,7 +94,12 @@ func (s *Service) resume() {
 	defer s.mu.Unlock()
 	if s.paused {
 		s.paused = false
-		flow.Log("ambient_resume", nil)
+		// Fetch current LED color from LeLamp so breathing uses the last
+		// intentionally-set color (emotion, scene, etc.) instead of hardcoded default.
+		if c, err := fetchLeLampColor(); err == nil {
+			s.baseColor = c
+		}
+		flow.Log("ambient_resume", map[string]any{"base_color": s.baseColor})
 	}
 }
 
@@ -151,10 +162,13 @@ func (s *Service) breathingLoop(ctx context.Context) {
 			// Sine wave: 0.25 → 0.65 (gentle, not harsh)
 			intensity := 0.45 + 0.20*math.Sin(2*math.Pi*elapsed/cycleDuration)
 
-			// Map to warm idle color with varying brightness
-			r := int(float64(180) * intensity)
-			g := int(float64(220) * intensity)
-			b := int(float64(255) * intensity)
+			// Use the base color from last interaction (fetched on resume)
+			s.mu.Lock()
+			base := s.baseColor
+			s.mu.Unlock()
+			r := int(float64(base[0]) * intensity)
+			g := int(float64(base[1]) * intensity)
+			b := int(float64(base[2]) * intensity)
 
 			postLeLamp("/led/solid", fmt.Sprintf(`{"color":[%d,%d,%d]}`, r, g, b))
 		}
@@ -252,6 +266,22 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 }
 
 // --- Helpers ---
+
+// fetchLeLampColor reads the current LED color from LeLamp.
+func fetchLeLampColor() ([3]int, error) {
+	resp, err := http.Get(lelampBase + "/led/color")
+	if err != nil {
+		return [3]int{}, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Color [3]int `json:"color"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return [3]int{}, err
+	}
+	return result.Color, nil
+}
 
 // postLeLamp sends a fire-and-forget POST to LeLamp API.
 func postLeLamp(path, body string) {
