@@ -17,6 +17,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/lib/flow"
 )
 
 const lelampBase = "http://127.0.0.1:5001"
@@ -77,7 +78,7 @@ func (s *Service) Pause() {
 	defer s.mu.Unlock()
 	if !s.paused {
 		s.paused = true
-		slog.Debug("paused for interaction", "component", "ambient")
+		flow.Log("ambient_pause", nil)
 	}
 	s.lastInteraction = time.Now()
 }
@@ -87,7 +88,7 @@ func (s *Service) resume() {
 	defer s.mu.Unlock()
 	if s.paused {
 		s.paused = false
-		slog.Debug("resumed idle behaviors", "component", "ambient")
+		flow.Log("ambient_resume", nil)
 	}
 }
 
