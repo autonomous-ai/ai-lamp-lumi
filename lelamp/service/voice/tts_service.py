@@ -11,7 +11,10 @@ import math
 import threading
 from typing import Optional
 
+import numpy as np
+
 logger = logging.getLogger("lelamp.voice.tts")
+logger.setLevel(logging.DEBUG)
 
 DEFAULT_VOICE = "alloy"
 DEFAULT_MODEL = "tts-1"
@@ -52,8 +55,14 @@ class TTSService:
         self._device_rate = None
         try:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=api_key, base_url=base_url)
-            logger.info("OpenAI TTS ready (voice=%s, model=%s, base_url=%s)", self._voice, self._model, base_url)
+            logger.info(
+                "OpenAI TTS ready (voice=%s, model=%s, base_url=%s)",
+                self._voice,
+                self._model,
+                base_url,
+            )
         except ImportError as e:
             logger.warning("openai SDK not available: %s", e)
 
@@ -64,7 +73,9 @@ class TTSService:
 
     def _probe_device_rate(self):
         """Probe the output device to find a supported sample rate."""
-        dev_label = self._output_device if self._output_device is not None else "default"
+        dev_label = (
+            self._output_device if self._output_device is not None else "default"
+        )
         self._device_rate = None
         for rate in [48000, 16000, 32000, 44100, 24000, 22050, 8000]:
             try:
@@ -73,15 +84,18 @@ class TTSService:
                     samplerate=rate,
                     channels=TTS_CHANNELS,
                     dtype="float32",
-                ):
-                    pass
+                ) as stream:
+                    _ = stream.write(np.zeros(rate, dtype=np.float32))
                 self._device_rate = rate
                 logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
                 break
-            except Exception:
-                continue
+            except Exception as e:
+                logger.debug("Failed to play audio with rate=%d Hz due to e=%s", dev_label, e)
+
         if self._device_rate is None:
-            logger.warning("No supported sample rate found for output device [%s]", dev_label)
+            logger.warning(
+                "No supported sample rate found for output device [%s]", dev_label
+            )
 
     @property
     def available(self) -> bool:
@@ -131,7 +145,9 @@ class TTSService:
             dst_rate = self._device_rate or TTS_SAMPLE_RATE
             try:
                 self._speaking = True
-                logger.info("TTS synthesizing: text='%s' (attempt=%d)", text[:80], attempt + 1)
+                logger.info(
+                    "TTS synthesizing: text='%s' (attempt=%d)", text[:80], attempt + 1
+                )
 
                 with self._client.audio.speech.with_streaming_response.create(
                     model=self._model,
@@ -158,10 +174,17 @@ class TTSService:
                             if usable == 0:
                                 continue
 
-                            samples = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+                            samples = (
+                                np.frombuffer(raw[:usable], dtype=np.int16).astype(
+                                    np.float32
+                                )
+                                / 32768.0
+                            )
 
                             if dst_rate != TTS_SAMPLE_RATE:
-                                samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                                samples = self._resample(
+                                    samples, TTS_SAMPLE_RATE, dst_rate
+                                )
 
                             stream.write(samples.reshape(-1, 1))
                             total_samples += len(samples)
@@ -169,24 +192,49 @@ class TTSService:
                         # Flush remainder
                         if len(remainder) >= 2:
                             usable = len(remainder) - (len(remainder) % 2)
-                            samples = np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+                            samples = (
+                                np.frombuffer(
+                                    remainder[:usable], dtype=np.int16
+                                ).astype(np.float32)
+                                / 32768.0
+                            )
                             if dst_rate != TTS_SAMPLE_RATE:
-                                samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                                samples = self._resample(
+                                    samples, TTS_SAMPLE_RATE, dst_rate
+                                )
                             stream.write(samples.reshape(-1, 1))
                             total_samples += len(samples)
 
-                    logger.info("TTS playback complete (%d samples @ %d Hz)", total_samples, dst_rate)
+                    logger.info(
+                        "TTS playback complete (%d samples @ %d Hz)",
+                        total_samples,
+                        dst_rate,
+                    )
                     break  # success
 
             except Exception as e:
-                logger.error("TTS speak failed: %s (type=%s, attempt=%d/%d)", e, type(e).__name__, attempt + 1, self._max_retries + 1)
+                logger.error(
+                    "TTS speak failed: %s (type=%s, attempt=%d/%d)",
+                    e,
+                    type(e).__name__,
+                    attempt + 1,
+                    self._max_retries + 1,
+                )
                 if attempt < self._max_retries:
-                    logger.info("Re-probing output device sample rate (attempt=%d/%d)", attempt + 1, self._max_retries)
+                    logger.info(
+                        "Re-probing output device sample rate (attempt=%d/%d)",
+                        attempt + 1,
+                        self._max_retries,
+                    )
                     self._probe_device_rate()
                 attempt += 1
 
         else:
-            logger.error("TTS give up after %d attempts: text='%s'", self._max_retries + 1, text[:80])
+            logger.error(
+                "TTS give up after %d attempts: text='%s'",
+                self._max_retries + 1,
+                text[:80],
+            )
 
         self._speaking = False
         self._lock.release()
