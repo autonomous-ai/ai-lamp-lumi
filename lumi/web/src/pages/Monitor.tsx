@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const API = "http://172.168.20.230/api";
 const HW  = "http://172.168.20.230/hw";
@@ -826,55 +826,56 @@ interface FlowNodeDef {
   label: string;
   short: string;
   color: string;
+  desc: string; // short description shown inside node on zoom
   // event types or flow nodes that activate this stage
   triggers: string[];
   path: "main" | "fast" | "agent";
 }
 
 const FLOW_NODES: FlowNodeDef[] = [
-  // idle  — triggered by ambient resume or ws_ready (connection established)
   { id: "idle",
     label: "Idle", short: "IDLE", color: "var(--lm-text-muted)", path: "main",
+    desc: "Waiting for input",
     triggers: ["ambient_resume", "flow_event:ambient_resume", "flow_event:ws_ready"] },
 
-  // sensing — triggered by sensing_input (HTTP POST /sensing/event received)
   { id: "sensing",
     label: "Sensing", short: "SENSE", color: "var(--lm-amber)", path: "main",
+    desc: "POST /sensing/event",
     triggers: ["sensing_input", "flow_enter:sensing_input", "flow_exit:sensing_input"] },
 
-  // intent_check — triggered when we decide to route (agent_call dispatched or intent checked)
   { id: "intent_check",
     label: "Intent Check", short: "INTENT", color: "var(--lm-teal)", path: "main",
+    desc: "Route local or agent",
     triggers: ["flow_event:agent_call", "flow_event:chat_send", "chat_send"] },
 
-  // local_match — fast path: matched a local intent rule
   { id: "local_match",
     label: "Local Match", short: "LOCAL", color: "var(--lm-green)", path: "fast",
+    desc: "Fast path ~50ms",
     triggers: ["intent_match", "flow_event:intent_match"] },
 
-  // agent_call — message sent to OpenClaw via chat.send WebSocket RPC
   { id: "agent_call",
     label: "Agent Call", short: "AGENT", color: "var(--lm-blue)", path: "agent",
+    desc: "WS chat.send RPC",
     triggers: ["flow_event:agent_call", "flow_event:chat_send", "flow_event:lifecycle_start"] },
 
-  // agent_thinking — agent is reasoning (thinking stream events)
   { id: "agent_thinking",
     label: "Thinking", short: "THINK", color: "var(--lm-purple)", path: "agent",
+    desc: "LLM reasoning",
     triggers: ["thinking", "flow_event:lifecycle_start"] },
 
-  // tool_exec — agent invoked a tool
   { id: "tool_exec",
     label: "Tool Exec", short: "TOOL", color: "#f59e0b", path: "agent",
+    desc: "Agent tool call",
     triggers: ["tool_call", "flow_event:tool_call"] },
 
-  // agent_response — agent turn ended, response accumulated
   { id: "agent_response",
     label: "Response", short: "RESP", color: "var(--lm-green)", path: "agent",
+    desc: "Accumulated reply",
     triggers: ["chat_response", "flow_event:lifecycle_end"] },
 
-  // tts_speak — text sent to LeLamp /voice/speak for playback
   { id: "tts_speak",
     label: "TTS Speak", short: "TTS", color: "var(--lm-purple)", path: "agent",
+    desc: "/voice/speak",
     triggers: ["tts", "flow_event:tts_send"] },
 ];
 
@@ -959,33 +960,139 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   return turns.slice(-15).reverse(); // latest 15, newest first
 }
 
-// SVG Flow Diagram — renders the pipeline with highlighted active stage and visited stages
+// Path label for badge inside node
+const PATH_LABEL: Record<string, string> = { main: "MAIN", fast: "FAST", agent: "AGENT" };
+
+// Extract runtime info for each node from turn events
+function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
+  const info: Record<FlowStage, string[]> = {
+    idle: [], sensing: [], intent_check: [], local_match: [],
+    agent_call: [], agent_thinking: [], tool_exec: [],
+    agent_response: [], tts_speak: [],
+  };
+
+  for (const ev of events) {
+    // sensing_input → sensing node
+    if (ev.type === "sensing_input") {
+      const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
+      if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2].slice(0, 40)}"`);
+      else info.sensing.push(ev.summary.slice(0, 50));
+    }
+    // intent_match → local_match node
+    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+      info.local_match.push(ev.summary.slice(0, 50));
+    }
+    // chat_send → intent_check / agent_call
+    if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
+      info.intent_check.push("→ agent route");
+      info.agent_call.push(`msg: "${ev.summary.slice(0, 35)}"`);
+    }
+    // tool_call → tool_exec node — show tool name + args
+    if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
+      const d = ev.detail as Record<string, string> | undefined;
+      const toolName = d?.tool ?? "unknown";
+      const args = d?.args ? d.args.slice(0, 40) : "";
+      // Avoid duplicates
+      const entry = `⚙ ${toolName}${args ? `(${args})` : ""}`;
+      if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
+    }
+    // thinking → agent_thinking node
+    if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
+      if (ev.type === "thinking" && ev.summary && info.agent_thinking.length < 2) {
+        info.agent_thinking.push(`"${ev.summary.slice(0, 40)}…"`);
+      }
+    }
+    // chat_response → agent_response node
+    if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
+      const d = ev.detail as Record<string, string> | undefined;
+      if (d?.message && info.agent_response.length < 2) {
+        info.agent_response.push(`"${(d.message).slice(0, 45)}…"`);
+      } else if (ev.summary && info.agent_response.length < 2) {
+        info.agent_response.push(`"${ev.summary.slice(0, 45)}…"`);
+      }
+    }
+    // tts → tts_speak node
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      if (info.tts_speak.length < 2) {
+        info.tts_speak.push(`🔊 "${ev.summary.slice(0, 40)}"`);
+      }
+    }
+    // lifecycle → idle / agent_call
+    if (ev.type === "lifecycle") {
+      if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId?.slice(0, 12) ?? "?"}`);
+      if (ev.phase === "end") {
+        info.idle.push(ev.error ? `❌ ${ev.error.slice(0, 30)}` : "✓ turn done");
+      }
+    }
+  }
+  return info;
+}
+
+// SVG Flow Diagram — renders the pipeline with zoom/pan, detailed node info
 function FlowDiagram({
   activeStage,
   visitedStages,
   compact = false,
+  turnEvents = [],
 }: {
   activeStage: FlowStage;
   visitedStages: Set<FlowStage>;
   compact?: boolean;
+  turnEvents?: DisplayEvent[];
 }) {
-  const W = compact ? 560 : 720;
-  const H = compact ? 160 : 200;
+  // viewBox dimensions (logical coordinate space)
+  const VW = 820;
+  const VH = 300;
 
-  // Node positions (in 720x200 space, scaled for compact)
+  // Zoom / pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom((z) => Math.min(4, Math.max(0.4, z + delta)));
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  }, [pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setPan({ x: dragStart.current.panX + dx / zoom, y: dragStart.current.panY + dy / zoom });
+  }, [dragging, zoom]);
+
+  const handleMouseUp = useCallback(() => setDragging(false), []);
+
+  const resetView = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
+
+  // Compute viewBox from zoom + pan
+  const vbW = VW / zoom;
+  const vbH = VH / zoom;
+  const vbX = (VW - vbW) / 2 - pan.x;
+  const vbY = (VH - vbH) / 2 - pan.y;
+
+  // Node positions — wider spacing for info
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:           { x: 42,  y: 100 },
-    sensing:        { x: 140, y: 100 },
-    intent_check:   { x: 240, y: 100 },
-    local_match:    { x: 340, y: 44  },
-    agent_call:     { x: 340, y: 100 },
-    agent_thinking: { x: 440, y: 100 },
-    tool_exec:      { x: 540, y: 44  },
-    agent_response: { x: 540, y: 100 },
-    tts_speak:      { x: 640, y: 100 },
+    idle:           { x: 60,  y: 130 },
+    sensing:        { x: 170, y: 130 },
+    intent_check:   { x: 290, y: 130 },
+    local_match:    { x: 410, y: 55  },
+    agent_call:     { x: 410, y: 130 },
+    agent_thinking: { x: 520, y: 130 },
+    tool_exec:      { x: 640, y: 55  },
+    agent_response: { x: 640, y: 130 },
+    tts_speak:      { x: 760, y: 130 },
   };
 
-  // Edges (from → to)
   const edges: [FlowStage, FlowStage][] = [
     ["idle",           "sensing"],
     ["sensing",        "intent_check"],
@@ -1000,8 +1107,7 @@ function FlowDiagram({
     ["tts_speak",      "idle"],
   ];
 
-  const nodeR = compact ? 22 : 28;
-  const fontSize = compact ? 7.5 : 9;
+  const nodeR = compact ? 26 : 32;
 
   function nodeColor(id: FlowStage) {
     if (id === activeStage) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
@@ -1019,85 +1125,153 @@ function FlowDiagram({
     return fromVisited && toVisited ? "var(--lm-border-hi)" : "var(--lm-border)";
   }
 
-  const glowId = "flow-glow";
+  const glowId = compact ? "flow-glow-c" : "flow-glow";
+
+  // Extract runtime info from events
+  const nodeInfo = extractNodeInfo(turnEvents);
 
   return (
-    <svg
-      width={W}
-      height={H}
-      viewBox={`0 0 720 200`}
-      style={{ display: "block", width: "100%", maxWidth: W, height: "auto" }}
-    >
-      <defs>
-        <filter id={glowId}>
-          <feGaussianBlur stdDeviation="4" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
+    <div style={{ position: "relative" }}>
+      <svg
+        ref={svgRef}
+        viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+        style={{
+          display: "block", width: "100%", height: compact ? 240 : 320,
+          cursor: dragging ? "grabbing" : "grab", userSelect: "none",
+        }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <defs>
+          <filter id={glowId}>
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <marker id={`arrow-${compact ? "c" : "f"}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L6,3 z" fill="var(--lm-border-hi)" />
+          </marker>
+        </defs>
 
-      {/* Edges */}
-      {edges.map(([from, to]) => {
-        const f = positions[from];
-        const t = positions[to];
-        // Offset edge endpoints to circle edge
-        const dx = t.x - f.x, dy = t.y - f.y;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const x1 = f.x + (dx / len) * nodeR;
-        const y1 = f.y + (dy / len) * nodeR;
-        const x2 = t.x - (dx / len) * (nodeR + 4);
-        const y2 = t.y - (dy / len) * (nodeR + 4);
-        return (
-          <g key={`${from}-${to}`}>
-            <line x1={x1} y1={y1} x2={x2} y2={y2}
+        {/* Edges */}
+        {edges.map(([from, to]) => {
+          const f = positions[from];
+          const t = positions[to];
+          const dx = t.x - f.x, dy = t.y - f.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const x1 = f.x + (dx / len) * nodeR;
+          const y1 = f.y + (dy / len) * nodeR;
+          const x2 = t.x - (dx / len) * (nodeR + 4);
+          const y2 = t.y - (dy / len) * (nodeR + 4);
+          return (
+            <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
               stroke={edgeColor(from, to)} strokeWidth={1.5}
-              markerEnd="url(#arrow)" opacity={0.6}
+              markerEnd={`url(#arrow-${compact ? "c" : "f"})`} opacity={0.6}
             />
-          </g>
-        );
-      })}
+          );
+        })}
 
-      {/* Arrow marker */}
-      <defs>
-        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-          <path d="M0,0 L0,6 L6,3 z" fill="var(--lm-border-hi)" />
-        </marker>
-      </defs>
-
-      {/* Nodes */}
-      {FLOW_NODES.map((node) => {
-        const pos = positions[node.id];
-        const isActive = node.id === activeStage;
-        const color = nodeColor(node.id);
-        const opacity = nodeOpacity(node.id);
-        return (
-          <g key={node.id} opacity={opacity}>
-            {/* Glow ring for active */}
-            {isActive && (
-              <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
-                fill="none" stroke={color} strokeWidth={2}
-                opacity={0.35} style={{ filter: `url(#${glowId})` }}
+        {/* Nodes */}
+        {FLOW_NODES.map((node) => {
+          const pos = positions[node.id];
+          const isActive = node.id === activeStage;
+          const isVisited = visitedStages.has(node.id);
+          const color = nodeColor(node.id);
+          const opacity = nodeOpacity(node.id);
+          const lines = nodeInfo[node.id] ?? [];
+          const hasInfo = lines.length > 0 && (isActive || isVisited);
+          // Info box position: below for main row (y=130), above for top row (y=55)
+          const infoBelow = pos.y > 80;
+          const boxY = infoBelow ? pos.y + nodeR + 16 : pos.y - nodeR - 14 - lines.length * 10;
+          return (
+            <g key={node.id} opacity={opacity}>
+              {/* Glow ring for active */}
+              {isActive && (
+                <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
+                  fill="none" stroke={color} strokeWidth={2}
+                  opacity={0.35} style={{ filter: `url(#${glowId})` }}
+                />
+              )}
+              {/* Node circle */}
+              <circle cx={pos.x} cy={pos.y} r={nodeR}
+                fill={isActive ? `${color}22` : "var(--lm-surface)"}
+                stroke={color} strokeWidth={isActive ? 2 : 1}
+                style={isActive ? { filter: `url(#${glowId})` } : undefined}
               />
-            )}
-            {/* Node circle */}
-            <circle cx={pos.x} cy={pos.y} r={nodeR}
-              fill={isActive ? `${color}22` : "var(--lm-surface)"}
-              stroke={color} strokeWidth={isActive ? 2 : 1}
-              style={isActive ? { filter: `url(#${glowId})` } : undefined}
-            />
-            {/* Short label inside */}
-            <text x={pos.x} y={pos.y - 3} textAnchor="middle"
-              fill={color} fontSize={fontSize} fontWeight={isActive ? 700 : 500}>
-              {node.short}
-            </text>
-            {/* Full label below */}
-            <text x={pos.x} y={pos.y + 9} textAnchor="middle"
-              fill={color} fontSize={fontSize - 1} opacity={0.8}>
-              {node.label.split(" ")[1] ?? ""}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+              {/* Short label (top line) */}
+              <text x={pos.x} y={pos.y - 8} textAnchor="middle"
+                fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
+                {node.short}
+              </text>
+              {/* Full label (middle line) */}
+              <text x={pos.x} y={pos.y + 3} textAnchor="middle"
+                fill={color} fontSize={7} opacity={0.9}>
+                {node.label}
+              </text>
+              {/* Description (bottom line in circle) */}
+              <text x={pos.x} y={pos.y + 13} textAnchor="middle"
+                fill={color} fontSize={5.5} opacity={0.6} fontStyle="italic">
+                {node.desc}
+              </text>
+              {/* Path badge */}
+              <text x={pos.x} y={infoBelow ? pos.y + nodeR + 10 : pos.y - nodeR - 4} textAnchor="middle"
+                fill={node.path === "fast" ? "var(--lm-green)" : node.path === "agent" ? "var(--lm-blue)" : "var(--lm-text-muted)"}
+                fontSize={6} fontWeight={600} opacity={0.7}>
+                {PATH_LABEL[node.path]}
+              </text>
+
+              {/* Runtime info box — shows tool names, func calls, messages */}
+              {hasInfo && (
+                <g>
+                  <rect
+                    x={pos.x - 52} y={boxY - 2}
+                    width={104} height={lines.slice(0, 3).length * 10 + 6}
+                    rx={4} ry={4}
+                    fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
+                    opacity={0.9}
+                  />
+                  {lines.slice(0, 3).map((line, i) => (
+                    <text
+                      key={i}
+                      x={pos.x} y={boxY + 8 + i * 10}
+                      textAnchor="middle"
+                      fill={color} fontSize={5.5} opacity={0.85}
+                      fontFamily="monospace"
+                    >
+                      {line.length > 22 ? line.slice(0, 21) + "…" : line}
+                    </text>
+                  ))}
+                </g>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Zoom controls overlay */}
+      <div style={{
+        position: "absolute", bottom: 6, right: 6,
+        display: "flex", gap: 4, alignItems: "center",
+      }}>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginRight: 4 }}>
+          {Math.round(zoom * 100)}%
+        </span>
+        {[
+          { label: "−", action: () => setZoom((z) => Math.max(0.4, z - 0.2)) },
+          { label: "⟳", action: resetView },
+          { label: "+", action: () => setZoom((z) => Math.min(4, z + 0.2)) },
+        ].map((btn) => (
+          <button key={btn.label} onClick={btn.action} style={{
+            width: 22, height: 22, borderRadius: 5, border: "1px solid var(--lm-border)",
+            background: "var(--lm-surface)", color: "var(--lm-text-dim)",
+            cursor: "pointer", fontSize: 12, lineHeight: 1, padding: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>{btn.label}</button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1143,10 +1317,12 @@ function TurnBadge({ turn }: { turn: Turn }) {
 function CanvasModal({
   activeStage,
   visitedStages,
+  turnEvents,
   onClose,
 }: {
   activeStage: FlowStage;
   visitedStages: Set<FlowStage>;
+  turnEvents: DisplayEvent[];
   onClose: () => void;
 }) {
   return (
@@ -1173,8 +1349,11 @@ function CanvasModal({
           }}>✕</button>
         </div>
 
-        {/* Full-size diagram */}
-        <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} />
+        {/* Full-size diagram with zoom/pan */}
+        <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} turnEvents={turnEvents} />
+        <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 8, textAlign: "center" as const }}>
+          Scroll to zoom · Drag to pan · Click ⟳ to reset · Zoom in to see tool/func details
+        </div>
 
         {/* Legend */}
         <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
@@ -1255,6 +1434,7 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
         <CanvasModal
           activeStage={activeStage}
           visitedStages={visitedStages}
+          turnEvents={turnEvents}
           onClose={() => setShowCanvas(false)}
         />
       )}
@@ -1385,7 +1565,7 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
                 </span>
               )}
             </div>
-            <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} compact />
+            <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} turnEvents={turnEvents} compact />
           </div>
 
           {/* Icon guide */}
