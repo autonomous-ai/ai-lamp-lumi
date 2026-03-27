@@ -33,7 +33,11 @@
 | LED driver ownership | LeLamp Python rpi_ws281x owns all LED control. Go SPI driver (`internal/led/`) removed entirely — this lamp's hardware uses LeLamp's LED driver exclusively. No SPI bus conflict. | `architecture-decision.md` §3, §4, §9, §11 |
 | SKILL.md content (#1) | 8 SKILL.md files: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. All describe HTTP API at `127.0.0.1:5001`. | `resources/openclaw-skills/` |
 | OpenClaw event push (#2) | WebSocket RPC `chat.send` with `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. | `server/sensing/delivery/http/handler.go` |
-| Camera processing (#3) | On-device OpenCV in LeLamp Python. Frame diff for motion detection in sensing loop. | `lelamp/service/sensing/sensing_service.py` |
+| Camera processing (#3) | On-device OpenCV in LeLamp Python. Frame diff for motion, Haar cascade for face detection, mean brightness for light level. Auto-snapshot (320px JPEG base64) on significant events → forwarded to OpenClaw with vision. | `lelamp/service/sensing/sensing_service.py` |
+| AI Vision | Enabled (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing events with images sent via `SendChatMessageWithImage` → OpenClaw LLM can see camera snapshots. | `lumi/internal/openclaw/service.go` |
+| Face detection vs recognition | Face **detection** (is someone there?) = P1, done via Haar cascade. Face **recognition** (who is it?) = P2, needs face embedding enrollment flow. **Privacy concern:** without recognition, anyone can walk up to Lumi and ask it to read emails, calendar, personal info. Recognition gates sensitive actions to known users only. | `sensing_service.py`, `product-vision.md` UC-11 |
+| Voice/speaker identification | P2. Distinguish owner voice from others. Same privacy concern as face recognition — prevents strangers from accessing personal data via voice. | — |
+| Owner gating strategy | **Must decide before shipping.** Options: (1) Face recognition (local, dlib/OpenCV DNN, ~200ms on Pi4) — enroll during setup, gate sensitive skills to recognized faces. (2) Voice embedding (local, resemblyzer/speechbrain) — heavier on Pi4. (3) Proximity/wake word PIN — fallback if no camera. (4) Combination. **Recommendation:** face recognition as primary gate, enrolled during setup wizard. Unrecognized faces get limited mode (lamp control only, no personal data). | — |
 | Audio input ownership (#4) | LeLamp owns mic. Local VAD gates Deepgram connection (cost saving). Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
 | Emotion presets (#6) | 8 presets implemented: curious, happy, sad, thinking, idle, excited, shy, shock. Each maps to servo recording + LED color + eye expression. | `lelamp/server.py` EMOTION_PRESETS |
 | Display rendering (#7) | `gc9a01-python` driver + PIL/Pillow rendering. 11 eye expressions drawn with ImageDraw. Dual-mode: eyes (default) + info text. Background render loop with auto-blink. | `lelamp/service/display/` |
@@ -60,7 +64,7 @@
 - **UC-04 Timer & Schedule** ✅ — OpenClaw built-in cron + `scheduling/SKILL.md`
 - **UC-06 AI Companion** ✅ — OpenClaw + SOUL.md + emotion + long-term memory
 - **UC-08 Servo Direction** ✅ — `/servo/play`, 8 animations
-- **UC-11 Presence Detection** ✅ — Sensing loop + presence state machine (auto on/dim/off)
+- **UC-11 Presence Detection** ✅ — Sensing loop + face detection (Haar cascade) + presence.enter/leave events + presence state machine (auto on/dim/off) + light level detection + auto-snapshot with AI vision
 - **UC-13 Status Indication** 🟡 — Partial (boot/error states, needs processing/timer/OTA)
 
 ### P2 — v1.x (partially started)
@@ -71,6 +75,8 @@
 - UC-10 Gesture Control
 - UC-12 Video Call Optimization
 - UC-15 Remote Control (Telegram/Slack via OpenClaw multi-channel)
+- Face Recognition (identify owner by face embedding — greet by name)
+- Voice/Speaker Identification (distinguish owner voice from others)
 
 ### 4 Pillars — All Have Code ✅
 
@@ -90,7 +96,7 @@
 | camera | `/camera`, `/camera/snapshot`, `/camera/stream` |
 | audio | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
 | emotion | `/emotion` (coordinates servo + LED + display eyes) |
-| sensing | Auto — motion/sound events → OpenClaw + presence auto-control |
+| sensing | Auto — motion/sound/presence.enter/presence.leave/light.level events → OpenClaw (with vision) + presence auto-control |
 | scene | `/scene` (6 lighting presets) |
 | display | `/display/eyes`, `/display/info`, `/display/snapshot` |
 | scheduling | OpenClaw cron (no custom endpoints needed) |
