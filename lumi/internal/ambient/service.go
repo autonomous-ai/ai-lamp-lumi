@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -24,7 +23,7 @@ import (
 const lelampBase = "http://127.0.0.1:5001"
 
 // resumeDelay is how long after the last interaction before ambient resumes.
-const resumeDelay = 10 * time.Second
+const resumeDelay = 60 * time.Second
 
 // Service orchestrates ambient idle behaviors.
 type Service struct {
@@ -34,18 +33,13 @@ type Service struct {
 	paused bool
 	// lastInteraction tracks when the last real interaction happened.
 	lastInteraction time.Time
-
-	// baseColor is the RGB color the breathing loop uses. Updated from LeLamp
-	// on resume so ambient respects whatever color the agent/user last set.
-	baseColor [3]int
 }
 
 // ProvideService constructs an AmbientLifeService.
 func ProvideService(bus *monitor.Bus) *Service {
 	return &Service{
-		bus:       bus,
-		paused:    true, // start paused until explicitly started
-		baseColor: [3]int{180, 220, 255}, // default soft blue-white
+		bus:    bus,
+		paused: true, // start paused until explicitly started
 	}
 }
 
@@ -67,9 +61,8 @@ func (s *Service) Start(ctx context.Context) {
 	// Run behavior loops concurrently
 	var wg sync.WaitGroup
 
-	wg.Add(4)
+	wg.Add(3)
 	go func() { defer wg.Done(); s.breathingLoop(ctx) }()
-	go func() { defer wg.Done(); s.colorDriftLoop(ctx) }()
 	go func() { defer wg.Done(); s.microMovementLoop(ctx) }()
 	go func() { defer wg.Done(); s.mumbleLoop(ctx) }()
 
@@ -84,6 +77,8 @@ func (s *Service) Pause() {
 	defer s.mu.Unlock()
 	if !s.paused {
 		s.paused = true
+		// Stop any running LeLamp breathing effect so the agent's LED changes are visible
+		stopLeLampEffect()
 		flow.Log("ambient_pause", nil)
 	}
 	s.lastInteraction = time.Now()
@@ -94,12 +89,7 @@ func (s *Service) resume() {
 	defer s.mu.Unlock()
 	if s.paused {
 		s.paused = false
-		// Fetch current LED color from LeLamp so breathing uses the last
-		// intentionally-set color (emotion, scene, etc.) instead of hardcoded default.
-		if c, err := fetchLeLampColor(); err == nil {
-			s.baseColor = c
-		}
-		flow.Log("ambient_resume", map[string]any{"base_color": s.baseColor})
+		flow.Log("ambient_resume", nil)
 	}
 }
 
@@ -139,80 +129,47 @@ func (s *Service) watchInteractions(ctx context.Context, eventCh <-chan domain.M
 
 // --- Behavior Loops ---
 
-// breathingLoop creates a gentle sine-wave brightness pulsing effect.
-// Uses /emotion endpoint with idle emotion at varying intensity.
+// breathingLoop delegates the breathing LED effect to LeLamp's built-in
+// /led/effect endpoint instead of overriding /led/solid at 5 FPS.
+// This way the agent's emotion/scene colors are never trampled by ambient.
 func (s *Service) breathingLoop(ctx context.Context) {
-	ticker := time.NewTicker(200 * time.Millisecond) // 5 FPS for smooth sine
-	defer ticker.Stop()
+	// Track whether we already started the LeLamp breathing effect
+	running := false
 
-	cycleDuration := 4.0 // seconds per full breath cycle
-	start := time.Now()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			if running {
+				stopLeLampEffect()
+			}
 			return
 		case <-ticker.C:
 			if s.isPaused() {
-				start = time.Now() // reset phase on resume
+				if running {
+					stopLeLampEffect()
+					running = false
+				}
 				continue
 			}
-
-			elapsed := time.Since(start).Seconds()
-			// Sine wave: 0.25 → 0.65 (gentle, not harsh)
-			intensity := 0.45 + 0.20*math.Sin(2*math.Pi*elapsed/cycleDuration)
-
-			// Use the base color from last interaction (fetched on resume)
-			s.mu.Lock()
-			base := s.baseColor
-			s.mu.Unlock()
-			r := int(float64(base[0]) * intensity)
-			g := int(float64(base[1]) * intensity)
-			b := int(float64(base[2]) * intensity)
-
-			postLeLamp("/led/solid", fmt.Sprintf(`{"color":[%d,%d,%d]}`, r, g, b))
+			if !running {
+				// Read the current LED color from LeLamp and start breathing with it
+				color := [3]int{180, 220, 255} // fallback
+				if c, err := fetchLeLampColor(); err == nil {
+					color = c
+				}
+				startLeLampBreathing(color)
+				running = true
+			}
 		}
-	}
-}
-
-// colorDriftLoop slowly transitions the base color palette every 30-90s.
-func (s *Service) colorDriftLoop(ctx context.Context) {
-	// Warm, cozy color palettes for idle state
-	palettes := [][3]int{
-		{180, 220, 255}, // soft blue-white
-		{255, 200, 150}, // warm amber
-		{200, 255, 200}, // soft green
-		{220, 180, 255}, // lavender
-		{255, 220, 180}, // golden
-		{180, 240, 220}, // mint
-		{255, 180, 200}, // soft pink
-	}
-
-	currentIdx := 0
-
-	for {
-		delay := 30 + rand.Intn(60) // 30-90 seconds
-		if !sleepCtx(ctx, time.Duration(delay)*time.Second) {
-			return
-		}
-		if s.isPaused() {
-			continue
-		}
-
-		currentIdx = (currentIdx + 1) % len(palettes)
-		// The breathing loop will pick up the base color from the emotion
-		// We change the emotion expression to vary the feel
-		expressions := []string{"neutral", "curious", "sleepy", "neutral"}
-		expr := expressions[currentIdx%len(expressions)]
-		postLeLamp("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.3}`, expr))
-
-		slog.Debug("color drift", "component", "ambient", "expression", expr)
 	}
 }
 
 // microMovementLoop plays safe, small servo recordings periodically.
+// Only triggers servo — does NOT change LED color.
 func (s *Service) microMovementLoop(ctx context.Context) {
-	// Only use recordings known to be safe (small amplitude)
 	safeRecordings := []string{"idle", "curious", "nod"}
 
 	for {
@@ -225,7 +182,7 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 		}
 
 		recording := safeRecordings[rand.Intn(len(safeRecordings))]
-		postLeLamp("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.3}`, recording))
+		postLeLamp("/servo/play", fmt.Sprintf(`{"name":"%s"}`, recording))
 		slog.Debug("micro-movement", "component", "ambient", "recording", recording)
 	}
 }
@@ -259,9 +216,6 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 		mumble := mumbles[rand.Intn(len(mumbles))]
 		postLeLamp("/voice/speak", fmt.Sprintf(`{"text":"%s"}`, mumble))
 		slog.Debug("mumble", "component", "ambient", "text", mumble)
-
-		// Play a small expression with the mumble
-		postLeLamp("/emotion", `{"emotion":"curious","intensity":0.4}`)
 	}
 }
 
@@ -281,6 +235,21 @@ func fetchLeLampColor() ([3]int, error) {
 		return [3]int{}, err
 	}
 	return result.Color, nil
+}
+
+// startLeLampBreathing starts the built-in breathing effect on LeLamp with the given color.
+func startLeLampBreathing(color [3]int) {
+	body := fmt.Sprintf(`{"effect":"breathing","color":[%d,%d,%d],"speed":0.3}`, color[0], color[1], color[2])
+	postLeLamp("/led/effect", body)
+}
+
+// stopLeLampEffect stops any running LED effect on LeLamp.
+func stopLeLampEffect() {
+	resp, err := http.Post(lelampBase+"/led/effect/stop", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }
 
 // postLeLamp sends a fire-and-forget POST to LeLamp API.
