@@ -94,6 +94,7 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 | `GET /api/openclaw/recent` | Latest flow events from today's JSONL file (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | File-backed flow events API used for Flow seed/history |
 | `GET /api/openclaw/flow-stream` | File-backed live stream (SSE) for Flow updates when JSONL changes |
+| `GET /api/openclaw/debug-lines?last=300` | Parsed tail rows from `openclaw_debug_payloads.jsonl` for Logs tab |
 | `GET /api/openclaw/events` | Monitor bus SSE endpoint (kept for compatibility) |
 
 > **Note on format**: Lumi API returns `{ status: 1, data: <payload>, message: null }` on success.
@@ -207,6 +208,13 @@ Turn Pipeline grouping behavior:
 - **Camera Stream**: MJPEG live stream from `GET /hw/camera/stream`
 - **Display Eyes (GC9A01)**: Round 1.28" screen snapshot from `GET /hw/display/snapshot`, displayed as circle with amber glow. Has Refresh button.
 - **Camera Snapshot**: Static image from `GET /hw/camera/snapshot`, with Capture button to take new shot.
+
+### 5.5 Logs Section
+
+- Dedicated runtime log panel for debugging Telegram/OpenClaw inputs.
+- Polls `GET /api/openclaw/debug-lines` every 2 seconds and renders newest rows first.
+- Shows `source`, `role`, `run_id`, `at`, and parsed `message` if available.
+- Includes direct file download via `GET /api/openclaw/debug-logs`.
 
 > **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
 
