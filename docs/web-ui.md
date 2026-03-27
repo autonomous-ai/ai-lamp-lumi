@@ -1,6 +1,6 @@
 # Web UI — Lumi Monitor Dashboard
 
-## Last updated: 2026-03-26
+## Last updated: 2026-03-27
 
 ---
 
@@ -180,6 +180,19 @@ SSE event feed from `/api/openclaw/events`:
 Each event displays: type badge, phase (if any), runId (first 8 chars), timestamp, summary text, error (if any).
 
 Feed auto-scrolls to newest event. Seeded from `/api/openclaw/recent` on page load.
+
+Turn Pipeline grouping behavior:
+- Turns are still started by input/trigger events (`sensing_input`, `chat_input`, `schedule_trigger`, etc.).
+- The UI now anchors each turn to the first detected `run_id` (from event root or detail payload).
+- If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
+- `OUT` text is only taken from `tts_send`/`intent_match` events matching the turn `run_id` (or events without run_id), preventing cross-turn input/output mismatch.
+- For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text.
+- Flow Panel header actions now include `↓ Logs`, `↓ Debug`, `✕ Clear`, and `🗑 Log`.
+- `↓ Debug` downloads raw OpenClaw debug payloads from `GET /api/openclaw/debug-logs` (file: `local/openclaw_debug_payloads.jsonl` on the server).
+- `✕ Clear` asks for confirmation, then clears all currently displayed Flow events/turns in the UI (client-side only).
+- `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate today's server flow log file, then clears current Flow UI events.
+- Turn history list shows the latest 100 turns (newest first).
+- Flow event memory is capped consistently at 500 events for both seed and live SSE updates to avoid visible shrinking/flicker after tab open.
 
 ### 5.4 Camera Section
 
