@@ -7,7 +7,7 @@ package ambient
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"math/rand"
 	"net/http"
@@ -44,7 +44,7 @@ func ProvideService(bus *monitor.Bus) *Service {
 
 // Start begins the ambient behavior loop. Blocks until ctx is cancelled.
 func (s *Service) Start(ctx context.Context) {
-	log.Println("[ambient] starting ambient life service")
+	slog.Info("starting ambient life service", "component", "ambient")
 
 	// Subscribe to monitor bus to detect real interactions
 	eventCh, unsub := s.bus.Subscribe()
@@ -68,7 +68,7 @@ func (s *Service) Start(ctx context.Context) {
 
 	<-ctx.Done()
 	wg.Wait()
-	log.Println("[ambient] stopped")
+	slog.Info("stopped", "component", "ambient")
 }
 
 // Pause stops ambient behaviors (called when real interaction begins).
@@ -77,7 +77,7 @@ func (s *Service) Pause() {
 	defer s.mu.Unlock()
 	if !s.paused {
 		s.paused = true
-		log.Println("[ambient] paused for interaction")
+		slog.Debug("paused for interaction", "component", "ambient")
 	}
 	s.lastInteraction = time.Now()
 }
@@ -87,7 +87,7 @@ func (s *Service) resume() {
 	defer s.mu.Unlock()
 	if s.paused {
 		s.paused = false
-		log.Println("[ambient] resumed idle behaviors")
+		slog.Debug("resumed idle behaviors", "component", "ambient")
 	}
 }
 
@@ -191,7 +191,7 @@ func (s *Service) colorDriftLoop(ctx context.Context) {
 		expr := expressions[currentIdx%len(expressions)]
 		postLeLamp("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.3}`, expr))
 
-		log.Printf("[ambient] color drift → %s", expr)
+		slog.Debug("color drift", "component", "ambient", "expression", expr)
 	}
 }
 
@@ -211,7 +211,7 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 
 		recording := safeRecordings[rand.Intn(len(safeRecordings))]
 		postLeLamp("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.3}`, recording))
-		log.Printf("[ambient] micro-movement → %s", recording)
+		slog.Debug("micro-movement", "component", "ambient", "recording", recording)
 	}
 }
 
@@ -243,7 +243,7 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 
 		mumble := mumbles[rand.Intn(len(mumbles))]
 		postLeLamp("/voice/speak", fmt.Sprintf(`{"text":"%s"}`, mumble))
-		log.Printf("[ambient] mumble → %s", mumble)
+		slog.Debug("mumble", "component", "ambient", "text", mumble)
 
 		// Play a small expression with the mumble
 		postLeLamp("/emotion", `{"emotion":"curious","intensity":0.4}`)

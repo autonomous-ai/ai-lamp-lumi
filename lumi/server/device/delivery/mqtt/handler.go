@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
@@ -44,20 +44,20 @@ func (h *DeviceMQTTHandler) publish(data interface{}) error {
 		return err
 	}
 	if err := mqttClient.Publish(ctx, h.config.FDChannel, byte(0), payload); err != nil {
-		log.Printf("[mqtt] PublishToFD failed on channel=%s: %v", h.config.FDChannel, err)
+		slog.Error("PublishToFD failed", "component", "mqtt", "channel", h.config.FDChannel, "error", err)
 		return err
 	}
-	log.Printf("[mqtt] PublishToFD ok channel=%s payload=%s", h.config.FDChannel, string(payload))
+	slog.Debug("PublishToFD ok", "component", "mqtt", "channel", h.config.FDChannel, "payload", string(payload))
 	return nil
 }
 
 // HandleMessage processes an incoming MQTT message (called from MQTT subscription callback or GWS HTTP).
 func (h *DeviceMQTTHandler) HandleMessage(topic string, payload []byte) error {
-	log.Printf("[mqtt] HandleMessage topic=%s payload=%s", topic, string(payload))
+	slog.Debug("HandleMessage", "component", "mqtt", "topic", topic, "payload", string(payload))
 
 	var cmd domain.MQTTMessage
 	if err := json.Unmarshal(payload, &cmd); err != nil {
-		log.Printf("[mqtt] invalid payload: %v", err)
+		slog.Error("invalid payload", "component", "mqtt", "error", err)
 		return fmt.Errorf("unmarshal mqtt command: %w", err)
 	}
 
@@ -67,7 +67,7 @@ func (h *DeviceMQTTHandler) HandleMessage(topic string, payload []byte) error {
 	case domain.CommandAddChannel:
 		return h.handleAddChannel(cmd)
 	default:
-		log.Printf("[mqtt] unknown command: %s", cmd.Cmd)
+		slog.Warn("unknown command", "component", "mqtt", "cmd", cmd.Cmd)
 		return nil
 	}
 }

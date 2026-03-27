@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -47,7 +47,7 @@ func (c *Client) Ping(token string, payload PingPayload) (*PingResponse, error) 
 	if strings.TrimSpace(c.config.MQTTEndpoint) == "" {
 		pingURL += "?mqtt=true"
 	}
-	log.Println("beclient: pinging", pingURL)
+	slog.Debug("pinging backend", "component", "beclient", "url", pingURL)
 	return c.postWithAuth(pingURL, token, payload)
 }
 
@@ -131,7 +131,7 @@ func (c *Client) postWithAuth(reqURL, bearerToken string, body any) (*PingRespon
 func (c *Client) PingSafe(token string, payload PingPayload) *PingResponse {
 	resp, err := c.Ping(token, payload)
 	if err != nil {
-		log.Printf("[beclient] Ping: %v", err)
+		slog.Error("ping failed", "component", "beclient", "error", err)
 	}
 	return resp
 }

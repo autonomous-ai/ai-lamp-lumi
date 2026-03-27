@@ -1,7 +1,7 @@
 package http
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -57,7 +57,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
-			log.Printf("[sensing] local intent matched: %q", req.Message)
+			slog.Info("local intent matched", "component", "sensing", "message", req.Message)
 			if result.TTSText != "" {
 				go func() {
 					resp, err := http.Post(
@@ -90,12 +90,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	msg := "[sensing:" + req.Type + "] " + req.Message
 	runID, err := h.agentGateway.SendChatMessage(msg)
 	if err != nil {
-		log.Printf("[sensing] failed to send event: %v", err)
+		slog.Error("failed to send event", "component", "sensing", "error", err)
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}
 
-	log.Printf("[sensing] event forwarded: type=%s runId=%s", req.Type, runID)
+	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "runId", runID)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"runId": runID,
 	}))

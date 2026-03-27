@@ -4,7 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -61,16 +61,16 @@ func (s *Service) EnsureOnboarding() error {
 	for _, name := range skills {
 		dir := filepath.Join(skillsDir, name)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Printf("[onboarding] mkdir %s: %v", dir, err)
+			slog.Error("mkdir failed", "component", "onboarding", "dir", dir, "error", err)
 			continue
 		}
 		dst := filepath.Join(dir, "SKILL.md")
 		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
 		if err := downloadFile(url, dst); err != nil {
-			log.Printf("[onboarding] download skill %s: %v", name, err)
+			slog.Error("download skill failed", "component", "onboarding", "skill", name, "error", err)
 			continue
 		}
-		log.Printf("[onboarding] seeded skill %s", name)
+		slog.Info("seeded skill", "component", "onboarding", "skill", name)
 	}
 
 	// Ensure AGENTS.md has mandatory block
@@ -84,11 +84,11 @@ func (s *Service) EnsureOnboarding() error {
 
 	// Restart OpenClaw if AGENTS.md was modified so the new session picks it up
 	if needRestart {
-		log.Println("[onboarding] restarting OpenClaw to pick up AGENTS.md changes...")
+		slog.Info("restarting OpenClaw to pick up AGENTS.md changes", "component", "onboarding")
 		if err := restartOpenclawGateway(); err != nil {
 			return fmt.Errorf("restart openclaw after onboarding: %w", err)
 		}
-		log.Println("[onboarding] OpenClaw restarted successfully")
+		slog.Info("OpenClaw restarted successfully", "component", "onboarding")
 	}
 
 	return nil
@@ -108,7 +108,7 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 
 	// Already has the block → skip
 	if strings.Contains(text, agentsMDMandatoryMarker) {
-		log.Println("[onboarding] AGENTS.md already has mandatory block, skipping")
+		slog.Debug("AGENTS.md already has mandatory block, skipping", "component", "onboarding")
 		return false, nil
 	}
 
@@ -127,7 +127,7 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 
 	// If "Your workspace" not found, prepend to top of file
 	if !injected {
-		log.Println("[onboarding] 'Your workspace' not found in AGENTS.md, prepending block")
+		slog.Debug("'Your workspace' not found in AGENTS.md, prepending block", "component", "onboarding")
 		result = append([]string{agentsMDBlock, ""}, result...)
 	}
 
@@ -136,7 +136,7 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 		return false, fmt.Errorf("write AGENTS.md: %w", err)
 	}
 
-	log.Printf("[onboarding] injected mandatory block into %s", agentsFile)
+	slog.Info("injected mandatory block into AGENTS.md", "component", "onboarding", "path", agentsFile)
 	return true, nil
 }
 
@@ -169,12 +169,12 @@ func downloadFile(url, dst string) error {
 func seedFile(efs embed.FS, src, dst string) {
 	data, err := efs.ReadFile(src)
 	if err != nil {
-		log.Printf("[onboarding] read embedded %s: %v", src, err)
+		slog.Error("read embedded file failed", "component", "onboarding", "src", src, "error", err)
 		return
 	}
 	if err := os.WriteFile(dst, data, 0644); err != nil {
-		log.Printf("[onboarding] write %s: %v", dst, err)
+		slog.Error("write file failed", "component", "onboarding", "dst", dst, "error", err)
 		return
 	}
-	log.Printf("[onboarding] seeded %s", filepath.Base(dst))
+	slog.Info("seeded file", "component", "onboarding", "file", filepath.Base(dst))
 }

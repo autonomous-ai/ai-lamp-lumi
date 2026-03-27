@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -135,7 +136,7 @@ func (s *Server) startMQTT() {
 	ctx, cancel := context.WithCancel(context.Background())
 	client := s.mqttFactory.GetClient("lumi-server-" + s.config.DeviceID)
 	client.Subscribe(s.config.FAChannel, 1, func(topic string, payload []byte) {
-		log.Printf("[mqtt] received %s: %s", topic, string(payload))
+		slog.Debug("message received", "component", "mqtt", "topic", topic, "payload", string(payload))
 		s.deviceMQTTHandler.HandleMessage(topic, payload)
 	})
 	s.mqttClient = client
@@ -144,7 +145,7 @@ func (s *Server) startMQTT() {
 
 	go func() {
 		if err := client.Connect(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("[mqtt] Connect: %v", err)
+			slog.Error("connect failed", "component", "mqtt", "error", err)
 		}
 	}()
 }
@@ -230,7 +231,7 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("events", s.openclawHandler.Events)
 	oc.GET("recent", s.openclawHandler.Recent)
 
-	log.Println("Start server completed")
+	slog.Info("server started", "component", "server")
 
 	errChan := make(chan error)
 	stop := make(chan os.Signal, 1)
@@ -300,9 +301,9 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		s.monitorCtx, s.monitorCancel = context.WithCancel(context.Background())
 		s.monitorMu.Unlock()
 
-		log.Println("[config] setup completed, starting internet monitor")
+		slog.Info("setup completed, starting internet monitor", "component", "config")
 		s.networkService.StartNetworkMonitor(s.monitorCtx)
-		log.Println("[config] setup completed, starting status reporter")
+		slog.Info("setup completed, starting status reporter", "component", "config")
 		go s.deviceService.StartStatusReporter(s.monitorCtx)
 
 		s.restartMQTT()
@@ -310,13 +311,13 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		go func() {
 			// Seed SOUL.md + IDENTITY.md into workspace (factory defaults, once only)
 			if err := s.agentGateway.EnsureOnboarding(); err != nil {
-				log.Printf("[server] onboarding seed failed: %v", err)
+				slog.Error("onboarding seed failed", "component", "server", "error", err)
 			}
 
 			if ok := s.deviceService.WaitForAgentReady(120 * time.Second); ok {
-				log.Println("[server] agent gateway ready")
+				slog.Info("agent gateway ready", "component", "server")
 			} else {
-				log.Println("[server] agent gateway ready timeout")
+				slog.Warn("agent gateway ready timeout", "component", "server")
 			}
 			// Start voice pipeline on LeLamp (if Deepgram key configured)
 			// Retry because lumi-lelamp may not be running yet at setup time.
@@ -326,7 +327,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 					if err == nil {
 						break
 					}
-					log.Printf("[server] start LeLamp voice attempt %d/10: %v", attempt, err)
+					slog.Warn("start LeLamp voice failed", "component", "server", "attempt", attempt, "maxAttempts", 10, "error", err)
 					time.Sleep(5 * time.Second)
 				}
 			}

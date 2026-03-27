@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -59,7 +59,7 @@ func (b *Bootstrap) Serve() error {
 	if err != nil {
 		return fmt.Errorf("parse poll interval: %w", err)
 	}
-	log.Printf("bootstrap: started (metadata_url=%s interval=%s)", b.cfg.MetadataURL, b.cfg.PollInterval)
+	slog.Info("bootstrap started", "component", "bootstrap", "metadataURL", b.cfg.MetadataURL, "interval", b.cfg.PollInterval)
 
 	// Run OTA check loop in background.
 	go b.checkLoop(ctx, pollInterval)
@@ -80,7 +80,7 @@ func (b *Bootstrap) Serve() error {
 		defer shutdownCancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
-	log.Printf("bootstrap: healthcheck listening on :%d", port)
+	slog.Info("healthcheck listening", "component", "bootstrap", "port", port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("healthcheck server: %w", err)
 	}
@@ -90,7 +90,7 @@ func (b *Bootstrap) Serve() error {
 // checkLoop runs OTA checks on a ticker in the background.
 func (b *Bootstrap) checkLoop(ctx context.Context, pollInterval time.Duration) {
 	if err := b.checkOnce(ctx); err != nil {
-		log.Printf("bootstrap: initial check failed: %v", err)
+		slog.Error("initial check failed", "component", "bootstrap", "error", err)
 	}
 
 	ticker := time.NewTicker(pollInterval)
@@ -101,7 +101,7 @@ func (b *Bootstrap) checkLoop(ctx context.Context, pollInterval time.Duration) {
 			return
 		case <-ticker.C:
 			if err := b.checkOnce(ctx); err != nil {
-				log.Printf("bootstrap: check failed: %v", err)
+				slog.Error("check failed", "component", "bootstrap", "error", err)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 		return err
 	}
 	if len(meta) == 0 {
-		log.Printf("bootstrap: empty metadata from %s", b.cfg.MetadataURL)
+		slog.Warn("empty metadata", "component", "bootstrap", "url", b.cfg.MetadataURL)
 		return nil
 	}
 
@@ -126,7 +126,7 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 		}
 		updated, err := b.reconcile(ctx, key, component)
 		if err != nil {
-			log.Printf("bootstrap: %s reconcile error: %v", key, err)
+			slog.Error("reconcile error", "component", "bootstrap", "key", key, "error", err)
 			continue
 		}
 		if updated {
@@ -153,7 +153,7 @@ func (b *Bootstrap) reconcileOpenClawFromNpm(ctx context.Context) (changed bool)
 	defer cancel()
 	out, err := system.Run(runCtx, "npm", "view", "openclaw", "version")
 	if err != nil {
-		log.Printf("bootstrap: failed to get latest openclaw version from npm: %v", err)
+		slog.Error("failed to get latest openclaw version from npm", "component", "bootstrap", "error", err)
 		return false
 	}
 	latestVersion := strings.TrimSpace(string(out))
@@ -162,7 +162,7 @@ func (b *Bootstrap) reconcileOpenClawFromNpm(ctx context.Context) (changed bool)
 	}
 	updated, err := b.reconcile(ctx, "openclaw", domain.OTAComponent{Version: latestVersion})
 	if err != nil {
-		log.Printf("bootstrap: openclaw (npm latest) reconcile error: %v", err)
+		slog.Error("openclaw npm reconcile error", "component", "bootstrap", "error", err)
 		return false
 	}
 	return updated
@@ -188,11 +188,11 @@ func (b *Bootstrap) reconcile(ctx context.Context, key string, target domain.OTA
 		return false, nil
 	}
 
-	log.Printf("bootstrap: update available for %s: current=%q target=%q", key, current, targetVersion)
+	slog.Info("update available", "component", "bootstrap", "key", key, "current", current, "target", targetVersion)
 	if err := b.applyUpdate(ctx, key, target); err != nil {
 		return false, err
 	}
-	log.Printf("bootstrap: %s updated to %s", key, targetVersion)
+	slog.Info("updated", "component", "bootstrap", "key", key, "version", targetVersion)
 	b.state.Components[key] = targetVersion
 	return true, nil
 }
@@ -260,12 +260,12 @@ func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domai
 		if err != nil {
 			return fmt.Errorf("software-update %s: %w", key, err)
 		}
-		log.Printf("bootstrap: %s update output: %s", key, out)
+		slog.Info("update output", "component", "bootstrap", "key", key, "output", out)
 		return nil
 
 	case domain.OTAKeyBootstrap:
 		// Spawn as detached background process so it survives bootstrap exit.
-		log.Printf("bootstrap: spawning background software-update bootstrap")
+		slog.Info("spawning background software-update bootstrap", "component", "bootstrap")
 		if err := system.SpawnBackground("software-update", "bootstrap"); err != nil {
 			return fmt.Errorf("spawn software-update bootstrap: %w", err)
 		}
@@ -285,7 +285,7 @@ func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domai
 		if err := system.RestartService(runCtx, "openclaw"); err != nil {
 			return fmt.Errorf("restart openclaw: %w", err)
 		}
-		log.Printf("bootstrap: openclaw updated to %s", version)
+		slog.Info("openclaw updated", "component", "bootstrap", "version", version)
 		return nil
 
 	default:

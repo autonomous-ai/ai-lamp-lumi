@@ -1,7 +1,7 @@
 package http
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -35,14 +35,13 @@ func ProvideNetworkHandler(config *config.Config, ns *network.Service, ds *devic
 //	@Success					200			{object}	domain.GetNetworksResponse
 //	@Router						/network [get]
 func (h *NetworkHandler) GetNetworks(c *gin.Context) {
-	log.Println("GetNetworks")
+	slog.Debug("listing networks", "component", "network")
 	networks, err := h.service.ListNetworks()
-	log.Println("GetNetworks", networks, err)
+	slog.Debug("networks listed", "component", "network", "count", len(networks), "error", err)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}
-	log.Println("GetNetworks", networks, err)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(networks))
 }
 

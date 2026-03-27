@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -54,7 +54,7 @@ func (s *Service) ListNetworks() ([]domain.Network, error) {
 
 // listNetworksIW runs `iw dev wlan0 scan` and parses BSS/SSID/signal etc.
 func (s *Service) listNetworksIW() ([]domain.Network, error) {
-	log.Println("[network] wifi scan started")
+	slog.Debug("wifi scan started", "component", "network")
 	cmd := exec.Command("iw", "dev", defaultInterface, "scan")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -64,7 +64,7 @@ func (s *Service) listNetworksIW() ([]domain.Network, error) {
 	}
 	networks := parseIWScan(outBuf.String())
 	s.networks = networks
-	log.Println("[network] wifi scan done")
+	slog.Debug("wifi scan done", "component", "network")
 	return networks, nil
 }
 
@@ -143,7 +143,7 @@ func (s *Service) GetCurrentIP() (string, error) {
 	if m := reInet.FindStringSubmatch(string(out)); len(m) > 1 {
 		return m[1], nil
 	}
-	log.Println("GetCurrentIP out", string(out))
+	slog.Debug("no IP found", "component", "network", "output", string(out))
 	return "", nil
 }
 
@@ -217,7 +217,7 @@ func (s *Service) runNetworkMonitorTick() {
 	if s.pingNetworkMonitor(networkMonitorPingTarget) {
 		s.networkMonitorMu.Lock()
 		if s.networkMonitorConsecutive > 0 {
-			log.Printf("[network-monitor] Internet restored (was %d fail(s))", s.networkMonitorConsecutive)
+			slog.Info("internet restored", "component", "network-monitor", "previousFails", s.networkMonitorConsecutive)
 		}
 		s.networkMonitorConsecutive = 0
 		s.networkMonitorMu.Unlock()
@@ -228,7 +228,7 @@ func (s *Service) runNetworkMonitorTick() {
 	n := s.networkMonitorConsecutive
 	s.networkMonitorMu.Unlock()
 
-	log.Printf("[network-monitor] No internet (ping %s failed, %d/%d)", networkMonitorPingTarget, n, networkMonitorFailsRequired)
+	slog.Warn("no internet", "component", "network-monitor", "target", networkMonitorPingTarget, "fails", n, "required", networkMonitorFailsRequired)
 }
 
 // ResetNetwork resets the network to the default state (clears credentials and writes minimal
@@ -249,7 +249,7 @@ func (s *Service) ResetNetwork() error {
 
 // SetupNetwork submits WiFi credentials via connect-wifi CLI.
 func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
-	log.Println("SetupNetwork", ssid, password)
+	slog.Debug("starting network setup", "component", "network", "ssid", ssid)
 	if strings.TrimSpace(ssid) == "" {
 		return false, fmt.Errorf("ssid is required")
 	}
@@ -257,32 +257,32 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 	if password != "" {
 		args = append(args, password)
 	}
-	log.Println("SetupNetwork", args)
+	slog.Debug("running connect-wifi", "component", "network", "args", args)
 	cmd := exec.Command("connect-wifi", args...)
-	log.Println("SetupNetwork cmd", cmd)
+	slog.Debug("connect-wifi command", "component", "network", "cmd", cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("connect-wifi: %w: %s", err, string(out))
 	}
-	log.Println("SetupNetwork out", string(out))
+	slog.Debug("connect-wifi output", "component", "network", "output", string(out))
 	// Wait up to 60s for internet and matching SSID
 	success := false
 	for i := 0; i < 60; i++ {
-		log.Println("SetupNetwork checking internet", i)
+		slog.Debug("checking internet", "component", "network", "attempt", i)
 		// Check internet
 		if ok, _ := s.CheckInternet(); ok {
-			log.Println("SetupNetwork internet ok", i)
+			slog.Debug("internet ok", "component", "network", "attempt", i)
 			// Check SSID
 			curNet, _ := s.CurrentNetwork()
-			log.Println("SetupNetwork current network", curNet)
+			slog.Debug("current network", "component", "network", "network", curNet)
 			if curNet != nil && curNet.SSID == ssid {
 				success = true
 				break
 			} else {
-				log.Println("SetupNetwork current network does not match", curNet.SSID, ssid)
+				slog.Debug("current network does not match", "component", "network", "current", curNet.SSID, "expected", ssid)
 			}
 		} else {
-			log.Println("SetupNetwork internet not ok", i)
+			slog.Debug("internet not ok", "component", "network", "attempt", i)
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -292,9 +292,9 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 	s.config.NetworkSSID = ssid
 	s.config.NetworkPassword = password
 	if err := s.config.Save(); err != nil {
-		log.Println("SetupNetwork save config error", err)
+		slog.Error("save config failed", "component", "network", "error", err)
 	}
-	log.Println("SetupNetwork success")
+	slog.Info("network setup success", "component", "network")
 	return true, nil
 }
 
@@ -305,6 +305,6 @@ func (s *Service) SwitchToAPMode() error {
 	if err != nil {
 		return fmt.Errorf("device-ap-mode: %w: %s", err, string(out))
 	}
-	log.Println("[network] switched to AP mode")
+	slog.Info("switched to AP mode", "component", "network")
 	return nil
 }
