@@ -227,6 +227,22 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 		payload.ResolveChatMessage()
 
+		// Inbound user message from Telegram/Slack/Discord → start a new flow trace
+		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
+			msg := payload.Message
+			if len(msg) > 100 {
+				msg = msg[:100]
+			}
+			flow.SetTrace(payload.RunID)
+			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": msg})
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_input",
+				Summary: "[telegram] " + msg,
+				RunID:   payload.RunID,
+				Detail:  map[string]string{"role": "user"},
+			})
+		}
+
 		// Push all chat events to monitor (partial + final)
 		summary := payload.Message
 		if len(summary) > 120 {
