@@ -170,6 +170,7 @@ class VoiceService:
 
         client = DeepgramClient(api_key=self._deepgram_api_key)
         session_closed = threading.Event()
+        listener_ready = threading.Event()
 
         try:
             with client.listen.v1.connect(
@@ -215,13 +216,32 @@ class VoiceService:
                     logger.error("Deepgram error: %s", error)
                     session_closed.set()
 
+                def on_open(_):
+                    logger.info("Deepgram WebSocket opened")
+                    listener_ready.set()
+
                 def on_close(_):
                     logger.info("Deepgram connection closed")
                     session_closed.set()
 
+                connection.on(EventType.OPEN, on_open)
                 connection.on(EventType.MESSAGE, on_message)
                 connection.on(EventType.ERROR, on_error)
                 connection.on(EventType.CLOSE, on_close)
+
+                # Start listening in background thread so SDK can handle
+                # incoming messages (ping/pong, transcripts, etc.)
+                listener_thread = threading.Thread(
+                    target=connection.start_listening,
+                    daemon=True,
+                    name="dg-listener",
+                )
+                listener_thread.start()
+
+                # Wait for WebSocket to be ready before sending audio
+                if not listener_ready.wait(timeout=5):
+                    logger.error("Deepgram listener did not become ready in 5s")
+                    return
 
                 self._listening = True
                 logger.info("Deepgram connected — streaming speech...")
@@ -250,6 +270,7 @@ class VoiceService:
                         connection.send_close_stream()
                     except Exception:
                         pass
+                    listener_thread.join(timeout=3)
         except Exception as e:
             logger.error("Deepgram session error: %s", e)
             self._listening = False
