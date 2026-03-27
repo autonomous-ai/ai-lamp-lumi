@@ -1,10 +1,11 @@
 """
 Music Service — search YouTube and stream audio through the speaker.
 
-Uses pytubefix to resolve YouTube audio URLs, ffmpeg to decode to PCM,
+Uses yt-dlp to search and resolve YouTube audio URLs, ffmpeg to decode to PCM,
 and sounddevice to play through the Seeed 2-mic HAT speaker.
 """
 
+import json
 import logging
 import subprocess
 import threading
@@ -17,12 +18,11 @@ logger.setLevel(logging.DEBUG)
 # ffmpeg output format
 SAMPLE_RATE = 48000
 CHANNELS = 1
-DTYPE = "int16"
 CHUNK_SIZE = 8192  # bytes per read from ffmpeg stdout
 
 
 class MusicService:
-    """YouTube music search + streaming playback via ffmpeg + sounddevice."""
+    """YouTube music search + streaming playback via yt-dlp + ffmpeg + sounddevice."""
 
     def __init__(
         self,
@@ -40,6 +40,7 @@ class MusicService:
         self._playing = False
         self._stop_event = threading.Event()
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
+        self._current_title: Optional[str] = None
 
     @property
     def available(self) -> bool:
@@ -48,6 +49,10 @@ class MusicService:
     @property
     def playing(self) -> bool:
         return self._playing
+
+    @property
+    def current_title(self) -> Optional[str]:
+        return self._current_title
 
     def play(self, query: str) -> bool:
         """Search YouTube and play first result. Returns True if started."""
@@ -92,12 +97,14 @@ class MusicService:
         try:
             self._playing = True
 
-            # Search YouTube
+            # Resolve audio URL via yt-dlp
             logger.info("Searching YouTube: '%s'", query[:80])
-            audio_url = self._resolve_audio_url(query)
+            audio_url, title = self._resolve_audio_url(query)
             if not audio_url:
                 logger.error("No audio URL found for: '%s'", query[:80])
                 return
+
+            self._current_title = title
 
             # Wait if TTS is speaking (TTS has priority)
             if self._tts_service and self._tts_service.speaking:
@@ -111,7 +118,7 @@ class MusicService:
                 return
 
             # Pipe through ffmpeg to get raw PCM
-            logger.info("Starting ffmpeg stream")
+            logger.info("Starting ffmpeg stream for: '%s'", title[:80] if title else query[:80])
             self._ffmpeg_proc = subprocess.Popen(
                 [
                     "ffmpeg",
@@ -168,30 +175,43 @@ class MusicService:
                 self._ffmpeg_proc.terminate()
             self._ffmpeg_proc = None
             self._playing = False
+            self._current_title = None
             self._lock.release()
 
-    def _resolve_audio_url(self, query: str) -> Optional[str]:
-        """Search YouTube and return direct audio stream URL."""
+    def _resolve_audio_url(self, query: str) -> tuple[Optional[str], Optional[str]]:
+        """Use yt-dlp to search YouTube and return (audio_url, title)."""
         try:
-            from pytubefix import YouTube
-            from pytubefix.contrib.search import Search
+            result = subprocess.run(
+                [
+                    "yt-dlp",
+                    "--dump-json",
+                    "--no-download",
+                    "-f", "bestaudio",
+                    f"ytsearch1:{query}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
-            results = Search(query)
-            if not results.videos:
-                logger.warning("No YouTube results for: '%s'", query[:80])
-                return None
+            if result.returncode != 0:
+                logger.error("yt-dlp failed: %s", result.stderr[:200])
+                return None, None
 
-            video = results.videos[0]
-            logger.info("Found: '%s' (%s)", video.title, video.watch_url)
+            info = json.loads(result.stdout)
+            title = info.get("title", query)
+            url = info.get("url")
 
-            yt = YouTube(video.watch_url, client="WEB")
-            audio_stream = yt.streams.get_audio_only()
-            if not audio_stream:
-                logger.warning("No audio stream for: '%s'", video.title)
-                return None
+            if not url:
+                logger.warning("yt-dlp returned no URL for: '%s'", query[:80])
+                return None, None
 
-            return audio_stream.url
+            logger.info("Found: '%s' (%s)", title, info.get("webpage_url", ""))
+            return url, title
 
+        except subprocess.TimeoutExpired:
+            logger.error("yt-dlp timed out for: '%s'", query[:80])
+            return None, None
         except Exception as e:
-            logger.error("YouTube resolve failed: %s (type=%s)", e, type(e).__name__)
-            return None
+            logger.error("yt-dlp resolve failed: %s (type=%s)", e, type(e).__name__)
+            return None, None
