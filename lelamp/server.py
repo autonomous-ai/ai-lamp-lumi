@@ -228,6 +228,7 @@ async def lifespan(app: FastAPI):
                 input_device=seeed_input_device,
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=rgb_service,
+                tts_service=tts_service,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -264,6 +265,9 @@ async def lifespan(app: FastAPI):
             )
             logger.info("TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
                         llm_url, seeed_output_device, tts_service.available)
+            # Wire TTS to SensingService for echo suppression
+            if sensing_service:
+                sensing_service.set_tts_service(tts_service)
         if dgk and VoiceService and not voice_service:
             voice_service = VoiceService(
                 deepgram_api_key=dgk,
