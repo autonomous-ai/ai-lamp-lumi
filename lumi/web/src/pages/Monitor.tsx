@@ -1260,8 +1260,19 @@ function FlowDiagram({
           const boxY = infoBelow
             ? pos.y + nodeR + 18 + descLines * 10 + 6
             : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
+          const isClickable = node.id === "idle";
           return (
-            <g key={node.id} opacity={opacity}>
+            <g key={node.id} opacity={opacity}
+              style={isClickable ? { cursor: "pointer" } : undefined}
+              onClick={isClickable ? (e) => {
+                e.stopPropagation();
+                fetch(`${HW}/emotion`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ emotion: "idle", intensity: 0.7 }),
+                }).catch(() => {});
+              } : undefined}
+            >
               {/* Glow ring for active */}
               {isActive && (
                 <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
@@ -1269,7 +1280,10 @@ function FlowDiagram({
                   opacity={0.35} style={{ filter: `url(#${glowId})` }}
                 />
               )}
-              {/* Node circle */}
+              {/* Node circle — transparent hit area for clickable nodes */}
+              {isClickable && (
+                <circle cx={pos.x} cy={pos.y} r={nodeR} fill="transparent" />
+              )}
               <circle cx={pos.x} cy={pos.y} r={nodeR}
                 fill={isActive ? `${color}22` : "var(--lm-surface)"}
                 stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
