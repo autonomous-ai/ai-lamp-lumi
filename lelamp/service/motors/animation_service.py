@@ -76,13 +76,18 @@ class AnimationService:
         self.robot = LeLampFollower(self.robot_config)
         try:
             self.robot.connect(calibrate=False)
-        except RuntimeError as e:
-            # Some servos may be offline — log warning but continue
-            # so the service can still operate with available servos
-            logger.warning(f"Robot connect error (some servos may be offline): {e}")
-            # Try to use the bus even if not all servos responded
-            if not self.robot.bus.is_connected:
-                raise
+        except Exception as e:
+            # Some servos may be offline — log warning but continue.
+            # The port is open and online servos can still be controlled.
+            logger.warning(f"Robot connect (partial): {e}")
+
+        # configure() may not have run inside connect() if bus.connect() threw.
+        # Call it explicitly to set P gain and torque on available servos.
+        try:
+            self.robot.configure()
+        except Exception as e:
+            logger.warning(f"configure (partial): {e}")
+
         logger.info(f"Animation service connected to {self.port}")
 
         # Move base_pitch and elbow_pitch to startup position (same as idle.csv first frame)
