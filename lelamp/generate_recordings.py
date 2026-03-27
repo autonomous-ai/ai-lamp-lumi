@@ -2,7 +2,9 @@
 """Generate expressive animation CSVs for LeLamp.
 
 Safety constraints derived from original hardware recordings:
-- Max velocity: 5 deg/frame (150 deg/s at 30 FPS)
+- Max per-joint velocity: 3 deg/frame (90 deg/s at 30 FPS)
+- Max total velocity across all joints: 8 deg/frame
+  (prevents simultaneous max-speed on multiple joints → power overload)
 - All positions clamped to JOINT_LIMITS
 - Poses reference ranges observed in original hardware captures
 
@@ -19,8 +21,11 @@ FPS = 30
 HEADER = ["timestamp", "base_yaw.pos", "base_pitch.pos", "elbow_pitch.pos", "wrist_roll.pos", "wrist_pitch.pos"]
 JOINTS = ["base_yaw", "base_pitch", "elbow_pitch", "wrist_roll", "wrist_pitch"]
 
-# Max degrees change per frame — derived from original recordings (max ~7, we use 5 for safety)
-MAX_VEL = 5.0
+# Max degrees change per frame per joint (originals peak ~5-7, we use 3 for safety)
+MAX_VEL_PER_JOINT = 3.0
+# Max total degrees change across ALL joints per frame
+# Prevents simultaneous max-speed on 5 servos → power supply / bus overload
+MAX_VEL_TOTAL = 8.0
 
 # Safe joint limits (must match animation_service.py)
 JOINT_LIMITS = {
@@ -49,8 +54,10 @@ def clamp_joint(joint: str, value: float) -> float:
 def velocity_limit(frames: list[dict]) -> list[dict]:
     """Enforce max velocity between consecutive frames.
 
-    If a joint moves more than MAX_VEL per frame, insert extra frames
-    to slow the transition down.
+    Two limits applied:
+    1. Per-joint: no single joint exceeds MAX_VEL_PER_JOINT deg/frame
+    2. Total: sum of all joint deltas <= MAX_VEL_TOTAL deg/frame
+       (prevents servo bus / power overload from simultaneous movement)
     """
     if len(frames) < 2:
         return frames
@@ -60,14 +67,15 @@ def velocity_limit(frames: list[dict]) -> list[dict]:
         prev = result[-1]
         target = frames[i]
 
-        # Find how many frames we need for the biggest joint delta
-        max_delta = 0
-        for j in JOINTS:
-            delta = abs(target[j] - prev[j])
-            if delta > max_delta:
-                max_delta = delta
+        # Calculate steps needed for per-joint limit
+        max_delta = max(abs(target[j] - prev[j]) for j in JOINTS)
+        steps_per_joint = math.ceil(max_delta / MAX_VEL_PER_JOINT) if max_delta > 0 else 1
 
-        n_steps = max(1, math.ceil(max_delta / MAX_VEL))
+        # Calculate steps needed for total velocity limit
+        total_delta = sum(abs(target[j] - prev[j]) for j in JOINTS)
+        steps_total = math.ceil(total_delta / MAX_VEL_TOTAL) if total_delta > 0 else 1
+
+        n_steps = max(1, steps_per_joint, steps_total)
 
         for step in range(1, n_steps + 1):
             t = step / n_steps
@@ -552,7 +560,7 @@ ANIMATIONS = {
 if __name__ == "__main__":
     os.makedirs(RECORDINGS_DIR, exist_ok=True)
     print(f"Generating recordings to {RECORDINGS_DIR}/")
-    print(f"Safety: max {MAX_VEL} deg/frame ({MAX_VEL * FPS} deg/s)")
+    print(f"Safety: max {MAX_VEL_PER_JOINT} deg/frame/joint, {MAX_VEL_TOTAL} deg/frame total")
     print()
     for name, gen_fn in ANIMATIONS.items():
         frames = gen_fn()
