@@ -1167,7 +1167,7 @@ function FlowDiagram({
     idle:              { x: 60,  y: 210 },
     ambient:           { x: 60,  y: 80  },
     sensing:           { x: 170, y: 210 },
-    telegram_input:    { x: 170, y: 350 },
+    telegram_input:    { x: 170, y: 390 },
     intent_check:      { x: 290, y: 210 },
     local_match:       { x: 410, y: 80  },
     agent_call:        { x: 410, y: 210 },
@@ -1175,7 +1175,7 @@ function FlowDiagram({
     tool_exec:         { x: 640, y: 80  },
     agent_response:    { x: 640, y: 210 },
     tts_speak:         { x: 760, y: 210 },
-    schedule_trigger:  { x: 290, y: 350 },
+    schedule_trigger:  { x: 290, y: 390 },
     output:            { x: 880, y: 210 },
   };
 
