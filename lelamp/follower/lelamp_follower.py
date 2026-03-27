@@ -93,7 +93,12 @@ class LeLampFollower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        self.bus.connect()
+        try:
+            self.bus.connect()
+        except RuntimeError as e:
+            # Some servos may be offline — log but continue with partial bus
+            logger.warning(f"bus.connect partial failure (offline servos?): {e}")
+
         if not self.is_calibrated and calibrate:
             logger.info(
                 "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
@@ -153,20 +158,24 @@ class LeLampFollower(Robot):
     _HIGH_PGAIN_MOTORS = {"base_pitch", "elbow_pitch", "wrist_roll"}  # ID 2, 3, 4
 
     def configure(self) -> None:
-        with self.bus.torque_disabled():
+        # Configure each servo individually — skip offline ones.
+        # Cannot use bus.torque_disabled() as it fails if any servo is offline.
+        for motor in self.bus.motors:
             try:
-                self.bus.configure_motors()
+                self.bus.write("Torque_Enable", motor, 0)
+            except Exception:
+                logger.warning(f"{motor}: offline, skipping configure")
+                continue
+            try:
+                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                pgain = 128 if motor in self._HIGH_PGAIN_MOTORS else 32
+                self.bus.write("P_Coefficient", motor, pgain)
+                self.bus.write("I_Coefficient", motor, 0)
+                self.bus.write("D_Coefficient", motor, 32)
+                self.bus.write("Torque_Enable", motor, 1)
+                logger.info(f"{motor}: configured (P={pgain}), torque ON")
             except Exception as e:
-                logger.warning(f"configure_motors failed (offline servos?): {e}")
-            for motor in self.bus.motors:
-                try:
-                    self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                    pgain = 128 if motor in self._HIGH_PGAIN_MOTORS else 32
-                    self.bus.write("P_Coefficient", motor, pgain)
-                    self.bus.write("I_Coefficient", motor, 0)
-                    self.bus.write("D_Coefficient", motor, 32)
-                except Exception as e:
-                    logger.warning(f"configure {motor} failed (offline?): {e}")
+                logger.warning(f"{motor}: configure failed: {e}")
 
     def setup_motors(self) -> None:
         for motor in reversed(self.bus.motors):
