@@ -824,8 +824,8 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       continue;
     }
     if (!current) {
-      // Orphan events before first sensing_input — create a synthetic turn
-      current = { id: "init", startTime: ev.time, type: "system", path: "unknown", status: "active", events: [] };
+      // Orphan events before first sensing_input (startup infra events) — skip
+      continue;
     }
     current.events.push(ev);
 
