@@ -63,6 +63,7 @@ class SensingService:
         input_device: Optional[int] = None,
         poll_interval: float = 2.0,
         rgb_service=None,
+        tts_service=None,
     ):
         self._camera = camera_capture
         self._sd = sound_device_module
@@ -86,12 +87,19 @@ class SensingService:
         self._last_light_level: Optional[float] = None
         self._last_light_check: float = 0.0
 
+        # TTS reference for echo suppression
+        self._tts = tts_service
+
         # Presence auto on/off state machine
         self.presence = PresenceService(rgb_service=rgb_service)
 
         # Initialize face cascade
         if cv2_module:
             self._init_face_cascade()
+
+    def set_tts_service(self, tts_service):
+        """Set TTS reference after late initialization (echo suppression)."""
+        self._tts = tts_service
 
     def _init_face_cascade(self):
         """Load Haar cascade for face detection."""
@@ -277,6 +285,10 @@ class SensingService:
     # --- Sound detection ---
 
     def _check_sound(self):
+        # Skip sound check while TTS is speaking (echo suppression)
+        if self._tts is not None and self._tts.speaking:
+            return
+
         sd = self._sd
         np = self._np
         try:
