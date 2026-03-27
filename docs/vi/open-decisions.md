@@ -32,7 +32,11 @@
 | LED driver ownership | LeLamp Python rpi_ws281x own toàn bộ LED. Go SPI driver đã xóa. |
 | SKILL.md (#1) | 9 skills: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. Tất cả mô tả HTTP API tại `127.0.0.1:5001`. |
 | Event push (#2) | WebSocket RPC `chat.send` với `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. |
-| Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion detection. |
+| Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion, Haar cascade cho face detection, mean brightness cho light level. Auto-snapshot (320px JPEG base64) khi event đáng kể → forward OpenClaw vision. |
+| AI Vision | Bật (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing event có ảnh gửi qua `SendChatMessageWithImage` → AI nhìn được camera snapshot. |
+| Face detection vs recognition | Face **detection** (có người không?) = P1, done (Haar cascade). Face **recognition** (ai đây?) = P2, cần face embedding + enrollment flow lúc setup. **Vấn đề privacy:** nếu không có recognition, bất kỳ ai lại gần Lumi đều có thể hỏi email, lịch, thông tin cá nhân. Recognition cần để gate sensitive actions chỉ cho người đã đăng ký. |
+| Voice/speaker identification | P2. Phân biệt giọng chủ nhân vs người lạ. Cùng vấn đề privacy — chặn người lạ truy cập data cá nhân qua giọng nói. |
+| Owner gating strategy | **Phải chốt trước khi ship.** Các phương án: (1) Face recognition local (dlib/OpenCV DNN, ~200ms trên Pi4) — enroll lúc setup, gate sensitive skills cho mặt đã đăng ký. (2) Voice embedding local (resemblyzer/speechbrain) — nặng hơn trên Pi4. (3) Wake word + PIN — fallback nếu không có camera. (4) Kết hợp. **Đề xuất:** face recognition làm primary gate, enroll trong setup wizard. Mặt lạ → limited mode (chỉ điều khiển đèn, không truy cập data cá nhân). |
 | Audio/Voice (#4) | LeLamp own mic/speaker. Local VAD (RMS energy) + on-demand Deepgram STT. Wake word "Hey Lumi" trong transcript → `voice_command` (ưu tiên). Không có wake word → `voice` (ambient sensing). |
 | Emotion presets (#6) | 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock) + 11 eye expressions trên display. |
 | Display rendering (#7) | `gc9a01-python` + PIL/Pillow. 240x240 round LCD. Dual-mode eyes/info. Auto-blink. Plugin — skip nếu không có. |
@@ -61,7 +65,7 @@
 | UC-04 | Timer & schedule | OpenClaw cron, `scheduling/SKILL.md` |
 | UC-06 | AI companion | OpenClaw + `SOUL.md` + `emotion/SKILL.md` |
 | UC-08 | Servo direction | `server.py /servo/*`, `servo-control/SKILL.md` |
-| UC-11 | Presence detection | `presence_service.py`, `sensing/SKILL.md` |
+| UC-11 | Presence detection (face detection + presence.enter/leave + light level + auto-snapshot vision) | `sensing_service.py`, `presence_service.py`, `sensing/SKILL.md` |
 | UC-13 | Status indication | 🟡 Partial — boot/error có, processing/timer chưa |
 
 ### P2 — v1.x (chưa code, không blocking)
@@ -74,6 +78,8 @@
 | UC-10 | Gesture control | Hand pose estimation |
 | UC-12 | Video call optimization | Face lighting analysis |
 | UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel |
+| — | Face recognition (nhận diện chủ nhân) | Face embedding + enrollment lúc setup |
+| — | Voice/speaker identification | Phân biệt giọng chủ nhân vs người lạ |
 
 ### 4 Pillars ✅
 
@@ -93,7 +99,7 @@
 | camera | ✅ | `/camera`, `/camera/snapshot`, `/camera/stream` |
 | audio | ✅ | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
 | emotion | ✅ | `/emotion` (servo + LED + eyes coordinated) |
-| sensing | ✅ | Auto — motion/sound events + presence auto |
+| sensing | ✅ | Auto — motion/sound/presence.enter/leave/light.level + auto-snapshot vision + presence auto |
 | scene | ✅ | `/scene` (6 presets) |
 | display | ✅ | `/display/eyes`, `/display/info`, `/display/snapshot` |
 | scheduling | ✅ | OpenClaw cron (no custom endpoints) |
