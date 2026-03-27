@@ -4,7 +4,9 @@
 
 ## Chưa chốt
 
-(Không còn.)
+| Quyết định | Bối cảnh | Phương án | Đề xuất |
+|---|---|---|---|
+| Channel abstraction layer | UC-15 multi-channel (Telegram/Slack/Discord) hiện "miễn phí" nhờ OpenClaw built-in. Nhưng nếu đổi gateway khác (không phải OpenClaw), multi-channel sẽ mất. | (1) Không làm gì — chấp nhận lock-in OpenClaw cho channels. (2) Build channel abstraction ở Lumi level để messaging hoạt động bất kể gateway. (3) Defer cho đến khi thực sự cần đổi gateway. | Option 3 (YAGNI), nhưng thiết kế UC-15 với ý thức rằng channel support phụ thuộc gateway. Ghi rõ dependency. |
 
 ---
 
@@ -77,7 +79,7 @@
 | UC-09 | Auto-tracking (camera → servo) | Face detection → servo loop |
 | UC-10 | Gesture control | Hand pose estimation |
 | UC-12 | Video call optimization | Face lighting analysis |
-| UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel |
+| UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel — **Lưu ý:** hiện "free" nhờ OpenClaw. Nếu đổi gateway khác, cần channel abstraction layer. Xem mục Chưa chốt. |
 | — | Face recognition (nhận diện chủ nhân) | Face embedding + enrollment lúc setup |
 | — | Voice/speaker identification | Phân biệt giọng chủ nhân vs người lạ |
 
