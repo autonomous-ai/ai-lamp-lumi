@@ -20,7 +20,7 @@ const (
 	colorGray   = "\033[90m"
 )
 
-// colorHandler is a slog.Handler that writes colored, human-readable log lines.
+// colorHandler is a slog.Handler that writes colored, human-readable log lines to the console.
 type colorHandler struct {
 	w     io.Writer
 	mu    sync.Mutex
@@ -98,12 +98,73 @@ func (h *colorHandler) WithGroup(name string) slog.Handler {
 	return &colorHandler{w: h.w, level: h.level, attrs: newAttrs, group: g}
 }
 
-// Init sets up the global slog default logger with colored output.
-// Call this once at the start of main().
-func Init(level slog.Level) {
-	handler := &colorHandler{
-		w:     os.Stderr,
+// multiHandler fans out each log record to multiple handlers.
+type multiHandler struct {
+	handlers []slog.Handler
+}
+
+func (m *multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, r.Level) {
+			if err := h.Handle(ctx, r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (m *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	handlers := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		handlers[i] = h.WithAttrs(attrs)
+	}
+	return &multiHandler{handlers: handlers}
+}
+
+func (m *multiHandler) WithGroup(name string) slog.Handler {
+	handlers := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		handlers[i] = h.WithGroup(name)
+	}
+	return &multiHandler{handlers: handlers}
+}
+
+// Init sets up the global slog default logger with colored console output.
+// If logFilePath is non-empty, logs are also written to that file (plain text, no color).
+// Returns a cleanup function to close the log file (call via defer).
+func Init(level slog.Level, logFilePath string) func() {
+	consoleHandler := &colorHandler{
+		w:     os.Stdout,
 		level: level,
 	}
-	slog.SetDefault(slog.New(handler))
+
+	if logFilePath == "" {
+		slog.SetDefault(slog.New(consoleHandler))
+		return func() {}
+	}
+
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fall back to console only
+		slog.SetDefault(slog.New(consoleHandler))
+		return func() {}
+	}
+
+	fileHandler := slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: level})
+
+	slog.SetDefault(slog.New(&multiHandler{
+		handlers: []slog.Handler{consoleHandler, fileHandler},
+	}))
+
+	return func() { logFile.Close() }
 }

@@ -21,7 +21,8 @@ func main() {
 		return
 	}
 
-	logger.Init(slog.LevelDebug)
+	cleanup := logger.Init(slog.LevelDebug, "/var/log/lumi.log")
+	defer cleanup()
 
 	srv, err := server.InitializeServer()
 	if err != nil {
