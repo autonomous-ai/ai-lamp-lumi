@@ -55,14 +55,26 @@ class TTSService:
         except ImportError as e:
             logger.warning("openai SDK not available: %s", e)
 
-        # Cache device sample rate
-        if self._sd and self._output_device is not None:
-            try:
-                info = self._sd.query_devices(self._output_device)
-                self._device_rate = int(info["default_samplerate"])
-                logger.info("Output device %d: rate=%d Hz", self._output_device, self._device_rate)
-            except Exception as e:
-                logger.warning("Failed to query output device: %s", e)
+        # Probe device sample rate by actually opening a stream (check_output_settings
+        # is unreliable on some ALSA devices like seeed-2mic wm8960)
+        if self._sd:
+            dev_label = self._output_device if self._output_device is not None else "default"
+            for rate in [48000, 16000, 32000, 44100, 24000, 22050, 8000]:
+                try:
+                    with self._sd.OutputStream(
+                        device=self._output_device,
+                        samplerate=rate,
+                        channels=TTS_CHANNELS,
+                        dtype="float32",
+                    ):
+                        pass
+                    self._device_rate = rate
+                    logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
+                    break
+                except Exception:
+                    continue
+            if self._device_rate is None:
+                logger.warning("No supported sample rate found for output device [%s]", dev_label)
 
     @property
     def available(self) -> bool:
@@ -106,7 +118,7 @@ class TTSService:
         """Stream TTS response directly to audio output — no full-buffer wait."""
         np = self._np
         sd = self._sd
-        dst_rate = self._device_rate or 48000
+        dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
         try:
             self._speaking = True
