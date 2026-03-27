@@ -181,9 +181,10 @@ class MusicService:
     def _resolve_audio_url(self, query: str) -> tuple[Optional[str], Optional[str]]:
         """Use yt-dlp to search YouTube and return (audio_url, title)."""
         try:
+            import sys
             result = subprocess.run(
                 [
-                    "yt-dlp",
+                    sys.executable, "-m", "yt_dlp",
                     "--dump-json",
                     "--no-download",
                     "-f", "bestaudio",
