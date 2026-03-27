@@ -46,12 +46,14 @@ class VoiceService:
         self,
         deepgram_api_key: str,
         input_device: Optional[int] = None,
+        tts_service=None,
     ):
         self._deepgram_api_key = deepgram_api_key
         self._input_device = input_device
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._listening = False
+        self._tts = tts_service
 
         # Lazy imports
         self._sd = None
@@ -122,12 +124,31 @@ class VoiceService:
         samples = audio_data.flatten().astype(np.float32)
         return float(np.sqrt(np.mean(samples ** 2)))
 
+    def _tts_is_speaking(self) -> bool:
+        """Check if TTS is currently using the audio device."""
+        return self._tts is not None and self._tts.speaking
+
+    def _wait_for_tts(self):
+        """Block until TTS finishes speaking, so we can reclaim the audio device."""
+        if not self._tts_is_speaking():
+            return
+        logger.info("TTS is speaking, pausing mic until done...")
+        while self._running and self._tts_is_speaking():
+            time.sleep(0.2)
+        if self._running:
+            # Small grace period for ALSA to fully release the device
+            time.sleep(0.5)
+            logger.info("TTS done, resuming mic")
+
     def _loop(self):
         """Main loop: local VAD → Deepgram on speech → disconnect on silence."""
         time.sleep(3)  # Wait for hardware init
         sd = self._sd
 
         while self._running:
+            # Wait for TTS to finish before opening mic
+            self._wait_for_tts()
+
             try:
                 with sd.InputStream(
                     samplerate=SAMPLE_RATE,
@@ -144,10 +165,16 @@ class VoiceService:
                     time.sleep(3)
 
     def _vad_loop(self, mic):
-        """Monitor mic with local VAD, connect Deepgram when speech detected."""
+        """Monitor mic with local VAD, connect Deepgram when speech detected.
+        Breaks out when TTS starts speaking so _loop can close mic and reopen after."""
         speech_start = None
 
         while self._running:
+            # Yield mic to TTS — break so _loop closes InputStream first
+            if self._tts_is_speaking():
+                logger.info("TTS started, releasing mic...")
+                return
+
             data, overflowed = mic.read(FRAME_SIZE)
             if overflowed:
                 continue

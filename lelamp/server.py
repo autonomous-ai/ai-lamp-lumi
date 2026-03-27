@@ -254,13 +254,6 @@ async def lifespan(app: FastAPI):
         dgk = lumi_cfg.get("deepgram_api_key", "")
         llm_key = lumi_cfg.get("llm_api_key", "")
         llm_url = lumi_cfg.get("llm_base_url", "")
-        if dgk and VoiceService and not voice_service:
-            voice_service = VoiceService(
-                deepgram_api_key=dgk,
-                input_device=seeed_input_device,
-            )
-            voice_service.start()
-            logger.info("VoiceService auto-started from lumi config")
         if llm_key and llm_url and TTSService and not tts_service:
             tts_service = TTSService(
                 api_key=llm_key,
@@ -271,6 +264,14 @@ async def lifespan(app: FastAPI):
             )
             logger.info("TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
                         llm_url, seeed_output_device, tts_service.available)
+        if dgk and VoiceService and not voice_service:
+            voice_service = VoiceService(
+                deepgram_api_key=dgk,
+                input_device=seeed_input_device,
+                tts_service=tts_service,
+            )
+            voice_service.start()
+            logger.info("VoiceService auto-started from lumi config")
     except FileNotFoundError:
         logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
     except Exception as e:
@@ -1473,6 +1474,7 @@ def start_voice(req: VoiceStartRequest):
         voice_service = VoiceService(
             deepgram_api_key=req.deepgram_api_key,
             input_device=seeed_input_device,
+            tts_service=tts_service,
         )
         voice_service.start()
         return {"status": "ok"}
