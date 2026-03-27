@@ -589,13 +589,20 @@ function OverviewSection({
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
                 {(servo.available_recordings ?? []).slice(0, 8).map((p) => (
-                  <span key={p} style={{
+                  <span key={p} role="button" onClick={() => {
+                    fetch(`${HW}/servo/play`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ recording: p }),
+                    }).catch(() => {});
+                  }} style={{
                     fontSize: 10,
                     padding: "2px 7px",
                     borderRadius: 4,
                     background: p === servo.current ? "var(--lm-amber-dim)" : "var(--lm-surface)",
                     border: `1px solid ${p === servo.current ? "var(--lm-amber)" : "var(--lm-border)"}`,
                     color: p === servo.current ? "var(--lm-amber)" : "var(--lm-text-dim)",
+                    cursor: "pointer",
                   }}>{p}</span>
                 ))}
               </div>
