@@ -80,6 +80,14 @@ class AnimationService:
             # Some servos may be offline — log warning but continue.
             # The port is open and online servos can still be controlled.
             logger.warning(f"Robot connect (partial): {e}")
+
+        # configure() may not have run inside connect() if bus.connect() threw.
+        # Call it explicitly to set P gain and torque on available servos.
+        try:
+            self.robot.configure()
+        except Exception as e:
+            logger.warning(f"configure (partial): {e}")
+
         logger.info(f"Animation service connected to {self.port}")
 
         # Move base_pitch and elbow_pitch to startup position (same as idle.csv first frame)
