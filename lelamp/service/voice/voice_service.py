@@ -28,13 +28,13 @@ FRAME_SIZE = 1024  # 64ms at 16kHz
 
 # Local VAD config
 RMS_THRESHOLD = 500       # Audio energy above this = speech (tune on device)
-SILENCE_TIMEOUT_S = 5.0   # Disconnect Deepgram after this much silence
+SILENCE_TIMEOUT_S = 2.5   # Disconnect Deepgram after this much silence
 SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting Deepgram
-SESSION_COOLDOWN_S = 1.0  # Cooldown between Deepgram sessions for cleanup
+SESSION_COOLDOWN_S = 0.3  # Cooldown between Deepgram sessions for cleanup
 
 # Echo cancellation config
 ECHO_RMS_FLOOR = 200          # RMS must drop below this before re-enabling VAD
-ECHO_GATE_MAX_WAIT_S = 3.0   # Max time to wait for reverb decay after TTS
+ECHO_GATE_MAX_WAIT_S = 1.5   # Max time to wait for reverb decay after TTS
 ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
 ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
