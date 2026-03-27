@@ -1144,9 +1144,11 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
+	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
 
 	params := map[string]interface{}{
-		"message": message,
+		"message":        message,
+		"idempotencyKey": idempotencyKey,
 	}
 	sessionKey := s.GetSessionKey()
 	if sessionKey != "" {
