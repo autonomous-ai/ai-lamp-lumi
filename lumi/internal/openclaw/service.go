@@ -277,6 +277,8 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		gatewayAuthMap["token"] = token
 	}
 	gatewayMap["auth"] = gatewayAuthMap
+	// Disable device identity checks — Lumi connects locally on loopback
+	gatewayMap["dangerouslyDisableDeviceAuth"] = true
 	configData["gateway"] = gatewayMap
 
 	slog.Debug("ensuring full-access tools defaults", "component", "openclaw")
@@ -559,7 +561,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				"platform": "linux",
 				"mode":     "node",
 			},
-			"role":   "node",
+			"role":   "operator",
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
 			"caps":   []string{"thinking-events"},
 			"auth":   map[string]interface{}{"token": token},
@@ -1018,10 +1020,8 @@ func (s *Service) GetSessionKey() string {
 	return v
 }
 
-// SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
-// Returns the runId on success. If no session key exists, sends without one so that
-// OpenClaw creates a new session automatically (the session key will be captured from
-// subsequent WS events).
+// SendChatMessage sends a user message to the OpenClaw agent via WebSocket sessions.send RPC.
+// Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
@@ -1031,13 +1031,10 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
-	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
 
 	params := map[string]interface{}{
-		"message":        message,
-		"idempotencyKey": idempotencyKey,
+		"message": message,
 	}
-	// Only include sessionKey if we have one; omitting it lets OpenClaw create a new session.
 	sessionKey := s.GetSessionKey()
 	if sessionKey != "" {
 		params["sessionKey"] = sessionKey
@@ -1046,22 +1043,22 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	req := map[string]interface{}{
 		"type":   "req",
 		"id":     reqID,
-		"method": "chat.send",
+		"method": "sessions.send",
 		"params": params,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("marshal chat.send: %w", err)
+		return "", fmt.Errorf("marshal sessions.send: %w", err)
 	}
 
 	s.wsMu.Lock()
 	err = s.wsConn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
-		return "", fmt.Errorf("write chat.send: %w", err)
+		return "", fmt.Errorf("write sessions.send: %w", err)
 	}
 
-	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
+	slog.Info("sessions.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
