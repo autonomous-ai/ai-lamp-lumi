@@ -570,10 +570,10 @@ function OverviewSection({
                 {servo.current || "idle"}
               </div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                {servo.available_recordings.length} poses available
+                {servo.available_recordings?.length ?? 0} poses available
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {servo.available_recordings.slice(0, 8).map((p) => (
+                {(servo.available_recordings ?? []).slice(0, 8).map((p) => (
                   <span key={p} style={{
                     fontSize: 10,
                     padding: "2px 7px",
@@ -599,10 +599,10 @@ function OverviewSection({
                 </span>
               </div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                {displayState.available_expressions.length} expressions
+                {displayState.available_expressions?.length ?? 0} expressions
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {displayState.available_expressions.slice(0, 8).map((e) => (
+                {(displayState.available_expressions ?? []).slice(0, 8).map((e) => (
                   <span key={e} style={{
                     fontSize: 10,
                     padding: "2px 7px",
