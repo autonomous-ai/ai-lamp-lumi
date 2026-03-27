@@ -731,48 +731,78 @@ interface FlowNodeDef {
 const FLOW_NODES: FlowNodeDef[] = [
   { id: "idle",
     label: "Idle", short: "IDLE", color: "var(--lm-text-muted)", path: "main",
-    desc: "Waiting for input",
-    triggers: ["ambient_resume", "flow_event:ambient_resume", "flow_event:ws_ready"] },
+    desc: "Waiting for input · ambient_resume / ws_ready",
+    triggers: [
+      "ambient_resume", "flow_event:ambient_resume", "flow_enter:ambient_resume", "flow_exit:ambient_resume",
+      "flow_event:ws_ready", "flow_enter:ws_connect", "flow_exit:ws_connect",
+      "flow_event:session_key_acquired",
+    ] },
 
   { id: "sensing",
     label: "Sensing", short: "SENSE", color: "var(--lm-amber)", path: "main",
-    desc: "POST /sensing/event",
-    triggers: ["sensing_input", "flow_enter:sensing_input", "flow_exit:sensing_input"] },
+    desc: "POST /sensing/event · voice / motion / sound",
+    triggers: [
+      "sensing_input",
+      "flow_enter:sensing_input", "flow_exit:sensing_input", "flow_event:sensing_input",
+      "flow_enter:voice_pipeline_start", "flow_event:voice_pipeline_start",
+    ] },
 
   { id: "intent_check",
     label: "Intent Check", short: "INTENT", color: "var(--lm-teal)", path: "main",
-    desc: "Route local or agent",
-    triggers: ["flow_event:agent_call", "flow_event:chat_send", "chat_send"] },
+    desc: "Route to local match or agent call",
+    triggers: [
+      "chat_send",
+      "flow_event:chat_send", "flow_enter:chat_send", "flow_exit:chat_send",
+      "flow_event:agent_call",
+    ] },
 
   { id: "local_match",
     label: "Local Match", short: "LOCAL", color: "var(--lm-green)", path: "fast",
-    desc: "Fast path ~50ms",
-    triggers: ["intent_match", "flow_event:intent_match"] },
+    desc: "Fast path ~50ms · matched local intent rule",
+    triggers: [
+      "intent_match",
+      "flow_event:intent_match", "flow_enter:intent_match", "flow_exit:intent_match",
+    ] },
 
   { id: "agent_call",
     label: "Agent Call", short: "AGENT", color: "var(--lm-blue)", path: "agent",
-    desc: "WS chat.send RPC",
-    triggers: ["flow_event:agent_call", "flow_event:chat_send", "flow_event:lifecycle_start"] },
+    desc: "WebSocket chat.send RPC to OpenClaw",
+    triggers: [
+      "flow_event:agent_call", "flow_enter:agent_call", "flow_exit:agent_call",
+      "flow_event:lifecycle_start",
+    ] },
 
   { id: "agent_thinking",
     label: "Thinking", short: "THINK", color: "var(--lm-purple)", path: "agent",
-    desc: "LLM reasoning",
-    triggers: ["thinking", "flow_event:lifecycle_start"] },
+    desc: "LLM reasoning · streaming thinking tokens",
+    triggers: [
+      "thinking",
+      "flow_event:lifecycle_start",
+    ] },
 
   { id: "tool_exec",
     label: "Tool Exec", short: "TOOL", color: "#f59e0b", path: "agent",
-    desc: "Agent tool call",
-    triggers: ["tool_call", "flow_event:tool_call"] },
+    desc: "Agent invoked a tool · function call",
+    triggers: [
+      "tool_call",
+      "flow_event:tool_call", "flow_enter:tool_call", "flow_exit:tool_call",
+    ] },
 
   { id: "agent_response",
     label: "Response", short: "RESP", color: "var(--lm-green)", path: "agent",
-    desc: "Accumulated reply",
-    triggers: ["chat_response", "flow_event:lifecycle_end"] },
+    desc: "Agent turn ended · response accumulated",
+    triggers: [
+      "chat_response",
+      "flow_event:lifecycle_end",
+    ] },
 
   { id: "tts_speak",
     label: "TTS Speak", short: "TTS", color: "var(--lm-purple)", path: "agent",
-    desc: "/voice/speak",
-    triggers: ["tts", "flow_event:tts_send"] },
+    desc: "POST /voice/speak · text-to-speech playback",
+    triggers: [
+      "tts",
+      "flow_event:tts_send", "flow_enter:tts_send", "flow_exit:tts_send",
+    ] },
 ];
 
 // Derive active stage from most recent relevant events
@@ -1012,13 +1042,21 @@ function FlowDiagram({
   }
   function nodeOpacity(id: FlowStage) {
     if (id === activeStage) return 1;
-    if (visitedStages.has(id)) return 0.55;
-    return 0.25;
+    if (visitedStages.has(id)) return 0.85;
+    return 0.7;
   }
   function edgeColor(from: FlowStage, to: FlowStage) {
     const fromVisited = visitedStages.has(from) || from === activeStage;
     const toVisited = visitedStages.has(to) || to === activeStage;
-    return fromVisited && toVisited ? "var(--lm-border-hi)" : "var(--lm-border)";
+    // Light up edge if either end was reached
+    return fromVisited || toVisited ? "var(--lm-border-hi)" : "var(--lm-border)";
+  }
+  function edgeOpacity(from: FlowStage, to: FlowStage) {
+    const fromVisited = visitedStages.has(from) || from === activeStage;
+    const toVisited = visitedStages.has(to) || to === activeStage;
+    if (fromVisited && toVisited) return 1;
+    if (fromVisited || toVisited) return 0.7;
+    return 0.5;
   }
 
   const glowId = compact ? "flow-glow-c" : "flow-glow";
@@ -1032,7 +1070,7 @@ function FlowDiagram({
         ref={svgRef}
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         style={{
-          display: "block", width: "100%", height: compact ? 240 : 320,
+          display: "block", width: "100%", height: "100%", minHeight: 360,
           cursor: dragging ? "grabbing" : "grab", userSelect: "none",
         }}
         onWheel={handleWheel}
@@ -1063,8 +1101,10 @@ function FlowDiagram({
           const y2 = t.y - (dy / len) * (nodeR + 4);
           return (
             <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={edgeColor(from, to)} strokeWidth={1.5}
-              markerEnd={`url(#arrow-${compact ? "c" : "f"})`} opacity={0.6}
+              stroke={edgeColor(from, to)}
+              strokeWidth={edgeOpacity(from, to) > 0.5 ? 2 : 1.5}
+              markerEnd={`url(#arrow-${compact ? "c" : "f"})`}
+              opacity={edgeOpacity(from, to)}
             />
           );
         })}
@@ -1078,9 +1118,12 @@ function FlowDiagram({
           const opacity = nodeOpacity(node.id);
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
-          // Info box position: below for main row (y=130), above for top row (y=55)
+          const descLines = node.desc.split(" · ").length;
+          // Info box position: below desc for main row (y=130), above for top row (y=55)
           const infoBelow = pos.y > 80;
-          const boxY = infoBelow ? pos.y + nodeR + 16 : pos.y - nodeR - 14 - lines.length * 10;
+          const boxY = infoBelow
+            ? pos.y + nodeR + 18 + descLines * 10 + 6
+            : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
           return (
             <g key={node.id} opacity={opacity}>
               {/* Glow ring for active */}
@@ -1093,7 +1136,7 @@ function FlowDiagram({
               {/* Node circle */}
               <circle cx={pos.x} cy={pos.y} r={nodeR}
                 fill={isActive ? `${color}22` : "var(--lm-surface)"}
-                stroke={color} strokeWidth={isActive ? 2 : 1}
+                stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
                 style={isActive ? { filter: `url(#${glowId})` } : undefined}
               />
               {/* Short label (top line) */}
@@ -1106,13 +1149,15 @@ function FlowDiagram({
                 fill={color} fontSize={7} opacity={0.9}>
                 {node.label}
               </text>
-              {/* Description (bottom line in circle) */}
-              <text x={pos.x} y={pos.y + 13} textAnchor="middle"
-                fill={color} fontSize={5.5} opacity={0.6} fontStyle="italic">
-                {node.desc}
-              </text>
-              {/* Path badge */}
-              <text x={pos.x} y={infoBelow ? pos.y + nodeR + 10 : pos.y - nodeR - 4} textAnchor="middle"
+              {/* Description below circle — spaced out */}
+              {node.desc.split(" · ").map((part, i) => (
+                <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 18 + i * 10} textAnchor="middle"
+                  fill={color} fontSize={6} opacity={0.7}>
+                  {part}
+                </text>
+              ))}
+              {/* Path badge above circle */}
+              <text x={pos.x} y={pos.y - nodeR - 5} textAnchor="middle"
                 fill={node.path === "fast" ? "var(--lm-green)" : node.path === "agent" ? "var(--lm-blue)" : "var(--lm-text-muted)"}
                 fontSize={6} fontWeight={600} opacity={0.7}>
                 {PATH_LABEL[node.path]}
@@ -1122,21 +1167,21 @@ function FlowDiagram({
               {hasInfo && (
                 <g>
                   <rect
-                    x={pos.x - 52} y={boxY - 2}
-                    width={104} height={lines.slice(0, 3).length * 10 + 6}
+                    x={pos.x - 70} y={boxY - 2}
+                    width={140} height={lines.slice(0, 4).length * 11 + 8}
                     rx={4} ry={4}
                     fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
-                    opacity={0.9}
+                    opacity={0.92}
                   />
-                  {lines.slice(0, 3).map((line, i) => (
+                  {lines.slice(0, 4).map((line, i) => (
                     <text
                       key={i}
-                      x={pos.x} y={boxY + 8 + i * 10}
+                      x={pos.x} y={boxY + 9 + i * 11}
                       textAnchor="middle"
-                      fill={color} fontSize={5.5} opacity={0.85}
+                      fill={color} fontSize={6} opacity={0.9}
                       fontFamily="monospace"
                     >
-                      {line.length > 22 ? line.slice(0, 21) + "…" : line}
+                      {line.length > 30 ? line.slice(0, 29) + "…" : line}
                     </text>
                   ))}
                 </g>
@@ -1377,8 +1422,8 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
         </div>
       </div>
 
-      {/* Simulate card — only on localhost */}
-      {window.location.hostname === "localhost" && (
+      {/* Simulate card — hidden for now */}
+      {false && window.location.hostname === "localhost" && (
         <div style={{ ...S.card, padding: "10px 14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
             <span style={S.cardLabel}>Simulate Event</span>
