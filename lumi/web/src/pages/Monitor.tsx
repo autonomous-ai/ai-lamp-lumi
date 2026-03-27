@@ -730,9 +730,9 @@ function SystemSection({
 
 // Maps a MonitorEvent type/node to a flow stage ID
 type FlowStage =
-  | "idle" | "sensing" | "telegram_input" | "intent_check" | "local_match"
+  | "idle" | "ambient" | "sensing" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "output";
+  | "schedule_trigger" | "output";
 
 interface FlowNodeDef {
   id: FlowStage;
@@ -753,6 +753,16 @@ const FLOW_NODES: FlowNodeDef[] = [
       "ambient_resume", "flow_event:ambient_resume", "flow_enter:ambient_resume", "flow_exit:ambient_resume",
       "flow_event:ws_ready", "flow_enter:ws_connect", "flow_exit:ws_connect",
       "flow_event:session_key_acquired",
+    ] },
+
+  { id: "ambient",
+    label: "Ambient", short: "AMB", color: "#8b5cf6", path: "main",
+    desc: "Idle behaviors · breathing LED / micro movement / mumble TTS",
+    triggers: [
+      "ambient_action", "flow_event:ambient_action", "flow_enter:ambient_action", "flow_exit:ambient_action",
+      "flow_event:ambient_breathing", "flow_event:ambient_movement", "flow_event:ambient_mumble",
+      "flow_enter:ambient_breathing", "flow_enter:ambient_movement", "flow_enter:ambient_mumble",
+      "flow_exit:ambient_breathing", "flow_exit:ambient_movement", "flow_exit:ambient_mumble",
     ] },
 
   { id: "sensing",
@@ -782,8 +792,8 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "local_match",
-    label: "Local Match", short: "LOCAL", color: "var(--lm-green)", path: "fast",
-    desc: "Fast path ~50ms · matched local intent rule",
+    label: "Local Intent", short: "LOCAL", color: "var(--lm-green)", path: "fast",
+    desc: "Fast path ~50ms · regex match → instant TTS · bypasses agent",
     triggers: [
       "intent_match",
       "flow_event:intent_match", "flow_enter:intent_match", "flow_exit:intent_match",
@@ -827,6 +837,15 @@ const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "tts",
       "flow_event:tts_send", "flow_enter:tts_send", "flow_exit:tts_send",
+    ] },
+
+  { id: "schedule_trigger",
+    label: "Schedule", short: "CRON", color: "#f97316", path: "main",
+    desc: "Cron/timer fired · agent turn triggered by schedule",
+    triggers: [
+      "schedule_trigger", "flow_event:schedule_trigger",
+      "flow_enter:schedule_trigger", "flow_exit:schedule_trigger",
+      "flow_event:cron_fire", "cron_fire",
     ] },
 
   { id: "output",
@@ -873,36 +892,44 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   const turns: Turn[] = [];
   let current: Turn | null = null;
 
-  for (const ev of events) {
-    // sensing_input always starts a new turn
+  // Check if event starts a new turn
+  function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"] } | null {
     if (ev.type === "sensing_input") {
-      if (current) turns.push(current);
-      const typeMatch = ev.summary.match(/^\[([^\]]+)\]/);
-      current = {
-        id: ev.runId || `local-${ev._seq}`,
-        startTime: ev.time,
-        type: typeMatch ? typeMatch[1] : "unknown",
-        path: "unknown",
-        status: "active",
-        events: [ev],
-      };
-      continue;
+      const m = ev.summary.match(/^\[([^\]]+)\]/);
+      return { type: m ? m[1] : "unknown", path: "unknown" };
     }
-    // chat_input = inbound Telegram/Slack/Discord message — starts a new agent turn
-    if (ev.type === "chat_input") {
+    if (ev.type === "chat_input") return { type: "telegram", path: "agent" };
+    // Ambient actions (breathing, movement, mumble) start their own turn
+    if (ev.type === "ambient_action" ||
+        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
+        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_"))) {
+      const sub = ev.detail?.node?.replace("ambient_", "") ?? "idle";
+      return { type: `ambient:${sub}`, path: "local" };
+    }
+    // Schedule/cron triggers start a turn
+    if (ev.type === "schedule_trigger" || ev.type === "cron_fire" ||
+        (ev.type === "flow_event" && (ev.detail?.node === "schedule_trigger" || ev.detail?.node === "cron_fire"))) {
+      return { type: "schedule", path: "agent" };
+    }
+    return null;
+  }
+
+  for (const ev of events) {
+    const start = isTurnStart(ev);
+    if (start) {
       if (current) turns.push(current);
       current = {
-        id: ev.runId || `telegram-${ev._seq}`,
+        id: ev.runId || `turn-${ev._seq}`,
         startTime: ev.time,
-        type: "telegram",
-        path: "agent",
+        type: start.type,
+        path: start.path,
         status: "active",
         events: [ev],
       };
       continue;
     }
     if (!current) {
-      // Orphan events before first sensing_input (startup infra events) — skip
+      // Orphan events before first turn start — skip
       continue;
     }
     current.events.push(ev);
@@ -928,6 +955,11 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
+    // Ambient actions are short-lived turns
+    if (current.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
+      current.status = "done";
+      current.endTime = ev.time;
+    }
   }
   if (current) turns.push(current);
   return turns.slice(-15).reverse(); // latest 15, newest first
@@ -939,9 +971,9 @@ const PATH_LABEL: Record<string, string> = { main: "MAIN", fast: "FAST", agent: 
 // Extract runtime info for each node from turn events
 function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
   const info: Record<FlowStage, string[]> = {
-    idle: [], sensing: [], telegram_input: [], intent_check: [], local_match: [],
+    idle: [], ambient: [], sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
-    agent_response: [], tts_speak: [], output: [],
+    agent_response: [], tts_speak: [], schedule_trigger: [], output: [],
   };
 
   for (const ev of events) {
@@ -950,6 +982,20 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
       else info.sensing.push(ev.summary);
+    }
+    // ambient events → ambient node
+    if (ev.type === "ambient_action" ||
+        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
+        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_")) ||
+        (ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_"))) {
+      const sub = ev.detail?.node?.replace("ambient_", "") ?? ev.summary ?? "";
+      if (info.ambient.length < 3) info.ambient.push(`${sub}: ${ev.summary || "active"}`);
+    }
+    // schedule events → schedule_trigger node
+    if (ev.type === "schedule_trigger" || ev.type === "cron_fire" ||
+        (ev.type === "flow_event" && (ev.detail?.node === "schedule_trigger" || ev.detail?.node === "cron_fire"))) {
+      const d = ev.detail as Record<string, string> | undefined;
+      info.schedule_trigger.push(d?.name ?? ev.summary ?? "cron fired");
     }
     // chat_input → telegram_input node
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
@@ -1089,33 +1135,38 @@ function FlowDiagram({
 
   // Node positions — wider spacing for info
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:            { x: 60,  y: 210 },
-    sensing:         { x: 170, y: 210 },
-    telegram_input:  { x: 170, y: 350 },
-    intent_check:    { x: 290, y: 210 },
-    local_match:     { x: 410, y: 80  },
-    agent_call:      { x: 410, y: 210 },
-    agent_thinking:  { x: 520, y: 210 },
-    tool_exec:       { x: 640, y: 80  },
-    agent_response:  { x: 640, y: 210 },
-    tts_speak:       { x: 760, y: 210 },
-    output:          { x: 880, y: 210 },
+    idle:              { x: 60,  y: 210 },
+    ambient:           { x: 60,  y: 80  },
+    sensing:           { x: 170, y: 210 },
+    telegram_input:    { x: 170, y: 350 },
+    intent_check:      { x: 290, y: 210 },
+    local_match:       { x: 410, y: 80  },
+    agent_call:        { x: 410, y: 210 },
+    agent_thinking:    { x: 520, y: 210 },
+    tool_exec:         { x: 640, y: 80  },
+    agent_response:    { x: 640, y: 210 },
+    tts_speak:         { x: 760, y: 210 },
+    schedule_trigger:  { x: 290, y: 350 },
+    output:            { x: 880, y: 210 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
-    ["idle",            "sensing"],
-    ["sensing",         "intent_check"],
-    ["telegram_input",  "agent_call"],
-    ["intent_check",    "local_match"],
-    ["intent_check",    "agent_call"],
-    ["local_match",     "output"],
-    ["agent_call",      "agent_thinking"],
-    ["agent_thinking",  "tool_exec"],
-    ["agent_thinking",  "agent_response"],
-    ["tool_exec",       "agent_response"],
-    ["agent_response",  "tts_speak"],
-    ["tts_speak",       "output"],
-    ["output",          "idle"],
+    ["idle",              "ambient"],
+    ["idle",              "sensing"],
+    ["ambient",           "output"],
+    ["sensing",           "intent_check"],
+    ["telegram_input",    "agent_call"],
+    ["schedule_trigger",  "agent_call"],
+    ["intent_check",      "local_match"],
+    ["intent_check",      "agent_call"],
+    ["local_match",       "output"],
+    ["agent_call",        "agent_thinking"],
+    ["agent_thinking",    "tool_exec"],
+    ["agent_thinking",    "agent_response"],
+    ["tool_exec",         "agent_response"],
+    ["agent_response",    "tts_speak"],
+    ["tts_speak",         "output"],
+    ["output",            "idle"],
   ];
 
   const nodeR = compact ? 26 : 32;
@@ -1320,7 +1371,9 @@ function FlowDiagram({
 // Source type → icon map
 const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", motion: "👁", sound: "🔊", environment: "🌡", system: "⚙", unknown: "❓",
-  telegram: "💬",
+  telegram: "💬", schedule: "⏰",
+  "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
+  "ambient:idle": "😴",
 };
 
 // Extract input/output summary from a turn
@@ -1337,6 +1390,15 @@ function turnIO(turn: Turn): { input: string; output: string } {
       const m = ev.summary.match(/^\[telegram\]\s*(.*)/);
       input = m ? m[1] : ev.summary;
     }
+    // Ambient turn input
+    if (!input && turn.type.startsWith("ambient:")) {
+      input = turn.type.replace("ambient:", "") + " behavior";
+    }
+    // Schedule turn input
+    if (!input && (ev.type === "schedule_trigger" || ev.type === "cron_fire")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      input = d?.name ?? d?.data?.name ?? ev.summary ?? "scheduled task";
+    }
     // Output: last tts or intent_match result
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -1345,6 +1407,10 @@ function turnIO(turn: Turn): { input: string; output: string } {
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
+    }
+    // Ambient turn output
+    if (turn.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
+      output = ev.summary || "done";
     }
   }
   return { input, output };
@@ -2291,8 +2357,34 @@ export default function Monitor() {
     return () => clearInterval(t);
   }, []);
 
-  // Seed recent events on mount
+  // Seed recent events on mount, then open SSE — avoids race condition
+  const seededRef = useRef(false);
   useEffect(() => {
+    let es: EventSource | null = null;
+    const pendingSSE: DisplayEvent[] = [];
+
+    // Buffer SSE events until seed completes
+    function startSSE() {
+      es = new EventSource(`${API}/openclaw/events`);
+      es.onmessage = (e) => {
+        try {
+          const ev: MonitorEvent = JSON.parse(e.data);
+          const display: DisplayEvent = { ...ev, _seq: evtIdRef.current++ };
+          if (!seededRef.current) { pendingSSE.push(display); return; }
+          setEvents((prev) => [...prev.slice(-299), display]);
+        } catch {
+          const display: DisplayEvent = {
+            _seq: evtIdRef.current++,
+            id: "", time: new Date().toLocaleTimeString(),
+            type: "raw", summary: e.data,
+          };
+          if (!seededRef.current) { pendingSSE.push(display); return; }
+          setEvents((prev) => [...prev.slice(-299), display]);
+        }
+      };
+    }
+
+    // Seed then flush buffered SSE
     fetch(`${API}/openclaw/recent`)
       .then((r) => r.json())
       .then((r) => {
@@ -2301,34 +2393,23 @@ export default function Monitor() {
             ...ev,
             _seq: evtIdRef.current++,
           }));
-          setEvents(seeded);
+          setEvents((prev) => {
+            // Merge: seeded base + any SSE that arrived while fetching
+            const merged = [...seeded, ...pendingSSE];
+            return prev.length > merged.length ? prev : merged;
+          });
+        } else if (pendingSSE.length > 0) {
+          setEvents(pendingSSE);
         }
+        seededRef.current = true;
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => {
+        seededRef.current = true;
+        if (pendingSSE.length > 0) setEvents(pendingSSE);
+      });
 
-  // SSE
-  useEffect(() => {
-    const es = new EventSource(`${API}/openclaw/events`);
-    es.onmessage = (e) => {
-      try {
-        const ev: MonitorEvent = JSON.parse(e.data);
-        setEvents((prev) => [
-          ...prev.slice(-299),
-          { ...ev, _seq: evtIdRef.current++ },
-        ]);
-      } catch {
-        setEvents((prev) => [
-          ...prev.slice(-299),
-          {
-            _seq: evtIdRef.current++,
-            id: "", time: new Date().toLocaleTimeString(),
-            type: "raw", summary: e.data,
-          },
-        ]);
-      }
-    };
-    return () => es.close();
+    startSSE();
+    return () => es?.close();
   }, []);
 
   const ocOnline = oc?.connected ?? false;
