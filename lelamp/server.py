@@ -22,19 +22,40 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Union
 
-# --- Logging: stdout + rotating file ---
+# --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_LEVEL_COLORS = {
+    logging.DEBUG:    "\033[37m",     # gray
+    logging.INFO:     "\033[32m",     # green
+    logging.WARNING:  "\033[33m",     # yellow
+    logging.ERROR:    "\033[31m",     # red
+    logging.CRITICAL: "\033[1;31m",   # bold red
+}
+_RESET = "\033[0m"
+
+
+class _ColorFormatter(logging.Formatter):
+    """Adds ANSI colors to levelname for console output."""
+    _fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+    def format(self, record):
+        color = _LEVEL_COLORS.get(record.levelno, "")
+        record.levelname = f"{color}{record.levelname}{_RESET}"
+        formatter = logging.Formatter(self._fmt)
+        return formatter.format(record)
+
 
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
 
-# Console handler (keep existing behavior)
+# Console handler (colored)
 _console = logging.StreamHandler()
-_console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+_console.setFormatter(_ColorFormatter())
 _root.addHandler(_console)
 
-# File handler: 5 MB per file, keep 3 backups (~20 MB max)
+# File handler: 5 MB per file, keep 3 backups (~20 MB max) — no color codes
 _file = logging.handlers.RotatingFileHandler(
     LOG_DIR / "server.log", maxBytes=5 * 1024 * 1024, backupCount=3,
 )
