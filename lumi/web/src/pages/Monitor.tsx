@@ -907,10 +907,14 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
     if (ev.type === "chat_input") return { type: "telegram", path: "agent" };
     // Ambient actions (breathing, movement, mumble) start their own turn
-    if (ev.type === "ambient_action" ||
-        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_"))) {
-      const sub = ev.detail?.node?.replace("ambient_", "") ?? "idle";
+    // BUT ambient_pause/ambient_resume are infra signals, NOT turns
+    const ambientNode = ev.detail?.node ?? "";
+    const isAmbientTurn = ev.type === "ambient_action" ||
+      ((ev.type === "flow_event" || ev.type === "flow_enter") &&
+       ambientNode.startsWith("ambient_") &&
+       ambientNode !== "ambient_pause" && ambientNode !== "ambient_resume");
+    if (isAmbientTurn) {
+      const sub = ambientNode.replace("ambient_", "") || "idle";
       return { type: `ambient:${sub}`, path: "local" };
     }
     // Schedule/cron triggers start a turn
@@ -990,13 +994,16 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
       else info.sensing.push(ev.summary);
     }
-    // ambient events → ambient node
-    if (ev.type === "ambient_action" ||
-        (ev.type === "flow_event" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_enter" && ev.detail?.node?.startsWith("ambient_")) ||
-        (ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_"))) {
-      const sub = ev.detail?.node?.replace("ambient_", "") ?? ev.summary ?? "";
-      if (info.ambient.length < 3) info.ambient.push(`${sub}: ${ev.summary || "active"}`);
+    // ambient events → ambient node (skip pause/resume infra signals)
+    {
+      const aNode = ev.detail?.node ?? "";
+      const isAmbientInfo = ev.type === "ambient_action" ||
+        ((ev.type === "flow_event" || ev.type === "flow_enter" || ev.type === "flow_exit") &&
+         aNode.startsWith("ambient_") && aNode !== "ambient_pause" && aNode !== "ambient_resume");
+      if (isAmbientInfo) {
+        const sub = aNode.replace("ambient_", "") || ev.summary || "";
+        if (info.ambient.length < 3) info.ambient.push(`${sub}: ${ev.summary || "active"}`);
+      }
     }
     // schedule events → schedule_trigger node
     if (ev.type === "schedule_trigger" || ev.type === "cron_fire" ||
@@ -1475,6 +1482,10 @@ function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ fontSize: 8, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
           {turn.startTime}
         </span>
+      </div>
+      {/* Turn ID for tracing */}
+      <div style={{ fontSize: 8, color: "var(--lm-text-muted)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
+        id: {turn.id}
       </div>
       {/* Row 2: input */}
       {input && (
