@@ -28,8 +28,9 @@ FRAME_SIZE = 1024  # 64ms at 16kHz
 
 # Local VAD config
 RMS_THRESHOLD = 500       # Audio energy above this = speech (tune on device)
-SILENCE_TIMEOUT_S = 3.0   # Disconnect Deepgram after this much silence
+SILENCE_TIMEOUT_S = 5.0   # Disconnect Deepgram after this much silence
 SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting Deepgram
+SESSION_COOLDOWN_S = 1.0  # Cooldown between Deepgram sessions for cleanup
 
 # Keyword boost for wake word detection via transcript
 KEYWORDS = ["lumi:3", "lu mi:2"]
@@ -69,8 +70,10 @@ class VoiceService:
         except ImportError:
             logger.warning("sounddevice not available")
 
+        self._dg_client = None
         try:
-            import deepgram  # noqa: F401
+            from deepgram import DeepgramClient
+            self._dg_client = DeepgramClient(api_key=deepgram_api_key)
             self._dg_available = True
             logger.info("deepgram-sdk loaded")
         except ImportError:
@@ -159,16 +162,17 @@ class VoiceService:
                     logger.info("Speech detected (RMS=%.0f), connecting Deepgram...", rms)
                     self._stream_session(mic)
                     speech_start = None
+                    # Cooldown after session to let resources clean up
+                    time.sleep(SESSION_COOLDOWN_S)
             else:
                 speech_start = None
 
     def _stream_session(self, mic):
         """Stream to Deepgram until silence, then disconnect (SDK v6)."""
-        from deepgram import DeepgramClient
         from deepgram.core.events import EventType
         from deepgram.listen.v1.types import ListenV1Results
 
-        client = DeepgramClient(api_key=self._deepgram_api_key)
+        client = self._dg_client
         session_closed = threading.Event()
         listener_ready = threading.Event()
 
@@ -270,7 +274,10 @@ class VoiceService:
                         connection.send_close_stream()
                     except Exception:
                         pass
-                    listener_thread.join(timeout=3)
+                    # Wait for listener thread; log warning if it didn't exit cleanly
+                    listener_thread.join(timeout=5)
+                    if listener_thread.is_alive():
+                        logger.warning("Deepgram listener thread did not exit in 5s — will be orphaned")
         except Exception as e:
             logger.error("Deepgram session error: %s", e)
             self._listening = False
