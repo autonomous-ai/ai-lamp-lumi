@@ -28,7 +28,7 @@ STARTUP_MOVE_DURATION = 5.0
 JOINT_LIMITS = {
     "base_yaw.pos":     (-78.0,  78.0),   # ID 1
     "base_pitch.pos":   (-78.0,  80.0),   # ID 2
-    "elbow_pitch.pos":  (-25.0,  97.0),   # ID 3  (startup: -15, recordings: up to 96)
+    "elbow_pitch.pos":  (-60.0,  15.0),   # ID 3
     "wrist_roll.pos":   (-68.0,  68.0),   # ID 4
     "wrist_pitch.pos":  (-25.0,  72.0),   # ID 5  (recordings: up to 70)
 }
