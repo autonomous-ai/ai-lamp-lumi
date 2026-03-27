@@ -18,6 +18,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineEleme
 const API = "/api";
 const HW  = "/hw";
 const HISTORY_LEN = 60;
+const FLOW_EVENTS_MAX = 500;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -887,6 +888,7 @@ function deriveActiveStage(events: DisplayEvent[]): FlowStage {
 // Group events into turns by runId (a new turn starts on each sensing_input)
 interface Turn {
   id: string;          // runId or a synthetic id for local turns
+  runId?: string;
   startTime: string;
   sessionBreak?: boolean; // true if this turn starts after a BE restart (new session)
   endTime?: string;
@@ -894,6 +896,18 @@ interface Turn {
   path: "local" | "agent" | "unknown";
   status: "active" | "done" | "error";
   events: DisplayEvent[];
+}
+
+function extractEventRunId(ev: DisplayEvent): string | undefined {
+  if (ev.runId) return ev.runId;
+  const detail = ev.detail as Record<string, any> | undefined;
+  return detail?.run_id ?? detail?.runId ?? detail?.data?.run_id ?? detail?.data?.runId;
+}
+
+function parseTelegramSummary(summary: string): string {
+  const m = summary.match(/^\[telegram\]\s*(.*)/i);
+  if (!m) return summary.trim();
+  return (m[1] ?? "").trim();
 }
 
 function groupIntoTurns(events: DisplayEvent[]): Turn[] {
@@ -927,11 +941,18 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   }
 
   for (const ev of events) {
+    const evRunId = extractEventRunId(ev);
     const start = isTurnStart(ev);
     if (start) {
+      // If this start marker belongs to the same run, keep a single turn.
+      if (current && current.runId && evRunId && current.runId === evRunId) {
+        current.events.push(ev);
+        continue;
+      }
       if (current) turns.push(current);
       current = {
-        id: ev.runId || `turn-${ev._seq}`,
+        id: evRunId || `turn-${ev._seq}`,
+        runId: evRunId,
         startTime: ev.time,
         type: start.type,
         path: start.path,
@@ -940,18 +961,38 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       };
       continue;
     }
+
+    // If event belongs to a different run_id, split into a new inferred turn
+    // to avoid mixing input/output across runs in UI.
+    if (current && current.runId && evRunId && current.runId !== evRunId) {
+      turns.push(current);
+      current = {
+        id: evRunId,
+        runId: evRunId,
+        startTime: ev.time,
+        type: "agent",
+        path: "agent",
+        status: "active",
+        events: [ev],
+      };
+      continue;
+    }
+
     if (!current) {
       // Orphan events before first turn start — skip
       continue;
     }
     current.events.push(ev);
+    if (!current.runId && evRunId) {
+      current.runId = evRunId;
+      current.id = evRunId;
+    }
 
     // Classify path
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       current.path = "local";
-    } else if (ev.runId || ev.type === "lifecycle" || ev.type === "thinking") {
+    } else if (evRunId || ev.type === "lifecycle" || ev.type === "thinking") {
       current.path = "agent";
-      if (ev.runId && current.id === "init") current.id = ev.runId;
     }
 
     // Detect turn end
@@ -975,10 +1016,38 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   }
   if (current) turns.push(current);
 
+  // Merge fragmented segments that share the same run_id.
+  // Some streams can emit start markers that temporarily split a run into multiple chunks.
+  const merged: Turn[] = [];
+  const runIndex = new Map<string, number>();
+  for (const turn of turns) {
+    if (!turn.runId) {
+      merged.push(turn);
+      continue;
+    }
+    const idx = runIndex.get(turn.runId);
+    if (idx === undefined) {
+      runIndex.set(turn.runId, merged.length);
+      merged.push(turn);
+      continue;
+    }
+    const base = merged[idx];
+    base.events.push(...turn.events);
+    if (base.status !== "error" && turn.status === "error") base.status = "error";
+    else if (base.status === "active" && turn.status === "done") base.status = "done";
+    if (!base.endTime && turn.endTime) base.endTime = turn.endTime;
+    else if (base.endTime && turn.endTime && turn.endTime > base.endTime) base.endTime = turn.endTime;
+    if (base.path !== "agent" && turn.path === "agent") base.path = "agent";
+    if (base.type === "unknown" && turn.type !== "unknown") base.type = turn.type;
+  }
+  for (const turn of merged) {
+    turn.events.sort((a, b) => a._seq - b._seq);
+  }
+
   // Detect session breaks: ws_connect after ws_disconnect gap or large time gap between turns
-  for (let i = 1; i < turns.length; i++) {
-    const prev = turns[i - 1];
-    const curr = turns[i];
+  for (let i = 1; i < merged.length; i++) {
+    const prev = merged[i - 1];
+    const curr = merged[i];
     // Check if there's a ws_connect/ws_ready event between turns (BE restart)
     const prevEnd = new Date(prev.endTime || prev.startTime).getTime();
     const currStart = new Date(curr.startTime).getTime();
@@ -988,7 +1057,7 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
   }
 
-  return turns.slice(-20).reverse(); // latest 20, newest first
+  return merged.slice(-100).reverse(); // latest 100, newest first
 }
 
 // Path label for badge inside node
@@ -1028,9 +1097,8 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     }
     // chat_input → telegram_input node
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
-      const m = ev.summary.match(/^\[telegram\]\s*(.*)/);
-      if (m) info.telegram_input.push(`"${m[1]}"`);
-      else if (ev.summary) info.telegram_input.push(ev.summary);
+      const msg = parseTelegramSummary(ev.summary);
+      if (msg) info.telegram_input.push(`"${msg}"`);
     }
     // intent_match → local_match node
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
@@ -1423,15 +1491,28 @@ const SOURCE_ICON: Record<string, string> = {
 function turnIO(turn: Turn): { input: string; output: string } {
   let input = "";
   let output = "";
+  let inputIsPlaceholder = false;
+  const turnRunId = turn.runId;
   for (const ev of turn.events) {
+    const evRunId = extractEventRunId(ev);
+    const sameRun = !turnRunId || !evRunId || evRunId === turnRunId;
     // Input: first sensing_input or chat_input message
     if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"))) {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       input = m ? m[2] : ev.summary;
     }
-    if (!input && ev.type === "chat_input") {
-      const m = ev.summary.match(/^\[telegram\]\s*(.*)/);
-      input = m ? m[1] : ev.summary;
+    if (ev.type === "chat_input") {
+      const msg = parseTelegramSummary(ev.summary);
+      if (msg) {
+        // Prefer a real Telegram message and allow replacing a prior placeholder.
+        if (!input || inputIsPlaceholder) {
+          input = msg;
+          inputIsPlaceholder = false;
+        }
+      } else if (!input) {
+        input = "Telegram message";
+        inputIsPlaceholder = true;
+      }
     }
     // Ambient turn input
     if (!input && turn.type.startsWith("ambient:")) {
@@ -1443,11 +1524,11 @@ function turnIO(turn: Turn): { input: string; output: string } {
       input = d?.name ?? d?.data?.name ?? ev.summary ?? "scheduled task";
     }
     // Output: last tts or intent_match result
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+    if (sameRun && (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send"))) {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.text ?? d?.text ?? ev.summary ?? output;
     }
-    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+    if (sameRun && (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match"))) {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
     }
@@ -1623,7 +1704,13 @@ const FAKE_EVENTS: { label: string; type: string; message: string; color: string
   { label: "environment",      type: "environment", message: "temperature 28C humidity 65%",       color: "var(--lm-teal)",   tag: "ENV"    },
 ];
 
-function FlowSection({ events }: { events: DisplayEvent[] }) {
+function FlowSection({
+  events,
+  onClearEvents,
+}: {
+  events: DisplayEvent[];
+  onClearEvents: () => void;
+}) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const [firing, setFiring] = useState<string | null>(null);
@@ -1640,6 +1727,13 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
       setTimeout(() => setFiring(null), 800);
     }
   }
+
+  const clearFlowMessages = useCallback(() => {
+    const ok = window.confirm("Clear all flow messages/events from this panel?");
+    if (!ok) return;
+    setSelectedTurnId(null);
+    onClearEvents();
+  }, [onClearEvents]);
 
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
@@ -1698,6 +1792,17 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
             >
               ↓ Logs
             </a>
+            <button
+              onClick={clearFlowMessages}
+              style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
+                color: "var(--lm-red)", cursor: "pointer", fontWeight: 600,
+              }}
+              title="Clear Flow Panel messages"
+            >
+              ✕ Clear
+            </button>
             <button
               onClick={() => setShowCanvas(true)}
               style={{
@@ -2362,6 +2467,9 @@ export default function Monitor() {
   const [lastUpdate, setLastUpdate] = useState<string>("");
 
   const evtIdRef = useRef(0);
+  const clearFlowEvents = useCallback(() => {
+    setEvents([]);
+  }, []);
 
   // Polling
   useEffect(() => {
@@ -2429,7 +2537,7 @@ export default function Monitor() {
           const ev: MonitorEvent = JSON.parse(e.data);
           const display: DisplayEvent = { ...ev, _seq: evtIdRef.current++ };
           if (!seededRef.current) { pendingSSE.push(display); return; }
-          setEvents((prev) => [...prev.slice(-299), display]);
+          setEvents((prev) => [...prev.slice(-(FLOW_EVENTS_MAX - 1)), display]);
         } catch {
           const display: DisplayEvent = {
             _seq: evtIdRef.current++,
@@ -2437,7 +2545,7 @@ export default function Monitor() {
             type: "raw", summary: e.data,
           };
           if (!seededRef.current) { pendingSSE.push(display); return; }
-          setEvents((prev) => [...prev.slice(-299), display]);
+          setEvents((prev) => [...prev.slice(-(FLOW_EVENTS_MAX - 1)), display]);
         }
       };
     }
@@ -2453,17 +2561,17 @@ export default function Monitor() {
           }));
           setEvents((prev) => {
             // Merge: seeded base + any SSE that arrived while fetching
-            const merged = [...seeded, ...pendingSSE];
+            const merged = [...seeded, ...pendingSSE].slice(-FLOW_EVENTS_MAX);
             return prev.length > merged.length ? prev : merged;
           });
         } else if (pendingSSE.length > 0) {
-          setEvents(pendingSSE);
+          setEvents(pendingSSE.slice(-FLOW_EVENTS_MAX));
         }
         seededRef.current = true;
       })
       .catch(() => {
         seededRef.current = true;
-        if (pendingSSE.length > 0) setEvents(pendingSSE);
+        if (pendingSSE.length > 0) setEvents(pendingSSE.slice(-FLOW_EVENTS_MAX));
       });
 
     startSSE();
@@ -2560,7 +2668,7 @@ export default function Monitor() {
               ramHistory={ramHistory}
             />
           )}
-          {section === "flow"      && <FlowSection events={events} />}
+          {section === "flow"      && <FlowSection events={events} onClearEvents={clearFlowEvents} />}
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
           {section === "analytics" && <AnalyticsSection />}
         </div>
