@@ -35,9 +35,30 @@ type AgentPayload struct {
 
 // ChatPayload represents a chat stream event from the gateway.
 type ChatPayload struct {
-	RunID      string `json:"runId"`
-	SessionKey string `json:"sessionKey"`
-	State      string `json:"state"`   // "partial", "final"
-	Message    string `json:"message"` // the response text
-	Role       string `json:"role"`    // "assistant", "user"
+	RunID      string          `json:"runId"`
+	SessionKey string          `json:"sessionKey"`
+	State      string          `json:"state"` // "partial", "final"
+	RawMessage json.RawMessage `json:"message"`
+	Message    string          `json:"-"` // resolved from RawMessage
+	Role       string          `json:"role"` // "assistant", "user"
+}
+
+// ResolveChatMessage extracts the text from Message which can be a string or an object with a "text" field.
+func (p *ChatPayload) ResolveChatMessage() {
+	if len(p.RawMessage) == 0 {
+		return
+	}
+	// Try string first
+	var s string
+	if json.Unmarshal(p.RawMessage, &s) == nil {
+		p.Message = s
+		return
+	}
+	// Try object with text field
+	var obj struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(p.RawMessage, &obj) == nil {
+		p.Message = obj.Text
+	}
 }
