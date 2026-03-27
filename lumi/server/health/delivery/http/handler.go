@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,7 +39,7 @@ func (h *HealthHandler) Readiness(c *gin.Context) {
 // SystemInfo returns CPU load, RAM usage, temperature, and uptime.
 func (h *HealthHandler) SystemInfo(c *gin.Context) {
 	info := map[string]any{
-		"cpuLoad":    readLoadAvg(),
+		"cpuLoad":    readCPUPercent(),
 		"memTotal":   0,
 		"memUsed":    0,
 		"memPercent": 0.0,
@@ -100,18 +102,68 @@ func (h *HealthHandler) Dashboard(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(dash))
 }
 
-// readLoadAvg reads 1-min load average from /proc/loadavg.
-func readLoadAvg() float64 {
-	data, err := os.ReadFile("/proc/loadavg")
+// cpuSampler periodically measures actual CPU usage from /proc/stat.
+var cpuSampler = struct {
+	mu   sync.RWMutex
+	pct  float64
+	once sync.Once
+}{}
+
+func initCPUSampler() {
+	cpuSampler.once.Do(func() {
+		go func() {
+			prev := readCPUStat()
+			for {
+				time.Sleep(2 * time.Second)
+				cur := readCPUStat()
+				totalDelta := cur.total - prev.total
+				idleDelta := cur.idle - prev.idle
+				if totalDelta > 0 {
+					pct := float64(totalDelta-idleDelta) / float64(totalDelta) * 100
+					cpuSampler.mu.Lock()
+					cpuSampler.pct = pct
+					cpuSampler.mu.Unlock()
+				}
+				prev = cur
+			}
+		}()
+	})
+}
+
+type cpuStat struct {
+	idle  uint64
+	total uint64
+}
+
+// readCPUStat reads aggregate CPU times from /proc/stat.
+func readCPUStat() cpuStat {
+	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
-		return 0
+		return cpuStat{}
 	}
-	parts := strings.Fields(string(data))
-	if len(parts) < 1 {
-		return 0
+	// First line: cpu  user nice system idle iowait irq softirq steal ...
+	line := strings.SplitN(string(data), "\n", 2)[0]
+	fields := strings.Fields(line)
+	if len(fields) < 5 || fields[0] != "cpu" {
+		return cpuStat{}
 	}
-	v, _ := strconv.ParseFloat(parts[0], 64)
-	return v
+	var total, idle uint64
+	for i, f := range fields[1:] {
+		v, _ := strconv.ParseUint(f, 10, 64)
+		total += v
+		if i == 3 { // 4th value is idle
+			idle = v
+		}
+	}
+	return cpuStat{idle: idle, total: total}
+}
+
+// readCPUPercent returns the latest sampled CPU usage percentage.
+func readCPUPercent() float64 {
+	initCPUSampler()
+	cpuSampler.mu.RLock()
+	defer cpuSampler.mu.RUnlock()
+	return cpuSampler.pct
 }
 
 // readCPUTemp reads CPU temperature in celsius from thermal zone.
