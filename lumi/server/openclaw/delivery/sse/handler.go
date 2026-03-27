@@ -7,13 +7,16 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
@@ -30,6 +33,10 @@ type OpenClawHandler struct {
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
 func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus) OpenClawHandler {
+	// Init flow emitter here so ws_connect events (fired from StartWS before any HTTP request)
+	// are broadcast to SSE. Lumi is a single-user device so the global trace ID is sufficient;
+	// concurrent turn interleaving is not a concern in normal operation.
+	flow.Init(bus)
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
@@ -83,6 +90,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		switch payload.Stream {
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
+			flow.Log("lifecycle_"+payload.Data.Phase, map[string]any{"run_id": payload.RunID, "error": payload.Data.Error})
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
@@ -106,7 +114,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					summary += ": " + result
 				}
 			}
-			slog.Debug("tool event", "component", "agent", "tool", toolName, "phase", payload.Data.Phase, "runId", payload.RunID)
+			flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": payload.RunID})
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "tool_call",
 				Summary: summary,
@@ -156,10 +164,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
+				flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text[:min(len(text), 100)]})
 				go func(t string) {
 					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
 						slog.Error("TTS delivery failed", "component", "agent", "error", err)
 					}
+					flow.ClearTrace() // turn complete
 				}(text)
 			}
 		}
@@ -217,6 +227,26 @@ func (h *OpenClawHandler) Recent(c *gin.Context) {
 		events = []domain.MonitorEvent{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(events))
+}
+
+// FlowLogs serves the daily flow JSONL log file for download.
+// Query param ?date=YYYY-MM-DD selects a historical file; defaults to today.
+func (h *OpenClawHandler) FlowLogs(c *gin.Context) {
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	path := fmt.Sprintf("local/flow_events_%s.jsonl", date)
+	f, err := os.Open(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, serializers.ResponseError("no log for date: "+date))
+		return
+	}
+	defer f.Close()
+	filename := fmt.Sprintf("lumi_flow_%s.jsonl", date)
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("Content-Type", "application/x-ndjson")
+	io.Copy(c.Writer, f) //nolint:errcheck
 }
 
 // Events streams monitor events via SSE.

@@ -22,7 +22,11 @@
       "Bash(curl -s http://172.168.20.230/api/system/dashboard)",
       "Bash(python3:*)",
       "Bash(make lelamp-deploy:*)",
-      "Bash(make web-deploy:*)"
+      "Bash(make web-deploy:*)",
+      "Bash(npm run:*)",
+      "Bash(find /Users/huynguyen/Autonomous/Projects/ai-lamp-openclaw/lumi -type f -name \"*.go\" -exec grep -l \"sensing\\\\|voice\\\\|presence\" {})",
+      "Bash(go build:*)",
+      "Bash(go vet:*)"
     ]
   }
 }
