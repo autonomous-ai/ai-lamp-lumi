@@ -130,6 +130,11 @@ class TTSService:
             logger.info("TTS busy, skipping: %s", text[:50])
             return False
 
+        # Mark speaking IMMEDIATELY so VoiceService stops streaming to Deepgram
+        # before TTS API call (which can take 3-5s)
+        self._speaking = True
+        self._last_spoken_text = text
+
         thread = threading.Thread(
             target=self._speak_sync,
             args=(text,),
@@ -155,13 +160,10 @@ class TTSService:
         np = self._np
         sd = self._sd
 
-        self._last_spoken_text = text
-
         attempt = 0
         while attempt <= self._max_retries:
             dst_rate = self._device_rate or TTS_SAMPLE_RATE
             try:
-                self._speaking = True
                 logger.info(
                     "TTS synthesizing: text='%s' (attempt=%d)", text[:80], attempt + 1
                 )
