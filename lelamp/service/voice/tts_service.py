@@ -36,6 +36,7 @@ class TTSService:
         output_device: Optional[int] = None,
         voice: str = DEFAULT_VOICE,
         model: str = DEFAULT_MODEL,
+        max_retries: int = 3,
     ):
         self._sd = sound_device_module
         self._np = numpy_module
@@ -44,6 +45,7 @@ class TTSService:
         self._model = model
         self._lock = threading.Lock()
         self._speaking = False
+        self._max_retries = max_retries
 
         self._client = None
         self._base_url = base_url
@@ -58,23 +60,28 @@ class TTSService:
         # Probe device sample rate by actually opening a stream (check_output_settings
         # is unreliable on some ALSA devices like seeed-2mic wm8960)
         if self._sd:
-            dev_label = self._output_device if self._output_device is not None else "default"
-            for rate in [48000, 16000, 32000, 44100, 24000, 22050, 8000]:
-                try:
-                    with self._sd.OutputStream(
-                        device=self._output_device,
-                        samplerate=rate,
-                        channels=TTS_CHANNELS,
-                        dtype="float32",
-                    ):
-                        pass
-                    self._device_rate = rate
-                    logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
-                    break
-                except Exception:
-                    continue
-            if self._device_rate is None:
-                logger.warning("No supported sample rate found for output device [%s]", dev_label)
+            self._probe_device_rate()
+
+    def _probe_device_rate(self):
+        """Probe the output device to find a supported sample rate."""
+        dev_label = self._output_device if self._output_device is not None else "default"
+        self._device_rate = None
+        for rate in [48000, 16000, 32000, 44100, 24000, 22050, 8000]:
+            try:
+                with self._sd.OutputStream(
+                    device=self._output_device,
+                    samplerate=rate,
+                    channels=TTS_CHANNELS,
+                    dtype="float32",
+                ):
+                    pass
+                self._device_rate = rate
+                logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
+                break
+            except Exception:
+                continue
+        if self._device_rate is None:
+            logger.warning("No supported sample rate found for output device [%s]", dev_label)
 
     @property
     def available(self) -> bool:
@@ -118,58 +125,68 @@ class TTSService:
         """Stream TTS response directly to audio output — no full-buffer wait."""
         np = self._np
         sd = self._sd
-        dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
-        try:
-            self._speaking = True
-            logger.info("TTS synthesizing: text='%s'", text[:80])
+        attempt = 0
+        while attempt <= self._max_retries:
+            dst_rate = self._device_rate or TTS_SAMPLE_RATE
+            try:
+                self._speaking = True
+                logger.info("TTS synthesizing: text='%s' (attempt=%d)", text[:80], attempt + 1)
 
-            with self._client.audio.speech.with_streaming_response.create(
-                model=self._model,
-                voice=self._voice,
-                input=text,
-                response_format="pcm",
-            ) as response:
-                # Remainder bytes from previous chunk (PCM frames must be 2-byte aligned)
-                remainder = b""
-                total_samples = 0
+                with self._client.audio.speech.with_streaming_response.create(
+                    model=self._model,
+                    voice=self._voice,
+                    input=text,
+                    response_format="pcm",
+                ) as response:
+                    # Remainder bytes from previous chunk (PCM frames must be 2-byte aligned)
+                    remainder = b""
+                    total_samples = 0
 
-                with sd.OutputStream(
-                    samplerate=dst_rate,
-                    channels=TTS_CHANNELS,
-                    dtype="float32",
-                    device=self._output_device,
-                ) as stream:
-                    for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
-                        raw = remainder + chunk
-                        # Ensure 2-byte alignment for int16
-                        usable = len(raw) - (len(raw) % 2)
-                        remainder = raw[usable:]
+                    with sd.OutputStream(
+                        samplerate=dst_rate,
+                        channels=TTS_CHANNELS,
+                        dtype="float32",
+                        device=self._output_device,
+                    ) as stream:
+                        for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
+                            raw = remainder + chunk
+                            # Ensure 2-byte alignment for int16
+                            usable = len(raw) - (len(raw) % 2)
+                            remainder = raw[usable:]
 
-                        if usable == 0:
-                            continue
+                            if usable == 0:
+                                continue
 
-                        samples = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+                            samples = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32768.0
 
-                        if dst_rate != TTS_SAMPLE_RATE:
-                            samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                            if dst_rate != TTS_SAMPLE_RATE:
+                                samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
 
-                        stream.write(samples.reshape(-1, 1))
-                        total_samples += len(samples)
+                            stream.write(samples.reshape(-1, 1))
+                            total_samples += len(samples)
 
-                    # Flush remainder
-                    if len(remainder) >= 2:
-                        usable = len(remainder) - (len(remainder) % 2)
-                        samples = np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32) / 32768.0
-                        if dst_rate != TTS_SAMPLE_RATE:
-                            samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
-                        stream.write(samples.reshape(-1, 1))
-                        total_samples += len(samples)
+                        # Flush remainder
+                        if len(remainder) >= 2:
+                            usable = len(remainder) - (len(remainder) % 2)
+                            samples = np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+                            if dst_rate != TTS_SAMPLE_RATE:
+                                samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                            stream.write(samples.reshape(-1, 1))
+                            total_samples += len(samples)
 
-                logger.info("TTS playback complete (%d samples @ %d Hz)", total_samples, dst_rate)
+                    logger.info("TTS playback complete (%d samples @ %d Hz)", total_samples, dst_rate)
+                    break  # success
 
-        except Exception as e:
-            logger.error("TTS speak failed: %s (type=%s)", e, type(e).__name__)
-        finally:
-            self._speaking = False
-            self._lock.release()
+            except Exception as e:
+                logger.error("TTS speak failed: %s (type=%s, attempt=%d/%d)", e, type(e).__name__, attempt + 1, self._max_retries + 1)
+                if attempt < self._max_retries:
+                    logger.info("Re-probing output device sample rate (attempt=%d/%d)", attempt + 1, self._max_retries)
+                    self._probe_device_rate()
+                attempt += 1
+
+        else:
+            logger.error("TTS give up after %d attempts: text='%s'", self._max_retries + 1, text[:80])
+
+        self._speaking = False
+        self._lock.release()
