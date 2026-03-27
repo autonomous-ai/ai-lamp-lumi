@@ -21,7 +21,8 @@ func main() {
 		return
 	}
 
-	logger.Init(slog.LevelDebug)
+	cleanup := logger.Init(slog.LevelDebug, "/var/log/lumi-bootstrap.log")
+	defer cleanup()
 
 	b, err := bootstrap.ProvideServer()
 	if err != nil {
