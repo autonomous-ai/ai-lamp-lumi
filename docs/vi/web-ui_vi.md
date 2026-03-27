@@ -187,6 +187,8 @@ Feed tự động scroll xuống event mới nhất. Được seed từ `/api/op
 - **Display Eyes (GC9A01)**: Snapshot màn hình tròn 1.28" từ `GET /hw/display/snapshot`, hiển thị dạng hình tròn với amber glow. Có nút Refresh.
 - **Camera Snapshot**: Ảnh tĩnh từ `GET /hw/camera/snapshot`, có nút Capture để chụp mới.
 
+> **Lưu ý**: Camera có vai trò kép — (1) hiển thị live stream cho user xem, (2) nguồn dữ liệu sensing tự động. Sensing service đọc frame từ camera mỗi 2s để detect motion, face (Haar cascade), và light level. Khi phát hiện sự kiện đáng kể (người xuất hiện, chuyển động lớn), auto-snapshot 320px JPEG được gửi kèm event tới OpenClaw AI để phân tích bằng vision.
+
 ---
 
 ## 6. LED Color API
