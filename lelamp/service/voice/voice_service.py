@@ -175,13 +175,13 @@ class VoiceService:
             with client.listen.v1.connect(
                 model="nova-2",
                 language="vi",
-                smart_format=True,
+                smart_format="true",
                 encoding="linear16",
                 channels=CHANNELS,
                 sample_rate=SAMPLE_RATE,
-                interim_results=False,
+                interim_results="false",
                 endpointing=500,
-                vad_events=True,
+                vad_events="true",
                 keywords=KEYWORDS,
             ) as connection:
 
