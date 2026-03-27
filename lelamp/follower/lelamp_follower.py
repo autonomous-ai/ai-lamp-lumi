@@ -149,14 +149,16 @@ class LeLampFollower(Robot):
         self._save_calibration()
         print("Calibration saved to", self.calibration_fpath)
 
+    # Servos that need P=128 for strong hold against gravity
+    _HIGH_PGAIN_MOTORS = {"base_pitch", "elbow_pitch", "wrist_roll"}  # ID 2, 3, 4
+
     def configure(self) -> None:
         with self.bus.torque_disabled():
             self.bus.configure_motors()
             for motor in self.bus.motors:
                 self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                # P=128 for strong holding against gravity.
-                # P=16 was too weak, P=32 still had significant error under load.
-                self.bus.write("P_Coefficient", motor, 128)
+                pgain = 128 if motor in self._HIGH_PGAIN_MOTORS else 32
+                self.bus.write("P_Coefficient", motor, pgain)
                 self.bus.write("I_Coefficient", motor, 0)
                 self.bus.write("D_Coefficient", motor, 32)
 
