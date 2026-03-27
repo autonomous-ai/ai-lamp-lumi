@@ -2,7 +2,10 @@ package openclaw
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -548,6 +551,14 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		return fmt.Errorf("read gateway token: %w", err)
 	}
 
+	di, err := s.loadOrCreateDeviceIdentity()
+	if err != nil {
+		return fmt.Errorf("device identity: %w", err)
+	}
+
+	signedAt := time.Now().UnixMilli()
+	signature := di.signConnectPayload(token, signedAt)
+
 	connectReq := map[string]interface{}{
 		"type":   "req",
 		"id":     "lumi-1",
@@ -565,6 +576,12 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
 			"caps":   []string{"thinking-events"},
 			"auth":   map[string]interface{}{"token": token},
+			"device": map[string]interface{}{
+				"id":        di.DeviceID,
+				"publicKey": base64.StdEncoding.EncodeToString(di.PublicKey),
+				"signature": signature,
+				"signedAt":  signedAt,
+			},
 		},
 	}
 	connectBody, _ := json.Marshal(connectReq)
@@ -931,6 +948,75 @@ func restartOpenclawGateway() error {
 	return fmt.Errorf("openclaw gateway restart: %w - output: %s", err, output)
 }
 
+// --- Device identity (Ed25519) for gateway auth ---
+
+const deviceKeyFile = "lumi-device-key.json"
+
+type deviceIdentity struct {
+	PublicKey  ed25519.PublicKey
+	PrivateKey ed25519.PrivateKey
+	DeviceID   string // hex(SHA-256(publicKey))
+}
+
+// loadOrCreateDeviceIdentity loads the Ed25519 keypair from disk, or generates
+// a new one and persists it for future connections.
+func (s *Service) loadOrCreateDeviceIdentity() (*deviceIdentity, error) {
+	keyPath := filepath.Join(s.config.OpenclawConfigDir, deviceKeyFile)
+	if data, err := os.ReadFile(keyPath); err == nil {
+		var stored struct {
+			PrivateKey string `json:"privateKey"` // hex-encoded 64-byte Ed25519 seed+pub
+		}
+		if err := json.Unmarshal(data, &stored); err == nil {
+			privBytes, err := hex.DecodeString(stored.PrivateKey)
+			if err == nil && len(privBytes) == ed25519.PrivateKeySize {
+				priv := ed25519.PrivateKey(privBytes)
+				pub := priv.Public().(ed25519.PublicKey)
+				id := deriveDeviceID(pub)
+				slog.Info("loaded device identity", "component", "openclaw", "deviceId", id)
+				return &deviceIdentity{PublicKey: pub, PrivateKey: priv, DeviceID: id}, nil
+			}
+		}
+	}
+
+	// Generate new keypair
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate ed25519 key: %w", err)
+	}
+	id := deriveDeviceID(pub)
+
+	stored := map[string]string{"privateKey": hex.EncodeToString(priv)}
+	data, _ := json.MarshalIndent(stored, "", "  ")
+	if err := os.WriteFile(keyPath, data, 0600); err != nil {
+		return nil, fmt.Errorf("write device key: %w", err)
+	}
+	_ = chownRuntimeUserIfRoot(keyPath, openclawRuntimeUser)
+	slog.Info("generated new device identity", "component", "openclaw", "deviceId", id)
+	return &deviceIdentity{PublicKey: pub, PrivateKey: priv, DeviceID: id}, nil
+}
+
+// deriveDeviceID returns hex(SHA-256(rawPublicKey)).
+func deriveDeviceID(pub ed25519.PublicKey) string {
+	h := sha256.Sum256(pub)
+	return hex.EncodeToString(h[:])
+}
+
+// signConnectPayload builds and signs the v1 payload for device auth.
+// Format: v1|deviceId|clientId|clientMode|role|scopes|signedAtMs|token
+func (di *deviceIdentity) signConnectPayload(token string, signedAt int64) string {
+	payload := fmt.Sprintf("v1|%s|%s|%s|%s|%s|%d|%s",
+		di.DeviceID,
+		"node-host",  // clientId
+		"node",       // clientMode
+		"operator",   // role
+		"operator.read,operator.write,events.read", // scopes
+		signedAt,
+		token,
+	)
+	sig := ed25519.Sign(di.PrivateKey, []byte(payload))
+	return base64.StdEncoding.EncodeToString(sig)
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -1020,7 +1106,7 @@ func (s *Service) GetSessionKey() string {
 	return v
 }
 
-// SendChatMessage sends a user message to the OpenClaw agent via WebSocket sessions.send RPC.
+// SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
 	s.wsMu.Lock()
@@ -1043,22 +1129,22 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	req := map[string]interface{}{
 		"type":   "req",
 		"id":     reqID,
-		"method": "sessions.send",
+		"method": "chat.send",
 		"params": params,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("marshal sessions.send: %w", err)
+		return "", fmt.Errorf("marshal chat.send: %w", err)
 	}
 
 	s.wsMu.Lock()
 	err = s.wsConn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
-		return "", fmt.Errorf("write sessions.send: %w", err)
+		return "", fmt.Errorf("write chat.send: %w", err)
 	}
 
-	slog.Info("sessions.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
+	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
