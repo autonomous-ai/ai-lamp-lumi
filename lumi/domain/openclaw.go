@@ -30,7 +30,18 @@ type AgentPayload struct {
 		// Thinking/assistant stream fields
 		Text  string `json:"text,omitempty"`
 		Delta string `json:"delta,omitempty"`
+		// Token usage (populated on lifecycle "end")
+		Usage *TokenUsage `json:"usage,omitempty"`
 	} `json:"data"`
+}
+
+// TokenUsage captures LLM token consumption from an agent turn.
+type TokenUsage struct {
+	InputTokens       int `json:"inputTokens,omitempty"`
+	OutputTokens      int `json:"outputTokens,omitempty"`
+	CacheReadTokens   int `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens  int `json:"cacheWriteTokens,omitempty"`
+	TotalTokens       int `json:"totalTokens,omitempty"`
 }
 
 // ChatPayload represents a chat stream event from the gateway.
