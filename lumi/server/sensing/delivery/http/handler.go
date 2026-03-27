@@ -11,6 +11,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/intent"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -48,6 +49,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
+	// Track the full turn from trigger to dispatch
+	turnStart := flow.Start("sensing_input", map[string]any{"type": req.Type, "message": req.Message})
+
 	// Push sensing input to monitor
 	h.monitorBus.Push(domain.MonitorEvent{
 		Type:    "sensing_input",
@@ -57,7 +61,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
-			slog.Info("local intent matched", "component", "sensing", "message", req.Message)
+			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText})
 			if result.TTSText != "" {
 				go func() {
 					resp, err := http.Post(
@@ -74,6 +78,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
 			})
+			flow.End("sensing_input", turnStart, map[string]any{"path": "local"})
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 				"handler": "local",
 			}))
@@ -83,6 +88,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// No local match — forward to OpenClaw agent
 	if !h.agentGateway.IsReady() {
+		flow.End("sensing_input", turnStart, map[string]any{"error": "agent not connected"})
 		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("agent gateway not connected"))
 		return
 	}
@@ -91,9 +97,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	runID, err := h.agentGateway.SendChatMessage(msg)
 	if err != nil {
 		slog.Error("failed to send event", "component", "sensing", "error", err)
+		flow.End("sensing_input", turnStart, map[string]any{"error": err.Error()})
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}
+
+	// Tag subsequent flow events with this turn's run ID
+	flow.SetTrace(runID)
+	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID})
+	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID})
 
 	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "runId", runID)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
