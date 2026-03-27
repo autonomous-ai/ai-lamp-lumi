@@ -29,6 +29,16 @@ GET /led
 
 Response: `{"led_count": 64}`
 
+### Get current color
+
+```
+GET /led/color
+```
+
+Response: `{"color": [255, 180, 100], "effect_running": true, "effect_name": "breathing"}`
+
+Use this to check what's currently showing before making changes.
+
 ### Set solid color (fill all LEDs)
 
 ```
