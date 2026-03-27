@@ -160,7 +160,10 @@ func Init(level slog.Level, logFilePath string) func() {
 		return func() {}
 	}
 
-	fileHandler := slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: level})
+	fileHandler := &colorHandler{
+		w:     logFile,
+		level: level,
+	}
 
 	slog.SetDefault(slog.New(&multiHandler{
 		handlers: []slog.Handler{consoleHandler, fileHandler},
