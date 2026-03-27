@@ -90,14 +90,48 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		switch payload.Stream {
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
+
+			// Log raw payload on lifecycle end for token usage debugging
+			if payload.Data.Phase == "end" {
+				slog.Info("lifecycle end raw", "component", "agent", "runId", payload.RunID, "raw", string(evt.Payload))
+				if u := payload.Data.Usage; u != nil {
+					slog.Info("token usage", "component", "agent", "runId", payload.RunID,
+						"input", u.InputTokens, "output", u.OutputTokens,
+						"cacheRead", u.CacheReadTokens, "cacheWrite", u.CacheWriteTokens,
+						"total", u.TotalTokens)
+					flow.Log("token_usage", map[string]any{
+						"run_id":            payload.RunID,
+						"input_tokens":      u.InputTokens,
+						"output_tokens":     u.OutputTokens,
+						"cache_read_tokens": u.CacheReadTokens,
+						"cache_write_tokens": u.CacheWriteTokens,
+						"total_tokens":      u.TotalTokens,
+					})
+				} else {
+					slog.Warn("no usage data in lifecycle end", "component", "agent", "runId", payload.RunID)
+				}
+			}
+
 			flow.Log("lifecycle_"+payload.Data.Phase, map[string]any{"run_id": payload.RunID, "error": payload.Data.Error})
-			h.monitorBus.Push(domain.MonitorEvent{
+			monEvt := domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
 				RunID:   payload.RunID,
 				Phase:   payload.Data.Phase,
 				Error:   payload.Data.Error,
-			})
+			}
+			if payload.Data.Phase == "end" && payload.Data.Usage != nil {
+				u := payload.Data.Usage
+				monEvt.Detail = map[string]string{
+					"inputTokens":  fmt.Sprintf("%d", u.InputTokens),
+					"outputTokens": fmt.Sprintf("%d", u.OutputTokens),
+					"cacheRead":    fmt.Sprintf("%d", u.CacheReadTokens),
+					"cacheWrite":   fmt.Sprintf("%d", u.CacheWriteTokens),
+					"totalTokens":  fmt.Sprintf("%d", u.TotalTokens),
+				}
+				monEvt.Summary = fmt.Sprintf("Agent end — tokens: %d in / %d out", u.InputTokens, u.OutputTokens)
+			}
+			h.monitorBus.Push(monEvt)
 
 		case "tool":
 			toolName := payload.Data.Tool
