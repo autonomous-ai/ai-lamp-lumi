@@ -18,10 +18,13 @@ import (
 
 // SensingEventRequest is the payload from LeLamp sensing detectors.
 type SensingEventRequest struct {
-	// Type is the event category: motion, sound, environment, voice, etc.
+	// Type is the event category: motion, sound, presence.enter, presence.leave, light.level, etc.
 	Type string `json:"type" validate:"required"`
 	// Message is a natural-language description of what was detected.
 	Message string `json:"message" validate:"required"`
+	// Image is an optional base64-encoded JPEG snapshot from the camera.
+	// Attached automatically for significant events (large motion, face detected) so AI can see.
+	Image string `json:"image,omitempty"`
 }
 
 // SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
@@ -94,7 +97,17 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	msg := "[sensing:" + req.Type + "] " + req.Message
-	runID, err := h.agentGateway.SendChatMessage(msg)
+
+	var runID string
+	var err error
+
+	if req.Image != "" {
+		// Send with image attachment so AI can see what triggered the event
+		runID, err = h.agentGateway.SendChatMessageWithImage(msg, req.Image)
+	} else {
+		runID, err = h.agentGateway.SendChatMessage(msg)
+	}
+
 	if err != nil {
 		slog.Error("failed to send event", "component", "sensing", "error", err)
 		flow.End("sensing_input", turnStart, map[string]any{"error": err.Error()})
@@ -107,7 +120,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID})
 	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID})
 
-	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "runId", runID)
+	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "hasImage", req.Image != "", "runId", runID)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"runId": runID,
 	}))

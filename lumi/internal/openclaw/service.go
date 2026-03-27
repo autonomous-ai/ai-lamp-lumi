@@ -72,11 +72,11 @@ var defaultModels = []domain.LLMModel{
 		Key:       "claude-opus-4-6",
 		Name:      "claude-opus-4-6",
 		Reasoning: true,
-		Input:     []string{"text"},
+		Input:     []string{"text", "image"},
 		Privacy:   "private",
 		Capabilities: &domain.LLMModelCapabilities{
 			SupportsReasoning:       true,
-			SupportsVision:          false,
+			SupportsVision:          true,
 			SupportsFunctionCalling: true,
 		},
 	},
@@ -84,11 +84,11 @@ var defaultModels = []domain.LLMModel{
 		Key:       "claude-haiku-4-5",
 		Name:      "claude-haiku-4-5",
 		Reasoning: true,
-		Input:     []string{"text"},
+		Input:     []string{"text", "image"},
 		Privacy:   "private",
 		Capabilities: &domain.LLMModelCapabilities{
 			SupportsReasoning:       true,
-			SupportsVision:          false,
+			SupportsVision:          true,
 			SupportsFunctionCalling: true,
 		},
 	},
@@ -1136,6 +1136,17 @@ func (s *Service) GetSessionKey() string {
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
+	return s.sendChat(message, "")
+}
+
+// SendChatMessageWithImage sends a message with a base64 JPEG image to the OpenClaw agent.
+// The image is included as a vision content block so the LLM can analyze the camera snapshot.
+func (s *Service) SendChatMessageWithImage(message string, imageBase64 string) (string, error) {
+	return s.sendChat(message, imageBase64)
+}
+
+// sendChat is the internal implementation for sending chat messages, optionally with an image.
+func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
 	s.wsMu.Unlock()
@@ -1147,12 +1158,31 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
 
 	params := map[string]interface{}{
-		"message":        message,
 		"idempotencyKey": idempotencyKey,
 	}
 	sessionKey := s.GetSessionKey()
 	if sessionKey != "" {
 		params["sessionKey"] = sessionKey
+	}
+
+	if imageBase64 != "" {
+		// Send as structured content blocks: text + image
+		params["content"] = []map[string]interface{}{
+			{
+				"type": "text",
+				"text": message,
+			},
+			{
+				"type": "image",
+				"source": map[string]interface{}{
+					"type":       "base64",
+					"media_type": "image/jpeg",
+					"data":       imageBase64,
+				},
+			},
+		}
+	} else {
+		params["message"] = message
 	}
 
 	req := map[string]interface{}{
@@ -1173,8 +1203,9 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 		return "", fmt.Errorf("write chat.send: %w", err)
 	}
 
-	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
-	flow.Log("chat_send", map[string]any{"run_id": reqID, "has_session": sessionKey != ""})
+	hasImage := imageBase64 != ""
+	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID)
+	flow.Log("chat_send", map[string]any{"run_id": reqID, "has_session": sessionKey != "", "has_image": hasImage})
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",

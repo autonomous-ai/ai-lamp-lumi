@@ -16,6 +16,10 @@ type AgentGateway interface {
 	// SendChatMessage sends a user message to the agent. Returns the run ID.
 	SendChatMessage(msg string) (string, error)
 
+	// SendChatMessageWithImage sends a message with a base64 JPEG image attachment.
+	// Used by sensing events that include a camera snapshot for AI vision analysis.
+	SendChatMessageWithImage(msg string, imageBase64 string) (string, error)
+
 	// GetSessionKey returns the current agent session key, or empty string.
 	GetSessionKey() string
 
