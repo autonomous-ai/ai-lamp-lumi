@@ -1025,10 +1025,10 @@ func deriveDeviceID(pub ed25519.PublicKey) string {
 	return hex.EncodeToString(h[:])
 }
 
-// signConnectPayload builds and signs the v1 payload for device auth.
-// Format: v1|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+// signConnectPayload builds and signs the v2 payload for device auth.
+// Format: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
 func (di *deviceIdentity) signConnectPayload(token, nonce string, signedAt int64) string {
-	payload := fmt.Sprintf("v1|%s|%s|%s|%s|%s|%d|%s|%s",
+	payload := fmt.Sprintf("v2|%s|%s|%s|%s|%s|%d|%s|%s",
 		di.DeviceID,
 		"node-host",  // clientId
 		"node",       // clientMode
