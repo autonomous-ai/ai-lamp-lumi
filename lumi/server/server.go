@@ -231,6 +231,7 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("events", s.openclawHandler.Events)
 	oc.GET("recent", s.openclawHandler.Recent)
 	oc.GET("flow-logs", s.openclawHandler.FlowLogs)
+	oc.GET("analytics", s.openclawHandler.Analytics)
 
 	slog.Info("server started", "component", "server")
 
