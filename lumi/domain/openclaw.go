@@ -1,6 +1,9 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // WSEvent represents a gateway WebSocket event frame.
 type WSEvent struct {
@@ -71,5 +74,38 @@ func (p *ChatPayload) ResolveChatMessage() {
 	}
 	if json.Unmarshal(p.RawMessage, &obj) == nil {
 		p.Message = obj.Text
+		if p.Message != "" {
+			return
+		}
+	}
+
+	// Try generic object/array shapes used by some providers:
+	// { "content": "..." }
+	// { "content": [{ "text": "..." }, { "type": "text", "text": "..." }] }
+	var generic map[string]any
+	if json.Unmarshal(p.RawMessage, &generic) == nil {
+		parts := make([]string, 0, 2)
+		if v, ok := generic["content"]; ok {
+			switch c := v.(type) {
+			case string:
+				if strings.TrimSpace(c) != "" {
+					p.Message = c
+					return
+				}
+			case []any:
+				for _, item := range c {
+					m, ok := item.(map[string]any)
+					if !ok {
+						continue
+					}
+					if t, ok := m["text"].(string); ok && strings.TrimSpace(t) != "" {
+						parts = append(parts, t)
+					}
+				}
+			}
+		}
+		if len(parts) > 0 {
+			p.Message = strings.Join(parts, " ")
+		}
 	}
 }

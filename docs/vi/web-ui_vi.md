@@ -1,6 +1,6 @@
 # Web UI — Lumi Monitor Dashboard
 
-## Ngày cập nhật: 2026-03-26
+## Ngày cập nhật: 2026-03-27
 
 ---
 
@@ -180,6 +180,16 @@ SSE event feed từ `/api/openclaw/events`:
 Mỗi event hiển thị: type badge, phase (nếu có), runId (8 ký tự đầu), timestamp, summary text, error (nếu có).
 
 Feed tự động scroll xuống event mới nhất. Được seed từ `/api/openclaw/recent` khi load trang.
+
+Hành vi gom nhóm Turn Pipeline:
+- Turn vẫn bắt đầu từ các event input/trigger (`sensing_input`, `chat_input`, `schedule_trigger`, ...).
+- UI giờ neo mỗi turn theo `run_id` đầu tiên phát hiện được (ở root event hoặc trong `detail`).
+- Nếu event phía sau có `run_id` khác, Monitor sẽ tách thành một turn agent suy diễn mới.
+- `OUT` chỉ lấy từ `tts_send`/`intent_match` cùng `run_id` với turn (hoặc event không có run_id), tránh ghép nhầm IN/OUT giữa các turn.
+- Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó.
+- Header của Flow Panel giờ có 2 action `↓ Logs` và `✕ Clear`. Nút `✕ Clear` sẽ hỏi xác nhận trước, sau đó xóa toàn bộ events/turns đang hiển thị trong UI (chỉ phía client).
+- Danh sách Turn history hiển thị 100 turn gần nhất (mới nhất ở trên).
+- Bộ nhớ event của Flow được giới hạn nhất quán ở 500 events cho cả dữ liệu seed và SSE live để tránh hiện tượng mở tab xong danh sách bị co lại/chớp.
 
 ### 5.4 Camera Section
 
