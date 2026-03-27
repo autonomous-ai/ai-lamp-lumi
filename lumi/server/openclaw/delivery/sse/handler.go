@@ -317,63 +317,60 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 		return
 	}
 
-	type dayMetrics struct {
-		Date         string   `json:"date"`
-		TurnCount    int      `json:"turnCount"`
-		DurationAvg  float64  `json:"durationAvg"`
-		DurationP50  float64  `json:"durationP50"`
-		DurationP95  float64  `json:"durationP95"`
-		TokensTotal  int      `json:"tokensTotal"`
-		TokensInput  int      `json:"tokensInput"`
-		TokensOutput int      `json:"tokensOutput"`
-		TokensAvg    float64  `json:"tokensAvg"`
-		InnerAvg     float64  `json:"innerAvg"`
-		InnerMax     int      `json:"innerMax"`
-		Versions     []string `json:"versions"`
+	// Per-day-version metrics keyed by "date|version"
+	type dvKey struct{ date, version string }
+	type dvMetrics struct {
+		TurnCount    int     `json:"turnCount"`
+		DurationAvg  float64 `json:"durationAvg"`
+		DurationP50  float64 `json:"durationP50"`
+		DurationP95  float64 `json:"durationP95"`
+		TokensTotal  int     `json:"tokensTotal"`
+		TokensInput  int     `json:"tokensInput"`
+		TokensOutput int     `json:"tokensOutput"`
+		TokensAvg    float64 `json:"tokensAvg"`
+		InnerAvg     float64 `json:"innerAvg"`
+		InnerMax     int     `json:"innerMax"`
 	}
 
-	var days []dayMetrics
+	type flowEvent struct {
+		Kind       string         `json:"kind"`
+		Node       string         `json:"node"`
+		TS         float64        `json:"ts"`
+		TraceID    string         `json:"trace_id"`
+		DurationMs int64          `json:"duration_ms"`
+		Data       map[string]any `json:"data"`
+		Version    string         `json:"version"`
+	}
+
+	type turnData struct {
+		version    string
+		durationMs int64
+		tokens     int
+		tokensIn   int
+		tokensOut  int
+		toolCalls  int
+	}
+
+	allDates := []string{}
+	versionSet := make(map[string]bool)
+	// turns keyed by traceID, accumulates across a day file
+	dayTurns := make(map[string]map[string]*turnData) // date -> traceID -> turnData
 
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", dateStr))
 		f, err := os.Open(path)
 		if err != nil {
-			continue // no data for this day
-		}
-
-		// Parse all events for the day
-		type flowEvent struct {
-			Kind       string         `json:"kind"`
-			Node       string         `json:"node"`
-			TS         float64        `json:"ts"`
-			TraceID    string         `json:"trace_id"`
-			DurationMs int64          `json:"duration_ms"`
-			Data       map[string]any `json:"data"`
-			Version    string         `json:"version"`
-		}
-
-		// Per-turn accumulators
-		type turnData struct {
-			durationMs int64
-			tokens     int
-			tokensIn   int
-			tokensOut  int
-			toolCalls  int
+			continue
 		}
 
 		turns := make(map[string]*turnData)
-		versionSet := make(map[string]bool)
-
 		scanner := bufio.NewScanner(f)
 		scanner.Buffer(make([]byte, 256*1024), 256*1024)
 		for scanner.Scan() {
 			var ev flowEvent
 			if json.Unmarshal(scanner.Bytes(), &ev) != nil {
 				continue
-			}
-			if ev.Version != "" {
-				versionSet[ev.Version] = true
 			}
 			tid := ev.TraceID
 			if tid == "" {
@@ -384,13 +381,15 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 			}
 			td := turns[tid]
 
-			// lifecycle_start marks a turn
-			// lifecycle_end carries duration
+			// Track version per turn (use first non-empty version seen)
+			if ev.Version != "" && td.version == "" {
+				td.version = ev.Version
+				versionSet[ev.Version] = true
+			}
+
 			if ev.Node == "lifecycle_end" && ev.DurationMs > 0 {
 				td.durationMs = ev.DurationMs
 			}
-
-			// token_usage event
 			if ev.Node == "token_usage" && ev.Data != nil {
 				if v, ok := ev.Data["total_tokens"]; ok {
 					td.tokens += toInt(v)
@@ -402,67 +401,92 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 					td.tokensOut += toInt(v)
 				}
 			}
-
-			// tool_call events count as inner loop steps
 			if ev.Node == "tool_call" {
 				td.toolCalls++
 			}
 		}
 		f.Close()
 
-		if len(turns) == 0 {
-			continue
+		if len(turns) > 0 {
+			allDates = append(allDates, dateStr)
+			dayTurns[dateStr] = turns
 		}
+	}
 
-		dm := dayMetrics{Date: dateStr, TurnCount: len(turns)}
+	// Aggregate per (date, version)
+	type resultRow struct {
+		Date    string    `json:"date"`
+		Version string    `json:"version"`
+		Metrics dvMetrics `json:"metrics"`
+	}
 
-		var durations []float64
-		totalTokens, totalIn, totalOut := 0, 0, 0
-		totalTools, maxTools := 0, 0
+	var rows []resultRow
+	versions := make([]string, 0, len(versionSet))
+	for v := range versionSet {
+		versions = append(versions, v)
+	}
+	sort.Strings(versions)
+	if len(versions) == 0 {
+		versions = []string{"unknown"}
+	}
 
+	for _, dateStr := range allDates {
+		turns := dayTurns[dateStr]
+
+		// Group turns by version
+		grouped := make(map[string][]*turnData)
 		for _, td := range turns {
-			if td.durationMs > 0 {
-				durations = append(durations, float64(td.durationMs))
+			ver := td.version
+			if ver == "" {
+				ver = "unknown"
 			}
-			totalTokens += td.tokens
-			totalIn += td.tokensIn
-			totalOut += td.tokensOut
-			totalTools += td.toolCalls
-			if td.toolCalls > maxTools {
-				maxTools = td.toolCalls
+			grouped[ver] = append(grouped[ver], td)
+		}
+
+		for ver, tds := range grouped {
+			m := dvMetrics{TurnCount: len(tds)}
+			var durations []float64
+			for _, td := range tds {
+				if td.durationMs > 0 {
+					durations = append(durations, float64(td.durationMs))
+				}
+				m.TokensTotal += td.tokens
+				m.TokensInput += td.tokensIn
+				m.TokensOutput += td.tokensOut
+				if td.toolCalls > m.InnerMax {
+					m.InnerMax = td.toolCalls
+				}
+				m.InnerAvg += float64(td.toolCalls)
 			}
+			if m.TurnCount > 0 {
+				m.TokensAvg = float64(m.TokensTotal) / float64(m.TurnCount)
+				m.InnerAvg = m.InnerAvg / float64(m.TurnCount)
+			}
+			if len(durations) > 0 {
+				sort.Float64s(durations)
+				m.DurationAvg = avg(durations)
+				m.DurationP50 = percentile(durations, 50)
+				m.DurationP95 = percentile(durations, 95)
+			}
+			rows = append(rows, resultRow{Date: dateStr, Version: ver, Metrics: m})
 		}
-
-		dm.TokensTotal = totalTokens
-		dm.TokensInput = totalIn
-		dm.TokensOutput = totalOut
-		if dm.TurnCount > 0 {
-			dm.TokensAvg = float64(totalTokens) / float64(dm.TurnCount)
-			dm.InnerAvg = float64(totalTools) / float64(dm.TurnCount)
-		}
-		dm.InnerMax = maxTools
-
-		if len(durations) > 0 {
-			sort.Float64s(durations)
-			dm.DurationAvg = avg(durations)
-			dm.DurationP50 = percentile(durations, 50)
-			dm.DurationP95 = percentile(durations, 95)
-		}
-
-		versions := make([]string, 0, len(versionSet))
-		for v := range versionSet {
-			versions = append(versions, v)
-		}
-		sort.Strings(versions)
-		dm.Versions = versions
-
-		days = append(days, dm)
 	}
 
-	if days == nil {
-		days = []dayMetrics{}
+	if rows == nil {
+		rows = []resultRow{}
 	}
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(days))
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Date != rows[j].Date {
+			return rows[i].Date < rows[j].Date
+		}
+		return rows[i].Version < rows[j].Version
+	})
+
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"rows":     rows,
+		"dates":    allDates,
+		"versions": versions,
+	}))
 }
 
 func toInt(v any) int {

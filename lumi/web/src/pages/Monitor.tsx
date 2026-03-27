@@ -1867,8 +1867,7 @@ function CameraSection({
 
 // ─── Analytics types ─────────────────────────────────────────────────────────
 
-interface DayMetrics {
-  date: string;
+interface VersionMetrics {
   turnCount: number;
   durationAvg: number;
   durationP50: number;
@@ -1879,6 +1878,17 @@ interface DayMetrics {
   tokensAvg: number;
   innerAvg: number;
   innerMax: number;
+}
+
+interface AnalyticsRow {
+  date: string;
+  version: string;
+  metrics: VersionMetrics;
+}
+
+interface AnalyticsData {
+  rows: AnalyticsRow[];
+  dates: string[];
   versions: string[];
 }
 
@@ -1909,11 +1919,25 @@ const chartScaleDefaults = {
   ticks: { color: CHART_COLORS.tickColor, font: { size: 10 } },
 };
 
+// Color palette for version series (cycles if more versions than colors)
+const VERSION_COLORS = [
+  { border: "rgba(245,158,11,0.85)", bg: "rgba(245,158,11,0.15)" },  // amber
+  { border: "rgba(96,165,250,0.85)",  bg: "rgba(96,165,250,0.15)" },  // blue
+  { border: "rgba(168,85,247,0.85)", bg: "rgba(168,85,247,0.15)" },  // purple
+  { border: "rgba(52,211,153,0.85)", bg: "rgba(52,211,153,0.15)" },  // green
+  { border: "rgba(45,212,191,0.85)", bg: "rgba(45,212,191,0.15)" },  // teal
+  { border: "rgba(248,113,113,0.85)", bg: "rgba(248,113,113,0.15)" }, // red
+];
+
+function vColor(i: number) {
+  return VERSION_COLORS[i % VERSION_COLORS.length];
+}
+
 function AnalyticsSection() {
   const [preset, setPreset] = useState<Preset>("7d");
   const [customFrom, setCustomFrom] = useState(fmtDate(new Date(Date.now() - 7 * 86400000)));
   const [customTo, setCustomTo] = useState(fmtDate(new Date()));
-  const [data, setData] = useState<DayMetrics[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
 
   const dateRange = useMemo(() => {
@@ -1927,21 +1951,42 @@ function AnalyticsSection() {
     try {
       const r = await fetch(`${API}/openclaw/analytics?from=${dateRange.from}&to=${dateRange.to}`);
       const j = await r.json();
-      if (j.status === 1) setData(j.data);
+      if (j.status === 1) setAnalytics(j.data);
     } catch { /* ignore */ }
     setLoading(false);
   }, [dateRange]);
 
   useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
-  const labels = data.map((d) => d.date.slice(5)); // MM-DD
-  const allVersions = [...new Set(data.flatMap((d) => d.versions))].sort();
+  const dates = analytics?.dates ?? [];
+  const versions = analytics?.versions ?? [];
+  const rows = analytics?.rows ?? [];
+  const labels = dates.map((d) => d.slice(5)); // MM-DD
+  const multiVersion = versions.length > 1;
 
-  // Summary totals
-  const totalTurns = data.reduce((s, d) => s + d.turnCount, 0);
-  const totalTokens = data.reduce((s, d) => s + d.tokensTotal, 0);
-  const avgDuration = data.length > 0 ? data.reduce((s, d) => s + d.durationAvg, 0) / data.filter((d) => d.durationAvg > 0).length : 0;
-  const avgInner = data.length > 0 ? data.reduce((s, d) => s + d.innerAvg, 0) / data.filter((d) => d.innerAvg > 0).length : 0;
+  // Build lookup: rowMap[date][version] = metrics
+  const rowMap = useMemo(() => {
+    const m: Record<string, Record<string, VersionMetrics>> = {};
+    for (const r of rows) {
+      if (!m[r.date]) m[r.date] = {};
+      m[r.date][r.version] = r.metrics;
+    }
+    return m;
+  }, [rows]);
+
+  // Helper: get metric value for (date, version), default 0
+  const val = (date: string, ver: string, fn: (m: VersionMetrics) => number) => {
+    const m = rowMap[date]?.[ver];
+    return m ? fn(m) : 0;
+  };
+
+  // Summary totals (across all versions)
+  const totalTurns = rows.reduce((s, r) => s + r.metrics.turnCount, 0);
+  const totalTokens = rows.reduce((s, r) => s + r.metrics.tokensTotal, 0);
+  const durRows = rows.filter((r) => r.metrics.durationAvg > 0);
+  const avgDuration = durRows.length > 0 ? durRows.reduce((s, r) => s + r.metrics.durationAvg, 0) / durRows.length : 0;
+  const innerRows = rows.filter((r) => r.metrics.innerAvg > 0);
+  const avgInner = innerRows.length > 0 ? innerRows.reduce((s, r) => s + r.metrics.innerAvg, 0) / innerRows.length : 0;
 
   const commonOptions = {
     responsive: true,
@@ -1972,6 +2017,27 @@ function AnalyticsSection() {
     padding: "16px 12px",
   };
 
+  // Build per-version datasets for a given metric
+  const makeVersionDatasets = (
+    fn: (m: VersionMetrics) => number,
+    opts?: { type?: "bar" | "line"; fill?: boolean },
+  ) => {
+    const type = opts?.type ?? "line";
+    return versions.map((ver, vi) => ({
+      label: multiVersion ? `v${ver}` : fn.name || "Value",
+      data: dates.map((d) => val(d, ver, fn)),
+      ...(type === "bar"
+        ? { backgroundColor: vColor(vi).border, borderRadius: 4, barPercentage: multiVersion ? 0.8 : 0.6 }
+        : {
+            borderColor: vColor(vi).border,
+            backgroundColor: opts?.fill !== false ? vColor(vi).bg : undefined,
+            fill: opts?.fill !== false,
+            tension: 0.3,
+            pointRadius: 3,
+          }),
+    }));
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Date range picker */}
@@ -2000,10 +2066,15 @@ function AnalyticsSection() {
           </>
         )}
         {loading && <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading...</span>}
-        {allVersions.length > 0 && (
-          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--lm-text-muted)" }}>
-            Versions: {allVersions.join(", ")}
-          </span>
+        {versions.length > 0 && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            {versions.map((v, i) => (
+              <span key={v} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--lm-text-muted)" }}>
+                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: vColor(i).border }} />
+                v{v}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
@@ -2027,69 +2098,31 @@ function AnalyticsSection() {
         </div>
       </div>
 
-      {data.length === 0 && !loading && (
+      {rows.length === 0 && !loading && (
         <div style={{ ...S.card, textAlign: "center", padding: 40, color: "var(--lm-text-muted)" }}>
           No analytics data for selected range
         </div>
       )}
 
-      {data.length > 0 && (
+      {rows.length > 0 && (
         <>
           {/* Row 1: Turn count + Duration */}
           <div style={S.grid2}>
             <div style={{ ...S.card, height: 260 }}>
-              <div style={S.cardLabel}>Turn Count per Day</div>
+              <div style={S.cardLabel}>Turn Count per Day {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
                 <Bar
-                  data={{
-                    labels,
-                    datasets: [{
-                      label: "Turns",
-                      data: data.map((d) => d.turnCount),
-                      backgroundColor: CHART_COLORS.amber,
-                      borderRadius: 4,
-                      barPercentage: 0.6,
-                    }],
-                  }}
-                  options={{ ...commonOptions, plugins: { ...commonOptions.plugins, legend: { display: false } } }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => m.turnCount, { type: "bar" }) }}
+                  options={commonOptions}
                 />
               </div>
             </div>
 
             <div style={{ ...S.card, height: 260 }}>
-              <div style={S.cardLabel}>Turn Duration (seconds)</div>
+              <div style={S.cardLabel}>Avg Duration (seconds) {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
                 <Line
-                  data={{
-                    labels,
-                    datasets: [
-                      {
-                        label: "Avg",
-                        data: data.map((d) => d.durationAvg / 1000),
-                        borderColor: CHART_COLORS.green,
-                        backgroundColor: CHART_COLORS.greenFill,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 3,
-                      },
-                      {
-                        label: "P50",
-                        data: data.map((d) => d.durationP50 / 1000),
-                        borderColor: CHART_COLORS.blue,
-                        borderDash: [4, 4],
-                        tension: 0.3,
-                        pointRadius: 2,
-                      },
-                      {
-                        label: "P95",
-                        data: data.map((d) => d.durationP95 / 1000),
-                        borderColor: CHART_COLORS.red,
-                        borderDash: [2, 2],
-                        tension: 0.3,
-                        pointRadius: 2,
-                      },
-                    ],
-                  }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => +(m.durationAvg / 1000).toFixed(2)) }}
                   options={commonOptions}
                 />
               </div>
@@ -2099,50 +2132,33 @@ function AnalyticsSection() {
           {/* Row 2: Tokens stacked bar + Tokens per turn */}
           <div style={S.grid2}>
             <div style={{ ...S.card, height: 260 }}>
-              <div style={S.cardLabel}>Token Usage (stacked)</div>
+              <div style={S.cardLabel}>Token Usage {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
-                <Bar
-                  data={{
-                    labels,
-                    datasets: [
-                      {
-                        label: "Input",
-                        data: data.map((d) => d.tokensInput),
-                        backgroundColor: CHART_COLORS.blue,
-                        borderRadius: 2,
-                      },
-                      {
-                        label: "Output",
-                        data: data.map((d) => d.tokensOutput),
-                        backgroundColor: CHART_COLORS.purple,
-                        borderRadius: 2,
-                      },
-                    ],
-                  }}
-                  options={{
-                    ...commonOptions,
-                    scales: { ...commonOptions.scales, x: { ...chartScaleDefaults, stacked: true }, y: { ...chartScaleDefaults, stacked: true } },
-                  }}
-                />
+                {multiVersion ? (
+                  <Bar
+                    data={{ labels, datasets: makeVersionDatasets((m) => m.tokensTotal, { type: "bar" }) }}
+                    options={commonOptions}
+                  />
+                ) : (
+                  <Bar
+                    data={{
+                      labels,
+                      datasets: [
+                        { label: "Input", data: dates.map((d) => val(d, versions[0], (m) => m.tokensInput)), backgroundColor: CHART_COLORS.blue, borderRadius: 2 },
+                        { label: "Output", data: dates.map((d) => val(d, versions[0], (m) => m.tokensOutput)), backgroundColor: CHART_COLORS.purple, borderRadius: 2 },
+                      ],
+                    }}
+                    options={{ ...commonOptions, scales: { ...commonOptions.scales, x: { ...chartScaleDefaults, stacked: true }, y: { ...chartScaleDefaults, stacked: true } } }}
+                  />
+                )}
               </div>
             </div>
 
             <div style={{ ...S.card, height: 260 }}>
-              <div style={S.cardLabel}>Tokens per Turn</div>
+              <div style={S.cardLabel}>Tokens per Turn {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
                 <Line
-                  data={{
-                    labels,
-                    datasets: [{
-                      label: "Tokens/Turn",
-                      data: data.map((d) => Math.round(d.tokensAvg)),
-                      borderColor: CHART_COLORS.teal,
-                      backgroundColor: CHART_COLORS.tealFill,
-                      fill: true,
-                      tension: 0.3,
-                      pointRadius: 3,
-                    }],
-                  }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => Math.round(m.tokensAvg)) }}
                   options={commonOptions}
                 />
               </div>
@@ -2151,31 +2167,10 @@ function AnalyticsSection() {
 
           {/* Row 3: Inner steps */}
           <div style={{ ...S.card, height: 260 }}>
-            <div style={S.cardLabel}>Inner Loop Steps (Tool Calls per Turn)</div>
+            <div style={S.cardLabel}>Inner Loop Steps {multiVersion && "— by version"}</div>
             <div style={{ height: 210 }}>
               <Line
-                data={{
-                  labels,
-                  datasets: [
-                    {
-                      label: "Avg",
-                      data: data.map((d) => +d.innerAvg.toFixed(1)),
-                      borderColor: CHART_COLORS.amber,
-                      backgroundColor: CHART_COLORS.amberFill,
-                      fill: true,
-                      tension: 0.3,
-                      pointRadius: 3,
-                    },
-                    {
-                      label: "Max",
-                      data: data.map((d) => d.innerMax),
-                      borderColor: CHART_COLORS.red,
-                      borderDash: [4, 4],
-                      tension: 0.3,
-                      pointRadius: 2,
-                    },
-                  ],
-                }}
+                data={{ labels, datasets: makeVersionDatasets((m) => +m.innerAvg.toFixed(1)) }}
                 options={commonOptions}
               />
             </div>
