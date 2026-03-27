@@ -180,6 +180,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			slog.Error("chat parse error", "component", "agent", "error", err)
 			return nil
 		}
+		payload.ResolveChatMessage()
 
 		// Push all chat events to monitor (partial + final)
 		summary := payload.Message
