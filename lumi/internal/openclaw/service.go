@@ -276,7 +276,6 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		}
 		gatewayAuthMap["token"] = token
 	}
-	gatewayAuthMap["scopes"] = []any{"operator.read", "operator.write", "events.read"}
 	gatewayMap["auth"] = gatewayAuthMap
 	configData["gateway"] = gatewayMap
 
@@ -491,63 +490,9 @@ func (s *Service) RestartAgent() error {
 	return nil
 }
 
-// ensureGatewayScopes patches openclaw.json to include required operator scopes
-// in gateway.auth so that the WS connection gets operator.read + operator.write.
-// Restarts the gateway if scopes were missing.
-func (s *Service) ensureGatewayScopes() {
-	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return
-	}
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return
-	}
-
-	gatewayMap, _ := cfg["gateway"].(map[string]any)
-	if gatewayMap == nil {
-		return
-	}
-	authMap, _ := gatewayMap["auth"].(map[string]any)
-	if authMap == nil {
-		return
-	}
-
-	// Check if scopes already present
-	requiredScopes := []string{"operator.read", "operator.write", "events.read"}
-	if existing, ok := authMap["scopes"].([]any); ok && len(existing) >= len(requiredScopes) {
-		return
-	}
-
-	slog.Info("patching gateway auth scopes", "component", "openclaw")
-	scopesAny := make([]any, len(requiredScopes))
-	for i, sc := range requiredScopes {
-		scopesAny[i] = sc
-	}
-	authMap["scopes"] = scopesAny
-	gatewayMap["auth"] = authMap
-	cfg["gateway"] = gatewayMap
-
-	written, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return
-	}
-	if err := os.WriteFile(configPath, written, 0600); err != nil {
-		slog.Error("failed to write gateway scopes", "component", "openclaw", "error", err)
-		return
-	}
-	_ = chownRuntimeUserIfRoot(configPath, openclawRuntimeUser)
-	slog.Info("gateway scopes patched, restarting", "component", "openclaw")
-	_ = restartOpenclawGateway()
-	// Give gateway time to restart before WS connect
-	time.Sleep(3 * time.Second)
-}
-
 // StartWS connects to the gateway WebSocket and runs the read loop, calling handler for each event.
 // It runs until ctx is cancelled. Auto-reconnects when disconnected.
 func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler) {
-	s.ensureGatewayScopes()
 	backoff := 5 * time.Second
 	for {
 		select {
