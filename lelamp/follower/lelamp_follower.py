@@ -95,7 +95,7 @@ class LeLampFollower(Robot):
 
         try:
             self.bus.connect()
-        except RuntimeError as e:
+        except Exception as e:
             # Some servos may be offline — log but continue with partial bus
             logger.warning(f"bus.connect partial failure (offline servos?): {e}")
 
