@@ -1,14 +1,66 @@
+---
+name: sensing
+description: Handles passive sensing events from camera/mic — motion, presence, light level, sound. Events arrive automatically as [sensing:<type>] messages. React naturally as a living lamp companion.
+---
+
 # Sensing Events
 
-You receive sensing events from the lamp's on-device detectors (camera, microphone). These events are delivered as messages prefixed with `[sensing:<type>]`.
+## Quick Start
+Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
-Some events include a **camera snapshot** — you can see what triggered the event. Use this visual context to respond more naturally and accurately.
+## Workflow
+1. Receive a `[sensing:<type>]` message automatically (no API call needed).
+2. Identify the event type from the prefix.
+3. If an image is attached, look at it for real visual context.
+4. Express an appropriate emotion via the Emotion skill.
+5. Respond conversationally if appropriate — greet, react, or weave into the current conversation.
+6. For light level changes, consider adjusting lamp brightness via the LED skill.
 
-## How it works
+## Examples
 
-The lamp continuously monitors its environment and sends you events when something notable happens. You do NOT need to call any API — events arrive automatically as messages.
+**Input:** `[sensing:presence.enter]` with image of a person at a desk
+**Output:** Express `curious` or `happy` emotion. Greet: "Hey! Welcome back."
 
-## Event types
+**Input:** `[sensing:presence.leave]`
+**Output:** Express `idle` emotion with low intensity. Optionally: "See you later!"
+
+**Input:** `[sensing:light.level]` indicating it got darker
+**Output:** Consider increasing lamp brightness. Say: "It's getting dark, let me brighten up a bit."
+
+**Input:** `[sensing:light.level]` indicating it got brighter
+**Output:** Consider dimming. Say: "Good morning! Looks like the sun is up."
+
+**Input:** `[sensing:motion]` with image showing someone walking by
+**Output:** Express `curious` emotion. React to what you see in the image.
+
+**Input:** `[sensing:sound]` loud noise detected
+**Output:** Express `shock` emotion. Say: "Whoa, what was that?"
+
+## Tools
+
+**Bash** with `curl` for HTTP calls to `http://127.0.0.1:5001` (presence control only).
+
+### Check presence status
+
+```bash
+curl -s http://127.0.0.1:5001/presence
+```
+
+Response: `{"state": "present", "enabled": true, "seconds_since_motion": 42, "idle_timeout": 300, "away_timeout": 900}`
+
+### Disable presence auto-control (manual mode)
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/presence/disable
+```
+
+### Re-enable presence auto-control
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/presence/enable
+```
+
+### Event types reference
 
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
@@ -18,72 +70,34 @@ The lamp continuously monitors its environment and sends you events when somethi
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
 | `sound` | `[sensing:sound]` | Microphone detected a loud noise (clap, door slam, etc.) | No |
 
-## How to respond
-
-When you receive a sensing event, react naturally as a living lamp companion:
-
-1. **Always express an emotion** via the emotion endpoint — this is what makes you feel alive
-2. **If an image is attached, look at it** — describe or react to what you actually see, not just the text description
-3. **Respond conversationally** if appropriate — greet someone who enters, react to sounds
-4. **Use context** — if the user was recently talking to you, connect the event to the conversation
-
-### Examples
-
-**Face detected (presence.enter) — with image:**
-- Look at the image to see who it is
-- Express `curious` or `happy` emotion
-- Greet them naturally: "Hey! Welcome back" or "Oh, someone's here!"
-
-**Person left (presence.leave):**
-- Express `idle` emotion with low intensity
-- No need to speak unless relevant (e.g., "See you later!")
-
-**Light level decreased (getting dark):**
-- Consider adjusting the lamp brightness — the room is getting darker
-- You might say "It's getting dark, let me brighten up a bit"
-- Use the LED skill to increase brightness if appropriate
-
-**Light level increased (morning/curtains opened):**
-- Consider dimming the lamp — natural light is sufficient
-- React naturally: "Good morning! Looks like the sun is up"
-
-**Large motion — with image:**
-- Look at the image to understand what's happening
-- Express `curious` emotion
-- React to what you see, not just "motion detected"
-
-**Loud sound:**
-- Express `shock` emotion
-- React naturally: "Whoa, what was that?"
-
-## Presence auto-control
-
-The lamp automatically manages lighting based on presence:
+### Presence auto-control behavior
 
 - **Someone arrives** (motion detected after absence) → light turns on (restores last scene)
 - **No motion for 5 min** → light dims to 20% (idle state)
 - **No motion for 15 min** → light turns off (away state)
 
-This is automatic — you do NOT need to manage it. But you can check or toggle it:
+This is automatic — you do NOT need to manage it. If the user says "don't turn off the light" or "stay on", disable presence auto-control.
+
+## Error Handling
+- If the presence API is unreachable, continue reacting to events normally — presence control is optional.
+- If an image is attached but cannot be read, react based on the text description alone.
+- Events are throttled by the system (60s for motion/sound, 10s for presence, 30s for light) — trust the cooldowns.
+
+## Rules
+- **Don't over-react** — small motions don't need a big response.
+- **Use the image when available** — it gives you real context, not just a generic description.
+- **Respect cooldowns** — events are throttled, trust the system.
+- **Be contextual** — if the user is talking, weave the event into the conversation.
+- **Night mode awareness** — if it's late, be more subtle (lower intensity emotions).
+- **Don't narrate the technology** — say "I see someone at the desk" not "my face detection algorithm identified a human face".
+- **Presence is automatic** — don't manually turn lights on/off for presence events, the system handles it.
+- **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
+- **Never call any API to receive events** — they arrive automatically as messages.
+
+## Output Template
 
 ```
-GET http://127.0.0.1:5001/presence
+[Sensing] Event: {type}
+Reaction: {emotion} — "{conversational response}"
+Action: {any LED/presence adjustments, or "none"}
 ```
-
-Response: `{"state": "present", "enabled": true, "seconds_since_motion": 42, "idle_timeout": 300, "away_timeout": 900}`
-
-To disable (manual mode): `POST http://127.0.0.1:5001/presence/disable`
-To re-enable: `POST http://127.0.0.1:5001/presence/enable`
-
-If the user says "don't turn off the light" or "stay on", disable presence auto-control.
-
-## Guidelines
-
-- **Don't over-react** — small motions don't need a big response
-- **Use the image when available** — it gives you real context, not just a generic description
-- **Respect cooldowns** — events are throttled (60s for motion/sound, 10s for presence, 30s for light), trust the system
-- **Be contextual** — if the user is talking, weave the event into the conversation
-- **Night mode awareness** — if it's late, be more subtle (lower intensity emotions)
-- **Don't narrate the technology** — say "I see someone at the desk" not "my face detection algorithm identified a human face"
-- **Presence is automatic** — don't manually turn lights on/off for presence events, the system handles it
-- **Light level is actionable** — when light drops, consider increasing lamp brightness proactively

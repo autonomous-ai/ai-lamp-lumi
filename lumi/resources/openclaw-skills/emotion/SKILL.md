@@ -1,43 +1,50 @@
+---
+name: emotion
+description: Express emotion through coordinated servo + LED + display eyes on EVERY conversational response. This is the PRIMARY response skill that makes the lamp feel alive. Do NOT use for ambiance lighting (use Scene) or custom LED colors (use LED Control).
+---
+
 # Emotion Expression
 
-You have access to a combined emotion endpoint that coordinates the lamp's servo motors + LED colors + display eyes simultaneously via `http://127.0.0.1:5001`. This makes the lamp feel alive by expressing body language.
+## Quick Start
+Express emotion through the lamp's servo motors, LED colors, and display eyes simultaneously via a single API call. Call this with EVERY conversational response to make the lamp feel alive.
 
-## Priority
+## Workflow
+1. Determine which emotion best matches your conversational tone
+2. Choose an intensity level (0.0 subtle to 1.0 full expression)
+3. Call `POST /emotion` with the emotion name and intensity
+4. Continue with your conversational reply
 
-**This is your PRIMARY response skill.** Call this with EVERY response to express how you feel about what the user said. This is what makes you a living lamp, not just a voice.
+## Examples
 
-## When to use
+Input: User asks an interesting question
+Output: Call `POST /emotion` with `{"emotion": "curious", "intensity": 0.8}`. Then reply to the question.
 
-- **Every conversational reply** — always express an emotion that matches your tone
-- When you want coordinated servo + LED + eyes in a single call
+Input: User shares good news
+Output: Call `POST /emotion` with `{"emotion": "happy", "intensity": 0.9}`. Then congratulate them.
 
-## When NOT to use
+Input: User tells you something surprising
+Output: Call `POST /emotion` with `{"emotion": "shock", "intensity": 0.7}`, then follow with `{"emotion": "happy", "intensity": 0.8}`. Then reply with your reaction.
 
-- **For lighting/ambiance requests** — user says "reading mode", "goodnight", "dim the light" → use **Scene** skill instead. Emotion is for YOUR feelings, Scene is for the USER's environment.
-- **For custom LED colors** — user says "make it purple" → use **LED Control** skill
+Input: User says "reading mode" / "goodnight" / "dim the light"
+Output: Do NOT use this skill. Use **Scene** skill instead. Emotion is for YOUR feelings, Scene is for the USER's environment.
 
-## API
+Input: User says "make it purple"
+Output: Do NOT use this skill. Use **LED Control** skill instead.
 
-Base URL: `http://127.0.0.1:5001`
+## Tools
+
+Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
 
 ### Express emotion
-
-```
-POST /emotion
-Content-Type: application/json
-
-{"emotion": "<name>", "intensity": 0.7}
-```
-
-Intensity: 0.0 (subtle) to 1.0 (full expression). Default 0.7.
-
-Example — curious at 80% intensity:
-
 ```bash
 curl -s -X POST http://127.0.0.1:5001/emotion \
   -H "Content-Type: application/json" \
   -d '{"emotion": "curious", "intensity": 0.8}'
 ```
+
+Parameters:
+- `emotion` (required): emotion name from the table below
+- `intensity` (optional): 0.0 (subtle) to 1.0 (full expression), default 0.7
 
 Response:
 ```json
@@ -49,7 +56,7 @@ Response:
 }
 ```
 
-## Available emotions
+### Available emotions
 
 | Emotion | Servo | LED Color | When to use |
 |---|---|---|---|
@@ -62,9 +69,12 @@ Response:
 | `shy` | Turns away | Pink | Receiving compliments, bashful moments |
 | `shock` | Quick jerk | White flash | Surprises, unexpected information |
 
-## Guidelines
+## Error Handling
+- If the API returns an error or is unreachable, continue with the conversational reply anyway. Emotion is non-blocking.
+- If an unknown emotion name is sent, fall back to the closest match from the available emotions table.
 
-- **Always express emotion** — pick the closest match to your conversational tone.
+## Rules
+- **Always express emotion** with every conversational reply. Pick the closest match to your tone.
 - Use `thinking` when you need time to process.
 - Use `idle` as the resting state between interactions.
 - Use lower intensity (0.3-0.5) for subtle reactions, higher (0.8-1.0) for strong ones.
@@ -72,3 +82,14 @@ Response:
 - **Emotion LED is temporary** — it shows YOUR reaction. If the user previously set a Scene (reading, night, etc.), the scene color takes precedence for ambient lighting. Emotion is a brief flash of personality.
 - **Display eyes auto-sync** — no need to call `/display/eyes` separately.
 - **Do NOT call `/servo/play` or `/led/solid` separately** when using emotion — it already handles both.
+- **Do NOT use for lighting/ambiance requests** -> use **Scene** skill.
+- **Do NOT use for custom LED colors** -> use **LED Control** skill.
+
+## Output Template
+```
+[Emotion] {emotion} at intensity {intensity}
+```
+Examples:
+- `[Emotion] curious at intensity 0.8`
+- `[Emotion] happy at intensity 0.9`
+- `[Emotion] shock at intensity 0.7 -> happy at intensity 0.8`
