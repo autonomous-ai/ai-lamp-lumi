@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-const API = "/api";
-const HW  = "/hw";
+const API = "http://172.168.20.230/api";
+const HW  = "http://172.168.20.230/hw";
 const HISTORY_LEN = 60;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
