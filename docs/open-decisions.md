@@ -5,7 +5,9 @@
 
 ## Unresolved
 
-(None currently — all blocking decisions resolved.)
+| Decision | Context | Options | Recommendation |
+|---|---|---|---|
+| Channel abstraction layer | UC-15 multi-channel (Telegram/Slack/Discord) currently "free" via OpenClaw built-in support. But if gateway is swapped to a non-OpenClaw provider, multi-channel breaks. | (1) Do nothing — accept OpenClaw lock-in for channels. (2) Build a channel abstraction at Lumi level so messaging works regardless of gateway. (3) Defer until gateway swap is actually planned. | Option 3 for now (YAGNI), but design UC-15 with awareness that channel support is gateway-dependent. Document the dependency explicitly. |
 
 ---
 
@@ -74,7 +76,7 @@
 - UC-09 Auto-Tracking (camera → servo follow)
 - UC-10 Gesture Control
 - UC-12 Video Call Optimization
-- UC-15 Remote Control (Telegram/Slack via OpenClaw multi-channel)
+- UC-15 Remote Control — **Note:** Telegram/Slack/Discord currently provided by OpenClaw built-in multi-channel (zero Lumi code needed). If gateway is changed, Lumi needs its own channel abstraction layer. See Unresolved decisions.
 - Face Recognition (identify owner by face embedding — greet by name)
 - Voice/Speaker Identification (distinguish owner voice from others)
 
