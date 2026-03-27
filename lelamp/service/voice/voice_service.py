@@ -50,10 +50,10 @@ class VoiceService:
     """Local VAD + on-demand Deepgram STT for autonomous sensing."""
 
     def __init__(
-        self,
-        deepgram_api_key: str,
-        input_device: Optional[int] = None,
-        tts_service=None,
+            self,
+            deepgram_api_key: str,
+            input_device: Optional[int] = None,
+            tts_service=None,
     ):
         self._deepgram_api_key = deepgram_api_key
         self._input_device = input_device
@@ -91,10 +91,10 @@ class VoiceService:
     @property
     def available(self) -> bool:
         return (
-            self._sd is not None
-            and self._np is not None
-            and self._dg_available
-            and self._deepgram_api_key != ""
+                self._sd is not None
+                and self._np is not None
+                and self._dg_available
+                and self._deepgram_api_key != ""
         )
 
     @property
@@ -111,7 +111,7 @@ class VoiceService:
                 self._np is not None,
                 self._dg_available,
                 bool(self._deepgram_api_key),
-            )
+                )
             return
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="voice")
@@ -178,11 +178,11 @@ class VoiceService:
 
             try:
                 with sd.InputStream(
-                    samplerate=SAMPLE_RATE,
-                    channels=CHANNELS,
-                    dtype="int16",
-                    blocksize=FRAME_SIZE,
-                    device=self._input_device,
+                        samplerate=SAMPLE_RATE,
+                        channels=CHANNELS,
+                        dtype="int16",
+                        blocksize=FRAME_SIZE,
+                        device=self._input_device,
                 ) as mic:
                     logger.info("Listening locally for speech (RMS threshold=%d)...", RMS_THRESHOLD)
                     self._vad_loop(mic)
@@ -230,49 +230,21 @@ class VoiceService:
         session_closed = threading.Event()
         listener_ready = threading.Event()
 
-        # Accumulate transcripts across the session, send once at the end
-        collected_parts = []
-        has_wake_word = False
-
-        def _flush_utterance():
-            """Send accumulated transcript parts as one message."""
-            nonlocal has_wake_word
-            if not collected_parts:
-                return
-            full_text = " ".join(collected_parts)
-            collected_parts.clear()
-            wake = has_wake_word
-            has_wake_word = False
-
-            if wake:
-                cmd = full_text.lower()
-                for w in WAKE_WORDS:
-                    if w in cmd:
-                        idx = cmd.index(w) + len(w)
-                        cmd = full_text[idx:].strip().lstrip(",").strip()
-                        break
-                logger.info("STT COMMAND (utterance): '%s'", cmd or full_text)
-                self._send_to_lumi(cmd or full_text, event_type="voice_command")
-            else:
-                logger.info("STT ambient (utterance): '%s'", full_text)
-                self._send_to_lumi(full_text, event_type="voice")
-
         try:
             with client.listen.v1.connect(
-                model="nova-2",
-                language="vi",
-                smart_format="true",
-                encoding="linear16",
-                channels=CHANNELS,
-                sample_rate=SAMPLE_RATE,
-                interim_results="false",
-                endpointing=1500,
-                vad_events="true",
-                keywords=KEYWORDS,
+                    model="nova-2",
+                    language="vi",
+                    smart_format="true",
+                    encoding="linear16",
+                    channels=CHANNELS,
+                    sample_rate=SAMPLE_RATE,
+                    interim_results="false",
+                    endpointing=1500,
+                    vad_events="true",
+                    keywords=KEYWORDS,
             ) as connection:
 
                 def on_message(message):
-                    nonlocal has_wake_word
                     if not isinstance(message, ListenV1Results):
                         return
                     transcript = message.channel.alternatives[0].transcript
@@ -281,12 +253,22 @@ class VoiceService:
                     if not message.is_final:
                         return
                     text = transcript.strip()
-                    logger.info("STT partial: '%s'", text)
-                    collected_parts.append(text)
+                    lower = text.lower()
 
-                    # Track wake word across all parts
-                    if any(w in text.lower() for w in WAKE_WORDS):
-                        has_wake_word = True
+                    # Check for wake word
+                    is_command = any(w in lower for w in WAKE_WORDS)
+                    if is_command:
+                        # Strip wake word prefix to get the actual command
+                        cmd = lower
+                        for w in WAKE_WORDS:
+                            if cmd.startswith(w):
+                                cmd = text[len(w):].strip().lstrip(",").strip()
+                                break
+                        logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
+                        self._send_to_lumi(cmd or text, event_type="voice_command")
+                    else:
+                        logger.info("STT ambient: '%s'", text)
+                        self._send_to_lumi(text, event_type="voice")
 
                 def on_error(error):
                     logger.error("Deepgram error: %s", error)
@@ -350,13 +332,9 @@ class VoiceService:
                     listener_thread.join(timeout=5)
                     if listener_thread.is_alive():
                         logger.warning("Deepgram listener thread did not exit in 5s — will be orphaned")
-
         except Exception as e:
             logger.error("Deepgram session error: %s", e)
             self._listening = False
-
-        # Flush any remaining transcript parts after session ends
-        _flush_utterance()
 
     def _is_echo(self, transcript: str) -> bool:
         """Check if transcript is echo of last TTS output (Layer 3: transcript self-filter)."""
@@ -387,7 +365,7 @@ class VoiceService:
         import json as _json
         payload = {"type": event_type, "message": transcript}
         logger.info("curl -s -X POST %s -H 'Content-Type: application/json' -d '%s'",
-                     LUMI_SENSING_URL, _json.dumps(payload))
+                    LUMI_SENSING_URL, _json.dumps(payload))
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
