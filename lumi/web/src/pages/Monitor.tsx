@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const API = "http://<DEVICE_IP>/api";
-const HW  = "http://<DEVICE_IP>/hw";
+const API = "/api";
+const HW  = "/hw";
 const HISTORY_LEN = 60;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
