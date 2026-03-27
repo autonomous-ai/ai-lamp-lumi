@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -122,7 +122,7 @@ func ProvideConfig() *Config {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		c := Default()
 		if err := c.Save(); err != nil {
-			log.Printf("save config: %v\n", err)
+			slog.Error("save config failed", "component", "config", "error", err)
 		}
 		c.notify = make(chan bool, 1)
 		return &c

@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -110,11 +110,11 @@ func (s *Service) IsReady() bool {
 
 // SetupAgent writes openclaw.json from the setup request and restarts the gateway.
 func (s *Service) SetupAgent(data domain.SetupRequest) error {
-	log.Println("SetupOpenclaw: checking openclaw in PATH")
+	slog.Debug("checking openclaw in PATH", "component", "openclaw")
 	if _, err := exec.LookPath("openclaw"); err != nil {
 		return fmt.Errorf("openclaw not found in PATH: %w", err)
 	}
-	log.Println("SetupOpenclaw: openclaw found")
+	slog.Debug("openclaw found", "component", "openclaw")
 
 	llmAPIKey := data.LLMAPIKey
 	llmBaseURL := data.LLMBaseURL
@@ -126,42 +126,42 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 
 	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		log.Println("SetupOpenclaw: config does not exist, running onboardOpenclaw")
+		slog.Debug("config does not exist, running onboardOpenclaw", "component", "openclaw")
 		if err := s.onboardOpenclaw(); err != nil {
 			return fmt.Errorf("onboard openclaw: %w", err)
 		}
 	}
-	log.Printf("SetupOpenclaw: loading config from %s", configPath)
+	slog.Debug("loading config", "component", "openclaw", "path", configPath)
 	var configData map[string]interface{}
 	if data, err := os.ReadFile(configPath); err == nil {
 		if err := json.Unmarshal(data, &configData); err != nil {
 			return fmt.Errorf("parse openclaw config: %w", err)
 		}
-		log.Println("SetupOpenclaw: config loaded and parsed")
+		slog.Debug("config loaded and parsed", "component", "openclaw")
 	} else {
 		configData = make(map[string]interface{})
-		log.Println("SetupOpenclaw: no existing config, starting fresh")
+		slog.Debug("no existing config, starting fresh", "component", "openclaw")
 	}
 
-	log.Printf("SetupOpenclaw: listing models from API %s", llmBaseURL)
+	slog.Debug("listing models from API", "component", "openclaw", "baseURL", llmBaseURL)
 	modelsResp, err := s.listModelsFromAPI(llmBaseURL)
 	if err != nil {
 		return fmt.Errorf("list llm models from api: %w", err)
 	}
-	log.Printf("SetupOpenclaw: got %d models from API", len(modelsResp.Models))
+	slog.Debug("got models from API", "component", "openclaw", "count", len(modelsResp.Models))
 
 	if len(modelsResp.Models) == 0 {
 		return fmt.Errorf("no llm models found")
 	}
 
-	log.Printf("SetupOpenclaw: resolving config model %q in list", llmModel)
+	slog.Debug("resolving config model in list", "component", "openclaw", "model", llmModel)
 	defaultModel, err := findModelByLLMModel(modelsResp.Models, llmModel)
 	if err != nil {
 		return err
 	}
-	log.Printf("SetupOpenclaw: selected default model key=%s name=%s", defaultModel.Key, defaultModel.Name)
+	slog.Debug("selected default model", "component", "openclaw", "key", defaultModel.Key, "name", defaultModel.Name)
 
-	log.Println("SetupOpenclaw: building models.providers.autonomous")
+	slog.Debug("building models.providers.autonomous", "component", "openclaw")
 	modelsMap := ensureMap(configData, "models")
 	modelsMap["mode"] = "merge"
 	providersMap := ensureMap(modelsMap, "providers")
@@ -177,7 +177,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	}
 	configData["models"] = modelsMap
 
-	log.Println("SetupOpenclaw: building agents.defaults (primary model and model metadata)")
+	slog.Debug("building agents.defaults", "component", "openclaw")
 	agentsMap := ensureMap(configData, "agents")
 	defaultsMap := ensureMap(agentsMap, "defaults")
 	workspace := filepath.Join(s.config.OpenclawConfigDir, "workspace")
@@ -204,7 +204,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 
 	switch channel {
 	case "slack":
-		log.Println("SetupOpenclaw: setting channels.slack (socket mode)")
+		slog.Debug("setting channels.slack (socket mode)", "component", "openclaw")
 		slackMap := ensureMap(channelsMap, "slack")
 		slackMap["enabled"] = true
 		slackMap["mode"] = "socket"
@@ -224,7 +224,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		slackEntryMap := ensureMap(entriesMap, "slack")
 		slackEntryMap["enabled"] = true
 	case "discord":
-		log.Println("SetupOpenclaw: setting channels.discord")
+		slog.Debug("setting channels.discord", "component", "openclaw")
 		discordMap := ensureMap(channelsMap, "discord")
 		discordMap["enabled"] = true
 		discordMap["dmPolicy"] = "allowlist"
@@ -245,7 +245,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		discordEntryMap := ensureMap(entriesMap, "discord")
 		discordEntryMap["enabled"] = true
 	default:
-		log.Println("SetupOpenclaw: setting channels.telegram")
+		slog.Debug("setting channels.telegram", "component", "openclaw")
 		telegramMap := ensureMap(channelsMap, "telegram")
 		telegramMap["enabled"] = true
 		telegramMap["botToken"] = data.TelegramBotToken
@@ -262,7 +262,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	}
 	configData["channels"] = channelsMap
 
-	log.Println("SetupOpenclaw: ensuring gateway defaults")
+	slog.Debug("ensuring gateway defaults", "component", "openclaw")
 	gatewayMap := ensureMap(configData, "gateway")
 	setDefaultValue(gatewayMap, "mode", defaultGatewayMode)
 	setDefaultValue(gatewayMap, "bind", defaultGatewayBind)
@@ -279,7 +279,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	gatewayMap["auth"] = gatewayAuthMap
 	configData["gateway"] = gatewayMap
 
-	log.Println("SetupOpenclaw: ensuring full-access tools defaults")
+	slog.Debug("ensuring full-access tools defaults", "component", "openclaw")
 	toolsMap := ensureMap(configData, "tools")
 	toolsMap["profile"] = "full"
 	execMap := ensureMap(toolsMap, "exec")
@@ -295,14 +295,14 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	toolsMap["elevated"] = elevatedMap
 	configData["tools"] = toolsMap
 
-	log.Println("SetupOpenclaw: ensuring messages defaults")
+	slog.Debug("ensuring messages defaults", "component", "openclaw")
 	messagesMap := ensureMap(configData, "messages")
 	messagesMap["responsePrefix"] = "auto"
 	messagesMap["ackReactionScope"] = "all"
 	messagesMap["removeAckAfterReply"] = true
 	configData["messages"] = messagesMap
 
-	log.Println("SetupOpenclaw: ensuring commands defaults")
+	slog.Debug("ensuring commands defaults", "component", "openclaw")
 	commandsMap := ensureMap(configData, "commands")
 	commandsMap["native"] = true
 	commandsMap["nativeSkills"] = true
@@ -316,7 +316,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	commandsMap["ownerAllowFrom"] = []any{"*"}
 	configData["commands"] = commandsMap
 
-	log.Println("SetupOpenclaw: ensuring skills defaults")
+	slog.Debug("ensuring skills defaults", "component", "openclaw")
 	skillsMap := ensureMap(configData, "skills")
 	loadMap := ensureMap(skillsMap, "load")
 	skillsDir := filepath.Join(workspace, "skills")
@@ -325,7 +325,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	skillsMap["load"] = loadMap
 	configData["skills"] = skillsMap
 
-	log.Println("SetupOpenclaw: marshalling and writing openclaw.json")
+	slog.Debug("marshalling and writing openclaw.json", "component", "openclaw")
 	written, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal openclaw config: %w", err)
@@ -339,14 +339,13 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	if err := chownRuntimeUserIfRoot(configPath, openclawRuntimeUser); err != nil {
 		return fmt.Errorf("set openclaw config ownership: %w", err)
 	}
-	log.Printf("SetupOpenclaw: wrote %s", configPath)
+	slog.Info("wrote openclaw config", "component", "openclaw", "path", configPath)
 
-	log.Println("SetupOpenclaw: restarting openclaw gateway")
+	slog.Debug("restarting openclaw gateway", "component", "openclaw")
 	if err := restartOpenclawGateway(); err != nil {
 		return err
 	}
-	log.Println("SetupOpenclaw: gateway restart completed")
-	log.Println("SetupOpenclaw: done")
+	slog.Info("gateway restart completed", "component", "openclaw")
 	return nil
 }
 
@@ -441,22 +440,22 @@ func (s *Service) AddChannel(data domain.AddChannelRequest) error {
 	if err := chownRuntimeUserIfRoot(configPath, openclawRuntimeUser); err != nil {
 		return fmt.Errorf("set openclaw config ownership: %w", err)
 	}
-	log.Printf("AddChannel: wrote %s (channel=%s)", configPath, channel)
+	slog.Info("wrote openclaw config", "component", "openclaw", "path", configPath, "channel", channel)
 
 	if err := restartOpenclawGateway(); err != nil {
 		return err
 	}
-	log.Println("AddChannel: gateway restarted")
+	slog.Info("gateway restarted", "component", "openclaw")
 	return nil
 }
 
 // ResetAgent overwrites openclaw.json with a minimal default config and restarts the gateway.
 func (s *Service) ResetAgent() error {
-	log.Println("ResetOpenclaw: checking openclaw in PATH")
+	slog.Debug("checking openclaw in PATH", "component", "openclaw")
 	if _, err := exec.LookPath("openclaw"); err != nil {
 		return fmt.Errorf("openclaw not found in PATH: %w", err)
 	}
-	log.Println("ResetOpenclaw: openclaw found")
+	slog.Debug("openclaw found", "component", "openclaw")
 	if err := os.RemoveAll(s.config.OpenclawConfigDir); err != nil {
 		return fmt.Errorf("remove openclaw config dir: %w", err)
 	}
@@ -471,23 +470,23 @@ func (s *Service) ResetAgent() error {
 	if err := chownRuntimeUserIfRoot(configPath, openclawRuntimeUser); err != nil {
 		return fmt.Errorf("set openclaw config ownership: %w", err)
 	}
-	log.Printf("ResetOpenclaw: wrote default %s", configPath)
+	slog.Info("wrote default config", "component", "openclaw", "path", configPath)
 
-	log.Println("ResetOpenclaw: restarting openclaw gateway")
+	slog.Debug("restarting openclaw gateway", "component", "openclaw")
 	if err := restartOpenclawGateway(); err != nil {
 		return err
 	}
-	log.Println("ResetOpenclaw: done")
+	slog.Info("reset completed", "component", "openclaw")
 	return nil
 }
 
 // RestartAgent restarts the openclaw gateway only.
 func (s *Service) RestartAgent() error {
-	log.Println("RestartOpenclaw: restarting openclaw gateway")
+	slog.Debug("restarting openclaw gateway", "component", "openclaw")
 	if err := restartOpenclawGateway(); err != nil {
 		return err
 	}
-	log.Println("RestartOpenclaw: done")
+	slog.Info("restart completed", "component", "openclaw")
 	return nil
 }
 
@@ -506,9 +505,9 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 			return
 		}
 		if err != nil {
-			log.Printf("Openclaw StartWS: %v; reconnecting in %v", err, backoff)
+			slog.Warn("websocket disconnected, reconnecting", "component", "openclaw", "error", err, "backoff", backoff)
 		} else {
-			log.Printf("Openclaw StartWS: connection closed; reconnecting in %v", backoff)
+			slog.Warn("websocket connection closed, reconnecting", "component", "openclaw", "backoff", backoff)
 		}
 		if !sleepCtx(ctx, backoff) {
 			return
@@ -538,7 +537,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	if err == nil {
-		log.Printf("Openclaw StartWS event: %s", string(msg))
+		slog.Debug("initial event received", "component", "openclaw", "event", string(msg))
 	}
 	conn.SetReadDeadline(time.Time{})
 
@@ -578,7 +577,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		return fmt.Errorf("read connect response: %w", err)
 	}
 	conn.SetReadDeadline(time.Time{})
-	log.Printf("[openclaw] connect response: %s", string(connectResp))
+	slog.Debug("connect response", "component", "openclaw", "response", string(connectResp))
 
 	var connectResult struct {
 		Type   string `json:"type"`
@@ -589,7 +588,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	if err := json.Unmarshal(connectResp, &connectResult); err == nil {
 		if connectResult.Result.SessionKey != "" {
 			s.SetSessionKey(connectResult.Result.SessionKey)
-			log.Printf("[openclaw] session key from connect: %s", connectResult.Result.SessionKey)
+			slog.Info("session key from connect", "component", "openclaw", "sessionKey", connectResult.Result.SessionKey)
 		}
 	}
 
@@ -606,7 +605,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			_, listResp, err := conn.ReadMessage()
 			conn.SetReadDeadline(time.Time{})
 			if err == nil {
-				log.Printf("[openclaw] sessions.list response: %s", string(listResp))
+				slog.Debug("sessions.list response", "component", "openclaw", "response", string(listResp))
 				var listResult struct {
 					Result struct {
 						Sessions []struct {
@@ -617,7 +616,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				if json.Unmarshal(listResp, &listResult) == nil && len(listResult.Result.Sessions) > 0 {
 					sk := listResult.Result.Sessions[0].SessionKey
 					s.SetSessionKey(sk)
-					log.Printf("[openclaw] session key from sessions.list: %s", sk)
+					slog.Info("session key from sessions.list", "component", "openclaw", "sessionKey", sk)
 				}
 			}
 		}
@@ -851,7 +850,7 @@ func (s *Service) onboardOpenclaw() error {
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("onboardOpenclaw: openclaw onboard failed: %v - output: %s", err, strings.TrimSpace(string(out)))
+		slog.Error("openclaw onboard failed", "component", "openclaw", "error", err, "output", strings.TrimSpace(string(out)))
 	}
 
 	// After onboard, update openclaw.json workspace to our custom workspace path and move workspace dir
@@ -902,7 +901,7 @@ func restartOpenclawGateway() error {
 			if err == nil {
 				return nil
 			}
-			log.Printf("restartOpenclawGateway: systemctl restart openclaw failed, fallback: %s", strings.TrimSpace(string(out)))
+			slog.Warn("systemctl restart failed, fallback", "component", "openclaw", "output", strings.TrimSpace(string(out)))
 		}
 	}
 	out, err := exec.Command("openclaw", "gateway", "restart").CombinedOutput()
@@ -913,7 +912,7 @@ func restartOpenclawGateway() error {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "systemd user services are unavailable") ||
 		strings.Contains(lower, "run the gateway in the foreground") {
-		log.Printf("restartOpenclawGateway: no supported service manager; skip restart. Details: %s", output)
+		slog.Warn("no supported service manager, skip restart", "component", "openclaw", "output", output)
 		return nil
 	}
 	return fmt.Errorf("openclaw gateway restart: %w - output: %s", err, output)
@@ -947,7 +946,7 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
-		log.Println("[openclaw] LeLamp voice pipeline started")
+		slog.Info("LeLamp voice pipeline started", "component", "openclaw")
 	}
 	return nil
 }
@@ -986,7 +985,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /voice/speak returned %d", resp.StatusCode)
 	}
-	log.Printf("[openclaw] TTS sent: %s", text[:min(len(text), 80)])
+	slog.Info("TTS sent", "component", "openclaw", "text", text[:min(len(text), 80)])
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "tts",
@@ -999,7 +998,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 // SetSessionKey stores the session key for outgoing chat messages.
 func (s *Service) SetSessionKey(key string) {
 	s.lastSessionKey.Store(key)
-	log.Printf("[openclaw] session key stored: %s", key)
+	slog.Info("session key stored", "component", "openclaw", "key", key)
 }
 
 // GetSessionKey returns the last observed session key, or empty string if none.
@@ -1051,7 +1050,7 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 		return "", fmt.Errorf("write chat.send: %w", err)
 	}
 
-	log.Printf("[openclaw] chat.send: session=%s msg=%q id=%s", sessionKey, message, reqID)
+	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",

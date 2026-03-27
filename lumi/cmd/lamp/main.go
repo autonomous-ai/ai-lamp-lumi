@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"os"
+	"log/slog"
 
+	"go-lamp.autonomous.ai/lib/logger"
 	"go-lamp.autonomous.ai/server"
 	"go-lamp.autonomous.ai/server/config"
 )
@@ -21,12 +21,7 @@ func main() {
 		return
 	}
 
-	// Write logs to both stdout and file for easier debugging
-	logFile, err := os.OpenFile("/var/log/lumi.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		log.SetOutput(io.MultiWriter(os.Stdout, logFile))
-		defer logFile.Close()
-	}
+	logger.Init(slog.LevelDebug)
 
 	srv, err := server.InitializeServer()
 	if err != nil {

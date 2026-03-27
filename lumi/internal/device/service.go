@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -31,7 +31,7 @@ func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentG
 }
 
 func (s *Service) Setup(data domain.SetupRequest) error {
-	log.Println("[device] starting setup")
+	slog.Info("starting setup", "component", "device")
 	result, err := s.networkService.SetupNetwork(data.SSID, data.Password)
 	if err != nil {
 		return fmt.Errorf("setup network: %w", err)
@@ -74,9 +74,9 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.FAChannel = data.FAChannel
 	s.config.FDChannel = data.FDChannel
 	if err := s.config.Save(); err != nil {
-		log.Printf("[device] save config: %v", err)
+		slog.Error("save config failed", "component", "device", "error", err)
 	}
-	log.Println("[device] config saved")
+	slog.Info("config saved", "component", "device")
 
 	// Wait for agent gateway to be ready before marking device as working.
 	if ok := s.WaitForAgentReady(120 * time.Second); !ok {
@@ -85,10 +85,10 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 
 	s.config.SetUpCompleted = true
 	if err := s.config.Save(); err != nil {
-		log.Printf("[device] save config: %v", err)
+		slog.Error("save config failed", "component", "device", "error", err)
 	}
 
-	log.Println("[device] agent gateway is ready")
+	slog.Info("agent gateway is ready", "component", "device")
 	if s.beClient != nil && llmAPIKey != "" {
 		s.beClient.PingSafe(llmAPIKey, beclient.PingPayload{
 			Status:         "working",
@@ -121,9 +121,9 @@ func (s *Service) AddChannel(data domain.AddChannelRequest) error {
 		s.config.TelegramUserID = data.TelegramUserID
 	}
 	if err := s.config.Save(); err != nil {
-		log.Printf("AddChannel: save config: %v", err)
+		slog.Error("save config failed", "component", "device", "error", err)
 	}
-	log.Printf("AddChannel: added channel %s", channel)
+	slog.Info("added channel", "component", "device", "channel", channel)
 	return nil
 }
 
@@ -151,13 +151,13 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 				Version:        config.LumiVersion,
 			})
 			dump, _ := json.Marshal(resp)
-			log.Printf("[status-reporter] received response from backend: %s", string(dump))
+			slog.Debug("received response from backend", "component", "status-reporter", "response", string(dump))
 			if resp.DeviceID != "" && resp.DeviceID != s.config.DeviceID {
 				s.config.DeviceID = resp.DeviceID
 			}
 			if resp.HasMQTT() && resp.GetMQTT().Endpoint != s.config.MQTTEndpoint {
 				mqttCfg := resp.GetMQTT()
-				log.Printf("[status-reporter] received MQTT config from backend: %s", mqttCfg.Endpoint)
+				slog.Info("received MQTT config from backend", "component", "status-reporter", "endpoint", mqttCfg.Endpoint)
 				s.config.MQTTEndpoint = mqttCfg.Endpoint
 				port, _ := strconv.Atoi(mqttCfg.Port)
 				s.config.MQTTPort = port
@@ -166,7 +166,7 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 				s.config.FAChannel = mqttCfg.FaChannel
 				s.config.FDChannel = mqttCfg.FdChannel
 				if err := s.config.Save(); err != nil {
-					log.Printf("[status-reporter] save MQTT config: %v", err)
+					slog.Error("save MQTT config failed", "component", "status-reporter", "error", err)
 				}
 			}
 		}

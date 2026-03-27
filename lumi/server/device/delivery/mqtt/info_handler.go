@@ -1,7 +1,7 @@
 package mqtthandler
 
 import (
-	"log"
+	"log/slog"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
@@ -9,6 +9,6 @@ import (
 
 func (h *DeviceMQTTHandler) handleInfo(_ domain.MQTTMessage) error {
 	msg := domain.NewMQTTInfoResponse(h.config, "info", device.GetDeviceMac())
-	log.Printf("[mqtt] info: publishing device info (version=%s, id=%s)", msg.Version, msg.ID)
+	slog.Info("publishing device info", "component", "mqtt", "version", msg.Version, "id", msg.ID)
 	return h.publish(msg)
 }

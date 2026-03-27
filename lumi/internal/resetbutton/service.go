@@ -2,7 +2,7 @@ package resetbutton
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -57,7 +57,7 @@ func (s *Service) Start(ctx context.Context, onPress, onPowerOff, onFactoryReset
 	line, err := s.chip.RequestLine(gpioResetButton, gpiocdev.AsInput, gpiocdev.WithPullUp)
 	if err != nil {
 		s.mu.Unlock()
-		log.Printf("resetbutton: request line GPIO %d: %v", gpioResetButton, err)
+		slog.Error("request line failed", "component", "resetbutton", "gpio", gpioResetButton, "error", err)
 		return
 	}
 	s.line = line
@@ -88,7 +88,7 @@ func (s *Service) run(ctx context.Context, onPress, onPowerOff, onFactoryReset f
 		case <-ticker.C:
 			val, err := s.line.Value()
 			if err != nil {
-				log.Printf("resetbutton: read GPIO %d: %v", gpioResetButton, err)
+				slog.Error("read GPIO failed", "component", "resetbutton", "gpio", gpioResetButton, "error", err)
 				holdStart = time.Time{}
 				powerOffThresholdFired = false
 				factoryResetThresholdFired = false
@@ -117,12 +117,12 @@ func (s *Service) run(ctx context.Context, onPress, onPowerOff, onFactoryReset f
 				if !holdStart.IsZero() {
 					elapsed := time.Since(holdStart)
 					if elapsed >= factoryResetThreshold {
-						log.Printf("resetbutton: factory reset (>= %s) detected on GPIO %d", factoryResetThreshold, gpioResetButton)
+						slog.Info("factory reset detected", "component", "resetbutton", "gpio", gpioResetButton, "threshold", factoryResetThreshold)
 						if onFactoryReset != nil {
 							go onFactoryReset()
 						}
 					} else if elapsed >= powerOffThreshold {
-						log.Printf("resetbutton: power off (>= %s) detected on GPIO %d", powerOffThreshold, gpioResetButton)
+						slog.Info("power off detected", "component", "resetbutton", "gpio", gpioResetButton, "threshold", powerOffThreshold)
 						if onPowerOff != nil {
 							go onPowerOff()
 						}

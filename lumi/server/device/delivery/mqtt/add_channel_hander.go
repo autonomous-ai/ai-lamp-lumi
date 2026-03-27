@@ -2,7 +2,7 @@ package mqtthandler
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/go-playground/validator/v10"
 	"go-lamp.autonomous.ai/domain"
@@ -22,7 +22,7 @@ func (h *DeviceMQTTHandler) publishAddChannelResult(channel, status string, errM
 func (h *DeviceMQTTHandler) handleAddChannel(cmd domain.MQTTMessage) error {
 	var req domain.MQTTAddChannelCommand
 	if err := json.Unmarshal(cmd.Raw(), &req); err != nil {
-		log.Printf("[mqtt] add_channel: invalid payload: %v", err)
+		slog.Error("add_channel: invalid payload", "component", "mqtt", "error", err)
 		return h.publishAddChannelResult(req.Channel, "failure", "invalid JSON payload")
 	}
 
@@ -34,10 +34,10 @@ func (h *DeviceMQTTHandler) handleAddChannel(cmd domain.MQTTMessage) error {
 		return h.publishAddChannelResult(req.Channel, "failure", err.Error())
 	}
 	if err := h.deviceService.AddChannel(channelReq); err != nil {
-		log.Printf("[mqtt] add_channel: failed to add channel %s: %v", req.Channel, err)
+		slog.Error("add_channel: failed", "component", "mqtt", "channel", req.Channel, "error", err)
 		return h.publishAddChannelResult(req.Channel, "failure", err.Error())
 	}
 
-	log.Printf("[mqtt] add_channel: successfully added channel %s", req.Channel)
+	slog.Info("add_channel: success", "component", "mqtt", "channel", req.Channel)
 	return h.publishAddChannelResult(req.Channel, "success", "")
 }

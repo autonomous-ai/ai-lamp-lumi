@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"log"
+	"log/slog"
 	"net/url"
 	"sync"
 	"time"
@@ -98,12 +98,12 @@ func (c *MQTT) Connect(ctx context.Context) error {
 				if _, err := cm.Subscribe(context.Background(), &paho.Subscribe{
 					Subscriptions: []paho.SubscribeOptions{{Topic: s.topic, QoS: s.qos}},
 				}); err != nil {
-					log.Printf("[mqtt] subscribe %s: %v", s.topic, err)
+					slog.Error("subscribe failed", "component", "mqtt", "topic", s.topic, "error", err)
 				}
 			}
 		},
 		OnConnectionDown: func() bool { return true }, // keep reconnecting
-		OnConnectError:   func(err error) { log.Printf("[mqtt] connect error: %v", err) },
+		OnConnectError:   func(err error) { slog.Error("connect error", "component", "mqtt", "error", err) },
 		ClientConfig: paho.ClientConfig{
 			ClientID: c.opts.ClientID,
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
