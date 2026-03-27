@@ -303,12 +303,116 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 }
 
 // Recent returns the last N monitor events.
+// If the ring buffer has no turn-starting events (sensing_input, chat_input),
+// it falls back to reading today's JSONL flow log and converting to MonitorEvents.
 func (h *OpenClawHandler) Recent(c *gin.Context) {
 	events := h.monitorBus.Recent(100)
 	if events == nil {
 		events = []domain.MonitorEvent{}
 	}
+
+	// Check if ring buffer contains any turn-starting events
+	hasTurns := false
+	for _, ev := range events {
+		if ev.Type == "sensing_input" || ev.Type == "chat_input" {
+			hasTurns = true
+			break
+		}
+	}
+
+	// Fallback: read tail of today's JSONL flow log and convert to MonitorEvents
+	if !hasTurns {
+		if flowEvents := recentFlowFromJSONL(500); len(flowEvents) > 0 {
+			events = append(flowEvents, events...)
+			// Cap to 500 total
+			if len(events) > 500 {
+				events = events[len(events)-500:]
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(events))
+}
+
+// recentFlowFromJSONL reads the last n lines from today's flow JSONL and converts to MonitorEvents.
+func recentFlowFromJSONL(n int) []domain.MonitorEvent {
+	day := time.Now().Format("2006-01-02")
+	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// Read all lines (flow files are typically <10MB)
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	// Take last n lines
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+
+	events := make([]domain.MonitorEvent, 0, len(lines))
+	for _, line := range lines {
+		var fe flow.Event
+		if err := json.Unmarshal([]byte(line), &fe); err != nil {
+			continue
+		}
+		ev := flowEventToMonitor(fe)
+		events = append(events, ev)
+	}
+	return events
+}
+
+// flowEventToMonitor converts a flow.Event (JSONL) to a domain.MonitorEvent (for UI).
+func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
+	evType := "flow_" + string(fe.Kind)
+
+	// Promote well-known nodes to their own event type for turn grouping
+	switch fe.Node {
+	case "sensing_input":
+		if fe.Kind == "enter" {
+			evType = "sensing_input"
+		}
+	case "chat_input":
+		if fe.Kind == "enter" {
+			evType = "chat_input"
+		}
+	case "intent_match":
+		if fe.Kind == "event" || fe.Kind == "exit" {
+			evType = "intent_match"
+		}
+	}
+
+	summary := fmt.Sprintf("[%s] %s", fe.Kind, fe.Node)
+	if fe.DurationMs > 0 {
+		summary += fmt.Sprintf(" (%dms)", fe.DurationMs)
+	}
+
+	// Build summary from data for sensing_input
+	if fe.Node == "sensing_input" && fe.Kind == "enter" && fe.Data != nil {
+		if msg, ok := fe.Data["message"].(string); ok {
+			typ, _ := fe.Data["type"].(string)
+			summary = fmt.Sprintf("[%s] %s", typ, msg)
+		}
+	}
+
+	t := time.Unix(int64(fe.TS), int64((fe.TS-float64(int64(fe.TS)))*1e9))
+
+	return domain.MonitorEvent{
+		ID:      fmt.Sprintf("flow-%d", fe.Seq),
+		Time:    t.Format(time.RFC3339Nano),
+		Type:    evType,
+		Summary: summary,
+		RunID:   fe.TraceID,
+		Phase:   string(fe.Kind),
+		Detail:  map[string]any{"node": fe.Node, "dur_ms": fe.DurationMs, "data": fe.Data},
+	}
 }
 
 // FlowLogs serves the daily flow JSONL log file for download.
