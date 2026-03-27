@@ -911,23 +911,23 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     // sensing_input → sensing node
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
-      if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2].slice(0, 40)}"`);
-      else info.sensing.push(ev.summary.slice(0, 50));
+      if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
+      else info.sensing.push(ev.summary);
     }
     // intent_match → local_match node
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
-      info.local_match.push(ev.summary.slice(0, 50));
+      info.local_match.push(ev.summary);
     }
     // chat_send → intent_check / agent_call
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       info.intent_check.push("→ agent route");
-      info.agent_call.push(`msg: "${ev.summary.slice(0, 35)}"`);
+      info.agent_call.push(`msg: "${ev.summary}"`);
     }
     // tool_call → tool_exec node — show tool name + args
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, string> | undefined;
       const toolName = d?.tool ?? "unknown";
-      const args = d?.args ? d.args.slice(0, 40) : "";
+      const args = d?.args ? d.args : "";
       // Avoid duplicates
       const entry = `⚙ ${toolName}${args ? `(${args})` : ""}`;
       if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
@@ -935,29 +935,29 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     // thinking → agent_thinking node
     if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
       if (ev.type === "thinking" && ev.summary && info.agent_thinking.length < 2) {
-        info.agent_thinking.push(`"${ev.summary.slice(0, 40)}…"`);
+        info.agent_thinking.push(`"${ev.summary}…"`);
       }
     }
     // chat_response → agent_response node
     if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       const d = ev.detail as Record<string, string> | undefined;
       if (d?.message && info.agent_response.length < 2) {
-        info.agent_response.push(`"${(d.message).slice(0, 45)}…"`);
+        info.agent_response.push(`"${d.message}…"`);
       } else if (ev.summary && info.agent_response.length < 2) {
-        info.agent_response.push(`"${ev.summary.slice(0, 45)}…"`);
+        info.agent_response.push(`"${ev.summary}…"`);
       }
     }
     // tts → tts_speak node
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
       if (info.tts_speak.length < 2) {
-        info.tts_speak.push(`🔊 "${ev.summary.slice(0, 40)}"`);
+        info.tts_speak.push(`🔊 "${ev.summary}"`);
       }
     }
     // lifecycle → idle / agent_call + token usage on agent_response
     if (ev.type === "lifecycle") {
-      if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId?.slice(0, 12) ?? "?"}`);
+      if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
       if (ev.phase === "end") {
-        info.idle.push(ev.error ? `❌ ${ev.error.slice(0, 30)}` : "✓ turn done");
+        info.idle.push(ev.error ? `❌ ${ev.error}` : "✓ turn done");
         const d = ev.detail as Record<string, string> | undefined;
         if (d?.inputTokens) {
           const inp = parseInt(d.inputTokens, 10);
@@ -972,14 +972,14 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       const d = ev.detail as Record<string, any> | undefined;
       const text = d?.text ?? ev.summary;
       if (text && info.output.length < 3) {
-        info.output.push(`🔊 "${text.slice(0, 40)}"`);
+        info.output.push(`🔊 "${text}"`);
       }
     }
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       const d = ev.detail as Record<string, any> | undefined;
       const tts = d?.data?.tts ?? d?.tts ?? "";
-      if (tts && info.output.length < 3) info.output.push(`💡 ${tts.slice(0, 40)}`);
-      if (ev.summary && info.output.length < 3) info.output.push(`⚡ ${ev.summary.slice(0, 40)}`);
+      if (tts && info.output.length < 3) info.output.push(`💡 ${tts}`);
+      if (ev.summary && info.output.length < 3) info.output.push(`⚡ ${ev.summary}`);
     }
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, string> | undefined;
@@ -1006,7 +1006,7 @@ function FlowDiagram({
 }) {
   // viewBox dimensions (logical coordinate space)
   const VW = 940;
-  const VH = 300;
+  const VH = 380;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -1046,16 +1046,16 @@ function FlowDiagram({
 
   // Node positions — wider spacing for info
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:           { x: 60,  y: 130 },
-    sensing:        { x: 170, y: 130 },
-    intent_check:   { x: 290, y: 130 },
-    local_match:    { x: 410, y: 55  },
-    agent_call:     { x: 410, y: 130 },
-    agent_thinking: { x: 520, y: 130 },
-    tool_exec:      { x: 640, y: 55  },
-    agent_response: { x: 640, y: 130 },
-    tts_speak:      { x: 760, y: 130 },
-    output:         { x: 880, y: 130 },
+    idle:           { x: 60,  y: 210 },
+    sensing:        { x: 170, y: 210 },
+    intent_check:   { x: 290, y: 210 },
+    local_match:    { x: 410, y: 80  },
+    agent_call:     { x: 410, y: 210 },
+    agent_thinking: { x: 520, y: 210 },
+    tool_exec:      { x: 640, y: 80  },
+    agent_response: { x: 640, y: 210 },
+    tts_speak:      { x: 760, y: 210 },
+    output:         { x: 880, y: 210 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
@@ -1204,28 +1204,44 @@ function FlowDiagram({
               </text>
 
               {/* Runtime info box — shows tool names, func calls, messages */}
-              {hasInfo && (
-                <g>
-                  <rect
-                    x={pos.x - 70} y={boxY - 2}
-                    width={140} height={lines.slice(0, 4).length * 11 + 8}
-                    rx={4} ry={4}
-                    fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
-                    opacity={0.92}
-                  />
-                  {lines.slice(0, 4).map((line, i) => (
-                    <text
-                      key={i}
-                      x={pos.x} y={boxY + 9 + i * 11}
-                      textAnchor="middle"
-                      fill={color} fontSize={6} opacity={0.9}
-                      fontFamily="monospace"
-                    >
-                      {line.length > 30 ? line.slice(0, 29) + "…" : line}
-                    </text>
-                  ))}
-                </g>
-              )}
+              {hasInfo && (() => {
+                // Wrap long lines at ~35 chars per row
+                const MAX_CHARS = 35;
+                const wrapped: string[] = [];
+                for (const line of lines.slice(0, 6)) {
+                  if (line.length <= MAX_CHARS) { wrapped.push(line); }
+                  else {
+                    for (let j = 0; j < line.length; j += MAX_CHARS) {
+                      wrapped.push(line.slice(j, j + MAX_CHARS));
+                    }
+                  }
+                }
+                const showLines = wrapped.slice(0, 8);
+                const maxLen = Math.max(...showLines.map((l) => l.length));
+                const boxW = Math.max(140, maxLen * 4 + 20);
+                return (
+                  <g>
+                    <rect
+                      x={pos.x - boxW / 2} y={boxY - 2}
+                      width={boxW} height={showLines.length * 10 + 8}
+                      rx={4} ry={4}
+                      fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
+                      opacity={0.92}
+                    />
+                    {showLines.map((line, i) => (
+                      <text
+                        key={i}
+                        x={pos.x} y={boxY + 8 + i * 10}
+                        textAnchor="middle"
+                        fill={color} fontSize={5.5} opacity={0.9}
+                        fontFamily="monospace"
+                      >
+                        {line}
+                      </text>
+                    ))}
+                  </g>
+                );
+              })()}
             </g>
           );
         })}
@@ -1281,7 +1297,7 @@ function turnIO(turn: Turn): { input: string; output: string } {
       output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
     }
   }
-  return { input: input.slice(0, 50), output: output.slice(0, 50) };
+  return { input, output };
 }
 
 function TurnBadge({ turn }: { turn: Turn }) {
@@ -1326,8 +1342,8 @@ function TurnBadge({ turn }: { turn: Turn }) {
       {/* Row 2: input */}
       {input && (
         <div style={{
-          fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 2,
-          whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis",
+          fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 3,
+          wordBreak: "break-word" as const, lineHeight: 1.4,
         }}>
           <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
           {input}
@@ -1337,7 +1353,7 @@ function TurnBadge({ turn }: { turn: Turn }) {
       {output && (
         <div style={{
           fontSize: 10, color: "var(--lm-text-dim)",
-          whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis",
+          wordBreak: "break-word" as const, lineHeight: 1.4,
         }}>
           <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>OUT</span>
           {output}
@@ -1686,7 +1702,7 @@ function FlowSection({ events }: { events: DisplayEvent[] }) {
                       </span>
                       <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{ev.time}</span>
                     </div>
-                    <div style={{ fontSize: 10.5, color: "var(--lm-text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                    <div style={{ fontSize: 10.5, color: "var(--lm-text-dim)", wordBreak: "break-word" as const, lineHeight: 1.4 }}>
                       {ev.summary}
                     </div>
                     {ev.detail?.dur_ms && Number(ev.detail.dur_ms) > 0 && (
