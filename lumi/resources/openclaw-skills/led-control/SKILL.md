@@ -1,101 +1,97 @@
+---
+name: led-control
+description: Control the 64-pixel WS2812 RGB LED strip when the user asks for a SPECIFIC color, LED effect, pixel painting, or turning LEDs off. Do NOT use for ambiance/activity lighting (use Scene) or emotion expression (use Emotion).
+---
+
 # LED Control
 
-You have access to a 64-pixel WS2812 RGB LED strip on this device via the hardware API at `http://127.0.0.1:5001`.
+## Quick Start
+Control the lamp's 64-pixel WS2812 RGB LED strip directly. Use this skill only when the user requests a specific color, effect, pixel pattern, or to turn LEDs off.
 
-## Priority
+## Workflow
+1. Check what is currently showing: `GET /led/color`
+2. Determine the user's intent:
+   - Specific color request -> use `POST /led/solid`
+   - Effect request (breathing, candle, rainbow, etc.) -> use `POST /led/effect`
+   - Pixel pattern -> use `POST /led/paint`
+   - Turn off -> use `POST /led/off`
+3. Execute the appropriate API call
+4. Confirm the action to the user
 
-**Low priority for ambiance.** For activity-based lighting (reading, sleeping, relaxing), use **Scene** skill. For expressing YOUR emotion, use **Emotion** skill. Use LED Control only for:
+## Examples
 
-- User asks for a SPECIFIC color ("make it purple", "red light")
-- User asks for an EFFECT ("breathing light", "candle mode", "rainbow")
-- Painting individual pixels for patterns
-- Turning LEDs off
+Input: "Make it purple"
+Output: Call `POST /led/solid` with `{"color": [100, 50, 200]}`. Confirm: "I've set the LEDs to purple."
 
-## When NOT to use
+Input: "Do a breathing light with warm color"
+Output: Call `POST /led/effect` with `{"effect": "breathing", "color": [255, 180, 100], "speed": 0.5}`. Confirm: "Breathing effect started with a warm glow."
 
-- **Sleeping, relaxing, reading, focus, movie** → use **Scene** (has brightness control)
-- **Expressing your emotion** → use **Emotion** (coordinates servo + LED + eyes)
-- Direct LED solid colors are always FULL BRIGHTNESS — too harsh for sleep/relax
+Input: "Rainbow mode!"
+Output: Call `POST /led/effect` with `{"effect": "rainbow", "speed": 1.0}`. Confirm: "Rainbow effect is running!"
 
-## API
+Input: "Turn off the lights"
+Output: Call `POST /led/off`. Confirm: "LEDs are off."
 
-Base URL: `http://127.0.0.1:5001`
+Input: "I want to relax" / "reading mode" / "goodnight"
+Output: Do NOT use this skill. Use **Scene** skill instead.
+
+Input: Conversational reply needing emotion
+Output: Do NOT use this skill. Use **Emotion** skill instead.
+
+## Tools
+
+Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
 
 ### Get LED info
-
+```bash
+curl -s http://127.0.0.1:5001/led
 ```
-GET /led
-```
-
 Response: `{"led_count": 64}`
 
 ### Get current color
-
+```bash
+curl -s http://127.0.0.1:5001/led/color
 ```
-GET /led/color
-```
-
 Response: `{"color": [255, 180, 100], "effect_running": true, "effect_name": "breathing"}`
 
-Use this to check what's currently showing before making changes.
-
 ### Set solid color (fill all LEDs)
-
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/solid \
+  -H "Content-Type: application/json" \
+  -d '{"color": [R, G, B]}'
 ```
-POST /led/solid
-Content-Type: application/json
-
-{"color": [R, G, B]}
-```
-
 Color can be an RGB array `[255, 100, 0]` or a packed integer `16711680`.
 
 ### Paint individual pixels
-
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/paint \
+  -H "Content-Type: application/json" \
+  -d '{"colors": [[R,G,B], [R,G,B], ...]}'
 ```
-POST /led/paint
-Content-Type: application/json
-
-{"colors": [[R,G,B], [R,G,B], ...]}
-```
-
 Array of up to 64 colors, one per pixel.
 
 ### Turn off all LEDs
-
-```
-POST /led/off
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/off
 ```
 
 ### Start an effect
-
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/effect \
+  -H "Content-Type: application/json" \
+  -d '{"effect": "breathing", "color": [255, 180, 100], "speed": 1.0, "duration_ms": null}'
 ```
-POST /led/effect
-Content-Type: application/json
-
-{"effect": "breathing", "color": [255, 180, 100], "speed": 1.0, "duration_ms": null}
-```
-
 - `effect` (required): effect name (see table below)
 - `color` (optional): base RGB color, default uses current color
 - `speed` (optional): 0.1 (slow) to 5.0 (fast), default 1.0
 - `duration_ms` (optional): auto-stop after N ms, null = run until stopped
 
-Example — gentle breathing warm light:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/effect \
-  -H "Content-Type: application/json" \
-  -d '{"effect": "breathing", "color": [255, 180, 100], "speed": 0.5}'
-```
-
 ### Stop current effect
-
+```bash
+curl -s -X POST http://127.0.0.1:5001/led/effect/stop
 ```
-POST /led/effect/stop
-```
 
-## Available effects
+### Available effects
 
 | Effect | Description | Best for |
 |---|---|---|
@@ -105,7 +101,7 @@ POST /led/effect/stop
 | `notification_flash` | 3 quick flashes then auto-stops | Alerts, timer done, reminders |
 | `pulse` | Radial brightness wave from center | Attention, heartbeat, alive feeling |
 
-## Color suggestions (for solid color requests)
+### Color suggestions
 
 | Mood | Color (RGB) |
 |---|---|
@@ -116,11 +112,25 @@ POST /led/effect/stop
 | Happy | `[255, 220, 0]` |
 | Calm | `[0, 150, 255]` |
 
-## Guidelines
+## Error Handling
+- If the API returns an error or is unreachable, inform the user: "I couldn't control the LEDs right now. The hardware service may be unavailable."
+- If the user requests an unknown effect name, pick the closest match from the available effects table or tell the user which effects are available.
 
-- **Solid colors = full brightness.** For dim/ambient, use Scene skill.
+## Rules
+- **Solid colors = full brightness.** For dim/ambient lighting, use the Scene skill instead.
 - **Effects run until stopped** (unless `duration_ms` is set). Starting a new effect auto-stops the previous one.
 - `/led/off` also stops any running effect.
-- For "make it cozy" or "candle light" → use `candle` effect, NOT a static orange color.
-- For "breathing" or "pulsing" requests → use the matching effect.
+- For "make it cozy" or "candle light" -> use `candle` effect, NOT a static orange color.
+- For "breathing" or "pulsing" requests -> use the matching effect.
 - Combine effects with low speed (0.3-0.5) for calm moods, high speed (2.0-3.0) for energy.
+- **Do NOT use for activity/ambiance lighting** (sleeping, relaxing, reading, focus, movie) -> use **Scene** skill.
+- **Do NOT use for expressing emotion** -> use **Emotion** skill.
+
+## Output Template
+```
+[LED Control] {action} — {details}
+```
+Examples:
+- `[LED Control] Solid color set — purple [100, 50, 200]`
+- `[LED Control] Effect started — breathing, warm [255, 180, 100], speed 0.5`
+- `[LED Control] LEDs off`

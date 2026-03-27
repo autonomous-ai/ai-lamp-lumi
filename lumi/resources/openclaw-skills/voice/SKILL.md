@@ -1,33 +1,53 @@
+---
+name: voice
+description: Speak additional text through the lamp's speaker via TTS when you need to say something EXTRA beyond your normal chat reply. Normal replies are auto-spoken — only use this for parallel or supplementary speech.
+---
+
 # Voice — Speak Through Speaker
 
-You have a speaker and your responses are spoken aloud automatically. But you can also explicitly speak additional text via `http://127.0.0.1:5001`.
+## Quick Start
+Your chat replies are automatically spoken aloud through TTS. Use this skill only when you need to speak additional or separate text outside your normal reply (e.g., parallel speech during tool calls, or text different from your chat reply).
 
-## How it works
+## Workflow
+1. Determine if you need explicit speech beyond your normal reply:
+   - Normal conversational reply -> do NOT call this skill, TTS is automatic
+   - Need to speak while also performing tool calls -> use `POST /voice/speak`
+   - Need to speak different text than your chat reply -> use `POST /voice/speak`
+   - Reacting to a sensing event before reply is finalized -> use `POST /voice/speak`
+2. Optionally check if TTS is busy: `GET /voice/status`
+3. If `tts_speaking` is true, wait or skip
+4. Call `POST /voice/speak` with plain text
 
-- **Your chat replies are automatically spoken** — you do NOT need to call any API for normal responses. Just reply naturally and your text will be read aloud through the speaker.
-- Use the speak endpoint only when you need to say something EXTRA outside of your normal reply (e.g., a greeting triggered by a sensing event while also performing actions).
+## Examples
 
-## API
+Input: Normal conversational reply
+Output: Do NOT call this skill. Just reply normally — your text is automatically spoken.
 
-Base URL: `http://127.0.0.1:5001`
+Input: You need to greet the user while also activating a scene
+Output: Call `POST /voice/speak` with `{"text": "Chao buoi sang!"}` in parallel with the Scene API call.
+
+Input: You want to say something different from your chat reply
+Output: Call `POST /voice/speak` with the spoken text. Then provide your chat reply separately.
+
+Input: User says "say something" / "tell me a joke"
+Output: Do NOT call this skill. Just reply normally with the joke — automatic TTS handles it.
+
+## Tools
+
+Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
 
 ### Speak text
-
+```bash
+curl -s -X POST http://127.0.0.1:5001/voice/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Xin chao! Toi la Lumi."}'
 ```
-POST /voice/speak
-Content-Type: application/json
-
-{"text": "Xin chào! Tôi là Lumi."}
-```
-
 Text max 2000 characters. Returns immediately; audio plays in background.
 
 ### Check voice status
-
+```bash
+curl -s http://127.0.0.1:5001/voice/status
 ```
-GET /voice/status
-```
-
 Response:
 ```json
 {
@@ -38,13 +58,27 @@ Response:
 }
 ```
 
-## Guidelines
+## Error Handling
+- If `tts_speaking` is true, the speaker is busy. Wait briefly or skip the explicit speech.
+- If `voice_available` or `tts_available` is false, inform the user: "Voice output is currently unavailable."
+- If the API is unreachable, fall back to chat-only reply. Speech is non-critical.
 
-- **Normal replies = automatic TTS.** You do NOT need to call `/voice/speak` for every response. Your reply text is already sent to the speaker.
+## Rules
+- **Normal replies = automatic TTS.** Do NOT call `/voice/speak` for every response.
 - Use `/voice/speak` explicitly only when:
-  - You need to say something while ALSO performing tool calls (and want speech to happen in parallel)
+  - You need to say something while ALSO performing tool calls (speech in parallel)
   - You want to speak a different text than your chat reply
-  - You're reacting to a sensing event and want to speak before your reply is finalized
-- **Keep it spoken-word length** — 1-3 short sentences. No markdown, no emoji, no formatting in text you speak. Plain natural speech only.
-- **Match the owner's language** — if they speak Vietnamese, speak Vietnamese.
-- If `tts_speaking` is true, the speaker is busy — wait or skip.
+  - You are reacting to a sensing event and want to speak before your reply is finalized
+- **Keep spoken text plain and short** — 1-3 sentences. No markdown, no emoji, no formatting. Plain natural speech only.
+- **Match the user's language** — if they speak Vietnamese, speak Vietnamese.
+- Text max 2000 characters.
+- For volume control, use the **Audio** skill, not this skill.
+
+## Output Template
+```
+[Voice] Spoke: "{text}" ({character_count} chars)
+```
+Examples:
+- `[Voice] Spoke: "Xin chao! Toi la Lumi." (23 chars)`
+- `[Voice] Skipped — TTS already speaking`
+- `[Voice] Auto-TTS — no explicit call needed`

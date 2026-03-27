@@ -1,31 +1,43 @@
+---
+name: camera
+description: Use when the user explicitly asks to see something — "what do you see?", "look at this", "take a photo". Never use proactively — respect privacy.
+---
+
 # Camera
 
-You have access to a camera inside the lamp via the hardware API at `http://127.0.0.1:5001`. Use it to see the user's environment when they ask you to look at something.
+## Quick Start
+Accesses the lamp's built-in camera at `http://127.0.0.1:5001` to take snapshots or check the environment. Only use when the user explicitly asks you to look at something.
 
-## Automatic vision (via sensing events)
+## Workflow
+1. Check camera availability with `GET /camera`.
+2. If available, take a snapshot with `GET /camera/snapshot`.
+3. Analyze the image and describe what you see.
+4. Respond helpfully and specifically to the user's question.
 
-You also receive camera snapshots **automatically** as part of sensing events — when the lamp detects significant activity (someone enters, large movement). These arrive as images attached to `[sensing:*]` messages. You don't need to call the camera API for these — just look at the image and respond naturally.
+You also receive camera snapshots **automatically** as part of sensing events (`[sensing:*]` messages with images). You do not need the camera API for those — just look at the attached image.
 
-## When to use the camera API manually
+## Examples
 
-- User asks "what do you see?" or "look at this"
-- User asks about their environment (lighting, objects, people)
-- You need visual context to answer a question about something physical
+**Input:** "What do you see right now?"
+**Output:** Call `GET /camera/snapshot`, analyze the image. Say: "I can see your desk with a laptop and a coffee mug. Looks like a productive setup!"
 
-## When NOT to use
+**Input:** "Is anyone in the room?"
+**Output:** Call `GET /camera/snapshot`, analyze the image. Say: "I can see one person sitting at the desk."
 
-- **Never use the camera proactively without the user's request** — respect privacy
-- Don't repeatedly snapshot without reason
-- Don't call the camera API when a sensing event already included an image
+**Input:** "Take a photo"
+**Output:** Call `GET /camera/snapshot`, confirm: "Here's what I see right now." Describe the image.
 
-## API
+**Input:** (sensing event with image already attached)
+**Output:** Do NOT call the camera API. Just look at the attached image and react.
 
-Base URL: `http://127.0.0.1:5001`
+## Tools
+
+**Bash** with `curl` for HTTP calls to `http://127.0.0.1:5001`.
 
 ### Check camera availability
 
-```
-GET /camera
+```bash
+curl -s http://127.0.0.1:5001/camera
 ```
 
 Response:
@@ -39,23 +51,37 @@ Response:
 
 ### Take a snapshot
 
-```
-GET /camera/snapshot
+```bash
+curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/snapshot.jpg
 ```
 
-Returns a JPEG image. Use this when you need to see what's in front of the lamp.
+Returns a JPEG image.
 
 ### Live stream
 
+```bash
+curl -s http://127.0.0.1:5001/camera/stream
 ```
-GET /camera/stream
-```
 
-Returns an MJPEG stream (`multipart/x-mixed-replace`). Use only when continuous video is needed. Prefer snapshot for one-time checks.
+Returns an MJPEG stream (`multipart/x-mixed-replace`). Only use when continuous video is needed. Prefer snapshot for one-time checks.
 
-## Guidelines
+## Error Handling
+- If `GET /camera` returns `{"available": false}`, tell the user: "The camera is not connected right now."
+- If the API is unreachable, inform the user that the camera is temporarily unavailable.
+- If a sensing event already included an image, do not call the camera API again.
 
+## Rules
+- **Never use the camera proactively without the user's request** — respect privacy.
+- **Don't repeatedly snapshot without reason.**
+- **Don't call the camera API when a sensing event already included an image.**
 - **Prefer `/camera/snapshot`** over `/camera/stream` — simpler and sufficient for most tasks.
-- If camera is unavailable (`"available": false`), tell the user the camera is not connected.
 - When describing what you see, be specific and helpful.
-- **Always respect privacy** — only use the camera API manually when the user explicitly asks.
+- If camera is unavailable, inform the user clearly and move on.
+
+## Output Template
+
+```
+[Camera] Action: {snapshot|stream|check}
+Available: {yes|no}
+Description: {what you see in the image}
+```
