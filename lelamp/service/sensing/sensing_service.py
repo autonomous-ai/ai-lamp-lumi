@@ -28,12 +28,12 @@ logger = logging.getLogger("lelamp.sensing")
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # Motion detection thresholds
-MOTION_THRESHOLD = 30  # pixel intensity change to count as "changed"
-MOTION_MIN_AREA_RATIO = 0.02  # minimum fraction of frame that must change (2%)
-MOTION_LARGE_AREA_RATIO = 0.15  # fraction for "large movement" (15%)
+MOTION_THRESHOLD = 50  # pixel intensity change to count as "changed"
+MOTION_MIN_AREA_RATIO = 0.08  # minimum fraction of frame that must change (8%)
+MOTION_LARGE_AREA_RATIO = 0.25  # fraction for "large movement" (25%)
 
 # Cooldown: don't spam events. Minimum seconds between events of the same type.
-EVENT_COOLDOWN_S = 10.0
+EVENT_COOLDOWN_S = 60.0
 
 # Sound detection
 SOUND_RMS_THRESHOLD = 3000  # RMS threshold for "loud noise"
