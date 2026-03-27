@@ -26,6 +26,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -511,8 +512,10 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 		}
 		if err != nil {
 			slog.Warn("websocket disconnected, reconnecting", "component", "openclaw", "error", err, "backoff", backoff)
+			flow.Log("ws_disconnect", map[string]any{"error": err.Error(), "backoff_s": backoff.Seconds()})
 		} else {
 			slog.Warn("websocket connection closed, reconnecting", "component", "openclaw", "backoff", backoff)
+			flow.Log("ws_disconnect", map[string]any{"reason": "closed", "backoff_s": backoff.Seconds()})
 		}
 		if !sleepCtx(ctx, backoff) {
 			return
@@ -524,12 +527,16 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConnected.Store(false)
 	defer s.wsConnected.Store(false)
 
+	connStart := flow.Start("ws_connect", map[string]any{"url": defaultGatewayWSURL})
+
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, resp, err := dialer.DialContext(ctx, defaultGatewayWSURL, http.Header{})
 	if err != nil {
 		if resp != nil {
+			flow.End("ws_connect", connStart, map[string]any{"error": err.Error(), "status": resp.Status})
 			return fmt.Errorf("dial %s: %w (status %s)", defaultGatewayWSURL, err, resp.Status)
 		}
+		flow.End("ws_connect", connStart, map[string]any{"error": err.Error()})
 		return fmt.Errorf("dial %s: %w", defaultGatewayWSURL, err)
 	}
 	defer func() {
@@ -561,6 +568,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 
 	token, err := s.readGatewayToken()
 	if err != nil {
+		flow.End("ws_connect", connStart, map[string]any{"error": "read token: " + err.Error()})
 		return fmt.Errorf("read gateway token: %w", err)
 	}
 
@@ -670,6 +678,8 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConn = conn
 	s.wsMu.Unlock()
 	s.wsConnected.Store(true)
+	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
+	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
 
 	for {
 		select {
@@ -1061,6 +1071,7 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		slog.Info("LeLamp voice pipeline started", "component", "openclaw")
+		flow.Log("voice_pipeline_start", nil)
 	}
 	return nil
 }
@@ -1113,6 +1124,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 func (s *Service) SetSessionKey(key string) {
 	s.lastSessionKey.Store(key)
 	slog.Info("session key stored", "component", "openclaw", "key", key)
+	flow.Log("session_key_acquired", map[string]any{"key_len": len(key)})
 }
 
 // GetSessionKey returns the last observed session key, or empty string if none.
@@ -1160,6 +1172,7 @@ func (s *Service) SendChatMessage(message string) (string, error) {
 	}
 
 	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "id", reqID)
+	flow.Log("chat_send", map[string]any{"run_id": reqID, "has_session": sessionKey != ""})
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
