@@ -67,13 +67,26 @@ POST /scene
 | `night` | 5% | Soft orange | Đèn ngủ |
 | `energize` | 100% | Bright daylight | Tỉnh táo |
 
+## Status LED
+
+Xem chi tiết: [status-led_vi.md](status-led_vi.md)
+
+LED phản hồi trạng thái hệ thống:
+
+| Trạng thái | Màu | Effect |
+|-----------|-----|--------|
+| Processing | Xanh dương `(80, 140, 255)` | `pulse` |
+| OTA | Cam `(255, 140, 0)` | `breathing` |
+| Error | Đỏ `(255, 30, 30)` | `pulse` |
+
+Quản lý bởi `internal/statusled/Service` (lumi) và `lib/lelamp` (bootstrap).
+
 ## Ambient Idle Behaviors
 
 Khi Lumi idle (không có interaction):
 - **Breathing LED** — sine-wave brightness, palette warm
-- **Color drift** — xoay palette ấm chậm
 
-Tự pause khi có interaction, resume sau 10s im lặng.
+Tự pause khi có interaction, resume sau 60s im lặng.
 
 ## LED Trong Emotion
 
