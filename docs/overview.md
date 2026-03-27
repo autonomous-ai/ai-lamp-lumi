@@ -1,0 +1,94 @@
+# Architecture Overview — Lumi AI Lamp
+
+## 3-Layer Architecture
+
+```
+OpenClaw (AI/LLM) → Lumi Server (Go, :5000) → LeLamp Runtime (Python, :5001) → Hardware
+```
+
+| Layer | Language | Port | Role |
+|-------|----------|------|------|
+| OpenClaw | Go | WS | AI brain, LLM, SKILL.md, memory, channels |
+| Lumi Server | Go | 5000 | System (network, OTA, MQTT, reset), sensing event routing, local intent |
+| LeLamp Runtime | Python | 5001 | Hardware drivers (servo, LED, camera, audio, display), FastAPI |
+
+## Project Directory
+
+```
+lumi/
+├── cmd/lamp/main.go              — Lumi Server entry point
+├── cmd/bootstrap/main.go         — OTA bootstrap worker
+├── server/
+│   ├── server.go                 — Gin HTTP server, route setup
+│   ├── config/                   — JSON config management
+│   ├── health/delivery/http/     — Health, system info, dashboard
+│   ├── network/delivery/http/    — WiFi scan, connect
+│   ├── device/delivery/          — Setup (HTTP + MQTT handlers)
+│   ├── sensing/delivery/http/    — Sensing event → intent match / OpenClaw
+│   └── openclaw/delivery/sse/    — OpenClaw status, SSE events
+├── internal/
+│   ├── agent/                    — OpenClaw WebSocket gateway
+│   ├── ambient/                  — Idle behaviors (breathing LED, micro-movements)
+│   ├── beclient/                 — Backend status reporting
+│   ├── device/                   — Device setup orchestration
+│   ├── intent/                   — Local intent matching (voice commands)
+│   ├── monitor/                  — Event bus (ring buffer 200 events)
+│   ├── network/                  — WiFi AP/STA management
+│   ├── openclaw/                 — OpenClaw config + SOUL.md
+│   └── resetbutton/              — GPIO reset button
+├── lib/mqtt/                     — MQTT client (Eclipse Paho autopaho)
+├── domain/                       — Shared structs
+├── bootstrap/                    — OTA worker
+└── resources/openclaw-skills/    — 10 SKILL.md files for OpenClaw
+
+lelamp/
+├── server.py                     — FastAPI server (38 endpoints)
+├── service/
+│   ├── voice/voice_service.py    — Local VAD + Deepgram STT
+│   ├── voice/tts_service.py      — OpenAI-compatible TTS
+│   ├── sensing/                  — Motion, sound, presence detection
+│   └── display/                  — GC9A01 LCD eyes + info
+└── pyproject.toml                — Python dependencies
+
+web/                              — React 19 + Vite + Tailwind CSS 4 SPA
+```
+
+## Principles
+
+- **Hardware is a plugin** — plug in and it works, unplug and it's skipped
+- **System layer runs WITHOUT OpenClaw** — device always responds
+- **Code is the source of truth** — docs reflect code
+- **LeLamp is the hardware driver** — no AI logic
+- **SKILL.md native** — no MCP, LLM reads skills and calls curl directly
+
+## Voice Pipeline
+
+```
+Mic (always on) → Local VAD (RMS energy, free)
+    → Speech detected → Connect Deepgram STT
+        → "hey lumi, turn off light" → voice_command → local intent → execute
+        → "hey wanna grab lunch?" → voice (ambient) → OpenClaw
+    → Silence 3s → Disconnect Deepgram
+```
+
+## Sensing Flow
+
+```
+LeLamp sensing loop (every 2s) → Read 1 camera frame, run all detectors:
+    ├─ Motion detection (frame diff) → event if >8% pixels changed
+    ├─ Face detection (Haar cascade, downscale 0.5x) → presence.enter / presence.leave
+    ├─ Light level (mean brightness, every 30s) → event if change >30/255
+    └─ Sound detection (mic RMS) → event if > threshold
+
+Event has image? (large motion, face enter) → encode frame 320px JPEG base64
+
+POST /api/sensing/event {type, message, image?}
+    → Lumi Go:
+        1. Voice event + local intent match? → execute directly (~50ms)
+        2. No match → forward to OpenClaw:
+           - Has image → SendChatMessageWithImage (text + vision content block)
+           - No image → SendChatMessage (text only)
+        3. OpenClaw AI sees image + reads context → decides action → calls SKILL API
+```
+
+Cooldowns to protect LLM costs: motion/sound 60s, presence 10s, light.level 30s.

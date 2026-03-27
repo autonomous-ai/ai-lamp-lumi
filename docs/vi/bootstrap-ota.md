@@ -243,8 +243,21 @@ reconcile(key, target):
   1. Phát hiện version hiện tại đã cài
   2. So sánh với version mục tiêu
   3. Nếu giống → cập nhật state, return
-  4. Nếu khác → applyUpdate(key, target)
+  4. Nếu khác →
+     a. Bật LED cam breathing (đang update)
+     b. applyUpdate(key, target)
+     c. Thành công → flash xanh lá | Thất bại → đỏ pulse
 ```
+
+### OTA LED Feedback
+
+Bootstrap dùng `lib/lelamp` để báo trạng thái update qua LED. Xem chi tiết: [status-led_vi.md](status-led_vi.md).
+
+| Giai đoạn | LED |
+|----------|-----|
+| Đang tải + cài | Cam breathing `(255, 140, 0)` |
+| Thành công | Flash xanh lá `(0, 255, 80)` |
+| Thất bại | Đỏ pulse `(255, 30, 30)` |
 
 ### Phát hiện version hiện tại
 
