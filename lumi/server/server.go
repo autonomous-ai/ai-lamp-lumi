@@ -230,6 +230,8 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("status", s.openclawHandler.Status)
 	oc.GET("events", s.openclawHandler.Events)
 	oc.GET("recent", s.openclawHandler.Recent)
+	oc.GET("flow-events", s.openclawHandler.FlowEvents)
+	oc.GET("flow-stream", s.openclawHandler.FlowStream)
 	oc.GET("flow-logs", s.openclawHandler.FlowLogs)
 	oc.DELETE("flow-logs", s.openclawHandler.ClearFlowLogs)
 	oc.GET("debug-logs", s.openclawHandler.DebugLogs)
