@@ -1735,6 +1735,21 @@ function FlowSection({
     onClearEvents();
   }, [onClearEvents]);
 
+  const clearServerFlowLog = useCallback(async () => {
+    const ok = window.confirm("Clear flow log file on server (today)? This cannot be undone.");
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/openclaw/flow-logs`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok || j?.status !== 1) throw new Error(j?.message || "request failed");
+      setSelectedTurnId(null);
+      onClearEvents();
+      window.alert("Server flow log cleared.");
+    } catch (e) {
+      window.alert(`Failed to clear server flow log: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [onClearEvents]);
+
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
 
@@ -1792,6 +1807,19 @@ function FlowSection({
             >
               ↓ Logs
             </a>
+            <a
+              href={`${API}/openclaw/debug-logs`}
+              download
+              style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
+                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
+              }}
+              title="Download OpenClaw debug payload logs"
+            >
+              ↓ Debug
+            </a>
             <button
               onClick={clearFlowMessages}
               style={{
@@ -1802,6 +1830,17 @@ function FlowSection({
               title="Clear Flow Panel messages"
             >
               ✕ Clear
+            </button>
+            <button
+              onClick={clearServerFlowLog}
+              style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
+                color: "var(--lm-red)", cursor: "pointer", fontWeight: 700,
+              }}
+              title="Clear flow log file on server"
+            >
+              🗑 Log
             </button>
             <button
               onClick={() => setShowCanvas(true)}

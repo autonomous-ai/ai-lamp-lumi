@@ -477,6 +477,46 @@ func (h *OpenClawHandler) FlowLogs(c *gin.Context) {
 	io.Copy(c.Writer, f) //nolint:errcheck
 }
 
+// ClearFlowLogs truncates the daily flow JSONL log file.
+// Query param ?date=YYYY-MM-DD selects a historical file; defaults to today.
+func (h *OpenClawHandler) ClearFlowLogs(c *gin.Context) {
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	path := fmt.Sprintf("local/flow_events_%s.jsonl", date)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"cleared": false,
+			"file":    path,
+			"note":    "file not found",
+		}))
+		return
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear flow log failed: "+err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"cleared": true,
+		"file":    path,
+	}))
+}
+
+// DebugLogs serves the OpenClaw raw debug payload log file for download.
+func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
+		return
+	}
+	defer f.Close()
+	c.Header("Content-Disposition", "attachment; filename=openclaw_debug_payloads.jsonl")
+	c.Header("Content-Type", "application/x-ndjson")
+	io.Copy(c.Writer, f) //nolint:errcheck
+}
+
 // Analytics returns aggregated per-day metrics from flow JSONL files.
 // Query params: from=YYYY-MM-DD, to=YYYY-MM-DD (defaults to last 7 days).
 func (h *OpenClawHandler) Analytics(c *gin.Context) {
