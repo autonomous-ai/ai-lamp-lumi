@@ -167,7 +167,6 @@ class SensingService:
         if now - last < EVENT_COOLDOWN_S:
             return
 
-        self._last_event_time[event_type] = now
         logger.info("[sensing] %s: %s", event_type, message)
 
         try:
@@ -178,5 +177,7 @@ class SensingService:
             )
             if resp.status_code != 200:
                 logger.warning("[sensing] Lumi returned %d: %s", resp.status_code, resp.text)
+            else:
+                self._last_event_time[event_type] = now
         except requests.RequestException as e:
             logger.warning("[sensing] Failed to send event to Lumi: %s", e)

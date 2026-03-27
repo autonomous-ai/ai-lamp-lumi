@@ -175,9 +175,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 
 	case "chat":
+		slog.Debug("chat raw payload", "component", "agent", "payload", string(evt.Payload))
 		var payload domain.ChatPayload
 		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-			slog.Error("chat parse error", "component", "agent", "error", err)
+			slog.Error("chat parse error", "component", "agent", "error", err, "raw", string(evt.Payload))
 			return nil
 		}
 		payload.ResolveChatMessage()
