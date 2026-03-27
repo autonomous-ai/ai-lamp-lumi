@@ -245,8 +245,21 @@ reconcile(key, target):
   1. Detect current installed version
   2. Compare to target version
   3. If same → update state, return
-  4. If different → applyUpdate(key, target)
+  4. If different →
+     a. Set LED orange breathing (OTA in progress)
+     b. applyUpdate(key, target)
+     c. Success → green flash | Failure → red pulse
 ```
+
+### OTA LED Feedback
+
+Bootstrap uses `lib/lelamp` to show update status on LEDs. See [status-led.md](status-led.md) for full spec.
+
+| Phase | LED |
+|-------|-----|
+| Downloading + installing | Orange breathing `(255, 140, 0)` |
+| Success | Green flash `(0, 255, 80)` |
+| Failure | Red pulse `(255, 30, 30)` |
 
 ### Version Detection Per Component
 
