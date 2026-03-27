@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "camelcase-keys": "^10.0.2",
+    "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.31.0",
@@ -19,6 +20,7 @@
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
     "sonner": "^2.0.7",

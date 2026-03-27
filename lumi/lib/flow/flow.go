@@ -17,8 +17,10 @@ package flow
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,11 +47,13 @@ type Event struct {
 	TraceID    string         `json:"trace_id,omitempty"`
 	DurationMs int64          `json:"duration_ms,omitempty"` // exit only
 	Data       map[string]any `json:"data,omitempty"`
+	Version    string         `json:"version,omitempty"`
 }
 
 const (
-	ringSize = 200
-	logsDir  = "local"
+	ringSize     = 200
+	logsDir      = "local"
+	retentionDays = 30
 )
 
 type emitter struct {
@@ -60,17 +64,44 @@ type emitter struct {
 	day     string // YYYY-MM-DD of current log file
 	traceID string // active turn trace ID (serialized per turn)
 	bus     *monitor.Bus
+	version string // injected at Init, stamped on every event
 }
 
 var global = &emitter{}
 
 // Init attaches a monitor.Bus so flow events are also broadcast via SSE.
+// version is stamped on every event (typically config.LumiVersion).
 // Must be called once at startup before any other flow calls.
-func Init(bus *monitor.Bus) {
+func Init(bus *monitor.Bus, version string) {
 	global.mu.Lock()
 	global.bus = bus
+	global.version = version
 	global.mu.Unlock()
 	_ = os.MkdirAll(logsDir, 0o755)
+	go cleanOldLogs()
+}
+
+// cleanOldLogs removes flow_events_*.jsonl files older than retentionDays.
+func cleanOldLogs() {
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02")
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "flow_events_") || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		// extract date: flow_events_YYYY-MM-DD.jsonl
+		date := strings.TrimSuffix(strings.TrimPrefix(name, "flow_events_"), ".jsonl")
+		if date < cutoff {
+			path := filepath.Join(logsDir, name)
+			if err := os.Remove(path); err == nil {
+				slog.Info("removed old flow log", "component", "flow", "file", name)
+			}
+		}
+	}
 }
 
 // Start emits an "enter" event for node and returns the start time for use with End.
@@ -123,6 +154,7 @@ func (e *emitter) emit(kind Kind, node string, durMs int64, data map[string]any)
 
 	e.mu.Lock()
 	traceID := e.traceID
+	version := e.version
 	e.mu.Unlock()
 
 	evt := Event{
@@ -133,6 +165,7 @@ func (e *emitter) emit(kind Kind, node string, durMs int64, data map[string]any)
 		TraceID:    traceID,
 		DurationMs: durMs,
 		Data:       data,
+		Version:    version,
 	}
 
 	e.mu.Lock()
