@@ -18,9 +18,8 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/lelamp"
 )
-
-const lelampBase = "http://127.0.0.1:5001"
 
 // resumeDelay is how long after the last interaction before ambient resumes.
 const resumeDelay = 60 * time.Second
@@ -223,7 +222,7 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 
 // fetchLeLampColor reads the current LED color from LeLamp.
 func fetchLeLampColor() ([3]int, error) {
-	resp, err := http.Get(lelampBase + "/led/color")
+	resp, err := http.Get(lelamp.BaseURL + "/led/color")
 	if err != nil {
 		return [3]int{}, err
 	}
@@ -239,22 +238,17 @@ func fetchLeLampColor() ([3]int, error) {
 
 // startLeLampBreathing starts the built-in breathing effect on LeLamp with the given color.
 func startLeLampBreathing(color [3]int) {
-	body := fmt.Sprintf(`{"effect":"breathing","color":[%d,%d,%d],"speed":0.3}`, color[0], color[1], color[2])
-	postLeLamp("/led/effect", body)
+	lelamp.SetEffect("breathing", color[0], color[1], color[2], 0.3)
 }
 
 // stopLeLampEffect stops any running LED effect on LeLamp.
 func stopLeLampEffect() {
-	resp, err := http.Post(lelampBase+"/led/effect/stop", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		return
-	}
-	resp.Body.Close()
+	lelamp.StopEffect()
 }
 
 // postLeLamp sends a fire-and-forget POST to LeLamp API.
 func postLeLamp(path, body string) {
-	url := lelampBase + path
+	url := lelamp.BaseURL + path
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		return // silent fail — hardware may not be available

@@ -16,6 +16,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -24,6 +25,7 @@ import (
 type OpenClawHandler struct {
 	agentGateway domain.AgentGateway
 	monitorBus   *monitor.Bus
+	statusLED    *statusled.Service
 
 	// assistantBuf accumulates assistant deltas per runId so we can send the
 	// full text to TTS when the agent turn ends (lifecycle "end").
@@ -32,7 +34,7 @@ type OpenClawHandler struct {
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
-func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus) OpenClawHandler {
+func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *statusled.Service) OpenClawHandler {
 	// Init flow emitter here so ws_connect events (fired from StartWS before any HTTP request)
 	// are broadcast to SSE. Lumi is a single-user device so the global trace ID is sufficient;
 	// concurrent turn interleaving is not a concern in normal operation.
@@ -40,6 +42,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus) OpenClawHa
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
+		statusLED:    sled,
 		assistantBuf: make(map[string]*strings.Builder),
 	}
 }
@@ -90,6 +93,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		switch payload.Stream {
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
+
+			// Status LED: show processing state while agent is thinking
+			if payload.Data.Phase == "start" {
+				h.statusLED.Set(statusled.StateProcessing)
+			} else if payload.Data.Phase == "end" {
+				h.statusLED.Clear(statusled.StateProcessing)
+			}
 
 			// Log raw payload on lifecycle end for token usage debugging
 			if payload.Data.Phase == "end" {
