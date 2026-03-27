@@ -187,7 +187,10 @@ Hành vi gom nhóm Turn Pipeline:
 - Nếu event phía sau có `run_id` khác, Monitor sẽ tách thành một turn agent suy diễn mới.
 - `OUT` chỉ lấy từ `tts_send`/`intent_match` cùng `run_id` với turn (hoặc event không có run_id), tránh ghép nhầm IN/OUT giữa các turn.
 - Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó.
-- Header của Flow Panel giờ có 2 action `↓ Logs` và `✕ Clear`. Nút `✕ Clear` sẽ hỏi xác nhận trước, sau đó xóa toàn bộ events/turns đang hiển thị trong UI (chỉ phía client).
+- Header của Flow Panel giờ có 4 action `↓ Logs`, `↓ Debug`, `✕ Clear` và `🗑 Log`.
+- `↓ Debug` tải raw OpenClaw debug payload qua `GET /api/openclaw/debug-logs` (file trên server: `local/openclaw_debug_payloads.jsonl`).
+- Nút `✕ Clear` sẽ hỏi xác nhận trước, sau đó xóa toàn bộ events/turns đang hiển thị trong UI (chỉ phía client).
+- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate log flow của hôm nay trên server, rồi xóa events đang hiển thị trong Flow UI.
 - Danh sách Turn history hiển thị 100 turn gần nhất (mới nhất ở trên).
 - Bộ nhớ event của Flow được giới hạn nhất quán ở 500 events cho cả dữ liệu seed và SSE live để tránh hiện tượng mở tab xong danh sách bị co lại/chớp.
 
