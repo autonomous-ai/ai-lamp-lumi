@@ -24,8 +24,8 @@ You also receive camera snapshots **automatically** as part of sensing events (`
 **Input:** "Is anyone in the room?"
 **Output:** Call `GET /camera/snapshot`, analyze the image. Say: "I can see one person sitting at the desk."
 
-**Input:** "Take a photo"
-**Output:** Call `GET /camera/snapshot`, confirm: "Here's what I see right now." Describe the image.
+**Input:** "Take a photo" or "Send me a photo"
+**Output:** Call `GET /camera/snapshot --output /tmp/snapshot.jpg`, then send the image to the user with `mediaUrl: "/tmp/snapshot.jpg"` and describe what you see.
 
 **Input:** (sensing event with image already attached)
 **Output:** Do NOT call the camera API. Just look at the attached image and react.
@@ -64,6 +64,20 @@ curl -s http://127.0.0.1:5001/camera/stream
 ```
 
 Returns an MJPEG stream (`multipart/x-mixed-replace`). Only use when continuous video is needed. Prefer snapshot for one-time checks.
+
+### Send image to user
+
+After saving the snapshot, send it back via the message tool:
+
+```json
+{
+  "action": "send",
+  "mediaUrl": "/tmp/snapshot.jpg",
+  "content": "Here's what I see!"
+}
+```
+
+Use this when the user asks to "take a photo", "send me a photo", or "show me what you see".
 
 ## Error Handling
 - If `GET /camera` returns `{"available": false}`, tell the user: "The camera is not connected right now."
