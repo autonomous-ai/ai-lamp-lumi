@@ -381,6 +381,22 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		payload.ResolveChatMessage()
 		// Same as agent stream: OpenClaw may send UUID while lifecycle/tool/tts used resolved device id.
 		flowRunID := h.resolveRunID(payload.RunID)
+		// Debug alignment: OpenClaw "chat" stream may or may not include user messages for outbound chat.send.
+		// When flowRunID belongs to Lumi, log role/state/message so we can confirm whether chat_input can be emitted.
+		if strings.HasPrefix(flowRunID, "lumi-") {
+			msgPreview := payload.Message
+			msgPreview = strings.ReplaceAll(msgPreview, "\n", " ")
+			if len(msgPreview) > 120 {
+				msgPreview = msgPreview[:120] + "…"
+			}
+			slog.Info("openclaw chat event (lumi)", "component", "agent",
+				"openclaw_run_id", payload.RunID,
+				"flow_run_id", flowRunID,
+				"role", payload.Role,
+				"state", payload.State,
+				"has_message", strings.TrimSpace(msgPreview) != "",
+				"message_preview", msgPreview)
+		}
 		if payload.RunID != "" && flowRunID != payload.RunID {
 			slog.Info("flow correlation", "op", "chat_run_resolve", "section", "openclaw_chat",
 				"openclaw_run_id", payload.RunID, "device_run_id", flowRunID,
@@ -400,6 +416,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Inbound user message from Telegram/Slack/Discord
 		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
+			if strings.HasPrefix(flowRunID, "lumi-") {
+				msgPreview := payload.Message
+				msgPreview = strings.ReplaceAll(msgPreview, "\n", " ")
+				if len(msgPreview) > 120 {
+					msgPreview = msgPreview[:120] + "…"
+				}
+				slog.Info("emit chat_input (OpenClaw user final)", "component", "agent",
+					"openclaw_run_id", payload.RunID,
+					"flow_run_id", flowRunID,
+					"message_preview", msgPreview)
+			}
 			flow.Log("chat_input", map[string]any{"run_id": flowRunID, "message": payload.Message}, flowRunID)
 			displayMsg := payload.Message
 			if len(displayMsg) > 200 {
@@ -411,6 +438,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				RunID:   flowRunID,
 				Detail:  map[string]string{"role": "user", "message": payload.Message},
 			})
+		}
+		// If OpenClaw reports user+final for a Lumi flow but we didn't emit chat_input, log the reason.
+		if strings.HasPrefix(flowRunID, "lumi-") && payload.State == "final" && payload.Role == "user" {
+			if payload.RunID == "" {
+				slog.Info("skip chat_input: empty openclaw_run_id", "component", "agent", "flow_run_id", flowRunID)
+			}
+			// Note: emission conditions also require payload.RunID != "".
+			if payload.RunID != "" && (payload.State != "final" || payload.Role != "user") {
+				slog.Info("skip chat_input: condition mismatch", "component", "agent", "flow_run_id", flowRunID, "role", payload.Role, "state", payload.State)
+			}
 		}
 
 		// Push assistant/partial chat events to monitor (skip inbound user messages — already tracked as chat_input)
