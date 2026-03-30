@@ -238,12 +238,70 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					"phase":       payload.Data.Phase,
 					"raw_payload": string(evt.Payload),
 				})
-				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
+
+				// Best-effort: fetch chat history to get the user message content and log full history.
+				var userMsg string
+				historyPayload, histErr := h.agentGateway.FetchChatHistory(payload.SessionKey, 20)
+				if histErr != nil {
+					slog.Warn("chat.history fetch failed (best-effort)", "component", "agent", "run_id", payload.RunID, "err", histErr)
+				} else if historyPayload != nil {
+					h.appendDebugJSONL(map[string]any{
+						"source":       "chat_history_on_channel_turn",
+						"run_id":       payload.RunID,
+						"session_key":  payload.SessionKey,
+						"raw_history":  string(historyPayload),
+					})
+					slog.Info("chat.history for channel turn", "component", "agent", "run_id", payload.RunID, "history_bytes", len(historyPayload))
+
+					// Extract last user message from history.
+					var hist struct {
+						Messages []struct {
+							Role    string `json:"role"`
+							Content json.RawMessage `json:"content"`
+						} `json:"messages"`
+					}
+					if json.Unmarshal(historyPayload, &hist) == nil {
+						for i := len(hist.Messages) - 1; i >= 0; i-- {
+							if hist.Messages[i].Role == "user" {
+								// Content can be string or [{type:"text",text:"..."}]
+								var text string
+								if json.Unmarshal(hist.Messages[i].Content, &text) == nil {
+									userMsg = text
+								} else {
+									var blocks []struct {
+										Type string `json:"type"`
+										Text string `json:"text"`
+									}
+									if json.Unmarshal(hist.Messages[i].Content, &blocks) == nil {
+										var parts []string
+										for _, b := range blocks {
+											if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+												parts = append(parts, b.Text)
+											}
+										}
+										userMsg = strings.Join(parts, " ")
+									}
+								}
+								break
+							}
+						}
+					}
+				}
+
+				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel", "message": userMsg}, payload.RunID)
+				summary := "[telegram]"
+				if userMsg != "" {
+					displayMsg := userMsg
+					if len(displayMsg) > 200 {
+						displayMsg = displayMsg[:200] + "…"
+					}
+					summary = "[telegram] " + displayMsg
+				}
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "chat_input",
-					Summary: "[telegram]",
+					Summary: summary,
 					RunID:   payload.RunID,
-					Detail:  map[string]string{"role": "user"},
+					Detail:  map[string]string{"role": "user", "message": userMsg},
 				})
 			}
 
@@ -461,43 +519,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			"raw_payload":   string(evt.Payload),
 		})
 
-		// Inbound user message from Telegram/Slack/Discord
-		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
-			if strings.HasPrefix(flowRunID, "lumi-") {
-				msgPreview := payload.Message
-				msgPreview = strings.ReplaceAll(msgPreview, "\n", " ")
-				if len(msgPreview) > 120 {
-					msgPreview = msgPreview[:120] + "…"
-				}
-				slog.Info("emit chat_input (OpenClaw user final)", "component", "agent",
-					"openclaw_run_id", payload.RunID,
-					"flow_run_id", flowRunID,
-					"message_preview", msgPreview)
-			}
-			flow.Log("chat_input", map[string]any{"run_id": flowRunID, "message": payload.Message}, flowRunID)
-			displayMsg := payload.Message
-			if len(displayMsg) > 200 {
-				displayMsg = displayMsg[:200] + "…"
-			}
-			h.monitorBus.Push(domain.MonitorEvent{
-				Type:    "chat_input",
-				Summary: "[telegram] " + displayMsg,
-				RunID:   flowRunID,
-				Detail:  map[string]string{"role": "user", "message": payload.Message},
-			})
-		}
-		// If OpenClaw reports user+final for a Lumi flow but we didn't emit chat_input, log the reason.
-		if strings.HasPrefix(flowRunID, "lumi-") && payload.State == "final" && payload.Role == "user" {
-			if payload.RunID == "" {
-				slog.Info("skip chat_input: empty openclaw_run_id", "component", "agent", "flow_run_id", flowRunID)
-			}
-			// Note: emission conditions also require payload.RunID != "".
-			if payload.RunID != "" && (payload.State != "final" || payload.Role != "user") {
-				slog.Info("skip chat_input: condition mismatch", "component", "agent", "flow_run_id", flowRunID, "role", payload.Role, "state", payload.State)
-			}
-		}
+		// (OpenClaw gateway never broadcasts role:"user" on the chat stream.
+		// User messages are captured via lifecycle_start + chat.history above.)
 
-		// Push assistant/partial chat events to monitor (skip inbound user messages — already tracked as chat_input)
+		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input)
 		if payload.Role != "user" {
 			summary := payload.Message
 			if len(summary) > 120 {

@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // AgentEventHandler processes events from an agent gateway connection.
 type AgentEventHandler func(ctx context.Context, evt WSEvent) error
@@ -50,6 +53,10 @@ type AgentGateway interface {
 
 	// EnsureOnboarding seeds personality/identity files into the agent workspace.
 	EnsureOnboarding() error
+
+	// FetchChatHistory sends a chat.history RPC and returns the raw messages array.
+	// Best-effort: returns nil on error or timeout without failing the caller.
+	FetchChatHistory(sessionKey string, limit int) (json.RawMessage, error)
 
 	// StartWS connects to the agent runtime and runs the event read loop.
 	StartWS(ctx context.Context, handler AgentEventHandler)
