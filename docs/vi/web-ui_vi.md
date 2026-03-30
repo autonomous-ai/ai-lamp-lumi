@@ -143,6 +143,11 @@ Gồm các card:
 - 8 badge: Servo / LED / Camera / Audio / Sensing / Voice / TTS / Display
 - **LED color swatch**: ô màu vuông bo góc hiển thị màu hiện tại của dải LED, kèm hex code. Lấy từ `GET /hw/led/color`.
 
+**Scene** (preset ánh sáng)
+- Hiển thị danh sách scene preset (reading, focus, relax, movie, night, energize). Lấy từ `GET /hw/scene`.
+- Bấm nút để kích hoạt scene qua `POST /hw/scene` với `{"scene": "<tên>"}`.
+- Scene đang active được highlight màu amber.
+
 **Servo Pose**
 - Pose đang chạy (current)
 - Danh sách poses available (tối đa 8)
