@@ -128,7 +128,7 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 	}
 
 	changed := false
-	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb} {
+	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb, domain.OTAKeyLeLamp} {
 		component, ok := meta[key]
 		if !ok {
 			continue
@@ -251,6 +251,13 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 		return strings.TrimSpace(config.BootstrapVersion)
 	case domain.OTAKeyWeb:
 		path := filepath.Join("/usr/share/nginx/html/setup", "VERSION")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
+	case domain.OTAKeyLeLamp:
+		path := filepath.Join("/opt/lelamp", "VERSION_LELAMP")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return ""

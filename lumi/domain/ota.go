@@ -11,6 +11,7 @@ const (
 	OTAKeyBootstrap = "bootstrap"
 	OTAKeyOpenClaw  = "openclaw"
 	OTAKeyWeb       = "web"
+	OTAKeyLeLamp    = "lelamp"
 )
 
 // OTAMetadata is the JSON shape returned by the OTA metadata URL.
