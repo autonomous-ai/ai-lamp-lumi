@@ -1206,8 +1206,9 @@ def stop_led_effect():
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
     """Get camera availability and resolution."""
-    if not camera_capture:
+    if not camera_capture or cv2 is None:
         return {"available": False, "width": None, "height": None}
+
     return {
         "available": True,
         "width": int(camera_capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -1215,14 +1216,17 @@ def get_camera_info():
     }
 
 
+
 @app.get("/camera/snapshot", tags=["Camera"])
 def camera_snapshot():
     """Capture a single JPEG frame from the camera."""
-    if not camera_capture:
+    if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
+
     ret, frame = camera_capture.read()
     if not ret:
         raise HTTPException(500, "Failed to capture frame")
+    frame = cv2.rotate(frame, cv2.ROTATE_180)
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return Response(content=buf.tobytes(), media_type="image/jpeg")
 
@@ -1230,7 +1234,7 @@ def camera_snapshot():
 @app.get("/camera/stream", tags=["Camera"])
 def camera_stream():
     """MJPEG stream from the camera (multipart/x-mixed-replace)."""
-    if not camera_capture:
+    if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
     def generate():
@@ -1238,6 +1242,7 @@ def camera_stream():
             ret, frame = camera_capture.read()
             if not ret:
                 break
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             yield (
                 b"--frame\r\n"
