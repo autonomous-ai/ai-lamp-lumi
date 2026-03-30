@@ -14,6 +14,7 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
    | LED, effects, states, animations | `docs/led-control.md` | `docs/vi/led-control_vi.md` |
    | Setup flow, provisioning | `docs/setup-flow.md` | `docs/vi/setup-flow_vi.md` |
    | Web UI, configuration pages | `docs/web-ui.md` | `docs/vi/web-ui_vi.md` |
+   | Flow Monitor (turn pipeline, JSONL, SSE) | `docs/flow-monitor.md` | `docs/vi/flow-monitor_vi.md` |
    | Overall structure | `docs/overview.md` | `docs/vi/overview_vi.md` |
    | MQTT, dispatch, publish | `docs/mqtt.md` | `docs/vi/mqtt_vi.md` |
    | OTA, bootstrap | `docs/bootstrap-ota.md` | `docs/vi/bootstrap-ota.md` |
