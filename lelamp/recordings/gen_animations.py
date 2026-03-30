@@ -120,7 +120,61 @@ def fidget(t, seed=0):
     return gate * noise(t * 3, seed) * 2.0
 
 
-def write_csv(filename, frames):
+def smooth_frames(frames, passes=2, max_delta=2.0):
+    """Post-process smoothing: Gaussian-like moving average + delta capping.
+
+    1. Multi-pass moving average (window=5) smooths high-freq jitter
+    2. Delta cap ensures no frame-to-frame jump exceeds max_delta degrees
+    3. Preserves first and last frame exactly (for clean blend with idle)
+    """
+    if len(frames) < 3:
+        return frames
+
+    smoothed = frames
+
+    # Pass 1+2: Weighted moving average (1-2-3-2-1 kernel, normalized)
+    kernel = [1, 2, 3, 2, 1]
+    k_sum = sum(kernel)
+    k_half = len(kernel) // 2
+
+    for _ in range(passes):
+        new_frames = []
+        for i in range(len(smoothed)):
+            row = {"timestamp": smoothed[i]["timestamp"]}
+            for j in JOINTS:
+                if i < k_half or i >= len(smoothed) - k_half:
+                    # Keep edges unchanged
+                    row[j] = smoothed[i][j]
+                else:
+                    total = 0.0
+                    for ki, kw in enumerate(kernel):
+                        total += smoothed[i - k_half + ki][j] * kw
+                    row[j] = total / k_sum
+            new_frames.append(row)
+        smoothed = new_frames
+
+    # Pass 3: Delta capping — limit max change per frame
+    for i in range(1, len(smoothed)):
+        for j in JOINTS:
+            prev = smoothed[i - 1][j]
+            curr = smoothed[i][j]
+            delta = curr - prev
+            if abs(delta) > max_delta:
+                smoothed[i][j] = prev + max_delta * (1 if delta > 0 else -1)
+
+    return smoothed
+
+
+def write_csv(filename, frames, smooth=True, max_delta=2.0):
+    """Write frames to CSV with optional smoothing.
+
+    Args:
+        smooth: Apply smoothing filter (default True)
+        max_delta: Max degrees change per frame (default 2.0°/frame = 60°/s at 30fps)
+    """
+    if smooth:
+        frames = smooth_frames(frames, passes=2, max_delta=max_delta)
+
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["timestamp"] + JOINTS)
@@ -231,7 +285,7 @@ def gen_idle():
 def gen_pose_animation(filename, duration, target_offset,
                        approach_time=1.5, return_time=None,
                        use_anticipation=True, overshoot_amount=0.12,
-                       hold_behavior=None):
+                       hold_behavior=None, max_delta=2.0):
     """Generic pose animation with lifelike motion principles.
 
     Args:
@@ -281,35 +335,31 @@ def gen_pose_animation(filename, duration, target_offset,
             row[j] = val
         frames.append(row)
 
-    write_csv(filename, frames)
+    write_csv(filename, frames, max_delta=max_delta)
 
 
 def gen_curious():
-    """6s: lean-in with head tilt. During hold: scanning left-right, micro head bobs."""
+    """6s: gentle lean-in with slight head turn. Reduced amplitude to avoid mechanical strain."""
     offset = {
-        "base_yaw.pos": 18.0,
-        "base_pitch.pos": 4.0,
-        "elbow_pitch.pos": -6.0,
-        "wrist_roll.pos": 14.0,
-        "wrist_pitch.pos": -8.0,
+        "base_yaw.pos": 10.0,
+        "base_pitch.pos": 2.0,
+        "elbow_pitch.pos": -3.0,
+        "wrist_roll.pos": 5.0,
+        "wrist_pitch.pos": -5.0,
     }
 
     def hold(j, ht, dur):
-        # Scanning — looking around at the interesting thing
-        scan = 4.0 * math.sin(2 * math.pi * ht / 2.0)
-        # Micro head bobs — like processing information
-        bob = 2.0 * math.sin(2 * math.pi * ht / 0.8) * math.exp(-0.5 * ht)
-
+        # Gentle scanning
+        scan = 2.5 * math.sin(2 * math.pi * ht / 2.5)
         if j == "base_yaw.pos":
             return scan
         if j == "wrist_pitch.pos":
-            return bob + noise(ht, 3) * 1.5
-        if j == "wrist_roll.pos":
-            return scan * 0.3 + noise(ht, 7) * 1.0
-        return noise(ht, hash(j) % 9) * 0.8
+            return noise(ht, 3) * 1.0
+        return noise(ht, hash(j) % 9) * 0.5
 
-    gen_pose_animation("curious.csv", 6.0, offset, approach_time=1.5,
-                       hold_behavior=hold)
+    gen_pose_animation("curious.csv", 9.0, offset, approach_time=2.0,
+                       return_time=2.5, use_anticipation=False,
+                       overshoot_amount=0.05, hold_behavior=hold)
 
 
 def gen_nod():
@@ -524,37 +574,85 @@ def gen_sad():
 
 
 def gen_excited():
-    """4s: quick alert rise with bouncing energy.
+    """7s: energetic bouncing — like a dog seeing its owner.
 
-    Fast approach with overshoot. Hold has visible vibrating excitement.
+    Quick rise, then sustained bouncy energy with side-to-side sway.
+    Bouncing does NOT decay — stays energetic throughout hold.
+    Gradually calms down only during return phase.
     """
-    offset = {
+    duration = 7.0
+    n = int(duration * FPS)
+    frames = []
+
+    # Excited pose: head up, body alert
+    excited_offset = {
         "base_yaw.pos": 5.0,
-        "base_pitch.pos": 14.0,
-        "elbow_pitch.pos": 20.0,
-        "wrist_roll.pos": 5.0,
-        "wrist_pitch.pos": 28.0,
+        "base_pitch.pos": 10.0,
+        "elbow_pitch.pos": 15.0,
+        "wrist_roll.pos": 3.0,
+        "wrist_pitch.pos": 20.0,
     }
 
-    def hold(j, ht, dur):
-        # Excited trembling — high freq, moderate amp, slowly decaying
-        tremble = math.sin(2 * math.pi * ht * 5.0) * 2.5 * math.exp(-0.8 * ht)
-        # Plus bouncing
-        bounce = abs(math.sin(2 * math.pi * ht * 3.0)) * 2.0 * math.exp(-0.5 * ht)
+    # Phases: rise(0-1s), bounce(1-5s), calm-return(5-7s)
+    rise_end = 1.0
+    bounce_end = 5.0
 
-        if j == "elbow_pitch.pos":
-            return tremble + bounce * 1.5
-        if j == "wrist_pitch.pos":
-            return tremble * 0.8 + bounce
-        if j == "base_yaw.pos":
-            return tremble * 0.5
-        if j == "base_pitch.pos":
-            return bounce
-        return tremble * 0.3
+    for i in range(n + 1):
+        t = i / FPS
+        row = {"timestamp": t}
 
-    gen_pose_animation("excited.csv", 4.0, offset, approach_time=0.6,
-                       return_time=1.2, overshoot_amount=0.18,
-                       hold_behavior=hold)
+        # Phase progress
+        if t <= rise_end:
+            # Quick rise to excited pose
+            p = overshoot_ease(t / rise_end, overshoot=0.12)
+            bounce_intensity = t / rise_end  # ramp up bounce during rise
+        elif t <= bounce_end:
+            p = 1.0
+            bounce_intensity = 1.0
+        else:
+            # Return to rest
+            ret_p = ease_in_out((t - bounce_end) / (duration - bounce_end))
+            p = 1.0 - ret_p
+            bounce_intensity = 1.0 - ret_p
+
+        # Bouncing rhythm — asymmetric: quick up, float down
+        bounce_period = 0.4  # ~150 BPM
+        bp = (t % bounce_period) / bounce_period
+        if bp < 0.25:
+            bounce = ease_out(bp / 0.25)  # quick up
+        else:
+            bounce = 1.0 - ease_in_out((bp - 0.25) / 0.75)  # slower down
+
+        # Alternating big/small bounces
+        cycle = int(t / bounce_period)
+        bounce *= 1.0 if cycle % 2 == 0 else 0.65
+
+        # Side-to-side sway — excited can't stay still
+        sway = math.sin(2 * math.pi * t / 0.8)
+        sway2 = math.sin(2 * math.pi * t / 1.6 + 1.0) * 0.4
+
+        for j in JOINTS:
+            # Base pose
+            val = REST[j] + excited_offset[j] * p
+
+            # Add bouncing energy
+            bi = bounce_intensity
+            if j == "base_pitch.pos":
+                val += bounce * 4.0 * bi
+            elif j == "elbow_pitch.pos":
+                val += bounce * 6.0 * bi
+            elif j == "wrist_pitch.pos":
+                val += bounce * 5.0 * bi
+            elif j == "base_yaw.pos":
+                val += (sway * 8.0 + sway2 * 4.0) * bi
+            elif j == "wrist_roll.pos":
+                val += -sway * 5.0 * bi  # counter-sway
+
+            val += noise(t, hash(j) % 11) * 0.3 * bi
+            row[j] = val
+        frames.append(row)
+
+    write_csv("excited.csv", frames)
 
 
 def gen_shock():
@@ -580,7 +678,8 @@ def gen_shock():
 
     gen_pose_animation("shock.csv", 4.0, offset, approach_time=0.3,
                        return_time=2.0, use_anticipation=False,
-                       overshoot_amount=0.20, hold_behavior=hold)
+                       overshoot_amount=0.20, hold_behavior=hold,
+                       max_delta=3.0)  # startle needs faster motion
 
 
 def gen_shy():
@@ -833,18 +932,27 @@ def gen_music_groove():
 
 
 # ===========================================================================
+ALL = {
+    "idle": gen_idle,
+    "curious": gen_curious,
+    "nod": gen_nod,
+    "headshake": gen_headshake,
+    "happy_wiggle": gen_happy_wiggle,
+    "sad": gen_sad,
+    "excited": gen_excited,
+    "shock": gen_shock,
+    "shy": gen_shy,
+    "scanning": gen_scanning,
+    "wake_up": gen_wake_up,
+    "music_groove": gen_music_groove,
+}
+
 if __name__ == "__main__":
-    print("Generating all animations...")
-    gen_idle()
-    gen_curious()
-    gen_nod()
-    gen_headshake()
-    gen_happy_wiggle()
-    gen_sad()
-    gen_excited()
-    gen_shock()
-    gen_shy()
-    gen_scanning()
-    gen_wake_up()
-    gen_music_groove()
+    import sys
+    targets = sys.argv[1:] if len(sys.argv) > 1 else list(ALL.keys())
+    for name in targets:
+        if name not in ALL:
+            print(f"Unknown: {name}. Available: {', '.join(ALL.keys())}")
+            continue
+        ALL[name]()
     print("Done.")
