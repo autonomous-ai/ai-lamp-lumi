@@ -187,6 +187,8 @@ Each event displays: type badge, phase (if any), runId (first 8 chars), timestam
 - Fallback polling (2s) is used only if live stream disconnects.
 - Displayed turns/events are fully derived from JSONL flow logs.
 
+**Turn Pipeline (SVG)** — Implemented by `FlowDiagram` in `lumi/web/src/pages/Monitor.tsx`. Full layout (three clusters: Lumi / LeLamp / OpenClaw, column grid, Cron vs OpenClaw, LeLamp row aligned with Tool, approximate coordinates) is documented in **`docs/flow-monitor.md`**; Vietnamese summary in **`docs/vi/flow-monitor_vi.md`**.
+
 Turn Pipeline grouping behavior:
 - Turns are still started by input/trigger events (`sensing_input`, `chat_input`, `schedule_trigger`, etc.).
 - The UI now anchors each turn to the first detected `run_id` (from event root or detail payload).

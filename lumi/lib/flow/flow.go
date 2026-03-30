@@ -105,32 +105,39 @@ func cleanOldLogs() {
 }
 
 // Start emits an "enter" event for node and returns the start time for use with End.
-func Start(node string, data map[string]any) time.Time {
+// Optional runID overrides the global trace for this event.
+func Start(node string, data map[string]any, runID ...string) time.Time {
 	t := time.Now()
-	global.emit(KindEnter, node, 0, data)
+	global.emit(KindEnter, node, 0, data, firstStr(runID))
 	return t
 }
 
 // End emits an "exit" event for node with duration since startTime.
-func End(node string, startTime time.Time, data map[string]any) {
-	global.emit(KindExit, node, time.Since(startTime).Milliseconds(), data)
+// Optional runID overrides the global trace for this event.
+func End(node string, startTime time.Time, data map[string]any, runID ...string) {
+	global.emit(KindExit, node, time.Since(startTime).Milliseconds(), data, firstStr(runID))
 }
 
 // Log emits a one-shot "event" observation.
-func Log(node string, data map[string]any) {
-	global.emit(KindEvent, node, 0, data)
+// Optional runID overrides the global trace for this event.
+func Log(node string, data map[string]any, runID ...string) {
+	global.emit(KindEvent, node, 0, data, firstStr(runID))
 }
 
-const traceFile = "local/.flow_trace"
+func firstStr(ss []string) string {
+	if len(ss) > 0 {
+		return ss[0]
+	}
+	return ""
+}
 
-// SetTrace sets the active trace ID (run ID) for subsequent events.
-// Call this when a new agent turn starts so all related events share the same trace_id.
-// The trace is persisted to disk so it survives server restarts.
+// SetTrace sets the global fallback trace ID for events that don't pass an explicit runID.
+// Deprecated for tracing: prefer passing runID directly to Start/End/Log.
+// Retained for the Telegram-detection heuristic (GetTrace() == "" means no device turn active).
 func SetTrace(id string) {
 	global.mu.Lock()
 	global.traceID = id
 	global.mu.Unlock()
-	_ = os.WriteFile(traceFile, []byte(id), 0o644)
 }
 
 // ClearTrace clears the active trace ID (call when a turn ends).
@@ -138,19 +145,12 @@ func ClearTrace() {
 	global.mu.Lock()
 	global.traceID = ""
 	global.mu.Unlock()
-	_ = os.Remove(traceFile)
 }
 
 // GetTrace returns the current active trace ID, or "" if none is set.
-// On first call after restart, restores from disk if available.
 func GetTrace() string {
 	global.mu.Lock()
 	defer global.mu.Unlock()
-	if global.traceID == "" {
-		if b, err := os.ReadFile(traceFile); err == nil && len(b) > 0 {
-			global.traceID = string(b)
-		}
-	}
 	return global.traceID
 }
 
@@ -166,7 +166,7 @@ func Recent(n int) []Event {
 	return out
 }
 
-func (e *emitter) emit(kind Kind, node string, durMs int64, data map[string]any) {
+func (e *emitter) emit(kind Kind, node string, durMs int64, data map[string]any, overrideRunID string) {
 	now := time.Now()
 	seq := e.seqN.Add(1)
 
@@ -174,6 +174,11 @@ func (e *emitter) emit(kind Kind, node string, durMs int64, data map[string]any)
 	traceID := e.traceID
 	version := e.version
 	e.mu.Unlock()
+
+	// Explicit per-event runID takes precedence over global trace
+	if overrideRunID != "" {
+		traceID = overrideRunID
+	}
 
 	evt := Event{
 		Kind:       kind,

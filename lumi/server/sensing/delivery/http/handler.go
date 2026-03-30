@@ -115,10 +115,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Tag subsequent flow events with this turn's run ID
+	// Mark device turn active (for Telegram-detection heuristic) and tag flow events with runID.
 	flow.SetTrace(runID)
-	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID})
-	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID})
+	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
+	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID}, runID)
 
 	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "hasImage", req.Image != "", "runId", runID)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{

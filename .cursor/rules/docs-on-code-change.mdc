@@ -26,6 +26,7 @@ Whenever you write or change code that affects behavior, architecture, or APIs, 
 | LED, effects, states, animations | `led-control_vi.md` |
 | Setup flow, provisioning | `setup-flow_vi.md` |
 | Web UI, configuration pages | `web-ui_vi.md` |
+| Flow Monitor (pipeline SVG, flow logs) | `flow-monitor_vi.md` (and `docs/flow-monitor.md`) |
 | Overall structure | `overview_vi.md` |
 | MQTT, dispatch, publish | `mqtt_vi.md` |
 | bootstrap, OTA | `bootstrap-server_vi.md` |
