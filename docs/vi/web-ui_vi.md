@@ -204,18 +204,19 @@ Mỗi event hiển thị: type badge, phase (nếu có), runId (8 ký tự đầ
 Hành vi gom nhóm Turn Pipeline:
 - Turn vẫn bắt đầu từ các event input/trigger (`sensing_input`, `chat_input`, `schedule_trigger`, ...).
 - UI giờ neo mỗi turn theo `run_id` đầu tiên phát hiện được (ở root event hoặc trong `detail`).
+- Với user mic actions: mỗi `sensing_input` dạng `[voice]` / `[voice_command]` (và `voice_pipeline_start`) tạo một turn riêng, ngay cả khi các event có thể đang chung `run_id`.
+- Với user chat actions: mỗi `chat_input` (telegram input) tạo một boundary turn riêng, nên sẽ không bị merge chung với turn voice kề nhau dù OpenClaw có reuse `run_id`.
 - Nếu event phía sau có `run_id` khác, Monitor sẽ tách thành một turn agent suy diễn mới.
 - **Badge loại turn** (`motion`, `voice`, …): cùng một `run_id` có thể vừa motion (camera) vừa voice; trước đây segment đầu quyết định badge nên dễ hiện `motion` dù user vừa nói. Sau khi gom turn, nếu có bất kỳ `sensing_input` kiểu `[voice]` / `[voice_command]` thì badge ưu tiên voice hơn motion.
 - `OUT` chỉ lấy từ `tts_send`/`intent_match` cùng `run_id` với turn (hoặc event không có run_id), tránh ghép nhầm IN/OUT giữa các turn.
 - Token LLM hiển thị trên node **Agent Response**: `in/out` và nếu có `token_usage` thì thêm `cache read/write` + `total`.
-- Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó.
+- Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó (và sẽ override cả sensing_input text như SOUND nếu cùng nằm trong một UI turn).
 - Fallback tạm thời: khi không lấy được text Telegram, UI sẽ hiển thị `Message content from telegram`.
 - Turn badge luôn render dòng `IN`; nếu thiếu input, UI sẽ hiển thị `Input not captured`.
-- Header Flow Panel: `↓ Pair`, `full day`, `↓ OpenClaw Debug`, `🗑 Log`.
-- `↓ Pair` = **một lần bấm tải hai file**: JSONL server (fetch + blob, `flow-logs?last=500`, 500 dòng cuối) rồi sau vài trăm ms tải JSON snapshot trong browser (events + turns đã gom) — tránh trình duyệt chỉ cho tải một file mỗi lần bấm.
+- Header Flow Panel: `↓ Bundle`, `full day`, `🗑 Log`.
+- `↓ Bundle` = **một lần bấm tải ba file**: JSONL server (fetch + blob, `flow-logs?last=500`), JSON snapshot trong browser (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`), và OpenClaw debug payload JSONL (`GET /api/openclaw/debug-logs`) — có delay ngắn giữa các lần tải để browser cho phép download đủ cả 3 file.
 - `full day` = cả file JSONL trong ngày.
-- `↓ OpenClaw Debug` tải raw OpenClaw debug payload qua `GET /api/openclaw/debug-logs` (file trên server: `local/openclaw_debug_payloads.jsonl`).
-- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate log flow của hôm nay trên server, rồi xóa events đang hiển thị trong Flow UI.
+- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` AND `DELETE /api/openclaw/debug-logs` để truncate cả flow log và OpenClaw debug payload, rồi xóa events đang hiển thị trong Flow UI.
 - Danh sách Turn history: tối đa **100 turn** (mới nhất ở trên), suy ra từ **500 event** cuối — sự kiện đầu ngày có thể không còn trong bộ nhớ UI.
 - Bộ nhớ event của Flow được giới hạn 500 events.
 - Heuristic ghép turn Telegram: nếu turn Telegram fallback (không có text input thật) đứng ngay trước turn có output agent trong vòng 30 giây, Monitor sẽ ghép thành 1 turn để câu trả lời đi cùng input Telegram.
