@@ -1757,6 +1757,44 @@ function turnIO(turn: Turn): { input: string; output: string } {
   return { input, output };
 }
 
+function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {
+  let inTok = 0;
+  let outTok = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let total = 0;
+
+  for (const ev of turn.events) {
+    // Preferred source: JSONL token_usage event
+    if (ev.type === "flow_event" && ev.detail?.node === "token_usage") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const u = d?.data ?? {};
+      inTok = Math.max(inTok, Number(u.input_tokens ?? 0));
+      outTok = Math.max(outTok, Number(u.output_tokens ?? 0));
+      cacheRead = Math.max(cacheRead, Number(u.cache_read_tokens ?? 0));
+      cacheWrite = Math.max(cacheWrite, Number(u.cache_write_tokens ?? 0));
+      total = Math.max(total, Number(u.total_tokens ?? 0));
+      continue;
+    }
+
+    // Fallback source: monitor bus lifecycle end detail
+    if (ev.type === "lifecycle" && ev.phase === "end" && ev.detail) {
+      const d = ev.detail as Record<string, any>;
+      inTok = Math.max(inTok, Number(d.inputTokens ?? 0));
+      outTok = Math.max(outTok, Number(d.outputTokens ?? 0));
+      cacheRead = Math.max(cacheRead, Number(d.cacheRead ?? 0));
+      cacheWrite = Math.max(cacheWrite, Number(d.cacheWrite ?? 0));
+      total = Math.max(total, Number(d.totalTokens ?? 0));
+    }
+  }
+
+  if (!inTok && !outTok && !cacheRead && !cacheWrite && !total) return null;
+  if (!total && (inTok || outTok || cacheRead || cacheWrite)) {
+    total = inTok + outTok + cacheRead + cacheWrite;
+  }
+  return { inTok, outTok, cacheRead, cacheWrite, total };
+}
+
 function TurnBadge({ turn }: { turn: Turn }) {
   const pathColor = turn.path === "local" ? "var(--lm-green)"
     : turn.path === "agent" ? "var(--lm-blue)"
@@ -1766,6 +1804,8 @@ function TurnBadge({ turn }: { turn: Turn }) {
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output } = turnIO(turn);
+  const tokenStats = turnTokenStats(turn);
+  const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 
   return (
     <div style={{
@@ -1818,23 +1858,34 @@ function TurnBadge({ turn }: { turn: Turn }) {
           {output}
         </div>
       )}
+      {tokenStats && (
+        <div style={{
+          marginTop: 6,
+          padding: "5px 7px",
+          borderRadius: 6,
+          border: "1px solid rgba(167,139,250,0.4)",
+          background: "rgba(167,139,250,0.14)",
+          display: "flex",
+          flexWrap: "wrap" as const,
+          gap: 8,
+          alignItems: "center",
+          fontSize: 9,
+          fontFamily: "monospace",
+        }}>
+          <span style={{ color: "var(--lm-purple)", fontWeight: 700 }}>TOKENS</span>
+          <span style={{ color: "var(--lm-text-dim)" }}>IN {fmtToken(tokenStats.inTok)}</span>
+          <span style={{ color: "var(--lm-text-dim)" }}>OUT {fmtToken(tokenStats.outTok)}</span>
+          <span style={{ color: "var(--lm-text)" }}>TOTAL {fmtToken(tokenStats.total)}</span>
+          {(tokenStats.cacheRead || tokenStats.cacheWrite) && (
+            <span style={{ color: "var(--lm-text-muted)" }}>
+              CACHE {fmtToken(tokenStats.cacheRead)}R/{fmtToken(tokenStats.cacheWrite)}W
+            </span>
+          )}
+        </div>
+      )}
       {/* Row 4: token usage + event count */}
       <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3, display: "flex", gap: 8, alignItems: "center" }}>
         <span>{turn.events.length} events</span>
-        {(() => {
-          const endEvt = turn.events.find((e) => e.type === "lifecycle" && e.phase === "end" && e.detail?.inputTokens);
-          if (!endEvt?.detail) return null;
-          const d = endEvt.detail as Record<string, string>;
-          const inp = parseInt(d.inputTokens ?? "0", 10);
-          const out = parseInt(d.outputTokens ?? "0", 10);
-          if (!inp && !out) return null;
-          const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-          return (
-            <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
-              {fmt(inp)} in / {fmt(out)} out
-            </span>
-          );
-        })()}
       </div>
     </div>
   );
