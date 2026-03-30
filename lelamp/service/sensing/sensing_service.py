@@ -152,15 +152,15 @@ class SensingService:
 
             frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-        if frame is not None:
-            # Motion detection
-            self._check_motion(frame)
-
-            # Face detection (presence.enter/leave)
-            self._check_faces(frame)
-
-            # Light level (every LIGHT_LEVEL_INTERVAL_S)
-            self._check_light_level(frame)
+        # if frame is not None:
+        #     # Motion detection
+        #     self._check_motion(frame)
+        #
+        #     # Face detection (presence.enter/leave)
+        #     self._check_faces(frame)
+        #
+        #     # Light level (every LIGHT_LEVEL_INTERVAL_S)
+        #     self._check_light_level(frame)
 
         # Sound detection
         if self._sd and self._np and self._input_device is not None:
