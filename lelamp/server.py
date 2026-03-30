@@ -324,8 +324,21 @@ async def lifespan(app: FastAPI):
         voice_service.stop()
     if sensing_service:
         sensing_service.stop()
-    # Release servo torque before stopping to protect motors
+    # Move servos to idle position before releasing torque to prevent gravity drop
     if animation_service and animation_service.robot and animation_service.robot.bus:
+        idle_pos = {
+            "base_yaw.pos": 3.0,
+            "base_pitch.pos": -30.0,
+            "elbow_pitch.pos": 57.0,
+            "wrist_roll.pos": 0.0,
+            "wrist_pitch.pos": 18.0,
+        }
+        try:
+            animation_service.move_to(idle_pos, duration=2.0)
+            logger.info("Servos moved to idle position for safe shutdown")
+        except Exception as e:
+            logger.warning(f"Could not move to idle position on shutdown: {e}")
+        # Now release servo torque
         bus = animation_service.robot.bus
         for motor_name in bus.motors:
             try:
@@ -841,15 +854,28 @@ def move_servo(req: ServoMoveRequest):
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
 def release_servos():
-    """Disable torque on all 5 servos (release / go limp).
+    """Move servos to idle position then disable torque (safe release).
 
-    Sends Torque_Enable=0 to every servo. If a servo is temporarily
+    First smoothly moves to idle position over 2s to prevent gravity drop,
+    then sends Torque_Enable=0 to every servo. If a servo is temporarily
     offline it will fail silently for that servo but still release the rest.
     """
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
+    # Move to idle position first to prevent damage from gravity drop
+    idle_pos = {
+        "base_yaw.pos": 3.0,
+        "base_pitch.pos": -30.0,
+        "elbow_pitch.pos": 57.0,
+        "wrist_roll.pos": 0.0,
+        "wrist_pitch.pos": 18.0,
+    }
+    try:
+        animation_service.move_to(idle_pos, duration=2.0)
+    except Exception as e:
+        logger.warning(f"Could not move to idle before release: {e}")
     bus = animation_service.robot.bus
     errors = {}
     with animation_service.bus_lock:
