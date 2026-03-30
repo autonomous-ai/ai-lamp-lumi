@@ -68,6 +68,14 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	}
 }
 
+// isAgentNoReply returns true if text is an OpenClaw framework "silent" sentinel
+// (e.g. "NO_REPLY", "NO_RE"). The gateway emits these when the agent decides not
+// to respond; they should never be spoken aloud or shown to the user.
+func isAgentNoReply(text string) bool {
+	t := strings.TrimSpace(strings.ToUpper(text))
+	return strings.HasPrefix(t, "NO_RE")
+}
+
 // accumulateAssistantDelta appends a delta to the buffer for the given runId.
 func (h *OpenClawHandler) accumulateAssistantDelta(runID, delta string) {
 	if delta == "" {
@@ -334,7 +342,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Suppress TTS if the agent played music this turn (shared speaker).
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
 			musicPlaying := h.clearMusicTurn(payload.RunID)
-			if text := h.flushAssistantText(payload.RunID); text != "" {
+			if text := h.flushAssistantText(payload.RunID); text != "" && !isAgentNoReply(text) {
 				if musicPlaying {
 					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
@@ -406,7 +414,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// The agent stream's lifecycle_end handler (above) ALSO flushes accumulated assistant
 		// deltas to TTS. When both streams carry the same response, the device speaks it twice.
 		// Fix: deduplicate with a per-runID "tts already sent" guard, or remove one path.
-		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" {
+		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" && !isAgentNoReply(payload.Message) {
 			slog.Info("chat response (final)", "component", "agent", "message", payload.Message[:min(len(payload.Message), 100)])
 			go func() {
 				if err := h.agentGateway.SendToLeLampTTS(payload.Message); err != nil {

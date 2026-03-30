@@ -543,16 +543,18 @@ class EmotionResponse(BaseModel):
     led: Optional[list[int]]
 
 
-# Emotion presets: maps emotion name to servo recording + LED color [R,G,B]
+# Emotion presets: maps emotion name to servo recording + LED color + optional LED effect
+# "effect" triggers a background LED animation; "color" is the base color for that effect.
+# When no "effect" is set, LED is a simple solid fill.
 EMOTION_PRESETS = {
-    "curious":  {"servo": "curious",      "color": [255, 200, 80]},   # warm yellow
-    "happy":    {"servo": "happy_wiggle",  "color": [255, 220, 0]},    # bright yellow
-    "sad":      {"servo": "sad",           "color": [80, 80, 200]},    # soft blue
-    "thinking": {"servo": "nod",           "color": [180, 100, 255]},  # purple
-    "idle":     {"servo": "idle",          "color": [100, 200, 220]},  # cyan
-    "excited":  {"servo": "excited",       "color": [255, 100, 0]},    # orange
-    "shy":      {"servo": "shy",           "color": [255, 150, 180]},  # pink
-    "shock":    {"servo": "shock",         "color": [255, 255, 255]},  # white flash
+    "curious":  {"servo": "curious",      "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
+    "happy":    {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
+    "sad":      {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
+    "thinking": {"servo": "nod",           "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
+    "idle":     {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
+    "excited":  {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
+    "shy":      {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
+    "shock":    {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
 }
 
 
@@ -571,16 +573,17 @@ SCENE_PRESETS = {
 
 
 # --- Servo aim presets ---
-# Named lamp-head directions mapped to joint positions (degrees)
+# Named lamp-head directions mapped to joint positions (normalized -100..100)
+# Neutral: base_yaw=3, base_pitch=-30, elbow_pitch=57, wrist_roll=0, wrist_pitch=18
 AIM_PRESETS = {
-    "center":  {"base_yaw.pos": 0.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
-    "desk":    {"base_yaw.pos": 0.0, "base_pitch.pos": 15.0, "elbow_pitch.pos": 10.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 20.0},
-    "wall":    {"base_yaw.pos": 0.0, "base_pitch.pos": -15.0, "elbow_pitch.pos": -10.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -20.0},
-    "left":    {"base_yaw.pos": -30.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
-    "right":   {"base_yaw.pos": 30.0, "base_pitch.pos": 0.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
-    "up":      {"base_yaw.pos": 0.0, "base_pitch.pos": -20.0, "elbow_pitch.pos": -15.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -10.0},
-    "down":    {"base_yaw.pos": 0.0, "base_pitch.pos": 20.0, "elbow_pitch.pos": 15.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 10.0},
-    "user":    {"base_yaw.pos": 0.0, "base_pitch.pos": 5.0, "elbow_pitch.pos": 0.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 5.0},
+    "center":  {"base_yaw.pos": 3.0,   "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
+    "desk":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -25.0, "elbow_pitch.pos": 50.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 40.0},
+    "wall":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -40.0, "elbow_pitch.pos": 65.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -5.0},
+    "left":    {"base_yaw.pos": -35.0, "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
+    "right":   {"base_yaw.pos": 40.0,  "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
+    "up":      {"base_yaw.pos": 3.0,   "base_pitch.pos": -45.0, "elbow_pitch.pos": 70.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -10.0},
+    "down":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -22.0, "elbow_pitch.pos": 45.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 50.0},
+    "user":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -28.0, "elbow_pitch.pos": 55.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 22.0},
 }
 
 
@@ -1323,12 +1326,26 @@ def express_emotion(req: EmotionRequest):
         except Exception as e:
             logger.warning(f"Emotion servo failed: {e}")
 
-    # Set LED color scaled by intensity
+    # Set LED color + effect (coordinated with servo)
     if rgb_service and preset.get("color"):
         base = preset["color"]
         scaled = [int(c * req.intensity) for c in base]
         try:
-            rgb_service.dispatch("solid", tuple(scaled))
+            if preset.get("effect"):
+                # Stop any running effect, then start emotion effect
+                _stop_current_effect()
+                global _effect_thread, _effect_name
+                _effect_stop.clear()
+                _effect_name = preset["effect"]
+                _effect_thread = threading.Thread(
+                    target=_run_effect,
+                    args=(preset["effect"], tuple(scaled), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
+                    daemon=True,
+                    name=f"led-emotion-{req.emotion}",
+                )
+                _effect_thread.start()
+            else:
+                rgb_service.dispatch("solid", tuple(scaled))
             led_color = scaled
             # Track so GET /led/color returns the correct current color
             if sensing_service:
@@ -1611,6 +1628,9 @@ def audio_play(req: MusicPlayRequest):
     started = music_service.play(req.query)
     if not started:
         raise HTTPException(409, "Music is busy playing")
+    # Groove servo while music plays
+    if animation_service:
+        animation_service.dispatch("music_start", None)
     return {"status": "ok"}
 
 
@@ -1619,6 +1639,9 @@ def audio_stop():
     """Stop current music playback."""
     if music_service and music_service.playing:
         music_service.stop()
+    # Stop groove servo
+    if animation_service:
+        animation_service.dispatch("music_stop", None)
     return {"status": "ok"}
 
 
