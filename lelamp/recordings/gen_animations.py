@@ -209,15 +209,15 @@ def gen_idle():
     frames = []
 
     breath = {
-        "base_yaw.pos":     (8.0, 2.5, 0.0),
-        "base_pitch.pos":   (6.0, 1.8, 0.3),
-        "elbow_pitch.pos":  (7.0, 2.0, 0.6),
-        "wrist_roll.pos":   (9.0, 1.5, 0.1),
-        "wrist_pitch.pos":  (5.5, 2.0, 0.8),
+        "base_yaw.pos":     (8.0, 6.0, 0.0),
+        "base_pitch.pos":   (6.0, 4.0, 0.3),
+        "elbow_pitch.pos":  (7.0, 5.0, 0.6),
+        "wrist_roll.pos":   (9.0, 4.0, 0.1),
+        "wrist_pitch.pos":  (5.5, 5.0, 0.8),
     }
     drift_amp = {
-        "base_yaw.pos": 3.0, "base_pitch.pos": 1.5,
-        "elbow_pitch.pos": 2.5, "wrist_roll.pos": 2.0, "wrist_pitch.pos": 1.8,
+        "base_yaw.pos": 6.0, "base_pitch.pos": 3.0,
+        "elbow_pitch.pos": 5.0, "wrist_roll.pos": 4.0, "wrist_pitch.pos": 4.0,
     }
 
     for i in range(n):
@@ -236,9 +236,11 @@ def gen_idle():
             d = drift(t, seed=hash(j) % 17) * drift_amp[j]
             look = 0.0
             if j == "base_yaw.pos":
-                look = 4.0 * math.sin(2 * math.pi * t / 20.0)
+                look = 8.0 * math.sin(2 * math.pi * t / 20.0)
             elif j == "wrist_pitch.pos":
-                look = 2.0 * math.sin(2 * math.pi * t / 15.0 + 1.0)
+                look = 5.0 * math.sin(2 * math.pi * t / 15.0 + 1.0)
+            elif j == "elbow_pitch.pos":
+                look = 3.0 * math.sin(2 * math.pi * t / 18.0 + 0.5)
             row[j] = REST[j] + (b + d + look) * fade
         frames.append(row)
 
