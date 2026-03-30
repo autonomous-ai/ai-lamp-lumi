@@ -221,6 +221,7 @@ func (s *Server) Serve(closeFn func()) error {
 	system.GET("info", s.healthHandler.SystemInfo)
 	system.GET("network", s.healthHandler.NetworkInfo)
 	system.GET("dashboard", s.healthHandler.Dashboard)
+	system.POST("force-update", s.forceUpdate)
 
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
@@ -511,6 +512,23 @@ func (s *Server) logStream(c *gin.Context) {
 			return true
 		}
 	})
+}
+
+// forceUpdate proxies a force-check request to the bootstrap OTA worker.
+// POST /api/system/force-update
+func (s *Server) forceUpdate(c *gin.Context) {
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, "http://127.0.0.1:8080/force-check", nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("build request: "+err.Error()))
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, serializers.ResponseError("bootstrap unreachable: "+err.Error()))
+		return
+	}
+	defer resp.Body.Close()
+	c.JSON(http.StatusOK, serializers.ResponseSuccess("update check triggered"))
 }
 
 // tailFile reads the last n lines from a single file.
