@@ -181,7 +181,7 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 		}
 
 		recording := safeRecordings[rand.Intn(len(safeRecordings))]
-		postLeLamp("/servo/play", fmt.Sprintf(`{"name":"%s"}`, recording))
+		postLeLamp("/servo/play", fmt.Sprintf(`{"recording":"%s"}`, recording))
 		slog.Debug("micro-movement", "component", "ambient", "recording", recording)
 	}
 }
