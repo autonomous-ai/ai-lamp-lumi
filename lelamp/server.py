@@ -304,6 +304,7 @@ async def lifespan(app: FastAPI):
                     stt_provider=stt_provider,
                     input_device=seeed_input_device,
                     tts_service=tts_service,
+                    music_service=music_service,
                 )
                 voice_service.start()
                 logger.info("VoiceService auto-started (%s)", stt_provider.name)
@@ -1539,6 +1540,7 @@ def start_voice(req: VoiceStartRequest):
             stt_provider=stt_provider,
             input_device=seeed_input_device,
             tts_service=tts_service,
+            music_service=music_service,
         )
         voice_service.start()
         return {"status": "ok"}
