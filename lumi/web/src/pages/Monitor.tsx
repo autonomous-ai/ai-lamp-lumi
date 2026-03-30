@@ -1557,15 +1557,17 @@ function FlowDiagram({
   function edgeColor(from: FlowStage, to: FlowStage) {
     const fromVisited = visitedStages.has(from) || from === activeStage;
     const toVisited = visitedStages.has(to) || to === activeStage;
-    // Light up edge if either end was reached
-    return fromVisited || toVisited ? "var(--lm-border-hi)" : "var(--lm-border)";
+    // Make edge clearly "lit" when both endpoints are reached.
+    if (fromVisited && toVisited) return nodeColor(to);
+    if (fromVisited || toVisited) return "var(--lm-border-hi)";
+    return "var(--lm-border)";
   }
   function edgeOpacity(from: FlowStage, to: FlowStage) {
     const fromVisited = visitedStages.has(from) || from === activeStage;
     const toVisited = visitedStages.has(to) || to === activeStage;
-    if (fromVisited && toVisited) return 1;
-    if (fromVisited || toVisited) return 0.7;
-    return 0.5;
+    if (fromVisited && toVisited) return 0.98;
+    if (fromVisited || toVisited) return 0.8;
+    return 0.45;
   }
 
   const glowId = compact ? "flow-glow-c" : "flow-glow";
