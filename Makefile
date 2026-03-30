@@ -80,7 +80,7 @@ web-build:
 # Upload (OTA to GCS) — unified format: make upload-<component>
 # ============================================================================
 
-.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-setup upload-setup-ap upload-all
+.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-hooks upload-setup upload-setup-ap upload-all
 
 upload-lumi:
 	bash scripts/upload-lumi.sh
@@ -97,13 +97,16 @@ upload-web:
 upload-skills:
 	bash scripts/upload-skills.sh
 
+upload-hooks:
+	bash scripts/upload-hooks.sh
+
 upload-setup:
 	bash scripts/upload-setup.sh
 
 upload-setup-ap:
 	bash scripts/upload-setup-ap.sh
 
-upload-all: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills
+upload-all: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-hooks
 
 # ============================================================================
 # Clean
