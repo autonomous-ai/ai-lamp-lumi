@@ -419,7 +419,7 @@ async def request_logging_middleware(request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - start) * 1000
-    logger.info("%s %s → %d (%.1fms)", request.method, request.url.path, response.status_code, elapsed_ms)
+    logger.debug("%s %s → %d (%.1fms)", request.method, request.url.path, response.status_code, elapsed_ms)
     return response
 
 
@@ -730,12 +730,12 @@ def get_servo_state():
 @app.post("/servo/play", response_model=StatusResponse, tags=["Servo"])
 def play_recording(req: ServoRequest):
     """Play a pre-recorded servo animation by name."""
-    logger.info("POST /servo/play recording=%s", req.recording)
+    logger.debug("POST /servo/play recording=%s", req.recording)
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     t0 = time.perf_counter()
     animation_service.dispatch("play", req.recording)
-    logger.info("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
+    logger.debug("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
     return {"status": "ok"}
 
 
