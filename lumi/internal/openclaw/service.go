@@ -1154,7 +1154,10 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 		return "", fmt.Errorf("websocket not connected")
 	}
 
-	reqID := fmt.Sprintf("sensing-%d", s.reqCounter.Add(1))
+	// reqID labels outbound chat.send from Lumi (sensing POST, wake greeting, etc.) — not "audio only".
+	// Idempotency key must stay stable for OpenClaw run_id mapping; use lumi-chat-* (not lumi-sensing-*)
+	// so logs are not mistaken for sound/voice-only turns vs Telegram.
+	reqID := fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
 	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
 
 	params := map[string]interface{}{
@@ -1211,6 +1214,8 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 	hasImage := imageBase64 != ""
 	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID, "runId", idempotencyKey)
 	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage}, idempotencyKey)
+	slog.Info("flow correlation", "op", "ws_chat_send", "section", "lumi_to_openclaw_ws",
+		"device_run_id", idempotencyKey, "req_id", reqID, "has_image", hasImage)
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",

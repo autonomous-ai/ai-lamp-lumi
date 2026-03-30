@@ -122,6 +122,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
 	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID}, runID)
 
+	slog.Info("flow correlation", "op", "lelamp_agent_out", "section", "lelamp_to_openclaw",
+		"device_run_id", runID, "sensing_type", req.Type,
+		"note", "OpenClaw lifecycle UUID maps to device_run_id on lifecycle_start in SSE handler")
 	slog.Info("event forwarded", "component", "sensing", "type", req.Type, "hasImage", req.Image != "", "runId", runID)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"runId": runID,
