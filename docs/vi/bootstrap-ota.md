@@ -175,7 +175,7 @@ UNIT
 | Service | Lệnh chạy | Port | Ghi chú |
 |---|---|---|---|
 | `lumi.service` | `/usr/local/bin/lumi-server` | 5000 | HTTP API chính, luôn chạy |
-| `bootstrap.service` | `/usr/local/bin/bootstrap-server` | 8080 | OTA worker, poll cập nhật |
+| `bootstrap.service` | `/usr/local/bin/bootstrap-server` | 8080 | OTA worker, poll cập nhật. Expose `POST /force-check` để kích hoạt kiểm tra OTA ngay lập tức |
 | `openclaw.service` | `xvfb-run ... openclaw gateway run` | — | AI brain, memory limit 1500M |
 | `lumi-lelamp.service` | `uvicorn lelamp.server:app --host 127.0.0.1 --port 5001` | 5001 | Hardware drivers (servo, LED, camera, audio) |
 | nginx | `nginx` | 80 | Setup SPA + reverse proxy (`/api/` → Lumi 5000, `/hw/` → LeLamp 5001) |
