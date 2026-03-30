@@ -114,6 +114,7 @@ class MusicService:
                 [
                     sys.executable, "-m", "yt_dlp",
                     "--js-runtimes", "node:/usr/bin/node",
+                    "--remote-components", "ejs:github",
                     "-f", "bestaudio",
                     "-o", "-",
                     audio_url,
@@ -174,6 +175,7 @@ class MusicService:
                 [
                     sys.executable, "-m", "yt_dlp",
                     "--js-runtimes", "node:/usr/bin/node",
+                    "--remote-components", "ejs:github",
                     "--dump-json",
                     "--no-download",
                     f"ytsearch1:{query}",
