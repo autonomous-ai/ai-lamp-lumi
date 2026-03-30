@@ -106,7 +106,7 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 | `GET /hw/health` | Trạng thái 8 hardware: servo, led, camera, audio, sensing, voice, tts, display |
 | `GET /hw/presence` | state, enabled, seconds_since_motion |
 | `GET /hw/voice/status` | voice_available, voice_listening, tts_available, tts_speaking |
-| `GET /hw/servo` | available_recordings, current |
+| `GET /hw/servo` | available_recordings, current, bus_connected, robot_connected |
 | `GET /hw/display` | mode, hardware, available_expressions |
 | `GET /hw/audio/volume` | control, volume (0–100) |
 | `GET /hw/led/color` | led_count, color [R,G,B], hex (#rrggbb) |
