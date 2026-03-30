@@ -120,7 +120,61 @@ def fidget(t, seed=0):
     return gate * noise(t * 3, seed) * 2.0
 
 
-def write_csv(filename, frames):
+def smooth_frames(frames, passes=2, max_delta=2.0):
+    """Post-process smoothing: Gaussian-like moving average + delta capping.
+
+    1. Multi-pass moving average (window=5) smooths high-freq jitter
+    2. Delta cap ensures no frame-to-frame jump exceeds max_delta degrees
+    3. Preserves first and last frame exactly (for clean blend with idle)
+    """
+    if len(frames) < 3:
+        return frames
+
+    smoothed = frames
+
+    # Pass 1+2: Weighted moving average (1-2-3-2-1 kernel, normalized)
+    kernel = [1, 2, 3, 2, 1]
+    k_sum = sum(kernel)
+    k_half = len(kernel) // 2
+
+    for _ in range(passes):
+        new_frames = []
+        for i in range(len(smoothed)):
+            row = {"timestamp": smoothed[i]["timestamp"]}
+            for j in JOINTS:
+                if i < k_half or i >= len(smoothed) - k_half:
+                    # Keep edges unchanged
+                    row[j] = smoothed[i][j]
+                else:
+                    total = 0.0
+                    for ki, kw in enumerate(kernel):
+                        total += smoothed[i - k_half + ki][j] * kw
+                    row[j] = total / k_sum
+            new_frames.append(row)
+        smoothed = new_frames
+
+    # Pass 3: Delta capping — limit max change per frame
+    for i in range(1, len(smoothed)):
+        for j in JOINTS:
+            prev = smoothed[i - 1][j]
+            curr = smoothed[i][j]
+            delta = curr - prev
+            if abs(delta) > max_delta:
+                smoothed[i][j] = prev + max_delta * (1 if delta > 0 else -1)
+
+    return smoothed
+
+
+def write_csv(filename, frames, smooth=True, max_delta=2.0):
+    """Write frames to CSV with optional smoothing.
+
+    Args:
+        smooth: Apply smoothing filter (default True)
+        max_delta: Max degrees change per frame (default 2.0°/frame = 60°/s at 30fps)
+    """
+    if smooth:
+        frames = smooth_frames(frames, passes=2, max_delta=max_delta)
+
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["timestamp"] + JOINTS)
@@ -231,7 +285,7 @@ def gen_idle():
 def gen_pose_animation(filename, duration, target_offset,
                        approach_time=1.5, return_time=None,
                        use_anticipation=True, overshoot_amount=0.12,
-                       hold_behavior=None):
+                       hold_behavior=None, max_delta=2.0):
     """Generic pose animation with lifelike motion principles.
 
     Args:
@@ -281,7 +335,7 @@ def gen_pose_animation(filename, duration, target_offset,
             row[j] = val
         frames.append(row)
 
-    write_csv(filename, frames)
+    write_csv(filename, frames, max_delta=max_delta)
 
 
 def gen_curious():
@@ -580,7 +634,8 @@ def gen_shock():
 
     gen_pose_animation("shock.csv", 4.0, offset, approach_time=0.3,
                        return_time=2.0, use_anticipation=False,
-                       overshoot_amount=0.20, hold_behavior=hold)
+                       overshoot_amount=0.20, hold_behavior=hold,
+                       max_delta=3.0)  # startle needs faster motion
 
 
 def gen_shy():
