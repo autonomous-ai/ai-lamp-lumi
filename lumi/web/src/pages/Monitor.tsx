@@ -32,6 +32,9 @@ interface SystemInfo {
   goRoutines: number;
   version: string;
   deviceId: string;
+  diskTotal: number;
+  diskUsed: number;
+  diskPercent: number;
 }
 interface NetworkInfo {
   ssid: string;
@@ -69,6 +72,8 @@ interface VoiceStatus {
 interface ServoState {
   available_recordings: string[];
   current: string | null;
+  bus_connected?: boolean;
+  robot_connected?: boolean;
 }
 interface DisplayState {
   mode: string;
@@ -588,9 +593,15 @@ function OverviewSection({
               </div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
                 {servo.available_recordings?.length ?? 0} poses available
+                {servo.bus_connected === false || servo.robot_connected === false ? (
+                  <span style={{ color: "var(--lm-danger, #c44)", marginLeft: 6 }}>
+                    (bus {servo.bus_connected === false ? "down" : "ok"}
+                    {servo.robot_connected === false ? ", robot disconnected" : ""})
+                  </span>
+                ) : null}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {(servo.available_recordings ?? []).slice(0, 8).map((p) => (
+                {(servo.available_recordings ?? []).map((p) => (
                   <span key={p} role="button" onClick={() => {
                     fetch(`${HW}/servo/play`, {
                       method: "POST",
@@ -608,6 +619,21 @@ function OverviewSection({
                   }}>{p}</span>
                 ))}
               </div>
+              <button onClick={() => {
+                fetch(`${HW}/servo/release`, {
+                  method: "POST",
+                  headers: { accept: "application/json" },
+                }).catch(() => {});
+              }} style={{
+                marginTop: 4,
+                fontSize: 10,
+                padding: "3px 10px",
+                borderRadius: 4,
+                background: "var(--lm-surface)",
+                border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-dim)",
+                cursor: "pointer",
+              }}>Release</button>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
@@ -626,7 +652,7 @@ function OverviewSection({
                 {displayState.available_expressions?.length ?? 0} expressions
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {(displayState.available_expressions ?? []).slice(0, 8).map((e) => (
+                {(displayState.available_expressions ?? []).map((e) => (
                   <span key={e} style={{
                     fontSize: 10,
                     padding: "2px 7px",
@@ -646,9 +672,10 @@ function OverviewSection({
       {sys && (
         <div style={S.card}>
           <div style={S.cardLabel}>System</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
             <StatPill label="CPU" value={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" />
             <StatPill label="RAM" value={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" />
+            <StatPill label="Disk" value={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} />
             <StatPill label="Temp" value={`${sys.cpuTemp.toFixed(1)}°C`} color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"} />
             <StatPill label="Uptime" value={formatUptime(sys.uptime)} />
           </div>
@@ -677,14 +704,15 @@ function SystemSection({
       <div style={S.card}>
         <div style={S.cardLabel}>Performance</div>
         <div style={{ display: "flex", justifyContent: "space-around", paddingTop: 8 }}>
-          <GaugeRing value={sys.cpuLoad} label="CPU" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={120} />
-          <GaugeRing value={sys.memPercent} label="Memory" detail={`${Math.round(sys.memUsed/1024)}/${Math.round(sys.memTotal/1024)} MB`} color="var(--lm-blue)" size={120} />
+          <GaugeRing value={sys.cpuLoad} label="CPU" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={110} />
+          <GaugeRing value={sys.memPercent} label="Memory" detail={`${Math.round(sys.memUsed/1024)}/${Math.round(sys.memTotal/1024)} MB`} color="var(--lm-blue)" size={110} />
+          <GaugeRing value={sys.diskPercent ?? 0} label="Disk" detail={`${Math.round((sys.diskUsed ?? 0)/1024)}/${Math.round((sys.diskTotal ?? 0)/1024)} GB`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} size={110} />
           <GaugeRing
             value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / 85) * 100) : 0}
             label="Temp"
             detail={`${sys.cpuTemp.toFixed(1)}°C`}
             color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"}
-            size={120}
+            size={110}
           />
         </div>
       </div>

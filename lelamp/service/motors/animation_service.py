@@ -3,7 +3,7 @@ import csv
 import time
 import logging
 import threading
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,8 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
-# Safe joint limits. Keeps margin from mechanical limits.
-# Values are in normalized -100..100 range (use_degrees=False).
-# Derived from actual safe servo ranges observed during recording.
-# All send_action / move_to calls are clamped to these.
+# Safe joint limits (same numeric scale as CSV recordings and Feetech bus observations).
+# Keeps margin from mechanical limits. All send_action / move_to playback frames are clamped.
 JOINT_LIMITS = {
     "base_yaw.pos":     (-55.0,  65.0),   # ID 1
     "base_pitch.pos":   (-70.0,  -15.0),  # ID 2 — always negative in practice
@@ -44,6 +42,20 @@ def clamp_positions(positions: Dict[str, float]) -> Dict[str, float]:
         else:
             clamped[joint] = value
     return clamped
+
+
+def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
+    """Read Present_Position only — same numeric scale as CSV, no camera/LED path.
+
+    get_observation() also reads cameras; async_read can block or stall on device.
+    If sync_read hangs, the animation thread stops (symptom: HTTP 200 but no motion).
+    """
+    t0 = time.perf_counter()
+    raw = robot.bus.sync_read("Present_Position")
+    dt = time.perf_counter() - t0
+    if dt > 0.75:
+        logger.warning("slow sync_read Present_Position: %.2fs (serial/USB may be stalling)", dt)
+    return {f"{motor}.pos": float(val) for motor, val in raw.items()}
 
 
 class AnimationService:
@@ -128,6 +140,10 @@ class AnimationService:
         except Exception as e:
             logger.warning(f"Failed to move to startup position: {e}")
 
+        # Full joint state from hardware. move_to() only targets 2 joints; interpolation
+        # used to assume missing joints were at 0° → large erratic moves and servo stall on device.
+        self._sync_state_from_hardware()
+
         # Start event processing thread
         self._running.set()
         self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
@@ -142,6 +158,21 @@ class AnimationService:
         if self.robot:
             self.robot.disconnect()
             self.robot = None
+
+    def _sync_state_from_hardware(self) -> None:
+        """Set _current_state from Present_Position for all joints (clamped).
+
+        Required before interpolating to a recording: partial state with missing keys
+        was treated as 0°, causing violent corrections and mechanical jam / overload.
+        """
+        if not self.robot:
+            return
+        try:
+            pos = _motor_positions_from_bus(self.robot)
+            if pos:
+                self._current_state = clamp_positions(pos)
+        except Exception as e:
+            logger.warning(f"sync state from hardware failed: {e}")
     
     def dispatch(self, event_type: str, payload: Any):
         """Dispatch an event - same interface as ServiceBase"""
@@ -197,7 +228,9 @@ class AnimationService:
         if not self.robot:
             print("Robot not connected")
             return
-        
+
+        self._sync_state_from_hardware()
+
         # Load the recording
         actions = self._load_recording(recording_name)
         if actions is None:
@@ -233,7 +266,14 @@ class AnimationService:
                 # Interpolate between current state and target
                 interpolated_action = {}
                 for joint in self._interpolation_target.keys():
-                    current_val = self._current_state.get(joint, 0)
+                    # Default 0 is unsafe if _current_state is incomplete (see _sync_state_from_hardware).
+                    current_val = self._current_state.get(joint) if self._current_state else None
+                    if current_val is None:
+                        logger.warning(
+                            "interpolation: joint %s missing from _current_state, using 0 (risk of jam)",
+                            joint,
+                        )
+                        current_val = 0.0
                     target_val = self._interpolation_target[joint]
                     interpolated_action[joint] = current_val + (target_val - current_val) * progress
                 
@@ -272,7 +312,7 @@ class AnimationService:
                     self._current_frame_index = 0
                     
         except Exception as e:
-            print(f"Error in playback: {e}")
+            logger.exception("playback error: %s", e)
             # Reset to safe state
             self._current_recording = None
             self._current_actions = []
@@ -340,10 +380,11 @@ class AnimationService:
 
         safe_targets = clamp_positions(target_positions)
 
-        # Read current positions
+        # Read current positions (bus-only; avoid get_observation camera reads)
         try:
-            obs = self.robot.get_observation()
-            current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+            current = _motor_positions_from_bus(self.robot)
+            if not current:
+                raise ValueError("empty Present_Position read")
         except Exception:
             # Fallback: use last known state or jump directly
             if self._current_state:
@@ -364,7 +405,7 @@ class AnimationService:
                 interpolated[joint] = cur_val + (target_val - cur_val) * progress
 
             try:
-                self.robot.send_action(interpolated)
+                self.robot.send_action(clamp_positions(interpolated))
             except Exception as e:
                 logger.warning(f"Interpolated move frame {frame} failed: {e}")
                 break
@@ -380,6 +421,13 @@ class AnimationService:
         except Exception:
             pass
 
-        # Update internal state
+        # Prefer full pose from hardware so other joints are not left stale
+        try:
+            pos = _motor_positions_from_bus(self.robot)
+            if pos:
+                self._current_state = clamp_positions(pos)
+                return
+        except Exception as e:
+            logger.warning(f"move_to: could not read full state after move: {e}")
         self._current_state = safe_targets.copy()
     

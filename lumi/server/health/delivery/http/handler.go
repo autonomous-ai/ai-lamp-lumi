@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,7 +61,30 @@ func (h *HealthHandler) SystemInfo(c *gin.Context) {
 		}
 	}
 
+	// Disk usage for root filesystem
+	diskTotal, diskUsed, diskPercent := readDiskUsage("/")
+	info["diskTotal"] = diskTotal
+	info["diskUsed"] = diskUsed
+	info["diskPercent"] = diskPercent
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(info))
+}
+
+// readDiskUsage returns total, used (in MB) and usage percent for the given path.
+func readDiskUsage(path string) (totalMB, usedMB int64, percent float64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, 0
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	totalMB = int64(total / (1024 * 1024))
+	usedMB = int64(used / (1024 * 1024))
+	if total > 0 {
+		percent = float64(used) / float64(total) * 100
+	}
+	return
 }
 
 // NetworkInfo returns combined network status: SSID, IP, signal, internet.
