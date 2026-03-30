@@ -14,6 +14,11 @@ logger = logging.getLogger("lelamp.voice.stt")
 
 # Default Deepgram streaming config
 DEFAULT_MODEL = "flux-general-en"
+DEFAULT_LANGUAGE = "en"
+
+# DEFAULT_MODEL = "nova-3"
+# DEFAULT_LANGUAGE = "vi"
+
 DEFAULT_ENDPOINTING_MS = 1500
 
 
