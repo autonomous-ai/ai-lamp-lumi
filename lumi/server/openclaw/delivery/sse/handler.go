@@ -284,6 +284,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			h.monitorBus.Push(monEvt)
 
+			// Keep flow.GetTrace() "active" for the duration of the device turn so Telegram heuristic
+			// (lifecycle_start arriving while no device trace is active) can work correctly.
+			// Clear only after lifecycle_end so openclaw UUID → device runId mapping still succeeds.
+			if payload.Data.Phase == "end" {
+				flow.ClearTrace()
+			}
+
 		case "tool":
 			toolName := payload.Data.Tool
 			summary := toolName
@@ -739,6 +746,27 @@ func (h *OpenClawHandler) ClearFlowLogs(c *gin.Context) {
 	}
 	if err := os.Truncate(path, 0); err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear flow log failed: "+err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"cleared": true,
+		"file":    path,
+	}))
+}
+
+// ClearDebugLogs truncates the raw OpenClaw debug payload JSONL file.
+func (h *OpenClawHandler) ClearDebugLogs(c *gin.Context) {
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"cleared": false,
+			"file":    path,
+			"note":    "file not found",
+		}))
+		return
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear debug log failed: "+err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
