@@ -15,6 +15,10 @@ const lelampBase = "http://127.0.0.1:5001"
 type Result struct {
 	// TTSText is spoken back to the user via /voice/speak.
 	TTSText string
+	// LEDChanged is true when this intent sets an LED color/scene (locks ambient breathing).
+	LEDChanged bool
+	// LEDOff is true when this intent turns the LED off (unlocks ambient breathing).
+	LEDOff bool
 }
 
 // Match tries to match a voice command to a local intent.
