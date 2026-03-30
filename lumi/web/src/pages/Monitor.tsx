@@ -89,6 +89,10 @@ interface LEDColor {
   color: [number, number, number];
   hex: string;
 }
+interface SceneInfo {
+  scenes: string[];
+  active?: string;
+}
 interface MonitorEvent {
   id: string;
   time: string;
@@ -431,6 +435,8 @@ function OverviewSection({
   displayState,
   audio,
   ledColor,
+  sceneInfo,
+  onSceneActivate,
 }: {
   sys: SystemInfo | null;
   net: NetworkInfo | null;
@@ -442,6 +448,8 @@ function OverviewSection({
   displayState: DisplayState | null;
   audio: AudioVolume | null;
   ledColor: LEDColor | null;
+  sceneInfo: SceneInfo | null;
+  onSceneActivate: (scene: string) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -578,6 +586,33 @@ function OverviewSection({
             <HWBadge label="Voice" ok={hw.voice} />
             <HWBadge label="TTS" ok={hw.tts} />
             <HWBadge label="Display" ok={hw.display} />
+          </div>
+        ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+      </div>
+
+      {/* Scene presets */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Scene</div>
+        {sceneInfo ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+              {sceneInfo.scenes.length} presets available
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginTop: 2 }}>
+              {sceneInfo.scenes.map((s) => (
+                <span key={s} role="button" onClick={() => onSceneActivate(s)} style={{
+                  fontSize: 11,
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  background: s === sceneInfo.active ? "var(--lm-amber-dim)" : "var(--lm-surface)",
+                  border: `1px solid ${s === sceneInfo.active ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                  color: s === sceneInfo.active ? "var(--lm-amber)" : "var(--lm-text-dim)",
+                  cursor: "pointer",
+                  fontWeight: s === sceneInfo.active ? 600 : 400,
+                  textTransform: "capitalize",
+                }}>{s}</span>
+              ))}
+            </div>
           </div>
         ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
       </div>
@@ -1688,6 +1723,15 @@ function turnIO(turn: Turn): { input: string; output: string } {
       const d = ev.detail as Record<string, any> | undefined;
       input = d?.name ?? d?.data?.name ?? ev.summary ?? "scheduled task";
     }
+    // Fallback input: derive from chat_send summary emitted by sensing path
+    // Example summary: "[sensing:motion] Small movement detected..."
+    if (!input && (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const raw = (d?.message ?? ev.summary ?? "").trim();
+      const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/i);
+      const extracted = (m?.[1] ?? "").trim();
+      if (extracted) input = extracted;
+    }
     // Output: intent_match is authoritative for local turns; tts_send for agent turns.
     // intent_match output should never be overwritten by a stale tts_send from a different run.
     if (sameRun && (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match"))) {
@@ -1998,6 +2042,20 @@ function FlowSection({
       ? `flow_event:${ev.detail.node}` : ev.type;
     for (const node of FLOW_NODES) {
       if (node.triggers.includes(key)) visitedStages.add(node.id);
+    }
+  }
+  // Fallback: some turns only retain chat_send/agent_call without sensing_input markers.
+  // If payload clearly comes from sensing, still mark SENSE as visited.
+  for (const ev of turnEvents) {
+    const fromSensingChatSend = (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) &&
+      /^\[sensing:[^\]]+\]/i.test(ev.summary ?? "");
+    const d = ev.detail as Record<string, any> | undefined;
+    const sensingType = d?.data?.type;
+    const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
+      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "sound");
+    if (fromSensingChatSend || fromSensingAgentCall) {
+      visitedStages.add("sensing");
+      break;
     }
   }
 
@@ -2994,6 +3052,7 @@ export default function Monitor() {
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [audio, setAudio] = useState<AudioVolume | null>(null);
   const [ledColor, setLedColor] = useState<LEDColor | null>(null);
+  const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
   const [events, setEvents] = useState<DisplayEvent[]>([]);
   const [displayTs, setDisplayTs] = useState(0);
 
@@ -3050,6 +3109,11 @@ export default function Monitor() {
         setAudio(audioR);
         if (ledR.hex) setLedColor(ledR);
         setDisplayTs(Date.now());
+      } catch {}
+
+      try {
+        const sceneR = await fetch(`${HW}/scene`).then((r) => r.json());
+        if (sceneR.scenes) setSceneInfo(sceneR);
       } catch {}
     };
 
@@ -3183,6 +3247,16 @@ export default function Monitor() {
               displayState={displayState}
               audio={audio}
               ledColor={ledColor}
+              sceneInfo={sceneInfo}
+              onSceneActivate={(scene) => {
+                fetch(`${HW}/scene`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ scene }),
+                }).then((r) => r.json()).then((res) => {
+                  if (res.status === "ok") setSceneInfo((prev) => prev ? { ...prev, active: scene } : prev);
+                }).catch(() => {});
+              }}
             />
           )}
           {section === "system" && (
