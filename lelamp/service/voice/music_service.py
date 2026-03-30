@@ -16,8 +16,11 @@ from typing import Optional
 logger = logging.getLogger("lelamp.voice.music")
 logger.setLevel(logging.DEBUG)
 
-# ALSA device for Seeed 2-mic HAT
-ALSA_DEVICE = "hw:1,0"
+# ALSA output device — MUST use "default" (not hw:X,Y or plughw:X,Y).
+# The seeed-voicecard driver installs asound_2mic.conf which routes "default"
+# through dmix (playback) and dsnoop (capture). Using hw: or plughw: takes an
+# exclusive lock on the WM8960 card, blocking the mic and killing STT.
+ALSA_DEVICE = "default"
 
 
 class MusicService:
