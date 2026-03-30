@@ -389,7 +389,8 @@ class AnimationService:
 
         # Read current positions (bus-only; avoid get_observation camera reads)
         try:
-            current = _motor_positions_from_bus(self.robot)
+            with self.bus_lock:
+                current = _motor_positions_from_bus(self.robot)
             if not current:
                 raise ValueError("empty Present_Position read")
         except Exception:
@@ -397,7 +398,8 @@ class AnimationService:
             if self._current_state:
                 current = self._current_state.copy()
             else:
-                self.robot.send_action(safe_targets)
+                with self.bus_lock:
+                    self.robot.send_action(safe_targets)
                 return
 
         total_frames = max(1, int(duration * self.fps))
@@ -412,7 +414,8 @@ class AnimationService:
                 interpolated[joint] = cur_val + (target_val - cur_val) * progress
 
             try:
-                self.robot.send_action(clamp_positions(interpolated))
+                with self.bus_lock:
+                    self.robot.send_action(clamp_positions(interpolated))
             except Exception as e:
                 logger.warning(f"Interpolated move frame {frame} failed: {e}")
                 break
@@ -424,13 +427,15 @@ class AnimationService:
 
         # Send final target exactly
         try:
-            self.robot.send_action(safe_targets)
+            with self.bus_lock:
+                self.robot.send_action(safe_targets)
         except Exception:
             pass
 
         # Prefer full pose from hardware so other joints are not left stale
         try:
-            pos = _motor_positions_from_bus(self.robot)
+            with self.bus_lock:
+                pos = _motor_positions_from_bus(self.robot)
             if pos:
                 self._current_state = clamp_positions(pos)
                 return
