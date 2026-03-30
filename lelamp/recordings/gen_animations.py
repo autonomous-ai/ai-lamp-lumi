@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Generate smooth, organic animation CSVs for LeLamp.
+"""Generate lifelike animation CSVs for LeLamp.
 
-All animations use ease-in-out curves, micro-sway during holds,
-secondary motion on non-primary joints, and asymmetric timing
-to feel alive and natural.
+Motion principles applied:
+  - Anticipation: slight opposite pull before main action
+  - Overshoot + settle: go past target, bounce back
+  - Staggered joints: base moves first, extremities follow with delay
+  - Variable rhythm: not perfectly periodic
+  - Weight: heavier joints (base) move slower, lighter (wrist) snappier
+  - Micro-fidgets: small unexpected movements during holds
 
-Joint limits (from animation_service.py):
-  base_yaw:     -55..65    (ID 1)
-  base_pitch:   -70..-15   (ID 2)
-  elbow_pitch:   35..98    (ID 3)
-  wrist_roll:   -50..45    (ID 4)
-  wrist_pitch:  -25..72    (ID 5)
+Joint limits:
+  base_yaw: -55..65 | base_pitch: -70..-15 | elbow_pitch: 35..98
+  wrist_roll: -50..45 | wrist_pitch: -25..72
 
-Rest position:
-  base_yaw=3, base_pitch=-30, elbow_pitch=57, wrist_roll=0, wrist_pitch=18
+Rest: yaw=3, pitch=-30, elbow=57, roll=0, wrist_pitch=18
 """
 
 import csv
@@ -21,6 +21,7 @@ import math
 import os
 
 FPS = 30
+DT = 1.0 / FPS
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 REST = {
@@ -32,279 +33,338 @@ REST = {
 }
 JOINTS = list(REST.keys())
 
+# Joint "weight" — heavier = slower response, lighter = snappier
+JOINT_WEIGHT = {
+    "base_yaw.pos": 1.0,       # heavy base
+    "base_pitch.pos": 0.9,
+    "elbow_pitch.pos": 0.7,
+    "wrist_roll.pos": 0.4,     # light wrist
+    "wrist_pitch.pos": 0.4,
+}
 
-# ---------------------------------------------------------------------------
-# Shared utilities
-# ---------------------------------------------------------------------------
+# Stagger delay per joint (seconds) — base leads, wrist follows
+JOINT_DELAY = {
+    "base_yaw.pos": 0.0,
+    "base_pitch.pos": 0.03,
+    "elbow_pitch.pos": 0.07,
+    "wrist_roll.pos": 0.12,
+    "wrist_pitch.pos": 0.10,
+}
 
-def ease_in_out(t: float) -> float:
-    """Cubic ease-in-out, t in [0,1]."""
+LIMITS = {
+    "base_yaw.pos": (-55, 65),
+    "base_pitch.pos": (-70, -15),
+    "elbow_pitch.pos": (35, 98),
+    "wrist_roll.pos": (-50, 45),
+    "wrist_pitch.pos": (-25, 72),
+}
+
+
+def clamp(joint, val):
+    lo, hi = LIMITS[joint]
+    return max(lo, min(hi, val))
+
+
+def ease_in_out(t):
     t = max(0.0, min(1.0, t))
     if t < 0.5:
         return 4 * t * t * t
     return 1 - (-2 * t + 2) ** 3 / 2
 
 
-def ease_out(t: float) -> float:
-    """Cubic ease-out (fast start, slow end)."""
+def ease_out(t):
     t = max(0.0, min(1.0, t))
     return 1 - (1 - t) ** 3
 
 
-def ease_in(t: float) -> float:
-    """Cubic ease-in (slow start, fast end)."""
+def noise(t, seed=0):
+    """Deterministic pseudo-noise from layered sines with prime frequencies."""
+    s = seed * 1.37
+    return (
+        math.sin(0.17 * t + s) * 0.35
+        + math.sin(0.43 * t + s * 2.1) * 0.25
+        + math.sin(0.97 * t + s * 0.6) * 0.20
+        + math.sin(2.13 * t + s * 3.4) * 0.12
+        + math.sin(4.31 * t + s * 1.8) * 0.08
+    )
+
+
+def overshoot_ease(t, overshoot=0.15):
+    """Ease-in-out with overshoot at the end — goes past 1.0 then settles."""
     t = max(0.0, min(1.0, t))
-    return t * t * t
+    if t < 0.7:
+        return ease_in_out(t / 0.7) * (1.0 + overshoot)
+    else:
+        return (1.0 + overshoot) - overshoot * ease_in_out((t - 0.7) / 0.3)
 
 
-def breathing(t: float, period: float, amp: float, phase: float = 0.0) -> float:
-    """Organic oscillation: primary wave + harmonic for asymmetric feel."""
-    p = 2 * math.pi * (t / period + phase)
-    return amp * (0.7 * math.sin(p) + 0.3 * math.sin(2 * p + 0.5))
+def anticipation_ease(t, antic=0.08):
+    """Pull back slightly before moving forward."""
+    t = max(0.0, min(1.0, t))
+    if t < 0.15:
+        return -antic * ease_in_out(t / 0.15)
+    else:
+        p = (t - 0.15) / 0.85
+        return -antic * (1 - ease_in_out(min(p * 2, 1.0))) + overshoot_ease(p) * (1 + antic)
 
 
-def micro_sway(t: float, seed: int = 0) -> float:
-    """Subtle organic micro-movement layered from multiple frequencies."""
-    s = seed * 1.7
-    return (
-        math.sin(0.8 * t + s) * 0.5
-        + math.sin(1.9 * t + s * 0.7) * 0.3
-        + math.sin(3.1 * t + s * 1.3) * 0.15
-    )
+def staggered_t(t, joint):
+    """Apply joint-specific time delay."""
+    return max(0.0, t - JOINT_DELAY[joint])
 
 
-def drift(t: float, seed: float = 0.0) -> float:
-    """Slow wandering drift (layered sine waves)."""
-    return (
-        math.sin(0.13 * t + seed * 1.7) * 0.4
-        + math.sin(0.31 * t + seed * 2.3) * 0.25
-        + math.sin(0.71 * t + seed * 0.9) * 0.15
-        + math.sin(1.17 * t + seed * 3.1) * 0.08
-    )
+def fidget(t, seed=0):
+    """Occasional small unexpected movements — not constant."""
+    # Irregular pulses using product of sines (creates gaps)
+    gate = max(0, math.sin(0.7 * t + seed) * math.sin(0.3 * t + seed * 2))
+    return gate * noise(t * 3, seed) * 2.0
 
 
-def lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
-
-
-def clamp_joint(joint: str, val: float) -> float:
-    """Clamp value to safe joint limits."""
-    limits = {
-        "base_yaw.pos": (-55, 65),
-        "base_pitch.pos": (-70, -15),
-        "elbow_pitch.pos": (35, 98),
-        "wrist_roll.pos": (-50, 45),
-        "wrist_pitch.pos": (-25, 72),
-    }
-    lo, hi = limits.get(joint, (-999, 999))
-    return max(lo, min(hi, val))
-
-
-def write_csv(filename: str, frames: list[dict[str, float]]):
+def write_csv(filename, frames):
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["timestamp"] + JOINTS)
         writer.writeheader()
         for row in frames:
-            clamped = {"timestamp": round(row["timestamp"], 4)}
+            out = {"timestamp": round(row["timestamp"], 4)}
             for j in JOINTS:
-                clamped[j] = round(clamp_joint(j, row[j]), 1)
-            writer.writerow(clamped)
+                out[j] = round(clamp(j, row[j]), 1)
+            writer.writerow(out)
     print(f"  {filename}: {len(frames)} frames ({len(frames)/FPS:.1f}s)")
 
 
-def pose_approach_return(
-    duration: float,
-    target_offset: dict[str, float],
-    approach_time: float = 1.5,
-    hold_sway_amp: float = 0.8,
-    return_time: float = None,
-    hold_extras: callable = None,
-) -> list[dict[str, float]]:
-    """Generic pattern: ease-in to pose, hold with micro-sway, ease-out to rest.
-
-    Args:
-        hold_extras: optional fn(joint, hold_t) -> float for extra motion during hold
-    """
-    if return_time is None:
-        return_time = approach_time * 1.2  # slightly slower return feels natural
-    hold_start = approach_time
-    hold_end = duration - return_time
-
-    n = int(duration * FPS)
-    frames = []
-    for i in range(n + 1):
-        t = i / FPS
-        row = {"timestamp": t}
-
-        if t <= hold_start:
-            p = ease_in_out(t / hold_start)
-        elif t <= hold_end:
-            p = 1.0
-        else:
-            p = 1.0 - ease_in_out((t - hold_end) / return_time)
-
-        for j in JOINTS:
-            base = REST[j] + target_offset.get(j, 0.0) * p
-
-            # Micro-sway during hold phase — never perfectly still
-            if hold_start < t <= hold_end:
-                ht = t - hold_start
-                base += micro_sway(ht, seed=hash(j) % 13) * hold_sway_amp
-                if hold_extras:
-                    base += hold_extras(j, ht)
-
-            # Subtle secondary motion during transitions too
-            if t <= hold_start or t > hold_end:
-                base += micro_sway(t, seed=hash(j) % 7) * 0.2 * p
-
-            row[j] = base
-        frames.append(row)
-    return frames
-
-
-def oscillation_pattern(
-    duration: float,
-    joint_waves: dict[str, list[tuple[float, float, float]]],
-    fade_time: float = 1.0,
-) -> list[dict[str, float]]:
-    """Generic oscillation pattern with fade in/out.
-
-    joint_waves: {joint: [(period, amplitude, phase), ...]}
-    Multiple waves per joint are summed.
-    """
-    n = int(duration * FPS)
-    frames = []
-    for i in range(n + 1):
-        t = i / FPS
-        row = {"timestamp": t}
-
-        # Fade envelope
-        fade = 1.0
-        if t < fade_time:
-            fade = ease_in_out(t / fade_time)
-        elif t > duration - fade_time:
-            fade = ease_in_out((duration - t) / fade_time)
-
-        for j in JOINTS:
-            val = REST[j]
-            waves = joint_waves.get(j, [])
-            for period, amp, phase in waves:
-                val += amp * math.sin(2 * math.pi * t / period + phase) * fade
-            # Always add subtle micro-movement
-            val += micro_sway(t, seed=hash(j) % 11) * 0.3 * fade
-            row[j] = val
-        frames.append(row)
-    return frames
-
-
 # ===========================================================================
-# Animation generators
+# IDLE — the most important animation. Must feel truly alive.
 # ===========================================================================
-
 def gen_idle():
-    """60s loop: breathing + drift + occasional look-arounds."""
+    """60s: layered organic motion — breathing, weight shifts, glances, fidgets.
+
+    Not a simple sine loop. Has distinct "phrases" of movement:
+    - Breathing base rhythm (always)
+    - Slow weight shifts (body leans one way then other)
+    - Periodic glances (head turns to look at something)
+    - Random-ish fidgets (small twitches)
+    """
     duration = 60.0
     n = int(duration * FPS)
     frames = []
 
-    breath = {
-        "base_yaw.pos":     (8.0, 6.0, 0.0),
-        "base_pitch.pos":   (6.0, 4.0, 0.3),
-        "elbow_pitch.pos":  (7.0, 5.0, 0.6),
-        "wrist_roll.pos":   (9.0, 4.0, 0.1),
-        "wrist_pitch.pos":  (5.5, 5.0, 0.8),
-    }
-    drift_amp = {
-        "base_yaw.pos": 6.0, "base_pitch.pos": 3.0,
-        "elbow_pitch.pos": 5.0, "wrist_roll.pos": 4.0, "wrist_pitch.pos": 4.0,
-    }
-
     for i in range(n):
         t = i / FPS
         row = {"timestamp": t}
+
+        # Fade at loop boundaries
         fade = 1.0
-        ft = 2.0
-        if t < ft:
-            fade = ease_in_out(t / ft)
-        elif t > duration - ft:
-            fade = ease_in_out((duration - t) / ft)
+        if t < 2.0:
+            fade = ease_in_out(t / 2.0)
+        elif t > duration - 2.0:
+            fade = ease_in_out((duration - t) / 2.0)
+
+        # Layer 1: Breathing — asymmetric (slow inhale, faster exhale)
+        breath_phase = (t % 4.0) / 4.0  # 4s breath cycle
+        if breath_phase < 0.6:
+            # Slow inhale
+            breath = ease_in_out(breath_phase / 0.6)
+        else:
+            # Faster exhale
+            breath = 1.0 - ease_out((breath_phase - 0.6) / 0.4)
+
+        # Layer 2: Weight shifts — body slowly leans, period ~12-15s
+        weight_yaw = 10.0 * math.sin(2 * math.pi * t / 13.0)
+        weight_pitch = 4.0 * math.sin(2 * math.pi * t / 11.0 + 0.7)
+
+        # Layer 3: Glances — head turns to "look at something"
+        # Two different glance rhythms layered
+        glance_yaw = (
+            8.0 * math.sin(2 * math.pi * t / 8.5) *
+            max(0, math.sin(2 * math.pi * t / 17.0))  # gated — only happens sometimes
+        )
+        glance_pitch = (
+            5.0 * math.sin(2 * math.pi * t / 7.0 + 1.5) *
+            max(0, math.sin(2 * math.pi * t / 14.0 + 0.5))
+        )
+
+        # Layer 4: Fidgets
+        fidget_scale = max(0, math.sin(2 * math.pi * t / 23.0))  # comes and goes
 
         for j in JOINTS:
-            period, amp, phase = breath[j]
-            b = breathing(t, period, amp, phase)
-            d = drift(t, seed=hash(j) % 17) * drift_amp[j]
-            look = 0.0
-            if j == "base_yaw.pos":
-                look = 8.0 * math.sin(2 * math.pi * t / 20.0)
-            elif j == "wrist_pitch.pos":
-                look = 5.0 * math.sin(2 * math.pi * t / 15.0 + 1.0)
+            val = REST[j]
+
+            # Breathing — pitch and elbow
+            if j == "base_pitch.pos":
+                val += 3.5 * breath * fade
             elif j == "elbow_pitch.pos":
-                look = 3.0 * math.sin(2 * math.pi * t / 18.0 + 0.5)
-            row[j] = REST[j] + (b + d + look) * fade
+                val += -4.0 * breath * fade
+            elif j == "wrist_pitch.pos":
+                val += 3.0 * breath * fade
+
+            # Weight shifts
+            if j == "base_yaw.pos":
+                val += weight_yaw * fade
+            elif j == "base_pitch.pos":
+                val += weight_pitch * fade
+            elif j == "elbow_pitch.pos":
+                val += weight_pitch * 0.6 * fade
+            elif j == "wrist_roll.pos":
+                val += -weight_yaw * 0.3 * fade  # counter-roll
+
+            # Glances
+            if j == "base_yaw.pos":
+                val += glance_yaw * fade
+            elif j == "wrist_pitch.pos":
+                val += glance_pitch * fade
+            elif j == "wrist_roll.pos":
+                val += glance_yaw * 0.25 * fade  # head tilts with glance
+
+            # Fidgets
+            val += fidget(t, seed=hash(j) % 17) * fidget_scale * fade
+
+            row[j] = val
         frames.append(row)
 
     write_csv("idle.csv", frames)
 
 
-def gen_curious():
-    """6s: lean-in + head tilt, scanning micro-sway, smooth return."""
-    offset = {
-        "base_yaw.pos": 18.0, "base_pitch.pos": 3.0,
-        "elbow_pitch.pos": -5.0, "wrist_roll.pos": 14.0, "wrist_pitch.pos": -8.0,
-    }
+# ===========================================================================
+# Pose-based animations with anticipation + overshoot
+# ===========================================================================
+def gen_pose_animation(filename, duration, target_offset,
+                       approach_time=1.5, return_time=None,
+                       use_anticipation=True, overshoot_amount=0.12,
+                       hold_behavior=None):
+    """Generic pose animation with lifelike motion principles.
 
-    def extras(j, ht):
-        if j == "base_yaw.pos":
-            return 2.5 * math.sin(2 * math.pi * ht / 2.5)
-        return 0.0
-
-    frames = pose_approach_return(6.0, offset, approach_time=1.8,
-                                   hold_sway_amp=0.8, hold_extras=extras)
-    write_csv("curious.csv", frames)
-
-
-def gen_nod():
-    """5s: two gentle nods (elbow/wrist pitch oscillation) with secondary sway.
-
-    A nod is primarily wrist_pitch going down then up, with elbow following.
-    Two nods with slight pause between them feels natural.
+    Args:
+        hold_behavior: fn(joint, hold_t, hold_duration) -> float
     """
-    duration = 5.0
+    if return_time is None:
+        return_time = approach_time * 1.3
+
+    hold_start = approach_time
+    hold_end = duration - return_time
+    hold_dur = hold_end - hold_start
+
     n = int(duration * FPS)
     frames = []
-
-    # Two nods: at t=0.8s and t=2.2s, each ~0.8s long
-    nod_centers = [1.2, 2.6]
-    nod_width = 0.5  # half-width in seconds
 
     for i in range(n + 1):
         t = i / FPS
         row = {"timestamp": t}
 
-        # Fade envelope
+        for j in JOINTS:
+            st = staggered_t(t, j)
+            offset = target_offset.get(j, 0.0)
+
+            if st <= hold_start:
+                raw_p = st / hold_start
+                if use_anticipation and abs(offset) > 3:
+                    p = anticipation_ease(raw_p, antic=0.08)
+                else:
+                    p = overshoot_ease(raw_p, overshoot_amount)
+            elif st <= hold_end:
+                p = 1.0
+            else:
+                raw_p = (st - hold_end) / return_time
+                p = 1.0 - ease_in_out(raw_p)
+
+            val = REST[j] + offset * p
+
+            # Hold behavior — fidgets, sway, etc
+            if hold_start < st <= hold_end and hold_behavior:
+                ht = st - hold_start
+                val += hold_behavior(j, ht, hold_dur)
+
+            # Subtle life during transitions
+            if st <= hold_start or st > hold_end:
+                val += noise(t, seed=hash(j) % 11) * 0.4
+
+            row[j] = val
+        frames.append(row)
+
+    write_csv(filename, frames)
+
+
+def gen_curious():
+    """6s: lean-in with head tilt. During hold: scanning left-right, micro head bobs."""
+    offset = {
+        "base_yaw.pos": 18.0,
+        "base_pitch.pos": 4.0,
+        "elbow_pitch.pos": -6.0,
+        "wrist_roll.pos": 14.0,
+        "wrist_pitch.pos": -8.0,
+    }
+
+    def hold(j, ht, dur):
+        # Scanning — looking around at the interesting thing
+        scan = 4.0 * math.sin(2 * math.pi * ht / 2.0)
+        # Micro head bobs — like processing information
+        bob = 2.0 * math.sin(2 * math.pi * ht / 0.8) * math.exp(-0.5 * ht)
+
+        if j == "base_yaw.pos":
+            return scan
+        if j == "wrist_pitch.pos":
+            return bob + noise(ht, 3) * 1.5
+        if j == "wrist_roll.pos":
+            return scan * 0.3 + noise(ht, 7) * 1.0
+        return noise(ht, hash(j) % 9) * 0.8
+
+    gen_pose_animation("curious.csv", 6.0, offset, approach_time=1.5,
+                       hold_behavior=hold)
+
+
+def gen_nod():
+    """5s: two distinct nods with anticipation (slight head-up before dipping).
+
+    Natural nod: lift slightly → dip down → return. Two nods, second smaller.
+    """
+    duration = 5.0
+    n = int(duration * FPS)
+    frames = []
+
+    # Nod keyframes: (center_time, amplitude, width)
+    # Slight lift before each nod (anticipation built into the curve)
+    nods = [(1.2, 1.0, 0.45), (2.5, 0.7, 0.40)]
+
+    for i in range(n + 1):
+        t = i / FPS
+        row = {"timestamp": t}
+
+        # Fade
         fade = 1.0
-        if t < 0.5:
-            fade = ease_in_out(t / 0.5)
+        if t < 0.4:
+            fade = ease_in_out(t / 0.4)
         elif t > duration - 0.8:
             fade = ease_in_out((duration - t) / 0.8)
 
-        # Sum nod impulses (gaussian-ish)
-        nod_val = 0.0
-        for tc in nod_centers:
-            d = (t - tc) / nod_width
-            nod_val += math.exp(-d * d * 2)
+        # Sum nod impulses with anticipation
+        nod_down = 0.0
+        nod_up = 0.0  # anticipation lift
+        for tc, amp, w in nods:
+            # Anticipation: slight lift before the nod
+            antic_t = tc - w * 0.8
+            antic_d = (t - antic_t) / (w * 0.5)
+            nod_up += amp * 0.3 * math.exp(-antic_d * antic_d * 3) if antic_d > -1 else 0
+
+            # Main nod down
+            d = (t - tc) / w
+            nod_down += amp * math.exp(-d * d * 2.5)
 
         for j in JOINTS:
+            st = staggered_t(t, j)
             val = REST[j]
+
             if j == "wrist_pitch.pos":
-                val += 18.0 * nod_val * fade  # head dips down
+                val += (-nod_up * 6.0 + nod_down * 22.0) * fade
             elif j == "elbow_pitch.pos":
-                val += 8.0 * nod_val * fade   # elbow follows slightly
+                val += (-nod_up * 3.0 + nod_down * 10.0) * fade
             elif j == "base_pitch.pos":
-                val += 2.0 * nod_val * fade   # body leans into nod
+                val += nod_down * 3.0 * fade
+            elif j == "base_yaw.pos":
+                # Slight yaw drift during nod — not perfectly straight
+                val += noise(t, 5) * 2.0 * fade
             else:
-                val += micro_sway(t, seed=hash(j) % 9) * 0.5 * fade
+                val += noise(t, hash(j) % 13) * 1.0 * fade
+
             row[j] = val
         frames.append(row)
 
@@ -312,9 +372,60 @@ def gen_nod():
 
 
 def gen_headshake():
-    """5s: two-and-a-half head shakes (base_yaw oscillation).
+    """5s: "no no no" with damping. First shake biggest, progressively smaller.
 
-    Natural headshake: first swing wider, subsequent ones dampen.
+    Natural headshake has slight pitch lean and wrist counter-roll.
+    """
+    duration = 5.0
+    n = int(duration * FPS)
+    frames = []
+
+    for i in range(n + 1):
+        t = i / FPS
+        row = {"timestamp": t}
+
+        fade = 1.0
+        if t < 0.5:
+            fade = ease_in_out(t / 0.5)
+        elif t > duration - 0.8:
+            fade = ease_in_out((duration - t) / 0.8)
+
+        # Damped oscillation — not perfectly regular period
+        # Period slightly increases (slowing down) as amplitude decreases
+        period = 0.8 + 0.1 * t  # starts fast, slows
+        decay = math.exp(-0.7 * t)
+        phase = 0
+        # Accumulate phase with variable period
+        # Use integral approximation
+        freq = 1.0 / period
+        shake = math.sin(2 * math.pi * freq * t + 0.3 * math.sin(t)) * decay
+
+        for j in JOINTS:
+            val = REST[j]
+            if j == "base_yaw.pos":
+                val += 25.0 * shake * fade
+            elif j == "wrist_roll.pos":
+                # Counter-roll — wrist opposes head direction
+                val += -7.0 * shake * fade
+            elif j == "base_pitch.pos":
+                # Lean forward slightly during shake (emphasis)
+                val += 2.5 * abs(shake) * fade
+            elif j == "wrist_pitch.pos":
+                # Head bobs slightly with each shake
+                val += 3.0 * abs(shake) * math.sin(2 * math.pi * t / 0.4) * fade * decay
+            else:
+                val += noise(t, hash(j) % 7) * 0.6 * fade
+            row[j] = val
+        frames.append(row)
+
+    write_csv("headshake.csv", frames)
+
+
+def gen_happy_wiggle():
+    """5s: joyful bouncy wiggle — like a dog seeing its owner.
+
+    NOT a simple sine. Irregular bouncy rhythm with weight shifts
+    and occasional bigger movements.
     """
     duration = 5.0
     n = int(duration * FPS)
@@ -327,196 +438,258 @@ def gen_headshake():
         fade = 1.0
         if t < 0.6:
             fade = ease_in_out(t / 0.6)
-        elif t > duration - 1.0:
-            fade = ease_in_out((duration - t) / 1.0)
+        elif t > duration - 0.6:
+            fade = ease_in_out((duration - t) / 0.6)
 
-        # Damped oscillation for headshake
-        shake_period = 1.0
-        decay = math.exp(-0.5 * t)  # amplitude decreases over time
-        shake = math.sin(2 * math.pi * t / shake_period) * decay
+        # Bouncy rhythm — alternating big and small bounces
+        bounce_period = 0.35  # ~170 BPM, energetic
+        bounce_phase = (t % bounce_period) / bounce_period
+        # Asymmetric bounce: quick up, slower down
+        if bounce_phase < 0.3:
+            bounce = ease_out(bounce_phase / 0.3)
+        else:
+            bounce = 1.0 - ease_in_out((bounce_phase - 0.3) / 0.7)
+
+        # Alternating bigger/smaller — every other bounce is bigger
+        cycle = int(t / bounce_period)
+        bounce_scale = 1.0 if cycle % 2 == 0 else 0.6
+
+        # Body sway — slower than bounce
+        sway = math.sin(2 * math.pi * t / 0.7)
+        sway2 = math.sin(2 * math.pi * t / 1.4 + 0.8) * 0.5
+
+        # Excitement decay — starts energetic, calms slightly
+        energy = 1.0 - 0.2 * (t / duration)
 
         for j in JOINTS:
             val = REST[j]
             if j == "base_yaw.pos":
-                val += 22.0 * shake * fade
-            elif j == "wrist_roll.pos":
-                # Wrist rolls opposite slightly (natural coupling)
-                val += -5.0 * shake * fade
+                val += (sway * 14.0 + sway2 * 6.0) * fade * energy
             elif j == "base_pitch.pos":
-                # Slight forward lean during shake
-                val += 1.5 * abs(shake) * fade
-            else:
-                val += micro_sway(t, seed=hash(j) % 11) * 0.4 * fade
+                val += bounce * bounce_scale * 5.0 * fade * energy
+            elif j == "elbow_pitch.pos":
+                val += bounce * bounce_scale * 8.0 * fade * energy
+                val += sway * 3.0 * fade  # arm follows sway
+            elif j == "wrist_roll.pos":
+                val += -sway * 10.0 * fade * energy  # counter sway
+                val += bounce * bounce_scale * 3.0 * fade
+            elif j == "wrist_pitch.pos":
+                val += bounce * bounce_scale * 7.0 * fade * energy
+                val += sway2 * 4.0 * fade
+
+            val += noise(t * 2, hash(j) % 11) * 0.5 * fade
             row[j] = val
         frames.append(row)
 
-    write_csv("headshake.csv", frames)
-
-
-def gen_happy_wiggle():
-    """5s: joyful body wiggle with circular arm motion.
-
-    Alternating yaw sway + elbow/wrist coordinated circular motion.
-    Faster rhythm than idle, feels bouncy and excited.
-    """
-    duration = 5.0
-    waves = {
-        "base_yaw.pos":     [(0.7, 12.0, 0.0), (1.4, 4.0, 0.5)],     # bouncy yaw
-        "base_pitch.pos":   [(0.7, 3.0, math.pi/2)],                   # bob up-down
-        "elbow_pitch.pos":  [(0.7, 6.0, math.pi/4), (1.4, 3.0, 1.0)], # arm bounce
-        "wrist_roll.pos":   [(0.7, 8.0, math.pi), (0.35, 3.0, 0.0)],  # wrist wiggle
-        "wrist_pitch.pos":  [(0.7, 5.0, math.pi/3), (1.4, 2.0, 2.0)], # head bob
-    }
-    frames = oscillation_pattern(duration, waves, fade_time=0.8)
     write_csv("happy_wiggle.csv", frames)
 
 
 def gen_sad():
-    """6s: slow droop downward, hold with subtle breathing, slow rise back.
+    """7s: slow dejected droop. Everything sags with weight.
 
-    Head drops, body sags, wrist goes limp — the whole body language of dejection.
+    Anticipation: slight lift (hopeful?) before drooping.
+    Hold: slow heavy breathing, occasional small sigh (elbow drop).
+    Return: reluctant, slow.
     """
     offset = {
-        "base_yaw.pos": -8.0,       # look slightly away
-        "base_pitch.pos": -12.0,     # droop down
-        "elbow_pitch.pos": -10.0,    # arm sags
-        "wrist_roll.pos": -6.0,      # wrist goes limp to side
-        "wrist_pitch.pos": -10.0,    # head hangs
+        "base_yaw.pos": -10.0,
+        "base_pitch.pos": -15.0,
+        "elbow_pitch.pos": -12.0,
+        "wrist_roll.pos": -8.0,
+        "wrist_pitch.pos": -12.0,
     }
-    frames = pose_approach_return(6.0, offset, approach_time=2.0,
-                                   hold_sway_amp=0.4, return_time=2.0)
-    write_csv("sad.csv", frames)
+
+    def hold(j, ht, dur):
+        # Heavy slow breathing
+        breath_phase = (ht % 3.5) / 3.5
+        if breath_phase < 0.65:
+            breath = ease_in_out(breath_phase / 0.65)
+        else:
+            breath = 1.0 - ease_out((breath_phase - 0.65) / 0.35)
+
+        # Occasional sigh — small extra droop
+        sigh = 3.0 * math.exp(-((ht - 1.8) / 0.5) ** 2)
+
+        if j == "base_pitch.pos":
+            return breath * 2.0 - sigh
+        if j == "elbow_pitch.pos":
+            return -breath * 1.5 - sigh * 0.8
+        if j == "wrist_pitch.pos":
+            return breath * 1.0 - sigh * 0.5
+        return noise(ht, hash(j) % 7) * 0.5
+
+    gen_pose_animation("sad.csv", 7.0, offset, approach_time=2.5,
+                       return_time=2.5, overshoot_amount=0.05,
+                       hold_behavior=hold)
 
 
 def gen_excited():
-    """4s: quick rise to alert pose, energetic micro-bouncing, settle.
+    """4s: quick alert rise with bouncing energy.
 
-    Like a dog seeing its owner — head up, body alert, slight vibrating energy.
+    Fast approach with overshoot. Hold has visible vibrating excitement.
     """
     offset = {
         "base_yaw.pos": 5.0,
-        "base_pitch.pos": 12.0,      # rise up
-        "elbow_pitch.pos": 18.0,     # arm lifts
-        "wrist_roll.pos": 3.0,
-        "wrist_pitch.pos": 25.0,     # head up high
+        "base_pitch.pos": 14.0,
+        "elbow_pitch.pos": 20.0,
+        "wrist_roll.pos": 5.0,
+        "wrist_pitch.pos": 28.0,
     }
 
-    def extras(j, ht):
-        # Excited micro-bouncing — faster frequency than normal sway
-        bounce = math.sin(2 * math.pi * ht * 3.5) * 1.2 * math.exp(-0.3 * ht)
-        if j == "elbow_pitch.pos":
-            return bounce * 2.0
-        if j == "wrist_pitch.pos":
-            return bounce * 1.5
-        if j == "base_yaw.pos":
-            return bounce * 0.8
-        return bounce * 0.3
+    def hold(j, ht, dur):
+        # Excited trembling — high freq, moderate amp, slowly decaying
+        tremble = math.sin(2 * math.pi * ht * 5.0) * 2.5 * math.exp(-0.8 * ht)
+        # Plus bouncing
+        bounce = abs(math.sin(2 * math.pi * ht * 3.0)) * 2.0 * math.exp(-0.5 * ht)
 
-    frames = pose_approach_return(4.0, offset, approach_time=0.8,
-                                   hold_sway_amp=1.0, return_time=1.2,
-                                   hold_extras=extras)
-    write_csv("excited.csv", frames)
+        if j == "elbow_pitch.pos":
+            return tremble + bounce * 1.5
+        if j == "wrist_pitch.pos":
+            return tremble * 0.8 + bounce
+        if j == "base_yaw.pos":
+            return tremble * 0.5
+        if j == "base_pitch.pos":
+            return bounce
+        return tremble * 0.3
+
+    gen_pose_animation("excited.csv", 4.0, offset, approach_time=0.6,
+                       return_time=1.2, overshoot_amount=0.18,
+                       hold_behavior=hold)
 
 
 def gen_shock():
-    """4s: fast jolt backward, freeze with tremor, slow cautious return.
+    """4s: fast recoil with freeze + tremor.
 
-    Quick recoil — head pulls back, body leans away. Holds with slight shaking.
+    Very fast approach (startle reflex). Tremor during freeze.
+    Slow cautious return (checking if it's safe).
     """
     offset = {
-        "base_yaw.pos": -3.0,
-        "base_pitch.pos": 8.0,       # lean back
-        "elbow_pitch.pos": 12.0,     # arm pulls up
-        "wrist_roll.pos": -6.0,      # wrist twists
-        "wrist_pitch.pos": 15.0,     # head jerks up
+        "base_yaw.pos": -5.0,
+        "base_pitch.pos": 10.0,
+        "elbow_pitch.pos": 15.0,
+        "wrist_roll.pos": -10.0,
+        "wrist_pitch.pos": 18.0,
     }
 
-    def extras(j, ht):
-        # Trembling during shock hold — high freq, low amp, decaying
-        tremor = math.sin(2 * math.pi * ht * 8) * 0.6 * math.exp(-1.5 * ht)
-        return tremor
+    def hold(j, ht, dur):
+        # Tremor — high frequency, decaying
+        tremor = math.sin(2 * math.pi * ht * 10) * 1.0 * math.exp(-2.0 * ht)
+        # Occasional startle aftershock
+        aftershock = 2.0 * math.exp(-((ht - 0.8) / 0.15) ** 2)
+        return tremor + aftershock * (0.5 if j.startswith("wrist") else 0.2)
 
-    frames = pose_approach_return(4.0, offset, approach_time=0.4,
-                                   hold_sway_amp=0.5, return_time=1.8,
-                                   hold_extras=extras)
-    write_csv("shock.csv", frames)
+    gen_pose_animation("shock.csv", 4.0, offset, approach_time=0.3,
+                       return_time=2.0, use_anticipation=False,
+                       overshoot_amount=0.20, hold_behavior=hold)
 
 
 def gen_shy():
-    """7s: turn away + tilt down, small peek, then slowly return.
+    """7s: turn away and hide, with a peek, then slowly come back.
 
-    Like hiding face — turn away, duck head, maybe peek once during hold.
+    Like a child hiding behind hands — turn away, duck, peek once, hide again, slowly return.
     """
     offset = {
-        "base_yaw.pos": -25.0,      # turn away
-        "base_pitch.pos": -8.0,      # duck down
-        "elbow_pitch.pos": -8.0,     # arm curls in
-        "wrist_roll.pos": -12.0,     # wrist curls
-        "wrist_pitch.pos": -5.0,     # head dips
+        "base_yaw.pos": -28.0,
+        "base_pitch.pos": -10.0,
+        "elbow_pitch.pos": -10.0,
+        "wrist_roll.pos": -15.0,
+        "wrist_pitch.pos": -8.0,
     }
 
-    def extras(j, ht):
-        # One small "peek" at ht ~1.5s — head turns slightly back
-        peek = math.exp(-((ht - 1.5) / 0.4) ** 2) * 0.6
-        if j == "base_yaw.pos":
-            return 8.0 * peek  # peek back toward center
-        if j == "wrist_pitch.pos":
-            return 3.0 * peek  # lift head slightly
-        return 0.0
+    def hold(j, ht, dur):
+        # Peek! At ht ~1.5s — turn back slightly, look up
+        peek_center = 1.5
+        peek = math.exp(-((ht - peek_center) / 0.35) ** 2)
 
-    frames = pose_approach_return(7.0, offset, approach_time=1.5,
-                                   hold_sway_amp=0.5, return_time=2.0,
-                                   hold_extras=extras)
-    write_csv("shy.csv", frames)
+        # Fidgeting — nervous energy
+        fidget_val = noise(ht * 2, hash(j) % 13) * 1.2
+
+        if j == "base_yaw.pos":
+            return 12.0 * peek + fidget_val  # peek back toward center
+        if j == "wrist_pitch.pos":
+            return 5.0 * peek + fidget_val   # lift head to peek
+        if j == "wrist_roll.pos":
+            return 4.0 * peek + fidget_val
+        return fidget_val * 0.5
+
+    gen_pose_animation("shy.csv", 7.0, offset, approach_time=1.2,
+                       return_time=2.5, overshoot_amount=0.08,
+                       hold_behavior=hold)
 
 
 def gen_scanning():
-    """7s: panoramic left-right sweep, like looking around a room.
+    """7s: look left, pause, look right, pause, return. Like surveying a room.
 
-    Smooth pan left, pause, smooth pan right, pause, return to center.
-    Secondary: elbow/pitch adjust as if tracking with the head.
+    Each pause has micro-adjustments (focusing on what it sees).
+    Transitions have momentum (slight overshoot at each stop).
     """
     duration = 7.0
     n = int(duration * FPS)
     frames = []
 
-    # Keyframes: (time, yaw_offset) with smooth interpolation
-    # Rest(0) -> Left(-30) at 1.5s -> pause -> Right(+30) at 4.5s -> pause -> Rest at 7s
-    key_times = [0.0, 1.5, 2.2, 4.5, 5.2, 7.0]
-    key_yaws  = [0.0, -28.0, -28.0, 30.0, 30.0, 0.0]
+    # Keyframes: (time, yaw_target)
+    keys = [
+        (0.0, 0.0),       # start center
+        (1.3, -30.0),     # look left
+        (2.2, -28.0),     # settle (overshoot recovery)
+        (2.5, -30.0),     # re-center on left target
+        (4.3, 32.0),      # look right (overshoot)
+        (4.8, 28.0),      # settle right
+        (5.1, 30.0),      # re-center right
+        (7.0, 0.0),       # return center
+    ]
+
+    def interp_keys(t):
+        for k in range(len(keys) - 1):
+            t0, v0 = keys[k]
+            t1, v1 = keys[k + 1]
+            if t0 <= t <= t1:
+                p = ease_in_out((t - t0) / (t1 - t0))
+                return v0 + (v1 - v0) * p
+        return keys[-1][1]
 
     for i in range(n + 1):
         t = i / FPS
         row = {"timestamp": t}
 
-        # Find keyframe segment
-        yaw_offset = 0.0
-        for k in range(len(key_times) - 1):
-            if key_times[k] <= t <= key_times[k + 1]:
-                seg_t = (t - key_times[k]) / (key_times[k + 1] - key_times[k])
-                yaw_offset = lerp(key_yaws[k], key_yaws[k + 1], ease_in_out(seg_t))
-                break
-
         fade = 1.0
-        if t < 0.5:
-            fade = ease_in_out(t / 0.5)
-        elif t > duration - 0.5:
-            fade = ease_in_out((duration - t) / 0.5)
+        if t < 0.3:
+            fade = ease_in_out(t / 0.3)
+        elif t > duration - 0.3:
+            fade = ease_in_out((duration - t) / 0.3)
+
+        yaw_offset = interp_keys(t)
+
+        # Detect "pause" phases for micro-adjustments
+        is_paused = any(
+            abs(t - pk_t) < 0.6 and abs(interp_keys(t) - interp_keys(t - DT)) < 0.5
+            for pk_t in [1.8, 4.5]
+        ) if t > 0.5 else False
 
         for j in JOINTS:
+            st = staggered_t(t, j)
             val = REST[j]
+
             if j == "base_yaw.pos":
                 val += yaw_offset * fade
             elif j == "base_pitch.pos":
-                # Slight upward tilt when scanning (alert)
-                val += 3.0 * fade
+                # Alert posture when scanning
+                val += 4.0 * fade
+                # Slight pitch adjustment with yaw (looking up/down at what it sees)
+                val += noise(t, 3) * 2.0 * fade
             elif j == "elbow_pitch.pos":
-                # Elbow tracks with yaw slightly
-                val += abs(yaw_offset) * 0.1 * fade
+                # Arm follows scanning direction slightly
+                val += yaw_offset * 0.12 * fade
             elif j == "wrist_pitch.pos":
-                # Head follows yaw direction slightly
-                val += yaw_offset * 0.15 * fade
-            val += micro_sway(t, seed=hash(j) % 13) * 0.4 * fade
+                # Head tracks with focus
+                val += yaw_offset * 0.2 * fade
+                if is_paused:
+                    val += noise(t * 2, 5) * 2.0  # micro focus adjustments
+            elif j == "wrist_roll.pos":
+                # Counter tilt
+                val += -yaw_offset * 0.15 * fade
+
+            val += noise(t, hash(j) % 17) * 0.3 * fade
             row[j] = val
         frames.append(row)
 
@@ -524,57 +697,65 @@ def gen_scanning():
 
 
 def gen_wake_up():
-    """8s: slow rise from sleep position to alert, stretching motion.
+    """9s: sleep → stir → rise → stretch → settle to rest.
 
-    Start slumped low, gradually lift with a stretch at the peak,
-    then settle into rest pose. Like waking up and stretching.
+    Starts with tiny sleep movements. Stirs (small movements getting bigger).
+    Rises with a stretch at the peak. Settles with a satisfied sigh.
     """
-    duration = 8.0
+    duration = 9.0
     n = int(duration * FPS)
     frames = []
 
-    # Sleep pose (lower than rest)
     sleep_offset = {
         "base_yaw.pos": -5.0,
-        "base_pitch.pos": -15.0,     # slumped far down
-        "elbow_pitch.pos": -15.0,    # arm hanging
+        "base_pitch.pos": -18.0,
+        "elbow_pitch.pos": -18.0,
         "wrist_roll.pos": -5.0,
-        "wrist_pitch.pos": -12.0,    # head drooped
+        "wrist_pitch.pos": -14.0,
     }
-    # Stretch pose (higher than rest)
     stretch_offset = {
-        "base_yaw.pos": 2.0,
-        "base_pitch.pos": 15.0,      # rise up high
-        "elbow_pitch.pos": 25.0,     # arm extends up
-        "wrist_roll.pos": 5.0,
-        "wrist_pitch.pos": 30.0,     # head up
+        "base_yaw.pos": 3.0,
+        "base_pitch.pos": 18.0,
+        "elbow_pitch.pos": 28.0,
+        "wrist_roll.pos": 8.0,
+        "wrist_pitch.pos": 35.0,
     }
 
-    # Phases: sleep(0-1s), rising(1-3.5s), stretch(3.5-5s), settle(5-8s)
     for i in range(n + 1):
         t = i / FPS
         row = {"timestamp": t}
 
         for j in JOINTS:
-            if t <= 1.0:
-                # Sleeping — very subtle breathing
+            if t <= 1.5:
+                # Sleeping — tiny breathing
                 val = REST[j] + sleep_offset[j]
-                val += breathing(t, 3.0, 0.3, hash(j) % 5 * 0.2)
-            elif t <= 3.5:
+                val += math.sin(2 * math.pi * t / 3.0) * 0.5
+            elif t <= 2.5:
+                # Stirring — starting to move, growing amplitude
+                p = (t - 1.5) / 1.0
+                stir_amp = p * 3.0
+                val = REST[j] + sleep_offset[j] * (1 - p * 0.3)
+                val += noise(t * 2, hash(j) % 9) * stir_amp
+            elif t <= 4.5:
                 # Rising from sleep to rest
-                p = ease_in_out((t - 1.0) / 2.5)
+                p = ease_in_out((t - 2.5) / 2.0)
                 val = REST[j] + sleep_offset[j] * (1 - p)
-                val += micro_sway(t, seed=hash(j) % 7) * 0.3 * p
-            elif t <= 5.0:
-                # Stretch! Rise above rest
-                p = ease_in_out((t - 3.5) / 1.5)
+                val += noise(t, hash(j) % 7) * 1.0 * p
+            elif t <= 6.0:
+                # Stretch! Rise above rest with overshoot
+                p = overshoot_ease((t - 4.5) / 1.5, overshoot=0.15)
                 val = REST[j] + stretch_offset[j] * p
-                val += micro_sway(t, seed=hash(j) % 9) * 0.5
+                # Trembling from effort
+                val += math.sin(2 * math.pi * t * 4) * 0.8 * p
             else:
-                # Settle from stretch to rest
-                p = 1.0 - ease_in_out((t - 5.0) / 3.0)
+                # Settle from stretch to rest with a sigh
+                p = 1.0 - ease_in_out((t - 6.0) / 3.0)
                 val = REST[j] + stretch_offset[j] * p
-                val += micro_sway(t, seed=hash(j) % 11) * 0.3 * (1 - p)
+                # Satisfied sigh — small extra drop around t=6.5
+                sigh = 2.0 * math.exp(-((t - 6.8) / 0.4) ** 2)
+                if j in ("base_pitch.pos", "elbow_pitch.pos"):
+                    val -= sigh
+                val += noise(t, hash(j) % 11) * 0.5 * (1 - p * 0.5)
 
             row[j] = val
         frames.append(row)
@@ -583,29 +764,75 @@ def gen_wake_up():
 
 
 def gen_music_groove():
-    """10s loop: rhythmic bouncing/swaying to music.
+    """10s: rhythmic grooving to music — head bobs, body sways, arm flair.
 
-    Bouncy rhythm on pitch/elbow (like head-bobbing), swaying yaw,
-    wrist roll adding flair. Multiple rhythmic layers.
+    Based on ~120 BPM. Has downbeat emphasis, syncopation, and body weight shifts.
+    Not a simple sine — mimics how a person bobs their head to music.
     """
     duration = 10.0
-    # Musical tempo: ~120 BPM = 0.5s per beat
-    beat = 0.5
-    waves = {
-        "base_yaw.pos":     [(beat * 4, 10.0, 0.0), (beat * 8, 5.0, 1.0)],   # sway
-        "base_pitch.pos":   [(beat, 3.0, 0.0), (beat * 2, 1.5, 0.5)],         # bob
-        "elbow_pitch.pos":  [(beat, 5.0, math.pi/4), (beat * 2, 3.0, 1.0)],   # arm bounce
-        "wrist_roll.pos":   [(beat * 2, 6.0, math.pi/2), (beat * 4, 3.0, 0)], # wrist flair
-        "wrist_pitch.pos":  [(beat, 4.0, math.pi/6), (beat * 2, 2.0, 2.0)],   # head bob
-    }
-    frames = oscillation_pattern(duration, waves, fade_time=1.0)
+    beat = 0.5  # 120 BPM
+    n = int(duration * FPS)
+    frames = []
+
+    for i in range(n + 1):
+        t = i / FPS
+        row = {"timestamp": t}
+
+        fade = 1.0
+        if t < 0.8:
+            fade = ease_in_out(t / 0.8)
+        elif t > duration - 0.8:
+            fade = ease_in_out((duration - t) / 0.8)
+
+        # Head bob — asymmetric: quick down on beat, slow rise
+        beat_phase = (t % beat) / beat
+        if beat_phase < 0.25:
+            # Quick down
+            bob = ease_out(beat_phase / 0.25)
+        else:
+            # Slow rise
+            bob = 1.0 - ease_in_out((beat_phase - 0.25) / 0.75)
+
+        # Every 4th beat: bigger bob (downbeat emphasis)
+        bar_phase = (t % (beat * 4)) / (beat * 4)
+        downbeat = 1.0 + 0.4 * math.exp(-((bar_phase) / 0.05) ** 2)
+
+        # Body sway — half-time feel
+        sway = math.sin(2 * math.pi * t / (beat * 4))
+        sway2 = math.sin(2 * math.pi * t / (beat * 8) + 0.8) * 0.4
+
+        # Syncopation on wrist — off-beat accents
+        offbeat_phase = ((t + beat * 0.5) % beat) / beat
+        if offbeat_phase < 0.2:
+            synco = ease_out(offbeat_phase / 0.2)
+        else:
+            synco = 1.0 - ease_in_out((offbeat_phase - 0.2) / 0.8)
+
+        for j in JOINTS:
+            val = REST[j]
+
+            if j == "base_yaw.pos":
+                val += (sway * 12.0 + sway2 * 5.0) * fade
+            elif j == "base_pitch.pos":
+                val += bob * downbeat * 4.0 * fade
+            elif j == "elbow_pitch.pos":
+                val += bob * downbeat * 7.0 * fade
+                val += sway * 3.0 * fade
+            elif j == "wrist_roll.pos":
+                val += -sway * 8.0 * fade  # counter sway
+                val += synco * 5.0 * fade  # off-beat flair
+            elif j == "wrist_pitch.pos":
+                val += bob * downbeat * 6.0 * fade
+                val += synco * 3.0 * fade
+
+            val += noise(t, hash(j) % 13) * 0.4 * fade
+            row[j] = val
+        frames.append(row)
+
     write_csv("music_groove.csv", frames)
 
 
 # ===========================================================================
-# Main
-# ===========================================================================
-
 if __name__ == "__main__":
     print("Generating all animations...")
     gen_idle()
