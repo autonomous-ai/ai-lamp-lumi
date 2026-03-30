@@ -1852,6 +1852,71 @@ function FlowSection({
     }
   }, [onClearEvents]);
 
+  /** Exact in-memory panel state — used by ↓ Pair (second file) to diff feed vs grouping. */
+  const downloadUISnapshot = useCallback(() => {
+    const turnsSnapshot = groupIntoTurns(events);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      format: "lumi-monitor-ui-snapshot-v1",
+      flowEventsWindow: FLOW_EVENTS_MAX,
+      eventCount: events.length,
+      turnCount: turnsSnapshot.length,
+      events,
+      turns: turnsSnapshot.map((t) => ({
+        id: t.id,
+        runId: t.runId,
+        startTime: t.startTime,
+        endTime: t.endTime,
+        type: t.type,
+        path: t.path,
+        status: t.status,
+        sessionBreak: t.sessionBreak,
+        events: t.events,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lumi_flow_ui_snapshot_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [events]);
+
+  /** Same tail as GET /flow-events — fetch+blob so Pair can trigger two saves in one click. */
+  const downloadServerJsonlTail = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API}/openclaw/flow-logs?last=${FLOW_EVENTS_MAX}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const day = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lumi_flow_${day}_last${FLOW_EVENTS_MAX}.jsonl`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (e) {
+      console.error(e);
+      window.alert(`JSONL download failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, []);
+
+  /** One click → two files (delay avoids browser blocking the second download). */
+  const downloadFlowPair = useCallback(async () => {
+    await downloadServerJsonlTail();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    downloadUISnapshot();
+  }, [downloadServerJsonlTail, downloadUISnapshot]);
+
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
 
@@ -1896,18 +1961,30 @@ function FlowSection({
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <a
-              href={`${API}/openclaw/flow-logs`}
-              download
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => void downloadFlowPair()}
+              title={`Downloads 2 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns). Short delay between saves so the browser allows both.`}
               style={{
                 fontSize: 11, padding: "4px 12px", borderRadius: 6,
                 background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
                 color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
-                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
               }}
             >
-              ↓ Logs
+              ↓ Pair
+            </button>
+            <a
+              href={`${API}/openclaw/flow-logs`}
+              download
+              title="Full day JSONL on server (all lines today — wider than the panel window)"
+              style={{
+                fontSize: 10, padding: "4px 8px", borderRadius: 6,
+                color: "var(--lm-text-muted)", cursor: "pointer", fontWeight: 600,
+                textDecoration: "underline", display: "inline-flex", alignItems: "center",
+              }}
+            >
+              full day
             </a>
             <a
               href={`${API}/openclaw/debug-logs`}
@@ -2008,6 +2085,9 @@ function FlowSection({
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
             <span style={S.cardLabel}>Turns</span>
             <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{turns.length}</span>
+            <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4, lineHeight: 1.3 }}>
+              From last {FLOW_EVENTS_MAX} flow events (max 100 turns)
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
             {turns.length === 0 ? (
