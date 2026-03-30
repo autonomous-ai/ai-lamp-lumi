@@ -2972,20 +2972,27 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
 
 // ─── Servo Section ───────────────────────────────────────────────────────────
 
+interface ServoDetail {
+  id: number;
+  angle: number | null;
+  online: boolean;
+  error?: string | null;
+}
+
 function ServoSection() {
   const [servo, setServo] = useState<ServoState | null>(null);
-  const [positions, setPositions] = useState<Record<string, number> | null>(null);
+  const [servos, setServos] = useState<Record<string, ServoDetail> | null>(null);
   const [aims, setAims] = useState<string[]>([]);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [sr, pr] = await Promise.all([
+      const [sr, st] = await Promise.all([
         fetch(`${HW}/servo`).then((r) => r.json()).catch(() => null),
-        fetch(`${HW}/servo/position`).then((r) => r.json()).catch(() => null),
+        fetch(`${HW}/servo/status`).then((r) => r.json()).catch(() => null),
       ]);
       if (sr) setServo(sr);
-      if (pr?.positions) setPositions(pr.positions);
+      if (st?.servos) setServos(st.servos);
     } catch {}
   }, []);
 
@@ -3032,8 +3039,8 @@ function ServoSection() {
     setTimeout(refresh, 500);
   };
 
-  const busOk = servo?.bus_connected !== false;
-  const robotOk = servo?.robot_connected !== false;
+  const onlineCount = servos ? Object.values(servos).filter((s) => s.online).length : 0;
+  const totalCount = servos ? Object.keys(servos).length : 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3046,52 +3053,54 @@ function ServoSection() {
         }}>{actionMsg}</div>
       )}
 
-      {/* Connection + Current */}
+      {/* Per-servo status */}
       <div style={S.card}>
-        <div style={S.cardLabel}>Status</div>
-        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" as const }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <StatusDot ok={busOk} />
-            <span style={{ fontSize: 12 }}>Bus {busOk ? "OK" : "Down"}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <StatusDot ok={robotOk} />
-            <span style={{ fontSize: 12 }}>Robot {robotOk ? "OK" : "Disconnected"}</span>
-          </div>
-          <div style={{ marginLeft: "auto", fontSize: 13, fontWeight: 600, color: "var(--lm-amber, #f59e0b)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={S.cardLabel}>Servos ({onlineCount}/{totalCount} online)</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber, #f59e0b)" }}>
             {servo?.current || "idle"}
           </div>
         </div>
-      </div>
-
-      {/* Joint Positions */}
-      <div style={S.card}>
-        <div style={S.cardLabel}>Joint Positions</div>
-        {positions && Object.keys(positions).length > 0 ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-            {Object.entries(positions).sort(([a], [b]) => a.localeCompare(b)).map(([joint, angle]) => (
+        {servos ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginTop: 8 }}>
+            {Object.entries(servos).sort(([,a], [,b]) => a.id - b.id).map(([joint, info]) => (
               <div key={joint} style={{
-                padding: "8px 12px", borderRadius: 6,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                padding: "10px 12px", borderRadius: 6,
+                background: "var(--lm-surface)",
+                border: `1px solid ${info.online ? "var(--lm-border)" : "rgba(239,68,68,0.4)"}`,
               }}>
-                <div style={{ fontSize: 11, color: "var(--lm-text-dim)", fontWeight: 600, marginBottom: 4 }}>{joint}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
-                    <div style={{
-                      width: `${Math.min(100, Math.max(0, ((angle + 180) / 360) * 100))}%`,
-                      height: "100%", borderRadius: 3,
-                      background: "var(--lm-teal, #14b8a6)", transition: "width 0.3s ease",
-                    }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal, #14b8a6)", minWidth: 48, textAlign: "right" }}>
-                    {angle.toFixed(1)}&deg;
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)" }}>
+                    {joint.replace(".pos", "")}
                   </span>
+                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>ID {info.id}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <StatusDot ok={info.online} />
+                  {info.online && info.angle != null ? (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
+                        <div style={{
+                          width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
+                          height: "100%", borderRadius: 3,
+                          background: "var(--lm-teal, #14b8a6)", transition: "width 0.3s ease",
+                        }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal, #14b8a6)", minWidth: 48, textAlign: "right" }}>
+                        {info.angle.toFixed(1)}&deg;
+                      </span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "var(--lm-red, #ef4444)" }}>
+                      {info.error || "offline"}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>No position data</div>
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", marginTop: 8 }}>Loading...</div>
         )}
       </div>
 

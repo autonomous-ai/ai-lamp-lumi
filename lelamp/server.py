@@ -638,6 +638,17 @@ class ServoPositionResponse(BaseModel):
     positions: dict[str, float]
 
 
+class ServoDetail(BaseModel):
+    id: int
+    angle: Optional[float]
+    online: bool
+    error: Optional[str] = None
+
+
+class ServoStatusResponse(BaseModel):
+    servos: dict[str, ServoDetail]
+
+
 class ServoAimRequest(BaseModel):
     direction: str = Field(..., description="Named direction: desk, wall, left, right, up, down, center, user")
     duration: float = Field(2.0, ge=0.0, le=10.0, description="Move duration in seconds (default: 2.0)")
@@ -850,6 +861,40 @@ def get_servo_position():
         return {"positions": positions}
     except Exception as e:
         raise HTTPException(500, f"Failed to read position: {e}")
+
+
+@app.get("/servo/status", response_model=ServoStatusResponse, tags=["Servo"])
+def get_servo_status():
+    """Ping each servo and return per-joint online/offline status with angle."""
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    bus = animation_service.robot.bus
+    ph = bus.port_handler
+    pk = bus.packet_handler
+    from scservo_sdk import COMM_SUCCESS
+
+    servos = {}
+    for motor_name, motor_obj in bus.motors.items():
+        key = f"{motor_name}.pos"
+        sid = motor_obj.id
+        detail = {"id": sid, "angle": None, "online": False, "error": None}
+        try:
+            _, result, _ = pk.ping(ph, sid)
+            if result != COMM_SUCCESS:
+                detail["error"] = "no status packet"
+            else:
+                detail["online"] = True
+                try:
+                    pos = bus.read("Present_Position", motor_name)
+                    detail["angle"] = float(pos)
+                except Exception as e:
+                    detail["error"] = f"read failed: {e}"
+        except Exception as e:
+            detail["error"] = str(e)
+        servos[key] = detail
+    return {"servos": servos}
 
 
 @app.get("/servo/aim", tags=["Servo"])
