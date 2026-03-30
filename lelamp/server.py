@@ -249,6 +249,7 @@ async def lifespan(app: FastAPI):
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=rgb_service,
                 tts_service=tts_service,
+                animation_service=animation_service,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -1267,11 +1268,22 @@ def get_camera_info():
 
 @app.get("/camera/snapshot", tags=["Camera"])
 def camera_snapshot():
-    """Capture a single JPEG frame from the camera."""
+    """Capture a single JPEG frame from the camera (freezes servos for stability)."""
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
+    # Freeze servos so camera stays still during capture
+    if animation_service:
+        animation_service.freeze()
+        time.sleep(0.3)
+
+    # Discard stale buffered frame, read a fresh one
+    camera_capture.grab()
     ret, frame = camera_capture.read()
+
+    if animation_service:
+        animation_service.unfreeze()
+
     if not ret:
         raise HTTPException(500, "Failed to capture frame")
     frame = cv2.rotate(frame, cv2.ROTATE_180)

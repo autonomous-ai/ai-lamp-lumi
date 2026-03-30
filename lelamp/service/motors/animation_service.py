@@ -91,6 +91,9 @@ class AnimationService:
         # Serial bus lock — all bus access (read/write/ping) must hold this lock
         self.bus_lock = threading.RLock()
 
+        # Freeze flag — when set, _continue_playback() skips servo writes so camera can capture a stable frame
+        self._frozen = threading.Event()
+
     # P gain per servo ID. ID 2,3,4 need high P for gravity hold.
     _SERVO_PGAIN = {1: 32, 2: 128, 3: 128, 4: 128, 5: 32}
 
@@ -256,9 +259,21 @@ class AnimationService:
             self._interpolation_frames = 0
             self._interpolation_target = None
     
+    def freeze(self):
+        """Pause servo writes so camera can capture a stable frame."""
+        self._frozen.set()
+
+    def unfreeze(self):
+        """Resume servo writes after camera capture."""
+        self._frozen.clear()
+
     def _continue_playback(self):
         """Continue current playback - called every frame"""
         if not self._current_recording or not self._current_actions:
+            return
+
+        # Skip servo writes while frozen (camera stabilization)
+        if self._frozen.is_set():
             return
         
         try:
