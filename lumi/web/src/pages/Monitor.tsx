@@ -974,6 +974,15 @@ function turnHasRealTelegramInput(turn: Turn): boolean {
   });
 }
 
+function turnHasChatInputEvent(turn: Turn): boolean {
+  return turn.events.some((ev) =>
+    ev.type === "chat_input" ||
+    (ev.type === "flow_event" && ev.detail?.node === "chat_input") ||
+    (ev.type === "flow_enter" && ev.detail?.node === "chat_input") ||
+    (ev.type === "flow_exit" && ev.detail?.node === "chat_input"),
+  );
+}
+
 function turnHasSensingInput(turn: Turn): boolean {
   return turn.events.some((ev) =>
     ev.type === "sensing_input" ||
@@ -1168,6 +1177,12 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     // Case 1: Telegram fallback (no message) + agent output → merge
     const prevIsTelegramFallback = prev.type === "telegram" && !turnHasRealTelegramInput(prev);
     if (prevIsTelegramFallback && prevHasNoOutput && currLooksAgentReply && closeInTime) {
+      // Safety: don't stitch Lumi outbound agent output (lumi-*) into a Telegram fallback input turn.
+      // Those outputs are not backed by `chat_input` in JSONL and were showing up as "phantom telegram".
+      if (turn.runId && /^lumi-(chat|sensing)-/i.test(turn.runId)) {
+        stitched.push(turn);
+        continue;
+      }
       prev.events.push(...turn.events);
       prev.events.sort((a, b) => a._seq - b._seq);
       prev.status = turn.status === "error" ? "error" : turn.status;
@@ -1194,6 +1209,11 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 
   for (const turn of stitched) {
     refineTurnTypeFromSensingInputs(turn);
+    // Prevent "phantom telegram": don't keep type=telegram if JSONL/SSE turn has no chat_input events.
+    if (turn.type === "telegram" && !turnHasChatInputEvent(turn)) {
+      turn.type = "unknown";
+      // Keep path as-is (usually "agent") since we still have agent output.
+    }
   }
 
   // Detect session breaks: ws_connect after ws_disconnect gap or large time gap between turns
