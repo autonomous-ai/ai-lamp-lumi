@@ -62,7 +62,7 @@ sendChat returns idempotencyKey → used as trace_id in flow events
 **OpenClaw does NOT use the idempotencyKey as run_id.** It assigns its own UUID (e.g., `a8a51f3c-b44f-434b-a4c9-cd1a2a1e3c30`). This means lifecycle events from OpenClaw have a different ID than the device trace.
 
 **Solution: `runIDMap`** in the SSE handler maps OpenClaw UUIDs back to device idempotencyKeys:
-1. Sensing handler calls `flow.SetTrace(idempotencyKey)` → global trace = `"lumi-chat-1-..."` (legacy logs may show `lumi-sensing-*`)
+1. Sensing handler allocates `NextChatRunID()`, then calls `flow.SetTrace(idempotencyKey)` **before** `flow.Start("sensing_input", ...)` so the JSONL `enter` line uses the same `trace_id` as `chat_send` for that POST. (Calling `SetTrace` only after `SendChatMessage` used to leave `enter` tagged with the **previous** turn’s id — ghost turns and mismatched Pair exports.)
 2. OpenClaw responds with `lifecycle_start` carrying UUID `"a8a51f3c-..."`
 3. Handler detects `flow.GetTrace() != "" && trace != UUID` → stores mapping: `"a8a51f3c-..." → "lumi-chat-1-..."`
 4. All subsequent **agent-stream** events (`lifecycle`, `tool`, `thinking`, `assistant` deltas, `tts_send`) use `resolveRunID(payload.RunID)` so `trace_id` matches the device key.

@@ -193,6 +193,7 @@ Hành vi gom nhóm Turn Pipeline:
 - Turn vẫn bắt đầu từ các event input/trigger (`sensing_input`, `chat_input`, `schedule_trigger`, ...).
 - UI giờ neo mỗi turn theo `run_id` đầu tiên phát hiện được (ở root event hoặc trong `detail`).
 - Nếu event phía sau có `run_id` khác, Monitor sẽ tách thành một turn agent suy diễn mới.
+- **Badge loại turn** (`motion`, `voice`, …): cùng một `run_id` có thể vừa motion (camera) vừa voice; trước đây segment đầu quyết định badge nên dễ hiện `motion` dù user vừa nói. Sau khi gom turn, nếu có bất kỳ `sensing_input` kiểu `[voice]` / `[voice_command]` thì badge ưu tiên voice hơn motion.
 - `OUT` chỉ lấy từ `tts_send`/`intent_match` cùng `run_id` với turn (hoặc event không có run_id), tránh ghép nhầm IN/OUT giữa các turn.
 - Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó.
 - Fallback tạm thời: khi không lấy được text Telegram, UI sẽ hiển thị `Message content from telegram`.
