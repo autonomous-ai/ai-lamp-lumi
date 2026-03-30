@@ -324,9 +324,15 @@ async def lifespan(app: FastAPI):
         voice_service.stop()
     if sensing_service:
         sensing_service.stop()
-    # Move servos to idle position before releasing torque to prevent gravity drop
+    # Safe servo shutdown: stop animation loop first so move_to is not overridden,
+    # then smoothly move to rest position, then release torque.
     if animation_service and animation_service.robot and animation_service.robot.bus:
-        idle_pos = {
+        # Stop the animation event loop (but keep robot/bus connected)
+        animation_service._running.clear()
+        if animation_service._event_thread and animation_service._event_thread.is_alive():
+            animation_service._event_thread.join(timeout=3.0)
+        # Now move_to has exclusive bus access
+        rest_pos = {
             "base_yaw.pos": 3.0,
             "base_pitch.pos": -30.0,
             "elbow_pitch.pos": 57.0,
@@ -334,11 +340,11 @@ async def lifespan(app: FastAPI):
             "wrist_pitch.pos": 18.0,
         }
         try:
-            animation_service.move_to(idle_pos, duration=2.0)
-            logger.info("Servos moved to idle position for safe shutdown")
+            animation_service.move_to(rest_pos, duration=2.0)
+            logger.info("Servos moved to rest position for safe shutdown")
         except Exception as e:
-            logger.warning(f"Could not move to idle position on shutdown: {e}")
-        # Now release servo torque
+            logger.warning(f"Could not move to rest position on shutdown: {e}")
+        # Release servo torque
         bus = animation_service.robot.bus
         for motor_name in bus.motors:
             try:
@@ -864,8 +870,12 @@ def release_servos():
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
-    # Move to idle position first to prevent damage from gravity drop
-    idle_pos = {
+    # Stop animation loop so move_to has exclusive bus access
+    animation_service._running.clear()
+    if animation_service._event_thread and animation_service._event_thread.is_alive():
+        animation_service._event_thread.join(timeout=3.0)
+    # Move to rest position first to prevent damage from gravity drop
+    rest_pos = {
         "base_yaw.pos": 3.0,
         "base_pitch.pos": -30.0,
         "elbow_pitch.pos": 57.0,
@@ -873,9 +883,9 @@ def release_servos():
         "wrist_pitch.pos": 18.0,
     }
     try:
-        animation_service.move_to(idle_pos, duration=2.0)
+        animation_service.move_to(rest_pos, duration=2.0)
     except Exception as e:
-        logger.warning(f"Could not move to idle before release: {e}")
+        logger.warning(f"Could not move to rest before release: {e}")
     bus = animation_service.robot.bus
     errors = {}
     with animation_service.bus_lock:
