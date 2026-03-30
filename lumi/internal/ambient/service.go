@@ -32,6 +32,10 @@ type Service struct {
 	paused bool
 	// lastInteraction tracks when the last real interaction happened.
 	lastInteraction time.Time
+	// ledLocked is true when a user or agent explicitly set an LED color/scene.
+	// While locked, the breathing loop will not override the LED state.
+	// Cleared when user explicitly turns off the LED.
+	ledLocked bool
 }
 
 // ProvideService constructs an AmbientLifeService.
@@ -108,10 +112,22 @@ func (s *Service) watchInteractions(ctx context.Context, eventCh <-chan domain.M
 		case <-ctx.Done():
 			return
 		case evt := <-eventCh:
-			// Interaction types that should pause ambient
 			switch evt.Type {
+			// Interaction types that should pause ambient
 			case "sensing_input", "chat_response", "intent_match", "tts", "chat_send":
 				s.Pause()
+			// LED explicitly set by user/agent — don't override with breathing
+			case "led_set":
+				s.mu.Lock()
+				s.ledLocked = true
+				s.mu.Unlock()
+				slog.Debug("LED locked by user/agent", "component", "ambient")
+			// LED turned off — unlock so breathing can resume on idle
+			case "led_off":
+				s.mu.Lock()
+				s.ledLocked = false
+				s.mu.Unlock()
+				slog.Debug("LED unlocked (off)", "component", "ambient")
 			}
 		case <-ticker.C:
 			// Check if enough quiet time has passed to resume
@@ -147,6 +163,17 @@ func (s *Service) breathingLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if s.isPaused() {
+				if running {
+					stopLeLampEffect()
+					running = false
+				}
+				continue
+			}
+			// Respect user/agent LED: don't override with breathing
+			s.mu.Lock()
+			locked := s.ledLocked
+			s.mu.Unlock()
+			if locked {
 				if running {
 					stopLeLampEffect()
 					running = false
