@@ -47,14 +47,14 @@ flow.Log("tool_call", data, payload.RunID)      // each event carries its own ID
 
 ### Telegram Detection Heuristic
 
-When `lifecycle_start` arrives without an active device trace (`flow.GetTrace() == ""`), the handler checks if it's a channel-initiated turn (Telegram/Slack). Device-originated turns are excluded via `strings.HasPrefix(runID, "lumi-sensing-")`.
+When `lifecycle_start` arrives without an active device trace (`flow.GetTrace() == ""`), the handler checks if it's a channel-initiated turn (Telegram/Slack). Lumi-originated `chat.send` turns are excluded via `lumi-chat-*` (and legacy `lumi-sensing-*`) so they are not mis-labeled as Telegram when the trace was lost.
 
 ## Run ID Format & Mapping
 
 ```
 sendChat() generates:
-  reqID           = "sensing-1"                    (WS message ID, local counter)
-  idempotencyKey  = "lumi-sensing-1-1774841927380" (sent to OpenClaw, globally unique)
+  reqID           = "chat-1"                       (WS message ID, local counter)
+  idempotencyKey  = "lumi-chat-1-1774841927380"    (sent to OpenClaw, globally unique; not "sensing-only" — any outbound chat from Lumi uses this prefix)
 
 sendChat returns idempotencyKey → used as trace_id in flow events
 ```
@@ -62,11 +62,22 @@ sendChat returns idempotencyKey → used as trace_id in flow events
 **OpenClaw does NOT use the idempotencyKey as run_id.** It assigns its own UUID (e.g., `a8a51f3c-b44f-434b-a4c9-cd1a2a1e3c30`). This means lifecycle events from OpenClaw have a different ID than the device trace.
 
 **Solution: `runIDMap`** in the SSE handler maps OpenClaw UUIDs back to device idempotencyKeys:
-1. Sensing handler calls `flow.SetTrace(idempotencyKey)` → global trace = `"lumi-sensing-1-..."`
+1. Sensing handler calls `flow.SetTrace(idempotencyKey)` → global trace = `"lumi-chat-1-..."` (legacy logs may show `lumi-sensing-*`)
 2. OpenClaw responds with `lifecycle_start` carrying UUID `"a8a51f3c-..."`
-3. Handler detects `flow.GetTrace() != "" && trace != UUID` → stores mapping: `"a8a51f3c-..." → "lumi-sensing-1-..."`
-4. All subsequent events for this UUID resolve to the device idempotencyKey via `resolveRunID()`
-5. Flow events, monitor bus, and JSONL all use the consistent device ID
+3. Handler detects `flow.GetTrace() != "" && trace != UUID` → stores mapping: `"a8a51f3c-..." → "lumi-chat-1-..."`
+4. All subsequent **agent-stream** events (`lifecycle`, `tool`, `thinking`, `assistant` deltas, `tts_send`) use `resolveRunID(payload.RunID)` so `trace_id` matches the device key.
+5. **Chat stream** events (`case "chat"`: user/assistant text from the parallel chat feed) also call `resolveRunID` for `flow.Log` and monitor `RunID`. Without this, OpenClaw could emit the **UUID** in chat payloads while JSONL from step 4 used the **device id** — the Monitor would split one turn into two IDs.
+
+### Correlation logs (grep: `flow correlation`)
+
+Structured `slog.Info` lines for end-to-end ID alignment (device idempotency key = `lumi-chat-*`):
+
+| `op` | `section` (when set) | When |
+|------|------------------------|------|
+| `ws_chat_send` | `lumi_to_openclaw_ws` | Every `chat.send` from Lumi (`device_run_id` = idempotency key). |
+| `lelamp_agent_out` | `lelamp_to_openclaw` | Sensing handler after `SetTrace` + `agent_call` (same `device_run_id`). |
+| `openclaw_uuid_map` | `openclaw` | `lifecycle_start`: OpenClaw UUID stored → device id. |
+| `chat_run_resolve` | `openclaw_chat` | Chat stream event where `resolveRunID` changed the id (UUID → device). |
 
 ## Turn Grouping (Frontend)
 
@@ -211,6 +222,16 @@ Both agent stream (`lifecycle_end` flush) and chat stream (`chat final assistant
 WebSocket reconnects cause process-level restarts (seq counter resets). This is likely a separate stability issue, not a monitor bug.
 - **Impact**: Trace lost mid-turn, events split across restarts.
 - **Mitigation**: Per-event runID + frontend stitching handles most cases.
+
+## Turns list vs downloaded log
+
+| Source | Scope |
+|--------|--------|
+| **Turns list** (Monitor) | Built from the **last 500** `flow_events_*.jsonl` lines (`GET /openclaw/flow-events?last=500`), then `groupIntoTurns` keeps at most **100** turns. |
+| **↓ Pair** button | One click downloads **both**: (1) `GET /openclaw/flow-logs?last=500` via `fetch` + blob save (`lumi_flow_YYYY-MM-DD_last500.jsonl`) — **same tail** as the UI feed; (2) client JSON of `events[]` + grouped `turns[]` (`lumi_flow_ui_snapshot_*.json`). A short delay between saves avoids browsers only allowing one download per gesture. |
+| **full day** link | `GET /openclaw/flow-logs` — entire day file; can be **longer** than the UI window, so Turns are **not** a reconstruction of the full file. |
+
+Turns limits are explicit: comparing server to what you see should use **↓ Pair** (or the same two artifacts manually: `flow-logs?last=500` + UI snapshot JSON).
 
 ## Files
 

@@ -76,6 +76,16 @@ func isAgentNoReply(text string) bool {
 	return strings.HasPrefix(t, "NO_RE")
 }
 
+// isLumiOutboundChatRunID is true when runID matches Lumi's chat.send idempotency key
+// (lumi-chat-* current; lumi-sensing-* legacy). Used so traceless lifecycle_start is not
+// mis-tagged as Telegram-only when the turn was initiated from Lumi.
+func isLumiOutboundChatRunID(runID string) bool {
+	if runID == "" {
+		return false
+	}
+	return strings.HasPrefix(runID, "lumi-chat-") || strings.HasPrefix(runID, "lumi-sensing-")
+}
+
 // accumulateAssistantDelta appends a delta to the buffer for the given runId.
 func (h *OpenClawHandler) accumulateAssistantDelta(runID, delta string) {
 	if delta == "" {
@@ -190,6 +200,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if deviceTrace := flow.GetTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
 				h.mapRunID(payload.RunID, deviceTrace)
 				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
+				slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
+					"openclaw_run_id", payload.RunID, "device_run_id", deviceTrace,
+					"note", "JSONL/monitor use device_run_id for this turn")
 			}
 		}
 
@@ -202,10 +215,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
 			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
-			// Skip if run_id looks like a device-originated sensing turn (lumi-sensing-*) —
+			// Skip if run_id looks like Lumi-originated chat.send (lumi-chat-* or legacy lumi-sensing-*) —
 			// these can appear traceless after a server restart but are NOT from Telegram.
 			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
-				!strings.HasPrefix(payload.RunID, "lumi-sensing-") && !strings.HasPrefix(flowRunID, "lumi-sensing-") {
+				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID) {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
@@ -366,20 +379,28 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			return nil
 		}
 		payload.ResolveChatMessage()
+		// Same as agent stream: OpenClaw may send UUID while lifecycle/tool/tts used resolved device id.
+		flowRunID := h.resolveRunID(payload.RunID)
+		if payload.RunID != "" && flowRunID != payload.RunID {
+			slog.Info("flow correlation", "op", "chat_run_resolve", "section", "openclaw_chat",
+				"openclaw_run_id", payload.RunID, "device_run_id", flowRunID,
+				"role", payload.Role, "state", payload.State)
+		}
 		h.appendDebugJSONL(map[string]any{
-			"source":       "chat_event",
-			"run_id":       payload.RunID,
-			"role":         payload.Role,
-			"state":        payload.State,
-			"session_key":  payload.SessionKey,
-			"message":      payload.Message,
-			"raw_message":  string(payload.RawMessage),
-			"raw_payload":  string(evt.Payload),
+			"source":        "chat_event",
+			"run_id":        payload.RunID,
+			"flow_run_id":   flowRunID,
+			"role":          payload.Role,
+			"state":         payload.State,
+			"session_key":   payload.SessionKey,
+			"message":       payload.Message,
+			"raw_message":   string(payload.RawMessage),
+			"raw_payload":   string(evt.Payload),
 		})
 
 		// Inbound user message from Telegram/Slack/Discord
 		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
-			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": payload.Message}, payload.RunID)
+			flow.Log("chat_input", map[string]any{"run_id": flowRunID, "message": payload.Message}, flowRunID)
 			displayMsg := payload.Message
 			if len(displayMsg) > 200 {
 				displayMsg = displayMsg[:200] + "…"
@@ -387,7 +408,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_input",
 				Summary: "[telegram] " + displayMsg,
-				RunID:   payload.RunID,
+				RunID:   flowRunID,
 				Detail:  map[string]string{"role": "user", "message": payload.Message},
 			})
 		}
@@ -401,7 +422,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_response",
 				Summary: summary,
-				RunID:   payload.RunID,
+				RunID:   flowRunID,
 				State:   payload.State,
 				Detail: map[string]string{
 					"role":    payload.Role,
@@ -446,22 +467,32 @@ func (h *OpenClawHandler) Recent(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(events))
 }
 
-// recentFlowFromJSONL reads the last n lines from flow JSONL for a given date (YYYY-MM-DD)
-// and converts them to MonitorEvents.
-func recentFlowFromJSONL(day string, n int) []domain.MonitorEvent {
-	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
+// readAllJSONLines reads every line from a flow_events_*.jsonl file (full day).
+func readAllJSONLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
-
-	// Read all lines (flow files are typically <10MB)
 	var lines []string
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+// recentFlowFromJSONL reads the last n lines from flow JSONL for a given date (YYYY-MM-DD)
+// and converts them to MonitorEvents.
+func recentFlowFromJSONL(day string, n int) []domain.MonitorEvent {
+	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
+	lines, err := readAllJSONLines(path)
+	if err != nil {
+		return nil
 	}
 
 	// Take last n lines
@@ -597,23 +628,53 @@ func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
 }
 
 // FlowLogs serves the daily flow JSONL log file for download.
-// Query param ?date=YYYY-MM-DD selects a historical file; defaults to today.
+// Query params: ?date=YYYY-MM-DD (default today); ?last=N (optional) — if set, only the last N lines
+// are returned (same tail as GET /openclaw/flow-events?last=N). Omit ?last for the full day file.
 func (h *OpenClawHandler) FlowLogs(c *gin.Context) {
 	date := c.Query("date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	path := fmt.Sprintf("local/flow_events_%s.jsonl", date)
-	f, err := os.Open(path)
-	if err != nil {
-		c.JSON(http.StatusNotFound, serializers.ResponseError("no log for date: "+date))
-		return
+	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", date))
+
+	last := 0
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+			if last > 2000 {
+				last = 2000
+			}
+		}
 	}
-	defer f.Close()
+
 	filename := fmt.Sprintf("lumi_flow_%s.jsonl", date)
+	var out []byte
+	if last > 0 {
+		lines, err := readAllJSONLines(path)
+		if err != nil {
+			c.JSON(http.StatusNotFound, serializers.ResponseError("no log for date: "+date))
+			return
+		}
+		if len(lines) > last {
+			lines = lines[len(lines)-last:]
+		}
+		filename = fmt.Sprintf("lumi_flow_%s_last%d.jsonl", date, last)
+		out = []byte(strings.Join(lines, "\n"))
+		if len(out) > 0 {
+			out = append(out, '\n')
+		}
+	} else {
+		var err error
+		out, err = os.ReadFile(path)
+		if err != nil {
+			c.JSON(http.StatusNotFound, serializers.ResponseError("no log for date: "+date))
+			return
+		}
+	}
+
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.Header("Content-Type", "application/x-ndjson")
-	io.Copy(c.Writer, f) //nolint:errcheck
+	_, _ = c.Writer.Write(out)
 }
 
 // ClearFlowLogs truncates the daily flow JSONL log file.
