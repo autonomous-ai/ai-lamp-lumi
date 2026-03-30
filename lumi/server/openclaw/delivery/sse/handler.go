@@ -150,7 +150,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
 			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
-			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" {
+			// Skip if run_id looks like a device-originated sensing turn (lumi-sensing-*) —
+			// these can appear traceless after a server restart but are NOT from Telegram.
+			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
+				!strings.HasPrefix(payload.RunID, "lumi-sensing-") {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
