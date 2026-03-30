@@ -1863,8 +1863,8 @@ function TurnBadge({ turn }: { turn: Turn }) {
           marginTop: 6,
           padding: "5px 7px",
           borderRadius: 6,
-          border: "1px solid rgba(167,139,250,0.4)",
-          background: "rgba(167,139,250,0.14)",
+          border: "1px solid rgba(248,113,113,0.55)",
+          background: "rgba(248,113,113,0.14)",
           display: "flex",
           flexWrap: "wrap" as const,
           gap: 8,
@@ -1872,12 +1872,12 @@ function TurnBadge({ turn }: { turn: Turn }) {
           fontSize: 9,
           fontFamily: "monospace",
         }}>
-          <span style={{ color: "var(--lm-purple)", fontWeight: 700 }}>TOKENS</span>
-          <span style={{ color: "var(--lm-text-dim)" }}>IN {fmtToken(tokenStats.inTok)}</span>
-          <span style={{ color: "var(--lm-text-dim)" }}>OUT {fmtToken(tokenStats.outTok)}</span>
-          <span style={{ color: "var(--lm-text)" }}>TOTAL {fmtToken(tokenStats.total)}</span>
+          <span style={{ color: "var(--lm-red)", fontWeight: 800 }}>TOKENS</span>
+          <span style={{ color: "var(--lm-red)", fontWeight: 700 }}>IN {fmtToken(tokenStats.inTok)}</span>
+          <span style={{ color: "var(--lm-red)", fontWeight: 700 }}>OUT {fmtToken(tokenStats.outTok)}</span>
+          <span style={{ color: "var(--lm-red)", fontWeight: 800 }}>TOTAL {fmtToken(tokenStats.total)}</span>
           {(tokenStats.cacheRead || tokenStats.cacheWrite) && (
-            <span style={{ color: "var(--lm-text-muted)" }}>
+            <span style={{ color: "rgba(248,113,113,0.95)", fontWeight: 600 }}>
               CACHE {fmtToken(tokenStats.cacheRead)}R/{fmtToken(tokenStats.cacheWrite)}W
             </span>
           )}
@@ -1993,13 +1993,6 @@ function FlowSection({
       setTimeout(() => setFiring(null), 800);
     }
   }
-
-  const clearFlowMessages = useCallback(() => {
-    const ok = window.confirm("Clear all flow messages/events from this panel?");
-    if (!ok) return;
-    setSelectedTurnId(null);
-    onClearEvents();
-  }, [onClearEvents]);
 
   const clearServerFlowLog = useCallback(async () => {
     const ok = window.confirm("Clear flow log file on server (today)? This cannot be undone.");
@@ -2173,21 +2166,10 @@ function FlowSection({
                 color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
                 textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
               }}
-              title="Download OpenClaw debug payload logs"
+              title="Download OpenClaw debug payload JSONL"
             >
-              ↓ Debug
+              ↓ OpenClaw Debug
             </a>
-            <button
-              onClick={clearFlowMessages}
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
-                color: "var(--lm-red)", cursor: "pointer", fontWeight: 600,
-              }}
-              title="Clear Flow Panel messages"
-            >
-              ✕ Clear
-            </button>
             <button
               onClick={clearServerFlowLog}
               style={{
@@ -2312,28 +2294,6 @@ function FlowSection({
               )}
             </div>
             <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} turnEvents={turnEvents} compact />
-          </div>
-
-          {/* Icon guide */}
-          <div style={{ ...S.card, padding: "12px 16px" }}>
-            <div style={S.cardLabel}>Guide</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {[
-                { icon: "●", color: "var(--lm-amber)",   label: "Active node — currently processing" },
-                { icon: "◌", color: "var(--lm-text-dim)", label: "Visited — stage was reached this turn" },
-                { icon: "◯", color: "var(--lm-border)",  label: "Inactive — not reached yet" },
-                { icon: "⬢", color: "var(--lm-amber)",   label: "Canvas — click to expand full diagram" },
-                { icon: "→", color: "var(--lm-green)",   label: "Fast path — local intent (~50ms)" },
-                { icon: "→", color: "var(--lm-blue)",    label: "Agent path — OpenClaw AI (~2–5s)" },
-                { icon: "⬡", color: "var(--lm-purple)",  label: "Flow Panel — this section" },
-                { icon: "◎", color: "var(--lm-teal)",    label: "Workflow — raw event feed" },
-              ].map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "var(--lm-text-dim)" }}>
-                  <span style={{ color: item.color, fontSize: 12, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
-                  {item.label}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -3274,7 +3234,14 @@ function LogsSection() {
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export default function Monitor() {
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSectionRaw] = useState<Section>(() => {
+    const h = window.location.hash.replace("#", "") as Section;
+    return NAV.some((n) => n.id === h) ? h : "overview";
+  });
+  const setSection = (s: Section) => {
+    window.location.hash = s;
+    setSectionRaw(s);
+  };
 
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [net, setNet] = useState<NetworkInfo | null>(null);
