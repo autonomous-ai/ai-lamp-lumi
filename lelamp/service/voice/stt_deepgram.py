@@ -1,5 +1,7 @@
 """
 Deepgram STT provider — streaming speech-to-text via Deepgram WebSocket API.
+
+Supports both v1 (nova-2) and v2 (flux) endpoints, auto-detected by model name.
 """
 
 import logging
@@ -11,16 +13,19 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 
 # Default Deepgram streaming config
-DEFAULT_MODEL = "nova-2"
-DEFAULT_LANGUAGE = "vi"
+DEFAULT_MODEL = "flux-general-en"
 DEFAULT_ENDPOINTING_MS = 1500
 
 
+def _is_flux(model: str) -> bool:
+    return model.startswith("flux")
+
+
 class DeepgramSession(STTSession):
-    """A single Deepgram streaming session."""
+    """A single Deepgram streaming session (v1 or v2 auto-detected)."""
 
     def __init__(self, client, keywords: List[str], sample_rate: int, channels: int,
-                 language: str = DEFAULT_LANGUAGE, model: str = DEFAULT_MODEL):
+                 language: Optional[str] = None, model: str = DEFAULT_MODEL):
         self._client = client
         self._keywords = keywords
         self._sample_rate = sample_rate
@@ -35,43 +40,69 @@ class DeepgramSession(STTSession):
 
     def start(self, on_transcript: Callable[[str, bool], None]) -> bool:
         from deepgram.core.events import EventType
-        from deepgram.listen.v1.types import ListenV1Results
 
-        try:
-            self._ctx = self._client.listen.v1.connect(
-                model=self._model,
+        use_flux = _is_flux(self._model)
+        api_version = "v2" if use_flux else "v1"
+
+        # Build connect params
+        params = dict(
+            model=self._model,
+            encoding="linear16",
+            channels=self._channels,
+            sample_rate=self._sample_rate,
+        )
+        if not use_flux:
+            # v1-only params
+            params.update(
                 language=self._language,
                 smart_format="true",
-                encoding="linear16",
-                channels=self._channels,
-                sample_rate=self._sample_rate,
                 interim_results="false",
                 endpointing=DEFAULT_ENDPOINTING_MS,
                 vad_events="true",
                 keywords=self._keywords,
             )
+
+        try:
+            listener = self._client.listen.v2 if use_flux else self._client.listen.v1
+            self._ctx = listener.connect(**params)
             self._connection = self._ctx.__enter__()
         except Exception as e:
-            logger.error("Deepgram connect failed: %s", e)
+            logger.error("Deepgram connect failed (%s): %s", api_version, e)
             self._closed.set()
             return False
 
-        def on_message(message):
-            logger.debug("Deepgram recv: type=%s", type(message).__name__)
-            if not isinstance(message, ListenV1Results):
-                return
-            transcript = message.channel.alternatives[0].transcript
-            logger.debug("Deepgram transcript: '%s' is_final=%s", transcript[:80] if transcript else "", message.is_final)
-            if not transcript or not transcript.strip():
-                return
-            on_transcript(transcript.strip(), message.is_final)
+        # Message handler — v1 and v2 have different result types
+        if use_flux:
+            def on_message(message):
+                logger.debug("Deepgram v2 recv: type=%s", type(message).__name__)
+                # Flux v2: check for transcript attr
+                transcript = getattr(message, "transcript", None)
+                if not transcript or not transcript.strip():
+                    return
+                is_final = getattr(message, "is_final", False)
+                # Flux uses event field for turn detection
+                event = getattr(message, "event", "")
+                if event == "EndOfTurn":
+                    is_final = True
+                on_transcript(transcript.strip(), is_final)
+        else:
+            from deepgram.listen.v1.types import ListenV1Results
+
+            def on_message(message):
+                logger.debug("Deepgram v1 recv: type=%s", type(message).__name__)
+                if not isinstance(message, ListenV1Results):
+                    return
+                transcript = message.channel.alternatives[0].transcript
+                if not transcript or not transcript.strip():
+                    return
+                on_transcript(transcript.strip(), message.is_final)
 
         def on_error(error):
             logger.error("Deepgram error: %s", error)
             self._closed.set()
 
         def on_open(_):
-            logger.info("Deepgram WebSocket opened")
+            logger.info("Deepgram WebSocket opened (%s, model=%s)", api_version, self._model)
             self._listener_ready.set()
 
         def on_close(_):
@@ -94,7 +125,7 @@ class DeepgramSession(STTSession):
             self.close()
             return False
 
-        logger.info("Deepgram connected — streaming speech...")
+        logger.info("Deepgram connected — streaming speech (%s)...", api_version)
         return True
 
     def send_audio(self, data: bytes):
@@ -125,11 +156,13 @@ class DeepgramSession(STTSession):
 
 
 class DeepgramSTT(STTProvider):
-    """Deepgram streaming STT provider."""
+    """Deepgram streaming STT provider. Supports nova-2 (v1) and flux (v2)."""
 
-    def __init__(self, api_key: str, sample_rate: int = 16000, channels: int = 1,
-                 language: str = DEFAULT_LANGUAGE, keywords: Optional[List[str]] = None):
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL, sample_rate: int = 16000,
+                 channels: int = 1, language: Optional[str] = None,
+                 keywords: Optional[List[str]] = None):
         self._api_key = api_key
+        self._model = model
         self._sample_rate = sample_rate
         self._channels = channels
         self._language = language
@@ -141,7 +174,8 @@ class DeepgramSTT(STTProvider):
             from deepgram import DeepgramClient
             self._client = DeepgramClient(api_key=api_key)
             self._available = True
-            logger.info("DeepgramSTT ready (model=%s, lang=%s)", DEFAULT_MODEL, language)
+            api_version = "v2" if _is_flux(model) else "v1"
+            logger.info("DeepgramSTT ready (model=%s, %s, lang=%s)", model, api_version, language)
         except ImportError:
             logger.warning("deepgram-sdk not available — DeepgramSTT disabled")
 
@@ -152,6 +186,7 @@ class DeepgramSTT(STTProvider):
             sample_rate=self._sample_rate,
             channels=self._channels,
             language=self._language,
+            model=self._model,
         )
 
     @property
