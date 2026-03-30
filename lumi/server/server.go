@@ -26,6 +26,7 @@ import (
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
+	"go-lamp.autonomous.ai/lib/safego"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
@@ -150,11 +151,11 @@ func (s *Server) startMQTT() {
 	s.mqttCancel = cancel
 	s.mqttMu.Unlock()
 
-	go func() {
+	safego.Go("mqtt", func() {
 		if err := client.Connect(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("connect failed", "component", "mqtt", "error", err)
 		}
-	}()
+	})
 }
 
 // stopMQTT disconnects and clears the MQTT client. Safe to call when not connected.
@@ -322,11 +323,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		slog.Info("setup completed, starting internet monitor", "component", "config")
 		s.networkService.StartNetworkMonitor(s.monitorCtx)
 		slog.Info("setup completed, starting status reporter", "component", "config")
-		go s.deviceService.StartStatusReporter(s.monitorCtx)
+		safego.Go("status-reporter", func() { s.deviceService.StartStatusReporter(s.monitorCtx) })
 
 		s.restartMQTT()
 
-		go func() {
+		safego.Go("startup-sequence", func() {
 			// Seed SOUL.md + IDENTITY.md into workspace (factory defaults, once only)
 			if err := s.agentGateway.EnsureOnboarding(); err != nil {
 				slog.Error("onboarding seed failed", "component", "server", "error", err)
@@ -356,8 +357,8 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			}
 
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
-			go s.ambientService.Start(s.monitorCtx)
-		}()
+			safego.Go("ambient", func() { s.ambientService.Start(s.monitorCtx) })
+		})
 	} else {
 		s.monitorMu.Lock()
 		if s.monitorCancel != nil {

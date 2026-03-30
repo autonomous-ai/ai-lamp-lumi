@@ -279,7 +279,11 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 				success = true
 				break
 			} else {
-				slog.Debug("current network does not match", "component", "network", "current", curNet.SSID, "expected", ssid)
+				current := ""
+				if curNet != nil {
+					current = curNet.SSID
+				}
+				slog.Debug("current network does not match", "component", "network", "current", current, "expected", ssid)
 			}
 		} else {
 			slog.Debug("internet not ok", "component", "network", "attempt", i)
