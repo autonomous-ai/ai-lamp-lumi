@@ -1568,6 +1568,10 @@ def speak_text(req: SpeakRequest):
         logger.error("POST /voice/speak: tts_service not available — client=%s, sd=%s",
                       tts_service._client is not None, tts_service._sd is not None)
         raise HTTPException(503, "TTS not available — missing openai SDK or sounddevice")
+    # Reject TTS while music is playing — shared speaker, TTS would kill the music
+    if music_service and music_service.playing:
+        logger.info("POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80])
+        raise HTTPException(409, "Speaker busy — music is playing")
     logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
     started = tts_service.speak(req.text)
     if not started:
