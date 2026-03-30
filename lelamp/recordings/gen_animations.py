@@ -339,30 +339,26 @@ def gen_pose_animation(filename, duration, target_offset,
 
 
 def gen_curious():
-    """6s: lean-in with head tilt. During hold: scanning left-right, micro head bobs."""
+    """6s: gentle lean-in with slight head turn. Reduced amplitude to avoid mechanical strain."""
     offset = {
-        "base_yaw.pos": 18.0,
-        "base_pitch.pos": 4.0,
-        "elbow_pitch.pos": -6.0,
-        "wrist_roll.pos": 14.0,
-        "wrist_pitch.pos": -8.0,
+        "base_yaw.pos": 10.0,
+        "base_pitch.pos": 2.0,
+        "elbow_pitch.pos": -3.0,
+        "wrist_roll.pos": 5.0,
+        "wrist_pitch.pos": -5.0,
     }
 
     def hold(j, ht, dur):
-        # Scanning — looking around at the interesting thing
-        scan = 4.0 * math.sin(2 * math.pi * ht / 2.0)
-        # Micro head bobs — like processing information
-        bob = 2.0 * math.sin(2 * math.pi * ht / 0.8) * math.exp(-0.5 * ht)
-
+        # Gentle scanning
+        scan = 2.5 * math.sin(2 * math.pi * ht / 2.5)
         if j == "base_yaw.pos":
             return scan
         if j == "wrist_pitch.pos":
-            return bob + noise(ht, 3) * 1.5
-        if j == "wrist_roll.pos":
-            return scan * 0.3 + noise(ht, 7) * 1.0
-        return noise(ht, hash(j) % 9) * 0.8
+            return noise(ht, 3) * 1.0
+        return noise(ht, hash(j) % 9) * 0.5
 
-    gen_pose_animation("curious.csv", 6.0, offset, approach_time=1.5,
+    gen_pose_animation("curious.csv", 6.0, offset, approach_time=2.0,
+                       use_anticipation=False, overshoot_amount=0.05,
                        hold_behavior=hold)
 
 
@@ -888,18 +884,27 @@ def gen_music_groove():
 
 
 # ===========================================================================
+ALL = {
+    "idle": gen_idle,
+    "curious": gen_curious,
+    "nod": gen_nod,
+    "headshake": gen_headshake,
+    "happy_wiggle": gen_happy_wiggle,
+    "sad": gen_sad,
+    "excited": gen_excited,
+    "shock": gen_shock,
+    "shy": gen_shy,
+    "scanning": gen_scanning,
+    "wake_up": gen_wake_up,
+    "music_groove": gen_music_groove,
+}
+
 if __name__ == "__main__":
-    print("Generating all animations...")
-    gen_idle()
-    gen_curious()
-    gen_nod()
-    gen_headshake()
-    gen_happy_wiggle()
-    gen_sad()
-    gen_excited()
-    gen_shock()
-    gen_shy()
-    gen_scanning()
-    gen_wake_up()
-    gen_music_groove()
+    import sys
+    targets = sys.argv[1:] if len(sys.argv) > 1 else list(ALL.keys())
+    for name in targets:
+        if name not in ALL:
+            print(f"Unknown: {name}. Available: {', '.join(ALL.keys())}")
+            continue
+        ALL[name]()
     print("Done.")
