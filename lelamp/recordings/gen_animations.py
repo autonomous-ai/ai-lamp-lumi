@@ -574,37 +574,85 @@ def gen_sad():
 
 
 def gen_excited():
-    """4s: quick alert rise with bouncing energy.
+    """7s: energetic bouncing — like a dog seeing its owner.
 
-    Fast approach with overshoot. Hold has visible vibrating excitement.
+    Quick rise, then sustained bouncy energy with side-to-side sway.
+    Bouncing does NOT decay — stays energetic throughout hold.
+    Gradually calms down only during return phase.
     """
-    offset = {
+    duration = 7.0
+    n = int(duration * FPS)
+    frames = []
+
+    # Excited pose: head up, body alert
+    excited_offset = {
         "base_yaw.pos": 5.0,
-        "base_pitch.pos": 14.0,
-        "elbow_pitch.pos": 20.0,
-        "wrist_roll.pos": 5.0,
-        "wrist_pitch.pos": 28.0,
+        "base_pitch.pos": 10.0,
+        "elbow_pitch.pos": 15.0,
+        "wrist_roll.pos": 3.0,
+        "wrist_pitch.pos": 20.0,
     }
 
-    def hold(j, ht, dur):
-        # Excited trembling — high freq, moderate amp, slowly decaying
-        tremble = math.sin(2 * math.pi * ht * 5.0) * 2.5 * math.exp(-0.8 * ht)
-        # Plus bouncing
-        bounce = abs(math.sin(2 * math.pi * ht * 3.0)) * 2.0 * math.exp(-0.5 * ht)
+    # Phases: rise(0-1s), bounce(1-5s), calm-return(5-7s)
+    rise_end = 1.0
+    bounce_end = 5.0
 
-        if j == "elbow_pitch.pos":
-            return tremble + bounce * 1.5
-        if j == "wrist_pitch.pos":
-            return tremble * 0.8 + bounce
-        if j == "base_yaw.pos":
-            return tremble * 0.5
-        if j == "base_pitch.pos":
-            return bounce
-        return tremble * 0.3
+    for i in range(n + 1):
+        t = i / FPS
+        row = {"timestamp": t}
 
-    gen_pose_animation("excited.csv", 4.0, offset, approach_time=0.6,
-                       return_time=1.2, overshoot_amount=0.18,
-                       hold_behavior=hold)
+        # Phase progress
+        if t <= rise_end:
+            # Quick rise to excited pose
+            p = overshoot_ease(t / rise_end, overshoot=0.12)
+            bounce_intensity = t / rise_end  # ramp up bounce during rise
+        elif t <= bounce_end:
+            p = 1.0
+            bounce_intensity = 1.0
+        else:
+            # Return to rest
+            ret_p = ease_in_out((t - bounce_end) / (duration - bounce_end))
+            p = 1.0 - ret_p
+            bounce_intensity = 1.0 - ret_p
+
+        # Bouncing rhythm — asymmetric: quick up, float down
+        bounce_period = 0.4  # ~150 BPM
+        bp = (t % bounce_period) / bounce_period
+        if bp < 0.25:
+            bounce = ease_out(bp / 0.25)  # quick up
+        else:
+            bounce = 1.0 - ease_in_out((bp - 0.25) / 0.75)  # slower down
+
+        # Alternating big/small bounces
+        cycle = int(t / bounce_period)
+        bounce *= 1.0 if cycle % 2 == 0 else 0.65
+
+        # Side-to-side sway — excited can't stay still
+        sway = math.sin(2 * math.pi * t / 0.8)
+        sway2 = math.sin(2 * math.pi * t / 1.6 + 1.0) * 0.4
+
+        for j in JOINTS:
+            # Base pose
+            val = REST[j] + excited_offset[j] * p
+
+            # Add bouncing energy
+            bi = bounce_intensity
+            if j == "base_pitch.pos":
+                val += bounce * 4.0 * bi
+            elif j == "elbow_pitch.pos":
+                val += bounce * 6.0 * bi
+            elif j == "wrist_pitch.pos":
+                val += bounce * 5.0 * bi
+            elif j == "base_yaw.pos":
+                val += (sway * 8.0 + sway2 * 4.0) * bi
+            elif j == "wrist_roll.pos":
+                val += -sway * 5.0 * bi  # counter-sway
+
+            val += noise(t, hash(j) % 11) * 0.3 * bi
+            row[j] = val
+        frames.append(row)
+
+    write_csv("excited.csv", frames)
 
 
 def gen_shock():
