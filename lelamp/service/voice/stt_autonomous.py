@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 from lelamp.service.voice.stt_provider import STTProvider, STTSession
 
 logger = logging.getLogger("lelamp.voice.stt")
+logger.setLevel(logging.INFO)
 
 DEFAULT_MODEL = "flux-general-en"
 DEFAULT_ENCODING = "linear16"
@@ -63,23 +64,30 @@ class AutonomousSTTSession(STTSession):
                 for raw in self._ws:
                     if self._closed.is_set():
                         break
+                    logger.debug("STT recv: %s", str(raw)[:200])
                     try:
                         msg = json.loads(raw)
                     except (json.JSONDecodeError, TypeError):
+                        logger.warning("STT recv non-JSON: %s", str(raw)[:200])
                         continue
-                    # Deepgram-compatible response format
                     msg_type = msg.get("type", "")
-                    if msg_type not in ("Results",):
-                        continue
-                    channel = msg.get("channel", {})
-                    alts = channel.get("alternatives", [])
-                    if not alts:
-                        continue
-                    transcript = alts[0].get("transcript", "").strip()
-                    if not transcript:
-                        continue
-                    is_final = msg.get("is_final", False)
-                    on_transcript(transcript, is_final)
+
+                    # Deepgram format: {"type": "Results", "channel": {"alternatives": [...]}, "is_final": true}
+                    if msg_type == "Results":
+                        alts = msg.get("channel", {}).get("alternatives", [])
+                        if not alts:
+                            continue
+                        transcript = alts[0].get("transcript", "").strip()
+                        if not transcript:
+                            continue
+                        on_transcript(transcript, msg.get("is_final", False))
+
+                    # Autonomous format: {"type": "TurnInfo", "event": "Update"/"EndOfTurn", "transcript": "..."}
+                    elif msg_type == "TurnInfo":
+                        transcript = msg.get("transcript", "").strip()
+                        if not transcript:
+                            continue
+                        on_transcript(transcript, msg.get("event", "") == "EndOfTurn")
             except Exception as e:
                 if not self._closed.is_set():
                     logger.error("Autonomous STT recv error: %s", e)
@@ -89,7 +97,8 @@ class AutonomousSTTSession(STTSession):
         self._recv_thread = threading.Thread(target=recv_loop, daemon=True, name="auto-stt-recv")
         self._recv_thread.start()
 
-        logger.info("Autonomous STT connected — streaming speech...")
+        logger.info("Autonomous STT connected — streaming speech (recv thread alive=%s)",
+                    self._recv_thread.is_alive())
         return True
 
     def send_audio(self, data: bytes):

@@ -70,7 +70,8 @@ Response:
 - If the search finds nothing, tell the user and suggest a different query.
 
 ## Rules
-- **Do NOT speak (TTS) before or while playing music.** The speaker is shared — TTS will block music playback. Just call `/audio/play` silently and let the music speak for itself.
+- **Your text reply MUST be empty or a single short sentence** (e.g., "Playing Bohemian Rhapsody!"). Do NOT include lyrics, humming, singing text, or long descriptions. The speaker is shared — any text you write becomes TTS audio that blocks music playback.
+- **Do NOT recite or write out lyrics** in your response. Never output song words, verses, or "la la la" — just call `/audio/play` and let the real music play.
 - When the user asks to "sing", play a song — do not attempt to generate singing via TTS.
 - Include the artist name in the search query when known for better results.
 - If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
