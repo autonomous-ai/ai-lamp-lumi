@@ -410,8 +410,10 @@ def gen_nod():
             elif j == "base_pitch.pos":
                 val += nod_down * 3.0 * fade
             elif j == "base_yaw.pos":
-                # Slight yaw drift during nod — not perfectly straight
-                val += noise(t, 5) * 2.0 * fade
+                # Turn slightly toward "speaker" during nod, then drift back
+                turn = 10.0 * ease_in_out(min(t / 1.0, 1.0)) * fade
+                turn *= 1.0 - ease_in_out(max(0, (t - 3.0) / 2.0))
+                val += turn + noise(t, 5) * 1.5 * fade
             else:
                 val += noise(t, hash(j) % 13) * 1.0 * fade
 
@@ -639,8 +641,9 @@ def gen_excited():
                 # Tertiary: body bobs slightly
                 val += nod * 2.0 * ni
             elif j == "base_yaw.pos":
-                # Very subtle drift — NOT sway
-                val += noise(t, 5) * 1.5 * ni
+                # Excited head turn — look around while nodding
+                look = 12.0 * math.sin(2 * math.pi * t / 3.0) * ni
+                val += look + noise(t, 5) * 1.5 * ni
             elif j == "wrist_roll.pos":
                 # Tiny head tilts between nods
                 val += noise(t * 1.5, 9) * 1.5 * ni
@@ -658,7 +661,7 @@ def gen_shock():
     Slow cautious return (checking if it's safe).
     """
     offset = {
-        "base_yaw.pos": -5.0,
+        "base_yaw.pos": -18.0,     # snap head away from shock source
         "base_pitch.pos": 10.0,
         "elbow_pitch.pos": 15.0,
         "wrist_roll.pos": -10.0,
@@ -830,11 +833,16 @@ def gen_wake_up():
                 p = (t - 1.5) / 1.0
                 stir_amp = p * 3.0
                 val = REST[j] + sleep_offset[j] * (1 - p * 0.3)
+                if j == "base_yaw.pos":
+                    val += 6.0 * math.sin(2 * math.pi * p / 1.5) * p  # groggy head turn
                 val += noise(t * 2, hash(j) % 9) * stir_amp
             elif t <= 4.5:
-                # Rising from sleep to rest
+                # Rising from sleep to rest — look around "where am I?"
                 p = ease_in_out((t - 2.5) / 2.0)
                 val = REST[j] + sleep_offset[j] * (1 - p)
+                if j == "base_yaw.pos":
+                    look = 15.0 * math.sin(2 * math.pi * (t - 2.5) / 3.0)
+                    val += look * p
                 val += noise(t, hash(j) % 7) * 1.0 * p
             elif t <= 6.0:
                 # Stretch! Rise above rest with overshoot
