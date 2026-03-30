@@ -63,7 +63,7 @@ Response:
 - If the search finds nothing, tell the user and suggest a different query.
 
 ## Rules
-- Music automatically pauses when you speak (TTS) and resumes after.
+- **Do NOT speak (TTS) before or while playing music.** The speaker is shared — TTS will block music playback. Just call `/audio/play` silently and let the music speak for itself.
 - When the user asks to "sing", play a song — do not attempt to generate singing via TTS.
 - Include the artist name in the search query when known for better results.
 - If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
