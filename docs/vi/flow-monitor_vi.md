@@ -55,4 +55,17 @@ Bảng tọa độ gần đúng và ASCII grid: xem mục *Turn Pipeline* và *A
 
 **Tải để so sánh:** nút **↓ Bundle** trên Flow Panel tải cùng lúc JSONL tail server, snapshot UI và OpenClaw debug payload (xem bảng *Turns list vs downloaded log* trong `docs/flow-monitor.md`).
 
+### Lấy tin nhắn user từ Telegram
+
+Khi phát hiện channel turn (Telegram/Slack), handler gọi `FetchChatHistory(sessionKey, 20)` qua WS RPC để lấy lịch sử chat gần nhất. Full history được log vào debug JSONL (`chat_history_on_channel_turn`), và tin nhắn `role:"user"` cuối cùng được trích xu��t cho event `chat_input`. Best-effort với timeout 3 giây — nếu lỗi thì event vẫn fire với `[telegram]` không có text. Lưu ý: OpenClaw chat stream không bao giờ broadcast `role:"user"`, nên `chat.history` RPC là cách duy nhất lấy nội dung tin nhắn user.
+
 Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng Anh.
+
+## Issue đang mở
+
+### OpenClaw không thấy `tool_call` dù có action
+Đã gặp nhiều turn (nhất là Telegram): user yêu cầu action (ví dụ đổi màu đèn), kết quả OUT/TTS xác nhận đã đổi, nhưng flow/debug không có `tool_call`.
+
+- **Ảnh hưởng**: node `TOOL` có thể không sáng dù nhìn như đã có action.
+- **Trạng thái hiện tại**: đã bật raw dump full-stream (`source: "openclaw_raw"`), nhưng vẫn có run không thấy payload `stream:"tool"`.
+- **Chưa chốt**: có thể OpenClaw chạy nhánh nội bộ không emit tool stream, hoặc action chỉ được suy ra từ assistant text mà không có tool invocation tường minh.

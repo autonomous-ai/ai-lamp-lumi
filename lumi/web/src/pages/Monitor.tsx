@@ -1333,8 +1333,11 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     // sensing_input → sensing node
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
-      if (m) info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
-      else info.sensing.push(ev.summary);
+      if (m) {
+        info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
+      } else {
+        info.sensing.push(ev.summary);
+      }
     }
     // ambient events → ambient node (skip pause/resume infra signals)
     {
@@ -2951,11 +2954,12 @@ function AnalyticsSection() {
   );
 }
 
-type LogSource = "lelamp" | "lumi" | "openclaw";
+type LogSource = "lelamp" | "lumi" | "openclaw" | "openclaw_debug";
 const LOG_SOURCES: { id: LogSource; label: string; color: string }[] = [
   { id: "lelamp",   label: "LeLamp",   color: "var(--lm-green)" },
   { id: "lumi",     label: "Lumi",     color: "var(--lm-amber)" },
   { id: "openclaw", label: "OpenClaw", color: "var(--lm-blue)" },
+  { id: "openclaw_debug", label: "OpenClaw Raw", color: "var(--lm-purple)" },
 ];
 
 const LOG_LEVELS = ["ALL", "DEBUG", "INFO", "WARN", "ERROR"] as const;
@@ -2989,34 +2993,77 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
   const [level, setLevel] = useState<LogLevel>("ALL");
   const scrollRef = useRef<HTMLDivElement>(null);
   const sseRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const stringifyDebugRow = useCallback((row: Record<string, any>) => {
+    const at = String(row.at ?? "");
+    const src = String(row.source ?? "");
+    const event = String(row.event ?? "");
+    const stream = String(row.stream ?? "");
+    const runID = String(row.run_id ?? "");
+    const flowRunID = String(row.flow_run_id ?? "");
+    const role = String(row.role ?? "");
+    const state = String(row.state ?? "");
+    const raw = String(row.raw_payload ?? "");
+    const rawPreview = raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
+    const meta = [src, event && `evt:${event}`, stream && `stream:${stream}`, runID && `run:${runID}`, flowRunID && `flow:${flowRunID}`, role && `role:${role}`, state && `state:${state}`]
+      .filter(Boolean)
+      .join(" | ");
+    return `${at} ${meta}${rawPreview ? ` | raw:${rawPreview}` : ""}`.trim();
+  }, []);
 
   // Initial fetch
   const fetchLines = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${API}/logs/tail?source=${source}&lines=${lastN}`);
-      if (!resp.ok) {
-        setError(`HTTP ${resp.status} ${resp.statusText}`);
-        setLines([]);
-        return;
+      if (source === "openclaw_debug") {
+        const resp = await fetch(`${API}/openclaw/debug-lines?last=${lastN}`);
+        if (!resp.ok) {
+          setError(`HTTP ${resp.status} ${resp.statusText}`);
+          setLines([]);
+          return;
+        }
+        const r = await resp.json();
+        const rows = Array.isArray(r?.data?.rows) ? r.data.rows : [];
+        setError(null);
+        setLines(rows.map((row: Record<string, any>) => stringifyDebugRow(row)));
+      } else {
+        const resp = await fetch(`${API}/logs/tail?source=${source}&lines=${lastN}`);
+        if (!resp.ok) {
+          setError(`HTTP ${resp.status} ${resp.statusText}`);
+          setLines([]);
+          return;
+        }
+        const r = await resp.json();
+        const data = r?.data;
+        if (data?.error) setError(data.error);
+        else setError(null);
+        setLines(Array.isArray(data?.lines) ? data.lines : []);
       }
-      const r = await resp.json();
-      const data = r?.data;
-      if (data?.error) setError(data.error);
-      else setError(null);
-      setLines(Array.isArray(data?.lines) ? data.lines : []);
     } catch (e) {
       setError(`Fetch error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoading(false);
     }
-  }, [source, lastN]);
+  }, [source, lastN, stringifyDebugRow]);
 
   useEffect(() => { fetchLines(); }, [fetchLines]);
 
   // SSE stream for new lines
   useEffect(() => {
     if (paused) return;
+    if (source === "openclaw_debug") {
+      pollRef.current = window.setInterval(() => {
+        void fetchLines();
+      }, 2000);
+      return () => {
+        if (pollRef.current !== null) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      };
+    }
+
     const es = new EventSource(`${API}/logs/stream?source=${source}`);
     sseRef.current = es;
     es.addEventListener("log", (e) => {
@@ -3027,7 +3074,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
       // EventSource reconnects automatically
     });
     return () => { es.close(); sseRef.current = null; };
-  }, [source, paused]);
+  }, [source, paused, fetchLines]);
 
   // Filtered lines
   const filtered = useMemo(() => {

@@ -235,6 +235,7 @@ Turn Pipeline grouping behavior:
 - Polls `GET /api/openclaw/debug-lines` every 2 seconds and renders newest rows first.
 - Shows `source`, `role`, `run_id`, `at`, and parsed `message` if available.
 - Raw dump is now full-stream: every OpenClaw WS payload (`agent` + `chat`) is appended with `source: "openclaw_raw"` and `raw_payload`, so debugging no longer depends on selective sampling.
+- Logs tab now includes an **OpenClaw Raw** panel (alongside LeLamp/Lumi/OpenClaw) that reads from `GET /api/openclaw/debug-lines` for in-page filtering of `openclaw_raw` rows.
 - Includes direct file download via `GET /api/openclaw/debug-logs`.
 
 > **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.

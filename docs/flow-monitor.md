@@ -49,6 +49,8 @@ flow.Log("tool_call", data, payload.RunID)      // each event carries its own ID
 
 When `lifecycle_start` arrives without an active device trace (`flow.GetTrace() == ""`), the handler checks if it's a channel-initiated turn (Telegram/Slack). Lumi-originated `chat.send` turns are excluded via `lumi-chat-*` (and legacy `lumi-sensing-*`) so they are not mis-labeled as Telegram when the trace was lost.
 
+On channel-initiated turns, the handler calls `FetchChatHistory(sessionKey, 20)` via the WS RPC to retrieve recent messages. The full history payload is logged to debug JSONL (`chat_history_on_channel_turn`), and the last `role:"user"` message is extracted for the `chat_input` event summary. This is best-effort with a 3-second timeout — if the fetch fails, the event still fires with `[telegram]` and no message text. Note: OpenClaw's chat stream never broadcasts `role:"user"` events, so `chat.history` RPC is the only way to obtain user message content for channel-originated turns.
+
 ## Run ID Format & Mapping
 
 ```
@@ -222,6 +224,13 @@ Both agent stream (`lifecycle_end` flush) and chat stream (`chat final assistant
 WebSocket reconnects cause process-level restarts (seq counter resets). This is likely a separate stability issue, not a monitor bug.
 - **Impact**: Trace lost mid-turn, events split across restarts.
 - **Mitigation**: Per-event runID + frontend stitching handles most cases.
+
+### 6. OpenClaw tool-call visibility gap (action without `tool_call`)
+Observed on multiple Telegram turns: user asks for a device action (e.g. LED color change) and the lamp state/output confirms the action, but flow/debug logs contain only lifecycle + assistant/tts and no `tool_call` event.
+
+- **Impact**: `TOOL` node can stay off even when an action appears to be executed.
+- **Current status**: OpenClaw raw payload logging is enabled (`source: "openclaw_raw"`), but some runs still show no `stream:"tool"` payload.
+- **Open question**: OpenClaw may be executing an internal path that does not emit tool stream, or action may be inferred from assistant text without explicit tool invocation.
 
 ## Turns list vs downloaded log
 

@@ -235,6 +235,7 @@ Hành vi gom nhóm Turn Pipeline:
 - Poll `GET /api/openclaw/debug-lines` mỗi 2 giây, hiển thị dòng mới nhất ở trên.
 - Hiển thị `source`, `role`, `run_id`, `at` và `message` parse được (nếu có).
 - Raw dump giờ là full-stream: mọi WS payload OpenClaw (`agent` + `chat`) đều được append với `source: "openclaw_raw"` và `raw_payload`, nên debug không còn phụ thuộc log chọn lọc.
+- Tab Logs giờ có thêm panel **OpenClaw Raw** (cùng LeLamp/Lumi/OpenClaw), đọc từ `GET /api/openclaw/debug-lines` để filter trực tiếp các dòng `openclaw_raw` ngay trên trang.
 - Có nút tải file debug qua `GET /api/openclaw/debug-logs`.
 
 > **Lưu ý**: Camera có vai trò kép — (1) hiển thị live stream cho user xem, (2) nguồn dữ liệu sensing tự động. Sensing service đọc frame từ camera mỗi 2s để detect motion, face (Haar cascade), và light level. Khi phát hiện sự kiện đáng kể (người xuất hiện, chuyển động lớn), auto-snapshot 320px JPEG được gửi kèm event tới OpenClaw AI để phân tích bằng vision.
