@@ -608,6 +608,21 @@ function OverviewSection({
                   }}>{p}</span>
                 ))}
               </div>
+              <button onClick={() => {
+                fetch(`${HW}/servo/release`, {
+                  method: "POST",
+                  headers: { accept: "application/json" },
+                }).catch(() => {});
+              }} style={{
+                marginTop: 4,
+                fontSize: 10,
+                padding: "3px 10px",
+                borderRadius: 4,
+                background: "var(--lm-surface)",
+                border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-dim)",
+                cursor: "pointer",
+              }}>Release</button>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
