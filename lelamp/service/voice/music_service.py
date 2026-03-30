@@ -113,6 +113,7 @@ class MusicService:
             self._ytdlp_proc = subprocess.Popen(
                 [
                     sys.executable, "-m", "yt_dlp",
+                    "--js-runtimes", "node:/usr/bin/node",
                     "-f", "bestaudio",
                     "-o", "-",
                     audio_url,
@@ -172,6 +173,7 @@ class MusicService:
             result = subprocess.run(
                 [
                     sys.executable, "-m", "yt_dlp",
+                    "--js-runtimes", "node:/usr/bin/node",
                     "--dump-json",
                     "--no-download",
                     f"ytsearch1:{query}",
