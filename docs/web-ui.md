@@ -159,6 +159,11 @@ Cards included:
 **System quick stats**
 - CPU, RAM, Temp, Uptime as pills
 
+**Version** (bottom row)
+- **Web**: injected at build time from `package.json` via Vite `define` (`__WEB_VERSION__`)
+- **Lumi**: from `GET /api/system/info` → `version` field (Go ldflags)
+- **LeLamp**: fetched once from `GET /hw/version` → `version` field
+
 ### 5.2 System Section
 
 **Performance** — 3 GaugeRing SVGs:

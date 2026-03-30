@@ -1,3 +1,4 @@
+declare const __WEB_VERSION__: string;
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Chart as ChartJS,
@@ -717,6 +718,7 @@ function OverviewSection({
           </div>
         </div>
       )}
+
     </div>
   );
 }
@@ -2083,8 +2085,17 @@ function FlowSection({
 
   const visitedStages = new Set<FlowStage>();
   for (const ev of turnEvents) {
-    const key = ev.type === "flow_event" && ev.detail?.node
-      ? `flow_event:${ev.detail.node}` : ev.type;
+    // Normalize "visited" trigger keys so FLOW_NODES.triggers can match:
+    // - flow_event:<node>
+    // - flow_enter:<node>
+    // - flow_exit:<node>
+    // Also fall back to plain ev.type for events without node.
+    const node = ev.detail?.node as string | undefined;
+    // For non-flow event types (e.g. ev.type === "chat_input"), triggers expect just "chat_input".
+    // For flow_* event types, triggers expect "flow_event:<node>" / "flow_enter:<node>" / "flow_exit:<node>".
+    const key = (ev.type === "flow_event" || ev.type === "flow_enter" || ev.type === "flow_exit") && node
+      ? `${ev.type}:${node}`
+      : ev.type;
     for (const node of FLOW_NODES) {
       if (node.triggers.includes(key)) visitedStages.add(node.id);
     }
@@ -3254,6 +3265,7 @@ export default function Monitor() {
   const [audio, setAudio] = useState<AudioVolume | null>(null);
   const [ledColor, setLedColor] = useState<LEDColor | null>(null);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
+  const [lelampVersion, setLelampVersion] = useState<string | null>(null);
   const [events, setEvents] = useState<DisplayEvent[]>([]);
   const [displayTs, setDisplayTs] = useState(0);
 
@@ -3264,6 +3276,13 @@ export default function Monitor() {
   const evtIdRef = useRef(0);
   const clearFlowEvents = useCallback(() => {
     setEvents([]);
+  }, []);
+
+  // Fetch LeLamp version once
+  useEffect(() => {
+    fetch(`${HW}/version`).then((r) => r.json()).then((r) => {
+      if (r.version) setLelampVersion(r.version);
+    }).catch(() => {});
   }, []);
 
   // Polling
@@ -3404,6 +3423,11 @@ export default function Monitor() {
             <span>{ocOnline ? "OpenClaw Online" : "OpenClaw Offline"}</span>
           </div>
           {lastUpdate && <div>Updated {lastUpdate}</div>}
+          <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2, fontSize: 9.5, color: "var(--lm-text-muted)" }}>
+            <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span></div>
+            <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span></div>
+            <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span></div>
+          </div>
         </div>
       </aside>
 
