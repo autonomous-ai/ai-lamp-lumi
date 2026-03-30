@@ -20,7 +20,12 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
-DEFAULT_MODEL = "flux-general-en"
+# DEFAULT_MODEL = "flux-general-en"
+#DEFAULT_LANGUAGE = None
+
+DEFAULT_MODEL = "nova-3"
+DEFAULT_LANGUAGE = "vi"
+
 DEFAULT_ENCODING = "linear16"
 
 
@@ -132,7 +137,7 @@ class AutonomousSTT(STTProvider):
         self._api_key = api_key
         self._sample_rate = sample_rate
         self._model = model
-        self._language = language
+        self._language = language or DEFAULT_LANGUAGE
 
         # Convert HTTP base_url to WebSocket URL
         # base_url: https://campaign-api.autonomous.ai/api/v1/ai/v1
@@ -143,8 +148,8 @@ class AutonomousSTT(STTProvider):
             "encoding": DEFAULT_ENCODING,
             "sample_rate": str(sample_rate),
         }
-        if language:
-            params["language"] = language
+        if self._language:
+            params["language"] = self._language
         self._ws_url = f"{ws_base}/ws/audio/transcriptions?{urlencode(params)}"
         logger.info("AutonomousSTT ready (url=%s, model=%s)", self._ws_url, model)
 
