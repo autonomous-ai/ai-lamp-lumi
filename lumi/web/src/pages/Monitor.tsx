@@ -915,6 +915,34 @@ function turnHasSensingInput(turn: Turn): boolean {
   );
 }
 
+/** Bracket label from "[voice] hello" / "[motion] ..." on sensing_input / flow_enter sensing_input. */
+function sensingInputBracketType(ev: DisplayEvent): string | null {
+  if (ev.type !== "sensing_input" && !(ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+    return null;
+  }
+  const m = ev.summary.match(/^\[([^\]]+)\]/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Same run_id can include motion (camera) then voice in one session; merge keeps the first segment's type (often "motion").
+ * For the turn badge, prefer voice / voice_command when any utterance is present — that is the user's intent.
+ */
+function refineTurnTypeFromSensingInputs(turn: Turn): void {
+  if (turn.type === "telegram" || turn.type.startsWith("ambient:") || turn.type === "schedule") {
+    return;
+  }
+  let sawVoice = false;
+  let sawVoiceCommand = false;
+  for (const ev of turn.events) {
+    const t = sensingInputBracketType(ev);
+    if (t === "voice_command") sawVoiceCommand = true;
+    else if (t === "voice") sawVoice = true;
+  }
+  if (sawVoiceCommand) turn.type = "voice_command";
+  else if (sawVoice) turn.type = "voice";
+}
+
 function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   const turns: Turn[] = [];
   let current: Turn | null = null;
@@ -1096,6 +1124,10 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
 
     stitched.push(turn);
+  }
+
+  for (const turn of stitched) {
+    refineTurnTypeFromSensingInputs(turn);
   }
 
   // Detect session breaks: ws_connect after ws_disconnect gap or large time gap between turns

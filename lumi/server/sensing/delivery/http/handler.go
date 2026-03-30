@@ -54,8 +54,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Track the full turn from trigger to dispatch
-	turnStart := flow.Start("sensing_input", map[string]any{"type": req.Type, "message": req.Message})
+	startPayload := map[string]any{"type": req.Type, "message": req.Message}
 
 	// Push sensing input to monitor
 	h.monitorBus.Push(domain.MonitorEvent{
@@ -66,6 +65,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
+			turnStart := flow.Start("sensing_input", startPayload)
 			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText})
 			if result.TTSText != "" {
 				go func() {
@@ -93,21 +93,25 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// No local match — forward to OpenClaw agent
 	if !h.agentGateway.IsReady() {
+		turnStart := flow.Start("sensing_input", startPayload)
 		flow.End("sensing_input", turnStart, map[string]any{"error": "agent not connected"})
 		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("agent gateway not connected"))
 		return
 	}
 
+	// Same run_id as chat.send / JSONL: SetTrace before flow.Start so enter matches this turn (not previous).
+	reqID, runID := h.agentGateway.NextChatRunID()
+	flow.SetTrace(runID)
+	turnStart := flow.Start("sensing_input", startPayload)
+
 	msg := "[sensing:" + req.Type + "] " + req.Message
 
-	var runID string
 	var err error
-
 	if req.Image != "" {
 		// Send with image attachment so AI can see what triggered the event
-		runID, err = h.agentGateway.SendChatMessageWithImage(msg, req.Image)
+		_, err = h.agentGateway.SendChatMessageWithImageAndRun(msg, req.Image, reqID, runID)
 	} else {
-		runID, err = h.agentGateway.SendChatMessage(msg)
+		_, err = h.agentGateway.SendChatMessageWithRun(msg, reqID, runID)
 	}
 
 	if err != nil {
@@ -117,8 +121,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Mark device turn active (for Telegram-detection heuristic) and tag flow events with runID.
-	flow.SetTrace(runID)
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
 	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID}, runID)
 
