@@ -934,6 +934,10 @@ function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
 interface Turn {
   id: string;          // runId or a synthetic id for local turns
   runId?: string;
+  // User action boundary: when a new user mic/chat action starts, we want to keep the
+  // resulting UI turn distinct even if OpenClaw reuses the same runId.
+  boundary?: "mic" | "chat";
+  boundaryInstanceSeq?: number;
   startTime: string;
   sessionBreak?: boolean; // true if this turn starts after a BE restart (new session)
   endTime?: string;
@@ -1023,13 +1027,23 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   let current: Turn | null = null;
 
   // Check if event starts a new turn
-  function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"] } | null {
+  function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"]; forceNewTurn?: boolean; boundary?: Turn["boundary"] } | null {
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
-      return { type: m ? m[1] : "unknown", path: "unknown" };
+      const t = m ? m[1] : "unknown";
+      return {
+        type: t,
+        path: "unknown",
+        forceNewTurn: t === "voice" || t === "voice_command",
+        boundary: t === "voice" || t === "voice_command" ? "mic" : undefined,
+      };
+    }
+    // Mic pipeline start is a strong user action boundary.
+    if ((ev.type === "flow_event" || ev.type === "flow_enter") && ev.detail?.node === "voice_pipeline_start") {
+      return { type: "voice", path: "unknown", forceNewTurn: true, boundary: "mic" };
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
-      return { type: "telegram", path: "agent" };
+      return { type: "telegram", path: "agent", boundary: "chat" };
     }
     // Ambient actions (breathing, movement, mumble) start their own turn
     // BUT ambient_pause/ambient_resume are infra signals, NOT turns
@@ -1055,7 +1069,10 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     const start = isTurnStart(ev);
     if (start) {
       // If this start marker belongs to the same run, keep a single turn.
-      if (current && current.runId && evRunId && current.runId === evRunId) {
+      // BUT for user mic actions (voice/voice_command / voice_pipeline_start), we always split
+      // into separate turns so the UI matches each user utterance.
+      const shouldForceSplit = Boolean(start.forceNewTurn);
+      if (!shouldForceSplit && current && current.runId && evRunId && current.runId === evRunId) {
         current.events.push(ev);
         continue;
       }
@@ -1066,6 +1083,8 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
         startTime: ev.time,
         type: start.type,
         path: start.path,
+        boundary: start.boundary,
+        boundaryInstanceSeq: start.boundary ? ev._seq : undefined,
         status: "active",
         events: [ev],
       };
@@ -1146,6 +1165,15 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       merged.push(turn);
       continue;
     }
+    // If this turn starts from a user action boundary (chat/voice), never merge it into
+    // a previous UI turn. We also advance the "current" index so later fragments with the
+    // same runId attach to the newest boundary.
+    if (turn.boundaryInstanceSeq !== undefined) {
+      merged.push(turn);
+      runIndex.set(turn.runId, merged.length - 1);
+      continue;
+    }
+
     const base = merged[idx];
     base.events.push(...turn.events);
     if (base.status !== "error" && turn.status === "error") base.status = "error";
@@ -1707,7 +1735,6 @@ const SOURCE_ICON: Record<string, string> = {
 function turnIO(turn: Turn): { input: string; output: string } {
   let input = "";
   let output = "";
-  let inputIsPlaceholder = false;
   let outputFromIntent = false;
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
@@ -1727,14 +1754,11 @@ function turnIO(turn: Turn): { input: string; output: string } {
       const fullMsg = d?.message ?? d?.data?.message;
       const msg = fullMsg || parseTelegramSummary(ev.summary);
       if (msg) {
-        // Prefer a real Telegram message and allow replacing a prior placeholder.
-        if (!input || inputIsPlaceholder) {
-          input = msg;
-          inputIsPlaceholder = false;
-        }
+        // Prefer a real Telegram message for the IN field even if a sensing_input
+        // (e.g. SOUND) was seen earlier in the same UI turn.
+        input = msg;
       } else if (!input) {
         input = TELEGRAM_FALLBACK_MESSAGE;
-        inputIsPlaceholder = true;
       }
     }
     // Ambient turn input

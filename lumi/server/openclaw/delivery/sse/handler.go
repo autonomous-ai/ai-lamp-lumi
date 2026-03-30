@@ -284,6 +284,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			h.monitorBus.Push(monEvt)
 
+			// Keep flow.GetTrace() "active" for the duration of the device turn so Telegram heuristic
+			// (lifecycle_start arriving while no device trace is active) can work correctly.
+			// Clear only after lifecycle_end so openclaw UUID → device runId mapping still succeeds.
+			if payload.Data.Phase == "end" {
+				flow.ClearTrace()
+			}
+
 		case "tool":
 			toolName := payload.Data.Tool
 			summary := toolName
