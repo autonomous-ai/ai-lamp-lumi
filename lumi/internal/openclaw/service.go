@@ -1204,14 +1204,15 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 	}
 
 	hasImage := imageBase64 != ""
-	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID)
-	flow.Log("chat_send", map[string]any{"run_id": reqID, "has_session": sessionKey != "", "has_image": hasImage})
+	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID, "runId", idempotencyKey)
+	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage})
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
 		Summary: message,
-		RunID:   reqID,
+		RunID:   idempotencyKey,
 	})
 
-	return reqID, nil
+	// Return idempotencyKey (not reqID) so trace_id matches OpenClaw's run_id.
+	return idempotencyKey, nil
 }
