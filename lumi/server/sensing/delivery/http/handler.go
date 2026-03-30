@@ -79,6 +79,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 					}
 				}()
 			}
+			// Signal ambient service about LED state changes
+			if result.LEDChanged {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "intent: " + req.Message})
+			} else if result.LEDOff {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "intent: " + req.Message})
+			}
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
