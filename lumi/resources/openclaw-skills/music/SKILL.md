@@ -76,7 +76,7 @@ Response:
 - Include the artist name in the search query when known for better results.
 - If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
 - This skill is for music playback only. For volume control, use the **Audio** skill.
-- **Always call the Emotion skill** when starting music playback. Use `excited` (intensity 0.8) for upbeat songs, `happy` (0.7) for general music, or match the mood of the song.
+- Servo groove animation starts automatically when music plays — no need to call Emotion or Servo separately for body movement during playback.
 
 ## Output Template
 ```

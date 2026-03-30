@@ -1197,7 +1197,12 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 	}
 
 	s.wsMu.Lock()
-	err = s.wsConn.WriteMessage(websocket.TextMessage, body)
+	conn = s.wsConn
+	if conn == nil {
+		s.wsMu.Unlock()
+		return "", fmt.Errorf("websocket disconnected before send")
+	}
+	err = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
 		return "", fmt.Errorf("write chat.send: %w", err)

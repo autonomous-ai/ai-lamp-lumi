@@ -58,16 +58,16 @@ Response:
 
 ### Available emotions
 
-| Emotion | Servo | LED Color | When to use |
+| Emotion | Servo | LED Effect | When to use |
 |---|---|---|---|
-| `curious` | Tilts head | Warm yellow | Questions, interest, "tell me more" |
-| `happy` | Happy wiggle | Bright yellow | Good news, jokes, compliments, greetings |
-| `sad` | Droops down | Soft blue | Bad news, empathy, apologies |
-| `thinking` | Nods slowly | Purple | Processing, considering, "let me think" |
-| `idle` | Gentle sway | Cyan | Waiting, listening, neutral state |
-| `excited` | Energetic bounce | Orange | Celebrations, big news, enthusiasm |
-| `shy` | Turns away | Pink | Receiving compliments, bashful moments |
-| `shock` | Quick jerk | White flash | Surprises, unexpected information |
+| `curious` | Tilts head | Warm yellow pulse | Questions, interest, "tell me more" |
+| `happy` | Happy wiggle | Bright yellow pulse | Good news, jokes, compliments, greetings |
+| `sad` | Droops down | Soft blue slow breathing | Bad news, empathy, apologies |
+| `thinking` | Nods slowly | Purple breathing | Processing, considering, "let me think" |
+| `idle` | Gentle sway | Cyan slow breathing | Waiting, listening, neutral state |
+| `excited` | Energetic bounce | Orange fast pulse | Celebrations, big news, enthusiasm |
+| `shy` | Turns away | Pink soft breathing | Receiving compliments, bashful moments |
+| `shock` | Quick jolt | White flash (3x) | Surprises, unexpected information |
 
 ## Error Handling
 - If the API returns an error or is unreachable, continue with the conversational reply anyway. Emotion is non-blocking.
