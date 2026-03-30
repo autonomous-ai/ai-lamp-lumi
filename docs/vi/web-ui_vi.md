@@ -187,6 +187,8 @@ Mỗi event hiển thị: type badge, phase (nếu có), runId (8 ký tự đầ
 - Chỉ fallback poll 2 giây khi stream bị ngắt.
 - Turn/event hiển thị được suy ra hoàn toàn từ JSONL flow log.
 
+**Turn Pipeline (SVG)** — `FlowDiagram` trong `lumi/web/src/pages/Monitor.tsx`. Bố cục đầy đủ (ba vùng Lumi / LeLamp / OpenClaw, lưới cột OpenClaw, Cron thuộc Lumi, hàng LeLamp thẳng Tool, bảng tọa độ) nằm trong **`docs/flow-monitor.md`**; tóm tắt tiếng Việt: **`docs/vi/flow-monitor_vi.md`**.
+
 Hành vi gom nhóm Turn Pipeline:
 - Turn vẫn bắt đầu từ các event input/trigger (`sensing_input`, `chat_input`, `schedule_trigger`, ...).
 - UI giờ neo mỗi turn theo `run_id` đầu tiên phát hiện được (ở root event hoặc trong `detail`).

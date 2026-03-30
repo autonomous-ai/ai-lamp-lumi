@@ -43,6 +43,12 @@ type OpenClawHandler struct {
 	musicMu    sync.Mutex
 	musicTurns map[string]bool
 
+	// runIDMap maps OpenClaw-assigned UUIDs back to device-originated idempotencyKeys.
+	// When lifecycle_start arrives with UUID while a device trace is active, we store
+	// the mapping so all subsequent events for that UUID use the device ID for flow tracing.
+	runIDMapMu sync.Mutex
+	runIDMap   map[string]string // OpenClaw UUID → device idempotencyKey
+
 	debugMu sync.Mutex
 }
 
@@ -58,6 +64,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		statusLED:    sled,
 		assistantBuf: make(map[string]*strings.Builder),
 		musicTurns:   make(map[string]bool),
+		runIDMap:     make(map[string]string),
 	}
 }
 
@@ -105,6 +112,31 @@ func (h *OpenClawHandler) clearMusicTurn(runID string) bool {
 	return was
 }
 
+// resolveRunID maps an OpenClaw-assigned UUID back to the device idempotencyKey if known.
+// If no mapping exists, returns the original runID unchanged.
+func (h *OpenClawHandler) resolveRunID(runID string) string {
+	h.runIDMapMu.Lock()
+	defer h.runIDMapMu.Unlock()
+	if mapped, ok := h.runIDMap[runID]; ok {
+		return mapped
+	}
+	return runID
+}
+
+// mapRunID records that OpenClaw UUID corresponds to the given device trace (idempotencyKey).
+func (h *OpenClawHandler) mapRunID(openclawID, deviceID string) {
+	h.runIDMapMu.Lock()
+	defer h.runIDMapMu.Unlock()
+	h.runIDMap[openclawID] = deviceID
+	// Limit map size to prevent unbounded growth
+	if len(h.runIDMap) > 200 {
+		for k := range h.runIDMap {
+			delete(h.runIDMap, k)
+			break
+		}
+	}
+}
+
 // appendDebugJSONL appends a JSON object into local/openclaw_debug_payloads.jsonl.
 // Best-effort only: logging failures must not break event handling.
 func (h *OpenClawHandler) appendDebugJSONL(record map[string]any) {
@@ -144,16 +176,28 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			h.agentGateway.SetSessionKey(payload.SessionKey)
 		}
 
+		// Map OpenClaw UUID → device idempotencyKey on lifecycle_start.
+		// If a device trace is active, OpenClaw's UUID should resolve to it for all events in this turn.
+		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" {
+			if deviceTrace := flow.GetTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
+				h.mapRunID(payload.RunID, deviceTrace)
+				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
+			}
+		}
+
+		// Resolve OpenClaw UUID → device ID for consistent flow tracing across all agent events
+		flowRunID := h.resolveRunID(payload.RunID)
+
 		switch payload.Stream {
 		case "lifecycle":
-			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "session", payload.SessionKey)
+			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
 			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
 			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
 			// Skip if run_id looks like a device-originated sensing turn (lumi-sensing-*) —
 			// these can appear traceless after a server restart but are NOT from Telegram.
 			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
-				!strings.HasPrefix(payload.RunID, "lumi-sensing-") {
+				!strings.HasPrefix(payload.RunID, "lumi-sensing-") && !strings.HasPrefix(flowRunID, "lumi-sensing-") {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
@@ -161,8 +205,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					"phase":       payload.Data.Phase,
 					"raw_payload": string(evt.Payload),
 				})
-				flow.SetTrace(payload.RunID)
-				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"})
+				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "chat_input",
 					Summary: "[telegram]",
@@ -187,23 +230,23 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						"cacheRead", u.CacheReadTokens, "cacheWrite", u.CacheWriteTokens,
 						"total", u.TotalTokens)
 					flow.Log("token_usage", map[string]any{
-						"run_id":            payload.RunID,
+						"run_id":            flowRunID,
 						"input_tokens":      u.InputTokens,
 						"output_tokens":     u.OutputTokens,
 						"cache_read_tokens": u.CacheReadTokens,
 						"cache_write_tokens": u.CacheWriteTokens,
 						"total_tokens":      u.TotalTokens,
-					})
+					}, flowRunID)
 				} else {
 					slog.Warn("no usage data in lifecycle end", "component", "agent", "runId", payload.RunID)
 				}
 			}
 
-			flow.Log("lifecycle_"+payload.Data.Phase, map[string]any{"run_id": payload.RunID, "error": payload.Data.Error})
+			flow.Log("lifecycle_"+payload.Data.Phase, map[string]any{"run_id": flowRunID, "error": payload.Data.Error}, flowRunID)
 			monEvt := domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
-				RunID:   payload.RunID,
+				RunID:   flowRunID,
 				Phase:   payload.Data.Phase,
 				Error:   payload.Data.Error,
 			}
@@ -241,11 +284,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					summary += ": " + result
 				}
 			}
-			flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": payload.RunID})
+			flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": flowRunID}, flowRunID)
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "tool_call",
 				Summary: summary,
-				RunID:   payload.RunID,
+				RunID:   flowRunID,
 				Phase:   payload.Data.Phase,
 				Detail: map[string]string{
 					"tool": toolName,
@@ -263,7 +306,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "thinking",
 					Summary: delta,
-					RunID:   payload.RunID,
+					RunID:   flowRunID,
 				})
 			}
 
@@ -277,7 +320,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "assistant_delta",
 					Summary: delta,
-					RunID:   payload.RunID,
+					RunID:   flowRunID,
 				})
 			}
 
@@ -294,16 +337,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				if musicPlaying {
 					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
-					flow.Log("tts_suppressed", map[string]any{"run_id": payload.RunID, "reason": "music_playing", "text": text})
-					flow.ClearTrace()
+					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
 				} else {
 					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
-					flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text})
+					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					go func(t string) {
 						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
 							slog.Error("TTS delivery failed", "component", "agent", "error", err)
 						}
-						flow.ClearTrace() // turn complete
 					}(text)
 				}
 			}
@@ -328,10 +369,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			"raw_payload":  string(evt.Payload),
 		})
 
-		// Inbound user message from Telegram/Slack/Discord → start a new flow trace
+		// Inbound user message from Telegram/Slack/Discord
 		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
-			flow.SetTrace(payload.RunID)
-			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": payload.Message})
+			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": payload.Message}, payload.RunID)
 			displayMsg := payload.Message
 			if len(displayMsg) > 200 {
 				displayMsg = displayMsg[:200] + "…"

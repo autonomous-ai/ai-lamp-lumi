@@ -1205,7 +1205,7 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 
 	hasImage := imageBase64 != ""
 	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID, "runId", idempotencyKey)
-	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage})
+	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage}, idempotencyKey)
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "chat_send",
