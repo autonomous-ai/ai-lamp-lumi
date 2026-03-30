@@ -239,31 +239,48 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					"raw_payload": string(evt.Payload),
 				})
 
-				// Best-effort: fetch chat history to get the user message content and log full history.
-				var userMsg string
-				historyPayload, histErr := h.agentGateway.FetchChatHistory(payload.SessionKey, 20)
-				if histErr != nil {
-					slog.Warn("chat.history fetch failed (best-effort)", "component", "agent", "run_id", payload.RunID, "err", histErr)
-				} else if historyPayload != nil {
+				// Emit chat_input immediately (no message text yet).
+				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
+				h.monitorBus.Push(domain.MonitorEvent{
+					Type:    "chat_input",
+					Summary: "[telegram]",
+					RunID:   payload.RunID,
+					Detail:  map[string]string{"role": "user"},
+				})
+
+				// Best-effort: fetch chat history in a separate goroutine to avoid
+				// deadlocking the WS read loop (FetchChatHistory waits for a response
+				// that can only arrive after this handler returns).
+				capturedRunID := payload.RunID
+				capturedSessionKey := payload.SessionKey
+				go func() {
+					historyPayload, histErr := h.agentGateway.FetchChatHistory(capturedSessionKey, 20)
+					if histErr != nil {
+						slog.Warn("chat.history fetch failed (best-effort)", "component", "agent", "run_id", capturedRunID, "err", histErr)
+						return
+					}
+					if historyPayload == nil {
+						return
+					}
 					h.appendDebugJSONL(map[string]any{
 						"source":       "chat_history_on_channel_turn",
-						"run_id":       payload.RunID,
-						"session_key":  payload.SessionKey,
+						"run_id":       capturedRunID,
+						"session_key":  capturedSessionKey,
 						"raw_history":  string(historyPayload),
 					})
-					slog.Info("chat.history for channel turn", "component", "agent", "run_id", payload.RunID, "history_bytes", len(historyPayload))
+					slog.Info("chat.history for channel turn", "component", "agent", "run_id", capturedRunID, "history_bytes", len(historyPayload))
 
 					// Extract last user message from history.
+					var userMsg string
 					var hist struct {
 						Messages []struct {
-							Role    string `json:"role"`
+							Role    string          `json:"role"`
 							Content json.RawMessage `json:"content"`
 						} `json:"messages"`
 					}
 					if json.Unmarshal(historyPayload, &hist) == nil {
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
 							if hist.Messages[i].Role == "user" {
-								// Content can be string or [{type:"text",text:"..."}]
 								var text string
 								if json.Unmarshal(hist.Messages[i].Content, &text) == nil {
 									userMsg = text
@@ -286,23 +303,24 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							}
 						}
 					}
-				}
-
-				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel", "message": userMsg}, payload.RunID)
-				summary := "[telegram]"
-				if userMsg != "" {
-					displayMsg := userMsg
-					if len(displayMsg) > 200 {
-						displayMsg = displayMsg[:200] + "…"
+					if userMsg != "" {
+						displayMsg := userMsg
+						if len(displayMsg) > 200 {
+							displayMsg = displayMsg[:200] + "…"
+						}
+						flow.Log("chat_input_resolved", map[string]any{
+							"run_id":  capturedRunID,
+							"source":  "channel",
+							"message": userMsg,
+						}, capturedRunID)
+						h.monitorBus.Push(domain.MonitorEvent{
+							Type:    "chat_input",
+							Summary: "[telegram] " + displayMsg,
+							RunID:   capturedRunID,
+							Detail:  map[string]string{"role": "user", "message": userMsg},
+						})
 					}
-					summary = "[telegram] " + displayMsg
-				}
-				h.monitorBus.Push(domain.MonitorEvent{
-					Type:    "chat_input",
-					Summary: summary,
-					RunID:   payload.RunID,
-					Detail:  map[string]string{"role": "user", "message": userMsg},
-				})
+				}()
 			}
 
 			// Status LED: show processing state while agent is thinking
