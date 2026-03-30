@@ -56,6 +56,10 @@ type Service struct {
 	lastSessionKey atomic.Value // string
 	// reqCounter is used to generate unique request IDs for outgoing RPC calls.
 	reqCounter atomic.Int64
+
+	// pendingRPC tracks in-flight RPC requests waiting for a response.
+	pendingRPCMu sync.Mutex
+	pendingRPC   map[string]chan json.RawMessage // reqID → response channel
 }
 
 // ProvideService constructs the openclaw service.
@@ -63,6 +67,7 @@ func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 	return &Service{
 		config:     cfg,
 		monitorBus: bus,
+		pendingRPC: make(map[string]chan json.RawMessage),
 	}
 }
 
@@ -719,6 +724,9 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			}
 		}
 
+		// Dispatch RPC responses to pending callers before event handling.
+		s.dispatchRPCResponse(msg)
+
 		var evt domain.WSEvent
 		if err := json.Unmarshal(msg, &evt); err != nil {
 			continue
@@ -728,6 +736,102 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				return err
 			}
 		}
+	}
+}
+
+// dispatchRPCResponse checks if msg is an RPC response and delivers it to the waiting caller.
+func (s *Service) dispatchRPCResponse(msg []byte) {
+	var frame struct {
+		Type    string          `json:"type"`
+		ID      string          `json:"id"`
+		OK      bool            `json:"ok"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if json.Unmarshal(msg, &frame) != nil || frame.Type != "res" || frame.ID == "" {
+		return
+	}
+	s.pendingRPCMu.Lock()
+	ch, ok := s.pendingRPC[frame.ID]
+	if ok {
+		delete(s.pendingRPC, frame.ID)
+	}
+	s.pendingRPCMu.Unlock()
+	if ok {
+		select {
+		case ch <- frame.Payload:
+		default:
+		}
+	}
+}
+
+// FetchChatHistory sends a chat.history RPC and returns the raw payload.
+// Best-effort with a 3-second timeout; returns nil on any failure.
+func (s *Service) FetchChatHistory(sessionKey string, limit int) (json.RawMessage, error) {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return nil, fmt.Errorf("websocket not connected")
+	}
+	if sessionKey == "" {
+		sessionKey = s.GetSessionKey()
+	}
+	if sessionKey == "" {
+		return nil, fmt.Errorf("no session key")
+	}
+
+	reqID := fmt.Sprintf("history-%d", s.reqCounter.Add(1))
+	ch := make(chan json.RawMessage, 1)
+
+	s.pendingRPCMu.Lock()
+	s.pendingRPC[reqID] = ch
+	s.pendingRPCMu.Unlock()
+
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "chat.history",
+		"params": map[string]interface{}{
+			"sessionKey": sessionKey,
+			"limit":      limit,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, reqID)
+		s.pendingRPCMu.Unlock()
+		return nil, fmt.Errorf("marshal chat.history: %w", err)
+	}
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	if conn == nil {
+		s.wsMu.Unlock()
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, reqID)
+		s.pendingRPCMu.Unlock()
+		return nil, fmt.Errorf("websocket disconnected before send")
+	}
+	err = conn.WriteMessage(websocket.TextMessage, body)
+	s.wsMu.Unlock()
+	if err != nil {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, reqID)
+		s.pendingRPCMu.Unlock()
+		return nil, fmt.Errorf("write chat.history: %w", err)
+	}
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	select {
+	case payload := <-ch:
+		return payload, nil
+	case <-timer.C:
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, reqID)
+		s.pendingRPCMu.Unlock()
+		return nil, fmt.Errorf("chat.history timeout")
 	}
 }
 
