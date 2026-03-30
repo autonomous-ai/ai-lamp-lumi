@@ -350,6 +350,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				}
 			}
 
+			// Greet user now that agent + voice pipeline are ready
+			if _, err := s.agentGateway.SendChatMessage("You just woke up. Greet the user briefly."); err != nil {
+				slog.Warn("startup greeting failed", "component", "server", "error", err)
+			}
+
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
 			go s.ambientService.Start(s.monitorCtx)
 		}()
