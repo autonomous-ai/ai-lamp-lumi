@@ -88,6 +88,9 @@ class AnimationService:
         self._event_lock = threading.Lock()
         self._event_thread: Optional[threading.Thread] = None
 
+        # Serial bus lock — all bus access (read/write/ping) must hold this lock
+        self.bus_lock = threading.RLock()
+
     # P gain per servo ID. ID 2,3,4 need high P for gravity hold.
     _SERVO_PGAIN = {1: 32, 2: 128, 3: 128, 4: 128, 5: 32}
 
@@ -99,24 +102,25 @@ class AnimationService:
         DeviceNotConnectedError. This method writes directly to the serial bus
         to configure whichever servos are actually online.
         """
-        ph = self.robot.bus.port_handler
-        pk = self.robot.bus.packet_handler
-        from scservo_sdk import COMM_SUCCESS
-        for motor_name, motor_obj in self.robot.bus.motors.items():
-            sid = motor_obj.id
-            pgain = self._SERVO_PGAIN.get(sid, 32)
-            # Ping first
-            _, result, _ = pk.ping(ph, sid)
-            if result != COMM_SUCCESS:
-                logger.warning(f"{motor_name} (ID {sid}): offline, skipping")
-                continue
-            pk.write1ByteTxRx(ph, sid, 40, 0)   # Torque_Enable = 0
-            pk.write1ByteTxRx(ph, sid, 33, 0)   # Operating_Mode = position
-            pk.write1ByteTxRx(ph, sid, 21, pgain)  # P_Coefficient
-            pk.write1ByteTxRx(ph, sid, 23, 0)   # I_Coefficient
-            pk.write1ByteTxRx(ph, sid, 22, 32)  # D_Coefficient
-            pk.write1ByteTxRx(ph, sid, 40, 1)   # Torque_Enable = 1
-            logger.info(f"{motor_name} (ID {sid}): P={pgain}, torque ON")
+        with self.bus_lock:
+            ph = self.robot.bus.port_handler
+            pk = self.robot.bus.packet_handler
+            from scservo_sdk import COMM_SUCCESS
+            for motor_name, motor_obj in self.robot.bus.motors.items():
+                sid = motor_obj.id
+                pgain = self._SERVO_PGAIN.get(sid, 32)
+                # Ping first
+                _, result, _ = pk.ping(ph, sid)
+                if result != COMM_SUCCESS:
+                    logger.warning(f"{motor_name} (ID {sid}): offline, skipping")
+                    continue
+                pk.write1ByteTxRx(ph, sid, 40, 0)   # Torque_Enable = 0
+                pk.write1ByteTxRx(ph, sid, 33, 0)   # Operating_Mode = position
+                pk.write1ByteTxRx(ph, sid, 21, pgain)  # P_Coefficient
+                pk.write1ByteTxRx(ph, sid, 23, 0)   # I_Coefficient
+                pk.write1ByteTxRx(ph, sid, 22, 32)  # D_Coefficient
+                pk.write1ByteTxRx(ph, sid, 40, 1)   # Torque_Enable = 1
+                logger.info(f"{motor_name} (ID {sid}): P={pgain}, torque ON")
 
     def start(self):
         self.robot = LeLampFollower(self.robot_config)
@@ -168,7 +172,8 @@ class AnimationService:
         if not self.robot:
             return
         try:
-            pos = _motor_positions_from_bus(self.robot)
+            with self.bus_lock:
+                pos = _motor_positions_from_bus(self.robot)
             if pos:
                 self._current_state = clamp_positions(pos)
         except Exception as e:
@@ -277,7 +282,8 @@ class AnimationService:
                     target_val = self._interpolation_target[joint]
                     interpolated_action[joint] = current_val + (target_val - current_val) * progress
                 
-                self.robot.send_action(clamp_positions(interpolated_action))
+                with self.bus_lock:
+                    self.robot.send_action(clamp_positions(interpolated_action))
                 self._current_state = interpolated_action.copy()
                 self._interpolation_frames -= 1
                 return
@@ -285,7 +291,8 @@ class AnimationService:
             # Play current frame
             if self._current_frame_index < len(self._current_actions):
                 action = self._current_actions[self._current_frame_index]
-                self.robot.send_action(clamp_positions(action))
+                with self.bus_lock:
+                    self.robot.send_action(clamp_positions(action))
                 self._current_state = action.copy()
                 self._current_frame_index += 1
             else:
@@ -382,7 +389,8 @@ class AnimationService:
 
         # Read current positions (bus-only; avoid get_observation camera reads)
         try:
-            current = _motor_positions_from_bus(self.robot)
+            with self.bus_lock:
+                current = _motor_positions_from_bus(self.robot)
             if not current:
                 raise ValueError("empty Present_Position read")
         except Exception:
@@ -390,7 +398,8 @@ class AnimationService:
             if self._current_state:
                 current = self._current_state.copy()
             else:
-                self.robot.send_action(safe_targets)
+                with self.bus_lock:
+                    self.robot.send_action(safe_targets)
                 return
 
         total_frames = max(1, int(duration * self.fps))
@@ -405,7 +414,8 @@ class AnimationService:
                 interpolated[joint] = cur_val + (target_val - cur_val) * progress
 
             try:
-                self.robot.send_action(clamp_positions(interpolated))
+                with self.bus_lock:
+                    self.robot.send_action(clamp_positions(interpolated))
             except Exception as e:
                 logger.warning(f"Interpolated move frame {frame} failed: {e}")
                 break
@@ -417,13 +427,15 @@ class AnimationService:
 
         # Send final target exactly
         try:
-            self.robot.send_action(safe_targets)
+            with self.bus_lock:
+                self.robot.send_action(safe_targets)
         except Exception:
             pass
 
         # Prefer full pose from hardware so other joints are not left stale
         try:
-            pos = _motor_positions_from_bus(self.robot)
+            with self.bus_lock:
+                pos = _motor_positions_from_bus(self.robot)
             if pos:
                 self._current_state = clamp_positions(pos)
                 return
