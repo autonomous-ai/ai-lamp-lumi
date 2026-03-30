@@ -95,13 +95,15 @@ class MusicService:
 
             self._current_title = title
 
-            # Wait if TTS is speaking (TTS has priority)
+            # Wait if TTS is speaking (TTS has priority, shares ALSA device)
             if self._tts_service and self._tts_service.speaking:
                 logger.info("Waiting for TTS to finish before playing music")
                 for _ in range(100):  # max 10s
                     if not self._tts_service.speaking or self._stop_event.is_set():
                         break
                     time.sleep(0.1)
+                # Extra wait for ALSA device to be fully released
+                time.sleep(0.5)
 
             if self._stop_event.is_set():
                 return
