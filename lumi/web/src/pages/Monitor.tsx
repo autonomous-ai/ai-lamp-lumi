@@ -934,6 +934,10 @@ function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
 interface Turn {
   id: string;          // runId or a synthetic id for local turns
   runId?: string;
+  // User action boundary: when a new user mic/chat action starts, we want to keep the
+  // resulting UI turn distinct even if OpenClaw reuses the same runId.
+  boundary?: "mic" | "chat";
+  boundaryInstanceSeq?: number;
   startTime: string;
   sessionBreak?: boolean; // true if this turn starts after a BE restart (new session)
   endTime?: string;
@@ -1023,13 +1027,23 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   let current: Turn | null = null;
 
   // Check if event starts a new turn
-  function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"] } | null {
+  function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"]; forceNewTurn?: boolean; boundary?: Turn["boundary"] } | null {
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
-      return { type: m ? m[1] : "unknown", path: "unknown" };
+      const t = m ? m[1] : "unknown";
+      return {
+        type: t,
+        path: "unknown",
+        forceNewTurn: t === "voice" || t === "voice_command",
+        boundary: t === "voice" || t === "voice_command" ? "mic" : undefined,
+      };
+    }
+    // Mic pipeline start is a strong user action boundary.
+    if ((ev.type === "flow_event" || ev.type === "flow_enter") && ev.detail?.node === "voice_pipeline_start") {
+      return { type: "voice", path: "unknown", forceNewTurn: true, boundary: "mic" };
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
-      return { type: "telegram", path: "agent" };
+      return { type: "telegram", path: "agent", boundary: "chat" };
     }
     // Ambient actions (breathing, movement, mumble) start their own turn
     // BUT ambient_pause/ambient_resume are infra signals, NOT turns
@@ -1055,7 +1069,10 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     const start = isTurnStart(ev);
     if (start) {
       // If this start marker belongs to the same run, keep a single turn.
-      if (current && current.runId && evRunId && current.runId === evRunId) {
+      // BUT for user mic actions (voice/voice_command / voice_pipeline_start), we always split
+      // into separate turns so the UI matches each user utterance.
+      const shouldForceSplit = Boolean(start.forceNewTurn);
+      if (!shouldForceSplit && current && current.runId && evRunId && current.runId === evRunId) {
         current.events.push(ev);
         continue;
       }
@@ -1066,6 +1083,8 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
         startTime: ev.time,
         type: start.type,
         path: start.path,
+        boundary: start.boundary,
+        boundaryInstanceSeq: start.boundary ? ev._seq : undefined,
         status: "active",
         events: [ev],
       };
@@ -1146,6 +1165,15 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       merged.push(turn);
       continue;
     }
+    // If this turn starts from a user action boundary (chat/voice), never merge it into
+    // a previous UI turn. We also advance the "current" index so later fragments with the
+    // same runId attach to the newest boundary.
+    if (turn.boundaryInstanceSeq !== undefined) {
+      merged.push(turn);
+      runIndex.set(turn.runId, merged.length - 1);
+      continue;
+    }
+
     const base = merged[idx];
     base.events.push(...turn.events);
     if (base.status !== "error" && turn.status === "error") base.status = "error";
@@ -1707,7 +1735,6 @@ const SOURCE_ICON: Record<string, string> = {
 function turnIO(turn: Turn): { input: string; output: string } {
   let input = "";
   let output = "";
-  let inputIsPlaceholder = false;
   let outputFromIntent = false;
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
@@ -1727,14 +1754,11 @@ function turnIO(turn: Turn): { input: string; output: string } {
       const fullMsg = d?.message ?? d?.data?.message;
       const msg = fullMsg || parseTelegramSummary(ev.summary);
       if (msg) {
-        // Prefer a real Telegram message and allow replacing a prior placeholder.
-        if (!input || inputIsPlaceholder) {
-          input = msg;
-          inputIsPlaceholder = false;
-        }
+        // Prefer a real Telegram message for the IN field even if a sensing_input
+        // (e.g. SOUND) was seen earlier in the same UI turn.
+        input = msg;
       } else if (!input) {
         input = TELEGRAM_FALLBACK_MESSAGE;
-        inputIsPlaceholder = true;
       }
     }
     // Ambient turn input
@@ -2023,9 +2047,15 @@ function FlowSection({
       const r = await fetch(`${API}/openclaw/flow-logs`, { method: "DELETE" });
       const j = await r.json();
       if (!r.ok || j?.status !== 1) throw new Error(j?.message || "request failed");
+
+      // Also clear OpenClaw raw debug payloads so the 3-file bundle stays consistent.
+      const r2 = await fetch(`${API}/openclaw/debug-logs`, { method: "DELETE" });
+      const j2 = await r2.json();
+      if (!r2.ok || j2?.status !== 1) throw new Error(j2?.message || "request failed");
+
       setSelectedTurnId(null);
       onClearEvents();
-      window.alert("Server flow log cleared.");
+      window.alert("Server flow log + OpenClaw debug logs cleared.");
     } catch (e) {
       window.alert(`Failed to clear server flow log: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -2090,11 +2120,36 @@ function FlowSection({
   }, []);
 
   /** One click → two files (delay avoids browser blocking the second download). */
-  const downloadFlowPair = useCallback(async () => {
+  const downloadOpenClawDebugPayloads = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API}/openclaw/debug-logs`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `openclaw_debug_payloads_${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (e) {
+      console.error(e);
+      window.alert(`OpenClaw debug download failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, []);
+
+  /** One click → three files: flow-logs tail + OpenClaw debug + UI snapshot. */
+  const downloadFlowBundle = useCallback(async () => {
     await downloadServerJsonlTail();
     await new Promise((resolve) => setTimeout(resolve, 500));
+    await downloadOpenClawDebugPayloads();
+    await new Promise((resolve) => setTimeout(resolve, 300));
     downloadUISnapshot();
-  }, [downloadServerJsonlTail, downloadUISnapshot]);
+  }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
@@ -2166,15 +2221,15 @@ function FlowSection({
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
             <button
               type="button"
-              onClick={() => void downloadFlowPair()}
-              title={`Downloads 2 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns). Short delay between saves so the browser allows both.`}
+              onClick={() => void downloadFlowBundle()}
+              title={`Downloads 3 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns); (3) OpenClaw debug payload JSONL.`}
               style={{
                 fontSize: 11, padding: "4px 12px", borderRadius: 6,
                 background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
                 color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
               }}
             >
-              ↓ Pair
+              ↓ Bundle
             </button>
             <a
               href={`${API}/openclaw/flow-logs`}
@@ -2188,19 +2243,6 @@ function FlowSection({
             >
               full day
             </a>
-            <a
-              href={`${API}/openclaw/debug-logs`}
-              download
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
-                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
-              }}
-              title="Download OpenClaw debug payload JSONL"
-            >
-              ↓ OpenClaw Debug
-            </a>
             <button
               onClick={clearServerFlowLog}
               style={{
@@ -2208,7 +2250,7 @@ function FlowSection({
                 background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
                 color: "var(--lm-red)", cursor: "pointer", fontWeight: 700,
               }}
-              title="Clear flow log file on server"
+              title="Clear server flow log + OpenClaw debug logs"
             >
               🗑 Log
             </button>

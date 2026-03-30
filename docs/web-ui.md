@@ -204,18 +204,19 @@ Each event displays: type badge, phase (if any), runId (first 8 chars), timestam
 Turn Pipeline grouping behavior:
 - Turns are still started by input/trigger events (`sensing_input`, `chat_input`, `schedule_trigger`, etc.).
 - The UI now anchors each turn to the first detected `run_id` (from event root or detail payload).
+- For user mic actions: each `sensing_input` with `[voice]` / `[voice_command]` (and `voice_pipeline_start`) creates a separate turn even if events share the same `run_id`.
+- For user chat actions: each `chat_input` (telegram input) creates its own boundary turn, so it won't be merged with adjacent voice turns even if OpenClaw reuses the same `run_id`.
 - If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
 - **Turn type badge** (`motion`, `voice`, …): merged segments that share one `run_id` may include both camera motion and a voice line; the first segment used to win, so the badge could read `motion` while the utterance was voice. After grouping, if any `sensing_input` in the turn is `[voice]` or `[voice_command]`, the badge uses that (voice beats motion for the same run).
 - `OUT` text is only taken from `tts_send`/`intent_match` events matching the turn `run_id` (or events without run_id), preventing cross-turn input/output mismatch.
 - LLM token usage is shown on the **Agent Response** node: `in/out` and, when available from `token_usage`, `cache read/write` + `total`.
-- For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text.
+- For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text (and will override earlier `sensing_input` text like SOUND within the same UI turn).
 - Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
 - Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
-- Flow Panel header actions include **`↓ Pair`**, **`full day`**, **`↓ OpenClaw Debug`**, **`🗑 Log`**.
-- **`↓ Pair`** — one click saves **two files**: server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`, filename like `lumi_flow_YYYY-MM-DD_last500.jsonl`), then after a short delay the **in-memory** snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`). Use both together to diff server lines vs Monitor grouping.
+- Flow Panel header actions include **`↓ Bundle`**, **`full day`**, **`🗑 Log`**.
+- **`↓ Bundle`** — one click saves **three files**: (1) server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`), (2) UI snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`), and (3) OpenClaw debug payload JSONL (`GET /api/openclaw/debug-logs`), with short delays between saves so the browser allows all downloads.
 - **`full day`** — `GET /api/openclaw/flow-logs` without `last` (whole day JSONL).
-- `↓ OpenClaw Debug` downloads raw OpenClaw debug payloads from `GET /api/openclaw/debug-logs` (file: `local/openclaw_debug_payloads.jsonl` on the server).
-- `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate today's server flow log file, then clears current Flow UI events.
+- `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` AND `DELETE /api/openclaw/debug-logs` to truncate both server flow logs and OpenClaw debug payloads, then clears current Flow UI events.
 - Turn history list shows the latest **100 turns** (newest first), derived from the **last 500** flow events only — older events are not in memory, so Turns can omit early-day activity even if the full JSONL file is larger.
 - Flow event memory is capped at 500 events.
 - Telegram stitching heuristic: if a Telegram fallback input turn (without real input text) is immediately followed by an agent-output turn within 30s, Monitor stitches them into one turn so the reply stays with the original Telegram input.

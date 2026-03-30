@@ -42,8 +42,8 @@ flow.Log("tool_call", data, payload.RunID)      // each event carries its own ID
 
 - `Start()`, `End()`, `Log()` accept optional variadic `runID` parameter
 - If provided, overrides the global trace for that event only
-- Global `SetTrace`/`GetTrace` retained solely for the Telegram-detection heuristic
-- `ClearTrace()` removed from all callers
+- Global `SetTrace`/`GetTrace` retained for the Telegram-detection heuristic
+- `ClearTrace()` decrements active trace (ref-counted), called after OpenClaw `lifecycle_end`
 
 ### Telegram Detection Heuristic
 

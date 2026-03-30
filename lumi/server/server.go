@@ -243,6 +243,7 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("flow-logs", s.openclawHandler.FlowLogs)
 	oc.DELETE("flow-logs", s.openclawHandler.ClearFlowLogs)
 	oc.GET("debug-logs", s.openclawHandler.DebugLogs)
+	oc.DELETE("debug-logs", s.openclawHandler.ClearDebugLogs)
 	oc.GET("debug-lines", s.openclawHandler.DebugLogLines)
 	oc.GET("analytics", s.openclawHandler.Analytics)
 
