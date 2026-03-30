@@ -743,6 +743,9 @@ type FlowStage =
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "schedule_trigger";
 
+/** No pipeline node highlighted — e.g. no matching triggers in recent events */
+type ActiveFlowStage = FlowStage | "idle";
+
 interface FlowNodeDef {
   id: FlowStage;
   label: string;
@@ -843,7 +846,7 @@ const FLOW_NODES: FlowNodeDef[] = [
 ];
 
 // Derive active stage from most recent relevant events
-function deriveActiveStage(events: DisplayEvent[]): FlowStage {
+function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
   const recent = events.slice(-30);
   for (let i = recent.length - 1; i >= 0; i--) {
     const ev = recent[i];
@@ -1111,15 +1114,16 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   return stitched.slice(-100).reverse(); // latest 100, newest first
 }
 
-// Path label for badge inside node
-const PATH_LABEL: Record<string, string> = { main: "MAIN", fast: "FAST", agent: "AGENT" };
+// Runtime detail lines; `ambient` is collected but not tied to an SVG node (no ambient stage)
+type NodeInfoMap = Record<FlowStage, string[]> & { ambient: string[] };
 
 // Extract runtime info for each node from turn events
-function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
-  const info: Record<FlowStage, string[]> = {
+function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
+  const info: NodeInfoMap = {
     sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
+    ambient: [],
   };
 
   for (const ev of events) {
@@ -1251,7 +1255,7 @@ function FlowDiagram({
   compact = false,
   turnEvents = [],
 }: {
-  activeStage: FlowStage;
+  activeStage: ActiveFlowStage;
   visitedStages: Set<FlowStage>;
   compact?: boolean;
   turnEvents?: DisplayEvent[];
@@ -1730,7 +1734,7 @@ function CanvasModal({
   turnEvents,
   onClose,
 }: {
-  activeStage: FlowStage;
+  activeStage: ActiveFlowStage;
   visitedStages: Set<FlowStage>;
   turnEvents: DisplayEvent[];
   onClose: () => void;
