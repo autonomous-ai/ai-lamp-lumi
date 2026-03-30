@@ -8,6 +8,13 @@ description: Search and play music from YouTube through the lamp speaker. Use fo
 ## Quick Start
 Play music through the lamp speaker by searching YouTube. Use this when the user asks you to play a song, sing, or listen to music.
 
+**Trigger phrases (use this skill when you hear any of these):**
+- "sing", "sing a song", "play music", "play a song", "play [song name]"
+- "hát", "hát đi", "hát một bài", "hát bài gì đi", "mở nhạc", "nghe nhạc", "bật nhạc"
+- Any request to hear a specific song or artist
+
+**IMPORTANT:** Do NOT try to sing or hum using TTS — always use this skill to play real music.
+
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
 2. Call `POST /audio/play` with the search query
