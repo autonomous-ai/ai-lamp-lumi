@@ -105,13 +105,21 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-type Section = "overview" | "system" | "flow" | "camera" | "analytics" | "logs";
+interface ServoPositions {
+  positions: Record<string, number>;
+}
+interface AimDirections {
+  directions: string[];
+}
+
+type Section = "overview" | "system" | "flow" | "camera" | "servo" | "analytics" | "logs";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview",   label: "Overview",   icon: "◈" },
   { id: "system",     label: "System",     icon: "⬡" },
   { id: "flow",       label: "Flow",       icon: "⬢" },
   { id: "camera",     label: "Camera",     icon: "⬟" },
+  { id: "servo",      label: "Servo",      icon: "⚙" },
   { id: "analytics",  label: "Analytics",  icon: "◉" },
   { id: "logs",       label: "Logs",       icon: "☰" },
 ];
@@ -2961,6 +2969,179 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
   );
 }
 
+// ─── Servo Section ───────────────────────────────────────────────────────────
+
+function ServoSection() {
+  const [servo, setServo] = useState<ServoState | null>(null);
+  const [positions, setPositions] = useState<Record<string, number> | null>(null);
+  const [aims, setAims] = useState<string[]>([]);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [sr, pr] = await Promise.all([
+        fetch(`${HW}/servo`).then((r) => r.json()).catch(() => null),
+        fetch(`${HW}/servo/position`).then((r) => r.json()).catch(() => null),
+      ]);
+      if (sr) setServo(sr);
+      if (pr?.positions) setPositions(pr.positions);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    fetch(`${HW}/servo/aim`).then((r) => r.json()).then((r) => {
+      if (r?.directions) setAims(r.directions);
+    }).catch(() => {});
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  const flash = (msg: string) => {
+    setActionMsg(msg);
+    setTimeout(() => setActionMsg(null), 2000);
+  };
+
+  const playAnim = async (recording: string) => {
+    flash(`Playing ${recording}...`);
+    await fetch(`${HW}/servo/play`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recording }),
+    }).catch(() => {});
+    setTimeout(refresh, 500);
+  };
+
+  const aimTo = async (direction: string) => {
+    flash(`Aiming ${direction}...`);
+    await fetch(`${HW}/servo/aim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction, duration: 2.0 }),
+    }).catch(() => {});
+    setTimeout(refresh, 2500);
+  };
+
+  const release = async () => {
+    flash("Releasing...");
+    await fetch(`${HW}/servo/release`, {
+      method: "POST",
+      headers: { accept: "application/json" },
+    }).catch(() => {});
+    setTimeout(refresh, 500);
+  };
+
+  const busOk = servo?.bus_connected !== false;
+  const robotOk = servo?.robot_connected !== false;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {actionMsg && (
+        <div style={{
+          padding: "8px 14px", borderRadius: 6,
+          background: "var(--lm-amber-dim, rgba(245,158,11,0.1))",
+          border: "1px solid var(--lm-amber, #f59e0b)",
+          color: "var(--lm-amber, #f59e0b)", fontSize: 12, fontWeight: 600,
+        }}>{actionMsg}</div>
+      )}
+
+      {/* Connection + Current */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Status</div>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" as const }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <StatusDot ok={busOk} />
+            <span style={{ fontSize: 12 }}>Bus {busOk ? "OK" : "Down"}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <StatusDot ok={robotOk} />
+            <span style={{ fontSize: 12 }}>Robot {robotOk ? "OK" : "Disconnected"}</span>
+          </div>
+          <div style={{ marginLeft: "auto", fontSize: 13, fontWeight: 600, color: "var(--lm-amber, #f59e0b)" }}>
+            {servo?.current || "idle"}
+          </div>
+        </div>
+      </div>
+
+      {/* Joint Positions */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Joint Positions</div>
+        {positions && Object.keys(positions).length > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+            {Object.entries(positions).sort(([a], [b]) => a.localeCompare(b)).map(([joint, angle]) => (
+              <div key={joint} style={{
+                padding: "8px 12px", borderRadius: 6,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+              }}>
+                <div style={{ fontSize: 11, color: "var(--lm-text-dim)", fontWeight: 600, marginBottom: 4 }}>{joint}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
+                    <div style={{
+                      width: `${Math.min(100, Math.max(0, ((angle + 180) / 360) * 100))}%`,
+                      height: "100%", borderRadius: 3,
+                      background: "var(--lm-teal, #14b8a6)", transition: "width 0.3s ease",
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal, #14b8a6)", minWidth: 48, textAlign: "right" }}>
+                    {angle.toFixed(1)}&deg;
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>No position data</div>
+        )}
+      </div>
+
+      {/* Aim */}
+      {aims.length > 0 && (
+        <div style={S.card}>
+          <div style={S.cardLabel}>Aim Direction</div>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+            {aims.map((dir) => (
+              <button key={dir} onClick={() => aimTo(dir)} style={{
+                fontSize: 11, padding: "5px 14px", borderRadius: 5,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-dim)", cursor: "pointer",
+              }}>{dir}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Animations */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Animations</div>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+          {(servo?.available_recordings ?? []).map((anim) => (
+            <button key={anim} onClick={() => playAnim(anim)} style={{
+              fontSize: 11, padding: "5px 14px", borderRadius: 5,
+              background: anim === servo?.current ? "var(--lm-amber-dim, rgba(245,158,11,0.1))" : "var(--lm-surface)",
+              border: `1px solid ${anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-border)"}`,
+              color: anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-text-dim)",
+              cursor: "pointer", fontWeight: anim === servo?.current ? 600 : 400,
+            }}>{anim}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Release */}
+      <div style={S.card}>
+        <div style={S.cardLabel}>Motor Control</div>
+        <button onClick={release} style={{
+          fontSize: 12, padding: "6px 18px", borderRadius: 5,
+          background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+          color: "var(--lm-red, #ef4444)", cursor: "pointer", fontWeight: 600,
+        }}>Release All Servos</button>
+        <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
+          Disables torque — lamp can be moved by hand
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LogsSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
@@ -3187,6 +3368,7 @@ export default function Monitor() {
           )}
           {section === "flow"      && <FlowSection events={events} onClearEvents={clearFlowEvents} />}
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
+          {section === "servo"     && <ServoSection />}
           {section === "analytics" && <AnalyticsSection />}
           {section === "logs"      && <LogsSection />}
         </div>
