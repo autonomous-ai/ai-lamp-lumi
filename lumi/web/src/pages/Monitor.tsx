@@ -1193,6 +1193,11 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     agent_response: [], tts_speak: [], schedule_trigger: [],
     ambient: [],
   };
+  const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+  const pushAgentResponse = (line: string) => {
+    if (!line) return;
+    if (!info.agent_response.includes(line)) info.agent_response.push(line);
+  };
 
   for (const ev of events) {
     // sensing_input → sensing node
@@ -1281,13 +1286,12 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
       if (ev.phase === "end") {
-        info.agent_response.push(ev.error ? `❌ ${ev.error}` : "✓ done");
+        pushAgentResponse(ev.error ? `❌ ${ev.error}` : "✓ done");
         const d = ev.detail as Record<string, string> | undefined;
         if (d?.inputTokens) {
           const inp = parseInt(d.inputTokens, 10);
           const out = parseInt(d.outputTokens ?? "0", 10);
-          const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-          info.agent_response.push(`tokens: ${fmt(inp)} in / ${fmt(out)} out`);
+          pushAgentResponse(`tokens: ${fmtToken(inp)} in / ${fmtToken(out)} out`);
         }
       }
     }
@@ -1295,10 +1299,14 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "flow_event" && ev.detail?.node === "token_usage") {
       const d = ev.detail as Record<string, any> | undefined;
       const u = d?.data;
-      if (u?.input_tokens || u?.output_tokens) {
-        const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-        info.agent_response.push(`tokens: ${fmt(u.input_tokens ?? 0)} in / ${fmt(u.output_tokens ?? 0)} out`);
-      }
+      const inTok = Number(u?.input_tokens ?? 0);
+      const outTok = Number(u?.output_tokens ?? 0);
+      const cacheRead = Number(u?.cache_read_tokens ?? 0);
+      const cacheWrite = Number(u?.cache_write_tokens ?? 0);
+      const total = Number(u?.total_tokens ?? 0);
+      if (inTok || outTok) pushAgentResponse(`tokens: ${fmtToken(inTok)} in / ${fmtToken(outTok)} out`);
+      if (cacheRead || cacheWrite) pushAgentResponse(`cache: ${fmtToken(cacheRead)} read / ${fmtToken(cacheWrite)} write`);
+      if (total) pushAgentResponse(`total: ${fmtToken(total)}`);
     }
     // JSONL path: lifecycle_end status
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
