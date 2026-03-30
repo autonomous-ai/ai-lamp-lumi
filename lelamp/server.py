@@ -115,9 +115,11 @@ except ImportError as e:
 # --- Lazy import for voice ---
 
 VoiceService = None
+DeepgramSTT = None
 TTSService = None
 try:
     from lelamp.service.voice.voice_service import VoiceService
+    from lelamp.service.voice.stt_deepgram import DeepgramSTT
 except ImportError as e:
     logger.warning(f"Voice service not available: {e}")
 
@@ -287,9 +289,10 @@ async def lifespan(app: FastAPI):
             # Wire TTS to MusicService so music pauses during speech
             if music_service:
                 music_service._tts_service = tts_service
-        if dgk and VoiceService and not voice_service:
+        if dgk and VoiceService and DeepgramSTT and not voice_service:
+            stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
             voice_service = VoiceService(
-                deepgram_api_key=dgk,
+                stt_provider=stt_provider,
                 input_device=seeed_input_device,
                 tts_service=tts_service,
             )
@@ -1509,14 +1512,15 @@ def start_voice(req: VoiceStartRequest):
         except Exception as e:
             logger.warning(f"TTSService failed: {e}")
 
-    # Start voice (always-on Deepgram streaming STT)
+    # Start voice (always-on streaming STT)
     if voice_service and voice_service.available:
         return {"status": "already_running"}
-    if not VoiceService:
+    if not VoiceService or not DeepgramSTT:
         raise HTTPException(503, "Voice service not available (missing deps)")
     try:
+        stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=["lumi:3", "lu mi:2"])
         voice_service = VoiceService(
-            deepgram_api_key=req.deepgram_api_key,
+            stt_provider=stt_provider,
             input_device=seeed_input_device,
             tts_service=tts_service,
         )
