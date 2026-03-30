@@ -1699,6 +1699,14 @@ def audio_status():
     }
 
 
+# --- Version ---
+
+@app.get("/version", tags=["System"])
+def version():
+    """Return LeLamp runtime version."""
+    return {"version": app.version}
+
+
 # --- Health ---
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
