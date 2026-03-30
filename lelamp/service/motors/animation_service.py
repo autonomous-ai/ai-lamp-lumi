@@ -14,23 +14,23 @@ DEFAULT_MOVE_DURATION = 2.0
 # Startup position for base_pitch and elbow_pitch only.
 # Other servos (base_yaw, wrist_roll, wrist_pitch) are left released.
 STARTUP_POSITION = {
-    "base_pitch.pos": -15.0,
-    "elbow_pitch.pos": -15.0,
+    "base_pitch.pos": -30.0,
+    "elbow_pitch.pos": 57.0,
 }
 
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
 # Safe joint limits. Keeps margin from mechanical limits.
-# Values are in the servo's native unit (degrees when use_degrees=True,
-# normalized -100..100 otherwise). Current recordings use degree-scale values.
+# Values are in normalized -100..100 range (use_degrees=False).
+# Derived from actual safe servo ranges observed during recording.
 # All send_action / move_to calls are clamped to these.
 JOINT_LIMITS = {
-    "base_yaw.pos":     (-78.0,  78.0),   # ID 1
-    "base_pitch.pos":   (-78.0,  80.0),   # ID 2
-    "elbow_pitch.pos":  (-60.0,  15.0),   # ID 3
-    "wrist_roll.pos":   (-68.0,  68.0),   # ID 4
-    "wrist_pitch.pos":  (-25.0,  72.0),   # ID 5  (recordings: up to 70)
+    "base_yaw.pos":     (-55.0,  65.0),   # ID 1
+    "base_pitch.pos":   (-70.0,  -15.0),  # ID 2 — always negative in practice
+    "elbow_pitch.pos":  (35.0,   98.0),   # ID 3
+    "wrist_roll.pos":   (-50.0,  45.0),   # ID 4
+    "wrist_pitch.pos":  (-25.0,  72.0),   # ID 5
 }
 
 
@@ -65,6 +65,10 @@ class AnimationService:
         self._current_actions: List[Dict[str, float]] = []
         self._interpolation_frames: int = 0
         self._interpolation_target: Optional[Dict[str, float]] = None
+
+        # Music groove: loop while music is playing
+        self._music_playing = False
+        self._music_recording = "music_groove"
 
         # Custom event handling
         self._running = threading.Event()
@@ -172,8 +176,21 @@ class AnimationService:
     def handle_event(self, event_type: str, payload: Any):
         if event_type == "play":
             self._handle_play(payload)
+        elif event_type == "music_start":
+            self._handle_music_start()
+        elif event_type == "music_stop":
+            self._handle_music_stop()
         else:
             print(f"Unknown event type: {event_type}")
+
+    def _handle_music_start(self):
+        """Start grooving to music — loops music_groove until music stops."""
+        self._music_playing = True
+        self._handle_play(self._music_recording)
+
+    def _handle_music_stop(self):
+        """Stop music groove — return to idle."""
+        self._music_playing = False
     
     def _handle_play(self, recording_name: str):
         """Start playing a recording with interpolation from current state"""
@@ -233,17 +250,23 @@ class AnimationService:
                 self._current_frame_index += 1
             else:
                 # Recording finished
-                if self._current_recording != self.idle_recording:
-                    # Interpolate back to idle
-                    idle_actions = self._load_recording(self.idle_recording)
-                    if idle_actions is not None and len(idle_actions) > 0:
-                        self._current_recording = self.idle_recording
-                        self._current_actions = idle_actions
+                if self._music_playing and self._current_recording == self._music_recording:
+                    # Loop music groove while music is playing
+                    self._current_frame_index = 0
+                elif self._current_recording != self.idle_recording:
+                    # Interpolate back to idle (or music groove if music started)
+                    if self._music_playing:
+                        next_rec = self._music_recording
+                    else:
+                        next_rec = self.idle_recording
+                    next_actions = self._load_recording(next_rec)
+                    if next_actions is not None and len(next_actions) > 0:
+                        self._current_recording = next_rec
+                        self._current_actions = next_actions
                         self._current_frame_index = 0
-                        # Set up interpolation back to idle
                         if self._current_state is not None:
                             self._interpolation_frames = int(self.duration * self.fps)
-                            self._interpolation_target = idle_actions[0]
+                            self._interpolation_target = next_actions[0]
                 else:
                     # Loop idle recording
                     self._current_frame_index = 0
