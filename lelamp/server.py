@@ -55,9 +55,9 @@ _console = logging.StreamHandler()
 _console.setFormatter(_ColorFormatter())
 _root.addHandler(_console)
 
-# File handler: 5 MB per file, keep 3 backups (~20 MB max) — no color codes
+# File handler: 1 MB per file, keep 3 backups (~4 MB max) — no color codes
 _file = logging.handlers.RotatingFileHandler(
-    LOG_DIR / "server.log", maxBytes=5 * 1024 * 1024, backupCount=3,
+    LOG_DIR / "server.log", maxBytes=1 * 1024 * 1024, backupCount=3,
 )
 _file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
 _root.addHandler(_file)
