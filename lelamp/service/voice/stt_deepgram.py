@@ -11,8 +11,8 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 
 # Default Deepgram streaming config
-DEFAULT_MODEL = "nova-3"
-DEFAULT_LANGUAGE = "multi"
+DEFAULT_MODEL = "nova-2"
+DEFAULT_LANGUAGE = "vi"
 DEFAULT_ENDPOINTING_MS = 1500
 
 
