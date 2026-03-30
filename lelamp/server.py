@@ -292,13 +292,13 @@ async def lifespan(app: FastAPI):
             if music_service:
                 music_service._tts_service = tts_service
         if VoiceService and not voice_service:
-            # Prefer AutonomousSTT (uses llm_api_key, no extra key needed)
-            # Fall back to DeepgramSTT if deepgram_api_key is set
             stt_provider = None
-            if llm_key and llm_url and AutonomousSTT:
-                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url)
-            elif dgk and DeepgramSTT:
+            logger.info("STT selection: deepgram_key=%s, DeepgramSTT=%s, AutonomousSTT=%s",
+                        bool(dgk), DeepgramSTT is not None, AutonomousSTT is not None)
+            if dgk and DeepgramSTT:
                 stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
+            elif llm_key and llm_url and AutonomousSTT:
+                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url)
             if stt_provider:
                 voice_service = VoiceService(
                     stt_provider=stt_provider,
@@ -1529,10 +1529,10 @@ def start_voice(req: VoiceStartRequest):
     try:
         # Prefer AutonomousSTT (uses llm_api_key), fall back to Deepgram
         stt_provider = None
-        if AutonomousSTT:
-            stt_provider = AutonomousSTT(api_key=req.llm_api_key, base_url=req.llm_base_url)
-        elif req.deepgram_api_key and DeepgramSTT:
+        if req.deepgram_api_key and DeepgramSTT:
             stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=["lumi:3", "lu mi:2"])
+        elif AutonomousSTT:
+            stt_provider = AutonomousSTT(api_key=req.llm_api_key, base_url=req.llm_base_url)
         if not stt_provider:
             raise HTTPException(503, "No STT provider available")
         voice_service = VoiceService(
@@ -1568,6 +1568,10 @@ def speak_text(req: SpeakRequest):
         logger.error("POST /voice/speak: tts_service not available — client=%s, sd=%s",
                       tts_service._client is not None, tts_service._sd is not None)
         raise HTTPException(503, "TTS not available — missing openai SDK or sounddevice")
+    # Reject TTS while music is playing — shared speaker, TTS would kill the music
+    if music_service and music_service.playing:
+        logger.info("POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80])
+        raise HTTPException(409, "Speaker busy — music is playing")
     logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
     started = tts_service.speak(req.text)
     if not started:
