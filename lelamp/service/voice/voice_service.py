@@ -30,7 +30,6 @@ FRAME_SIZE = 1024  # 64ms at 16kHz
 
 # Local VAD config
 RMS_THRESHOLD = 500       # Audio energy above this = speech (tune on device)
-RMS_THRESHOLD_MUSIC = 3000  # Higher threshold when music is playing (filter out music from mic)
 SILENCE_TIMEOUT_S = 2.5   # Disconnect STT after this much silence
 SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting STT
 SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
@@ -55,7 +54,6 @@ class VoiceService:
             stt_provider: STTProvider,
             input_device: Optional[int] = None,
             tts_service=None,
-            music_service=None,
     ):
         self._stt = stt_provider
         self._input_device = input_device
@@ -63,7 +61,6 @@ class VoiceService:
         self._thread: Optional[threading.Thread] = None
         self._listening = False
         self._tts = tts_service
-        self._music = music_service
 
         # Lazy imports
         self._sd = None
@@ -125,10 +122,6 @@ class VoiceService:
     def _tts_is_speaking(self) -> bool:
         """Check if TTS is currently using the audio device."""
         return self._tts is not None and self._tts.speaking
-
-    def _music_is_playing(self) -> bool:
-        """Check if music is currently playing through ALSA."""
-        return self._music is not None and self._music.playing
 
     def _wait_for_tts(self):
         """Block until TTS finishes speaking, then wait for reverb to decay (adaptive RMS gate)."""
@@ -206,16 +199,12 @@ class VoiceService:
 
             rms = self._rms(data)
 
-            # Use higher threshold when music is playing to filter out music from mic
-            music_on = self._music_is_playing()
-            threshold = RMS_THRESHOLD_MUSIC if music_on else RMS_THRESHOLD
-
-            if rms >= threshold:
+            if rms >= RMS_THRESHOLD:
                 if speech_start is None:
                     speech_start = time.time()
                 # Wait for holdoff before connecting STT (avoid short noises)
                 elif (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
-                    logger.info("Speech detected (RMS=%.0f, threshold=%d, music=%s), connecting STT...", rms, threshold, music_on)
+                    logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
                     self._stream_session(mic)
                     speech_start = None
                     # Cooldown after session to let resources clean up
@@ -233,13 +222,6 @@ class VoiceService:
             lower = text.lower()
             # Check for wake word
             is_command = any(w in lower for w in WAKE_WORDS)
-
-            # When music is playing, only accept wake word commands — ignore
-            # ambient transcripts which are likely music lyrics picked up by mic
-            if self._music_is_playing() and not is_command:
-                logger.info("STT ignored during music: '%s'", text[:80])
-                return
-
             if is_command:
                 cmd = lower
                 for w in WAKE_WORDS:
