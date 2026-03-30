@@ -150,7 +150,7 @@ class SensingService:
             if not ret:
                 frame = None
 
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
+            frame = self._cv2.rotate(frame, self._cv2.ROTATE_180)
 
         # if frame is not None:
         #     # Motion detection
