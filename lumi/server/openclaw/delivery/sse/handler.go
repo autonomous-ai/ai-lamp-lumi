@@ -37,7 +37,13 @@ type OpenClawHandler struct {
 	// full text to TTS when the agent turn ends (lifecycle "end").
 	assistantMu  sync.Mutex
 	assistantBuf map[string]*strings.Builder
-	debugMu      sync.Mutex
+
+	// musicTurns tracks runIDs where /audio/play was invoked so we can
+	// suppress TTS on lifecycle end (speaker is shared — TTS would collide with music).
+	musicMu    sync.Mutex
+	musicTurns map[string]bool
+
+	debugMu sync.Mutex
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
@@ -51,6 +57,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		monitorBus:   bus,
 		statusLED:    sled,
 		assistantBuf: make(map[string]*strings.Builder),
+		musicTurns:   make(map[string]bool),
 	}
 }
 
@@ -80,6 +87,22 @@ func (h *OpenClawHandler) flushAssistantText(runID string) string {
 	text := strings.TrimSpace(buf.String())
 	delete(h.assistantBuf, runID)
 	return text
+}
+
+// markMusicTurn flags a runID as having triggered music playback.
+func (h *OpenClawHandler) markMusicTurn(runID string) {
+	h.musicMu.Lock()
+	defer h.musicMu.Unlock()
+	h.musicTurns[runID] = true
+}
+
+// clearMusicTurn removes the music flag for a runID and returns whether it was set.
+func (h *OpenClawHandler) clearMusicTurn(runID string) bool {
+	h.musicMu.Lock()
+	defer h.musicMu.Unlock()
+	was := h.musicTurns[runID]
+	delete(h.musicTurns, runID)
+	return was
 }
 
 // appendDebugJSONL appends a JSON object into local/openclaw_debug_payloads.jsonl.
@@ -199,6 +222,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			summary := toolName
 			if payload.Data.Phase == "start" {
 				summary = fmt.Sprintf("Tool %s started", toolName)
+				// Detect music playback tool calls so we can suppress TTS on turn end.
+				// The Music skill uses Bash+curl to POST /audio/play.
+				if strings.Contains(payload.Data.ToolArgs, "/audio/play") {
+					h.markMusicTurn(payload.RunID)
+					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
+				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
 				if len(result) > 100 {
@@ -255,17 +284,25 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		}
 
-		// When agent lifecycle ends, flush accumulated assistant text to TTS
+		// When agent lifecycle ends, flush accumulated assistant text to TTS.
+		// Suppress TTS if the agent played music this turn (shared speaker).
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
+			musicPlaying := h.clearMusicTurn(payload.RunID)
 			if text := h.flushAssistantText(payload.RunID); text != "" {
-				slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
-				flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text})
-				go func(t string) {
-					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-						slog.Error("TTS delivery failed", "component", "agent", "error", err)
-					}
-					flow.ClearTrace() // turn complete
-				}(text)
+				if musicPlaying {
+					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
+					flow.Log("tts_suppressed", map[string]any{"run_id": payload.RunID, "reason": "music_playing", "text": text})
+					flow.ClearTrace()
+				} else {
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
+					flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text})
+					go func(t string) {
+						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+							slog.Error("TTS delivery failed", "component", "agent", "error", err)
+						}
+						flow.ClearTrace() // turn complete
+					}(text)
+				}
 			}
 		}
 
