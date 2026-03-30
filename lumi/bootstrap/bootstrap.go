@@ -72,6 +72,14 @@ func (b *Bootstrap) Serve() error {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	r.POST("/force-check", func(c *gin.Context) {
+		go func() {
+			if err := b.checkOnce(context.Background()); err != nil {
+				slog.Error("force check failed", "component", "bootstrap", "error", err)
+			}
+		}()
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "update check triggered"})
+	})
 
 	port := b.cfg.HttpPort
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: r}
