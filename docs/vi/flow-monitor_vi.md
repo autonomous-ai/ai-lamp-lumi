@@ -53,6 +53,6 @@ Bảng tọa độ gần đúng và ASCII grid: xem mục *Turn Pipeline* và *A
 | `lumi/internal/openclaw/service.go` | sendChat / idempotencyKey |
 | `lumi/web/src/pages/Monitor.tsx` | `groupIntoTurns`, `FlowDiagram`, v.v. |
 
-**Tải để so sánh:** nút **↓ Pair** trên Flow Panel tải cùng lúc JSONL tail server và snapshot UI (xem bảng *Turns list vs downloaded log* trong `docs/flow-monitor.md`).
+**Tải để so sánh:** nút **↓ Bundle** trên Flow Panel tải cùng lúc JSONL tail server, snapshot UI và OpenClaw debug payload (xem bảng *Turns list vs downloaded log* trong `docs/flow-monitor.md`).
 
 Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng Anh.

@@ -96,6 +96,7 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 | `GET /api/openclaw/flow-stream` | File-backed live stream (SSE) for Flow updates when JSONL changes |
 | `GET /api/openclaw/debug-lines?last=300` | Parsed tail rows from `openclaw_debug_payloads.jsonl` for Logs tab |
 | `GET /api/openclaw/events` | Monitor bus SSE endpoint (kept for compatibility) |
+| `POST /api/system/force-update` | Triggers OTA check via bootstrap worker (proxies to `localhost:8080/force-check`) |
 
 > **Note on format**: Lumi API returns `{ status: 1, data: <payload>, message: null }` on success.
 
@@ -165,6 +166,7 @@ Below the nav items and OpenClaw status, the sidebar shows versions for all thre
 - **Web** (teal): injected at build time from `package.json` via Vite `define` (`__WEB_VERSION__`)
 - **Lumi** (amber): from `GET /api/system/info` → `version` field (Go ldflags)
 - **LeLamp** (blue): fetched once from `GET /hw/version` → `version` field
+- **Force Update** button: triggers `POST /api/system/force-update` → bootstrap OTA check. Shows "Checking…" while busy, then "Triggered"/"Failed" feedback for 3 seconds.
 
 ### 5.2 System Section
 
@@ -209,8 +211,8 @@ Turn Pipeline grouping behavior:
 - If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
 - **Turn type badge** (`motion`, `voice`, …): merged segments that share one `run_id` may include both camera motion and a voice line; the first segment used to win, so the badge could read `motion` while the utterance was voice. After grouping, if any `sensing_input` in the turn is `[voice]` or `[voice_command]`, the badge uses that (voice beats motion for the same run).
 - `OUT` text is only taken from `tts_send`/`intent_match` events matching the turn `run_id` (or events without run_id), preventing cross-turn input/output mismatch.
-- LLM token usage is shown on the **Agent Response** node: `in/out` and, when available from `token_usage`, `cache read/write` + `total`.
-- For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text (and will override earlier `sensing_input` text like SOUND within the same UI turn).
+- LLM token usage is shown on LLM nodes (Agent Call / Thinking / Response): `in/out` and, when available from `token_usage`, `cache read/write` + `total`.
+- For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text (and will override earlier `sensing_input` text like SOUND within the same UI turn). If the Telegram input message is completely missing (ghost turn), the turn type becomes `unknown` to avoid misleading “TG IN”.
 - Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
 - Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
 - Flow Panel header actions include **`↓ Bundle`**, **`full day`**, **`🗑 Log`**.
@@ -232,6 +234,7 @@ Turn Pipeline grouping behavior:
 - Dedicated runtime log panel for debugging Telegram/OpenClaw inputs.
 - Polls `GET /api/openclaw/debug-lines` every 2 seconds and renders newest rows first.
 - Shows `source`, `role`, `run_id`, `at`, and parsed `message` if available.
+- Raw dump is now full-stream: every OpenClaw WS payload (`agent` + `chat`) is appended with `source: "openclaw_raw"` and `raw_payload`, so debugging no longer depends on selective sampling.
 - Includes direct file download via `GET /api/openclaw/debug-logs`.
 
 > **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
