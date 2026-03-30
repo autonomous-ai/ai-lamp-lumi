@@ -150,7 +150,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
 			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
-			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" {
+			// Skip if run_id looks like a device-originated sensing turn (lumi-sensing-*) —
+			// these can appear traceless after a server restart but are NOT from Telegram.
+			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
+				!strings.HasPrefix(payload.RunID, "lumi-sensing-") {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
@@ -291,11 +294,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				if musicPlaying {
 					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
-					flow.Log("tts_suppressed", map[string]any{"run_id": payload.RunID, "reason": "music_playing", "text": text[:min(len(text), 100)]})
+					flow.Log("tts_suppressed", map[string]any{"run_id": payload.RunID, "reason": "music_playing", "text": text})
 					flow.ClearTrace()
 				} else {
 					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
-					flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text[:min(len(text), 100)]})
+					flow.Log("tts_send", map[string]any{"run_id": payload.RunID, "text": text})
 					go func(t string) {
 						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
 							slog.Error("TTS delivery failed", "component", "agent", "error", err)
@@ -327,17 +330,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Inbound user message from Telegram/Slack/Discord → start a new flow trace
 		if payload.State == "final" && payload.Role == "user" && payload.RunID != "" {
-			msg := payload.Message
-			if len(msg) > 100 {
-				msg = msg[:100]
-			}
 			flow.SetTrace(payload.RunID)
-			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": msg})
+			flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "message": payload.Message})
+			displayMsg := payload.Message
+			if len(displayMsg) > 200 {
+				displayMsg = displayMsg[:200] + "…"
+			}
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_input",
-				Summary: "[telegram] " + msg,
+				Summary: "[telegram] " + displayMsg,
 				RunID:   payload.RunID,
-				Detail:  map[string]string{"role": "user"},
+				Detail:  map[string]string{"role": "user", "message": payload.Message},
 			})
 		}
 
@@ -359,7 +362,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			})
 		}
 
-		// Only forward final assistant messages to TTS
+		// TODO(double-tts): This path sends TTS from the chat stream's final assistant message.
+		// The agent stream's lifecycle_end handler (above) ALSO flushes accumulated assistant
+		// deltas to TTS. When both streams carry the same response, the device speaks it twice.
+		// Fix: deduplicate with a per-runID "tts already sent" guard, or remove one path.
 		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" {
 			slog.Info("chat response (final)", "component", "agent", "message", payload.Message[:min(len(payload.Message), 100)])
 			go func() {
@@ -500,7 +506,7 @@ func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
 			evType = "sensing_input"
 		}
 	case "chat_input":
-		if fe.Kind == "enter" {
+		if fe.Kind == "enter" || fe.Kind == "event" {
 			evType = "chat_input"
 		}
 	case "intent_match":
@@ -514,11 +520,18 @@ func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
 		summary += fmt.Sprintf(" (%dms)", fe.DurationMs)
 	}
 
-	// Build summary from data for sensing_input
+	// Build summary from data for well-known nodes
 	if fe.Node == "sensing_input" && fe.Kind == "enter" && fe.Data != nil {
 		if msg, ok := fe.Data["message"].(string); ok {
 			typ, _ := fe.Data["type"].(string)
 			summary = fmt.Sprintf("[%s] %s", typ, msg)
+		}
+	}
+	if fe.Node == "chat_input" && fe.Data != nil {
+		if msg, ok := fe.Data["message"].(string); ok && msg != "" {
+			summary = fmt.Sprintf("[telegram] %s", msg)
+		} else {
+			summary = "[telegram]"
 		}
 	}
 
