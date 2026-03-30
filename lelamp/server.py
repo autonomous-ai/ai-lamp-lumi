@@ -116,10 +116,12 @@ except ImportError as e:
 
 VoiceService = None
 DeepgramSTT = None
+AutonomousSTT = None
 TTSService = None
 try:
     from lelamp.service.voice.voice_service import VoiceService
     from lelamp.service.voice.stt_deepgram import DeepgramSTT
+    from lelamp.service.voice.stt_autonomous import AutonomousSTT
 except ImportError as e:
     logger.warning(f"Voice service not available: {e}")
 
@@ -289,15 +291,22 @@ async def lifespan(app: FastAPI):
             # Wire TTS to MusicService so music pauses during speech
             if music_service:
                 music_service._tts_service = tts_service
-        if dgk and VoiceService and DeepgramSTT and not voice_service:
-            stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
-            voice_service = VoiceService(
-                stt_provider=stt_provider,
-                input_device=seeed_input_device,
-                tts_service=tts_service,
-            )
-            voice_service.start()
-            logger.info("VoiceService auto-started from lumi config")
+        if VoiceService and not voice_service:
+            # Prefer AutonomousSTT (uses llm_api_key, no extra key needed)
+            # Fall back to DeepgramSTT if deepgram_api_key is set
+            stt_provider = None
+            if llm_key and llm_url and AutonomousSTT:
+                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url)
+            elif dgk and DeepgramSTT:
+                stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
+            if stt_provider:
+                voice_service = VoiceService(
+                    stt_provider=stt_provider,
+                    input_device=seeed_input_device,
+                    tts_service=tts_service,
+                )
+                voice_service.start()
+                logger.info("VoiceService auto-started (%s)", stt_provider.name)
     except FileNotFoundError:
         logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
     except Exception as e:
@@ -1485,9 +1494,9 @@ def display_snapshot():
 
 
 class VoiceStartRequest(BaseModel):
-    deepgram_api_key: str = Field(..., min_length=1, description="Deepgram API key for STT")
-    llm_api_key: str = Field(..., min_length=1, description="OpenAI-compatible API key for TTS")
-    llm_base_url: str = Field(..., min_length=1, description="OpenAI-compatible base URL for TTS")
+    llm_api_key: str = Field(..., min_length=1, description="OpenAI-compatible API key for TTS and STT")
+    llm_base_url: str = Field(..., min_length=1, description="OpenAI-compatible base URL for TTS and STT")
+    deepgram_api_key: str = Field("", description="Deepgram API key (optional, falls back to Autonomous STT)")
 
 
 @app.post("/voice/start", response_model=StatusResponse, tags=["Voice"])
@@ -1515,10 +1524,17 @@ def start_voice(req: VoiceStartRequest):
     # Start voice (always-on streaming STT)
     if voice_service and voice_service.available:
         return {"status": "already_running"}
-    if not VoiceService or not DeepgramSTT:
+    if not VoiceService:
         raise HTTPException(503, "Voice service not available (missing deps)")
     try:
-        stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=["lumi:3", "lu mi:2"])
+        # Prefer AutonomousSTT (uses llm_api_key), fall back to Deepgram
+        stt_provider = None
+        if AutonomousSTT:
+            stt_provider = AutonomousSTT(api_key=req.llm_api_key, base_url=req.llm_base_url)
+        elif req.deepgram_api_key and DeepgramSTT:
+            stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=["lumi:3", "lu mi:2"])
+        if not stt_provider:
+            raise HTTPException(503, "No STT provider available")
         voice_service = VoiceService(
             stt_provider=stt_provider,
             input_device=seeed_input_device,
