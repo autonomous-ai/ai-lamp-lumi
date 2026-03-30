@@ -23,7 +23,7 @@ const (
 	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
 
-**Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`cat /opt/lelamp/VERSION_LELAMP`" + ` (LeLamp).
+**Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`curl -s http://127.0.0.1:5001/version`" + ` (LeLamp).
 
 ---`
 )
