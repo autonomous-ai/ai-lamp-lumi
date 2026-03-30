@@ -213,11 +213,10 @@ Hành vi gom nhóm Turn Pipeline:
 - Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó (và sẽ override cả sensing_input text như SOUND nếu cùng nằm trong một UI turn).
 - Fallback tạm thời: khi không lấy được text Telegram, UI sẽ hiển thị `Message content from telegram`.
 - Turn badge luôn render dòng `IN`; nếu thiếu input, UI sẽ hiển thị `Input not captured`.
-- Header Flow Panel: `↓ Pair`, `full day`, `↓ OpenClaw Debug`, `🗑 Log`.
-- `↓ Pair` = **một lần bấm tải hai file**: JSONL server (fetch + blob, `flow-logs?last=500`, 500 dòng cuối) rồi sau vài trăm ms tải JSON snapshot trong browser (events + turns đã gom) — tránh trình duyệt chỉ cho tải một file mỗi lần bấm.
+- Header Flow Panel: `↓ Bundle`, `full day`, `🗑 Log`.
+- `↓ Bundle` = **một lần bấm tải ba file**: JSONL server (fetch + blob, `flow-logs?last=500`), JSON snapshot trong browser (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`), và OpenClaw debug payload JSONL (`GET /api/openclaw/debug-logs`) — có delay ngắn giữa các lần tải để browser cho phép download đủ cả 3 file.
 - `full day` = cả file JSONL trong ngày.
-- `↓ OpenClaw Debug` tải raw OpenClaw debug payload qua `GET /api/openclaw/debug-logs` (file trên server: `local/openclaw_debug_payloads.jsonl`).
-- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate log flow của hôm nay trên server, rồi xóa events đang hiển thị trong Flow UI.
+- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` AND `DELETE /api/openclaw/debug-logs` để truncate cả flow log và OpenClaw debug payload, rồi xóa events đang hiển thị trong Flow UI.
 - Danh sách Turn history: tối đa **100 turn** (mới nhất ở trên), suy ra từ **500 event** cuối — sự kiện đầu ngày có thể không còn trong bộ nhớ UI.
 - Bộ nhớ event của Flow được giới hạn 500 events.
 - Heuristic ghép turn Telegram: nếu turn Telegram fallback (không có text input thật) đứng ngay trước turn có output agent trong vòng 30 giây, Monitor sẽ ghép thành 1 turn để câu trả lời đi cùng input Telegram.

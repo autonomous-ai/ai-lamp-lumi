@@ -2047,9 +2047,15 @@ function FlowSection({
       const r = await fetch(`${API}/openclaw/flow-logs`, { method: "DELETE" });
       const j = await r.json();
       if (!r.ok || j?.status !== 1) throw new Error(j?.message || "request failed");
+
+      // Also clear OpenClaw raw debug payloads so the 3-file bundle stays consistent.
+      const r2 = await fetch(`${API}/openclaw/debug-logs`, { method: "DELETE" });
+      const j2 = await r2.json();
+      if (!r2.ok || j2?.status !== 1) throw new Error(j2?.message || "request failed");
+
       setSelectedTurnId(null);
       onClearEvents();
-      window.alert("Server flow log cleared.");
+      window.alert("Server flow log + OpenClaw debug logs cleared.");
     } catch (e) {
       window.alert(`Failed to clear server flow log: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -2114,11 +2120,36 @@ function FlowSection({
   }, []);
 
   /** One click → two files (delay avoids browser blocking the second download). */
-  const downloadFlowPair = useCallback(async () => {
+  const downloadOpenClawDebugPayloads = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API}/openclaw/debug-logs`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `openclaw_debug_payloads_${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (e) {
+      console.error(e);
+      window.alert(`OpenClaw debug download failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, []);
+
+  /** One click → three files: flow-logs tail + OpenClaw debug + UI snapshot. */
+  const downloadFlowBundle = useCallback(async () => {
     await downloadServerJsonlTail();
     await new Promise((resolve) => setTimeout(resolve, 500));
+    await downloadOpenClawDebugPayloads();
+    await new Promise((resolve) => setTimeout(resolve, 300));
     downloadUISnapshot();
-  }, [downloadServerJsonlTail, downloadUISnapshot]);
+  }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
@@ -2190,15 +2221,15 @@ function FlowSection({
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
             <button
               type="button"
-              onClick={() => void downloadFlowPair()}
-              title={`Downloads 2 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns). Short delay between saves so the browser allows both.`}
+              onClick={() => void downloadFlowBundle()}
+              title={`Downloads 3 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns); (3) OpenClaw debug payload JSONL.`}
               style={{
                 fontSize: 11, padding: "4px 12px", borderRadius: 6,
                 background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
                 color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
               }}
             >
-              ↓ Pair
+              ↓ Bundle
             </button>
             <a
               href={`${API}/openclaw/flow-logs`}
@@ -2212,19 +2243,6 @@ function FlowSection({
             >
               full day
             </a>
-            <a
-              href={`${API}/openclaw/debug-logs`}
-              download
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
-                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
-              }}
-              title="Download OpenClaw debug payload JSONL"
-            >
-              ↓ OpenClaw Debug
-            </a>
             <button
               onClick={clearServerFlowLog}
               style={{
@@ -2232,7 +2250,7 @@ function FlowSection({
                 background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
                 color: "var(--lm-red)", cursor: "pointer", fontWeight: 700,
               }}
-              title="Clear flow log file on server"
+              title="Clear server flow log + OpenClaw debug logs"
             >
               🗑 Log
             </button>
