@@ -357,9 +357,9 @@ def gen_curious():
             return noise(ht, 3) * 1.0
         return noise(ht, hash(j) % 9) * 0.5
 
-    gen_pose_animation("curious.csv", 6.0, offset, approach_time=2.0,
-                       use_anticipation=False, overshoot_amount=0.05,
-                       hold_behavior=hold)
+    gen_pose_animation("curious.csv", 9.0, offset, approach_time=2.0,
+                       return_time=2.5, use_anticipation=False,
+                       overshoot_amount=0.05, hold_behavior=hold)
 
 
 def gen_nod():
