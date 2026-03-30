@@ -46,8 +46,9 @@ const handler = async (event: any): Promise<void> => {
     const snapRes = await httpGet(CAMERA_SNAPSHOT_URL);
     if (snapRes.statusCode !== 200) return;
 
-    // Save to temp file
-    const tmpPath = path.join(os.tmpdir(), `lumi-camera-${Date.now()}.jpg`);
+    // Save to temp file — rotate through slots 0-9 to cap at 10 files
+    const slot = Math.floor(Date.now() / 1000) % 10;
+    const tmpPath = path.join(os.tmpdir(), `lumi-camera-${slot}.jpg`);
     fs.writeFileSync(tmpPath, snapRes.body);
 
     // Append camera snapshot alongside any existing user-sent image

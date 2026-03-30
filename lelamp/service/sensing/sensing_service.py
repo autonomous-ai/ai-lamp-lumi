@@ -22,8 +22,8 @@ import threading
 import time
 from typing import Optional
 
+import numpy as np
 import requests
-
 from lelamp.service.sensing.presence_service import PresenceService
 
 logger = logging.getLogger("lelamp.sensing")
@@ -32,8 +32,12 @@ LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # Motion detection thresholds
 MOTION_THRESHOLD = 50  # pixel intensity change to count as "changed"
-MOTION_MIN_AREA_RATIO = 0.08  # minimum fraction of frame that must change (8%)
-MOTION_LARGE_AREA_RATIO = 0.25  # fraction for "large movement" (25%)
+MOTION_BIGGEST_CONTOURS_RATIO = 0.1  # top percentage to classify big contours
+MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL = 0.01  # minimum fraction of the biggest contours to total pixels that must change (1%)
+MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS = 0.5  # minimum fraction of the biggest contours to total area of all contoures that must change (50%)
+MOTION_LARGE_TOTAL_RATIO = (
+    0.25  # fraction of changing areas to total pixels for "large movement" (25%)
+)
 
 # Cooldown: don't spam events. Minimum seconds between events of the same type.
 EVENT_COOLDOWN_S = 60.0
@@ -77,7 +81,7 @@ class SensingService:
         self._last_event_time: dict[str, float] = {}
 
         # Previous frame for motion detection (grayscale)
-        self._prev_gray = None
+        self._last_frame = None
 
         # Face detection
         self._face_cascade = None
@@ -171,40 +175,62 @@ class SensingService:
 
     # --- Motion detection ---
 
-    def _check_motion(self, frame):
+    def _check_motion(self, frame: np.ndarray):
         cv2 = self._cv2
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
-        if self._prev_gray is None:
-            self._prev_gray = gray
-            return
+        moved = False
+        biggest_ratio = 0
+        change_ratio = 0
+        total_ratio = 0
 
-        delta = cv2.absdiff(self._prev_gray, gray)
-        self._prev_gray = gray
+        if self._last_frame is not None:
+            total_pixels = int(frame.shape[0] * frame.shape[1])
+            prev_gray = cv2.GaussianBlur(
+                cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
+            )
+            cur_gray = cv2.GaussianBlur(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
+            )
 
-        thresh = cv2.threshold(delta, MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
-        changed_pixels = cv2.countNonZero(thresh)
-        total_pixels = thresh.shape[0] * thresh.shape[1]
-        change_ratio = changed_pixels / total_pixels
+            delta = cv2.absdiff(prev_gray, cur_gray)
 
-        if change_ratio < MOTION_MIN_AREA_RATIO:
-            return
+            thresh = cv2.threshold(delta, MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
 
-        # Notify presence state machine (any motion = someone is here)
-        self.presence.on_motion()
+            contours, hierarchy = cv2.findContours(
+                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
 
-        if change_ratio >= MOTION_LARGE_AREA_RATIO:
-            msg = "Large movement detected in camera view — someone may have entered or left the room"
-        else:
-            msg = "Small movement detected in camera view"
+            if len(contours):
+                areas = np.array([cv2.contourArea(c) for c in contours])
+                k = int(np.ceil(len(areas) * MOTION_BIGGEST_CONTOURS_RATIO))
 
-        # Attach snapshot for large movements so AI can see what's happening
-        image_b64 = None
-        if change_ratio >= MOTION_LARGE_AREA_RATIO:
-            image_b64 = self._encode_frame(frame)
+                biggest_contours = np.argpartition(areas, -k)[-k:]
+                logger.info(areas[biggest_contours])
+                biggest_ratio = areas[biggest_contours].sum() / areas.sum()
+                change_ratio = areas[biggest_contours].sum() / total_pixels
+                total_ratio = areas.sum() / total_pixels
 
-        self._send_event("motion", msg, image=image_b64)
+            if (
+                biggest_ratio >= MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS
+                and change_ratio >= MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL
+            ):
+                moved = True
+
+        if moved:
+            # Notify presence state machine (any motion = someone is here)
+            self.presence.on_motion()
+
+            if total_ratio >= MOTION_LARGE_TOTAL_RATIO:
+                msg = "Large movement detected in camera view — someone may have entered or left the room"
+            else:
+                msg = "Small movement detected in camera view"
+
+            # Attach snapshot for large movements so AI can see what's happening
+            image_b64 = None
+            if total_ratio >= MOTION_LARGE_TOTAL_RATIO:
+                image_b64 = self._encode_frame(frame)
+
+            self._send_event("motion", msg, image=image_b64)
 
     # --- Face detection (presence enter/leave) ---
 
@@ -296,8 +322,14 @@ class SensingService:
         try:
             sample_rate = 44100
             frames = int(sample_rate * SOUND_SAMPLE_DURATION_S)
-            recording = sd.rec(frames, samplerate=sample_rate, channels=1,
-                               dtype="int16", device=self._input_device, blocking=True)
+            recording = sd.rec(
+                frames,
+                samplerate=sample_rate,
+                channels=1,
+                dtype="int16",
+                device=self._input_device,
+                blocking=True,
+            )
             rms = float(np.sqrt(np.mean(recording.astype(np.float64) ** 2)))
             if rms >= SOUND_RMS_THRESHOLD:
                 self._send_event("sound", f"Loud noise detected (level: {int(rms)})")
@@ -322,7 +354,13 @@ class SensingService:
 
     # --- Event sending ---
 
-    def _send_event(self, event_type: str, message: str, image: Optional[str] = None, cooldown: Optional[float] = None):
+    def _send_event(
+        self,
+        event_type: str,
+        message: str,
+        image: Optional[str] = None,
+        cooldown: Optional[float] = None,
+    ):
         now = time.time()
         cd = cooldown if cooldown is not None else EVENT_COOLDOWN_S
         last = self._last_event_time.get(event_type, 0)
@@ -342,7 +380,9 @@ class SensingService:
                 timeout=5,
             )
             if resp.status_code != 200:
-                logger.warning("[sensing] Lumi returned %d: %s", resp.status_code, resp.text)
+                logger.warning(
+                    "[sensing] Lumi returned %d: %s", resp.status_code, resp.text
+                )
             else:
                 self._last_event_time[event_type] = now
         except requests.RequestException as e:
