@@ -20,8 +20,7 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
-DEFAULT_MODEL = "nova-3"
-DEFAULT_LANGUAGE = "multi"
+DEFAULT_MODEL = "nova-2"
 DEFAULT_ENCODING = "linear16"
 
 
@@ -129,7 +128,7 @@ class AutonomousSTT(STTProvider):
     """Autonomous AI streaming STT provider (Deepgram wrapper behind campaign-api)."""
 
     def __init__(self, api_key: str, base_url: str, sample_rate: int = 16000,
-                 model: str = DEFAULT_MODEL, language: str = DEFAULT_LANGUAGE):
+                 model: str = DEFAULT_MODEL, language: Optional[str] = None):
         self._api_key = api_key
         self._sample_rate = sample_rate
         self._model = model
@@ -144,7 +143,8 @@ class AutonomousSTT(STTProvider):
             "encoding": DEFAULT_ENCODING,
             "sample_rate": str(sample_rate),
         }
-        params["language"] = language
+        if language:
+            params["language"] = language
         self._ws_url = f"{ws_base}/ws/audio/transcriptions?{urlencode(params)}"
         logger.info("AutonomousSTT ready (url=%s, model=%s)", self._ws_url, model)
 
