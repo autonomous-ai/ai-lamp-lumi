@@ -89,12 +89,16 @@ Available animations:
 |---|---|
 | `curious` | Something interesting, questions |
 | `nod` | Agreement, acknowledgment |
+| `headshake` | Disagreement, saying no |
 | `happy_wiggle` | Joy, good news |
 | `idle` | Resting state |
 | `sad` | Empathy, bad news |
 | `excited` | High energy, celebrations |
 | `shy` | Bashful moments |
 | `shock` | Surprise |
+| `scanning` | Looking around, searching |
+| `wake_up` | Waking up, starting a new session |
+| `music_groove` | Grooving to music (auto-triggered during playback) |
 
 ### Get servo state
 
