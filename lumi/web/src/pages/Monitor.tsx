@@ -69,6 +69,8 @@ interface VoiceStatus {
 interface ServoState {
   available_recordings: string[];
   current: string | null;
+  bus_connected?: boolean;
+  robot_connected?: boolean;
 }
 interface DisplayState {
   mode: string;
@@ -588,9 +590,15 @@ function OverviewSection({
               </div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
                 {servo.available_recordings?.length ?? 0} poses available
+                {servo.bus_connected === false || servo.robot_connected === false ? (
+                  <span style={{ color: "var(--lm-danger, #c44)", marginLeft: 6 }}>
+                    (bus {servo.bus_connected === false ? "down" : "ok"}
+                    {servo.robot_connected === false ? ", robot disconnected" : ""})
+                  </span>
+                ) : null}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {(servo.available_recordings ?? []).slice(0, 8).map((p) => (
+                {(servo.available_recordings ?? []).map((p) => (
                   <span key={p} role="button" onClick={() => {
                     fetch(`${HW}/servo/play`, {
                       method: "POST",
@@ -641,7 +649,7 @@ function OverviewSection({
                 {displayState.available_expressions?.length ?? 0} expressions
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 4 }}>
-                {(displayState.available_expressions ?? []).slice(0, 8).map((e) => (
+                {(displayState.available_expressions ?? []).map((e) => (
                   <span key={e} style={{
                     fontSize: 10,
                     padding: "2px 7px",
