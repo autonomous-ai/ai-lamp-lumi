@@ -739,14 +739,18 @@ function SystemSection({
 
 // Maps a MonitorEvent type/node to a flow stage ID
 type FlowStage =
-  | "idle" | "ambient" | "sensing" | "telegram_input" | "intent_check" | "local_match"
+  | "sensing" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "output";
+  | "schedule_trigger";
+
+/** No pipeline node highlighted — e.g. no matching triggers in recent events */
+type ActiveFlowStage = FlowStage | "idle";
 
 interface FlowNodeDef {
   id: FlowStage;
   label: string;
   short: string;
+  icon: string;
   color: string;
   desc: string; // short description shown inside node on zoom
   // event types or flow nodes that activate this stage
@@ -755,27 +759,8 @@ interface FlowNodeDef {
 }
 
 const FLOW_NODES: FlowNodeDef[] = [
-  { id: "idle",
-    label: "Idle", short: "IDLE", color: "var(--lm-text-muted)", path: "main",
-    desc: "Waiting for input · ambient_resume / ws_ready",
-    triggers: [
-      "ambient_resume", "flow_event:ambient_resume", "flow_enter:ambient_resume", "flow_exit:ambient_resume",
-      "flow_event:ws_ready", "flow_enter:ws_connect", "flow_exit:ws_connect",
-      "flow_event:session_key_acquired",
-    ] },
-
-  { id: "ambient",
-    label: "Ambient", short: "AMB", color: "#8b5cf6", path: "main",
-    desc: "Idle behaviors · breathing LED / micro movement / mumble TTS",
-    triggers: [
-      "ambient_action", "flow_event:ambient_action", "flow_enter:ambient_action", "flow_exit:ambient_action",
-      "flow_event:ambient_breathing", "flow_event:ambient_movement", "flow_event:ambient_mumble",
-      "flow_enter:ambient_breathing", "flow_enter:ambient_movement", "flow_enter:ambient_mumble",
-      "flow_exit:ambient_breathing", "flow_exit:ambient_movement", "flow_exit:ambient_mumble",
-    ] },
-
   { id: "sensing",
-    label: "Sensing", short: "SENSE", color: "var(--lm-amber)", path: "main",
+    label: "Sensing", short: "SENSE", icon: "📡", color: "var(--lm-amber)", path: "main",
     desc: "POST /sensing/event · voice / motion / sound",
     triggers: [
       "sensing_input",
@@ -784,7 +769,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "telegram_input",
-    label: "Telegram In", short: "TG IN", color: "#229ed9", path: "main",
+    label: "Telegram In", short: "TG IN", icon: "💬", color: "#229ed9", path: "main",
     desc: "Inbound message via Telegram / Slack / Discord",
     triggers: [
       "chat_input",
@@ -792,7 +777,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "intent_check",
-    label: "Intent Check", short: "INTENT", color: "var(--lm-teal)", path: "main",
+    label: "Intent Check", short: "INTENT", icon: "🔀", color: "var(--lm-teal)", path: "main",
     desc: "Route to local match or agent call",
     triggers: [
       "chat_send",
@@ -801,7 +786,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "local_match",
-    label: "Local Intent", short: "LOCAL", color: "var(--lm-green)", path: "fast",
+    label: "Local Intent", short: "LOCAL", icon: "⚡", color: "var(--lm-green)", path: "fast",
     desc: "Fast path ~50ms · regex match → instant TTS · bypasses agent",
     triggers: [
       "intent_match",
@@ -809,7 +794,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "agent_call",
-    label: "Agent Call", short: "AGENT", color: "var(--lm-blue)", path: "agent",
+    label: "Agent Call", short: "AGENT", icon: "🤖", color: "var(--lm-blue)", path: "agent",
     desc: "WebSocket chat.send RPC to OpenClaw",
     triggers: [
       "flow_event:agent_call", "flow_enter:agent_call", "flow_exit:agent_call",
@@ -817,7 +802,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "agent_thinking",
-    label: "Thinking", short: "THINK", color: "var(--lm-purple)", path: "agent",
+    label: "Thinking", short: "THINK", icon: "🧠", color: "var(--lm-purple)", path: "agent",
     desc: "LLM reasoning · streaming thinking tokens",
     triggers: [
       "thinking",
@@ -825,7 +810,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "tool_exec",
-    label: "Tool Exec", short: "TOOL", color: "#f59e0b", path: "agent",
+    label: "Tool Exec", short: "TOOL", icon: "🔧", color: "#f59e0b", path: "agent",
     desc: "Agent invoked a tool · function call",
     triggers: [
       "tool_call",
@@ -833,7 +818,7 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "agent_response",
-    label: "Response", short: "RESP", color: "var(--lm-green)", path: "agent",
+    label: "Response", short: "RESP", icon: "💡", color: "var(--lm-green)", path: "agent",
     desc: "Agent turn ended · response accumulated",
     triggers: [
       "chat_response",
@@ -841,34 +826,27 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "tts_speak",
-    label: "TTS Speak", short: "TTS", color: "var(--lm-purple)", path: "agent",
-    desc: "POST /voice/speak · text-to-speech playback",
+    label: "TTS / Action", short: "TTS", icon: "🔊", color: "var(--lm-purple)", path: "agent",
+    desc: "POST /voice/speak · LED · Display",
     triggers: [
       "tts",
       "flow_event:tts_send", "flow_enter:tts_send", "flow_exit:tts_send",
+      "intent_match", "flow_event:intent_match",
+      "flow_event:voice_pipeline_start",
     ] },
 
   { id: "schedule_trigger",
-    label: "Schedule", short: "CRON", color: "#f97316", path: "main",
+    label: "Schedule", short: "CRON", icon: "⏰", color: "#f97316", path: "main",
     desc: "Cron/timer fired · agent turn triggered by schedule",
     triggers: [
       "schedule_trigger", "flow_event:schedule_trigger",
       "flow_enter:schedule_trigger", "flow_exit:schedule_trigger",
       "flow_event:cron_fire", "cron_fire",
     ] },
-
-  { id: "output",
-    label: "Output", short: "OUT", color: "var(--lm-amber)", path: "main",
-    desc: "User sees/hears result · LED / Speaker / Display",
-    triggers: [
-      "tts", "flow_event:tts_send", "flow_exit:tts_send",
-      "intent_match", "flow_event:intent_match",
-      "flow_event:voice_pipeline_start",
-    ] },
 ];
 
 // Derive active stage from most recent relevant events
-function deriveActiveStage(events: DisplayEvent[]): FlowStage {
+function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
   const recent = events.slice(-30);
   for (let i = recent.length - 1; i >= 0; i--) {
     const ev = recent[i];
@@ -928,6 +906,13 @@ function turnHasRealTelegramInput(turn: Turn): boolean {
     const msg = parseTelegramSummary(ev.summary);
     return msg.length > 0;
   });
+}
+
+function turnHasSensingInput(turn: Turn): boolean {
+  return turn.events.some((ev) =>
+    ev.type === "sensing_input" ||
+    (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"),
+  );
 }
 
 function groupIntoTurns(events: DisplayEvent[]): Turn[] {
@@ -1080,12 +1065,14 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       stitched.push(turn);
       continue;
     }
-    const prevIsTelegramFallback = prev.type === "telegram" && !turnHasRealTelegramInput(prev);
     const prevHasNoOutput = !turnHasOutput(prev);
     const currLooksAgentReply = turn.path === "agent" && turnHasOutput(turn);
     const prevTs = new Date(prev.endTime || prev.startTime).getTime();
     const currTs = new Date(turn.startTime).getTime();
     const closeInTime = Number.isFinite(prevTs) && Number.isFinite(currTs) && (currTs - prevTs) <= 30_000;
+
+    // Case 1: Telegram fallback (no message) + agent output → merge
+    const prevIsTelegramFallback = prev.type === "telegram" && !turnHasRealTelegramInput(prev);
     if (prevIsTelegramFallback && prevHasNoOutput && currLooksAgentReply && closeInTime) {
       prev.events.push(...turn.events);
       prev.events.sort((a, b) => a._seq - b._seq);
@@ -1094,6 +1081,20 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       prev.path = "agent";
       continue;
     }
+
+    // Case 2: Sensing input (no output) + orphan output-only turn → merge
+    // Happens when server restart splits a sensing turn's input and output into separate turns.
+    const prevIsSensingNoOutput = turnHasSensingInput(prev) && prevHasNoOutput;
+    const currIsOrphanOutput = !turnHasSensingInput(turn) && !turnHasRealTelegramInput(turn) && turnHasOutput(turn);
+    if (prevIsSensingNoOutput && currIsOrphanOutput && closeInTime) {
+      prev.events.push(...turn.events);
+      prev.events.sort((a, b) => a._seq - b._seq);
+      prev.status = turn.status === "error" ? "error" : turn.status;
+      prev.endTime = turn.endTime || prev.endTime;
+      prev.path = "agent";
+      continue;
+    }
+
     stitched.push(turn);
   }
 
@@ -1113,15 +1114,16 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   return stitched.slice(-100).reverse(); // latest 100, newest first
 }
 
-// Path label for badge inside node
-const PATH_LABEL: Record<string, string> = { main: "MAIN", fast: "FAST", agent: "AGENT" };
+// Runtime detail lines; `ambient` is collected but not tied to an SVG node (no ambient stage)
+type NodeInfoMap = Record<FlowStage, string[]> & { ambient: string[] };
 
 // Extract runtime info for each node from turn events
-function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
-  const info: Record<FlowStage, string[]> = {
-    idle: [], ambient: [], sensing: [], telegram_input: [], intent_check: [], local_match: [],
+function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
+  const info: NodeInfoMap = {
+    sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
-    agent_response: [], tts_speak: [], schedule_trigger: [], output: [],
+    agent_response: [], tts_speak: [], schedule_trigger: [],
+    ambient: [],
   };
 
   for (const ev of events) {
@@ -1211,7 +1213,7 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
       if (ev.phase === "end") {
-        info.idle.push(ev.error ? `❌ ${ev.error}` : "✓ turn done");
+        info.agent_response.push(ev.error ? `❌ ${ev.error}` : "✓ done");
         const d = ev.detail as Record<string, string> | undefined;
         if (d?.inputTokens) {
           const inp = parseInt(d.inputTokens, 10);
@@ -1230,32 +1232,17 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
         info.agent_response.push(`tokens: ${fmt(u.input_tokens ?? 0)} in / ${fmt(u.output_tokens ?? 0)} out`);
       }
     }
-    // JSONL path: lifecycle_end → idle node
+    // JSONL path: lifecycle_end status
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       const d = ev.detail as Record<string, any> | undefined;
       const err = d?.data?.error;
-      info.idle.push(err ? `❌ ${err}` : "✓ turn done");
+      if (err) info.agent_response.push(`❌ ${err}`);
     }
-    // output — what the user finally sees/hears
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
-      const d = ev.detail as Record<string, any> | undefined;
-      const text = d?.data?.text ?? d?.text ?? "";
-      if (text && info.output.length < 3) {
-        info.output.push(`🔊 "${text}"`);
-      }
-    }
+    // tts_speak also captures intent_match and tool results (output merged into this node)
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       const d = ev.detail as Record<string, any> | undefined;
       const tts = d?.data?.tts ?? d?.tts ?? "";
-      if (tts && info.output.length < 3) info.output.push(`💡 ${tts}`);
-      if (ev.summary && info.output.length < 3) info.output.push(`⚡ ${ev.summary}`);
-    }
-    if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
-      const d = ev.detail as Record<string, any> | undefined;
-      const toolName = d?.tool ?? d?.data?.tool ?? "";
-      if (toolName && info.output.length < 3) {
-        info.output.push(`⚙ ${toolName}`);
-      }
+      if (tts && info.tts_speak.length < 3) info.tts_speak.push(`💡 ${tts}`);
     }
   }
   return info;
@@ -1268,14 +1255,14 @@ function FlowDiagram({
   compact = false,
   turnEvents = [],
 }: {
-  activeStage: FlowStage;
+  activeStage: ActiveFlowStage;
   visitedStages: Set<FlowStage>;
   compact?: boolean;
   turnEvents?: DisplayEvent[];
 }) {
   // viewBox dimensions (logical coordinate space)
-  const VW = 990;
-  const VH = 480;
+  const VW = 920;
+  const VH = 720;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -1313,44 +1300,43 @@ function FlowDiagram({
   const vbX = (VW - vbW) / 2 - pan.x;
   const vbY = (VH - vbH) / 2 - pan.y;
 
-  // Node positions — 3 rows: LOCAL (top y=80), MAIN (mid y=210), AGENT (bottom y=340)
-  // x starts at 90 to leave room for row titles on the left
+  // Node positions — triangle: Lumi (top, spans full width), LeLamp (bottom-left), OpenClaw (bottom-right)
+  // Nodes arranged so arrows flow cleanly: LeLamp ↗ Lumi ↘ OpenClaw → LeLamp (clockwise)
+  // OpenClaw — 3-column grid (see docs/flow-monitor.md § OpenClaw layout rules):
+  // Col1 Tool+Response | Col2 Agent+Thinking | Col3 TG In
+  // Row1: Col2 Agent + Col3 TG In | Row2: Col1 Tool + Col2 Think | Row3: Col1 Response
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:              { x: 90,  y: 210 },
-    ambient:           { x: 90,  y: 80  },
-    sensing:           { x: 210, y: 210 },
-    intent_check:      { x: 330, y: 210 },
-    local_match:       { x: 490, y: 80  },
-    output:            { x: 910, y: 210 },
-    telegram_input:    { x: 210, y: 340 },
-    schedule_trigger:  { x: 330, y: 340 },
-    agent_call:        { x: 460, y: 340 },
-    agent_thinking:    { x: 590, y: 340 },
-    tool_exec:         { x: 650, y: 270 },
-    agent_response:    { x: 720, y: 340 },
-    tts_speak:         { x: 850, y: 340 },
+    // Lumi — top row: Intent, Local, Cron (Cron x aligns with OpenClaw Agent column — see flow-monitor.md)
+    intent_check:      { x: 100, y: 100 },
+    local_match:       { x: 240, y: 100 },
+    schedule_trigger:  { x: 625, y: 100 },
+    // LeLamp cluster (bottom-left) — same row y as OpenClaw Tool (tool_exec)
+    sensing:           { x: 100, y: 480 },
+    tts_speak:         { x: 240, y: 480 },
+    // OpenClaw (x: col1≈500, col2≈625, col3≈775)
+    agent_call:        { x: 625, y: 350 },
+    telegram_input:    { x: 775, y: 350 },
+    tool_exec:         { x: 500, y: 480 },
+    agent_thinking:    { x: 625, y: 480 },
+    agent_response:    { x: 500, y: 630 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
-    ["idle",              "ambient"],
-    ["idle",              "sensing"],
-    ["ambient",           "output"],
-    ["sensing",           "intent_check"],
-    ["intent_check",      "local_match"],     // ↑ LOCAL path (top row)
-    ["local_match",       "output"],
-    ["intent_check",      "agent_call"],      // ↓ AGENT path (bottom row)
-    ["telegram_input",    "agent_call"],
-    ["schedule_trigger",  "agent_call"],
+    ["sensing",           "intent_check"],      // LeLamp → Lumi
+    ["intent_check",      "local_match"],       // Lumi LOCAL path
+    ["local_match",       "tts_speak"],         // Local match → LeLamp TTS directly
+    ["intent_check",      "agent_call"],        // Lumi → OpenClaw
+    ["telegram_input",    "agent_call"],         // Telegram plugin → OpenClaw agent
+    ["schedule_trigger",  "agent_call"],         // Cron → OpenClaw
     ["agent_call",        "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
     ["tool_exec",         "agent_response"],
-    ["agent_response",    "tts_speak"],
-    ["tts_speak",         "output"],          // ↑ back to main row
-    ["output",            "idle"],
+    ["tool_exec",         "tts_speak"],         // Tool exec → LeLamp (LED, etc.)
+    ["agent_response",    "tts_speak"],         // Response → LeLamp TTS
   ];
 
-  const nodeR = compact ? 26 : 32;
+  const nodeR = compact ? 28 : 38;
 
   function nodeColor(id: FlowStage) {
     if (id === activeStage) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
@@ -1406,18 +1392,46 @@ function FlowDiagram({
           </marker>
         </defs>
 
-        {/* Row titles */}
-        {[
-          { y: 80,  label: "LOCAL",  color: "var(--lm-green)" },
-          { y: 210, label: "MAIN",   color: "var(--lm-text-muted)" },
-          { y: 340, label: "AGENT",  color: "var(--lm-blue)" },
-        ].map(({ y, label, color }) => (
-          <text key={label} x={12} y={y + 4} fill={color} fontSize={9} fontWeight={700}
-            fontFamily="monospace" opacity={0.5} textAnchor="start"
-            style={{ letterSpacing: "0.1em" }}>
-            {label}
+        {/* Cluster group backgrounds — triangle layout */}
+        {/* Lumi Server (top, full width, split LOCAL / ROUTE) */}
+        <g>
+          <rect x={50} y={50} width={730} height={160} rx={14}
+            fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
+            strokeDasharray="4 4"
+          />
+          <text x={415} y={40} textAnchor="middle"
+            fill="var(--lm-teal)" fontSize={11} fontWeight={700}
+            fontFamily="monospace" opacity={0.6}
+            style={{ letterSpacing: "0.08em" }}>
+            Lumi Server
           </text>
-        ))}
+        </g>
+        {/* LeLamp (bottom-left) — band aligned with OpenClaw Tool+Think row */}
+        <g>
+          <rect x={30} y={395} width={280} height={200} rx={14}
+            fill="var(--lm-amber)" fillOpacity={0.04} stroke="var(--lm-amber)" strokeWidth={1} opacity={0.3}
+            strokeDasharray="4 4"
+          />
+          <text x={145} y={385} textAnchor="middle"
+            fill="var(--lm-amber)" fontSize={11} fontWeight={700}
+            fontFamily="monospace" opacity={0.6}
+            style={{ letterSpacing: "0.08em" }}>
+            LeLamp
+          </text>
+        </g>
+        {/* OpenClaw — 3 cols: Tool+Resp | Agent+Think | TG; rows: Agent+TG, Tool+Think, Response */}
+        <g>
+          <rect x={448} y={292} width={385} height={540} rx={14}
+            fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
+            strokeDasharray="4 4"
+          />
+          <text x={641} y={282} textAnchor="middle"
+            fill="var(--lm-blue)" fontSize={11} fontWeight={700}
+            fontFamily="monospace" opacity={0.6}
+            style={{ letterSpacing: "0.08em" }}>
+            OpenClaw
+          </text>
+        </g>
 
         {/* Edges */}
         {edges.map(([from, to]) => {
@@ -1449,24 +1463,13 @@ function FlowDiagram({
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
           const descLines = node.desc.split(" · ").length;
-          // Info box: above for LOCAL row (y<=80), below for MAIN and AGENT rows
-          const infoBelow = pos.y > 80;
+          // Info box: below node for all clusters
+          const infoBelow = true;
           const boxY = infoBelow
             ? pos.y + nodeR + 18 + descLines * 10 + 6
             : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
-          const isClickable = node.id === "idle";
           return (
-            <g key={node.id} opacity={opacity}
-              style={isClickable ? { cursor: "pointer" } : undefined}
-              onClick={isClickable ? (e) => {
-                e.stopPropagation();
-                fetch(`${HW}/emotion`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ emotion: "idle", intensity: 0.7 }),
-                }).catch(() => {});
-              } : undefined}
-            >
+            <g key={node.id} opacity={opacity}>
               {/* Glow ring for active */}
               {isActive && (
                 <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
@@ -1474,40 +1477,28 @@ function FlowDiagram({
                   opacity={0.35} style={{ filter: `url(#${glowId})` }}
                 />
               )}
-              {/* Node circle — transparent hit area for clickable nodes */}
-              {isClickable && (
-                <circle cx={pos.x} cy={pos.y} r={nodeR} fill="transparent" />
-              )}
               <circle cx={pos.x} cy={pos.y} r={nodeR}
                 fill={isActive ? `${color}22` : "var(--lm-surface)"}
                 stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
                 style={isActive ? { filter: `url(#${glowId})` } : undefined}
               />
-              {/* Short label (top line) */}
-              <text x={pos.x} y={pos.y - 8} textAnchor="middle"
+              {/* Icon + short label (top line) */}
+              <text x={pos.x} y={pos.y - 6} textAnchor="middle"
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
-                {node.short}
+                {node.icon} {node.short}
               </text>
-              {/* Full label (middle line) */}
-              <text x={pos.x} y={pos.y + 3} textAnchor="middle"
+              {/* Full label (bottom line) */}
+              <text x={pos.x} y={pos.y + 6} textAnchor="middle"
                 fill={color} fontSize={7} opacity={0.9}>
                 {node.label}
               </text>
-              {/* Description: above circle for AGENT row (y>300), below for others */}
-              {pos.y > 300
-                ? node.desc.split(" · ").map((part, i, arr) => (
-                    <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 14 + i * 10} textAnchor="middle"
-                      fill={color} fontSize={6} opacity={0.7}>
-                      {part}
-                    </text>
-                  ))
-                : node.desc.split(" · ").map((part, i) => (
-                    <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 18 + i * 10} textAnchor="middle"
-                      fill={color} fontSize={6} opacity={0.7}>
-                      {part}
-                    </text>
-                  ))
-              }
+              {/* Description below circle */}
+              {node.desc.split(" · ").map((part, i) => (
+                <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 14 + i * 10} textAnchor="middle"
+                  fill={color} fontSize={5.5} opacity={0.6}>
+                  {part}
+                </text>
+              ))}
 
               {/* Runtime info box — shows tool names, func calls, messages */}
               {hasInfo && (() => {
@@ -1743,7 +1734,7 @@ function CanvasModal({
   turnEvents,
   onClose,
 }: {
-  activeStage: FlowStage;
+  activeStage: ActiveFlowStage;
   visitedStages: Set<FlowStage>;
   turnEvents: DisplayEvent[];
   onClose: () => void;
@@ -1861,6 +1852,71 @@ function FlowSection({
     }
   }, [onClearEvents]);
 
+  /** Exact in-memory panel state — used by ↓ Pair (second file) to diff feed vs grouping. */
+  const downloadUISnapshot = useCallback(() => {
+    const turnsSnapshot = groupIntoTurns(events);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      format: "lumi-monitor-ui-snapshot-v1",
+      flowEventsWindow: FLOW_EVENTS_MAX,
+      eventCount: events.length,
+      turnCount: turnsSnapshot.length,
+      events,
+      turns: turnsSnapshot.map((t) => ({
+        id: t.id,
+        runId: t.runId,
+        startTime: t.startTime,
+        endTime: t.endTime,
+        type: t.type,
+        path: t.path,
+        status: t.status,
+        sessionBreak: t.sessionBreak,
+        events: t.events,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lumi_flow_ui_snapshot_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [events]);
+
+  /** Same tail as GET /flow-events — fetch+blob so Pair can trigger two saves in one click. */
+  const downloadServerJsonlTail = useCallback(async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API}/openclaw/flow-logs?last=${FLOW_EVENTS_MAX}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const day = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lumi_flow_${day}_last${FLOW_EVENTS_MAX}.jsonl`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (e) {
+      console.error(e);
+      window.alert(`JSONL download failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, []);
+
+  /** One click → two files (delay avoids browser blocking the second download). */
+  const downloadFlowPair = useCallback(async () => {
+    await downloadServerJsonlTail();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    downloadUISnapshot();
+  }, [downloadServerJsonlTail, downloadUISnapshot]);
+
   const turns = groupIntoTurns(events);
   const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
 
@@ -1905,18 +1961,30 @@ function FlowSection({
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <a
-              href={`${API}/openclaw/flow-logs`}
-              download
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => void downloadFlowPair()}
+              title={`Downloads 2 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns). Short delay between saves so the browser allows both.`}
               style={{
                 fontSize: 11, padding: "4px 12px", borderRadius: 6,
                 background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
                 color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
-                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5,
               }}
             >
-              ↓ Logs
+              ↓ Pair
+            </button>
+            <a
+              href={`${API}/openclaw/flow-logs`}
+              download
+              title="Full day JSONL on server (all lines today — wider than the panel window)"
+              style={{
+                fontSize: 10, padding: "4px 8px", borderRadius: 6,
+                color: "var(--lm-text-muted)", cursor: "pointer", fontWeight: 600,
+                textDecoration: "underline", display: "inline-flex", alignItems: "center",
+              }}
+            >
+              full day
             </a>
             <a
               href={`${API}/openclaw/debug-logs`}
@@ -2017,6 +2085,9 @@ function FlowSection({
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
             <span style={S.cardLabel}>Turns</span>
             <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{turns.length}</span>
+            <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4, lineHeight: 1.3 }}>
+              From last {FLOW_EVENTS_MAX} flow events (max 100 turns)
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
             {turns.length === 0 ? (
