@@ -32,6 +32,9 @@ interface SystemInfo {
   goRoutines: number;
   version: string;
   deviceId: string;
+  diskTotal: number;
+  diskUsed: number;
+  diskPercent: number;
 }
 interface NetworkInfo {
   ssid: string;
@@ -669,9 +672,10 @@ function OverviewSection({
       {sys && (
         <div style={S.card}>
           <div style={S.cardLabel}>System</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
             <StatPill label="CPU" value={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" />
             <StatPill label="RAM" value={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" />
+            <StatPill label="Disk" value={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} />
             <StatPill label="Temp" value={`${sys.cpuTemp.toFixed(1)}°C`} color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"} />
             <StatPill label="Uptime" value={formatUptime(sys.uptime)} />
           </div>
@@ -700,14 +704,15 @@ function SystemSection({
       <div style={S.card}>
         <div style={S.cardLabel}>Performance</div>
         <div style={{ display: "flex", justifyContent: "space-around", paddingTop: 8 }}>
-          <GaugeRing value={sys.cpuLoad} label="CPU" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={120} />
-          <GaugeRing value={sys.memPercent} label="Memory" detail={`${Math.round(sys.memUsed/1024)}/${Math.round(sys.memTotal/1024)} MB`} color="var(--lm-blue)" size={120} />
+          <GaugeRing value={sys.cpuLoad} label="CPU" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={110} />
+          <GaugeRing value={sys.memPercent} label="Memory" detail={`${Math.round(sys.memUsed/1024)}/${Math.round(sys.memTotal/1024)} MB`} color="var(--lm-blue)" size={110} />
+          <GaugeRing value={sys.diskPercent ?? 0} label="Disk" detail={`${Math.round((sys.diskUsed ?? 0)/1024)}/${Math.round((sys.diskTotal ?? 0)/1024)} GB`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} size={110} />
           <GaugeRing
             value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / 85) * 100) : 0}
             label="Temp"
             detail={`${sys.cpuTemp.toFixed(1)}°C`}
             color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"}
-            size={120}
+            size={110}
           />
         </div>
       </div>
