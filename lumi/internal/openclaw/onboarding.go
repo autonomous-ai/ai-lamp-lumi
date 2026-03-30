@@ -17,13 +17,20 @@ var soulFS embed.FS
 
 const (
 	skillsBaseURL = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/skills"
+	hooksBaseURL  = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/hooks"
 
 	agentsMDMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
 	agentsMDBlock           = `<!-- LUMI DO NOT REMOVE -->
-**MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` in your workspace — read each SKILL.md and follow their instructions.
+**MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
 
 ---`
 )
+
+// hooks is the list of hook names available on CDN.
+// Each hook has HOOK.md (metadata) and handler.ts (logic).
+var hooks = []string{
+	"camera-inject",
+}
 
 // skills is the list of skill names available on CDN.
 var skills = []string{
@@ -72,6 +79,29 @@ func (s *Service) EnsureOnboarding() error {
 			continue
 		}
 		slog.Info("seeded skill", "component", "onboarding", "skill", name)
+	}
+
+	// Download hooks from CDN
+	hooksDir := filepath.Join(workspace, "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("create hooks dir: %w", err)
+	}
+	hookFiles := []string{"HOOK.md", "handler.ts"}
+	for _, name := range hooks {
+		dir := filepath.Join(hooksDir, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			slog.Error("mkdir failed", "component", "onboarding", "dir", dir, "error", err)
+			continue
+		}
+		for _, file := range hookFiles {
+			dst := filepath.Join(dir, file)
+			url := fmt.Sprintf("%s/%s/%s", hooksBaseURL, name, file)
+			if err := downloadFile(url, dst); err != nil {
+				slog.Error("download hook file failed", "component", "onboarding", "hook", name, "file", file, "error", err)
+				continue
+			}
+		}
+		slog.Info("seeded hook", "component", "onboarding", "hook", name)
 	}
 
 	// Ensure AGENTS.md has mandatory block
