@@ -277,7 +277,7 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 // applyUpdate runs the appropriate update command for the given component.
 func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domain.OTAComponent) error {
 	switch key {
-	case domain.OTAKeyLumi, domain.OTAKeyWeb:
+	case domain.OTAKeyLumi, domain.OTAKeyWeb, domain.OTAKeyLeLamp:
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		out, err := system.Run(runCtx, "software-update", key)
