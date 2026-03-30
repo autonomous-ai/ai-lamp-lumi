@@ -208,6 +208,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Resolve OpenClaw UUID → device ID for consistent flow tracing across all agent events
 		flowRunID := h.resolveRunID(payload.RunID)
+		// Full raw dump: persist every OpenClaw agent-stream payload so debugging can reconstruct
+		// the exact upstream timeline (lifecycle/tool/thinking/assistant deltas, etc.).
+		h.appendDebugJSONL(map[string]any{
+			"source":      "openclaw_raw",
+			"event":       evt.Event,
+			"stream":      payload.Stream,
+			"run_id":      payload.RunID,
+			"flow_run_id": flowRunID,
+			"session_key": payload.SessionKey,
+			"phase":       payload.Data.Phase,
+			"raw_payload": string(evt.Payload),
+		})
 
 		switch payload.Stream {
 		case "lifecycle":
@@ -395,6 +407,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			"raw_message", string(payload.RawMessage))
 		// Same as agent stream: OpenClaw may send UUID while lifecycle/tool/tts used resolved device id.
 		flowRunID := h.resolveRunID(payload.RunID)
+		// Full raw dump: persist every OpenClaw chat payload as well.
+		h.appendDebugJSONL(map[string]any{
+			"source":      "openclaw_raw",
+			"event":       evt.Event,
+			"stream":      "chat",
+			"run_id":      payload.RunID,
+			"flow_run_id": flowRunID,
+			"session_key": payload.SessionKey,
+			"role":        payload.Role,
+			"state":       payload.State,
+			"raw_payload": string(evt.Payload),
+		})
 		// Debug alignment: OpenClaw "chat" stream may or may not include user messages for outbound chat.send.
 		// When flowRunID belongs to Lumi, log role/state/message so we can confirm whether chat_input can be emitted.
 		if strings.HasPrefix(flowRunID, "lumi-") {

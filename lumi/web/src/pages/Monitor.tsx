@@ -238,6 +238,46 @@ function StatusDot({ ok }: { ok: boolean }) {
   );
 }
 
+function ForceUpdateButton() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const trigger = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`${API}/system/force-update`, { method: "POST" });
+      if (r.ok) setMsg("Triggered");
+      else setMsg("Failed");
+    } catch {
+      setMsg("Unreachable");
+    } finally {
+      setBusy(false);
+      setTimeout(() => setMsg(null), 3000);
+    }
+  };
+  return (
+    <button
+      onClick={trigger}
+      disabled={busy}
+      style={{
+        marginTop: 4,
+        padding: "3px 8px",
+        fontSize: 9,
+        fontWeight: 600,
+        border: "1px solid var(--lm-border)",
+        borderRadius: 4,
+        background: "transparent",
+        color: "var(--lm-amber)",
+        cursor: busy ? "wait" : "pointer",
+        opacity: busy ? 0.6 : 1,
+      }}
+    >
+      {busy ? "Checking…" : "Force Update"}
+      {msg && <span style={{ marginLeft: 4, color: msg === "Triggered" ? "var(--lm-green)" : "var(--lm-red)" }}>{msg}</span>}
+    </button>
+  );
+}
+
 function HWBadge({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div
@@ -1238,9 +1278,14 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   for (const turn of stitched) {
     refineTurnTypeFromSensingInputs(turn);
     // Prevent "phantom telegram": don't keep type=telegram if JSONL/SSE turn has no chat_input events.
-    if (turn.type === "telegram" && !turnHasChatInputEvent(turn)) {
+    if (turn.type === "telegram" && (!turnHasChatInputEvent(turn))) {
       turn.type = "unknown";
       // Keep path as-is (usually "agent") since we still have agent output.
+    }
+    // If Telegram input message text is missing, we can only be confident it's a "ghost"
+    // when there is also no agent output in the same turn.
+    if (turn.type === "telegram" && turnHasChatInputEvent(turn) && !turnHasRealTelegramInput(turn) && !turnHasOutput(turn)) {
+      turn.type = "unknown";
     }
   }
 
@@ -1272,9 +1317,16 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
-  const pushAgentResponse = (line: string) => {
+  const pushUnique = (arr: string[], line: string) => {
     if (!line) return;
-    if (!info.agent_response.includes(line)) info.agent_response.push(line);
+    if (!arr.includes(line)) arr.push(line);
+  };
+  const pushAgentResponse = (line: string) => pushUnique(info.agent_response, line);
+  const pushLLMTokens = (line: string) => {
+    // Show token usage on all LLM-related nodes (call / thinking / response).
+    pushUnique(info.agent_call, line);
+    pushUnique(info.agent_thinking, line);
+    pushUnique(info.agent_response, line);
   };
 
   for (const ev of events) {
@@ -1369,7 +1421,7 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         if (d?.inputTokens) {
           const inp = parseInt(d.inputTokens, 10);
           const out = parseInt(d.outputTokens ?? "0", 10);
-          pushAgentResponse(`tokens: ${fmtToken(inp)} in / ${fmtToken(out)} out`);
+          pushLLMTokens(`tokens: ${fmtToken(inp)} in / ${fmtToken(out)} out`);
         }
       }
     }
@@ -1382,9 +1434,9 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const cacheRead = Number(u?.cache_read_tokens ?? 0);
       const cacheWrite = Number(u?.cache_write_tokens ?? 0);
       const total = Number(u?.total_tokens ?? 0);
-      if (inTok || outTok) pushAgentResponse(`tokens: ${fmtToken(inTok)} in / ${fmtToken(outTok)} out`);
-      if (cacheRead || cacheWrite) pushAgentResponse(`cache: ${fmtToken(cacheRead)} read / ${fmtToken(cacheWrite)} write`);
-      if (total) pushAgentResponse(`total: ${fmtToken(total)}`);
+      if (inTok || outTok) pushLLMTokens(`tokens: ${fmtToken(inTok)} in / ${fmtToken(outTok)} out`);
+      if (cacheRead || cacheWrite) pushLLMTokens(`cache: ${fmtToken(cacheRead)} read / ${fmtToken(cacheWrite)} write`);
+      if (total) pushLLMTokens(`total: ${fmtToken(total)}`);
     }
     // JSONL path: lifecycle_end status
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
@@ -1842,6 +1894,13 @@ function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead:
 }
 
 function TurnBadge({ turn }: { turn: Turn }) {
+  const formatTurnTime = (iso: string): string => {
+    // iso is RFC3339-ish: 2026-03-30T16:33:45.123+07:00
+    // UI requirement: show time only (no date).
+    const m = iso.match(/T(\d{2}:\d{2})(?::\d{2})?/);
+    return (m?.[1] ?? iso).trim();
+  };
+
   const pathColor = turn.path === "local" ? "var(--lm-green)"
     : turn.path === "agent" ? "var(--lm-blue)"
     : "var(--lm-text-muted)";
@@ -1852,6 +1911,12 @@ function TurnBadge({ turn }: { turn: Turn }) {
   const { input, output } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+  const statusLabel = turn.status === "done"
+    ? "DONE"
+    : turn.status === "error"
+      ? "ERROR"
+      : "ACTIVE";
+  const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path;
 
   return (
     <div style={{
@@ -1862,7 +1927,7 @@ function TurnBadge({ turn }: { turn: Turn }) {
       fontSize: 11,
       cursor: "default",
     }}>
-      {/* Row 1: source icon + type + path + status + time */}
+      {/* Row 1: source icon + type + path + status tag */}
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
         <span style={{ fontSize: 14, lineHeight: 1 }}>{icon}</span>
         <span style={{
@@ -1872,15 +1937,23 @@ function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{
           fontSize: 8, padding: "1px 5px", borderRadius: 3,
           background: `${pathColor}18`, color: pathColor, fontWeight: 700,
-          textTransform: "uppercase" as const,
-        }}>{turn.path}</span>
+        }}>{pathLabel}</span>
         <span style={{
-          width: 6, height: 6, borderRadius: "50%",
-          background: statusColor, display: "inline-block", flexShrink: 0,
-        }} />
-        <span style={{ fontSize: 8, color: "var(--lm-text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
-          {turn.startTime}
-        </span>
+          fontSize: 8, padding: "1px 5px", borderRadius: 3,
+          background: `${statusColor}18`, color: statusColor, fontWeight: 700,
+          textTransform: "uppercase" as const,
+        }}>{statusLabel}</span>
+      </div>
+
+      {/* Row 2: time only (HH:mm) */}
+      <div style={{
+        fontSize: 8,
+        color: "var(--lm-text)",
+        fontFamily: "monospace",
+        marginBottom: 3,
+        opacity: 0.95,
+      }}>
+        {formatTurnTime(turn.startTime)}
       </div>
       {/* Turn ID for tracing */}
       <div style={{ fontSize: 8, color: "var(--lm-text-muted)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
@@ -3489,6 +3562,7 @@ export default function Monitor() {
             <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span></div>
             <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span></div>
             <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span></div>
+            <ForceUpdateButton />
           </div>
         </div>
       </aside>
