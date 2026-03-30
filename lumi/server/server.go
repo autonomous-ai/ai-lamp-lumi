@@ -1,13 +1,19 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,6 +27,7 @@ import (
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
+	"go-lamp.autonomous.ai/server/serializers"
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
 	_deviceHttpDeliver "go-lamp.autonomous.ai/server/device/delivery/http"
 	_deviceMQTTDeliver "go-lamp.autonomous.ai/server/device/delivery/mqtt"
@@ -238,6 +245,10 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("debug-lines", s.openclawHandler.DebugLogLines)
 	oc.GET("analytics", s.openclawHandler.Analytics)
 
+	logs := api.Group("logs")
+	logs.GET("tail", s.logTail)
+	logs.GET("stream", s.logStream)
+
 	slog.Info("server started", "component", "server")
 
 	errChan := make(chan error)
@@ -353,4 +364,168 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		s.networkService.SwitchToAPMode()
 	}
 	s.lastSetupCompleted = &setupCompleted
+}
+
+// allowedLogs maps source names to their log file paths (supports glob patterns).
+var allowedLogs = map[string]string{
+	"lelamp":   "/var/log/lelamp/server.log",
+	"lumi":     "/var/log/lumi.log",
+	"openclaw": "/tmp/openclaw/*.log",
+}
+
+// resolveLogPaths expands a pattern (plain path or glob) to matching files.
+func resolveLogPaths(pattern string) ([]string, error) {
+	if !strings.ContainsAny(pattern, "*?[") {
+		return []string{pattern}, nil
+	}
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob: %w", err)
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+// logTail returns the last N lines of a whitelisted log file (or merged glob).
+// GET /api/logs/tail?source=lelamp|lumi|openclaw&lines=200
+func (s *Server) logTail(c *gin.Context) {
+	source := c.DefaultQuery("source", "lumi")
+	pattern, ok := allowedLogs[source]
+	if !ok {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
+		return
+	}
+
+	n, _ := strconv.Atoi(c.DefaultQuery("lines", "200"))
+	if n <= 0 || n > 5000 {
+		n = 200
+	}
+
+	paths, err := resolveLogPaths(pattern)
+	if err != nil || len(paths) == 0 {
+		errMsg := "no log files found"
+		if err != nil {
+			errMsg = err.Error()
+		}
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"source": source,
+			"path":   pattern,
+			"lines":  []string{},
+			"error":  errMsg,
+		}))
+		return
+	}
+
+	var allLines []string
+	for _, p := range paths {
+		lines, _ := tailFile(p, n)
+		allLines = append(allLines, lines...)
+	}
+	// Keep only last n lines across all files
+	if len(allLines) > n {
+		allLines = allLines[len(allLines)-n:]
+	}
+
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"source": source,
+		"path":   pattern,
+		"lines":  allLines,
+	}))
+}
+
+// logStream streams new log lines via SSE from one or more log files.
+// GET /api/logs/stream?source=lelamp|lumi|openclaw
+func (s *Server) logStream(c *gin.Context) {
+	source := c.DefaultQuery("source", "lumi")
+	pattern, ok := allowedLogs[source]
+	if !ok {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	paths, err := resolveLogPaths(pattern)
+	if err != nil || len(paths) == 0 {
+		errMsg := "no log files found"
+		if err != nil {
+			errMsg = err.Error()
+		}
+		c.SSEvent("error", errMsg)
+		return
+	}
+
+	type fileTail struct {
+		f      *os.File
+		reader *bufio.Reader
+	}
+	var tails []fileTail
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		// Seek to end
+		_, _ = f.Seek(0, 2)
+		tails = append(tails, fileTail{f: f, reader: bufio.NewReader(f)})
+	}
+	if len(tails) == 0 {
+		c.SSEvent("error", "cannot open any log files")
+		return
+	}
+	defer func() {
+		for _, t := range tails {
+			t.f.Close()
+		}
+	}()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-c.Request.Context().Done():
+			return false
+		case <-ticker.C:
+			for i := range tails {
+				for {
+					line, err := tails[i].reader.ReadString('\n')
+					if len(line) > 0 {
+						c.SSEvent("log", strings.TrimRight(line, "\n"))
+					}
+					if err != nil {
+						break
+					}
+				}
+			}
+			return true
+		}
+	})
+}
+
+// tailFile reads the last n lines from a single file.
+func tailFile(path string, n int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
+
+	var ring []string
+	for scanner.Scan() {
+		ring = append(ring, scanner.Text())
+		if len(ring) > n {
+			ring = ring[1:]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return ring, fmt.Errorf("scan: %w", err)
+	}
+	return ring, nil
 }
