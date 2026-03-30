@@ -152,16 +152,19 @@ class VoiceService:
         try:
             window_frames = int(SAMPLE_RATE * ECHO_GATE_WINDOW_S)
             elapsed = 0.0
-            while elapsed < ECHO_GATE_MAX_WAIT_S and self._running:
-                recording = sd.rec(
-                    window_frames, samplerate=SAMPLE_RATE, channels=CHANNELS,
-                    dtype="int16", device=self._input_device, blocking=True,
-                )
-                rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
-                elapsed += ECHO_GATE_WINDOW_S
-                if rms < ECHO_RMS_FLOOR:
-                    logger.info("Reverb decayed (RMS=%.0f < %d) after %.2fs", rms, ECHO_RMS_FLOOR, elapsed)
-                    return
+            with sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16",
+                blocksize=window_frames, device=self._input_device,
+            ) as tmp_mic:
+                while elapsed < ECHO_GATE_MAX_WAIT_S and self._running:
+                    data, overflowed = tmp_mic.read(window_frames)
+                    if overflowed:
+                        continue
+                    rms = float(np.sqrt(np.mean(data.astype(np.float32) ** 2)))
+                    elapsed += ECHO_GATE_WINDOW_S
+                    if rms < ECHO_RMS_FLOOR:
+                        logger.info("Reverb decayed (RMS=%.0f < %d) after %.2fs", rms, ECHO_RMS_FLOOR, elapsed)
+                        return
             logger.info("Reverb gate timeout after %.1fs, resuming anyway", ECHO_GATE_MAX_WAIT_S)
         except Exception as e:
             logger.warning("RMS gate failed, falling back to fixed delay: %s", e)
