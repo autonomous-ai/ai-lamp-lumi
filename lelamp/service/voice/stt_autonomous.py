@@ -20,7 +20,7 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
-DEFAULT_MODEL = "nova-2"
+DEFAULT_MODEL = "flux-general-en"
 DEFAULT_ENCODING = "linear16"
 
 
