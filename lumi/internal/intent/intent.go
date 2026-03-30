@@ -15,6 +15,10 @@ const lelampBase = "http://127.0.0.1:5001"
 type Result struct {
 	// TTSText is spoken back to the user via /voice/speak.
 	TTSText string
+	// LEDChanged is true when this intent sets an LED color/scene (locks ambient breathing).
+	LEDChanged bool
+	// LEDOff is true when this intent turns the LED off (unlocks ambient breathing).
+	LEDOff bool
 }
 
 // Match tries to match a voice command to a local intent.
@@ -44,7 +48,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/led/solid", `{"color":[255,220,180]}`)
 			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
-			return &Result{TTSText: "Light on!"}
+			return &Result{TTSText: "Light on!", LEDChanged: true}
 		},
 	},
 	{
@@ -52,7 +56,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/led/off", "")
 			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
-			return &Result{TTSText: "Light off!"}
+			return &Result{TTSText: "Light off!", LEDOff: true}
 		},
 	},
 
@@ -78,7 +82,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/scene", `{"scene":"night"}`)
 			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
-			return &Result{TTSText: "Goodnight!"}
+			return &Result{TTSText: "Goodnight!", LEDChanged: true}
 		},
 	},
 	{
@@ -144,7 +148,7 @@ func anyOf(keywords ...string) func(string) bool {
 func sceneExec(scene, reply string) func(string) *Result {
 	return func(string) *Result {
 		post("/scene", fmt.Sprintf(`{"scene":"%s"}`, scene))
-		return &Result{TTSText: reply}
+		return &Result{TTSText: reply, LEDChanged: true}
 	}
 }
 

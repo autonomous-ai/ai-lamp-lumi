@@ -314,6 +314,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					h.markMusicTurn(payload.RunID)
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 				}
+				// Detect LED tool calls so ambient breathing doesn't override agent-set colors.
+				if strings.Contains(payload.Data.ToolArgs, "/led/solid") ||
+					strings.Contains(payload.Data.ToolArgs, "/led/effect") ||
+					strings.Contains(payload.Data.ToolArgs, "/scene") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+				}
+				if strings.Contains(payload.Data.ToolArgs, "/led/off") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
 				if len(result) > 100 {
