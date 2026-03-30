@@ -2719,9 +2719,17 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
           <button onClick={() => setFilter("")} style={{ ...btnStyle, padding: "3px 6px" }}>✕</button>
         )}
         <button onClick={() => setLines([])} style={btnStyle}>Clear</button>
-        <span style={{ marginLeft: "auto", fontSize: 9, color: "var(--lm-text-muted)" }}>
+        <label style={{ marginLeft: "auto", fontSize: 9, color: "var(--lm-text-muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
+          <input
+            type="checkbox"
+            checked={autoScroll}
+            onChange={(e) => setAutoScroll(e.target.checked)}
+            style={{ width: 11, height: 11, accentColor: "var(--lm-amber)", cursor: "pointer" }}
+          />
+          Auto-scroll
+        </label>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>
           {loading ? "Loading..." : error ? error : filtered.length !== lines.length ? `${filtered.length}/${lines.length}` : `${lines.length} lines`}
-          {!autoScroll && " (pinned)"}
         </span>
       </div>
       <div
