@@ -152,6 +152,9 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 			})
 			dump, _ := json.Marshal(resp)
 			slog.Debug("received response from backend", "component", "status-reporter", "response", string(dump))
+			if resp == nil {
+				continue
+			}
 			if resp.DeviceID != "" && resp.DeviceID != s.config.DeviceID {
 				s.config.DeviceID = resp.DeviceID
 			}
