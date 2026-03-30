@@ -204,11 +204,10 @@ Turn Pipeline grouping behavior:
 - For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text.
 - Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
 - Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
-- Flow Panel header actions include **`↓ Pair`**, **`full day`**, **`↓ Debug`**, **`✕ Clear`**, **`🗑 Log`**.
+- Flow Panel header actions include **`↓ Pair`**, **`full day`**, **`↓ OpenClaw Debug`**, **`🗑 Log`**.
 - **`↓ Pair`** — one click saves **two files**: server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`, filename like `lumi_flow_YYYY-MM-DD_last500.jsonl`), then after a short delay the **in-memory** snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`). Use both together to diff server lines vs Monitor grouping.
 - **`full day`** — `GET /api/openclaw/flow-logs` without `last` (whole day JSONL).
-- `↓ Debug` downloads raw OpenClaw debug payloads from `GET /api/openclaw/debug-logs` (file: `local/openclaw_debug_payloads.jsonl` on the server).
-- `✕ Clear` asks for confirmation, then clears all currently displayed Flow events/turns in the UI (client-side only).
+- `↓ OpenClaw Debug` downloads raw OpenClaw debug payloads from `GET /api/openclaw/debug-logs` (file: `local/openclaw_debug_payloads.jsonl` on the server).
 - `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate today's server flow log file, then clears current Flow UI events.
 - Turn history list shows the latest **100 turns** (newest first), derived from the **last 500** flow events only — older events are not in memory, so Turns can omit early-day activity even if the full JSONL file is larger.
 - Flow event memory is capped at 500 events.
