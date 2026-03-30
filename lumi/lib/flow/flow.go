@@ -121,12 +121,16 @@ func Log(node string, data map[string]any) {
 	global.emit(KindEvent, node, 0, data)
 }
 
+const traceFile = "local/.flow_trace"
+
 // SetTrace sets the active trace ID (run ID) for subsequent events.
 // Call this when a new agent turn starts so all related events share the same trace_id.
+// The trace is persisted to disk so it survives server restarts.
 func SetTrace(id string) {
 	global.mu.Lock()
 	global.traceID = id
 	global.mu.Unlock()
+	_ = os.WriteFile(traceFile, []byte(id), 0o644)
 }
 
 // ClearTrace clears the active trace ID (call when a turn ends).
@@ -134,12 +138,19 @@ func ClearTrace() {
 	global.mu.Lock()
 	global.traceID = ""
 	global.mu.Unlock()
+	_ = os.Remove(traceFile)
 }
 
 // GetTrace returns the current active trace ID, or "" if none is set.
+// On first call after restart, restores from disk if available.
 func GetTrace() string {
 	global.mu.Lock()
 	defer global.mu.Unlock()
+	if global.traceID == "" {
+		if b, err := os.ReadFile(traceFile); err == nil && len(b) > 0 {
+			global.traceID = string(b)
+		}
+	}
 	return global.traceID
 }
 
