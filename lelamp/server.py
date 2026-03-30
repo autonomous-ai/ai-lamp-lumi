@@ -368,7 +368,7 @@ app = FastAPI(
         "camera, audio (mic/speaker), display, and AI voice pipeline. "
         "Lumi Server (Go, port 5000) bridges requests here."
     ),
-    version="0.2.0",
+    version=(Path(__file__).parent / "VERSION_LELAMP").read_text().strip() if (Path(__file__).parent / "VERSION_LELAMP").exists() else "dev",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
