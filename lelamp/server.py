@@ -800,13 +800,15 @@ def move_servo(req: ServoMoveRequest):
         if req.duration > 0:
             animation_service.move_to(safe_positions, duration=req.duration)
         else:
-            animation_service.robot.send_action(safe_positions)
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(safe_positions)
     except Exception as e:
         errors["move"] = str(e)
 
     # Read back actual positions to check errors
     try:
-        obs = animation_service.robot.get_observation()
+        with animation_service.bus_lock:
+            obs = animation_service.robot.get_observation()
         for joint, target in safe_positions.items():
             actual = obs.get(joint)
             if actual is not None:
@@ -838,11 +840,12 @@ def release_servos():
         raise HTTPException(503, "Servo robot not connected")
     bus = animation_service.robot.bus
     errors = {}
-    for motor_name in bus.motors:
-        try:
-            bus.write("Torque_Enable", motor_name, 0)
-        except Exception as e:
-            errors[motor_name] = str(e)
+    with animation_service.bus_lock:
+        for motor_name in bus.motors:
+            try:
+                bus.write("Torque_Enable", motor_name, 0)
+            except Exception as e:
+                errors[motor_name] = str(e)
     if errors:
         logger.warning(f"Servo release errors (offline?): {errors}")
     return {"status": "ok"}
@@ -856,7 +859,8 @@ def get_servo_position():
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     try:
-        obs = animation_service.robot.get_observation()
+        with animation_service.bus_lock:
+            obs = animation_service.robot.get_observation()
         positions = {k: v for k, v in obs.items() if k.endswith(".pos")}
         return {"positions": positions}
     except Exception as e:
@@ -876,24 +880,25 @@ def get_servo_status():
     from scservo_sdk import COMM_SUCCESS
 
     servos = {}
-    for motor_name, motor_obj in bus.motors.items():
-        key = f"{motor_name}.pos"
-        sid = motor_obj.id
-        detail = {"id": sid, "angle": None, "online": False, "error": None}
-        try:
-            _, result, _ = pk.ping(ph, sid)
-            if result != COMM_SUCCESS:
-                detail["error"] = "no status packet"
-            else:
-                detail["online"] = True
-                try:
-                    pos = bus.read("Present_Position", motor_name)
-                    detail["angle"] = float(pos)
-                except Exception as e:
-                    detail["error"] = f"read failed: {e}"
-        except Exception as e:
-            detail["error"] = str(e)
-        servos[key] = detail
+    with animation_service.bus_lock:
+        for motor_name, motor_obj in bus.motors.items():
+            key = f"{motor_name}.pos"
+            sid = motor_obj.id
+            detail = {"id": sid, "angle": None, "online": False, "error": None}
+            try:
+                _, result, _ = pk.ping(ph, sid)
+                if result != COMM_SUCCESS:
+                    detail["error"] = "no status packet"
+                else:
+                    detail["online"] = True
+                    try:
+                        pos = bus.read("Present_Position", motor_name)
+                        detail["angle"] = float(pos)
+                    except Exception as e:
+                        detail["error"] = f"read failed: {e}"
+            except Exception as e:
+                detail["error"] = str(e)
+            servos[key] = detail
     return {"servos": servos}
 
 
@@ -920,7 +925,8 @@ def aim_servo(req: ServoAimRequest):
         if req.duration > 0:
             animation_service.move_to(positions, duration=req.duration)
         else:
-            animation_service.robot.send_action(positions)
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(positions)
         return {"status": "ok", "direction": req.direction, "positions": positions}
     except Exception as e:
         raise HTTPException(500, f"Servo aim failed: {e}")
