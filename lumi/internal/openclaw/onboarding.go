@@ -20,8 +20,10 @@ const (
 	hooksBaseURL  = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/hooks"
 
 	agentsMDMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
-	agentsMDBlock           = `<!-- LUMI DO NOT REMOVE -->
+	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
+
+**Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`cat /opt/lelamp/VERSION_LELAMP`" + ` (LeLamp).
 
 ---`
 )
