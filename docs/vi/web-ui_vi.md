@@ -159,10 +159,12 @@ Gồm các card:
 **System quick stats**
 - CPU, RAM, Temp, Uptime dạng pill
 
-**Version** (hàng dưới cùng)
-- **Web**: inject lúc build từ `package.json` qua Vite `define` (`__WEB_VERSION__`)
-- **Lumi**: từ `GET /api/system/info` → field `version` (Go ldflags)
-- **LeLamp**: fetch 1 lần từ `GET /hw/version` → field `version`
+### Sidebar Footer
+
+Dưới nav items và trạng thái OpenClaw, sidebar hiển thị version của cả 3 repo:
+- **Web** (teal): inject lúc build từ `package.json` qua Vite `define` (`__WEB_VERSION__`)
+- **Lumi** (amber): từ `GET /api/system/info` → field `version` (Go ldflags)
+- **LeLamp** (blue): fetch 1 lần từ `GET /hw/version` → field `version`
 
 ### 5.2 System Section
 
