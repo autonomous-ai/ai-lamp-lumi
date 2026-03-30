@@ -911,7 +911,7 @@ function parseTelegramSummary(summary: string): string {
   return (m[1] ?? "").trim();
 }
 
-const TELEGRAM_FALLBACK_MESSAGE = "Message content from telegram";
+const TELEGRAM_FALLBACK_MESSAGE = "Message from telegram";
 const TURN_INPUT_FALLBACK = "Input not captured";
 
 function turnHasOutput(turn: Turn): boolean {
@@ -936,11 +936,13 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 
   // Check if event starts a new turn
   function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"] } | null {
-    if (ev.type === "sensing_input") {
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
       return { type: m ? m[1] : "unknown", path: "unknown" };
     }
-    if (ev.type === "chat_input") return { type: "telegram", path: "agent" };
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      return { type: "telegram", path: "agent" };
+    }
     // Ambient actions (breathing, movement, mumble) start their own turn
     // BUT ambient_pause/ambient_resume are infra signals, NOT turns
     const ambientNode = ev.detail?.node ?? "";
@@ -1010,11 +1012,14 @@ function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.id = evRunId;
     }
 
-    // Classify path
+    // Classify path — only from events that belong to this turn's run
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       current.path = "local";
-    } else if (evRunId || ev.type === "lifecycle" || ev.type === "thinking") {
-      current.path = "agent";
+    } else if (current.path !== "local") {
+      const belongsToTurn = !current.runId || !evRunId || evRunId === current.runId;
+      if (belongsToTurn && (evRunId || ev.type === "lifecycle" || ev.type === "thinking")) {
+        current.path = "agent";
+      }
     }
 
     // Detect turn end
@@ -1159,9 +1164,9 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
     }
     // tool_call → tool_exec node — show tool name + args
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
-      const d = ev.detail as Record<string, string> | undefined;
-      const toolName = d?.tool ?? "unknown";
-      const args = d?.args ? d.args : "";
+      const d = ev.detail as Record<string, any> | undefined;
+      const toolName = d?.tool ?? d?.data?.tool ?? "unknown";
+      const args = d?.args ?? d?.data?.args ?? "";
       // Avoid duplicates
       const entry = `⚙ ${toolName}${args ? `(${args})` : ""}`;
       if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
@@ -1171,23 +1176,38 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       if (ev.type === "thinking" && ev.summary && info.agent_thinking.length < 2) {
         info.agent_thinking.push(`"${ev.summary}…"`);
       }
-    }
-    // chat_response → agent_response node
-    if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
-      const d = ev.detail as Record<string, string> | undefined;
-      if (d?.message && info.agent_response.length < 2) {
-        info.agent_response.push(`"${d.message}…"`);
-      } else if (ev.summary && info.agent_response.length < 2) {
-        info.agent_response.push(`"${ev.summary}…"`);
+      // JSONL: lifecycle_start marks thinking began
+      if (ev.type === "flow_event" && info.agent_thinking.length === 0) {
+        info.agent_thinking.push("reasoning…");
       }
     }
-    // tts → tts_speak node
+    // chat_response / lifecycle_end → agent_response node
+    if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      if (d?.message && info.agent_response.length < 2) {
+        info.agent_response.push(`"${d.message}…"`);
+      }
+      // JSONL: lifecycle_end has error in data
+      const dataErr = d?.data?.error;
+      if (dataErr && info.agent_response.length < 2) {
+        info.agent_response.push(`❌ ${dataErr}`);
+      }
+    }
+    // tts / tts_send → tts_speak node + output node
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
-      if (info.tts_speak.length < 2) {
-        info.tts_speak.push(`🔊 "${ev.summary}"`);
+      const d = ev.detail as Record<string, any> | undefined;
+      const text = d?.data?.text ?? d?.text ?? "";
+      if (text && info.tts_speak.length < 2) {
+        info.tts_speak.push(`🔊 "${text}"`);
+      }
+      // Also populate agent_response with the spoken text (more useful than lifecycle summary)
+      if (text && info.agent_response.length < 2) {
+        const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
+        info.agent_response.push(`"${preview}"`);
       }
     }
     // lifecycle → idle / agent_call + token usage on agent_response
+    // Monitor bus path
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
       if (ev.phase === "end") {
@@ -1201,10 +1221,25 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
         }
       }
     }
+    // JSONL path: token_usage event has token counts
+    if (ev.type === "flow_event" && ev.detail?.node === "token_usage") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const u = d?.data;
+      if (u?.input_tokens || u?.output_tokens) {
+        const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+        info.agent_response.push(`tokens: ${fmt(u.input_tokens ?? 0)} in / ${fmt(u.output_tokens ?? 0)} out`);
+      }
+    }
+    // JSONL path: lifecycle_end → idle node
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const err = d?.data?.error;
+      info.idle.push(err ? `❌ ${err}` : "✓ turn done");
+    }
     // output — what the user finally sees/hears
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
       const d = ev.detail as Record<string, any> | undefined;
-      const text = d?.text ?? ev.summary;
+      const text = d?.data?.text ?? d?.text ?? "";
       if (text && info.output.length < 3) {
         info.output.push(`🔊 "${text}"`);
       }
@@ -1216,8 +1251,8 @@ function extractNodeInfo(events: DisplayEvent[]): Record<FlowStage, string[]> {
       if (ev.summary && info.output.length < 3) info.output.push(`⚡ ${ev.summary}`);
     }
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
-      const d = ev.detail as Record<string, string> | undefined;
-      const toolName = d?.tool ?? "";
+      const d = ev.detail as Record<string, any> | undefined;
+      const toolName = d?.tool ?? d?.data?.tool ?? "";
       if (toolName && info.output.length < 3) {
         info.output.push(`⚙ ${toolName}`);
       }
@@ -1239,8 +1274,8 @@ function FlowDiagram({
   turnEvents?: DisplayEvent[];
 }) {
   // viewBox dimensions (logical coordinate space)
-  const VW = 940;
-  const VH = 420;
+  const VW = 990;
+  const VH = 480;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -1278,21 +1313,22 @@ function FlowDiagram({
   const vbX = (VW - vbW) / 2 - pan.x;
   const vbY = (VH - vbH) / 2 - pan.y;
 
-  // Node positions — wider spacing for info
+  // Node positions — 3 rows: LOCAL (top y=80), MAIN (mid y=210), AGENT (bottom y=340)
+  // x starts at 90 to leave room for row titles on the left
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    idle:              { x: 60,  y: 210 },
-    ambient:           { x: 60,  y: 80  },
-    sensing:           { x: 170, y: 210 },
-    telegram_input:    { x: 170, y: 390 },
-    intent_check:      { x: 290, y: 210 },
-    local_match:       { x: 410, y: 80  },
-    agent_call:        { x: 410, y: 210 },
-    agent_thinking:    { x: 520, y: 210 },
-    tool_exec:         { x: 640, y: 80  },
-    agent_response:    { x: 640, y: 210 },
-    tts_speak:         { x: 760, y: 210 },
-    schedule_trigger:  { x: 290, y: 390 },
-    output:            { x: 880, y: 210 },
+    idle:              { x: 90,  y: 210 },
+    ambient:           { x: 90,  y: 80  },
+    sensing:           { x: 210, y: 210 },
+    intent_check:      { x: 330, y: 210 },
+    local_match:       { x: 490, y: 80  },
+    output:            { x: 910, y: 210 },
+    telegram_input:    { x: 210, y: 340 },
+    schedule_trigger:  { x: 330, y: 340 },
+    agent_call:        { x: 460, y: 340 },
+    agent_thinking:    { x: 590, y: 340 },
+    tool_exec:         { x: 650, y: 270 },
+    agent_response:    { x: 720, y: 340 },
+    tts_speak:         { x: 850, y: 340 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
@@ -1300,17 +1336,17 @@ function FlowDiagram({
     ["idle",              "sensing"],
     ["ambient",           "output"],
     ["sensing",           "intent_check"],
+    ["intent_check",      "local_match"],     // ↑ LOCAL path (top row)
+    ["local_match",       "output"],
+    ["intent_check",      "agent_call"],      // ↓ AGENT path (bottom row)
     ["telegram_input",    "agent_call"],
     ["schedule_trigger",  "agent_call"],
-    ["intent_check",      "local_match"],
-    ["intent_check",      "agent_call"],
-    ["local_match",       "output"],
     ["agent_call",        "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
     ["tool_exec",         "agent_response"],
     ["agent_response",    "tts_speak"],
-    ["tts_speak",         "output"],
+    ["tts_speak",         "output"],          // ↑ back to main row
     ["output",            "idle"],
   ];
 
@@ -1370,6 +1406,19 @@ function FlowDiagram({
           </marker>
         </defs>
 
+        {/* Row titles */}
+        {[
+          { y: 80,  label: "LOCAL",  color: "var(--lm-green)" },
+          { y: 210, label: "MAIN",   color: "var(--lm-text-muted)" },
+          { y: 340, label: "AGENT",  color: "var(--lm-blue)" },
+        ].map(({ y, label, color }) => (
+          <text key={label} x={12} y={y + 4} fill={color} fontSize={9} fontWeight={700}
+            fontFamily="monospace" opacity={0.5} textAnchor="start"
+            style={{ letterSpacing: "0.1em" }}>
+            {label}
+          </text>
+        ))}
+
         {/* Edges */}
         {edges.map(([from, to]) => {
           const f = positions[from];
@@ -1400,8 +1449,8 @@ function FlowDiagram({
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
           const descLines = node.desc.split(" · ").length;
-          // Info box: below for mid row (y~210), above for top (y~80) and bottom (y~350) rows
-          const infoBelow = pos.y > 80 && pos.y < 300;
+          // Info box: above for LOCAL row (y<=80), below for MAIN and AGENT rows
+          const infoBelow = pos.y > 80;
           const boxY = infoBelow
             ? pos.y + nodeR + 18 + descLines * 10 + 6
             : pos.y - nodeR - 10 - lines.slice(0, 4).length * 11 - 8;
@@ -1444,19 +1493,21 @@ function FlowDiagram({
                 fill={color} fontSize={7} opacity={0.9}>
                 {node.label}
               </text>
-              {/* Description below circle — spaced out */}
-              {node.desc.split(" · ").map((part, i) => (
-                <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 18 + i * 10} textAnchor="middle"
-                  fill={color} fontSize={6} opacity={0.7}>
-                  {part}
-                </text>
-              ))}
-              {/* Path badge above circle */}
-              <text x={pos.x} y={pos.y - nodeR - 5} textAnchor="middle"
-                fill={node.path === "fast" ? "var(--lm-green)" : node.path === "agent" ? "var(--lm-blue)" : "var(--lm-text-muted)"}
-                fontSize={6} fontWeight={600} opacity={0.7}>
-                {PATH_LABEL[node.path]}
-              </text>
+              {/* Description: above circle for AGENT row (y>300), below for others */}
+              {pos.y > 300
+                ? node.desc.split(" · ").map((part, i, arr) => (
+                    <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 14 + i * 10} textAnchor="middle"
+                      fill={color} fontSize={6} opacity={0.7}>
+                      {part}
+                    </text>
+                  ))
+                : node.desc.split(" · ").map((part, i) => (
+                    <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 18 + i * 10} textAnchor="middle"
+                      fill={color} fontSize={6} opacity={0.7}>
+                      {part}
+                    </text>
+                  ))
+              }
 
               {/* Runtime info box — shows tool names, func calls, messages */}
               {hasInfo && (() => {
@@ -1540,17 +1591,24 @@ function turnIO(turn: Turn): { input: string; output: string } {
   let input = "";
   let output = "";
   let inputIsPlaceholder = false;
+  let outputFromIntent = false;
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
     const sameRun = !turnRunId || !evRunId || evRunId === turnRunId;
     // Input: first sensing_input or chat_input message
-    if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"))) {
+    if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
+        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const dataMsg = d?.data?.message ?? d?.message;
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
-      input = m ? m[2] : ev.summary;
+      input = dataMsg || (m ? m[2] : "") || ev.summary;
     }
-    if (ev.type === "chat_input") {
-      const msg = parseTelegramSummary(ev.summary);
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      // Prefer full message from detail (untruncated) over summary
+      const d = ev.detail as Record<string, any> | undefined;
+      const fullMsg = d?.message ?? d?.data?.message;
+      const msg = fullMsg || parseTelegramSummary(ev.summary);
       if (msg) {
         // Prefer a real Telegram message and allow replacing a prior placeholder.
         if (!input || inputIsPlaceholder) {
@@ -1571,14 +1629,21 @@ function turnIO(turn: Turn): { input: string; output: string } {
       const d = ev.detail as Record<string, any> | undefined;
       input = d?.name ?? d?.data?.name ?? ev.summary ?? "scheduled task";
     }
-    // Output: last tts or intent_match result
-    if (sameRun && (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send"))) {
-      const d = ev.detail as Record<string, any> | undefined;
-      output = d?.data?.text ?? d?.text ?? ev.summary ?? output;
-    }
+    // Output: intent_match is authoritative for local turns; tts_send for agent turns.
+    // intent_match output should never be overwritten by a stale tts_send from a different run.
     if (sameRun && (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match"))) {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
+      outputFromIntent = true;
+    }
+    if (!outputFromIntent && sameRun && (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      output = d?.data?.text ?? d?.text ?? ev.summary ?? output;
+    }
+    // Fallback: use final assistant chat_response when tts_send is missing
+    if (!output && sameRun && ev.type === "chat_response" && ev.state === "final") {
+      const d = ev.detail as Record<string, any> | undefined;
+      output = d?.message ?? ev.summary ?? "";
     }
     // Ambient turn output
     if (turn.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
@@ -1645,7 +1710,7 @@ function TurnBadge({ turn }: { turn: Turn }) {
           fontSize: 10, color: "var(--lm-text-dim)",
           wordBreak: "break-word" as const, lineHeight: 1.4,
         }}>
-          <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>OUT</span>
+          <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>OUT 🔊</span>
           {output}
         </div>
       )}
