@@ -754,6 +754,27 @@ func (h *OpenClawHandler) ClearFlowLogs(c *gin.Context) {
 	}))
 }
 
+// ClearDebugLogs truncates the raw OpenClaw debug payload JSONL file.
+func (h *OpenClawHandler) ClearDebugLogs(c *gin.Context) {
+	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"cleared": false,
+			"file":    path,
+			"note":    "file not found",
+		}))
+		return
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear debug log failed: "+err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"cleared": true,
+		"file":    path,
+	}))
+}
+
 // DebugLogs serves the OpenClaw raw debug payload log file for download.
 func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
 	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
