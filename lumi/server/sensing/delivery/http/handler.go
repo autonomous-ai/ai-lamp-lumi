@@ -52,6 +52,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
+	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
+
 	// Track the full turn from trigger to dispatch
 	turnStart := flow.Start("sensing_input", map[string]any{"type": req.Type, "message": req.Message})
 
