@@ -379,6 +379,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			return nil
 		}
 		payload.ResolveChatMessage()
+		slog.Info(">>> CHAT EVENT RECEIVED", "component", "agent",
+			"run_id", payload.RunID,
+			"role", payload.Role,
+			"state", payload.State,
+			"message_len", len(payload.Message),
+			"message", payload.Message,
+			"raw_message", string(payload.RawMessage))
 		// Same as agent stream: OpenClaw may send UUID while lifecycle/tool/tts used resolved device id.
 		flowRunID := h.resolveRunID(payload.RunID)
 		// Debug alignment: OpenClaw "chat" stream may or may not include user messages for outbound chat.send.
