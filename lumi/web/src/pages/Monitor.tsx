@@ -2572,13 +2572,19 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
   const fetchLines = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/logs/tail?source=${source}&lines=${lastN}`).then((x) => x.json());
+      const resp = await fetch(`${API}/logs/tail?source=${source}&lines=${lastN}`);
+      if (!resp.ok) {
+        setError(`HTTP ${resp.status} ${resp.statusText}`);
+        setLines([]);
+        return;
+      }
+      const r = await resp.json();
       const data = r?.data;
       if (data?.error) setError(data.error);
       else setError(null);
       setLines(Array.isArray(data?.lines) ? data.lines : []);
-    } catch {
-      setError("Failed to fetch");
+    } catch (e) {
+      setError(`Fetch error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoading(false);
     }
