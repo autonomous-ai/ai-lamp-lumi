@@ -54,7 +54,7 @@ class DeepgramSession(STTSession):
         if not use_flux:
             # v1-only params
             params.update(
-                language=self._language,
+                language=self._language or "vi",
                 smart_format="true",
                 interim_results="false",
                 endpointing=DEFAULT_ENDPOINTING_MS,
