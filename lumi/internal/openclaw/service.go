@@ -1091,12 +1091,7 @@ func stripForTTS(text string) string {
 	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
 	// Collapse whitespace
 	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
-	text = strings.TrimSpace(text)
-	// Filter out agent "no reply" markers (OpenClaw framework emits these when LLM declines to respond)
-	if strings.EqualFold(text, "no reply") || strings.EqualFold(text, "no_reply") {
-		return ""
-	}
-	return text
+	return strings.TrimSpace(text)
 }
 
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
