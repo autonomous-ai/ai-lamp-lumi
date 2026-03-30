@@ -10,6 +10,8 @@ Flow Monitor là lớp quan sát end-to-end cho agent turn: ghi JSONL (`local/fl
 
 **Map UUID → `lumi-chat-*`:** OpenClaw gán UUID khác idempotency; handler map trên `lifecycle_start` rồi `resolveRunID` dùng cho agent stream **và** luồng `chat` (user/assistant), tránh cùng một turn bị hai `run_id` trên Monitor.
 
+**Sensing `enter` vs `chat_send`:** Handler gọi `NextChatRunID` + `flow.SetTrace` **trước** `flow.Start` để dòng `enter` trong JSONL cùng `trace_id` với `chat_send`. Trước đây `SetTrace` chỉ chạy sau khi gửi WS nên `enter` còn dính turn trước (turn “ma” / export Pair lệch).
+
 **Log tương quan:** grep `flow correlation` — các `op`: `ws_chat_send`, `lelamp_agent_out`, `openclaw_uuid_map`, `chat_run_resolve`. Chi tiết bảng trong `docs/flow-monitor.md`.
 
 ## Sơ đồ Turn Pipeline (SVG)

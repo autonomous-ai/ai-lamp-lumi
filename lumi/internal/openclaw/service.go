@@ -1136,17 +1136,35 @@ func (s *Service) GetSessionKey() string {
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
-	return s.sendChat(message, "")
+	return s.sendChat(message, "", "", "")
 }
 
 // SendChatMessageWithImage sends a message with a base64 JPEG image to the OpenClaw agent.
 // The image is included as a vision content block so the LLM can analyze the camera snapshot.
 func (s *Service) SendChatMessageWithImage(message string, imageBase64 string) (string, error) {
-	return s.sendChat(message, imageBase64)
+	return s.sendChat(message, imageBase64, "", "")
+}
+
+// NextChatRunID allocates ids for the next chat.send so callers can flow.SetTrace(runID) before flow.Start.
+func (s *Service) NextChatRunID() (reqID string, runID string) {
+	reqID = fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
+	runID = fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+	return reqID, runID
+}
+
+// SendChatMessageWithRun sends using ids from NextChatRunID (must match that pair).
+func (s *Service) SendChatMessageWithRun(message string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, "", reqID, runID)
+}
+
+// SendChatMessageWithImageAndRun sends with image using ids from NextChatRunID.
+func (s *Service) SendChatMessageWithImageAndRun(message string, imageBase64 string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, imageBase64, reqID, runID)
 }
 
 // sendChat is the internal implementation for sending chat messages, optionally with an image.
-func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
+// If fixedReqID and fixedRunID are both non-empty, they are used (caller already incremented reqCounter via NextChatRunID).
+func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
 	s.wsMu.Unlock()
@@ -1157,8 +1175,15 @@ func (s *Service) sendChat(message string, imageBase64 string) (string, error) {
 	// reqID labels outbound chat.send from Lumi (sensing POST, wake greeting, etc.) — not "audio only".
 	// Idempotency key must stay stable for OpenClaw run_id mapping; use lumi-chat-* (not lumi-sensing-*)
 	// so logs are not mistaken for sound/voice-only turns vs Telegram.
-	reqID := fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
-	idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+	var reqID string
+	var idempotencyKey string
+	if fixedReqID != "" && fixedRunID != "" {
+		reqID = fixedReqID
+		idempotencyKey = fixedRunID
+	} else {
+		reqID = fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
+		idempotencyKey = fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+	}
 
 	params := map[string]interface{}{
 		"idempotencyKey": idempotencyKey,

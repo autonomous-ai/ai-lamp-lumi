@@ -20,6 +20,16 @@ type AgentGateway interface {
 	// Used by sensing events that include a camera snapshot for AI vision analysis.
 	SendChatMessageWithImage(msg string, imageBase64 string) (string, error)
 
+	// NextChatRunID allocates the chat request id and idempotency key for the next outbound chat.send.
+	// Call flow.SetTrace(runID) before flow.Start so the sensing_input enter line matches chat_send.
+	NextChatRunID() (reqID string, runID string)
+
+	// SendChatMessageWithRun sends using a preallocated pair from NextChatRunID (same idempotency as chat.send).
+	SendChatMessageWithRun(msg string, reqID string, runID string) (string, error)
+
+	// SendChatMessageWithImageAndRun is SendChatMessageWithImage with preallocated ids.
+	SendChatMessageWithImageAndRun(msg string, imageBase64 string, reqID string, runID string) (string, error)
+
 	// GetSessionKey returns the current agent session key, or empty string.
 	GetSessionKey() string
 
