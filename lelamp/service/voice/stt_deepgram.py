@@ -11,8 +11,8 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 
 # Default Deepgram streaming config
-DEFAULT_MODEL = "nova-2"
-DEFAULT_LANGUAGE = "vi"
+DEFAULT_MODEL = "nova-3"
+DEFAULT_LANGUAGE = "multi"
 DEFAULT_ENDPOINTING_MS = 1500
 
 
@@ -27,6 +27,7 @@ class DeepgramSession(STTSession):
         self._channels = channels
         self._language = language
         self._model = model
+        self._ctx = None
         self._connection = None
         self._listener_thread: Optional[threading.Thread] = None
         self._closed = threading.Event()
@@ -37,7 +38,7 @@ class DeepgramSession(STTSession):
         from deepgram.listen.v1.types import ListenV1Results
 
         try:
-            self._connection = self._client.listen.v1.connect(
+            self._ctx = self._client.listen.v1.connect(
                 model=self._model,
                 language=self._language,
                 smart_format="true",
@@ -49,16 +50,18 @@ class DeepgramSession(STTSession):
                 vad_events="true",
                 keywords=self._keywords,
             )
-            self._connection.__enter__()
+            self._connection = self._ctx.__enter__()
         except Exception as e:
             logger.error("Deepgram connect failed: %s", e)
             self._closed.set()
             return False
 
         def on_message(message):
+            logger.debug("Deepgram recv: type=%s", type(message).__name__)
             if not isinstance(message, ListenV1Results):
                 return
             transcript = message.channel.alternatives[0].transcript
+            logger.debug("Deepgram transcript: '%s' is_final=%s", transcript[:80] if transcript else "", message.is_final)
             if not transcript or not transcript.strip():
                 return
             on_transcript(transcript.strip(), message.is_final)
@@ -107,8 +110,9 @@ class DeepgramSession(STTSession):
                 self._connection.send_close_stream()
             except Exception:
                 pass
+        if self._ctx:
             try:
-                self._connection.__exit__(None, None, None)
+                self._ctx.__exit__(None, None, None)
             except Exception:
                 pass
         if self._listener_thread:
