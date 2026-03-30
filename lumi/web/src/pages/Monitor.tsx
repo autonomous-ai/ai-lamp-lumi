@@ -105,13 +105,6 @@ interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-interface ServoPositions {
-  positions: Record<string, number>;
-}
-interface AimDirections {
-  directions: string[];
-}
-
 type Section = "overview" | "system" | "flow" | "camera" | "servo" | "analytics" | "logs";
 
 const NAV: { id: Section; label: string; icon: string }[] = [
