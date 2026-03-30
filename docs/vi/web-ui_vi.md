@@ -204,11 +204,10 @@ Hành vi gom nhóm Turn Pipeline:
 - Với Telegram input, summary placeholder kiểu `[telegram]` sẽ không còn khóa cứng trường `IN`; nếu event đến sau cùng `run_id` có message thật, UI sẽ thay placeholder bằng nội dung đó.
 - Fallback tạm thời: khi không lấy được text Telegram, UI sẽ hiển thị `Message content from telegram`.
 - Turn badge luôn render dòng `IN`; nếu thiếu input, UI sẽ hiển thị `Input not captured`.
-- Header Flow Panel: `↓ Pair`, `full day`, `↓ Debug`, `✕ Clear`, `🗑 Log`.
+- Header Flow Panel: `↓ Pair`, `full day`, `↓ OpenClaw Debug`, `🗑 Log`.
 - `↓ Pair` = **một lần bấm tải hai file**: JSONL server (fetch + blob, `flow-logs?last=500`, 500 dòng cuối) rồi sau vài trăm ms tải JSON snapshot trong browser (events + turns đã gom) — tránh trình duyệt chỉ cho tải một file mỗi lần bấm.
 - `full day` = cả file JSONL trong ngày.
-- `↓ Debug` tải raw OpenClaw debug payload qua `GET /api/openclaw/debug-logs` (file trên server: `local/openclaw_debug_payloads.jsonl`).
-- Nút `✕ Clear` sẽ hỏi xác nhận trước, sau đó xóa toàn bộ events/turns đang hiển thị trong UI (chỉ phía client).
+- `↓ OpenClaw Debug` tải raw OpenClaw debug payload qua `GET /api/openclaw/debug-logs` (file trên server: `local/openclaw_debug_payloads.jsonl`).
 - Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate log flow của hôm nay trên server, rồi xóa events đang hiển thị trong Flow UI.
 - Danh sách Turn history: tối đa **100 turn** (mới nhất ở trên), suy ra từ **500 event** cuối — sự kiện đầu ngày có thể không còn trong bộ nhớ UI.
 - Bộ nhớ event của Flow được giới hạn 500 events.
