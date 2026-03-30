@@ -63,6 +63,7 @@ type emitter struct {
 	file    *os.File
 	day     string // YYYY-MM-DD of current log file
 	traceID string // active turn trace ID (serialized per turn)
+	traceActiveCount int // reference count for active trace (for safe GetTrace()=="" heuristic)
 	bus     *monitor.Bus
 	version string // injected at Init, stamped on every event
 }
@@ -137,13 +138,19 @@ func firstStr(ss []string) string {
 func SetTrace(id string) {
 	global.mu.Lock()
 	global.traceID = id
+	global.traceActiveCount++
 	global.mu.Unlock()
 }
 
 // ClearTrace clears the active trace ID (call when a turn ends).
 func ClearTrace() {
 	global.mu.Lock()
-	global.traceID = ""
+	if global.traceActiveCount > 0 {
+		global.traceActiveCount--
+	}
+	if global.traceActiveCount == 0 {
+		global.traceID = ""
+	}
 	global.mu.Unlock()
 }
 
@@ -151,6 +158,9 @@ func ClearTrace() {
 func GetTrace() string {
 	global.mu.Lock()
 	defer global.mu.Unlock()
+	if global.traceActiveCount == 0 {
+		return ""
+	}
 	return global.traceID
 }
 
