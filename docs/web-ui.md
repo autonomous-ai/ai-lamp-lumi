@@ -195,6 +195,7 @@ Turn Pipeline grouping behavior:
 - If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
 - **Turn type badge** (`motion`, `voice`, …): merged segments that share one `run_id` may include both camera motion and a voice line; the first segment used to win, so the badge could read `motion` while the utterance was voice. After grouping, if any `sensing_input` in the turn is `[voice]` or `[voice_command]`, the badge uses that (voice beats motion for the same run).
 - `OUT` text is only taken from `tts_send`/`intent_match` events matching the turn `run_id` (or events without run_id), preventing cross-turn input/output mismatch.
+- LLM token usage is shown on the **Agent Response** node: `in/out` and, when available from `token_usage`, `cache read/write` + `total`.
 - For Telegram input, placeholder summaries like `[telegram]` no longer lock the `IN` field; when a later event with the same `run_id` contains real message text, the UI replaces the placeholder with that text.
 - Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
 - Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
