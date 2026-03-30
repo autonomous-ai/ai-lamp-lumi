@@ -574,81 +574,77 @@ def gen_sad():
 
 
 def gen_excited():
-    """7s: energetic bouncing — like a dog seeing its owner.
+    """7s: alert rise then rapid nodding — "uh huh uh huh!" excitement.
 
-    Quick rise, then sustained bouncy energy with side-to-side sway.
-    Bouncing does NOT decay — stays energetic throughout hold.
-    Gradually calms down only during return phase.
+    Different from happy_wiggle (horizontal sway). Excited is VERTICAL:
+    head shoots up, then rapid small nods while staying high.
+    Like someone nodding excitedly when hearing great news.
     """
     duration = 7.0
     n = int(duration * FPS)
     frames = []
 
-    # Excited pose: head up, body alert
+    # Excited pose: everything UP
     excited_offset = {
-        "base_yaw.pos": 5.0,
-        "base_pitch.pos": 10.0,
-        "elbow_pitch.pos": 15.0,
-        "wrist_roll.pos": 3.0,
-        "wrist_pitch.pos": 20.0,
+        "base_yaw.pos": 2.0,       # barely any horizontal — vertical excitement
+        "base_pitch.pos": 12.0,     # body rises
+        "elbow_pitch.pos": 18.0,    # arm extends up
+        "wrist_roll.pos": 2.0,      # minimal roll
+        "wrist_pitch.pos": 22.0,    # head up high
     }
 
-    # Phases: rise(0-1s), bounce(1-5s), calm-return(5-7s)
-    rise_end = 1.0
-    bounce_end = 5.0
+    rise_end = 0.8
+    nod_end = 5.5
 
     for i in range(n + 1):
         t = i / FPS
         row = {"timestamp": t}
 
-        # Phase progress
         if t <= rise_end:
-            # Quick rise to excited pose
-            p = overshoot_ease(t / rise_end, overshoot=0.12)
-            bounce_intensity = t / rise_end  # ramp up bounce during rise
-        elif t <= bounce_end:
+            # Quick rise
+            p = overshoot_ease(t / rise_end, overshoot=0.15)
+            nod_intensity = 0.0
+        elif t <= nod_end:
             p = 1.0
-            bounce_intensity = 1.0
+            nod_intensity = 1.0
         else:
-            # Return to rest
-            ret_p = ease_in_out((t - bounce_end) / (duration - bounce_end))
+            # Calm return
+            ret_p = ease_in_out((t - nod_end) / (duration - nod_end))
             p = 1.0 - ret_p
-            bounce_intensity = 1.0 - ret_p
+            nod_intensity = 1.0 - ret_p
 
-        # Bouncing rhythm — asymmetric: quick up, float down
-        bounce_period = 0.4  # ~150 BPM
-        bp = (t % bounce_period) / bounce_period
-        if bp < 0.25:
-            bounce = ease_out(bp / 0.25)  # quick up
+        # Rapid nods — quick down, bounce up (like enthusiastic agreement)
+        nod_period = 0.35  # fast nods
+        np_phase = (t % nod_period) / nod_period
+        if np_phase < 0.3:
+            nod = ease_out(np_phase / 0.3)  # quick dip
         else:
-            bounce = 1.0 - ease_in_out((bp - 0.25) / 0.75)  # slower down
+            nod = 1.0 - ease_in_out((np_phase - 0.3) / 0.7)  # slower rise
 
-        # Alternating big/small bounces
-        cycle = int(t / bounce_period)
-        bounce *= 1.0 if cycle % 2 == 0 else 0.65
-
-        # Side-to-side sway — excited can't stay still
-        sway = math.sin(2 * math.pi * t / 0.8)
-        sway2 = math.sin(2 * math.pi * t / 1.6 + 1.0) * 0.4
+        # Every 3rd nod is bigger (rhythmic emphasis)
+        nod_cycle = int(t / nod_period)
+        nod *= 1.3 if nod_cycle % 3 == 0 else 0.8
 
         for j in JOINTS:
-            # Base pose
             val = REST[j] + excited_offset[j] * p
+            ni = nod_intensity
 
-            # Add bouncing energy
-            bi = bounce_intensity
-            if j == "base_pitch.pos":
-                val += bounce * 4.0 * bi
+            if j == "wrist_pitch.pos":
+                # Primary: rapid head nods
+                val += nod * 6.0 * ni
             elif j == "elbow_pitch.pos":
-                val += bounce * 6.0 * bi
-            elif j == "wrist_pitch.pos":
-                val += bounce * 5.0 * bi
+                # Secondary: elbow follows nods
+                val += nod * 4.0 * ni
+            elif j == "base_pitch.pos":
+                # Tertiary: body bobs slightly
+                val += nod * 2.0 * ni
             elif j == "base_yaw.pos":
-                val += (sway * 8.0 + sway2 * 4.0) * bi
+                # Very subtle drift — NOT sway
+                val += noise(t, 5) * 1.5 * ni
             elif j == "wrist_roll.pos":
-                val += -sway * 5.0 * bi  # counter-sway
+                # Tiny head tilts between nods
+                val += noise(t * 1.5, 9) * 1.5 * ni
 
-            val += noise(t, hash(j) % 11) * 0.3 * bi
             row[j] = val
         frames.append(row)
 
