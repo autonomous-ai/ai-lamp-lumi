@@ -143,6 +143,11 @@ Cards included:
 - 8 badges: Servo / LED / Camera / Audio / Sensing / Voice / TTS / Display
 - **LED color swatch**: rounded square showing current LED strip color with hex code. Fetched from `GET /hw/led/color`.
 
+**Scene** (lighting presets)
+- Shows available scene presets (reading, focus, relax, movie, night, energize). Fetched from `GET /hw/scene`.
+- Clickable buttons activate a scene via `POST /hw/scene` with `{"scene": "<name>"}`.
+- Active scene highlighted with amber accent.
+
 **Servo Pose**
 - Currently running pose (current)
 - List of available poses (up to 8)
