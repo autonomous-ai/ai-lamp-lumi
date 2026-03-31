@@ -1854,10 +1854,11 @@ const SOURCE_ICON: Record<string, string> = {
 };
 
 // Extract input/output summary from a turn
-function turnIO(turn: Turn): { input: string; output: string } {
+function turnIO(turn: Turn): { input: string; output: string; hwOutput: string } {
   let input = "";
   let output = "";
   let outputFromIntent = false;
+  let hwOutput = "";
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
@@ -1922,8 +1923,23 @@ function turnIO(turn: Turn): { input: string; output: string } {
     if (turn.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
       output = ev.summary || "done";
     }
+    // Collect hardware actions from tool_call events
+    if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const args = d?.args ?? d?.data?.args ?? "";
+      if (args) {
+        const argsStr = typeof args === "string" ? args : JSON.stringify(args);
+        const m = argsStr.match(/(?:POST|GET|PUT|DELETE)\s+(http\S+)/i);
+        if (m) {
+          const endpoint = m[1].replace(/^https?:\/\/127\.0\.0\.1:\d+/, "");
+          if (endpoint && !hwOutput.includes(endpoint)) {
+            hwOutput += (hwOutput ? ", " : "") + endpoint;
+          }
+        }
+      }
+    }
   }
-  return { input, output };
+  return { input, output, hwOutput };
 }
 
 function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {
@@ -1979,7 +1995,7 @@ function TurnBadge({ turn }: { turn: Turn }) {
     : turn.status === "error" ? "var(--lm-red)"
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
-  const { input, output } = turnIO(turn);
+  const { input, output, hwOutput } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
   const statusLabel = turn.status === "done"
@@ -2038,14 +2054,24 @@ function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
         {input || TURN_INPUT_FALLBACK}
       </div>
-      {/* Row 3: output */}
+      {/* Row 3: output — TTS */}
       {output && (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4,
+        }}>
+          <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
+          {output}
+        </div>
+      )}
+      {/* Row 3b: output — Hardware actions */}
+      {hwOutput && (
         <div style={{
           fontSize: 10, color: "var(--lm-text-dim)",
           wordBreak: "break-word" as const, lineHeight: 1.4,
         }}>
-          <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>OUT 🔊</span>
-          {output}
+          <span style={{ color: "var(--lm-amber)", fontWeight: 600, marginRight: 4 }}>HW 💡</span>
+          {hwOutput}
         </div>
       )}
       {tokenStats && (
@@ -2055,21 +2081,29 @@ function TurnBadge({ turn }: { turn: Turn }) {
           borderRadius: 6,
           border: "1px solid rgba(248,113,113,0.55)",
           background: "rgba(248,113,113,0.14)",
-          display: "flex",
-          flexWrap: "wrap" as const,
-          gap: 8,
-          alignItems: "center",
           fontSize: 9,
           fontFamily: "monospace",
+          lineHeight: 1.6,
         }}>
-          <span style={{ color: "var(--lm-text-muted)", fontWeight: 700 }}>TOKENS</span>
-          <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>IN <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.inTok)}</span></span>
-          <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>OUT <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.outTok)}</span></span>
-          <span style={{ color: "var(--lm-text-muted)", fontWeight: 600 }}>TTL <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.total)}</span></span>
+          <div>
+            <span style={{ color: "var(--lm-text)" }}>Tokens </span>
+            <span style={{ color: "var(--lm-teal)" }}>in </span>
+            <span style={{ color: "var(--lm-text-dim)", fontWeight: 600 }}>{fmtToken(tokenStats.inTok)}</span>
+            <span style={{ color: "var(--lm-text)" }}> / </span>
+            <span style={{ color: "var(--lm-amber)" }}>out </span>
+            <span style={{ color: "var(--lm-text-dim)", fontWeight: 600 }}>{fmtToken(tokenStats.outTok)}</span>
+          </div>
+          <div>
+            <span style={{ color: "var(--lm-text)" }}>Total </span>
+            <span style={{ color: "var(--lm-text-dim)", fontWeight: 600 }}>{fmtToken(tokenStats.total)}</span>
+          </div>
           {(tokenStats.cacheRead || tokenStats.cacheWrite) ? (
-            <span style={{ color: "var(--lm-text-muted)", fontWeight: 600 }}>
-              CACHE <span style={{ color: "var(--lm-teal)" }}>{fmtToken(tokenStats.cacheRead)}R</span>/<span style={{ color: "var(--lm-amber)" }}>{fmtToken(tokenStats.cacheWrite)}W</span>
-            </span>
+            <div>
+              <span style={{ color: "var(--lm-text)" }}>Cache read </span>
+              <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheRead)}</span>
+              <span style={{ color: "var(--lm-text)" }}> / write </span>
+              <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheWrite)}</span>
+            </div>
           ) : null}
         </div>
       )}
