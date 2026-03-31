@@ -150,20 +150,23 @@ def gen_music_groove():
             val = REST[j]
 
             if j == "base_yaw.pos":
-                val += (sway * 12.0 + sway2 * 5.0) * fade
+                # Primary groove axis — big sway like upstream happy_wiggle
+                val += (sway * 20.0 + sway2 * 8.0) * fade
             elif j == "base_pitch.pos":
-                val += bob * downbeat * 4.0 * fade
+                # Minimal — upstream keeps base_pitch almost still during groove
+                val += bob * downbeat * 1.5 * fade
             elif j == "elbow_pitch.pos":
-                val += bob * downbeat * 7.0 * fade
-                val += sway * 3.0 * fade
+                val += bob * downbeat * 4.0 * fade
+                val += sway * 2.0 * fade
             elif j == "wrist_roll.pos":
-                val += -sway * 8.0 * fade  # counter sway
-                val += synco * 5.0 * fade  # off-beat flair
+                # Big expressive counter-sway (upstream wiggle: ±30°)
+                val += -sway * 18.0 * fade
+                val += synco * 8.0 * fade  # off-beat flair
             elif j == "wrist_pitch.pos":
-                val += bob * downbeat * 6.0 * fade
+                val += bob * downbeat * 4.0 * fade
                 val += synco * 3.0 * fade
 
-            val += noise(t, hash(j) % 13) * 0.4 * fade
+            val += noise(t, hash(j) % 13) * 0.6 * fade
             row[j] = val
         frames.append(row)
 
