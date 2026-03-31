@@ -84,7 +84,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/servo` | Recordings + animation state |
-| POST | `/servo/play` | Play animation (idle, curious, nod, headshake, happy_wiggle, sad, excited, shock, shy, scanning, wake_up, music_groove). Idle auto-plays on boot. |
+| POST | `/servo/play` | Play animation (idle, curious, nod, headshake, happy_wiggle, sad, excited, shock, shy, scanning, wake_up, music_groove, listening, thinking_deep, laugh, confused, sleepy, greeting, acknowledge, stretching). Idle auto-plays on boot. |
 | POST | `/servo/move` | Send joint positions with smooth interpolation |
 | POST | `/servo/release` | Disable torque on all servos |
 | GET | `/servo/position` | Current servo positions |
@@ -127,7 +127,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 |--------|----------|-------------|
 | POST | `/emotion` | Combined expression: servo + LED + display eyes |
 
-8 emotions: curious, happy, sad, thinking, idle, excited, shy, shock
+15 emotions: curious, happy, sad, thinking, idle, excited, shy, shock, listening, laugh, confused, sleepy, greeting, acknowledge, stretching
 
 ### Scene
 
