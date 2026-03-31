@@ -128,8 +128,8 @@ Rendered by `FlowDiagram` in `lumi/web/src/pages/Monitor.tsx`. The diagram is **
 
 | Region | Color (theme) | Stages |
 |--------|----------------|--------|
-| **Lumi Server** | Teal (`--lm-teal`) | `intent_check`, `local_match`, `schedule_trigger` |
-| **LeLamp** | Amber (`--lm-amber`) | `sensing`, `tts_speak` |
+| **Lumi Server** | Teal (`--lm-teal`) | `intent_check`, `local_match`, `schedule_trigger`, `lumi_gate` |
+| **LeLamp** | Amber (`--lm-amber`) | `sensing`, `tts_speak`, `hw_action` |
 | **OpenClaw** | Blue (`--lm-blue`) | `agent_call`, `telegram_input`, `tool_exec`, `agent_thinking`, `agent_response` |
 
 ### Lumi Server (top band)
@@ -140,7 +140,8 @@ Rendered by `FlowDiagram` in `lumi/web/src/pages/Monitor.tsx`. The diagram is **
 
 ### LeLamp (bottom-left)
 
-- **Sensing** and **TTS** share the **same `y` as OpenClaw Tool** (`tool_exec`) so the LeLamp row lines up with the **Tool + Thinking** row in OpenClaw (horizontal alignment across clusters).
+- **Sensing** sits at `y` aligned with OpenClaw Tool row.
+- **TTS Speak** and **HW Action** sit on a lower output row (`y=630`). HW Action represents direct hardware calls from OpenClaw tools (LED, servo, audio) that bypass Lumi entirely.
 
 ### OpenClaw layout rules (column + row)
 
@@ -184,17 +185,30 @@ Values are the **node center** `(x, y)` in the SVG view box (see `positions` in 
 | `intent_check` | `(100, 100)` | Lumi top |
 | `local_match` | `(240, 100)` | Lumi top |
 | `schedule_trigger` | `(625, 100)` | Lumi top; `x` = Agent column |
+| `lumi_gate` | `(370, 630)` | Lumi; between LeLamp and OpenClaw output rows |
 | `sensing` | `(100, 480)` | LeLamp; `y` = Tool row |
-| `tts_speak` | `(240, 480)` | LeLamp; `y` = Tool row |
+| `hw_action` | `(240, 480)` | LeLamp; same column as TTS, above it |
+| `tts_speak` | `(240, 630)` | LeLamp output row; below Hardware |
 | `agent_call` | `(625, 350)` | OpenClaw row 1 |
 | `telegram_input` | `(775, 350)` | OpenClaw row 1 |
 | `tool_exec` | `(500, 480)` | OpenClaw row 2, col 1 |
 | `agent_thinking` | `(625, 480)` | OpenClaw row 2, col 2 |
 | `agent_response` | `(500, 630)` | OpenClaw row 3, col 1 |
 
-### Edges (unchanged)
+### Edges
 
-`intent_check` / `schedule_trigger` → `agent_call`; `telegram_input` → `agent_call`; `sensing` → `intent_check`; `intent_check` → `local_match` → `tts_speak` / `agent_call`; `agent_call` → `agent_thinking` → `tool_exec` & `agent_response`; `tool_exec` → `agent_response`; `tool_exec` / `agent_response` → `tts_speak`.
+```
+sensing → intent_check → local_match → tts_speak
+                       → agent_call
+schedule_trigger → agent_call
+telegram_input → agent_call
+agent_call → agent_thinking → tool_exec → agent_response
+                             → agent_response
+tool_exec → hw_action          (OpenClaw tool calls LeLamp hardware directly)
+tool_exec → lumi_gate          (Lumi listens: suppress TTS if music, pause ambient if LED)
+agent_response → lumi_gate     (Lumi accumulates assistant text for TTS)
+lumi_gate → tts_speak          (Gate passes if not suppressed → LeLamp TTS)
+```
 
 ### Event → node labels (runtime detail boxes)
 

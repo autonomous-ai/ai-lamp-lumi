@@ -847,7 +847,7 @@ function SystemSection({
 type FlowStage =
   | "sensing" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger";
+  | "schedule_trigger" | "lumi_gate" | "hw_action";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 type ActiveFlowStage = FlowStage | "idle";
@@ -932,8 +932,8 @@ const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "tts_speak",
-    label: "TTS / Action", short: "TTS", icon: "🔊", color: "var(--lm-purple)", path: "agent",
-    desc: "POST /voice/speak · LED · Display",
+    label: "TTS Speak", short: "TTS", icon: "🔊", color: "var(--lm-purple)", path: "agent",
+    desc: "POST /voice/speak · text-to-speech output",
     triggers: [
       "tts",
       "flow_event:tts_send", "flow_enter:tts_send", "flow_exit:tts_send",
@@ -948,6 +948,22 @@ const FLOW_NODES: FlowNodeDef[] = [
       "schedule_trigger", "flow_event:schedule_trigger",
       "flow_enter:schedule_trigger", "flow_exit:schedule_trigger",
       "flow_event:cron_fire", "cron_fire",
+    ] },
+
+  { id: "lumi_gate",
+    label: "Lumi Gate", short: "GATE", icon: "🚦", color: "var(--lm-teal)", path: "agent",
+    desc: "WS listener · suppress TTS if music · pause ambient if LED",
+    triggers: [
+      "led_set", "led_off", "ambient_pause", "ambient_resume",
+      "flow_event:led_set", "flow_event:led_off",
+    ] },
+
+  { id: "hw_action",
+    label: "Hardware", short: "HARDWARE", icon: "💡", color: "var(--lm-amber)", path: "agent",
+    desc: "LeLamp hardware · LED / servo / audio · called directly by OpenClaw tool",
+    triggers: [
+      "led_set", "led_off",
+      "flow_event:led_set", "flow_event:led_off",
     ] },
 ];
 
@@ -1515,13 +1531,15 @@ function FlowDiagram({
   // Col1 Tool+Response | Col2 Agent+Thinking | Col3 TG In
   // Row1: Col2 Agent + Col3 TG In | Row2: Col1 Tool + Col2 Think | Row3: Col1 Response
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    // Lumi — top row: Intent, Local, Cron (Cron x aligns with OpenClaw Agent column — see flow-monitor.md)
+    // Lumi — top row: Intent, Local, Cron, Gate
     intent_check:      { x: 100, y: 100 },
     local_match:       { x: 240, y: 100 },
     schedule_trigger:  { x: 625, y: 100 },
+    lumi_gate:         { x: 370, y: 560 },   // Lumi cluster — above output row to avoid edge overlap
     // LeLamp cluster (bottom-left) — same row y as OpenClaw Tool (tool_exec)
     sensing:           { x: 100, y: 480 },
-    tts_speak:         { x: 240, y: 480 },
+    hw_action:         { x: 240, y: 480 },   // LeLamp — same column as TTS, above it
+    tts_speak:         { x: 240, y: 630 },   // LeLamp output row — below Hardware
     // OpenClaw (x: col1≈500, col2≈625, col3≈775)
     agent_call:        { x: 625, y: 350 },
     telegram_input:    { x: 775, y: 350 },
@@ -1541,21 +1559,26 @@ function FlowDiagram({
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
     ["tool_exec",         "agent_response"],
-    ["tool_exec",         "tts_speak"],         // Tool exec → LeLamp (LED, etc.)
-    ["agent_response",    "tts_speak"],         // Response → LeLamp TTS
+    ["tool_exec",         "hw_action"],         // OpenClaw tool → LeLamp hardware (LED/servo/audio) directly
+    ["tool_exec",         "lumi_gate"],         // Tool event → Lumi gate (suppress TTS if music, pause ambient if LED)
+    ["agent_response",    "lumi_gate"],         // Assistant text → Lumi gate (accumulate for TTS)
+    ["agent_response",    "tts_speak"],         // Response → TTS (main visible path)
+    ["lumi_gate",         "tts_speak"],         // Gate passes → LeLamp TTS (if not suppressed)
   ];
 
   const nodeR = compact ? 28 : 38;
+  const gateR = compact ? 22 : 30;
 
   function nodeColor(id: FlowStage) {
-    if (id === activeStage) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
-    if (visitedStages.has(id)) return FLOW_NODES.find((n) => n.id === id)?.color ?? "#fff";
+    if (id === activeStage || visitedStages.has(id)) {
+      return FLOW_NODES.find((n) => n.id === id)?.color ?? "var(--lm-text-muted)";
+    }
     return "var(--lm-text-muted)";
   }
   function nodeOpacity(id: FlowStage) {
     if (id === activeStage) return 1;
-    if (visitedStages.has(id)) return 0.85;
-    return 0.7;
+    if (visitedStages.has(id)) return 1;
+    return 1;
   }
   function edgeColor(from: FlowStage, to: FlowStage) {
     const fromVisited = visitedStages.has(from) || from === activeStage;
@@ -1599,16 +1622,22 @@ function FlowDiagram({
             <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
           <marker id={`arrow-${compact ? "c" : "f"}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L6,3 z" fill="var(--lm-border-hi)" />
+            <path d="M0,0 L0,6 L6,3 z" fill="context-stroke" />
           </marker>
         </defs>
 
         {/* Cluster group backgrounds — triangle layout */}
-        {/* Lumi Server (top, full width, split LOCAL / ROUTE) */}
+        {/* Lumi Server — L-shaped: top band + vertical arm down to Gate node */}
         <g>
+          {/* Top band (Intent, Local, Cron) */}
           <rect x={50} y={50} width={730} height={160} rx={14}
             fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
             strokeDasharray="4 4"
+          />
+          {/* Vertical arm extending down to Gate — overlaps slightly with top band for visual continuity */}
+          <rect x={320} y={190} width={110} height={430} rx={10}
+            fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
+            strokeDasharray="3 3"
           />
           <text x={415} y={40} textAnchor="middle"
             fill="var(--lm-teal)" fontSize={11} fontWeight={700}
@@ -1617,9 +1646,9 @@ function FlowDiagram({
             Lumi Server
           </text>
         </g>
-        {/* LeLamp (bottom-left) — band aligned with OpenClaw Tool+Think row */}
+        {/* LeLamp (bottom-left) — sensing row + output row (TTS, HW) */}
         <g>
-          <rect x={30} y={395} width={280} height={200} rx={14}
+          <rect x={30} y={395} width={280} height={300} rx={14}
             fill="var(--lm-amber)" fillOpacity={0.04} stroke="var(--lm-amber)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
@@ -1683,16 +1712,37 @@ function FlowDiagram({
             <g key={node.id} opacity={opacity}>
               {/* Glow ring for active */}
               {isActive && (
-                <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
-                  fill="none" stroke={color} strokeWidth={2}
-                  opacity={0.35} style={{ filter: `url(#${glowId})` }}
+                node.id === "lumi_gate" ? (
+                  <rect x={pos.x - gateR - 6} y={pos.y - gateR - 6}
+                    width={(gateR + 6) * 2} height={(gateR + 6) * 2} rx={12}
+                    fill="none" stroke={color} strokeWidth={2}
+                    opacity={0.35} style={{ filter: `url(#${glowId})` }}
+                  />
+                ) : (
+                  <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
+                    fill="none" stroke={color} strokeWidth={2}
+                    opacity={0.35} style={{ filter: `url(#${glowId})` }}
+                  />
+                )
+              )}
+              {node.id === "lumi_gate" ? (
+                <rect x={pos.x - gateR} y={pos.y - gateR}
+                  width={gateR * 2} height={gateR * 2} rx={10}
+                  fill={color}
+                  fillOpacity={isActive ? 0.25 : isVisited ? 0.18 : 0.12}
+                  stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
+                  strokeOpacity={isActive ? 1 : isVisited ? 0.7 : 0.35}
+                  style={isActive ? { filter: `url(#${glowId})` } : undefined}
+                />
+              ) : (
+                <circle cx={pos.x} cy={pos.y} r={nodeR}
+                  fill={color}
+                  fillOpacity={isActive ? 0.25 : isVisited ? 0.18 : 0.12}
+                  stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
+                  strokeOpacity={isActive ? 1 : isVisited ? 0.7 : 0.35}
+                  style={isActive ? { filter: `url(#${glowId})` } : undefined}
                 />
               )}
-              <circle cx={pos.x} cy={pos.y} r={nodeR}
-                fill={isActive ? `${color}22` : "var(--lm-surface)"}
-                stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
-                style={isActive ? { filter: `url(#${glowId})` } : undefined}
-              />
               {/* Icon + short label (top line) */}
               <text x={pos.x} y={pos.y - 6} textAnchor="middle"
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>

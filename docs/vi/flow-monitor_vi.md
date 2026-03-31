@@ -30,7 +30,15 @@ Component `FlowDiagram` trong `lumi/web/src/pages/Monitor.tsx` vẽ **ba vùng**
 
 ### LeLamp
 
-- **Sensing** và **TTS** cùng **`y` với Tool** (hàng Tool/Think bên OpenClaw) để thẳng hàng ngang giữa LeLamp và OpenClaw.
+- **Sensing** cùng `y` với Tool row (OpenClaw).
+- **TTS Speak** và **HW Action** nằm ở output row dưới cùng. HW Action = hardware trực tiếp (LED/servo/audio) — OpenClaw tool gọi thẳng LeLamp, không qua Lumi.
+
+### Lumi Gate
+
+- **Lumi Gate** nằm giữa OpenClaw output và LeLamp TTS. Lumi listen WS events để phối hợp:
+  - Tool có `/audio/play` → suppress TTS (không speak chồng nhạc)
+  - Tool có `/led/*` → pause ambient breathing (không ghi đè màu agent set)
+  - Assistant text accumulate → flush sang TTS khi lifecycle_end
 
 ### OpenClaw (lưới 3 cột)
 
