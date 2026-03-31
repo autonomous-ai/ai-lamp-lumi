@@ -661,13 +661,33 @@ The Lumi server is forked from openclaw-lobster. Approximately 70-80% of Layer 1
 
 ---
 
+### UC-16: Screen Awareness [P2]
+
+**Actor**: User (at desk)
+**Description**: Lumi knows what you're doing on your computer without you explaining it.
+
+**Examples**:
+- You copy a text snippet → Lumi proactively asks "Need a translation?"
+- You open Zoom/Meet → Lumi automatically switches to video call lighting
+- You're coding and ask a question → Lumi already has context about what you're working on
+
+**Flow**: Lightweight agent on Mac/Windows (browser extension or desktop app) pushes clipboard + active app context to Lumi → OpenClaw has deeper context for responses
+
+**Feel**: The lamp "understands" what you're doing without being told — like someone sitting next to you.
+
+**Synergy**: UC-12 (video call lighting) can use UC-16 to detect Zoom/Meet running instead of detecting the webcam separately.
+
+**Inspired by**: Loona DeskMate (CES 2026)
+
+---
+
 ### Use Case Priority Matrix
 
 | Priority | Use Cases | Milestone |
 |---|---|---|
 | **P0 — Critical** | UC-01 Voice Control, UC-02 Color Control, UC-14 Audio Feedback | First Prototype |
 | **P1 — High** | UC-03 Scenes, UC-04 Timer, UC-06 AI Companion, UC-08 Servo Direction, UC-11 Presence, UC-13 Status | v1.0 Release |
-| **P2 — Medium** | UC-05 Circadian, UC-07 Effects, UC-09 Auto-Tracking, UC-10 Gesture, UC-12 Video Call, UC-15 Remote | v1.x Releases |
+| **P2 — Medium** | UC-05 Circadian, UC-07 Effects, UC-09 Auto-Tracking, UC-10 Gesture, UC-12 Video Call, UC-15 Remote, UC-16 Screen Awareness | v1.x Releases |
 
 ---
 

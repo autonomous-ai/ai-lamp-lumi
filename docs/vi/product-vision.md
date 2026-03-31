@@ -611,6 +611,18 @@ Body: {"x": 3, "y": 2, "r": 255, "g": 0, "b": 0}
 | **Ví dụ** | Nhắn Telegram: "Bật đèn phòng làm việc", "Đèn đang bật không?", "Hôm nay có ai về nhà chưa?" |
 | **Chi tiết** | OpenClaw multi-channel — cùng personality, cùng memory, khác kênh giao tiếp |
 
+#### UC-16: Screen Awareness
+
+| | |
+|---|---|
+| **Ưu tiên** | P2 |
+| **Mô tả** | Lumi biết bạn đang làm gì trên máy tính mà không cần bạn giải thích |
+| **Ví dụ** | Bạn copy một đoạn text → Lumi tự hỏi "Cần dịch không?". Bạn mở Zoom → Lumi tự chuyển sang video call lighting. Bạn đang code → Lumi biết ngữ cảnh khi bạn hỏi câu hỏi |
+| **Luồng** | Agent nhỏ trên Mac/Windows (browser extension hoặc desktop app) push clipboard + active app context lên Lumi → OpenClaw có ngữ cảnh sâu hơn |
+| **Cảm giác** | Đèn "hiểu" bạn đang làm gì mà không cần kể — như người ngồi cạnh |
+| **Inspired by** | Loona DeskMate (CES 2026) |
+| **Synergy** | UC-12 (video call lighting) có thể dùng UC-16 để detect Zoom/Meet đang chạy thay vì detect webcam riêng |
+
 ---
 
 ## 7. Đối Tượng Người Dùng
