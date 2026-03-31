@@ -325,36 +325,12 @@ async def lifespan(app: FastAPI):
         voice_service.stop()
     if sensing_service:
         sensing_service.stop()
-    # Safe servo shutdown: stop animation loop first so move_to is not overridden,
-    # then smoothly move to rest position, then release torque.
-    if animation_service and animation_service.robot and animation_service.robot.bus:
-        # Stop the animation event loop (but keep robot/bus connected)
+    # Servo shutdown: only stop the animation event loop, do NOT disconnect/release
+    # torque so servos hold their current position and prevent gravity drop.
+    if animation_service:
         animation_service._running.clear()
         if animation_service._event_thread and animation_service._event_thread.is_alive():
             animation_service._event_thread.join(timeout=3.0)
-        # Now move_to has exclusive bus access
-        rest_pos = {
-            "base_yaw.pos": 3.0,
-            "base_pitch.pos": -30.0,
-            "elbow_pitch.pos": 57.0,
-            "wrist_roll.pos": 0.0,
-            "wrist_pitch.pos": 18.0,
-        }
-        try:
-            animation_service.move_to(rest_pos, duration=2.0)
-            logger.info("Servos moved to rest position for safe shutdown")
-        except Exception as e:
-            logger.warning(f"Could not move to rest position on shutdown: {e}")
-        # Release servo torque
-        bus = animation_service.robot.bus
-        for motor_name in bus.motors:
-            try:
-                bus.write("Torque_Enable", motor_name, 0)
-            except Exception as e:
-                logger.warning(f"Servo release on shutdown failed for {motor_name}: {e}")
-        logger.info("Servos released on shutdown")
-    if animation_service:
-        animation_service.stop()
     if rgb_service:
         rgb_service.stop()
     if camera_capture:
