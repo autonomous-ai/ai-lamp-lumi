@@ -97,6 +97,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
+	// Drop passive sensing events while agent is processing another turn.
+	// Voice commands always pass through — the user is explicitly speaking.
+	isPassive := req.Type != "voice" && req.Type != "voice_command"
+	if isPassive && h.agentGateway.IsBusy() {
+		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
+		return
+	}
+
 	// No local match — forward to OpenClaw agent
 	if !h.agentGateway.IsReady() {
 		turnStart := flow.Start("sensing_input", startPayload)
