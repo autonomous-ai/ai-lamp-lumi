@@ -79,16 +79,16 @@ class MotionPerception(Perception):
             else:
                 msg = "Small movement detected in camera view"
 
-            image_b64 = None
+            image_path = None
             if total_ratio >= config.MOTION_LARGE_TOTAL_RATIO:
                 stable = self._capture_stable_frame()
-                image_b64 = (
+                image_path = (
                     self._encode_frame(stable)
                     if stable is not None
                     else self._encode_frame(frame)
                 )
 
-            self._send_event("motion", msg, image=image_b64)
+            self._send_event("motion", msg, image=image_path)
 
     def to_dict(self) -> dict:
         seconds_since = (
