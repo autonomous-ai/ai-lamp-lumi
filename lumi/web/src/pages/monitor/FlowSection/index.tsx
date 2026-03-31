@@ -153,7 +153,7 @@ export function FlowSection({
 
   const turnCategory = (type: string): string => {
     if (type === "telegram") return "telegram";
-    if (/motion|presence|light/i.test(type)) return "cam";
+    if (/motion|presence|light|system/i.test(type)) return "cam";
     return "mic"; // voice, sound, etc.
   };
   const toggleFilter = (f: string) => {
