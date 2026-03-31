@@ -55,9 +55,9 @@ _console = logging.StreamHandler()
 _console.setFormatter(_ColorFormatter())
 _root.addHandler(_console)
 
-# File handler: 5 MB per file, keep 3 backups (~20 MB max) — no color codes
+# File handler: 1 MB per file, keep 3 backups (~4 MB max) — no color codes
 _file = logging.handlers.RotatingFileHandler(
-    LOG_DIR / "server.log", maxBytes=5 * 1024 * 1024, backupCount=3,
+    LOG_DIR / "server.log", maxBytes=1 * 1024 * 1024, backupCount=3,
 )
 _file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
 _root.addHandler(_file)
@@ -73,7 +73,7 @@ sd = None
 np = None
 
 try:
-    from lelamp.service.motors.animation_service import AnimationService, clamp_positions as clamp_servo_positions
+    from lelamp.service.motors.animation_service import AnimationService
 except ImportError as e:
     logger.warning(f"Servo drivers not available: {e}")
 
@@ -249,6 +249,7 @@ async def lifespan(app: FastAPI):
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=rgb_service,
                 tts_service=tts_service,
+                animation_service=animation_service,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -368,7 +369,7 @@ app = FastAPI(
         "camera, audio (mic/speaker), display, and AI voice pipeline. "
         "Lumi Server (Go, port 5000) bridges requests here."
     ),
-    version="0.2.0",
+    version=(Path(__file__).parent / "VERSION_LELAMP").read_text().strip() if (Path(__file__).parent / "VERSION_LELAMP").exists() else "dev",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -575,14 +576,21 @@ class EmotionResponse(BaseModel):
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
 # When no "effect" is set, LED is a simple solid fill.
 EMOTION_PRESETS = {
-    "curious":  {"servo": "curious",      "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
-    "happy":    {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
-    "sad":      {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
-    "thinking": {"servo": "nod",           "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
-    "idle":     {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
-    "excited":  {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
-    "shy":      {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
-    "shock":    {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
+    "curious":       {"servo": "curious",       "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
+    "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
+    "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
+    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
+    "idle":          {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
+    "excited":       {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
+    "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
+    "shock":         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
+    "listening":     {"servo": "listening",     "color": [100, 180, 255], "effect": "breathing",          "speed": 0.6},
+    "laugh":         {"servo": "laugh",         "color": [255, 200, 50],  "effect": "pulse",              "speed": 2.0},
+    "confused":      {"servo": "confused",      "color": [200, 150, 255], "effect": "pulse",              "speed": 0.8},
+    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.2},
+    "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "pulse",              "speed": 1.5},
+    "acknowledge":   {"servo": "acknowledge",   "color": [100, 255, 150], "effect": "pulse",              "speed": 1.0},
+    "stretching":    {"servo": "stretching",    "color": [255, 230, 180], "effect": "breathing",          "speed": 0.6},
 }
 
 
@@ -800,7 +808,7 @@ class ServoMoveRequest(BaseModel):
 class ServoMoveResponse(BaseModel):
     status: str
     requested: dict[str, float]
-    clamped: dict[str, float]
+    clamped: dict[str, float]  # kept for API compat, same as requested
     duration: float
     errors: Optional[dict[str, str]] = None
 
@@ -819,20 +827,19 @@ def move_servo(req: ServoMoveRequest):
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     # Reject unknown joint names at the API boundary
-    from lelamp.service.motors.animation_service import JOINT_LIMITS
-    unknown = [j for j in req.positions if j not in JOINT_LIMITS]
+    valid_joints = {f"{m}.pos" for m in animation_service.robot.bus.motors}
+    unknown = [j for j in req.positions if j not in valid_joints]
     if unknown:
-        raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {list(JOINT_LIMITS.keys())}")
+        raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {sorted(valid_joints)}")
 
-    safe_positions = clamp_servo_positions(req.positions)
     errors = {}
 
     try:
         if req.duration > 0:
-            animation_service.move_to(safe_positions, duration=req.duration)
+            animation_service.move_to(req.positions, duration=req.duration)
         else:
             with animation_service.bus_lock:
-                animation_service.robot.send_action(safe_positions)
+                animation_service.robot.send_action(req.positions)
     except Exception as e:
         errors["move"] = str(e)
 
@@ -840,7 +847,7 @@ def move_servo(req: ServoMoveRequest):
     try:
         with animation_service.bus_lock:
             obs = animation_service.robot.get_observation()
-        for joint, target in safe_positions.items():
+        for joint, target in req.positions.items():
             actual = obs.get(joint)
             if actual is not None:
                 error = abs(actual - target)
@@ -852,7 +859,7 @@ def move_servo(req: ServoMoveRequest):
     return {
         "status": "error" if "move" in errors else "ok",
         "requested": req.positions,
-        "clamped": safe_positions,
+        "clamped": req.positions,
         "duration": req.duration,
         "errors": errors if errors else None,
     }
@@ -1267,11 +1274,22 @@ def get_camera_info():
 
 @app.get("/camera/snapshot", tags=["Camera"])
 def camera_snapshot():
-    """Capture a single JPEG frame from the camera."""
+    """Capture a single JPEG frame from the camera (freezes servos for stability)."""
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
+    # Freeze servos so camera stays still during capture
+    if animation_service:
+        animation_service.freeze()
+        time.sleep(0.3)
+
+    # Discard stale buffered frame, read a fresh one
+    camera_capture.grab()
     ret, frame = camera_capture.read()
+
+    if animation_service:
+        animation_service.unfreeze()
+
     if not ret:
         raise HTTPException(500, "Failed to capture frame")
     frame = cv2.rotate(frame, cv2.ROTATE_180)

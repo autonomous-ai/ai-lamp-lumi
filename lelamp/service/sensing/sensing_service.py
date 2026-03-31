@@ -58,6 +58,9 @@ FACE_CASCADE_FILE = "haarcascade_frontalface_default.xml"
 class SensingService:
     """Background sensing loop. Runs in a daemon thread."""
 
+    # Settle time after freezing servos before capturing a frame (seconds)
+    FREEZE_SETTLE_S = 0.3
+
     def __init__(
         self,
         camera_capture=None,
@@ -68,6 +71,7 @@ class SensingService:
         poll_interval: float = 2.0,
         rgb_service=None,
         tts_service=None,
+        animation_service=None,
     ):
         self._camera = camera_capture
         self._sd = sound_device_module
@@ -75,6 +79,7 @@ class SensingService:
         self._cv2 = cv2_module
         self._input_device = input_device
         self._poll_interval = poll_interval
+        self._animation = animation_service
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -228,7 +233,8 @@ class SensingService:
             # Attach snapshot for large movements so AI can see what's happening
             image_b64 = None
             if total_ratio >= MOTION_LARGE_TOTAL_RATIO:
-                image_b64 = self._encode_frame(frame)
+                stable = self._capture_stable_frame()
+                image_b64 = self._encode_frame(stable) if stable is not None else self._encode_frame(frame)
 
             self._send_event("motion", msg, image=image_b64)
 
@@ -258,7 +264,8 @@ class SensingService:
             # Face entered
             self._face_present = True
             self.presence.on_motion()
-            image_b64 = self._encode_frame(frame)
+            stable = self._capture_stable_frame()
+            image_b64 = self._encode_frame(stable) if stable is not None else self._encode_frame(frame)
             self._send_event(
                 "presence.enter",
                 f"Person detected — {len(faces)} face(s) visible in camera view",
@@ -337,6 +344,31 @@ class SensingService:
             logger.debug("Sound check failed: %s", e)
 
     # --- Frame encoding ---
+
+    def _capture_stable_frame(self):
+        """Freeze servos, wait for settle, capture a fresh frame, then unfreeze.
+
+        Returns a camera frame suitable for _encode_frame(), or None on failure.
+        This avoids motion blur when the camera is mounted on a moving arm.
+        """
+        if not self._camera or not self._cv2:
+            return None
+
+        anim = self._animation
+        if anim:
+            anim.freeze()
+            time.sleep(self.FREEZE_SETTLE_S)
+
+        # Discard stale buffered frame, read a fresh one
+        self._camera.grab()
+        ret, frame = self._camera.read()
+
+        if anim:
+            anim.unfreeze()
+
+        if not ret:
+            return None
+        return self._cv2.rotate(frame, self._cv2.ROTATE_180)
 
     def _encode_frame(self, frame) -> Optional[str]:
         """Encode a camera frame as base64 JPEG for sending to Lumi/OpenClaw."""
