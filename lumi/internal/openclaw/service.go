@@ -48,6 +48,7 @@ type Service struct {
 	config      *config.Config
 	monitorBus  *monitor.Bus
 	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+	activeTurn  atomic.Bool // true while agent is processing a turn (lifecycle start → end)
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
 	wsConn *websocket.Conn
@@ -115,6 +116,16 @@ func (s *Service) Name() string {
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.
 func (s *Service) IsReady() bool {
 	return s.wsConnected.Load()
+}
+
+// IsBusy returns true while the agent is processing a turn (between lifecycle start and end).
+func (s *Service) IsBusy() bool {
+	return s.activeTurn.Load()
+}
+
+// SetBusy marks the agent as busy or idle. Called by the SSE handler on lifecycle start/end.
+func (s *Service) SetBusy(busy bool) {
+	s.activeTurn.Store(busy)
 }
 
 // SetupAgent writes openclaw.json from the setup request and restarts the gateway.
@@ -1312,24 +1323,21 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		params["sessionKey"] = sessionKey
 	}
 
-	if imageBase64 != "" {
-		// Send as structured content blocks: text + image
-		params["content"] = []map[string]interface{}{
+	params["message"] = message
+	hasImage := imageBase64 != ""
+	if hasImage {
+		// OpenClaw chat.send accepts attachments[]{content, mimeType} — content is raw base64 string.
+		imgLen := len(imageBase64)
+		params["attachments"] = []map[string]interface{}{
 			{
-				"type": "text",
-				"text": message,
-			},
-			{
-				"type": "image",
-				"source": map[string]interface{}{
-					"type":       "base64",
-					"media_type": "image/jpeg",
-					"data":       imageBase64,
-				},
+				"type":     "image",
+				"mimeType": "image/jpeg",
+				"content":  imageBase64,
 			},
 		}
-	} else {
-		params["message"] = message
+		slog.Info("[chat.send] attaching image", "component", "openclaw",
+			"reqId", reqID, "runId", idempotencyKey,
+			"base64Len", imgLen, "approxKB", imgLen*3/4/1024)
 	}
 
 	req := map[string]interface{}{
@@ -1343,6 +1351,23 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		return "", fmt.Errorf("marshal chat.send: %w", err)
 	}
 
+	// Log full payload (mask image content to avoid log spam)
+	if slog.Default().Enabled(nil, slog.LevelDebug) {
+		slog.Debug("[chat.send] full payload", "component", "openclaw", "reqId", reqID, "payload", string(body))
+	}
+	slog.Info("[chat.send] >>> sending to OpenClaw", "component", "openclaw",
+		"reqId", reqID, "runId", idempotencyKey,
+		"sessionKey", sessionKey,
+		"message", message,
+		"hasImage", hasImage,
+		"attachments", func() string {
+			if !hasImage {
+				return "none"
+			}
+			return fmt.Sprintf("1x image/jpeg ~%dKB", len(imageBase64)*3/4/1024)
+		}(),
+		"payloadBytes", len(body))
+
 	s.wsMu.Lock()
 	conn = s.wsConn
 	if conn == nil {
@@ -1352,11 +1377,13 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	err = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
+		slog.Error("[chat.send] write failed", "component", "openclaw",
+			"reqId", reqID, "runId", idempotencyKey, "error", err)
 		return "", fmt.Errorf("write chat.send: %w", err)
 	}
 
-	hasImage := imageBase64 != ""
-	slog.Info("chat.send", "component", "openclaw", "session", sessionKey, "msg", message, "hasImage", hasImage, "id", reqID, "runId", idempotencyKey)
+	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
+		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
 	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage}, idempotencyKey)
 	slog.Info("flow correlation", "op", "ws_chat_send", "section", "lumi_to_openclaw_ws",
 		"device_run_id", idempotencyKey, "req_id", reqID, "has_image", hasImage)
