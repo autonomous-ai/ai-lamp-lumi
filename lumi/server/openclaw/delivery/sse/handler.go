@@ -77,7 +77,7 @@ func isAgentNoReply(text string) bool {
 		slog.Warn("agent emitted bare NO instead of NO_REPLY — suppressing TTS", "component", "agent", "raw", text)
 		return true
 	}
-	if strings.HasPrefix(t, "NO_RE") {
+	if strings.HasPrefix(t, "NO_") {
 		slog.Warn("agent no-reply sentinel — suppressing TTS", "component", "agent", "raw", text)
 		return true
 	}
@@ -469,13 +469,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 				}
 				// Detect LED tool calls so ambient breathing doesn't override agent-set colors.
+				// Also clear the processing status LED immediately so its pulse effect doesn't
+				// fight the agent's LED command (pulse thread overwrites /led/solid every 40ms).
 				if strings.Contains(toolArgs, "/led/solid") ||
 					strings.Contains(toolArgs, "/led/effect") ||
-					strings.Contains(toolArgs, "/scene") {
+					strings.Contains(toolArgs, "/scene") ||
+					strings.Contains(toolArgs, "/emotion") {
 					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+					go h.statusLED.Clear(statusled.StateProcessing)
 				}
 				if strings.Contains(toolArgs, "/led/off") {
 					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+					go h.statusLED.Clear(statusled.StateProcessing)
 				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
@@ -582,11 +587,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			if strings.Contains(toolArgs, "/led/solid") ||
 				strings.Contains(toolArgs, "/led/effect") ||
-				strings.Contains(toolArgs, "/scene") {
+				strings.Contains(toolArgs, "/scene") ||
+				strings.Contains(toolArgs, "/emotion") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+				go h.statusLED.Clear(statusled.StateProcessing)
 			}
 			if strings.Contains(toolArgs, "/led/off") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+				go h.statusLED.Clear(statusled.StateProcessing)
 			}
 		} else if payload.Data.Phase == "end" {
 			result := payload.Data.Result
