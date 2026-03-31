@@ -280,6 +280,7 @@ export function FlowDiagram({
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
                 {node.id === "agent_response" && lines.some((l) => l.includes("no reply")) ? "🚫"
                   : node.id === "agent_response" && lines.some((l) => l.includes("no output")) ? "💤"
+                  : node.id === "agent_response" && lines.some((l) => l.startsWith('"')) ? "💬"
                   : node.icon} {node.short}
               </text>
               <text x={pos.x} y={pos.y + 6} textAnchor="middle"
