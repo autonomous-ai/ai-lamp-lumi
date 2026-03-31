@@ -17,7 +17,6 @@ Calls LeLamp LED endpoints directly (same process, via rgb_service reference).
 import logging
 import time
 from enum import Enum
-from typing import Optional
 
 import lelamp.config as config
 
@@ -76,7 +75,9 @@ class PresenceService:
 
         if prev_state in (PresenceState.IDLE, PresenceState.AWAY):
             self._state = PresenceState.PRESENT
-            logger.info("Presence: %s → PRESENT (motion detected, restoring light)", prev_state)
+            logger.info(
+                "Presence: %s → PRESENT (motion detected, restoring light)", prev_state
+            )
             self._restore_light()
 
     def tick(self):
