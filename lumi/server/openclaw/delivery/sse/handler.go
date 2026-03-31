@@ -69,10 +69,14 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 }
 
 // isAgentNoReply returns true if text is an OpenClaw framework "silent" sentinel
-// (e.g. "NO_REPLY", "NO_RE"). The gateway emits these when the agent decides not
-// to respond; they should never be spoken aloud or shown to the user.
+// (e.g. "NO_REPLY", "NO_RE") or a bare "NO" the LLM sometimes emits instead.
+// These should never be spoken aloud or shown to the user.
 func isAgentNoReply(text string) bool {
 	t := strings.TrimSpace(strings.ToUpper(text))
+	if t == "NO" {
+		slog.Warn("agent emitted bare NO instead of NO_REPLY — suppressing TTS", "component", "agent", "raw", text)
+		return true
+	}
 	return strings.HasPrefix(t, "NO_RE")
 }
 
