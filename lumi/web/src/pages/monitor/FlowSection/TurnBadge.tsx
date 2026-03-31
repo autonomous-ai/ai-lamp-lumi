@@ -63,7 +63,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         {formatTurnTime(turn.startTime)}
       </div>
       {/* Turn ID for tracing */}
-      <div style={{ fontSize: 8, color: "var(--lm-text-muted)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
+      <div style={{ fontSize: 8, color: "var(--lm-text)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
         id: {turn.id}
       </div>
       {/* Row 2: input */}

@@ -89,9 +89,15 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+        const sender = d?.sender ?? d?.data?.sender ?? "";
+        // node-host = OpenClaw internal (wake greeting, sensing relay) — not real telegram user
+        if (sender === "node-host") {
+          turn.type = "system";
+          return;
+        }
         const m = msg.match(/\[sensing:([^\]]+)\]/i);
         if (m) {
-          turn.type = m[1]; // e.g. "presence.leave", "motion", "sound"
+          turn.type = m[1];
           return;
         }
       }
@@ -429,7 +435,25 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       info.intent_check.push("→ agent route");
-      info.agent_call.push(`msg: "${ev.summary}"`);
+      const d = ev.detail as Record<string, any> | undefined;
+      const hasImage = d?.data?.has_image || d?.has_image;
+      if (hasImage) info.agent_call.push("📷 image attached");
+    }
+    // Show input message on agent_call node
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.data?.message ?? d?.message ?? ev.summary ?? "";
+      if (msg && !info.agent_call.some((l) => l.startsWith("📩"))) {
+        info.agent_call.push(`📩 ${msg}`);
+      }
+    }
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? "";
+      const sender = d?.sender ?? d?.data?.sender ?? "";
+      if (msg && !info.agent_call.some((l) => l.startsWith("📩"))) {
+        info.agent_call.push(`📩 ${sender ? `[${sender}] ` : ""}${msg}`);
+      }
     }
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -466,19 +490,12 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       const d = ev.detail as Record<string, any> | undefined;
-      if (d?.message && info.agent_response.length < 2) {
-        info.agent_response.push(`"${d.message}…"`);
+      if (d?.message && !info.agent_response.some((l) => l.startsWith('"'))) {
+        info.agent_response.push(`"${d.message}"`);
       }
       const dataErr = d?.data?.error;
       if (dataErr && info.agent_response.length < 2) {
         info.agent_response.push(`❌ ${dataErr}`);
-      }
-      // If lifecycle_end but no response text and no no_reply anywhere in events, mark as silent
-      if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end" && info.agent_response.length === 0) {
-        const hasNoReply = events.some((e) => e.type === "flow_event" && e.detail?.node === "no_reply");
-        if (!hasNoReply) {
-          info.agent_response.push("💤 no output — processed silently");
-        }
       }
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
@@ -487,9 +504,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (text && info.tts_speak.length < 2) {
         info.tts_speak.push(`🔊 "${text}"`);
       }
-      if (text && info.agent_response.length < 2) {
-        const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
-        info.agent_response.push(`"${preview}"`);
+      if (text && !info.agent_response.some((l) => l.startsWith('"'))) {
+        info.agent_response.push(`"${text}"`);
       }
     }
     if (ev.type === "lifecycle") {
