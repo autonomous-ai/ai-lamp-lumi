@@ -1809,11 +1809,12 @@ function turnIO(turn: Turn): { input: string; output: string } {
       // Prefer full message from detail (untruncated) over summary
       const d = ev.detail as Record<string, any> | undefined;
       const fullMsg = d?.message ?? d?.data?.message;
+      const sender = d?.sender ?? d?.data?.sender;
       const msg = fullMsg || parseTelegramSummary(ev.summary);
       if (msg) {
         // Prefer a real Telegram message for the IN field even if a sensing_input
         // (e.g. SOUND) was seen earlier in the same UI turn.
-        input = msg;
+        input = sender ? `[${sender}] ${msg}` : msg;
       } else if (!input) {
         input = TELEGRAM_FALLBACK_MESSAGE;
       }
