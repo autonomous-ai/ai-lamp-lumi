@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Callable
 
 import numpy as np
+import numpy.typing as npt
 
 
 class Perception(ABC):
@@ -11,5 +12,5 @@ class Perception(ABC):
         self._send_event = send_event
 
     @abstractmethod
-    def check(self, frame: np.ndarray) -> None:
+    def check(self, frame: npt.NDArray[np.uint8]) -> None:
         """Run detection on a single frame."""
