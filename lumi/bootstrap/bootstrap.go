@@ -128,7 +128,7 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 	}
 
 	changed := false
-	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb} {
+	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb, domain.OTAKeyLeLamp} {
 		component, ok := meta[key]
 		if !ok {
 			continue
@@ -256,6 +256,13 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 			return ""
 		}
 		return strings.TrimSpace(string(data))
+	case domain.OTAKeyLeLamp:
+		path := filepath.Join("/opt/lelamp", "VERSION_LELAMP")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
 	case domain.OTAKeyOpenClaw:
 		out, err := system.Run(runCtx, "openclaw", "--version")
 		if err != nil {
@@ -270,7 +277,7 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 // applyUpdate runs the appropriate update command for the given component.
 func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domain.OTAComponent) error {
 	switch key {
-	case domain.OTAKeyLumi, domain.OTAKeyWeb:
+	case domain.OTAKeyLumi, domain.OTAKeyWeb, domain.OTAKeyLeLamp:
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		out, err := system.Run(runCtx, "software-update", key)

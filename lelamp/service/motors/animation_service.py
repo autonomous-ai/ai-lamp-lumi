@@ -21,28 +21,6 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
-# Safe joint limits (same numeric scale as CSV recordings and Feetech bus observations).
-# Keeps margin from mechanical limits. All send_action / move_to playback frames are clamped.
-JOINT_LIMITS = {
-    "base_yaw.pos":     (-55.0,  65.0),   # ID 1
-    "base_pitch.pos":   (-70.0,  -15.0),  # ID 2 — always negative in practice
-    "elbow_pitch.pos":  (35.0,   98.0),   # ID 3
-    "wrist_roll.pos":   (-50.0,  45.0),   # ID 4
-    "wrist_pitch.pos":  (-25.0,  72.0),   # ID 5
-}
-
-
-def clamp_positions(positions: Dict[str, float]) -> Dict[str, float]:
-    """Clamp joint positions to safe limits."""
-    clamped = {}
-    for joint, value in positions.items():
-        limits = JOINT_LIMITS.get(joint)
-        if limits is not None:
-            clamped[joint] = max(limits[0], min(limits[1], value))
-        else:
-            clamped[joint] = value
-    return clamped
-
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
     """Read Present_Position only — same numeric scale as CSV, no camera/LED path.
@@ -91,8 +69,11 @@ class AnimationService:
         # Serial bus lock — all bus access (read/write/ping) must hold this lock
         self.bus_lock = threading.RLock()
 
-    # P gain per servo ID. ID 2,3,4 need high P for gravity hold.
-    _SERVO_PGAIN = {1: 32, 2: 128, 3: 128, 4: 128, 5: 32}
+        # Freeze flag — when set, _continue_playback() skips servo writes so camera can capture a stable frame
+        self._frozen = threading.Event()
+
+    # P gain — match upstream default (16 for all). Higher values cause jerky motion.
+    _SERVO_PGAIN = {1: 16, 2: 16, 3: 16, 4: 16, 5: 16}
 
     def _configure_servos_raw(self):
         """Configure servos directly via scservo_sdk, bypassing lerobot.
@@ -153,6 +134,9 @@ class AnimationService:
         self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
         self._event_thread.start()
 
+        # Auto-play idle (same as upstream) so lamp moves immediately after boot
+        self.dispatch("play", self.idle_recording)
+
     def stop(self, timeout: float = 5.0):
         # Stop event processing
         self._running.clear()
@@ -164,7 +148,7 @@ class AnimationService:
             self.robot = None
 
     def _sync_state_from_hardware(self) -> None:
-        """Set _current_state from Present_Position for all joints (clamped).
+        """Set _current_state from Present_Position for all joints.
 
         Required before interpolating to a recording: partial state with missing keys
         was treated as 0°, causing violent corrections and mechanical jam / overload.
@@ -175,7 +159,7 @@ class AnimationService:
             with self.bus_lock:
                 pos = _motor_positions_from_bus(self.robot)
             if pos:
-                self._current_state = clamp_positions(pos)
+                self._current_state = pos
         except Exception as e:
             logger.warning(f"sync state from hardware failed: {e}")
     
@@ -234,8 +218,6 @@ class AnimationService:
             print("Robot not connected")
             return
 
-        self._sync_state_from_hardware()
-
         # Load the recording
         actions = self._load_recording(recording_name)
         if actions is None:
@@ -256,9 +238,21 @@ class AnimationService:
             self._interpolation_frames = 0
             self._interpolation_target = None
     
+    def freeze(self):
+        """Pause servo writes so camera can capture a stable frame."""
+        self._frozen.set()
+
+    def unfreeze(self):
+        """Resume servo writes after camera capture."""
+        self._frozen.clear()
+
     def _continue_playback(self):
         """Continue current playback - called every frame"""
         if not self._current_recording or not self._current_actions:
+            return
+
+        # Skip servo writes while frozen (camera stabilization)
+        if self._frozen.is_set():
             return
         
         try:
@@ -283,7 +277,7 @@ class AnimationService:
                     interpolated_action[joint] = current_val + (target_val - current_val) * progress
                 
                 with self.bus_lock:
-                    self.robot.send_action(clamp_positions(interpolated_action))
+                    self.robot.send_action(interpolated_action)
                 self._current_state = interpolated_action.copy()
                 self._interpolation_frames -= 1
                 return
@@ -292,7 +286,7 @@ class AnimationService:
             if self._current_frame_index < len(self._current_actions):
                 action = self._current_actions[self._current_frame_index]
                 with self.bus_lock:
-                    self.robot.send_action(clamp_positions(action))
+                    self.robot.send_action(action)
                 self._current_state = action.copy()
                 self._current_frame_index += 1
             else:
@@ -385,8 +379,6 @@ class AnimationService:
         if not self.robot:
             raise RuntimeError("Robot not connected")
 
-        safe_targets = clamp_positions(target_positions)
-
         # Read current positions (bus-only; avoid get_observation camera reads)
         try:
             with self.bus_lock:
@@ -399,7 +391,7 @@ class AnimationService:
                 current = self._current_state.copy()
             else:
                 with self.bus_lock:
-                    self.robot.send_action(safe_targets)
+                    self.robot.send_action(target_positions)
                 return
 
         total_frames = max(1, int(duration * self.fps))
@@ -409,13 +401,13 @@ class AnimationService:
             progress = frame / total_frames
 
             interpolated = {}
-            for joint, target_val in safe_targets.items():
+            for joint, target_val in target_positions.items():
                 cur_val = current.get(joint, target_val)
                 interpolated[joint] = cur_val + (target_val - cur_val) * progress
 
             try:
                 with self.bus_lock:
-                    self.robot.send_action(clamp_positions(interpolated))
+                    self.robot.send_action(interpolated)
             except Exception as e:
                 logger.warning(f"Interpolated move frame {frame} failed: {e}")
                 break
@@ -428,7 +420,7 @@ class AnimationService:
         # Send final target exactly
         try:
             with self.bus_lock:
-                self.robot.send_action(safe_targets)
+                self.robot.send_action(target_positions)
         except Exception:
             pass
 
@@ -437,9 +429,9 @@ class AnimationService:
             with self.bus_lock:
                 pos = _motor_positions_from_bus(self.robot)
             if pos:
-                self._current_state = clamp_positions(pos)
+                self._current_state = pos
                 return
         except Exception as e:
             logger.warning(f"move_to: could not read full state after move: {e}")
-        self._current_state = safe_targets.copy()
+        self._current_state = target_positions.copy()
     
