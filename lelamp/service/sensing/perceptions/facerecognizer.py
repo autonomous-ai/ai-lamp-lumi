@@ -265,10 +265,10 @@ class FaceRecognizer(Perception):
                 1,
                 cv2.LINE_AA,
             )
-        image_b64 = self._encode_frame(annotated)
+        image_path = self._encode_frame(annotated)
         self._send_event(
             "presence.enter",
             f"Person detected — {len(face_annotations)} face(s) visible ({summary})",
-            image=image_b64,
+            image=image_path,
             cooldown=config.FACE_COOLDOWN_S,
         )
