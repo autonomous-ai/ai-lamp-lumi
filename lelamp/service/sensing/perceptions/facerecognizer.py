@@ -158,8 +158,8 @@ class FaceRecognizer(Perception):
         new_stranger_labels = []
         owners_seen = []
         strangers_seen = []
-        # per-face: (bbox_pixels, is_owner, label)
-        face_annotations: list[tuple[list[int], bool, str]] = []
+        # per-face: (bbox_pixels, face_kind, label)  face_kind: "owner"|"stranger"|"unsure"
+        face_annotations: list[tuple[list[int], str, str]] = []
 
         for x in range(n):
             o_score = float(owner_scores[x])
@@ -169,12 +169,12 @@ class FaceRecognizer(Perception):
             if o_score > self.threshold:
                 person_id = (owner_ids[x] or "").removeprefix(self.OWNER_PREFIX)
                 owners_seen.append(person_id)
-                face_annotations.append((bbox, True, person_id))
+                face_annotations.append((bbox, "owner", person_id))
 
             elif s_score > self.threshold:
                 person_id = (stranger_ids[x] or "").removeprefix(self.STRANGER_PREFIX)
                 strangers_seen.append(person_id)
-                face_annotations.append((bbox, False, person_id))
+                face_annotations.append((bbox, "stranger", person_id))
 
             elif self.negative_threshold is None or (
                 o_score <= self.negative_threshold
@@ -186,9 +186,13 @@ class FaceRecognizer(Perception):
                 )
                 person_id = stranger_id.removeprefix(self.STRANGER_PREFIX)
                 strangers_seen.append(person_id)
-                face_annotations.append((bbox, False, person_id))
+                face_annotations.append((bbox, "stranger", person_id))
                 new_stranger_embeds.append(embeds[x])
                 new_stranger_labels.append(stranger_id)
+
+            else:
+                # Score between negative_threshold and threshold on both banks — unsure
+                face_annotations.append((bbox, "unsure", "?"))
 
         if new_stranger_embeds:
             stacked_e = np.stack(new_stranger_embeds, axis=0)
@@ -210,12 +214,15 @@ class FaceRecognizer(Perception):
             self._face_absent_count = 0
             self._on_motion()
 
+            unsure_count = sum(1 for _, kind, _ in face_annotations if kind == "unsure")
+            parts = []
             if owners_seen:
-                summary = f"owner ({', '.join(owners_seen)})"
-            elif strangers_seen:
-                summary = f"stranger ({', '.join(strangers_seen)})"
-            else:
-                summary = "unknown person"
+                parts.append(f"owner ({', '.join(owners_seen)})")
+            if strangers_seen:
+                parts.append(f"stranger ({', '.join(strangers_seen)})")
+            if unsure_count:
+                parts.append(f"{unsure_count} unsure")
+            summary = ", ".join(parts) if parts else "unknown person"
 
             self._send_enter_event(frame, face_annotations, summary=summary)
         else:
@@ -224,20 +231,24 @@ class FaceRecognizer(Perception):
     def _send_enter_event(
         self,
         frame: npt.NDArray[np.uint8],
-        face_annotations: list[tuple[list[int], bool, str]],
+        face_annotations: list[tuple[list[int], str, str]],
         summary: str,
     ) -> None:
         annotated = frame.copy()
         cv2 = self._cv2
-        for bbox, is_owner, label in face_annotations:
+        _COLOR = {
+            "owner": (0, 255, 0),    # green
+            "stranger": (0, 0, 255), # red
+            "unsure": (0, 255, 255), # yellow
+        }
+        for bbox, face_kind, label in face_annotations:
             x1, y1, x2, y2 = bbox
-            color = (
-                (0, 255, 0) if is_owner else (0, 0, 255)
-            )  # green=owner, red=stranger
+            color = _COLOR.get(face_kind, (128, 128, 128))
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            display_label = label if face_kind != "unsure" else "unsure"
             cv2.putText(
                 annotated,
-                label,
+                display_label,
                 (x1, y1 - 6),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
