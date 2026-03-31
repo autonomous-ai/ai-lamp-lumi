@@ -286,8 +286,9 @@ export function FlowDiagram({
                   if (line.length <= MAX_CHARS) { wrappedIdx++; }
                   else { wrappedIdx += Math.ceil(line.length / MAX_CHARS); }
                   if (line.includes("curl ")) {
-                    const m = line.match(/:\s*(curl\s.+)/);
-                    curlPerLine.set(firstWrappedIdx, m ? m[1] : line.replace(/^⚙\s*\w+:\s*/, ""));
+                    // Strip leading icon (🔧/⚙) and whitespace to get raw curl command
+                    const curl = line.replace(/^[🔧⚙]\s*/, "").trim();
+                    curlPerLine.set(firstWrappedIdx, curl);
                   }
                 }
                 const boxH = showLines.length * 10 + 8;
