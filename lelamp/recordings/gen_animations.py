@@ -9,11 +9,8 @@ Motion principles applied:
   - Weight: heavier joints (base) move slower, lighter (wrist) snappier
   - Micro-fidgets: small unexpected movements during holds
 
-Joint limits:
-  base_yaw: -55..65 | base_pitch: -70..-15 | elbow_pitch: 35..98
-  wrist_roll: -50..45 | wrist_pitch: -25..72
-
 Rest: yaw=3, pitch=-30, elbow=57, roll=0, wrist_pitch=18
+Joint safety handled by servo firmware calibration (no software limits).
 """
 
 import csv
@@ -51,18 +48,8 @@ JOINT_DELAY = {
     "wrist_pitch.pos": 0.10,
 }
 
-LIMITS = {
-    "base_yaw.pos": (-55, 65),
-    "base_pitch.pos": (-70, -15),
-    "elbow_pitch.pos": (35, 98),
-    "wrist_roll.pos": (-50, 45),
-    "wrist_pitch.pos": (-25, 72),
-}
-
-
-def clamp(joint, val):
-    lo, hi = LIMITS[joint]
-    return max(lo, min(hi, val))
+## No software joint limits — servo firmware + calibration handle range safety.
+## See lelamp_follower.py calibrate() for hardware-level range_min/range_max.
 
 
 def ease_in_out(t):
@@ -165,12 +152,12 @@ def smooth_frames(frames, passes=2, max_delta=2.0):
     return smoothed
 
 
-def write_csv(filename, frames, smooth=True, max_delta=2.0):
+def write_csv(filename, frames, smooth=True, max_delta=4.0):
     """Write frames to CSV with optional smoothing.
 
     Args:
         smooth: Apply smoothing filter (default True)
-        max_delta: Max degrees change per frame (default 2.0°/frame = 60°/s at 30fps)
+        max_delta: Max degrees change per frame (default 4.0°/frame = 120°/s at 30fps)
     """
     if smooth:
         frames = smooth_frames(frames, passes=2, max_delta=max_delta)
@@ -182,7 +169,7 @@ def write_csv(filename, frames, smooth=True, max_delta=2.0):
         for row in frames:
             out = {"timestamp": round(row["timestamp"], 4)}
             for j in JOINTS:
-                out[j] = round(clamp(j, row[j]), 1)
+                out[j] = round(row[j], 4)
             writer.writerow(out)
     print(f"  {filename}: {len(frames)} frames ({len(frames)/FPS:.1f}s)")
 
