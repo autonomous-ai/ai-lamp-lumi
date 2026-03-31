@@ -99,6 +99,14 @@ Available animations:
 | `scanning` | Looking around, searching |
 | `wake_up` | Waking up, starting a new session |
 | `music_groove` | Grooving to music (auto-triggered during playback) |
+| `listening` | Attentive lean forward, user is speaking |
+| `thinking_deep` | Slow deliberate look side-to-side, processing |
+| `laugh` | Quick body shake, something funny |
+| `confused` | Dog-like head tilt, did not understand |
+| `sleepy` | Slow droop with catches, winding down |
+| `greeting` | Wave gesture, saying hello |
+| `acknowledge` | Quick micro-nod (1.5s), confirming |
+| `stretching` | Big extension + settle, after waking up |
 
 ### Get servo state
 
