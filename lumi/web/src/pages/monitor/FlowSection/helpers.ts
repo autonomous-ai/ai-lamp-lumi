@@ -364,22 +364,25 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, any> | undefined;
-      const toolName = d?.tool ?? d?.data?.tool ?? "unknown";
+      const phase = d?.phase ?? d?.data?.phase ?? "";
+      // Only show tool start (has args), skip update/result phases
+      if (phase !== "start" && phase !== "") continue;
       const rawArgs = d?.args ?? d?.data?.args ?? "";
       let argsSummary = "";
       if (rawArgs) {
         try {
           const parsed = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
           if (parsed?.command) {
-            const match = (parsed.command as string).match(/(?:POST|GET|PUT|DELETE)\s+(http\S+)/i);
-            argsSummary = match ? match[1].replace(/^https?:\/\/127\.0\.0\.1:\d+/, "") : (parsed.command as string).slice(0, 60);
+            argsSummary = (parsed.command as string);
           } else {
-            argsSummary = JSON.stringify(parsed).slice(0, 60);
+            argsSummary = JSON.stringify(parsed).slice(0, 120);
           }
         } catch { argsSummary = String(rawArgs).slice(0, 60); }
       }
-      const entry = `⚙ ${toolName}${argsSummary ? `: ${argsSummary}` : ""}`;
-      if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
+      if (argsSummary) {
+        const entry = `🔧 ${argsSummary}`;
+        if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
+      }
     }
     if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
       if (ev.type === "thinking" && ev.summary && info.agent_thinking.length < 2) {

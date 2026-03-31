@@ -278,11 +278,25 @@ export function FlowDiagram({
                 const showLines = wrapped.slice(0, 8);
                 const maxLen = Math.max(...showLines.map((l) => l.length));
                 const boxW = Math.max(140, maxLen * 4 + 20);
+                // Extract curl command per original line (before wrapping)
+                const curlPerLine: Map<number, string> = new Map();
+                let wrappedIdx = 0;
+                for (const line of lines.slice(0, 6)) {
+                  const firstWrappedIdx = wrappedIdx;
+                  if (line.length <= MAX_CHARS) { wrappedIdx++; }
+                  else { wrappedIdx += Math.ceil(line.length / MAX_CHARS); }
+                  if (line.includes("curl ")) {
+                    // Strip leading icon (🔧/⚙) and whitespace to get raw curl command
+                    const curl = line.replace(/^[🔧⚙]\s*/, "").trim();
+                    curlPerLine.set(firstWrappedIdx, curl);
+                  }
+                }
+                const boxH = showLines.length * 10 + 8;
                 return (
                   <g>
                     <rect
                       x={pos.x - boxW / 2} y={boxY - 2}
-                      width={boxW} height={showLines.length * 10 + 8}
+                      width={boxW} height={boxH}
                       rx={4} ry={4}
                       fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
                       opacity={0.92}
@@ -297,6 +311,33 @@ export function FlowDiagram({
                       >
                         {line}
                       </text>
+                    ))}
+                    {[...curlPerLine.entries()].map(([lineIdx, curl]) => (
+                      <g
+                        key={`cp-${lineIdx}`}
+                        style={{ cursor: "pointer" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(curl).catch(() => {});
+                        }}
+                      >
+                        <title>{curl}</title>
+                        <rect
+                          x={pos.x + boxW / 2 - 14} y={boxY + lineIdx * 10}
+                          width={12} height={9}
+                          rx={2} ry={2}
+                          fill={color} fillOpacity={0.15}
+                          stroke={color} strokeWidth={0.4} strokeOpacity={0.5}
+                        />
+                        <text
+                          x={pos.x + boxW / 2 - 8} y={boxY + lineIdx * 10 + 7}
+                          textAnchor="middle"
+                          fill={color} fontSize={4.5}
+                          opacity={0.8}
+                        >
+                          📋
+                        </text>
+                      </g>
                     ))}
                   </g>
                 );
