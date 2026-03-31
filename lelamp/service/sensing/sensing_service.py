@@ -20,39 +20,16 @@ import base64
 import logging
 import threading
 import time
-from typing import Optional
+from types import ModuleType
+from typing import TYPE_CHECKING, Optional
 
+import lelamp.config as config
 import numpy as np
 import requests
 from lelamp.service.sensing.presence_service import PresenceService
+from lelamp.service.sensing.perceptions import FacePerception, LightLevelPerception, MotionPerception
 
-logger = logging.getLogger("lelamp.sensing")
-
-LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
-
-# Motion detection thresholds
-MOTION_THRESHOLD = 50  # pixel intensity change to count as "changed"
-MOTION_BIGGEST_CONTOURS_RATIO = 0.1  # top percentage to classify big contours
-MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL = 0.01  # minimum fraction of the biggest contours to total pixels that must change (1%)
-MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS = 0.5  # minimum fraction of the biggest contours to total area of all contoures that must change (50%)
-MOTION_LARGE_TOTAL_RATIO = (
-    0.25  # fraction of changing areas to total pixels for "large movement" (25%)
-)
-
-# Cooldown: don't spam events. Minimum seconds between events of the same type.
-EVENT_COOLDOWN_S = 60.0
-
-# Sound detection
-SOUND_RMS_THRESHOLD = 3000  # RMS threshold for "loud noise"
-SOUND_SAMPLE_DURATION_S = 0.5  # sample window for sound level check
-
-# Light level detection
-LIGHT_LEVEL_INTERVAL_S = 30.0  # check every 30 seconds
-LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger event
-
-# Face detection
-FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
-FACE_CASCADE_FILE = "haarcascade_frontalface_default.xml"
+logger = logging.getLogger(__name__)
 
 
 class SensingService:
@@ -66,7 +43,7 @@ class SensingService:
         camera_capture=None,
         sound_device_module=None,
         numpy_module=None,
-        cv2_module=None,
+        cv2_module= None,
         input_device: Optional[int] = None,
         poll_interval: float = 2.0,
         rgb_service=None,
@@ -85,26 +62,36 @@ class SensingService:
         self._thread: Optional[threading.Thread] = None
         self._last_event_time: dict[str, float] = {}
 
-        # Previous frame for motion detection (grayscale)
-        self._last_frame = None
-
-        # Face detection
-        self._face_cascade = None
-        self._face_present = False  # track face presence state for enter/leave events
-
-        # Light level tracking
-        self._last_light_level: Optional[float] = None
-        self._last_light_check: float = 0.0
-
         # TTS reference for echo suppression
         self._tts = tts_service
 
         # Presence auto on/off state machine
         self.presence = PresenceService(rgb_service=rgb_service)
 
-        # Initialize face cascade
+        # Perception detectors (only initialized if cv2 is available)
+        self._perceptions = []
         if cv2_module:
-            self._init_face_cascade()
+            self._perceptions = [
+                MotionPerception(
+                    cv2=cv2_module,
+                    send_event=self._send_event,
+                    on_motion=self.presence.on_motion,
+                    capture_stable_frame=self._capture_stable_frame,
+                    encode_frame=self._encode_frame,
+                ),
+                FacePerception(
+                    cv2=cv2_module,
+                    send_event=self._send_event,
+                    on_motion=self.presence.on_motion,
+                    capture_stable_frame=self._capture_stable_frame,
+                    encode_frame=self._encode_frame,
+                ),
+                LightLevelPerception(
+                    cv2=cv2_module,
+                    np_module=numpy_module,
+                    send_event=self._send_event,
+                ),
+            ]
 
     def set_tts_service(self, tts_service):
         """Set TTS reference after late initialization (echo suppression)."""
@@ -114,7 +101,7 @@ class SensingService:
         """Load Haar cascade for face detection."""
         cv2 = self._cv2
         try:
-            cascade_path = cv2.data.haarcascades + FACE_CASCADE_FILE
+            cascade_path = cv2.data.haarcascades + config.FACE_CASCADE_FILE
             self._face_cascade = cv2.CascadeClassifier(cascade_path)
             if self._face_cascade.empty():
                 logger.warning("Face cascade failed to load from %s", cascade_path)
@@ -155,21 +142,11 @@ class SensingService:
 
         # Read camera frame once per tick (shared across detectors)
         if self._camera and self._cv2:
-            ret, frame = self._camera.read()
-            if not ret:
-                frame = None
+            frame = self._camera.last_frame
 
-            frame = self._cv2.rotate(frame, self._cv2.ROTATE_180)
-
-        # if frame is not None:
-        #     # Motion detection
-        #     self._check_motion(frame)
-        #
-        #     # Face detection (presence.enter/leave)
-        #     self._check_faces(frame)
-        #
-        #     # Light level (every LIGHT_LEVEL_INTERVAL_S)
-        #     self._check_light_level(frame)
+        if frame is not None:
+            for perception in self._perceptions:
+                perception.check(frame)
 
         # Sound detection
         if self._sd and self._np and self._input_device is not None:
@@ -177,145 +154,6 @@ class SensingService:
 
         # Presence timeout check (dim/off)
         self.presence.tick()
-
-    # --- Motion detection ---
-
-    def _check_motion(self, frame: np.ndarray):
-        cv2 = self._cv2
-
-        moved = False
-        biggest_ratio = 0
-        change_ratio = 0
-        total_ratio = 0
-
-        if self._last_frame is not None:
-            total_pixels = int(frame.shape[0] * frame.shape[1])
-            prev_gray = cv2.GaussianBlur(
-                cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
-            )
-            cur_gray = cv2.GaussianBlur(
-                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
-            )
-
-            delta = cv2.absdiff(prev_gray, cur_gray)
-
-            thresh = cv2.threshold(delta, MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
-
-            contours, hierarchy = cv2.findContours(
-                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-
-            if len(contours):
-                areas = np.array([cv2.contourArea(c) for c in contours])
-                k = int(np.ceil(len(areas) * MOTION_BIGGEST_CONTOURS_RATIO))
-
-                biggest_contours = np.argpartition(areas, -k)[-k:]
-                logger.info(areas[biggest_contours])
-                biggest_ratio = areas[biggest_contours].sum() / areas.sum()
-                change_ratio = areas[biggest_contours].sum() / total_pixels
-                total_ratio = areas.sum() / total_pixels
-
-            if (
-                biggest_ratio >= MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS
-                and change_ratio >= MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL
-            ):
-                moved = True
-
-        if moved:
-            # Notify presence state machine (any motion = someone is here)
-            self.presence.on_motion()
-
-            if total_ratio >= MOTION_LARGE_TOTAL_RATIO:
-                msg = "Large movement detected in camera view — someone may have entered or left the room"
-            else:
-                msg = "Small movement detected in camera view"
-
-            # Attach snapshot for large movements so AI can see what's happening
-            image_b64 = None
-            if total_ratio >= MOTION_LARGE_TOTAL_RATIO:
-                stable = self._capture_stable_frame()
-                image_b64 = self._encode_frame(stable) if stable is not None else self._encode_frame(frame)
-
-            self._send_event("motion", msg, image=image_b64)
-
-    # --- Face detection (presence enter/leave) ---
-
-    def _check_faces(self, frame):
-        if not self._face_cascade:
-            return
-
-        cv2 = self._cv2
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Downscale for faster detection on Pi4
-        small = cv2.resize(gray, (0, 0), fx=0.5, fy=0.5)
-
-        faces = self._face_cascade.detectMultiScale(
-            small,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30),
-        )
-
-        face_found = len(faces) > 0
-        prev_present = self._face_present
-
-        if face_found and not prev_present:
-            # Face entered
-            self._face_present = True
-            self.presence.on_motion()
-            stable = self._capture_stable_frame()
-            image_b64 = self._encode_frame(stable) if stable is not None else self._encode_frame(frame)
-            self._send_event(
-                "presence.enter",
-                f"Person detected — {len(faces)} face(s) visible in camera view",
-                image=image_b64,
-                cooldown=FACE_COOLDOWN_S,
-            )
-        elif not face_found and prev_present:
-            # Face left — only trigger after sustained absence (3 consecutive ticks)
-            if not hasattr(self, "_face_absent_count"):
-                self._face_absent_count = 0
-            self._face_absent_count += 1
-            if self._face_absent_count >= 3:
-                self._face_present = False
-                self._face_absent_count = 0
-                self._send_event(
-                    "presence.leave",
-                    "No face detected — person may have left the area",
-                    cooldown=FACE_COOLDOWN_S,
-                )
-        else:
-            self._face_absent_count = 0
-
-    # --- Light level detection ---
-
-    def _check_light_level(self, frame):
-        now = time.time()
-        if now - self._last_light_check < LIGHT_LEVEL_INTERVAL_S:
-            return
-        self._last_light_check = now
-
-        cv2 = self._cv2
-        np = self._np
-        if np is None:
-            return
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        brightness = float(np.mean(gray))  # 0-255
-
-        prev = self._last_light_level
-
-        if prev is not None:
-            change = brightness - prev
-            if abs(change) >= LIGHT_CHANGE_THRESHOLD:
-                if change < 0:
-                    msg = f"Ambient light decreased significantly (level: {brightness:.0f}/255, change: {change:.0f})"
-                else:
-                    msg = f"Ambient light increased significantly (level: {brightness:.0f}/255, change: {change:+.0f})"
-                self._send_event("light.level", msg, cooldown=LIGHT_LEVEL_INTERVAL_S)
-
-        self._last_light_level = brightness
 
     # --- Sound detection ---
 
@@ -328,7 +166,7 @@ class SensingService:
         np = self._np
         try:
             sample_rate = 44100
-            frames = int(sample_rate * SOUND_SAMPLE_DURATION_S)
+            frames = int(sample_rate * config.SOUND_SAMPLE_DURATION_S)
             recording = sd.rec(
                 frames,
                 samplerate=sample_rate,
@@ -338,7 +176,7 @@ class SensingService:
                 blocking=True,
             )
             rms = float(np.sqrt(np.mean(recording.astype(np.float64) ** 2)))
-            if rms >= SOUND_RMS_THRESHOLD:
+            if rms >= config.SOUND_RMS_THRESHOLD:
                 self._send_event("sound", f"Loud noise detected (level: {int(rms)})")
         except Exception as e:
             logger.debug("Sound check failed: %s", e)
@@ -359,16 +197,14 @@ class SensingService:
             anim.freeze()
             time.sleep(self.FREEZE_SETTLE_S)
 
-        # Discard stale buffered frame, read a fresh one
-        self._camera.grab()
-        ret, frame = self._camera.read()
+        frame = self._camera.last_frame
 
         if anim:
             anim.unfreeze()
 
-        if not ret:
+        if frame is None:
             return None
-        return self._cv2.rotate(frame, self._cv2.ROTATE_180)
+        return frame
 
     def _encode_frame(self, frame) -> Optional[str]:
         """Encode a camera frame as base64 JPEG for sending to Lumi/OpenClaw."""
@@ -394,7 +230,7 @@ class SensingService:
         cooldown: Optional[float] = None,
     ):
         now = time.time()
-        cd = cooldown if cooldown is not None else EVENT_COOLDOWN_S
+        cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
         last = self._last_event_time.get(event_type, 0)
         if now - last < cd:
             return
@@ -407,7 +243,7 @@ class SensingService:
 
         try:
             resp = requests.post(
-                LUMI_SENSING_URL,
+                config.LUMI_SENSING_URL,
                 json=payload,
                 timeout=5,
             )
