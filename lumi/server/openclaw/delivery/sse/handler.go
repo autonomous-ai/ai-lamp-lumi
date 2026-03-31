@@ -308,7 +308,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if len(displayMsg) > 200 {
 							displayMsg = displayMsg[:200] + "…"
 						}
-						flow.Log("chat_input_resolved", map[string]any{
+						flow.Log("chat_input", map[string]any{
 							"run_id":  capturedRunID,
 							"source":  "channel",
 							"message": userMsg,
