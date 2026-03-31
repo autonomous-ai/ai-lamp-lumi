@@ -25,6 +25,7 @@ import (
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/lib/safego"
 	"go-lamp.autonomous.ai/server/config"
@@ -55,6 +56,7 @@ type Server struct {
 	networkService *network.Service
 	deviceService  *device.Service
 	ambientService *ambient.Service
+	statusLED      *statusled.Service
 
 	// resetButton watches GPIO 23 for press-and-hold >= 10s to trigger factory reset. Nil when GPIO unavailable.
 	resetButton *resetbutton.Service
@@ -105,6 +107,7 @@ func ProvideServer(
 	resetBtn *resetbutton.Service,
 	mqttFactory *mqtt.Factory,
 	ambientSvc *ambient.Service,
+	sled *statusled.Service,
 ) *Server {
 	return &Server{
 		config:            cfg,
@@ -121,6 +124,7 @@ func ProvideServer(
 		resetButton:       resetBtn,
 		mqttFactory:       mqttFactory,
 		ambientService:    ambientSvc,
+		statusLED:         sled,
 	}
 }
 
@@ -189,6 +193,9 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Serve(closeFn func()) error {
+	// Signal booting state so the LED shows a slow blue pulse while initializing.
+	s.statusLED.Set(statusled.StateBooting)
+
 	if s.resetButton != nil {
 		resetCtx, cancelReset := context.WithCancel(context.Background())
 		defer cancelReset()
@@ -263,6 +270,9 @@ func (s *Server) Serve(closeFn func()) error {
 		Handler: r,
 	}
 
+	// HTTP server is about to listen — booting is done.
+	s.statusLED.Clear(statusled.StateBooting)
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			errChan <- err
@@ -323,7 +333,10 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 		s.monitorMu.Unlock()
 
 		slog.Info("setup completed, starting internet monitor", "component", "config")
-		s.networkService.StartNetworkMonitor(s.monitorCtx)
+		s.networkService.StartNetworkMonitor(s.monitorCtx,
+			func() { s.statusLED.Set(statusled.StateConnectivity) },
+			func() { s.statusLED.Clear(statusled.StateConnectivity) },
+		)
 		slog.Info("setup completed, starting status reporter", "component", "config")
 		safego.Go("status-reporter", func() { s.deviceService.StartStatusReporter(s.monitorCtx) })
 
@@ -337,6 +350,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 
 			if ok := s.deviceService.WaitForAgentReady(120 * time.Second); ok {
 				slog.Info("agent gateway ready", "component", "server")
+				s.statusLED.FlashReady()
 			} else {
 				slog.Warn("agent gateway ready timeout", "component", "server")
 			}
