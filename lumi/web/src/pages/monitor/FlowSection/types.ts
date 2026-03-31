@@ -148,10 +148,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
     label: "Telegram Out", short: "TG OUT", icon: "💬", color: "#229ed9", path: "agent",
     shape: "diamond",
     desc: "OpenClaw delivers response to Telegram / Slack / Discord",
-    triggers: [
-      "chat_response",
-      "flow_event:lifecycle_end",
-    ] },
+    triggers: [] },
 
   { id: "hw_action",
     label: "Hardware", short: "HARDWARE", icon: "💡", color: "var(--lm-amber)", path: "agent",
