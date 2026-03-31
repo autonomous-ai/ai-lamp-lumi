@@ -2,12 +2,14 @@ import type { DisplayEvent } from "../types";
 
 // Maps a MonitorEvent type/node to a flow stage ID
 export type FlowStage =
-  | "sensing" | "telegram_input" | "intent_check" | "local_match"
+  | "mic_input" | "cam_input" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_action";
+  | "schedule_trigger" | "lumi_gate" | "hw_action" | "tg_out";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
+
+export type NodeShape = "circle" | "hexagon" | "diamond" | "square";
 
 export interface FlowNodeDef {
   id: FlowStage;
@@ -18,6 +20,7 @@ export interface FlowNodeDef {
   desc: string;
   triggers: string[];
   path: "main" | "fast" | "agent";
+  shape?: NodeShape; // default: circle
 }
 
 // Group events into turns by runId
@@ -39,17 +42,23 @@ export interface Turn {
 export type NodeInfoMap = Record<FlowStage, string[]> & { ambient: string[] };
 
 export const FLOW_NODES: FlowNodeDef[] = [
-  { id: "sensing",
-    label: "Sensing", short: "SENSE", icon: "📡", color: "var(--lm-amber)", path: "main",
-    desc: "POST /sensing/event · voice / motion / sound",
+  { id: "mic_input",
+    label: "Mic Input", short: "MIC", icon: "🎤", color: "var(--lm-amber)", path: "main",
+    shape: "hexagon",
+    desc: "Voice / sound from microphone",
     triggers: [
-      "sensing_input",
-      "flow_enter:sensing_input", "flow_exit:sensing_input", "flow_event:sensing_input",
       "flow_enter:voice_pipeline_start", "flow_event:voice_pipeline_start",
     ] },
 
+  { id: "cam_input",
+    label: "Cam Input", short: "CAM", icon: "👁", color: "var(--lm-amber)", path: "main",
+    shape: "hexagon",
+    desc: "Motion / presence / light from camera",
+    triggers: [] },
+
   { id: "telegram_input",
     label: "Telegram In", short: "TG IN", icon: "💬", color: "#229ed9", path: "main",
+    shape: "hexagon",
     desc: "Inbound message via Telegram / Slack / Discord",
     triggers: [
       "chat_input",
@@ -107,6 +116,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
 
   { id: "tts_speak",
     label: "TTS Speak", short: "TTS", icon: "🔊", color: "var(--lm-purple)", path: "agent",
+    shape: "diamond",
     desc: "POST /voice/speak · text-to-speech output",
     triggers: [
       "tts",
@@ -126,14 +136,25 @@ export const FLOW_NODES: FlowNodeDef[] = [
 
   { id: "lumi_gate",
     label: "Lumi Gate", short: "GATE", icon: "🚦", color: "var(--lm-teal)", path: "agent",
+    shape: "square",
     desc: "WS listener · suppress TTS if music · pause ambient if LED",
     triggers: [
       "led_set", "led_off", "ambient_pause", "ambient_resume",
       "flow_event:led_set", "flow_event:led_off",
     ] },
 
+  { id: "tg_out",
+    label: "Telegram Out", short: "TG OUT", icon: "💬", color: "#229ed9", path: "agent",
+    shape: "diamond",
+    desc: "OpenClaw delivers response to Telegram / Slack / Discord",
+    triggers: [
+      "chat_response",
+      "flow_event:lifecycle_end",
+    ] },
+
   { id: "hw_action",
     label: "Hardware", short: "HARDWARE", icon: "💡", color: "var(--lm-amber)", path: "agent",
+    shape: "diamond",
     desc: "LeLamp hardware · LED / servo / audio · called directly by OpenClaw tool",
     triggers: [
       "led_set", "led_off",
@@ -145,7 +166,9 @@ export const FLOW_NODES: FlowNodeDef[] = [
 
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
-  voice: "🎤", motion: "👁", sound: "🔊", environment: "🌡", system: "⚙", unknown: "❓",
+  voice: "🎤", sound: "🔊",
+  motion: "👁", "presence.enter": "🙂", "presence.leave": "👋", "light.level": "🌡",
+  environment: "🌡", system: "⚙", unknown: "❓",
   telegram: "💬", schedule: "⏰",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
