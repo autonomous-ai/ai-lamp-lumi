@@ -122,7 +122,7 @@ export function FlowSection({
 
   const downloadOpenClawDebugPayloads = useCallback(async (): Promise<boolean> => {
     try {
-      const r = await fetch(`${API}/openclaw/debug-logs`);
+      const r = await fetch(`${API}/openclaw/debug-logs?last=500`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
@@ -143,10 +143,10 @@ export function FlowSection({
   }, []);
 
   const downloadFlowBundle = useCallback(async () => {
-    await downloadServerJsonlTail();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await downloadOpenClawDebugPayloads();
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const jsonlOk = await downloadServerJsonlTail();
+    if (jsonlOk) await new Promise((resolve) => setTimeout(resolve, 500));
+    const debugOk = await downloadOpenClawDebugPayloads();
+    if (debugOk) await new Promise((resolve) => setTimeout(resolve, 300));
     downloadUISnapshot();
   }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
@@ -296,7 +296,7 @@ export function FlowSection({
         {/* Turn history list */}
         <div style={{
           ...S.card,
-          width: 210,
+          width: 280,
           flexShrink: 0,
           display: "flex",
           flexDirection: "column" as const,
@@ -358,62 +358,6 @@ export function FlowSection({
           </div>
         </div>
 
-        {/* Right: event timeline for selected turn */}
-        <div style={{
-          ...S.card,
-          width: 260,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column" as const,
-          minHeight: 0,
-          maxHeight: 420,
-          padding: 0,
-          overflow: "hidden",
-        }}>
-          <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
-            <span style={S.cardLabel}>
-              {selectedTurn ? `Turn Events` : "Latest Events"}
-            </span>
-            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>
-              {turnEvents.length}
-            </span>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }} className="lm-hide-scroll">
-            {turnEvents.length === 0 ? (
-              <div style={{ padding: "12px 14px", color: "var(--lm-text-muted)", fontSize: 11 }}>No events</div>
-            ) : (
-              [...turnEvents].reverse().map((ev) => {
-                const key = ev.type === "flow_event" && ev.detail?.node ? `flow_event:${ev.detail.node}` : ev.type;
-                const matchNode = FLOW_NODES.find((n) => n.triggers.includes(key));
-                const dotColor = matchNode?.color ?? "var(--lm-text-muted)";
-                return (
-                  <div key={ev._seq} style={{
-                    padding: "5px 12px",
-                    borderLeft: `2px solid ${dotColor}`,
-                    marginLeft: 8, marginRight: 8, marginBottom: 2,
-                    borderRadius: "0 5px 5px 0",
-                    background: "var(--lm-surface)",
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: dotColor, textTransform: "uppercase" as const }}>
-                        {matchNode?.short ?? ev.type.replace("flow_", "").replace("_", " ")}
-                      </span>
-                      <span style={{ fontSize: 9, color: "var(--lm-text-muted)", marginLeft: "auto" }}>{ev.time}</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "var(--lm-text-dim)", wordBreak: "break-word" as const, lineHeight: 1.4 }}>
-                      {ev.summary}
-                    </div>
-                    {ev.detail?.dur_ms && Number(ev.detail.dur_ms) > 0 && (
-                      <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 1 }}>
-                        {ev.detail.dur_ms}ms
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
