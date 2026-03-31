@@ -55,7 +55,10 @@ curl -s http://127.0.0.1:5001/led/color
 Response: `{"color": [255, 180, 100], "effect_running": true, "effect_name": "breathing"}`
 
 ### Set solid color (fill all LEDs)
+
+**Always stop any running effect first, then set the color — use a single chained command:**
 ```bash
+curl -s -X POST http://127.0.0.1:5001/led/effect/stop && \
 curl -s -X POST http://127.0.0.1:5001/led/solid \
   -H "Content-Type: application/json" \
   -d '{"color": [R, G, B]}'
@@ -117,6 +120,7 @@ curl -s -X POST http://127.0.0.1:5001/led/effect/stop
 - If the user requests an unknown effect name, pick the closest match from the available effects table or tell the user which effects are available.
 
 ## Rules
+- **Stop effect before solid.** Always call `/led/effect/stop` before `/led/solid`. A running effect thread overwrites solid every 40ms — skipping the stop causes the color to flicker and revert.
 - **Solid colors = full brightness.** For dim/ambient lighting, use the Scene skill instead.
 - **Effects run until stopped** (unless `duration_ms` is set). Starting a new effect auto-stops the previous one.
 - `/led/off` also stops any running effect.
