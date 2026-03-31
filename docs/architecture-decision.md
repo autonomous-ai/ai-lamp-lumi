@@ -166,7 +166,7 @@ All hardware endpoints run on LeLamp. OpenClaw skills call `127.0.0.1:5001` dire
 | `/led/off` | POST | Turn off all LEDs |
 | `/led/effect` | POST | Start effect (breathing, candle, rainbow, notification_flash, pulse) |
 | `/led/effect/stop` | POST | Stop current effect |
-| `/servo/play` | POST | Play animation (curious, nod, happy_wiggle, idle, sad, excited, shy, shock) |
+| `/servo/play` | POST | Play animation (20 recordings: curious, nod, happy_wiggle, idle, sad, excited, shy, shock, headshake, scanning, wake_up, music_groove, listening, thinking_deep, laugh, confused, sleepy, greeting, acknowledge, stretching) |
 | `/servo/move` | POST | Send joint positions with smooth interpolation |
 | `/servo/aim` | POST | Aim lamp head (center, desk, wall, left, right, up, down, user) |
 | `/camera/snapshot` | GET | Capture single JPEG frame |
