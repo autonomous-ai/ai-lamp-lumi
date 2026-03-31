@@ -74,8 +74,15 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
         {input || TURN_INPUT_FALLBACK}
       </div>
-      {/* Row 3: output — TTS */}
-      {output && (
+      {/* Row 3: output — TTS or no reply */}
+      {output === "[no reply]" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          🚫 no reply — agent decided to do nothing
+        </div>
+      ) : output ? (
         <div style={{
           fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 2,
           wordBreak: "break-word" as const, lineHeight: 1.4,
@@ -83,7 +90,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
           {output}
         </div>
-      )}
+      ) : null}
       {/* Row 3b: output — Hardware actions */}
       {hwOutput && (
         <div style={{
