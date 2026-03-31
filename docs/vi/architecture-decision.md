@@ -193,7 +193,7 @@ workspace/skills/
 | Endpoint | Method | Mô tả |
 |---|---|---|
 | `/servo` | GET | Recordings + animation state |
-| `/servo/play` | POST | Phát animation (curious, nod, happy_wiggle, ...) |
+| `/servo/play` | POST | Phát animation (20 recordings: curious, nod, happy_wiggle, idle, sad, excited, shy, shock, headshake, scanning, wake_up, music_groove, listening, thinking_deep, laugh, confused, sleepy, greeting, acknowledge, stretching) |
 | `/servo/move` | POST | Joint positions với smooth interpolation |
 | `/servo/release` | POST | Tắt torque tất cả servo |
 | `/servo/position` | GET | Vị trí servo hiện tại |
