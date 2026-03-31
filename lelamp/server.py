@@ -94,6 +94,14 @@ try:
 except ImportError as e:
     logger.warning(f"Camera drivers (opencv) not available: {e}")
 
+LocalVideoCaptureDevice = None
+VideoCaptureDeviceInfo = None
+try:
+    from lelamp.devices.video_capture_device import LocalVideoCaptureDevice
+    from lelamp.devices.models import VideoCaptureDeviceInfo
+except ImportError as e:
+    logger.warning(f"Video capture device not available: {e}")
+
 # --- Config ---
 
 SERVO_PORT = os.environ.get("LELAMP_SERVO_PORT", "/dev/ttyACM0")
@@ -204,17 +212,14 @@ async def lifespan(app: FastAPI):
             rgb_service = None
 
     # Open camera
-    if cv2:
+    if LocalVideoCaptureDevice and VideoCaptureDeviceInfo and cv2:
         try:
-            cap = cv2.VideoCapture(CAMERA_INDEX)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            if cap.isOpened():
-                camera_capture = cap
-                logger.info(f"Camera opened (index={CAMERA_INDEX}, {CAMERA_WIDTH}x{CAMERA_HEIGHT})")
-            else:
-                cap.release()
-                logger.warning("Camera failed to open")
+            cap = LocalVideoCaptureDevice(
+                VideoCaptureDeviceInfo(device_id=CAMERA_INDEX, max_width=CAMERA_WIDTH, max_height=CAMERA_HEIGHT, rotate=180)
+            )
+            cap.start()
+            camera_capture = cap
+            logger.info(f"Camera opened (index={CAMERA_INDEX}, {CAMERA_WIDTH}x{CAMERA_HEIGHT})")
         except Exception as e:
             logger.warning(f"Camera failed to start: {e}")
 
@@ -334,7 +339,7 @@ async def lifespan(app: FastAPI):
     if rgb_service:
         rgb_service.stop()
     if camera_capture:
-        camera_capture.release()
+        camera_capture.stop()
 
 
 app = FastAPI(
@@ -1242,8 +1247,8 @@ def get_camera_info():
 
     return {
         "available": True,
-        "width": int(camera_capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
-        "height": int(camera_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        "width": CAMERA_WIDTH,
+        "height": CAMERA_HEIGHT,
     }
 
 
@@ -1259,16 +1264,13 @@ def camera_snapshot():
         animation_service.freeze()
         time.sleep(0.3)
 
-    # Discard stale buffered frame, read a fresh one
-    camera_capture.grab()
-    ret, frame = camera_capture.read()
+    frame = camera_capture.last_frame
 
     if animation_service:
         animation_service.unfreeze()
 
-    if not ret:
+    if frame is None:
         raise HTTPException(500, "Failed to capture frame")
-    frame = cv2.rotate(frame, cv2.ROTATE_180)
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return Response(content=buf.tobytes(), media_type="image/jpeg")
 
@@ -1281,10 +1283,10 @@ def camera_stream():
 
     def generate():
         while True:
-            ret, frame = camera_capture.read()
-            if not ret:
-                break
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
+            frame = camera_capture.last_frame
+            if frame is None:
+                time.sleep(0.05)
+                continue
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             yield (
                 b"--frame\r\n"
