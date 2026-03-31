@@ -84,7 +84,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/servo` | Recordings + animation state |
-| POST | `/servo/play` | Play animation (curious, nod, happy_wiggle, idle, sad, excited, shy, shock) |
+| POST | `/servo/play` | Play animation (idle, curious, nod, headshake, happy_wiggle, sad, excited, shock, shy, scanning, wake_up, music_groove). Idle auto-plays on boot. |
 | POST | `/servo/move` | Send joint positions with smooth interpolation |
 | POST | `/servo/release` | Disable torque on all servos |
 | GET | `/servo/position` | Current servo positions |
