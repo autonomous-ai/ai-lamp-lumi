@@ -278,7 +278,7 @@ export function FlowDiagram({
               })()}
               <text x={pos.x} y={pos.y - 6} textAnchor="middle"
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
-                {node.icon} {node.short}
+                {node.id === "agent_response" && lines.some((l) => l.includes("no reply")) ? "🚫" : node.icon} {node.short}
               </text>
               <text x={pos.x} y={pos.y + 6} textAnchor="middle"
                 fill={color} fontSize={7} opacity={0.9}>
