@@ -1330,6 +1330,7 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
+    lumi_gate: [], hw_action: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
