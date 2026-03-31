@@ -2,10 +2,10 @@ import logging
 from typing import Callable, override
 
 import insightface
+import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
 
-import lelamp.config as config
 from .base import Perception
 
 logger = logging.getLogger(__name__)
@@ -52,10 +52,14 @@ class FaceRecognizer(Perception):
         self._stranger_embeddings: np.ndarray | None = None
         self._stranger_labels: np.ndarray | None = None
 
-        self.app: insightface.app.FaceAnalysis = insightface.app.FaceAnalysis(name=model_name)
+        self.app: insightface.app.FaceAnalysis = insightface.app.FaceAnalysis(
+            name=model_name
+        )
         self.app.prepare(ctx_id=-1)
 
-    def train(self, images: list[npt.NDArray[np.uint8]], labels: list[int | str]) -> None:
+    def train(
+        self, images: list[npt.NDArray[np.uint8]], labels: list[int | str]
+    ) -> None:
         prefixed_labels = [self.OWNER_PREFIX + str(lbl) for lbl in labels]
         new_embeddings = []
         new_labels = []
@@ -83,7 +87,9 @@ class FaceRecognizer(Perception):
                 "Added %d owner faces — total owners: %d, total strangers: %d",
                 len(new_embeddings),
                 len(self._owner_embeddings),
-                len(self._stranger_embeddings) if self._stranger_embeddings is not None else 0,
+                len(self._stranger_embeddings)
+                if self._stranger_embeddings is not None
+                else 0,
             )
 
     def reset_owners(self) -> None:
@@ -129,18 +135,24 @@ class FaceRecognizer(Perception):
             return
 
         H, W, _ = frame.shape
-        embeds = np.array([r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results])
+        embeds = np.array(
+            [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
+        )
         n = len(embeds)
 
         owner_scores = np.full(n, _NO_MATCH)
         owner_ids: list[str | None] = [None] * n
         if self._owner_embeddings is not None and self._owner_labels is not None:
-            owner_scores, owner_ids = self._score(embeds, self._owner_embeddings, self._owner_labels)
+            owner_scores, owner_ids = self._score(
+                embeds, self._owner_embeddings, self._owner_labels
+            )
 
         stranger_scores = np.full(n, _NO_MATCH)
         stranger_ids: list[str | None] = [None] * n
         if self._stranger_embeddings is not None and self._stranger_labels is not None:
-            stranger_scores, stranger_ids = self._score(embeds, self._stranger_embeddings, self._stranger_labels)
+            stranger_scores, stranger_ids = self._score(
+                embeds, self._stranger_embeddings, self._stranger_labels
+            )
 
         new_stranger_embeds = []
         new_stranger_labels = []
@@ -165,10 +177,13 @@ class FaceRecognizer(Perception):
                 face_annotations.append((bbox, False, person_id))
 
             elif self.negative_threshold is None or (
-                o_score <= self.negative_threshold and s_score <= self.negative_threshold
+                o_score <= self.negative_threshold
+                and s_score <= self.negative_threshold
             ):
                 self._stranger_counter += 1
-                stranger_id = self.STRANGER_PREFIX + f"stranger_{self._stranger_counter}"
+                stranger_id = (
+                    self.STRANGER_PREFIX + f"stranger_{self._stranger_counter}"
+                )
                 person_id = stranger_id.removeprefix(self.STRANGER_PREFIX)
                 strangers_seen.append(person_id)
                 face_annotations.append((bbox, False, person_id))
@@ -216,11 +231,19 @@ class FaceRecognizer(Perception):
         cv2 = self._cv2
         for bbox, is_owner, label in face_annotations:
             x1, y1, x2, y2 = bbox
-            color = (0, 255, 0) if is_owner else (0, 0, 255)  # green=owner, red=stranger
+            color = (
+                (0, 255, 0) if is_owner else (0, 0, 255)
+            )  # green=owner, red=stranger
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
-                annotated, label, (x1, y1 - 6),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA,
+                annotated,
+                label,
+                (x1, y1 - 6),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                1,
+                cv2.LINE_AA,
             )
         image_b64 = self._encode_frame(annotated)
         self._send_event(

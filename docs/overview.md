@@ -43,12 +43,20 @@ lumi/
 
 lelamp/
 ├── server.py                     — FastAPI server (38 endpoints)
+├── config.py                     — Runtime constants (sensing thresholds, timeouts, URLs)
+├── devices/                      — Camera device abstraction (LocalVideoCaptureDevice)
 ├── service/
 │   ├── voice/voice_service.py    — Local VAD + Deepgram STT
 │   ├── voice/tts_service.py      — OpenAI-compatible TTS
-│   ├── sensing/                  — Motion, sound, presence detection
+│   ├── sensing/
+│   │   ├── sensing_service.py    — Background sensing loop
+│   │   ├── presence_service.py   — Auto light on/off state machine
+│   │   └── perceptions/          — Pluggable detectors
+│   │       ├── motion.py         — Frame differencing motion detector
+│   │       ├── facerecognizer.py — InsightFace owner/stranger recognizer
+│   │       └── light_level.py    — Ambient brightness detector
 │   └── display/                  — GC9A01 LCD eyes + info
-└── pyproject.toml                — Python dependencies
+└── pyproject.toml                — Python dependencies (opencv-python, insightface)
 
 web/                              — React 19 + Vite + Tailwind CSS 4 SPA
 ```
@@ -76,11 +84,14 @@ Mic (always on) → Local VAD (RMS energy, free)
 ```
 LeLamp sensing loop (every 2s) → Read 1 camera frame, run all detectors:
     ├─ Motion detection (frame diff) → event if >8% pixels changed
-    ├─ Face detection (Haar cascade, downscale 0.5x) → presence.enter / presence.leave
+    ├─ Face recognition (InsightFace buffalo_sc) → owner/stranger classification
+    │     → presence.enter (annotated JPEG with colored bboxes: green=owner, red=stranger)
+    │     → presence.leave (3 consecutive ticks without face)
     ├─ Light level (mean brightness, every 30s) → event if change >30/255
     └─ Sound detection (mic RMS) → event if > threshold
 
 Event has image? (large motion, face enter) → encode frame 320px JPEG base64
+Face enter image: original frame annotated with bounding boxes + labels
 
 POST /api/sensing/event {type, message, image?}
     → Lumi Go:
