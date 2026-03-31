@@ -2,9 +2,9 @@ import logging
 import time
 from typing import Callable, Optional
 
+import lelamp.config as config
 import numpy as np
 
-import lelamp.config as config
 from .base import Perception
 
 logger = logging.getLogger(__name__)
@@ -42,4 +42,6 @@ class LightLevelPerception(Perception):
                     msg = f"Ambient light decreased significantly (level: {brightness:.0f}/255, change: {change:.0f})"
                 else:
                     msg = f"Ambient light increased significantly (level: {brightness:.0f}/255, change: {change:+.0f})"
-                self._send_event("light.level", msg, cooldown=config.LIGHT_LEVEL_INTERVAL_S)
+                self._send_event(
+                    "light.level", msg, cooldown=config.LIGHT_LEVEL_INTERVAL_S
+                )
