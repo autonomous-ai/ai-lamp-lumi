@@ -544,6 +544,53 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 		}
 
+	case "session.tool":
+		// Tool events for session-subscribed clients (covers Telegram-initiated turns).
+		// Same payload shape as agent stream tool events.
+		var payload domain.AgentPayload
+		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+			slog.Warn("session.tool unmarshal error", "component", "agent", "err", err)
+			return nil
+		}
+		flowRunID := h.resolveRunID(payload.RunID)
+		toolName := payload.Data.Tool
+		summary := toolName
+		if payload.Data.Phase == "start" {
+			summary = fmt.Sprintf("Tool %s started", toolName)
+			if strings.Contains(payload.Data.ToolArgs, "/audio/play") {
+				h.markMusicTurn(payload.RunID)
+				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
+			}
+			if strings.Contains(payload.Data.ToolArgs, "/led/solid") ||
+				strings.Contains(payload.Data.ToolArgs, "/led/effect") ||
+				strings.Contains(payload.Data.ToolArgs, "/scene") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+			}
+			if strings.Contains(payload.Data.ToolArgs, "/led/off") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+			}
+		} else if payload.Data.Phase == "end" {
+			result := payload.Data.Result
+			if len(result) > 100 {
+				result = result[:100] + "..."
+			}
+			summary = fmt.Sprintf("Tool %s done", toolName)
+			if result != "" {
+				summary += ": " + result
+			}
+		}
+		flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": flowRunID, "source": "session.tool"}, flowRunID)
+		h.monitorBus.Push(domain.MonitorEvent{
+			Type:    "tool_call",
+			Summary: summary,
+			RunID:   flowRunID,
+			Phase:   payload.Data.Phase,
+			Detail: map[string]string{
+				"tool": toolName,
+				"args": payload.Data.ToolArgs,
+			},
+		})
+
 	case "chat":
 		slog.Debug("chat raw payload", "component", "agent", "payload", string(evt.Payload))
 		var payload domain.ChatPayload

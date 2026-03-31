@@ -1997,15 +1997,15 @@ function TurnBadge({ turn }: { turn: Turn }) {
           fontSize: 9,
           fontFamily: "monospace",
         }}>
-          <span style={{ color: "var(--lm-red)", fontWeight: 800 }}>TOKENS</span>
-          <span style={{ color: "var(--lm-red)", fontWeight: 700 }}>IN {fmtToken(tokenStats.inTok)}</span>
-          <span style={{ color: "var(--lm-red)", fontWeight: 700 }}>OUT {fmtToken(tokenStats.outTok)}</span>
-          <span style={{ color: "var(--lm-red)", fontWeight: 800 }}>TOTAL {fmtToken(tokenStats.total)}</span>
-          {(tokenStats.cacheRead || tokenStats.cacheWrite) && (
-            <span style={{ color: "rgba(248,113,113,0.95)", fontWeight: 600 }}>
-              CACHE {fmtToken(tokenStats.cacheRead)}R/{fmtToken(tokenStats.cacheWrite)}W
+          <span style={{ color: "var(--lm-text-muted)", fontWeight: 700 }}>TOKENS</span>
+          <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>IN <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.inTok)}</span></span>
+          <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>OUT <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.outTok)}</span></span>
+          <span style={{ color: "var(--lm-text-muted)", fontWeight: 600 }}>TTL <span style={{ color: "var(--lm-text-dim)" }}>{fmtToken(tokenStats.total)}</span></span>
+          {(tokenStats.cacheRead || tokenStats.cacheWrite) ? (
+            <span style={{ color: "var(--lm-text-muted)", fontWeight: 600 }}>
+              CACHE <span style={{ color: "var(--lm-teal)" }}>{fmtToken(tokenStats.cacheRead)}R</span>/<span style={{ color: "var(--lm-amber)" }}>{fmtToken(tokenStats.cacheWrite)}W</span>
             </span>
-          )}
+          ) : null}
         </div>
       )}
       {/* Row 4: token usage + event count */}
