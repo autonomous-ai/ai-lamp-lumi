@@ -545,8 +545,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Suppress TTS if the agent played music this turn (shared speaker).
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
 			musicPlaying := h.clearMusicTurn(payload.RunID)
-			if text := h.flushAssistantText(payload.RunID); text != "" && !isAgentNoReply(text) {
-				if musicPlaying {
+			if text := h.flushAssistantText(payload.RunID); text != "" {
+				if isAgentNoReply(text) {
+					// NO_REPLY: show on monitor as response but don't speak and don't light TTS node
+					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
+					flow.Log("no_reply", map[string]any{"run_id": flowRunID}, flowRunID)
+					h.monitorBus.Push(domain.MonitorEvent{
+						Type:    "chat_response",
+						Summary: "[no reply]",
+						RunID:   flowRunID,
+						State:   "final",
+						Detail:  map[string]string{"role": "assistant", "message": "[no reply]"},
+					})
+				} else if musicPlaying {
 					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
 				} else {
