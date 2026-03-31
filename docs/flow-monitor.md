@@ -217,10 +217,14 @@ Node info extracted from turn events:
 - `chat_input` → Telegram In node
 - `intent_match` → Local Match node
 - `lifecycle_start` → Agent Call + Thinking nodes
-- `tool_call` → Tool Exec node (tool name from `detail.data.tool`)
+- `tool_call` → Tool Exec node. Only `phase:"start"` events shown (has args). Displays full curl command from `args.command`. Each tool entry has a 📋 copy button for the curl command. OpenClaw sends tool name in `data.name` (not `data.tool`); args as object in `data.args` (e.g. `{"command":"curl ..."}`).
 - `lifecycle_end` → Response node
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)
-- `token_usage` → Response node (token counts). Source: `lifecycle_end` payload if available, otherwise fetched from `chat.history` RPC on `lifecycle_end` (async goroutine, best-effort). OpenClaw `lifecycle_end` currently does not include usage data, so `chat.history` is the primary source.
+- `token_usage` → Response node (token counts).
+
+### NO_REPLY suppression
+
+OpenClaw agent may respond with `NO_REPLY` (or truncated forms `NO`, `NO_RE`, `NO_...`) when it decides not to respond — typically for passive sensing events like sound/motion. These are suppressed by `isAgentNoReply()` in `handler.go`: no TTS playback, no output display. Matches: exact `"NO"`, or any string starting with `"NO_"` or `"NO_RE"` (case-insensitive after trim). Source: `lifecycle_end` payload if available, otherwise fetched from `chat.history` RPC on `lifecycle_end` (async goroutine, best-effort). OpenClaw `lifecycle_end` currently does not include usage data, so `chat.history` is the primary source.
 
 ## Turn Item Display
 
