@@ -559,16 +559,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						Detail:  map[string]string{"role": "assistant", "message": "[no reply]"},
 					})
 				} else if musicPlaying {
-				slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
-				flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
-			} else {
-				slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
-				flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
-				go func(t string) {
-					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-						slog.Error("TTS delivery failed", "component", "agent", "error", err)
-					}
-				}(text)
+					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
+					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
+				} else {
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
+					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
+					go func(t string) {
+						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+							slog.Error("TTS delivery failed", "component", "agent", "error", err)
+						}
+					}(text)
+				}
 			}
 		}
 
