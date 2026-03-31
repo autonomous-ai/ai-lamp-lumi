@@ -57,7 +57,26 @@ Bảng tọa độ gần đúng và ASCII grid: xem mục *Turn Pipeline* và *A
 
 ### Lấy tin nhắn user từ Telegram
 
-Khi phát hiện channel turn (Telegram/Slack), handler gọi `FetchChatHistory(sessionKey, 20)` qua WS RPC để lấy lịch sử chat gần nhất. Full history được log vào debug JSONL (`chat_history_on_channel_turn`), và tin nhắn `role:"user"` cuối cùng được trích xu��t cho event `chat_input`. Best-effort với timeout 3 giây — nếu lỗi thì event vẫn fire với `[telegram]` không có text. Lưu ý: OpenClaw chat stream không bao giờ broadcast `role:"user"`, nên `chat.history` RPC là cách duy nhất lấy nội dung tin nhắn user.
+OpenClaw chat stream **không bao giờ broadcast `role:"user"`** — chỉ emit `role:"assistant"`. Để lấy nội dung tin nhắn + tên người gửi, Lumi gọi `chat.history` **WebSocket RPC** trên cùng WS connection đang dùng nhận events:
+
+```
+→  {"type":"req","id":"history-1","method":"chat.history",
+    "params":{"sessionKey":"agent:main:telegram:group:...","limit":20}}
+
+←  {"type":"res","id":"history-1","ok":true,
+    "payload":{"messages":[
+      {"role":"user","content":[{"type":"text","text":"dừng phát nhạc đi"}],
+       "senderLabel":"Leo (158406741)"},
+      ...
+    ]}}
+```
+
+Chi tiết:
+- **Async goroutine**: Fetch chạy trong goroutine riêng (gọi đồng bộ trong read loop sẽ deadlock).
+- **Pending RPC tracking**: `pendingRPC` map match response về đúng caller qua request ID.
+- **Hai phase emit**: `chat_input` đầu tiên fire ngay (chưa có text). Goroutine lấy xong → fire `chat_input` thứ 2 với message + `senderLabel` → UI pick event có content.
+- **Best-effort**: timeout 3 giây, fail thì vẫn hiện `[telegram]` không có text.
+- **Heartbeat**: Cron 30 phút cũng trigger `lifecycle_start` — last user message sẽ là system prompt, không phải user thật.
 
 Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng Anh.
 
