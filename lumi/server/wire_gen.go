@@ -50,6 +50,6 @@ func InitializeServer() (*Server, error) {
 	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
 	ambientService := ambient.ProvideService(bus)
-	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory, ambientService)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory, ambientService, statusledService)
 	return server, nil
 }
