@@ -77,7 +77,11 @@ func isAgentNoReply(text string) bool {
 		slog.Warn("agent emitted bare NO instead of NO_REPLY — suppressing TTS", "component", "agent", "raw", text)
 		return true
 	}
-	return strings.HasPrefix(t, "NO_RE")
+	if strings.HasPrefix(t, "NO_RE") {
+		slog.Warn("agent no-reply sentinel — suppressing TTS", "component", "agent", "raw", text)
+		return true
+	}
+	return false
 }
 
 // isLumiOutboundChatRunID is true when runID matches Lumi's chat.send idempotency key
