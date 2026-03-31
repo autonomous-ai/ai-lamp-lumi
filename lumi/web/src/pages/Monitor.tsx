@@ -1330,6 +1330,7 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     sensing: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
+    lumi_gate: [], hw_action: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -1558,7 +1559,6 @@ function FlowDiagram({
     ["agent_call",        "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
-    ["tool_exec",         "agent_response"],
     ["tool_exec",         "hw_action"],         // OpenClaw tool → LeLamp hardware (LED/servo/audio) directly
     ["tool_exec",         "lumi_gate"],         // Tool event → Lumi gate (suppress TTS if music, pause ambient if LED)
     ["agent_response",    "lumi_gate"],         // Assistant text → Lumi gate (accumulate for TTS)
