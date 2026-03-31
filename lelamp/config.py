@@ -4,9 +4,9 @@
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # --- Sensing: Motion detection ---
-MOTION_THRESHOLD = 50  # pixel intensity change to count as "changed"
+MOTION_THRESHOLD = 60  # pixel intensity change to count as "changed"
 MOTION_BIGGEST_CONTOURS_RATIO = 0.1  # top percentage to classify big contours
-MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL = 0.01  # minimum fraction of the biggest contours to total pixels that must change (1%)
+MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL = 0.05  # minimum fraction of the biggest contours to total pixels that must change (5%)
 MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS = 0.5  # minimum fraction of the biggest contours to total area of all contoures that must change (50%)
 MOTION_LARGE_TOTAL_RATIO = 0.25  # fraction of changing areas to total pixels for "large movement" (25%)
 

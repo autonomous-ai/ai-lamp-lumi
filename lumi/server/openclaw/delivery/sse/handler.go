@@ -339,11 +339,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				}()
 			}
 
-			// Status LED: show processing state while agent is thinking
+			// Status LED: show processing state while agent is thinking.
+			// Also track busy state so passive sensing events can be suppressed during active turns.
 			if payload.Data.Phase == "start" {
 				h.statusLED.Set(statusled.StateProcessing)
+				h.agentGateway.SetBusy(true)
 			} else if payload.Data.Phase == "end" {
 				h.statusLED.Clear(statusled.StateProcessing)
+				h.agentGateway.SetBusy(false)
 			}
 
 			// Token usage: try lifecycle_end payload first, fallback to chat.history RPC.
