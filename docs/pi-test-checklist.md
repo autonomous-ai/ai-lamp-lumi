@@ -40,7 +40,7 @@ Track which features have been manually tested on the Raspberry Pi 4.
 | UC-04 | Scheduling | Nói: **"30 giây nữa tắt đèn"** → đợi 30s → LED tắt. Nói: **"hủy timer"** → timer bị cancel | ⏳ | |
 | UC-06 | AI assistant | Nói: **"dịch hello sang tiếng Việt"** → trả lời đúng. Nói: **"thời tiết Hà Nội hôm nay"** → có thông tin thời tiết | ⏳ | |
 | UC-08 | Servo via voice | Nói: **"nghiêng sang trái"** → servo tilt trái. Nói: **"hướng xuống bàn"** → servo cúi xuống. Nói: **"thẳng lên"** → servo về thẳng | ⏳ | |
-| UC-11 | Presence detection | **Enter:** Rời xa rồi bước vào khung hình camera → Lumi tự chào (không cần nói gì). **Leave:** Rời khỏi tầm nhìn camera > 15 phút → đèn tự dim/tắt | ⏳ | |
+| UC-11 | Presence detection | **Enter:** Rời xa rồi bước vào khung hình camera → Lumi tự chào (không cần nói gì). **Leave:** Rời khỏi tầm nhìn camera > 15 phút → đèn tự dim/tắt. **Noise check:** Ngồi yên gõ phím bình thường → Lumi không bị trigger bởi micro-movement (motion threshold tuning) | ⏳ | |
 | UC-13 | System status LED | **Boot:** Tắt/bật Pi → quan sát LED sequence (booting → connecting → ready). **Listening:** Nói wake word → LED đổi màu báo hiệu đang nghe | ⏳ | |
 
 ---

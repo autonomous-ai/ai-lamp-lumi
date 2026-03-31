@@ -16,6 +16,13 @@ type AgentGateway interface {
 	// IsReady returns true when the agent runtime is connected and ready.
 	IsReady() bool
 
+	// IsBusy returns true when the agent is currently processing a turn.
+	// Passive sensing events should be dropped while busy to avoid interrupting active commands.
+	IsBusy() bool
+
+	// SetBusy marks the agent as busy (true on lifecycle start, false on lifecycle end).
+	SetBusy(busy bool)
+
 	// SendChatMessage sends a user message to the agent. Returns the run ID.
 	SendChatMessage(msg string) (string, error)
 
