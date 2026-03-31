@@ -543,6 +543,15 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (tts && info.tts_speak.length < 3) info.tts_speak.push(`💡 ${tts}`);
     }
   }
+  // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
+  const hasLifecycleEnd = events.some((e) =>
+    (e.type === "lifecycle" && e.phase === "end") ||
+    (e.type === "flow_event" && e.detail?.node === "lifecycle_end"));
+  const hasNoReply = events.some((e) => e.type === "flow_event" && e.detail?.node === "no_reply");
+  if (hasLifecycleEnd && info.agent_response.length === 0 && !hasNoReply) {
+    info.agent_response.push("💤 no output — processed silently");
+  }
+
   return info;
 }
 
