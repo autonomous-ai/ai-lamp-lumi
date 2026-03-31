@@ -1351,11 +1351,21 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		return "", fmt.Errorf("marshal chat.send: %w", err)
 	}
 
+	// Log full payload (mask image content to avoid log spam)
+	if slog.Default().Enabled(nil, slog.LevelDebug) {
+		slog.Debug("[chat.send] full payload", "component", "openclaw", "reqId", reqID, "payload", string(body))
+	}
 	slog.Info("[chat.send] >>> sending to OpenClaw", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey,
 		"sessionKey", sessionKey,
-		"msgLen", len(message), "msg", message,
+		"message", message,
 		"hasImage", hasImage,
+		"attachments", func() string {
+			if !hasImage {
+				return "none"
+			}
+			return fmt.Sprintf("1x image/jpeg ~%dKB", len(imageBase64)*3/4/1024)
+		}(),
 		"payloadBytes", len(body))
 
 	s.wsMu.Lock()
