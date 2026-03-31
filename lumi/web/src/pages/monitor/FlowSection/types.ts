@@ -96,6 +96,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "thinking",
       "flow_event:lifecycle_start",
+      "flow_event:agent_thinking",
     ] },
 
   { id: "tool_exec",
