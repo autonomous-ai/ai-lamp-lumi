@@ -112,7 +112,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
 
-	msg := "[sensing:" + req.Type + "] " + req.Message
+	var msg string
+	if req.Type == "voice" || req.Type == "voice_command" {
+		// Voice input is a human speaking — always respond conversationally,
+		// even if the transcript is unclear. Never reply NO_REPLY to voice.
+		msg = req.Message
+	} else {
+		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
+		msg = "[sensing:" + req.Type + "] " + req.Message
+	}
 
 	var err error
 	if req.Image != "" {
