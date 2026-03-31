@@ -325,10 +325,12 @@ async def lifespan(app: FastAPI):
         voice_service.stop()
     if sensing_service:
         sensing_service.stop()
-    # Servo shutdown: keep current position (torque stays on) to prevent gravity drop.
-    # Only stop the animation event loop so no new movements are dispatched.
+    # Servo shutdown: only stop the animation event loop, do NOT disconnect/release
+    # torque so servos hold their current position and prevent gravity drop.
     if animation_service:
-        animation_service.stop()
+        animation_service._running.clear()
+        if animation_service._event_thread and animation_service._event_thread.is_alive():
+            animation_service._event_thread.join(timeout=3.0)
     if rgb_service:
         rgb_service.stop()
     if camera_capture:
