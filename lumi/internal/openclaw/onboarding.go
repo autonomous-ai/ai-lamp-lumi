@@ -139,10 +139,17 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 
 	text := string(content)
 
-	// Already has the block → skip
-	if strings.Contains(text, agentsMDMandatoryMarker) {
-		slog.Debug("AGENTS.md already has mandatory block, skipping", "component", "onboarding")
+	// Already has the exact current block → skip
+	if strings.Contains(text, agentsMDBlock) {
+		slog.Debug("AGENTS.md already has current mandatory block, skipping", "component", "onboarding")
 		return false, nil
+	}
+
+	// Remove old block (with or without marker) before injecting current version
+	if strings.Contains(text, agentsMDMandatoryMarker) {
+		text = stripMarkedBlock(text)
+	} else {
+		text = stripLegacyMandatoryBlock(text)
 	}
 
 	// Find "Your workspace" line and inject block below it
@@ -171,6 +178,57 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 
 	slog.Info("injected mandatory block into AGENTS.md", "component", "onboarding", "path", agentsFile)
 	return true, nil
+}
+
+// stripMarkedBlock removes the block between <!-- LUMI DO NOT REMOVE --> and the next --- separator.
+func stripMarkedBlock(text string) string {
+	lines := strings.Split(text, "\n")
+	var cleaned []string
+	skip := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == agentsMDMandatoryMarker {
+			skip = true
+			continue
+		}
+		if skip && trimmed == "---" {
+			skip = false
+			continue
+		}
+		if skip {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n")
+}
+
+// stripLegacyMandatoryBlock removes the old MANDATORY block that was injected
+// before the <!-- LUMI DO NOT REMOVE --> marker was introduced.
+func stripLegacyMandatoryBlock(text string) string {
+	lines := strings.Split(text, "\n")
+	var cleaned []string
+	skip := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Detect start of legacy block: starts with **MANDATORY:** but no marker above
+		if !skip && strings.HasPrefix(trimmed, "**MANDATORY:**") {
+			skip = true
+			continue
+		}
+		// End of legacy block: next non-empty line that doesn't look like continuation
+		if skip {
+			if trimmed == "" || trimmed == "---" {
+				skip = false
+				// Keep the separator/blank line
+				cleaned = append(cleaned, line)
+			}
+			// Skip continuation lines of the old block
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n")
 }
 
 // downloadFile fetches url and writes it to dst, overwriting any existing file.
