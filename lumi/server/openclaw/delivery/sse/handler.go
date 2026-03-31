@@ -547,7 +547,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 	case "session.tool":
 		// Tool events for session-subscribed clients (covers Telegram-initiated turns).
-		// Same payload shape as agent stream tool events.
 		var payload domain.AgentPayload
 		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
 			slog.Warn("session.tool unmarshal error", "component", "agent", "err", err)
@@ -556,6 +555,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		flowRunID := h.resolveRunID(payload.RunID)
 		toolName := payload.ToolName()
 		toolArgs := payload.ToolArguments()
+		// Debug: log raw session.tool payload to identify field mapping issues
+		h.appendDebugJSONL(map[string]any{
+			"source":      "session_tool_raw",
+			"run_id":      payload.RunID,
+			"flow_run_id": flowRunID,
+			"tool_name":   toolName,
+			"tool_args":   toolArgs,
+			"phase":       payload.Data.Phase,
+			"raw_payload": string(evt.Payload),
+		})
 		summary := toolName
 		if payload.Data.Phase == "start" {
 			summary = fmt.Sprintf("Tool %s started", toolName)
@@ -581,7 +590,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				summary += ": " + result
 			}
 		}
-		flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": flowRunID, "source": "session.tool"}, flowRunID)
+		flow.Log("tool_call", map[string]any{"tool": toolName, "phase": payload.Data.Phase, "run_id": flowRunID, "source": "session.tool", "args": toolArgs}, flowRunID)
 		h.monitorBus.Push(domain.MonitorEvent{
 			Type:    "tool_call",
 			Summary: summary,
