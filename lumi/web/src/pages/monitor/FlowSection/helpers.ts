@@ -213,7 +213,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "tts_send") {
+    if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "no_reply")) {
       current.status = "done";
       current.endTime = ev.time;
     }
