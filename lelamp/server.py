@@ -695,6 +695,14 @@ class PresenceResponse(BaseModel):
     away_timeout: int
 
 
+class SensingResponse(BaseModel):
+    running: bool
+    poll_interval: float
+    last_event_seconds_ago: dict[str, int]
+    perceptions: list[dict]
+    presence: dict
+
+
 class DisplayStateResponse(BaseModel):
     mode: str
     hardware: bool
@@ -1505,6 +1513,16 @@ def activate_scene(req: SceneRequest):
         "brightness": brightness,
         "color": scaled,
     }
+
+
+# --- Sensing endpoints ---
+
+@app.get("/sensing", response_model=SensingResponse, tags=["Sensing"])
+def get_sensing_state():
+    """Get perception state: motion, face recognition, light level, presence, and event cooldowns."""
+    if not sensing_service:
+        raise HTTPException(503, "Sensing not available")
+    return sensing_service.to_dict()
 
 
 # --- Presence endpoints ---

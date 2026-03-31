@@ -208,6 +208,19 @@ class SensingService:
 
     # --- Event sending ---
 
+    def to_dict(self) -> dict:
+        now = time.time()
+        last_events = {
+            k: int(now - v) for k, v in self._last_event_time.items()
+        }
+        return {
+            "running": self._running,
+            "poll_interval": self._poll_interval,
+            "last_event_seconds_ago": last_events,
+            "perceptions": [p.to_dict() for p in self._perceptions],
+            "presence": self.presence.to_dict(),
+        }
+
     def _send_event(
         self,
         event_type: str,

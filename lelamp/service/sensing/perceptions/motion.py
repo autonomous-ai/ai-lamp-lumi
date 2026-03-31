@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Callable, Optional
 
 import lelamp.config as config
@@ -26,6 +27,7 @@ class MotionPerception(Perception):
         self._capture_stable_frame = capture_stable_frame
         self._encode_frame = encode_frame
         self._last_frame: Optional[np.ndarray] = None
+        self._last_motion_time: Optional[float] = None
 
     def check(self, frame: np.ndarray) -> None:
         cv2 = self._cv2
@@ -69,6 +71,7 @@ class MotionPerception(Perception):
         self._last_frame = frame
 
         if moved:
+            self._last_motion_time = time.time()
             self._on_motion()
 
             if total_ratio >= config.MOTION_LARGE_TOTAL_RATIO:
@@ -86,3 +89,16 @@ class MotionPerception(Perception):
                 )
 
             self._send_event("motion", msg, image=image_b64)
+
+    def to_dict(self) -> dict:
+        seconds_since = (
+            int(time.time() - self._last_motion_time)
+            if self._last_motion_time is not None
+            else None
+        )
+        return {
+            "type": "motion",
+            "has_baseline": self._last_frame is not None,
+            "motion_detected": self._last_motion_time is not None,
+            "seconds_since_motion": seconds_since,
+        }
