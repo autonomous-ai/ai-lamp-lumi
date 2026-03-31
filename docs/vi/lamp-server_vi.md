@@ -55,7 +55,7 @@
 |------|-------|---------|-------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | Không | Lệnh giọng nói |
 | `motion` | Camera (frame diff) | Có (large motion) | Phát hiện chuyển động |
-| `presence.enter` | Camera (Haar cascade face detection) | Có | Phát hiện khuôn mặt mới |
+| `presence.enter` | Camera (InsightFace recognition) | Có (JPEG bbox-annotated) | Phát hiện khuôn mặt — phân loại owner hoặc stranger |
 | `presence.leave` | Camera (3 tick liên tục không thấy mặt) | Không | Người rời đi |
 | `light.level` | Camera (mean brightness) | Không | Ánh sáng môi trường thay đổi đáng kể (>30/255) |
 | `sound` | Mic (RMS energy) | Không | Tiếng động lớn |
