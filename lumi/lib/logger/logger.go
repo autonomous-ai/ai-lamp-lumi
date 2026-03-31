@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // ANSI color codes
@@ -153,15 +155,17 @@ func Init(level slog.Level, logFilePath string) func() {
 		return func() {}
 	}
 
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		// Fall back to console only
-		slog.SetDefault(slog.New(consoleHandler))
-		return func() {}
+	// Rotating log file: 1 MB per file, keep 3 most recent backups
+	rotatingWriter := &lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    1, // MB
+		MaxBackups: 3,
+		MaxAge:     0, // no age-based removal
+		Compress:   false,
 	}
 
 	fileHandler := &colorHandler{
-		w:     logFile,
+		w:     rotatingWriter,
 		level: level,
 	}
 
@@ -169,5 +173,5 @@ func Init(level slog.Level, logFilePath string) func() {
 		handlers: []slog.Handler{consoleHandler, fileHandler},
 	}))
 
-	return func() { logFile.Close() }
+	return func() { rotatingWriter.Close() }
 }
