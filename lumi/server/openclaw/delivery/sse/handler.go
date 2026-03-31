@@ -270,29 +270,42 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					})
 					slog.Info("chat.history for channel turn", "component", "agent", "run_id", capturedRunID, "history_bytes", len(historyPayload))
 
-					// Extract last user message from history.
+					// Extract last user message and last assistant usage from history.
 					var userMsg string
 					var senderLabel string
+					type histUsage struct {
+						Input      int `json:"input"`
+						Output     int `json:"output"`
+						TotalTokens int `json:"totalTokens"`
+						CacheRead  int `json:"cacheRead"`
+						CacheWrite int `json:"cacheWrite"`
+					}
 					var hist struct {
 						Messages []struct {
 							Role        string          `json:"role"`
 							Content     json.RawMessage `json:"content"`
 							SenderLabel string          `json:"senderLabel"`
+							Usage       *histUsage      `json:"usage,omitempty"`
 						} `json:"messages"`
 					}
+					var lastUsage *histUsage
 					if json.Unmarshal(historyPayload, &hist) == nil {
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
-							if hist.Messages[i].Role == "user" {
-								senderLabel = hist.Messages[i].SenderLabel
+							m := hist.Messages[i]
+							if m.Role == "assistant" && m.Usage != nil && lastUsage == nil {
+								lastUsage = m.Usage
+							}
+							if m.Role == "user" && userMsg == "" {
+								senderLabel = m.SenderLabel
 								var text string
-								if json.Unmarshal(hist.Messages[i].Content, &text) == nil {
+								if json.Unmarshal(m.Content, &text) == nil {
 									userMsg = text
 								} else {
 									var blocks []struct {
 										Type string `json:"type"`
 										Text string `json:"text"`
 									}
-									if json.Unmarshal(hist.Messages[i].Content, &blocks) == nil {
+									if json.Unmarshal(m.Content, &blocks) == nil {
 										var parts []string
 										for _, b := range blocks {
 											if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
@@ -302,6 +315,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										userMsg = strings.Join(parts, " ")
 									}
 								}
+							}
+							if userMsg != "" && lastUsage != nil {
 								break
 							}
 						}
@@ -327,6 +342,36 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							RunID:   capturedRunID,
 							Detail:  map[string]string{"role": "user", "message": userMsg, "sender": senderLabel},
 						})
+					}
+					// Emit token usage from last assistant message in history.
+					// This is the only source — OpenClaw lifecycle_end does not include usage.
+					if lastUsage != nil {
+						flow.Log("token_usage", map[string]any{
+							"run_id":             capturedRunID,
+							"source":             "chat_history",
+							"input_tokens":       lastUsage.Input,
+							"output_tokens":      lastUsage.Output,
+							"cache_read_tokens":  lastUsage.CacheRead,
+							"cache_write_tokens": lastUsage.CacheWrite,
+							"total_tokens":       lastUsage.TotalTokens,
+						}, capturedRunID)
+						h.monitorBus.Push(domain.MonitorEvent{
+							Type:    "lifecycle",
+							Summary: fmt.Sprintf("Agent end — tokens: %d in / %d out", lastUsage.Input, lastUsage.Output),
+							RunID:   capturedRunID,
+							Detail: map[string]string{
+								"inputTokens":  fmt.Sprintf("%d", lastUsage.Input),
+								"outputTokens": fmt.Sprintf("%d", lastUsage.Output),
+								"cacheRead":    fmt.Sprintf("%d", lastUsage.CacheRead),
+								"cacheWrite":   fmt.Sprintf("%d", lastUsage.CacheWrite),
+								"totalTokens":  fmt.Sprintf("%d", lastUsage.TotalTokens),
+							},
+						})
+						slog.Info("token usage (from chat.history)", "component", "agent",
+							"run_id", capturedRunID,
+							"input", lastUsage.Input, "output", lastUsage.Output,
+							"cacheRead", lastUsage.CacheRead, "cacheWrite", lastUsage.CacheWrite,
+							"total", lastUsage.TotalTokens)
 					}
 				}()
 			}
