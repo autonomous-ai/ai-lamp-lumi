@@ -985,16 +985,66 @@ func (h *OpenClawHandler) ClearDebugLogs(c *gin.Context) {
 }
 
 // DebugLogs serves the OpenClaw raw debug payload log file for download.
+// Optional query param: last=<n> to return only the last N lines (default: full file).
 func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
 	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
+
+	ts := time.Now().UTC().Format("2006-01-02T15-04-05-000Z")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=openclaw_debug_payloads_%s.jsonl", ts))
+	c.Header("Content-Type", "application/x-ndjson")
+
+	// If "last" param is set, tail the file instead of serving the whole thing.
+	// Reads from end of file to avoid loading entire file into memory on Pi.
+	if s := c.Query("last"); s != "" {
+		n, _ := strconv.Atoi(s)
+		if n <= 0 {
+			n = 500
+		}
+		if n > 5000 {
+			n = 5000
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
+			return
+		}
+		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil || stat.Size() == 0 {
+			c.String(http.StatusOK, "")
+			return
+		}
+		// Read last chunk (estimate ~2KB per line)
+		chunkSize := int64(n) * 2048
+		if chunkSize > stat.Size() {
+			chunkSize = stat.Size()
+		}
+		buf := make([]byte, chunkSize)
+		f.Seek(stat.Size()-chunkSize, 0) //nolint:errcheck
+		nr, _ := f.Read(buf)
+		buf = buf[:nr]
+		lines := strings.Split(string(buf), "\n")
+		// Drop first partial line (unless we read from start)
+		if chunkSize < stat.Size() && len(lines) > 0 {
+			lines = lines[1:]
+		}
+		// Remove empty trailing line
+		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+			lines = lines[:len(lines)-1]
+		}
+		if len(lines) > n {
+			lines = lines[len(lines)-n:]
+		}
+		c.String(http.StatusOK, strings.Join(lines, "\n")+"\n")
+		return
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
 		return
 	}
 	defer f.Close()
-	c.Header("Content-Disposition", "attachment; filename=openclaw_debug_payloads.jsonl")
-	c.Header("Content-Type", "application/x-ndjson")
 	io.Copy(c.Writer, f) //nolint:errcheck
 }
 
