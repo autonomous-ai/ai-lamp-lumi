@@ -23,7 +23,7 @@ LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger even
 
 # --- Sensing: Face detection ---
 FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
-FACE_CASCADE_FILE = "haarcascade_frontalface_default.xml"
+YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
 
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
