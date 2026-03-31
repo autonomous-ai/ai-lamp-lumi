@@ -108,10 +108,11 @@ export const FLOW_NODES: FlowNodeDef[] = [
 
   { id: "agent_response",
     label: "Response", short: "RESP", icon: "💡", color: "var(--lm-green)", path: "agent",
-    desc: "Agent turn ended · response accumulated",
+    desc: "Agent turn ended · may respond or [no reply] (do nothing)",
     triggers: [
       "chat_response",
       "flow_event:lifecycle_end",
+      "flow_event:no_reply",
     ] },
 
   { id: "tts_speak",
