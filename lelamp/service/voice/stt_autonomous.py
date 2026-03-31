@@ -12,7 +12,7 @@ Protocol (Deepgram-compatible):
 import json
 import logging
 import threading
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
 from lelamp.service.voice.stt_provider import STTProvider, STTSession
@@ -27,6 +27,11 @@ DEFAULT_MODEL = "nova-3"
 DEFAULT_LANGUAGE = "vi"
 
 DEFAULT_ENCODING = "linear16"
+DEFAULT_ENDPOINTING_MS = 1500  # ms of silence before Deepgram fires is_final (same as stt_deepgram.py)
+
+
+def _is_flux(model: str) -> bool:
+    return model.startswith("flux")
 
 
 class AutonomousSTTSession(STTSession):
@@ -133,23 +138,35 @@ class AutonomousSTT(STTProvider):
     """Autonomous AI streaming STT provider (Deepgram wrapper behind campaign-api)."""
 
     def __init__(self, api_key: str, base_url: str, sample_rate: int = 16000,
-                 model: str = DEFAULT_MODEL, language: Optional[str] = None):
+                 channels: int = 1, model: str = DEFAULT_MODEL, language: Optional[str] = None,
+                 keywords: Optional[List[str]] = None):
         self._api_key = api_key
         self._sample_rate = sample_rate
+        self._channels = channels
         self._model = model
         self._language = language or DEFAULT_LANGUAGE
+        self._keywords = keywords or []
 
         # Convert HTTP base_url to WebSocket URL
         # base_url: https://campaign-api.autonomous.ai/api/v1/ai/v1
         # ws_url:   wss://campaign-api.autonomous.ai/api/v1/ai/v1/ws/audio/transcriptions
         ws_base = base_url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/")
-        params = {
-            "model": model,
-            "encoding": DEFAULT_ENCODING,
-            "sample_rate": str(sample_rate),
-        }
-        if self._language:
-            params["language"] = self._language
+        params = dict(
+            model=model,
+            encoding=DEFAULT_ENCODING,
+            sample_rate=sample_rate,
+            channels=channels,
+        )
+        if not _is_flux(model):
+            params.update(
+                language=self._language,
+                smart_format="true",
+                interim_results="false",
+                endpointing=DEFAULT_ENDPOINTING_MS,
+                vad_events="true",
+            )
+            if self._keywords:
+                params["keywords"] = ",".join(self._keywords)
         self._ws_url = f"{ws_base}/ws/audio/transcriptions?{urlencode(params)}"
         logger.info("AutonomousSTT ready (url=%s, model=%s)", self._ws_url, model)
 
