@@ -485,6 +485,14 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         info.agent_thinking.push("reasoning…");
       }
     }
+    // Thinking from chat.history (fallback when streaming too fast)
+    if (ev.type === "flow_event" && ev.detail?.node === "agent_thinking") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const text = d?.data?.text ?? d?.text ?? "";
+      if (text && !info.agent_thinking.some((l) => l.startsWith("🧠"))) {
+        info.agent_thinking.push(`🧠 ${text}`);
+      }
+    }
     if (ev.type === "flow_event" && ev.detail?.node === "no_reply") {
       pushAgentResponse("🚫 [no reply] — agent decided to do nothing");
     }
