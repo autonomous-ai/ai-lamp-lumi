@@ -3,13 +3,13 @@ Presence Service — state machine for automatic light on/off based on motion de
 
 States:
   PRESENT  — someone is here, lights on (last scene or default)
-  IDLE     — no motion for IDLE_TIMEOUT_S, dim to IDLE_BRIGHTNESS
-  AWAY     — no motion for AWAY_TIMEOUT_S, lights off
+  IDLE     — no motion for config.IDLE_TIMEOUT_S, dim to config.IDLE_BRIGHTNESS
+  AWAY     — no motion for config.AWAY_TIMEOUT_S, lights off
 
 Transitions:
   motion detected → PRESENT (turn on / restore)
-  no motion for IDLE_TIMEOUT_S → IDLE (dim)
-  no motion for AWAY_TIMEOUT_S → AWAY (off)
+  no motion for config.IDLE_TIMEOUT_S → IDLE (dim)
+  no motion for config.AWAY_TIMEOUT_S → AWAY (off)
 
 Calls LeLamp LED endpoints directly (same process, via rgb_service reference).
 """
@@ -19,14 +19,9 @@ import time
 from enum import Enum
 from typing import Optional
 
+import lelamp.config as config
+
 logger = logging.getLogger("lelamp.presence")
-
-# Timeouts (seconds)
-IDLE_TIMEOUT_S = 5 * 60      # 5 min → dim
-AWAY_TIMEOUT_S = 15 * 60     # 15 min → off
-
-# Dim level as fraction of last scene brightness
-IDLE_BRIGHTNESS = 0.20
 
 
 class PresenceState(str, Enum):
@@ -91,12 +86,12 @@ class PresenceService:
 
         elapsed = time.time() - self._last_motion_time
 
-        if self._state == PresenceState.PRESENT and elapsed >= IDLE_TIMEOUT_S:
+        if self._state == PresenceState.PRESENT and elapsed >= config.IDLE_TIMEOUT_S:
             self._state = PresenceState.IDLE
             logger.info("Presence: PRESENT → IDLE (no motion for %ds)", int(elapsed))
             self._dim_light()
 
-        elif self._state == PresenceState.IDLE and elapsed >= AWAY_TIMEOUT_S:
+        elif self._state == PresenceState.IDLE and elapsed >= config.AWAY_TIMEOUT_S:
             self._state = PresenceState.AWAY
             logger.info("Presence: IDLE → AWAY (no motion for %ds)", int(elapsed))
             self._turn_off_light()
@@ -111,11 +106,11 @@ class PresenceService:
             logger.warning("Presence: failed to restore light: %s", e)
 
     def _dim_light(self):
-        """Dim to IDLE_BRIGHTNESS of last color."""
+        """Dim to config.IDLE_BRIGHTNESS of last color."""
         if not self._rgb_service:
             return
         try:
-            dimmed = tuple(int(c * IDLE_BRIGHTNESS) for c in self._last_color)
+            dimmed = tuple(int(c * config.IDLE_BRIGHTNESS) for c in self._last_color)
             self._rgb_service.dispatch("solid", dimmed)
         except Exception as e:
             logger.warning("Presence: failed to dim light: %s", e)
@@ -134,6 +129,6 @@ class PresenceService:
             "state": self._state.value,
             "enabled": self._enabled,
             "seconds_since_motion": int(time.time() - self._last_motion_time),
-            "idle_timeout": IDLE_TIMEOUT_S,
-            "away_timeout": AWAY_TIMEOUT_S,
+            "idle_timeout": config.IDLE_TIMEOUT_S,
+            "away_timeout": config.AWAY_TIMEOUT_S,
         }
