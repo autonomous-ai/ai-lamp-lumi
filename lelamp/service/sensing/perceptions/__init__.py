@@ -1,5 +1,5 @@
-from .faces import FacePerception
+from .facerecognizer import FaceRecognizer
 from .light_level import LightLevelPerception
 from .motion import MotionPerception
 
-__all__ = ["MotionPerception", "FacePerception", "LightLevelPerception"]
+__all__ = ["MotionPerception", "FaceRecognizer", "LightLevelPerception"]
