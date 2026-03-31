@@ -449,23 +449,24 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 
 		case "tool":
-			toolName := payload.Data.Tool
+			toolName := payload.ToolName()
+			toolArgs := payload.ToolArguments()
 			summary := toolName
 			if payload.Data.Phase == "start" {
 				summary = fmt.Sprintf("Tool %s started", toolName)
 				// Detect music playback tool calls so we can suppress TTS on turn end.
 				// The Music skill uses Bash+curl to POST /audio/play.
-				if strings.Contains(payload.Data.ToolArgs, "/audio/play") {
+				if strings.Contains(toolArgs, "/audio/play") {
 					h.markMusicTurn(payload.RunID)
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 				}
 				// Detect LED tool calls so ambient breathing doesn't override agent-set colors.
-				if strings.Contains(payload.Data.ToolArgs, "/led/solid") ||
-					strings.Contains(payload.Data.ToolArgs, "/led/effect") ||
-					strings.Contains(payload.Data.ToolArgs, "/scene") {
+				if strings.Contains(toolArgs, "/led/solid") ||
+					strings.Contains(toolArgs, "/led/effect") ||
+					strings.Contains(toolArgs, "/scene") {
 					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
 				}
-				if strings.Contains(payload.Data.ToolArgs, "/led/off") {
+				if strings.Contains(toolArgs, "/led/off") {
 					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
 				}
 			} else if payload.Data.Phase == "end" {
@@ -486,7 +487,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				Phase:   payload.Data.Phase,
 				Detail: map[string]string{
 					"tool": toolName,
-					"args": payload.Data.ToolArgs,
+					"args": toolArgs,
 				},
 			})
 
@@ -553,20 +554,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			return nil
 		}
 		flowRunID := h.resolveRunID(payload.RunID)
-		toolName := payload.Data.Tool
+		toolName := payload.ToolName()
+		toolArgs := payload.ToolArguments()
 		summary := toolName
 		if payload.Data.Phase == "start" {
 			summary = fmt.Sprintf("Tool %s started", toolName)
-			if strings.Contains(payload.Data.ToolArgs, "/audio/play") {
+			if strings.Contains(toolArgs, "/audio/play") {
 				h.markMusicTurn(payload.RunID)
 				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
 			}
-			if strings.Contains(payload.Data.ToolArgs, "/led/solid") ||
-				strings.Contains(payload.Data.ToolArgs, "/led/effect") ||
-				strings.Contains(payload.Data.ToolArgs, "/scene") {
+			if strings.Contains(toolArgs, "/led/solid") ||
+				strings.Contains(toolArgs, "/led/effect") ||
+				strings.Contains(toolArgs, "/scene") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
 			}
-			if strings.Contains(payload.Data.ToolArgs, "/led/off") {
+			if strings.Contains(toolArgs, "/led/off") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
 			}
 		} else if payload.Data.Phase == "end" {
@@ -587,7 +589,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			Phase:   payload.Data.Phase,
 			Detail: map[string]string{
 				"tool": toolName,
-				"args": payload.Data.ToolArgs,
+				"args": toolArgs,
 			},
 		})
 
