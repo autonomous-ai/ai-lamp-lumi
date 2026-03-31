@@ -26,9 +26,9 @@ Track which features have been manually tested on the Raspberry Pi 4.
 
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
-| UC-01 | Voice control | Nói to rõ: **"turn on the light"** → đợi. Expect: LED bật + Lumi trả lời bằng giọng. Test tiếng Việt: **"bật đèn"** | ⏳ | |
-| UC-02 | LED color via voice | Nói: **"đèn màu xanh"**, **"đèn vàng ấm"**, **"màu hoàng hôn"** → LED đổi màu khớp với yêu cầu | ⏳ | |
-| UC-14 | Voice reply (TTS + body language) | Hỏi bất kỳ câu gì: **"hôm nay thời tiết thế nào?"** → Lumi trả lời bằng giọng nói + servo cử động + LED đổi theo cảm xúc | ⏳ | |
+| UC-01 | Voice control | Nói: **"bật đèn"** → LED bật. Nói: **"tắt đèn"** → LED tắt. Nói: **"sáng hơn"** → LED tăng brightness | ⏳ | |
+| UC-02 | LED color via voice | Nói: **"đèn màu xanh"** → LED xanh. Nói: **"đèn vàng ấm"** → LED vàng. Nói: **"màu hoàng hôn"** → LED gradient cam-hồng | ⏳ | |
+| UC-14 | Voice reply (TTS + body language) | Hỏi: **"hôm nay thời tiết thế nào?"** → Lumi trả lời bằng giọng + servo cử động + LED đổi theo cảm xúc khi nói | ⏳ | |
 
 ---
 
@@ -36,12 +36,12 @@ Track which features have been manually tested on the Raspberry Pi 4.
 
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
-| UC-03 | Scene presets | Nói: **"chế độ làm việc"**, **"thư giãn"**, **"xem phim"**, **"đi ngủ"**. Hoặc test trực tiếp: `curl -X POST http://pi:5001/scene -d '{"scene":"relax"}'` → LED thay đổi đúng màu/độ sáng | ⏳ | |
-| UC-04 | Scheduling | Nói: **"30 giây nữa tắt đèn"** (dùng 30s để test nhanh) → đợi → LED tắt đúng giờ. Test cancel: **"hủy timer"** | ⏳ | |
-| UC-06 | AI assistant | Hỏi: **"dịch hello sang tiếng Việt"**, **"thời tiết Hà Nội hôm nay"**, **"2 + 2 bằng mấy"** → OpenClaw trả lời đúng | ⏳ | |
-| UC-08 | Servo via voice | Nói: **"nghiêng sang trái"**, **"hướng xuống bàn"**, **"thẳng lên"** → servo di chuyển đúng hướng. Test API: `curl -X POST http://pi:5001/servo/aim -d '{"pan":45,"tilt":30}'` | ⏳ | |
-| UC-11 | Presence detection | **Test enter:** Đứng trước camera từ xa rồi bước vào khung hình → Lumi chào. **Test leave:** Rời khỏi khung hình > 15 phút → LED dim/tắt | ⏳ | |
-| UC-13 | System status LED | **Boot:** Tắt/bật Pi → quan sát LED sequence (booting → connecting → ready). **Error:** Tắt WiFi → LED có báo lỗi không. **Listening:** Nói wake word → LED đổi màu "đang nghe" | ⏳ | |
+| UC-03 | Scene presets | Nói: **"chế độ làm việc"** → LED trắng sáng. Nói: **"thư giãn"** → LED vàng ấm tối. Nói: **"xem phim"** → LED dim amber. Nói: **"đi ngủ"** → LED tắt dần | ⏳ | |
+| UC-04 | Scheduling | Nói: **"30 giây nữa tắt đèn"** → đợi 30s → LED tắt. Nói: **"hủy timer"** → timer bị cancel | ⏳ | |
+| UC-06 | AI assistant | Nói: **"dịch hello sang tiếng Việt"** → trả lời đúng. Nói: **"thời tiết Hà Nội hôm nay"** → có thông tin thời tiết | ⏳ | |
+| UC-08 | Servo via voice | Nói: **"nghiêng sang trái"** → servo tilt trái. Nói: **"hướng xuống bàn"** → servo cúi xuống. Nói: **"thẳng lên"** → servo về thẳng | ⏳ | |
+| UC-11 | Presence detection | **Enter:** Rời xa rồi bước vào khung hình camera → Lumi tự chào (không cần nói gì). **Leave:** Rời khỏi tầm nhìn camera > 15 phút → đèn tự dim/tắt | ⏳ | |
+| UC-13 | System status LED | **Boot:** Tắt/bật Pi → quan sát LED sequence (booting → connecting → ready). **Listening:** Nói wake word → LED đổi màu báo hiệu đang nghe | ⏳ | |
 
 ---
 
