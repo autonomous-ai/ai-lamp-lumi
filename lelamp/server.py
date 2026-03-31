@@ -73,7 +73,7 @@ sd = None
 np = None
 
 try:
-    from lelamp.service.motors.animation_service import AnimationService, clamp_positions as clamp_servo_positions
+    from lelamp.service.motors.animation_service import AnimationService
 except ImportError as e:
     logger.warning(f"Servo drivers not available: {e}")
 
@@ -801,7 +801,7 @@ class ServoMoveRequest(BaseModel):
 class ServoMoveResponse(BaseModel):
     status: str
     requested: dict[str, float]
-    clamped: dict[str, float]
+    clamped: dict[str, float]  # kept for API compat, same as requested
     duration: float
     errors: Optional[dict[str, str]] = None
 
@@ -820,20 +820,19 @@ def move_servo(req: ServoMoveRequest):
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
     # Reject unknown joint names at the API boundary
-    from lelamp.service.motors.animation_service import JOINT_LIMITS
-    unknown = [j for j in req.positions if j not in JOINT_LIMITS]
+    valid_joints = {f"{m}.pos" for m in animation_service.robot.bus.motors}
+    unknown = [j for j in req.positions if j not in valid_joints]
     if unknown:
-        raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {list(JOINT_LIMITS.keys())}")
+        raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {sorted(valid_joints)}")
 
-    safe_positions = clamp_servo_positions(req.positions)
     errors = {}
 
     try:
         if req.duration > 0:
-            animation_service.move_to(safe_positions, duration=req.duration)
+            animation_service.move_to(req.positions, duration=req.duration)
         else:
             with animation_service.bus_lock:
-                animation_service.robot.send_action(safe_positions)
+                animation_service.robot.send_action(req.positions)
     except Exception as e:
         errors["move"] = str(e)
 
@@ -841,7 +840,7 @@ def move_servo(req: ServoMoveRequest):
     try:
         with animation_service.bus_lock:
             obs = animation_service.robot.get_observation()
-        for joint, target in safe_positions.items():
+        for joint, target in req.positions.items():
             actual = obs.get(joint)
             if actual is not None:
                 error = abs(actual - target)
@@ -853,7 +852,7 @@ def move_servo(req: ServoMoveRequest):
     return {
         "status": "error" if "move" in errors else "ok",
         "requested": req.positions,
-        "clamped": safe_positions,
+        "clamped": req.positions,
         "duration": req.duration,
         "errors": errors if errors else None,
     }
