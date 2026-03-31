@@ -600,7 +600,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			},
 			"role":   "operator",
 			"scopes": []string{"operator.read", "operator.write", "events.read"},
-			"caps":   []string{"thinking-events"},
+			"caps":   []string{"thinking-events", "tool-events"},
 			"auth":   map[string]interface{}{"token": token},
 			"device": map[string]interface{}{
 				"id":        di.DeviceID,
@@ -685,6 +685,21 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConnected.Store(true)
 	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
 	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
+
+	// Subscribe to session events so we receive tool events for all turns
+	// (including Telegram-initiated turns where Lumi didn't call chat.send).
+	subReq := map[string]interface{}{
+		"type":   "req",
+		"id":     fmt.Sprintf("sub-%d", s.reqCounter.Add(1)),
+		"method": "sessions.subscribe",
+		"params": map[string]interface{}{},
+	}
+	if body, err := json.Marshal(subReq); err == nil {
+		s.wsMu.Lock()
+		_ = conn.WriteMessage(websocket.TextMessage, body)
+		s.wsMu.Unlock()
+		slog.Info("sessions.subscribe sent", "component", "openclaw")
+	}
 
 	for {
 		select {
