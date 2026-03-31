@@ -964,6 +964,8 @@ const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "led_set", "led_off",
       "flow_event:led_set", "flow_event:led_off",
+      "tool_call",
+      "flow_event:tool_call",
     ] },
 ];
 
