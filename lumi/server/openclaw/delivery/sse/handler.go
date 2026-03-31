@@ -386,14 +386,40 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							CacheRead   int `json:"cacheRead"`
 							CacheWrite  int `json:"cacheWrite"`
 						}
+						type histContent struct {
+							Type     string `json:"type"`
+							Text     string `json:"text,omitempty"`
+							Thinking string `json:"thinking,omitempty"`
+						}
 						var hist struct {
 							Messages []struct {
-								Role  string     `json:"role"`
-								Usage *histUsage `json:"usage,omitempty"`
+								Role    string         `json:"role"`
+								Usage   *histUsage     `json:"usage,omitempty"`
+								Content []histContent  `json:"content,omitempty"`
 							} `json:"messages"`
 						}
 						if json.Unmarshal(histPayload, &hist) != nil {
 							return
+						}
+						// Extract thinking from last assistant message and emit to monitor
+						for i := len(hist.Messages) - 1; i >= 0; i-- {
+							if hist.Messages[i].Role == "assistant" {
+								for _, c := range hist.Messages[i].Content {
+									if c.Type == "thinking" && c.Thinking != "" {
+										flow.Log("agent_thinking", map[string]any{
+											"run_id":  capturedFlowRunID,
+											"source":  "chat_history",
+											"text":    c.Thinking,
+										}, capturedFlowRunID)
+										h.monitorBus.Push(domain.MonitorEvent{
+											Type:    "thinking",
+											Summary: c.Thinking,
+											RunID:   capturedFlowRunID,
+										})
+									}
+								}
+								break
+							}
 						}
 						// Find last assistant message with usage.
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
