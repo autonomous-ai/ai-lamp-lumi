@@ -576,14 +576,21 @@ class EmotionResponse(BaseModel):
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
 # When no "effect" is set, LED is a simple solid fill.
 EMOTION_PRESETS = {
-    "curious":  {"servo": "curious",      "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
-    "happy":    {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
-    "sad":      {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
-    "thinking": {"servo": "nod",           "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
-    "idle":     {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
-    "excited":  {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
-    "shy":      {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
-    "shock":    {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
+    "curious":       {"servo": "curious",       "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
+    "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
+    "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
+    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
+    "idle":          {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
+    "excited":       {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
+    "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
+    "shock":         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
+    "listening":     {"servo": "listening",     "color": [100, 180, 255], "effect": "breathing",          "speed": 0.6},
+    "laugh":         {"servo": "laugh",         "color": [255, 200, 50],  "effect": "pulse",              "speed": 2.0},
+    "confused":      {"servo": "confused",      "color": [200, 150, 255], "effect": "pulse",              "speed": 0.8},
+    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.2},
+    "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "pulse",              "speed": 1.5},
+    "acknowledge":   {"servo": "acknowledge",   "color": [100, 255, 150], "effect": "pulse",              "speed": 1.0},
+    "stretching":    {"servo": "stretching",    "color": [255, 230, 180], "effect": "breathing",          "speed": 0.6},
 }
 
 
