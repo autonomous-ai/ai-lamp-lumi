@@ -23,6 +23,8 @@ dependencies = [
     "sounddevice>=0.5.2",
     "yt-dlp>=2025.3.0",
     "Pillow>=10.0.0",
+    "opencv-python>=4.8.0",
+    "insightface>=0.7.3",
 ]
 
 [tool.uv.sources]
