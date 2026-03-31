@@ -99,12 +99,21 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
+  // Voice/voice_command always wins — it's the user's actual intent even if mixed with passive sensing
   let sawVoice = false;
   let sawVoiceCommand = false;
   for (const ev of turn.events) {
+    // Check bracket label [voice] / [voice_command]
     const t = sensingInputBracketType(ev);
     if (t === "voice_command") sawVoiceCommand = true;
     else if (t === "voice") sawVoice = true;
+    // Also check data.type field (sensing_input / flow_enter events carry type in detail.data.type)
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const dtype = d?.data?.type ?? d?.type ?? "";
+      if (dtype === "voice_command") sawVoiceCommand = true;
+      else if (dtype === "voice") sawVoice = true;
+    }
   }
   if (sawVoiceCommand) turn.type = "voice_command";
   else if (sawVoice) turn.type = "voice";
@@ -129,6 +138,13 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       return { type: "voice", path: "unknown", forceNewTurn: true, boundary: "mic" };
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      // Check if message already available (resolved event) and is a sensing event
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
+      if (sensingMatch) {
+        return { type: sensingMatch[1], path: "agent", boundary: "chat" as const };
+      }
       return { type: "telegram", path: "agent", boundary: "chat" };
     }
     const ambientNode = ev.detail?.node ?? "";
@@ -190,11 +206,43 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     if (!current) {
       continue;
     }
+
+    // Split turn when a new lifecycle_start arrives after the turn already saw a lifecycle_end.
+    // This handles multiple OpenClaw agent turns mapped to the same device run_id
+    // (e.g. sensing + telegram arriving close together while trace is still active).
+    const isLifecycleStart = (ev.type === "lifecycle" && ev.phase === "start") ||
+      (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start");
+    const hasLifecycleEnd = current.events.some((e) =>
+      (e.type === "lifecycle" && e.phase === "end") ||
+      (e.type === "flow_event" && e.detail?.node === "lifecycle_end"));
+    if (isLifecycleStart && hasLifecycleEnd) {
+      turns.push(current);
+      current = {
+        id: evRunId || `turn-${ev._seq}`,
+        runId: evRunId || current.runId,
+        startTime: ev.time,
+        type: "unknown",
+        path: "agent",
+        status: "active",
+        events: [ev],
+      };
+      continue;
+    }
+
     current.events.push(ev);
+    // Classify unknown turns from chat_input events
+    if (current.type === "unknown" && (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
+      current.type = sensingMatch ? sensingMatch[1] : "telegram";
+    }
     if (!current.runId && evRunId) {
       current.runId = evRunId;
       current.id = evRunId;
     }
+    // Re-check type on every event so sensing-via-channel turns reclassify immediately
+    refineTurnTypeFromSensingInputs(current);
 
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       current.path = "local";

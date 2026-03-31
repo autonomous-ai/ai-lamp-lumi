@@ -233,12 +233,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
-			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
-			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
-			// Skip if run_id looks like Lumi-originated chat.send (lumi-chat-* or legacy lumi-sensing-*) —
-			// these can appear traceless after a server restart but are NOT from Telegram.
-			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
-				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID) {
+			// Detect Telegram/channel-initiated turns: lifecycle_start arrives from OpenClaw
+			// with a UUID run_id (not lumi-chat-* prefix). This covers:
+			// 1. No active trace (original case)
+			// 2. Active trace from a different turn (sensing trace still active when Telegram arrives)
+			isChannelTurn := payload.Data.Phase == "start" && payload.RunID != "" &&
+				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+			if isChannelTurn {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,

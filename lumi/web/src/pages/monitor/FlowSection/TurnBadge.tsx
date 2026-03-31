@@ -4,7 +4,7 @@ import { turnIO, turnTokenStats } from "./helpers";
 
 export function TurnBadge({ turn }: { turn: Turn }) {
   const formatTurnTime = (iso: string): string => {
-    const m = iso.match(/T(\d{2}:\d{2})(?::\d{2})?/);
+    const m = iso.match(/T(\d{2}:\d{2}:\d{2})/);
     return (m?.[1] ?? iso).trim();
   };
 
