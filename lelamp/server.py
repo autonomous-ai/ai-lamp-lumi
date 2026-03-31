@@ -462,7 +462,7 @@ class ServoStateResponse(BaseModel):
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "available_recordings": ["nod", "curious", "happy_wiggle", "idle", "sad", "excited", "shy", "shock"],
+                "available_recordings": ["nod", "curious", "happy_wiggle", "idle", "sad", "excited", "shy", "shock", "listening", "thinking_deep", "laugh", "confused", "sleepy", "greeting", "acknowledge", "stretching", "scanning", "wake_up", "headshake", "music_groove"],
                 "current": "idle",
             }]
         }
