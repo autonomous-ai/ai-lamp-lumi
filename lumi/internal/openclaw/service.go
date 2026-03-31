@@ -48,6 +48,7 @@ type Service struct {
 	config      *config.Config
 	monitorBus  *monitor.Bus
 	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+	activeTurn  atomic.Bool // true while agent is processing a turn (lifecycle start → end)
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
 	wsConn *websocket.Conn
@@ -115,6 +116,16 @@ func (s *Service) Name() string {
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.
 func (s *Service) IsReady() bool {
 	return s.wsConnected.Load()
+}
+
+// IsBusy returns true while the agent is processing a turn (between lifecycle start and end).
+func (s *Service) IsBusy() bool {
+	return s.activeTurn.Load()
+}
+
+// SetBusy marks the agent as busy or idle. Called by the SSE handler on lifecycle start/end.
+func (s *Service) SetBusy(busy bool) {
+	s.activeTurn.Store(busy)
 }
 
 // SetupAgent writes openclaw.json from the setup request and restarts the gateway.
