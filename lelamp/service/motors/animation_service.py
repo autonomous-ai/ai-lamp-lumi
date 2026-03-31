@@ -72,8 +72,8 @@ class AnimationService:
         # Freeze flag — when set, _continue_playback() skips servo writes so camera can capture a stable frame
         self._frozen = threading.Event()
 
-    # P gain per servo ID. ID 2,3,4 need high P for gravity hold.
-    _SERVO_PGAIN = {1: 32, 2: 128, 3: 128, 4: 128, 5: 32}
+    # P gain — match upstream default (16 for all). Higher values cause jerky motion.
+    _SERVO_PGAIN = {1: 16, 2: 16, 3: 16, 4: 16, 5: 16}
 
     def _configure_servos_raw(self):
         """Configure servos directly via scservo_sdk, bypassing lerobot.
