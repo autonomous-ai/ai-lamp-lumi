@@ -205,6 +205,16 @@ export function FlowSection({
     }
   }
 
+  // TG OUT: only light up for telegram turns with a real response (not no_reply)
+  if (selectedTurn?.type === "telegram" && visitedStages.has("agent_response")) {
+    const hasNoReply = turnEvents.some((ev) =>
+      (ev.type === "flow_event" && ev.detail?.node === "no_reply") ||
+      (ev.type === "chat_response" && ev.summary === "[no reply]")
+    );
+    if (!hasNoReply) {
+      visitedStages.add("tg_out");
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "hidden" }}>
