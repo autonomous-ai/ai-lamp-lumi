@@ -89,7 +89,7 @@ export const S = {
   cardLabel: {
     fontSize: 10,
     fontWeight: 600,
-    color: "var(--lm-text-muted)",
+    color: "var(--lm-text)",
     textTransform: "uppercase" as const,
     letterSpacing: "0.08em",
     marginBottom: 12,

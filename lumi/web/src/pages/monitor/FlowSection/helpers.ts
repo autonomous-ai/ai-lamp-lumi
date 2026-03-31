@@ -309,10 +309,10 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 // Extract runtime info for each node from turn events
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
-    sensing: [], telegram_input: [], intent_check: [], local_match: [],
+    mic_input: [], cam_input: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_action: [],
+    lumi_gate: [], hw_action: [], tg_out: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -330,10 +330,13 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   for (const ev of events) {
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
+      const sType = m?.[1] ?? "";
+      const isCam = /motion|presence|light/i.test(sType);
+      const target = isCam ? info.cam_input : info.mic_input;
       if (m) {
-        info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
+        target.push(`type: ${m[1]}`, `"${m[2]}"`);
       } else {
-        info.sensing.push(ev.summary);
+        target.push(ev.summary);
       }
     }
     {
