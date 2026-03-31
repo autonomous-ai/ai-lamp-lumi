@@ -77,6 +77,7 @@ Chi tiết:
 - **Hai phase emit**: `chat_input` đầu tiên fire ngay (chưa có text). Goroutine lấy xong → fire `chat_input` thứ 2 với message + `senderLabel` → UI pick event có content.
 - **Best-effort**: timeout 3 giây, fail thì vẫn hiện `[telegram]` không có text.
 - **Heartbeat**: Cron 30 phút cũng trigger `lifecycle_start` — last user message sẽ là system prompt, không phải user thật.
+- **Token usage**: `chat.history` cũng được gọi lúc `lifecycle_end` để lấy token usage. OpenClaw `lifecycle_end` không có field `usage`. Token nằm trong last `role:"assistant"` message của history response: `usage: {input, output, totalTokens, cacheRead, cacheWrite}`. Emit thành `token_usage` flow event với `source: "chat_history"`.
 
 Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng Anh.
 

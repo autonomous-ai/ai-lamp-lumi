@@ -73,6 +73,7 @@ Implementation details:
 - **Two-phase emit**: First `chat_input` fires immediately (no message). After the goroutine gets the history, a second `chat_input` fires with the message text and `senderLabel` — the UI picks up the one with content.
 - **Best-effort**: 3-second timeout. If the fetch fails, the turn still shows `[telegram]` without message text.
 - **Heartbeat noise**: OpenClaw heartbeat cron (every 30m) also triggers `lifecycle_start`. The last `role:"user"` message in those turns will be the heartbeat system prompt (starts with `"System:"`), not a real user message.
+- **Token usage**: `chat.history` is also called on `lifecycle_end` to fetch token usage. OpenClaw `lifecycle_end` events do not include `usage` data. The last `role:"assistant"` message in the history response contains `usage: {input, output, totalTokens, cacheRead, cacheWrite}` for the completed turn. This is emitted as a `token_usage` flow event with `source: "chat_history"`.
 
 ## Run ID Format & Mapping
 
@@ -205,7 +206,7 @@ Node info extracted from turn events:
 - `tool_call` → Tool Exec node (tool name from `detail.data.tool`)
 - `lifecycle_end` → Response node
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)
-- `token_usage` → Response node (token counts)
+- `token_usage` → Response node (token counts). Source: `lifecycle_end` payload if available, otherwise fetched from `chat.history` RPC on `lifecycle_end` (async goroutine, best-effort). OpenClaw `lifecycle_end` currently does not include usage data, so `chat.history` is the primary source.
 
 ## Turn Item Display
 
