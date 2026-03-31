@@ -698,8 +698,26 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// (OpenClaw gateway never broadcasts role:"user" on the chat stream.
 		// User messages are captured via lifecycle_start + chat.history above.)
 
+		// Chat error: OpenClaw reports agent processing failure
+		if payload.State == "error" {
+			errMsg := payload.ErrorMessage
+			if errMsg == "" {
+				errMsg = "unknown error"
+			}
+			slog.Error("OpenClaw chat error", "component", "agent", "run_id", flowRunID, "error", errMsg)
+			flow.Log("agent_error", map[string]any{"run_id": flowRunID, "error": errMsg}, flowRunID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_response",
+				Summary: "❌ " + errMsg,
+				RunID:   flowRunID,
+				State:   "error",
+				Error:   errMsg,
+				Detail:  map[string]string{"error": errMsg},
+			})
+		}
+
 		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input)
-		if payload.Role != "user" {
+		if payload.Role != "user" && payload.State != "error" {
 			summary := payload.Message
 			if len(summary) > 120 {
 				summary = summary[:120] + "..."
@@ -718,6 +736,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// TTS is sent from the lifecycle_end path above (assistant delta accumulation).
 		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
+
+	default:
+		// Log unhandled WS events for debugging (health, heartbeat, cron, shutdown, etc.)
+		h.appendDebugJSONL(map[string]any{
+			"source":      "ws_event_unhandled",
+			"event":       evt.Event,
+			"raw_payload": string(evt.Payload),
+		})
 	}
 
 	return nil
