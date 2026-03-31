@@ -253,7 +253,8 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       }
     }
 
-    if (ev.type === "lifecycle" && ev.phase === "end") {
+    if ((ev.type === "lifecycle" && ev.phase === "end") ||
+        (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       current.status = ev.error ? "error" : "done";
       current.endTime = ev.time;
     }
@@ -472,6 +473,13 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (dataErr && info.agent_response.length < 2) {
         info.agent_response.push(`❌ ${dataErr}`);
       }
+      // If lifecycle_end but no response text and no no_reply anywhere in events, mark as silent
+      if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end" && info.agent_response.length === 0) {
+        const hasNoReply = events.some((e) => e.type === "flow_event" && e.detail?.node === "no_reply");
+        if (!hasNoReply) {
+          info.agent_response.push("💤 no output — processed silently");
+        }
+      }
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -576,6 +584,10 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     if (!output && sameRun && ev.type === "chat_response" && ev.state === "final") {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.message ?? ev.summary ?? "";
+    }
+    // Detect no_reply from flow event (persisted in JSONL, unlike SSE chat_response)
+    if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "no_reply") {
+      output = "[no reply]";
     }
     if (turn.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
       output = ev.summary || "done";

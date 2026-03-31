@@ -90,6 +90,13 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
           {output}
         </div>
+      ) : turn.status === "done" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          💤 no output — agent processed silently
+        </div>
       ) : null}
       {/* Row 3b: output — Hardware actions */}
       {hwOutput && (
