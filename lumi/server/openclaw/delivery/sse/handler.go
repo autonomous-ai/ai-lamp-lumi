@@ -544,9 +544,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			musicPlaying := h.clearMusicTurn(payload.RunID)
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				if isAgentNoReply(text) {
-					// NO_REPLY: show on monitor but don't speak
+					// NO_REPLY: show on monitor as response but don't speak and don't light TTS node
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
-					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": "[no reply]"}, flowRunID)
+					flow.Log("no_reply", map[string]any{"run_id": flowRunID}, flowRunID)
 					h.monitorBus.Push(domain.MonitorEvent{
 						Type:    "chat_response",
 						Summary: "[no reply]",
