@@ -29,7 +29,13 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
-  const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set(["mic", "cam", "telegram"]));
+  const [turnFilters, setTurnFilters] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("lumi-turn-filters");
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
+    return new Set(["mic", "cam", "telegram"]);
+  });
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -160,6 +166,7 @@ export function FlowSection({
     setTurnFilters((prev) => {
       const next = new Set(prev);
       if (next.has(f)) next.delete(f); else next.add(f);
+      try { localStorage.setItem("lumi-turn-filters", JSON.stringify([...next])); } catch {}
       return next;
     });
   };

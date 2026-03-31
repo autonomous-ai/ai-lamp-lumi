@@ -347,6 +347,7 @@ export function FlowDiagram({
                       <g
                         key={`cp-${lineIdx}`}
                         style={{ cursor: "pointer" }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           navigator.clipboard.writeText(curl).catch(() => {});
