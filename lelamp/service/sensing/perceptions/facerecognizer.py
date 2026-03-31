@@ -228,6 +228,15 @@ class FaceRecognizer(Perception):
         else:
             self._face_absent_count = 0
 
+    def to_dict(self) -> dict:
+        return {
+            "type": "face",
+            "face_present": self._face_present,
+            "face_absent_count": self._face_absent_count,
+            "owner_count": len(self._owner_embeddings) if self._owner_embeddings is not None else 0,
+            "stranger_count": len(self._stranger_embeddings) if self._stranger_embeddings is not None else 0,
+        }
+
     def _send_enter_event(
         self,
         frame: npt.NDArray[np.uint8],
