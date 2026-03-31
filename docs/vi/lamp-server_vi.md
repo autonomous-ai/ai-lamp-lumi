@@ -84,7 +84,7 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | GET | `/servo` | Recordings + animation state |
-| POST | `/servo/play` | Phát animation (curious, nod, happy_wiggle, idle, sad, excited, shy, shock) |
+| POST | `/servo/play` | Phát animation (idle, curious, nod, headshake, happy_wiggle, sad, excited, shock, shy, scanning, wake_up, music_groove). Idle tự chạy khi boot. |
 | POST | `/servo/move` | Gửi joint positions với smooth interpolation |
 | POST | `/servo/release` | Tắt torque tất cả servo |
 | GET | `/servo/position` | Vị trí servo hiện tại |
