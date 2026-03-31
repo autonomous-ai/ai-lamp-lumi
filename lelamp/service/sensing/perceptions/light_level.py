@@ -45,3 +45,10 @@ class LightLevelPerception(Perception):
                 self._send_event(
                     "light.level", msg, cooldown=config.LIGHT_LEVEL_INTERVAL_S
                 )
+
+    def to_dict(self) -> dict:
+        return {
+            "type": "light_level",
+            "level": round(self._last_level, 1) if self._last_level is not None else None,
+            "seconds_since_check": int(time.time() - self._last_check) if self._last_check else None,
+        }
