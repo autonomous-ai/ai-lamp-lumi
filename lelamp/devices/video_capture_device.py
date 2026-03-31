@@ -54,7 +54,7 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
     @property
     def last_frame(self) -> npt.NDArray[np.uint8] | None:
         with self._lock:
-            if self._last_response and self._last_response.frame:
+            if self._last_response and self._last_response.frame is not None:
                 return self._last_response.frame.copy()
             else:
                 return None
