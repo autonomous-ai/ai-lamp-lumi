@@ -272,15 +272,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 					// Extract last user message from history.
 					var userMsg string
+					var senderLabel string
 					var hist struct {
 						Messages []struct {
-							Role    string          `json:"role"`
-							Content json.RawMessage `json:"content"`
+							Role        string          `json:"role"`
+							Content     json.RawMessage `json:"content"`
+							SenderLabel string          `json:"senderLabel"`
 						} `json:"messages"`
 					}
 					if json.Unmarshal(historyPayload, &hist) == nil {
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
 							if hist.Messages[i].Role == "user" {
+								senderLabel = hist.Messages[i].SenderLabel
 								var text string
 								if json.Unmarshal(hist.Messages[i].Content, &text) == nil {
 									userMsg = text
@@ -308,16 +311,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if len(displayMsg) > 200 {
 							displayMsg = displayMsg[:200] + "…"
 						}
+						prefix := "[telegram]"
+						if senderLabel != "" {
+							prefix = "[telegram:" + senderLabel + "]"
+						}
 						flow.Log("chat_input", map[string]any{
 							"run_id":  capturedRunID,
 							"source":  "channel",
 							"message": userMsg,
+							"sender":  senderLabel,
 						}, capturedRunID)
 						h.monitorBus.Push(domain.MonitorEvent{
 							Type:    "chat_input",
-							Summary: "[telegram] " + displayMsg,
+							Summary: prefix + " " + displayMsg,
 							RunID:   capturedRunID,
-							Detail:  map[string]string{"role": "user", "message": userMsg},
+							Detail:  map[string]string{"role": "user", "message": userMsg, "sender": senderLabel},
 						})
 					}
 				}()

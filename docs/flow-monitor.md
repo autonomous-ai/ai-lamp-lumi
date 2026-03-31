@@ -49,7 +49,30 @@ flow.Log("tool_call", data, payload.RunID)      // each event carries its own ID
 
 When `lifecycle_start` arrives without an active device trace (`flow.GetTrace() == ""`), the handler checks if it's a channel-initiated turn (Telegram/Slack). Lumi-originated `chat.send` turns are excluded via `lumi-chat-*` (and legacy `lumi-sensing-*`) so they are not mis-labeled as Telegram when the trace was lost.
 
-On channel-initiated turns, the handler calls `FetchChatHistory(sessionKey, 20)` via the WS RPC to retrieve recent messages. The full history payload is logged to debug JSONL (`chat_history_on_channel_turn`), and the last `role:"user"` message is extracted for the `chat_input` event summary. This is best-effort with a 3-second timeout — if the fetch fails, the event still fires with `[telegram]` and no message text. Note: OpenClaw's chat stream never broadcasts `role:"user"` events, so `chat.history` RPC is the only way to obtain user message content for channel-originated turns.
+#### Fetching user message content via `chat.history` RPC
+
+OpenClaw's chat stream **never broadcasts `role:"user"` events** — it only emits `role:"assistant"` (delta/final/error). To get the user message text and sender name, Lumi calls the `chat.history` WebSocket RPC on the same WS connection used for events:
+
+```
+→  {"type":"req","id":"history-1","method":"chat.history",
+    "params":{"sessionKey":"agent:main:telegram:group:-5139766247","limit":20}}
+
+←  {"type":"res","id":"history-1","ok":true,
+    "payload":{"sessionKey":"...","sessionId":"...","messages":[
+      {"role":"user","content":[{"type":"text","text":"dừng phát nhạc đi"}],
+       "senderLabel":"Leo (158406741)"},
+      {"role":"assistant","content":[...]},
+      ...
+    ],"thinkingLevel":"low"}}
+```
+
+Implementation details:
+
+- **Async goroutine**: The fetch runs in a separate goroutine because calling it synchronously inside the WS read loop handler would deadlock (the read loop blocks waiting for the handler to return, but the RPC response can only arrive after the handler returns).
+- **Pending RPC tracking**: `pendingRPC map[string]chan json.RawMessage` in `internal/openclaw/service.go` matches `type:"res"` frames to waiting callers by request ID. `dispatchRPCResponse()` hooks into the read loop before event handling.
+- **Two-phase emit**: First `chat_input` fires immediately (no message). After the goroutine gets the history, a second `chat_input` fires with the message text and `senderLabel` — the UI picks up the one with content.
+- **Best-effort**: 3-second timeout. If the fetch fails, the turn still shows `[telegram]` without message text.
+- **Heartbeat noise**: OpenClaw heartbeat cron (every 30m) also triggers `lifecycle_start`. The last `role:"user"` message in those turns will be the heartbeat system prompt (starts with `"System:"`), not a real user message.
 
 ## Run ID Format & Mapping
 
