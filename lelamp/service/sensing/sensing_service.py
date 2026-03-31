@@ -6,7 +6,7 @@ so the AI agent can react proactively (Pillar 4: "It acts on its own").
 
 Detectors:
   - Motion: camera frame differencing (grayscale → absdiff → threshold → contour area)
-  - Face: OpenCV Haar cascade for face/body detection (presence.enter/leave)
+  - Face: InsightFace recognition — owner/stranger classification (presence.enter/leave)
   - Light level: mean brightness of camera frame (auto-adjust lamp)
   - Sound: RMS level from microphone (loud noise detection)
 
@@ -20,14 +20,16 @@ import base64
 import logging
 import threading
 import time
-from types import ModuleType
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import lelamp.config as config
-import numpy as np
 import requests
+from lelamp.service.sensing.perceptions import (
+    FaceRecognizer,
+    LightLevelPerception,
+    MotionPerception,
+)
 from lelamp.service.sensing.presence_service import PresenceService
-from lelamp.service.sensing.perceptions import FaceRecognizer, LightLevelPerception, MotionPerception
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class SensingService:
         camera_capture=None,
         sound_device_module=None,
         numpy_module=None,
-        cv2_module= None,
+        cv2_module=None,
         input_device: Optional[int] = None,
         poll_interval: float = 2.0,
         rgb_service=None,
@@ -95,21 +97,6 @@ class SensingService:
     def set_tts_service(self, tts_service):
         """Set TTS reference after late initialization (echo suppression)."""
         self._tts = tts_service
-
-    def _init_face_cascade(self):
-        """Load Haar cascade for face detection."""
-        cv2 = self._cv2
-        try:
-            cascade_path = cv2.data.haarcascades + config.FACE_CASCADE_FILE
-            self._face_cascade = cv2.CascadeClassifier(cascade_path)
-            if self._face_cascade.empty():
-                logger.warning("Face cascade failed to load from %s", cascade_path)
-                self._face_cascade = None
-            else:
-                logger.info("Face cascade loaded: %s", cascade_path)
-        except Exception as e:
-            logger.warning("Failed to init face cascade: %s", e)
-            self._face_cascade = None
 
     def start(self):
         if self._running:

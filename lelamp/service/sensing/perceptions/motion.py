@@ -1,9 +1,9 @@
 import logging
 from typing import Callable, Optional
 
+import lelamp.config as config
 import numpy as np
 
-import lelamp.config as config
 from .base import Perception
 
 logger = logging.getLogger(__name__)

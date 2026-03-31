@@ -55,7 +55,7 @@
 |------|--------|-----------|-------------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | No | Voice command |
 | `motion` | Camera (frame diff) | Yes (large motion) | Motion detected |
-| `presence.enter` | Camera (Haar cascade face detection) | Yes | New face detected |
+| `presence.enter` | Camera (InsightFace recognition) | Yes (bbox-annotated JPEG) | Face detected — owner or stranger classified |
 | `presence.leave` | Camera (3 consecutive ticks without face) | No | Person left |
 | `light.level` | Camera (mean brightness) | No | Significant ambient light change (>30/255) |
 | `sound` | Mic (RMS energy) | No | Loud noise |
