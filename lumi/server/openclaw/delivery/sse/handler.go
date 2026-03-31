@@ -693,18 +693,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			})
 		}
 
-		// TODO(double-tts): This path sends TTS from the chat stream's final assistant message.
-		// The agent stream's lifecycle_end handler (above) ALSO flushes accumulated assistant
-		// deltas to TTS. When both streams carry the same response, the device speaks it twice.
-		// Fix: deduplicate with a per-runID "tts already sent" guard, or remove one path.
-		if payload.State == "final" && payload.Role == "assistant" && payload.Message != "" && !isAgentNoReply(payload.Message) {
-			slog.Info("chat response (final)", "component", "agent", "message", payload.Message[:min(len(payload.Message), 100)])
-			go func() {
-				if err := h.agentGateway.SendToLeLampTTS(payload.Message); err != nil {
-					slog.Error("TTS delivery failed", "component", "agent", "error", err)
-				}
-			}()
-		}
+		// TTS is sent from the lifecycle_end path above (assistant delta accumulation).
+		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
 	}
 
 	return nil
