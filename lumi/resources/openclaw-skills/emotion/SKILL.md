@@ -60,14 +60,21 @@ Response:
 
 | Emotion | Servo | LED Effect | When to use |
 |---|---|---|---|
-| `curious` | Tilts head | Warm yellow pulse | Questions, interest, "tell me more" |
-| `happy` | Happy wiggle | Bright yellow pulse | Good news, jokes, compliments, greetings |
-| `sad` | Droops down | Soft blue slow breathing | Bad news, empathy, apologies |
-| `thinking` | Nods slowly | Purple breathing | Processing, considering, "let me think" |
-| `idle` | Gentle sway | Cyan slow breathing | Waiting, listening, neutral state |
-| `excited` | Energetic bounce | Orange fast pulse | Celebrations, big news, enthusiasm |
-| `shy` | Turns away | Pink soft breathing | Receiving compliments, bashful moments |
-| `shock` | Quick jolt | White flash (3x) | Surprises, unexpected information |
+| `curious` | Tilts head, looks around | Warm yellow pulse | Questions, interest, "tell me more" |
+| `happy` | Happy wiggle sway | Bright yellow pulse | Good news, jokes, compliments |
+| `sad` | Droops down slowly | Soft blue slow breathing | Bad news, empathy, apologies |
+| `thinking` | Slow deliberate look side-to-side | Purple breathing | Processing, considering, "let me think" |
+| `idle` | Gentle sway | Cyan slow breathing | Waiting, neutral state |
+| `excited` | Energetic vertical bounce | Orange fast pulse | Celebrations, big news, enthusiasm |
+| `shy` | Turns away, hides | Pink soft breathing | Receiving compliments, bashful moments |
+| `shock` | Quick jolt backward | White flash (3x) | Surprises, unexpected information |
+| `listening` | Leans forward, head cock | Soft blue breathing | User is speaking, attentive mode |
+| `laugh` | Quick body shake (3Hz) | Warm yellow pulse | User said something funny |
+| `confused` | Dog-like head tilt side-to-side | Light purple pulse | Did not understand, ambiguous input |
+| `sleepy` | Slow droop with head catches | Dim purple breathing | Before sleep mode, winding down |
+| `greeting` | Wave gesture, arm extends | Warm orange pulse | Detecting person, saying hello |
+| `acknowledge` | Quick micro-nod (1.5s) | Green pulse | "Got it", confirming command |
+| `stretching` | Big extension + settle | Warm white breathing | After waking up, starting new session |
 
 ## Error Handling
 - If the API returns an error or is unreachable, continue with the conversational reply anyway. Emotion is non-blocking.
@@ -75,7 +82,12 @@ Response:
 
 ## Rules
 - **Always express emotion** with every conversational reply. Pick the closest match to your tone.
-- Use `thinking` when you need time to process.
+- Use `listening` when the user is speaking and you are waiting for them to finish.
+- Use `thinking` when you need time to process a complex query.
+- Use `acknowledge` for quick confirmations ("OK", "got it", "done").
+- Use `greeting` when a new person is detected or at the start of a conversation.
+- Use `sleepy` before transitioning to sleep/night mode.
+- Use `stretching` after waking up or starting a new session.
 - Use `idle` as the resting state between interactions.
 - Use lower intensity (0.3-0.5) for subtle reactions, higher (0.8-1.0) for strong ones.
 - You can call emotion multiple times in one response for a sequence (e.g., `shock` then `happy`).
