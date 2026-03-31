@@ -37,6 +37,10 @@ type Service struct {
 	// network monitor state (guarded by networkMonitorMu)
 	networkMonitorMu          sync.Mutex
 	networkMonitorConsecutive int
+
+	// connectivity callbacks; set once by StartNetworkMonitor before the goroutine starts.
+	onConnectivityLost     func()
+	onConnectivityRestored func()
 }
 
 // ProvideService returns a network service. Pass nil for wifiManager when not using WiFi manager (e.g. dev with NM).
@@ -189,9 +193,12 @@ func (s *Service) pingNetworkMonitor(target string) bool {
 }
 
 // StartNetworkMonitor runs the network monitor loop in a goroutine. Call only when in STA mode (after setup).
-// After networkMonitorFailsRequired consecutive failures, sets LED to WorkingNoInternet.
-// When internet is restored, sets LED back to Working. Exit when ctx is cancelled.
-func (s *Service) StartNetworkMonitor(ctx context.Context) {
+// After networkMonitorFailsRequired consecutive failures, onLost is called (if non-nil).
+// When internet is restored after a confirmed outage, onRestored is called (if non-nil).
+// Exits when ctx is cancelled.
+func (s *Service) StartNetworkMonitor(ctx context.Context, onLost, onRestored func()) {
+	s.onConnectivityLost = onLost
+	s.onConnectivityRestored = onRestored
 	go func() {
 		ticker := time.NewTicker(networkMonitorInterval)
 		defer ticker.Stop()
@@ -216,11 +223,15 @@ func (s *Service) runNetworkMonitorTick() {
 	}
 	if s.pingNetworkMonitor(networkMonitorPingTarget) {
 		s.networkMonitorMu.Lock()
-		if s.networkMonitorConsecutive > 0 {
-			slog.Info("internet restored", "component", "network-monitor", "previousFails", s.networkMonitorConsecutive)
-		}
+		prev := s.networkMonitorConsecutive
 		s.networkMonitorConsecutive = 0
 		s.networkMonitorMu.Unlock()
+		if prev >= networkMonitorFailsRequired {
+			slog.Info("internet restored", "component", "network-monitor", "previousFails", prev)
+			if s.onConnectivityRestored != nil {
+				s.onConnectivityRestored()
+			}
+		}
 		return
 	}
 	s.networkMonitorMu.Lock()
@@ -229,6 +240,9 @@ func (s *Service) runNetworkMonitorTick() {
 	s.networkMonitorMu.Unlock()
 
 	slog.Warn("no internet", "component", "network-monitor", "target", networkMonitorPingTarget, "fails", n, "required", networkMonitorFailsRequired)
+	if n == networkMonitorFailsRequired && s.onConnectivityLost != nil {
+		s.onConnectivityLost()
+	}
 }
 
 // ResetNetwork resets the network to the default state (clears credentials and writes minimal
