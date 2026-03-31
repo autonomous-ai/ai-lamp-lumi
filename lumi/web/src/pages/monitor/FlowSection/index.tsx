@@ -29,6 +29,7 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set(["mic", "cam", "telegram"]));
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -150,8 +151,22 @@ export function FlowSection({
     downloadUISnapshot();
   }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
+  const turnCategory = (type: string): string => {
+    if (type === "telegram") return "telegram";
+    if (/motion|presence|light/i.test(type)) return "cam";
+    return "mic"; // voice, sound, etc.
+  };
+  const toggleFilter = (f: string) => {
+    setTurnFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f); else next.add(f);
+      return next;
+    });
+  };
+
   const turns = groupIntoTurns(events);
-  const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : turns[0];
+  const filteredTurns = turns.filter((t) => turnFilters.has(turnCategory(t.type)));
+  const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : filteredTurns[0];
 
   const turnEvents = selectedTurn?.events ?? events.slice(-30);
   const activeStage = deriveActiveStage(turnEvents);
@@ -167,22 +182,32 @@ export function FlowSection({
     }
   }
   for (const ev of turnEvents) {
+    // Detect sensing type from sensing_input, chat_send, or agent_call events
+    const isSensingInput = ev.type === "sensing_input" ||
+      (ev.type === "flow_enter" && ev.detail?.node === "sensing_input") ||
+      (ev.type === "flow_event" && ev.detail?.node === "sensing_input");
     const fromSensingChatSend = (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) &&
       /^\[sensing:[^\]]+\]/i.test(ev.summary ?? "");
     const d = ev.detail as Record<string, any> | undefined;
-    const sensingType = d?.data?.type;
+    const sensingType = d?.data?.type ?? d?.type;
     const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
       (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "sound");
-    if (fromSensingChatSend || fromSensingAgentCall) {
-      visitedStages.add("sensing");
+    if (isSensingInput || fromSensingChatSend || fromSensingAgentCall) {
+      // Determine mic vs cam from sensing type or summary bracket
+      let detectedType = sensingType;
+      if (!detectedType && ev.summary) {
+        const m = ev.summary.match(/^\[([^\]]+)\]/);
+        detectedType = m?.[1]?.replace("sensing:", "") ?? "";
+      }
+      const isCam = /motion|presence|light/i.test(detectedType ?? "");
+      visitedStages.add(isCam ? "cam_input" : "mic_input");
       break;
     }
   }
 
-  const activeNode = FLOW_NODES.find((n) => n.id === activeStage);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "hidden" }}>
       {showCanvas && (
         <CanvasModal
           activeStage={activeStage}
@@ -197,15 +222,6 @@ export function FlowSection({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={S.cardLabel}>Flow Panel</span>
-            {activeNode && (
-              <span style={{
-                fontSize: 10, padding: "2px 8px", borderRadius: 4,
-                background: `${activeNode.color}20`, color: activeNode.color,
-                border: `1px solid ${activeNode.color}50`, fontWeight: 700,
-              }}>
-                ● {activeNode.label.toUpperCase()}
-              </span>
-            )}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
             <button
@@ -291,7 +307,7 @@ export function FlowSection({
       )}
 
       {/* Flow diagram + turn list */}
-      <div style={{ display: "flex", gap: 14, minHeight: 0 }}>
+      <div style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
 
         {/* Turn history list */}
         <div style={{
@@ -306,18 +322,35 @@ export function FlowSection({
         }}>
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
             <span style={S.cardLabel}>Turns</span>
-            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{turns.length}</span>
-            <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4, lineHeight: 1.3 }}>
-              From last {FLOW_EVENTS_MAX} flow events (max 100 turns)
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{filteredTurns.length}/{turns.length}</span>
+            <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+              {([
+                { key: "mic", icon: "🎤", label: "Mic" },
+                { key: "cam", icon: "👁", label: "Cam" },
+                { key: "telegram", icon: "💬", label: "TG" },
+              ] as const).map((f) => {
+                const active = turnFilters.has(f.key);
+                return (
+                  <button key={f.key} onClick={() => toggleFilter(f.key)} style={{
+                    padding: "2px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer",
+                    border: `1px solid ${active ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                    background: active ? "rgba(245,158,11,0.15)" : "transparent",
+                    color: active ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                    fontWeight: active ? 600 : 400,
+                  }}>
+                    {f.icon} {f.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
-            {turns.length === 0 ? (
-              <div style={{ padding: 12, color: "var(--lm-text-muted)", fontSize: 11 }}>No turns yet</div>
+            {filteredTurns.length === 0 ? (
+              <div style={{ padding: 12, color: "var(--lm-text-muted)", fontSize: 11 }}>No turns match filter</div>
             ) : (
-              turns.map((turn, i) => (
+              filteredTurns.map((turn, i) => (
                 <div key={turn.id}>
-                  {i > 0 && turns[i - 1].sessionBreak && (
+                  {i > 0 && filteredTurns[i - 1].sessionBreak && (
                     <div style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "4px 0", margin: "2px 0",
                     }}>
@@ -343,8 +376,8 @@ export function FlowSection({
         </div>
 
         {/* Center: flow diagram */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ ...S.card }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+          <div style={{ ...S.card, flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={S.cardLabel}>Turn Pipeline</span>
               {selectedTurn && (

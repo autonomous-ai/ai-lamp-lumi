@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DisplayEvent } from "../types";
 import type { FlowStage, ActiveFlowStage } from "./types";
 import { FLOW_NODES } from "./types";
@@ -16,7 +16,7 @@ export function FlowDiagram({
   turnEvents?: DisplayEvent[];
 }) {
   const VW = 920;
-  const VH = 720;
+  const VH = 640;
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -24,10 +24,19 @@ export function FlowDiagram({
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoom((z) => Math.min(4, Math.max(0.4, z + delta)));
+  // Use native wheel listener with { passive: false } so preventDefault actually works
+  // and stops scroll from bubbling to parent (Turns list).
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoom((z) => Math.min(4, Math.max(0.4, z + delta)));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -53,22 +62,28 @@ export function FlowDiagram({
   const vbY = (VH - vbH) / 2 - pan.y;
 
   const positions: Record<FlowStage, { x: number; y: number }> = {
-    intent_check:      { x: 100, y: 100 },
-    local_match:       { x: 240, y: 100 },
-    schedule_trigger:  { x: 625, y: 100 },
-    lumi_gate:         { x: 370, y: 560 },
-    sensing:           { x: 100, y: 480 },
-    hw_action:         { x: 240, y: 480 },
-    tts_speak:         { x: 240, y: 630 },
-    agent_call:        { x: 625, y: 350 },
-    telegram_input:    { x: 775, y: 350 },
-    tool_exec:         { x: 500, y: 480 },
-    agent_thinking:    { x: 625, y: 480 },
-    agent_response:    { x: 500, y: 630 },
+    // Lumi — top row
+    intent_check:      { x: 80, y: 50 },
+    local_match:       { x: 200, y: 50 },
+    schedule_trigger:  { x: 625, y: 50 },
+    lumi_gate:         { x: 370, y: 480 },
+    // LeLamp — 3 columns: mic | cam | hw+tts (shifted left)
+    mic_input:         { x: -40, y: 240 },
+    cam_input:         { x: 80, y: 240 },
+    hw_action:         { x: 200, y: 390 },
+    tts_speak:         { x: 200, y: 540 },
+    // OpenClaw — right
+    agent_call:        { x: 625, y: 240 },
+    telegram_input:    { x: 775, y: 240 },
+    tool_exec:         { x: 500, y: 390 },
+    agent_thinking:    { x: 625, y: 390 },
+    agent_response:    { x: 500, y: 540 },
+    tg_out:            { x: 775, y: 540 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
-    ["sensing",           "intent_check"],
+    ["mic_input",         "intent_check"],
+    ["cam_input",         "intent_check"],
     ["intent_check",      "local_match"],
     ["local_match",       "tts_speak"],
     ["intent_check",      "agent_call"],
@@ -81,6 +96,7 @@ export function FlowDiagram({
     ["tool_exec",         "lumi_gate"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
+    ["agent_response",    "tg_out"],
     ["lumi_gate",         "tts_speak"],
   ];
 
@@ -118,15 +134,14 @@ export function FlowDiagram({
   const nodeInfo = extractNodeInfo(turnEvents);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <svg
         ref={svgRef}
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         style={{
-          display: "block", width: "100%", height: "100%", minHeight: 360,
+          display: "block", width: "100%", flex: 1, minHeight: 0,
           cursor: dragging ? "grabbing" : "grab", userSelect: "none",
         }}
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -144,15 +159,15 @@ export function FlowDiagram({
 
         {/* Cluster group backgrounds */}
         <g>
-          <rect x={50} y={50} width={730} height={160} rx={14}
+          <rect x={-100} y={0} width={933} height={110} rx={14}
             fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
             strokeDasharray="4 4"
           />
-          <rect x={320} y={190} width={110} height={430} rx={10}
+          <rect x={320} y={100} width={110} height={430} rx={10}
             fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
             strokeDasharray="3 3"
           />
-          <text x={415} y={40} textAnchor="middle"
+          <text x={366} y={-8} textAnchor="middle"
             fill="var(--lm-teal)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -160,11 +175,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={30} y={395} width={280} height={300} rx={14}
+          <rect x={-100} y={185} width={360} height={415} rx={14}
             fill="var(--lm-amber)" fillOpacity={0.04} stroke="var(--lm-amber)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={145} y={385} textAnchor="middle"
+          <text x={80} y={175} textAnchor="middle"
             fill="var(--lm-amber)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -172,11 +187,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={448} y={292} width={385} height={540} rx={14}
+          <rect x={448} y={185} width={385} height={415} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={641} y={282} textAnchor="middle"
+          <text x={641} y={175} textAnchor="middle"
             fill="var(--lm-blue)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -217,41 +232,53 @@ export function FlowDiagram({
           const boxY = pos.y + nodeR + 18 + descLines * 10 + 6;
           return (
             <g key={node.id} opacity={opacity}>
-              {isActive && (
-                node.id === "lumi_gate" ? (
-                  <rect x={pos.x - gateR - 6} y={pos.y - gateR - 6}
-                    width={(gateR + 6) * 2} height={(gateR + 6) * 2} rx={12}
-                    fill="none" stroke={color} strokeWidth={2}
-                    opacity={0.35} style={{ filter: `url(#${glowId})` }}
-                  />
-                ) : (
-                  <circle cx={pos.x} cy={pos.y} r={nodeR + 6}
-                    fill="none" stroke={color} strokeWidth={2}
-                    opacity={0.35} style={{ filter: `url(#${glowId})` }}
-                  />
-                )
-              )}
-              {node.id === "lumi_gate" ? (
-                <rect x={pos.x - gateR} y={pos.y - gateR}
-                  width={gateR * 2} height={gateR * 2} rx={10}
-                  fill={color}
-                  fillOpacity={isActive ? 0.25 : isVisited ? 0.18 : 0.12}
-                  stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
-                  strokeOpacity={isActive ? 1 : isVisited ? 0.7 : 0.35}
-                  style={isActive ? { filter: `url(#${glowId})` } : undefined}
-                />
-              ) : (
-                <circle cx={pos.x} cy={pos.y} r={nodeR}
-                  fill={color}
-                  fillOpacity={isActive ? 0.25 : isVisited ? 0.18 : 0.12}
-                  stroke={color} strokeWidth={isActive ? 2.5 : 1.5}
-                  strokeOpacity={isActive ? 1 : isVisited ? 0.7 : 0.35}
-                  style={isActive ? { filter: `url(#${glowId})` } : undefined}
-                />
-              )}
+              {/* Node shape based on node.shape */}
+              {(() => {
+                const shape = node.shape ?? "circle";
+                const r = shape === "square" ? gateR : nodeR;
+                const fOpacity = isActive ? 0.25 : isVisited ? 0.18 : 0.12;
+                const sOpacity = isActive ? 1 : isVisited ? 0.7 : 0.35;
+                const sWidth = isActive ? 2.5 : 1.5;
+                const glow = isActive ? { filter: `url(#${glowId})` } : undefined;
+                const glowR = r + 6;
+                const props = { fill: color, fillOpacity: fOpacity, stroke: color, strokeWidth: sWidth, strokeOpacity: sOpacity, style: glow };
+                const glowProps = { fill: "none" as const, stroke: color, strokeWidth: 2, opacity: 0.35, style: { filter: `url(#${glowId})` } };
+
+                const hexPoints = (cx: number, cy: number, rad: number) =>
+                  Array.from({ length: 6 }, (_, i) => {
+                    const angle = (Math.PI / 3) * i - Math.PI / 6;
+                    return `${cx + rad * Math.cos(angle)},${cy + rad * Math.sin(angle)}`;
+                  }).join(" ");
+
+                const diamondPoints = (cx: number, cy: number, rad: number) =>
+                  `${cx},${cy - rad} ${cx + rad},${cy} ${cx},${cy + rad} ${cx - rad},${cy}`;
+
+                switch (shape) {
+                  case "hexagon":
+                    return (<>
+                      {isActive && <polygon points={hexPoints(pos.x, pos.y, glowR)} {...glowProps} />}
+                      <polygon points={hexPoints(pos.x, pos.y, r)} {...props} />
+                    </>);
+                  case "diamond":
+                    return (<>
+                      {isActive && <polygon points={diamondPoints(pos.x, pos.y, glowR)} {...glowProps} />}
+                      <polygon points={diamondPoints(pos.x, pos.y, r)} {...props} />
+                    </>);
+                  case "square":
+                    return (<>
+                      {isActive && <rect x={pos.x - glowR} y={pos.y - glowR} width={glowR * 2} height={glowR * 2} rx={12} {...glowProps} />}
+                      <rect x={pos.x - r} y={pos.y - r} width={r * 2} height={r * 2} rx={10} {...props} />
+                    </>);
+                  default:
+                    return (<>
+                      {isActive && <circle cx={pos.x} cy={pos.y} r={glowR} {...glowProps} />}
+                      <circle cx={pos.x} cy={pos.y} r={r} {...props} />
+                    </>);
+                }
+              })()}
               <text x={pos.x} y={pos.y - 6} textAnchor="middle"
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
-                {node.icon} {node.short}
+                {node.id === "agent_response" && lines.some((l) => l.includes("no reply")) ? "🚫" : node.icon} {node.short}
               </text>
               <text x={pos.x} y={pos.y + 6} textAnchor="middle"
                 fill={color} fontSize={7} opacity={0.9}>
@@ -347,6 +374,42 @@ export function FlowDiagram({
           );
         })}
       </svg>
+
+      {/* Shape legend */}
+      <div style={{
+        display: "flex", gap: 16, justifyContent: "center", alignItems: "center",
+        fontSize: 10, color: "var(--lm-text-muted)", padding: "8px 0 4px",
+      }}>
+        {([
+          { label: "Input", color: "var(--lm-amber)", shape: (c: string) => (
+            <svg width="16" height="16" viewBox="-8 -8 16 16" style={{ verticalAlign: "middle" }}>
+              <polygon points={Array.from({ length: 6 }, (_, i) => {
+                const a = (Math.PI / 3) * i - Math.PI / 6;
+                return `${6 * Math.cos(a)},${6 * Math.sin(a)}`;
+              }).join(" ")} fill={c} fillOpacity={0.2} stroke={c} strokeWidth="1.5" />
+            </svg>
+          )},
+          { label: "Process", color: "var(--lm-blue)", shape: (c: string) => (
+            <svg width="16" height="16" viewBox="-8 -8 16 16" style={{ verticalAlign: "middle" }}>
+              <circle r="6" fill={c} fillOpacity={0.2} stroke={c} strokeWidth="1.5" />
+            </svg>
+          )},
+          { label: "Output", color: "var(--lm-purple)", shape: (c: string) => (
+            <svg width="16" height="16" viewBox="-8 -8 16 16" style={{ verticalAlign: "middle" }}>
+              <polygon points="0,-7 7,0 0,7 -7,0" fill={c} fillOpacity={0.2} stroke={c} strokeWidth="1.5" />
+            </svg>
+          )},
+          { label: "Gate", color: "var(--lm-teal)", shape: (c: string) => (
+            <svg width="16" height="16" viewBox="-8 -8 16 16" style={{ verticalAlign: "middle" }}>
+              <rect x="-5.5" y="-5.5" width="11" height="11" rx="2.5" fill={c} fillOpacity={0.2} stroke={c} strokeWidth="1.5" />
+            </svg>
+          )},
+        ] as const).map((item) => (
+          <span key={item.label} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: item.color }}>
+            {item.shape(item.color)} {item.label}
+          </span>
+        ))}
+      </div>
 
       {/* Zoom controls overlay */}
       <div style={{

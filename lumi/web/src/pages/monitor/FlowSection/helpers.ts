@@ -79,9 +79,26 @@ export function sensingInputBracketType(ev: DisplayEvent): string | null {
  * For the turn badge, prefer voice / voice_command when any utterance is present — that is the user's intent.
  */
 export function refineTurnTypeFromSensingInputs(turn: Turn): void {
-  if (turn.type === "telegram" || turn.type.startsWith("ambient:") || turn.type === "schedule") {
+  if (turn.type.startsWith("ambient:") || turn.type === "schedule") {
     return;
   }
+
+  // Reclassify "telegram" turns that are actually sensing events routed via OpenClaw channel
+  if (turn.type === "telegram") {
+    for (const ev of turn.events) {
+      if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+        const d = ev.detail as Record<string, any> | undefined;
+        const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+        const m = msg.match(/\[sensing:([^\]]+)\]/i);
+        if (m) {
+          turn.type = m[1]; // e.g. "presence.leave", "motion", "sound"
+          return;
+        }
+      }
+    }
+    return;
+  }
+
   let sawVoice = false;
   let sawVoiceCommand = false;
   for (const ev of turn.events) {
@@ -309,10 +326,10 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 // Extract runtime info for each node from turn events
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
-    sensing: [], telegram_input: [], intent_check: [], local_match: [],
+    mic_input: [], cam_input: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_action: [],
+    lumi_gate: [], hw_action: [], tg_out: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -330,10 +347,13 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   for (const ev of events) {
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
+      const sType = m?.[1] ?? "";
+      const isCam = /motion|presence|light/i.test(sType);
+      const target = isCam ? info.cam_input : info.mic_input;
       if (m) {
-        info.sensing.push(`type: ${m[1]}`, `"${m[2]}"`);
+        target.push(`type: ${m[1]}`, `"${m[2]}"`);
       } else {
-        info.sensing.push(ev.summary);
+        target.push(ev.summary);
       }
     }
     {
@@ -391,6 +411,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (ev.type === "flow_event" && info.agent_thinking.length === 0) {
         info.agent_thinking.push("reasoning…");
       }
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "no_reply") {
+      pushAgentResponse("🚫 [no reply] — agent decided to do nothing");
     }
     if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       const d = ev.detail as Record<string, any> | undefined;
