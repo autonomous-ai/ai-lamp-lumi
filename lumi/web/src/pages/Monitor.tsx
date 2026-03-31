@@ -1391,9 +1391,22 @@ function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, any> | undefined;
       const toolName = d?.tool ?? d?.data?.tool ?? "unknown";
-      const args = d?.args ?? d?.data?.args ?? "";
-      // Avoid duplicates
-      const entry = `⚙ ${toolName}${args ? `(${args})` : ""}`;
+      const rawArgs = d?.args ?? d?.data?.args ?? "";
+      // Try to extract a short summary from args (e.g. command from exec tool)
+      let argsSummary = "";
+      if (rawArgs) {
+        try {
+          const parsed = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
+          if (parsed?.command) {
+            // Show just the endpoint from curl commands
+            const match = (parsed.command as string).match(/(?:POST|GET|PUT|DELETE)\s+(http\S+)/i);
+            argsSummary = match ? match[1].replace(/^https?:\/\/127\.0\.0\.1:\d+/, "") : (parsed.command as string).slice(0, 60);
+          } else {
+            argsSummary = JSON.stringify(parsed).slice(0, 60);
+          }
+        } catch { argsSummary = String(rawArgs).slice(0, 60); }
+      }
+      const entry = `⚙ ${toolName}${argsSummary ? `: ${argsSummary}` : ""}`;
       if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
     }
     // thinking → agent_thinking node

@@ -27,13 +27,14 @@ type AgentPayload struct {
 		Error     string `json:"error,omitempty"`
 		// Tool stream fields
 		// OpenClaw uses "name" for tool name; "tool" is a Lumi alias kept for backwards compat.
-		Tool          string `json:"tool,omitempty"`
-		Name          string `json:"name,omitempty"`
-		ToolCallID    string `json:"toolCallId,omitempty"`
-		ToolArgs      string `json:"toolArgs,omitempty"`
-		Arguments     string `json:"arguments,omitempty"`
-		Result        string `json:"result,omitempty"`
-		PartialResult string `json:"partialResult,omitempty"`
+		Tool          string          `json:"tool,omitempty"`
+		Name          string          `json:"name,omitempty"`
+		ToolCallID    string          `json:"toolCallId,omitempty"`
+		ToolArgs      string          `json:"toolArgs,omitempty"`
+		Args          json.RawMessage `json:"args,omitempty"`    // OpenClaw sends args as object e.g. {"command":"curl ..."}
+		Arguments     string          `json:"arguments,omitempty"`
+		Result        string          `json:"result,omitempty"`
+		PartialResult string          `json:"partialResult,omitempty"`
 		// Thinking/assistant stream fields
 		Text  string `json:"text,omitempty"`
 		Delta string `json:"delta,omitempty"`
@@ -50,12 +51,19 @@ func (p *AgentPayload) ToolName() string {
 	return p.Data.Tool
 }
 
-// ToolArguments returns tool arguments from either "arguments" (OpenClaw) or "toolArgs" (Lumi legacy).
+// ToolArguments returns tool arguments as a string.
+// OpenClaw sends args as an object (e.g. {"command":"curl ..."}), Lumi legacy uses a flat string.
 func (p *AgentPayload) ToolArguments() string {
+	if p.Data.ToolArgs != "" {
+		return p.Data.ToolArgs
+	}
 	if p.Data.Arguments != "" {
 		return p.Data.Arguments
 	}
-	return p.Data.ToolArgs
+	if len(p.Data.Args) > 0 {
+		return string(p.Data.Args)
+	}
+	return ""
 }
 
 // TokenUsage captures LLM token consumption from an agent turn.
