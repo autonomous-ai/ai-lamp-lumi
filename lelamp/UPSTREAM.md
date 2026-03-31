@@ -21,6 +21,25 @@
 - `livekit-agents`, `openai` dependencies — replaced by OpenClaw
 - `calibrate.py`, `record.py`, `replay.py` — CLI tools, not imported by server
 
+## What we changed (Lumi-only additions to animation_service.py)
+
+- `bus_lock` — camera + servo share serial bus, need serialization
+- `freeze/unfreeze` — pause servo writes during camera capture
+- `_motor_positions_from_bus()` — read positions without triggering camera
+- `_sync_state_from_hardware()` — prevent interpolation from assuming 0° for missing joints
+- `_configure_servos_raw()` — configure servos even when connect() partially fails
+- `move_to()` + `STARTUP_POSITION` — smooth interpolated boot position
+- Music groove support — loop music_groove recording during music playback
+- Auto-play idle on start — same as upstream behavior
+
+## Rules for modifying upstream code
+
+1. **Do NOT override upstream servo config** — P_Coefficient=16 is intentional, higher values cause jerky motion
+2. **Do NOT add software joint limits** — servo firmware + calibration handle range safety at hardware level
+3. **Do NOT regenerate upstream recordings** — teleop recordings are natural, math-generated ones are worse
+4. **Do NOT add per-frame processing** (clamp, transform) to the playback loop — send CSV values directly
+5. **Only add code Lumi actually needs** — bus_lock, freeze, move_to. Don't touch motion core logic
+
 ## How to sync
 
 1. Check upstream for driver-level fixes (servo protocol, LED timing)
