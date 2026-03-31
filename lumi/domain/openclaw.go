@@ -26,8 +26,12 @@ type AgentPayload struct {
 		EndedAt   int64  `json:"endedAt,omitempty"`
 		Error     string `json:"error,omitempty"`
 		// Tool stream fields
+		// OpenClaw uses "name" for tool name; "tool" is a Lumi alias kept for backwards compat.
 		Tool          string `json:"tool,omitempty"`
+		Name          string `json:"name,omitempty"`
+		ToolCallID    string `json:"toolCallId,omitempty"`
 		ToolArgs      string `json:"toolArgs,omitempty"`
+		Arguments     string `json:"arguments,omitempty"`
 		Result        string `json:"result,omitempty"`
 		PartialResult string `json:"partialResult,omitempty"`
 		// Thinking/assistant stream fields
@@ -36,6 +40,22 @@ type AgentPayload struct {
 		// Token usage (populated on lifecycle "end")
 		Usage *TokenUsage `json:"usage,omitempty"`
 	} `json:"data"`
+}
+
+// ToolName returns the resolved tool name from either "name" (OpenClaw) or "tool" (Lumi legacy).
+func (p *AgentPayload) ToolName() string {
+	if p.Data.Name != "" {
+		return p.Data.Name
+	}
+	return p.Data.Tool
+}
+
+// ToolArguments returns tool arguments from either "arguments" (OpenClaw) or "toolArgs" (Lumi legacy).
+func (p *AgentPayload) ToolArguments() string {
+	if p.Data.Arguments != "" {
+		return p.Data.Arguments
+	}
+	return p.Data.ToolArgs
 }
 
 // TokenUsage captures LLM token consumption from an agent turn.
