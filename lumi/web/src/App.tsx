@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import Setup from "@/pages/Setup";
-import Monitor from "@/pages/Monitor";
+import Monitor from "@/pages/monitor";
 
 function App() {
   return (
