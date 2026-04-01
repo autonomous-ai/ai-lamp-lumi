@@ -305,14 +305,17 @@ class AnimationService:
                     # Loop music groove while music is playing
                     self._current_frame_index = 0
                 elif self._current_recording != self.idle_recording:
-                    # Hold pose before returning to idle
-                    if self.hold_s > 0 and self._hold_until == 0.0:
-                        self._hold_until = time.time() + self.hold_s
-                        return
-                    if self._hold_until > 0.0:
-                        if time.time() < self._hold_until:
-                            return  # still holding
-                        self._hold_until = 0.0
+                    # Hold pose before returning to idle — skip hold when music is playing
+                    if not self._music_playing:
+                        if self.hold_s > 0 and self._hold_until == 0.0:
+                            self._hold_until = time.time() + self.hold_s
+                            return
+                        if self._hold_until > 0.0:
+                            if time.time() < self._hold_until:
+                                return  # still holding
+                            self._hold_until = 0.0
+                    else:
+                        self._hold_until = 0.0  # clear any stale hold
                     # Interpolate back to idle (or music groove if music started)
                     if self._music_playing:
                         next_rec = self._music_recording
