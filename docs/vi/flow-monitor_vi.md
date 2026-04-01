@@ -20,9 +20,9 @@ Component `FlowDiagram` trong `lumi/web/src/pages/Monitor.tsx` vẽ **ba vùng**
 
 | Vùng | Màu | Node |
 |------|-----|------|
-| **Lumi Server** | Teal | Intent, Local, Cron |
-| **LeLamp** | Amber | Sensing, TTS |
-| **OpenClaw** | Blue | Agent, TG In, Tool, Think, Response |
+| **Lumi Server** | Teal | Intent, Local, Cron, Gate |
+| **LeLamp** | Amber | MIC, CAM, EMO, LED, SERVO, TTS |
+| **OpenClaw** | Blue | Agent, TG In, Tool, Think, Response, TG Out |
 
 ### Lumi (hàng trên)
 
@@ -30,8 +30,14 @@ Component `FlowDiagram` trong `lumi/web/src/pages/Monitor.tsx` vẽ **ba vùng**
 
 ### LeLamp
 
-- **Sensing** cùng `y` với Tool row (OpenClaw).
-- **TTS Speak** và **HW Action** nằm ở output row dưới cùng. HW Action = hardware trực tiếp (LED/servo/audio) — OpenClaw tool gọi thẳng LeLamp, không qua Lumi.
+- **MIC** và **CAM** là input nodes (hàng trên LeLamp).
+- Output nodes xếp dọc trong 1 cột:
+  - **EMO** (`hw_emotion`) — `/emotion` (phối hợp LED + servo + display eyes)
+  - **LED** (`hw_led`) — `/led/solid`, `/led/effect`, `/scene`, `/led/off`
+  - **SERVO** (`hw_servo`) — `/servo/aim`, `/servo/play`
+  - **TTS** (`tts_speak`) — `/voice/speak`, text-to-speech
+- Đây là hardware calls trực tiếp từ OpenClaw tools, không qua Lumi.
+- Đường nối từ LOCAL → output nodes dùng **elbow routing** (gấp khúc bên trái) để tránh cắt qua node trung gian.
 
 ### Lumi Gate
 
