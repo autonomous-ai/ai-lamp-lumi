@@ -34,7 +34,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
       fontSize: 11,
       cursor: "default",
     }}>
-      {/* Row 1: source icon + type + path + status tag */}
+      {/* Row 1: source icon + type + path + status tag + duration */}
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
         <span style={{ fontSize: 14, lineHeight: 1 }}>{icon}</span>
         <span style={{
@@ -50,9 +50,21 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           background: `${statusColor}18`, color: statusColor, fontWeight: 700,
           textTransform: "uppercase" as const,
         }}>{statusLabel}</span>
+        {turn.endTime && (() => {
+          const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
+          if (!Number.isFinite(ms) || ms < 0) return null;
+          const label = ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+            : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s`
+            : `${ms}ms`;
+          const durColor = ms > 15_000 ? "var(--lm-red)" : ms > 5_000 ? "var(--lm-amber)" : "var(--lm-green)";
+          return <span style={{
+            fontSize: 8, padding: "1px 5px", borderRadius: 3,
+            background: `${durColor}18`, color: durColor, fontWeight: 700,
+          }}>⏱ {label}</span>;
+        })()}
       </div>
 
-      {/* Row 2: time only (HH:mm) */}
+      {/* Row 2: time */}
       <div style={{
         fontSize: 8,
         color: "var(--lm-text)",
