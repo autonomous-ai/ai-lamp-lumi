@@ -1215,6 +1215,7 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 		TokensTotal  int     `json:"tokensTotal"`
 		TokensInput  int     `json:"tokensInput"`
 		TokensOutput int     `json:"tokensOutput"`
+		TokensBilled int     `json:"tokensBilled"`
 		TokensAvg    float64 `json:"tokensAvg"`
 		InnerAvg     float64 `json:"innerAvg"`
 		InnerMax     int     `json:"innerMax"`
@@ -1236,6 +1237,8 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 		tokens     int
 		tokensIn   int
 		tokensOut  int
+		cacheRead  int
+		cacheWrite int
 		toolCalls  int
 	}
 
@@ -1287,6 +1290,12 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 				}
 				if v, ok := ev.Data["output_tokens"]; ok {
 					td.tokensOut += toInt(v)
+				}
+				if v, ok := ev.Data["cache_read_tokens"]; ok {
+					td.cacheRead += toInt(v)
+				}
+				if v, ok := ev.Data["cache_write_tokens"]; ok {
+					td.cacheWrite += toInt(v)
 				}
 			}
 			if ev.Node == "tool_call" {
@@ -1341,6 +1350,8 @@ func (h *OpenClawHandler) Analytics(c *gin.Context) {
 				m.TokensTotal += td.tokens
 				m.TokensInput += td.tokensIn
 				m.TokensOutput += td.tokensOut
+				// Billed: cache read costs 10% of input price
+				m.TokensBilled += td.tokensIn + td.cacheWrite + td.cacheRead/10 + td.tokensOut
 				if td.toolCalls > m.InnerMax {
 					m.InnerMax = td.toolCalls
 				}
