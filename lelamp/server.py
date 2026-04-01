@@ -634,10 +634,11 @@ class SpeakRequest(BaseModel):
 
 class MusicPlayRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="Song name or search query")
+    emotion: Optional[str] = Field(None, description="Emotion for LED + display while playing (e.g. excited, happy, curious). Servo groove is automatic.")
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"query": "Bohemian Rhapsody Queen"}]
+            "examples": [{"query": "Bohemian Rhapsody Queen", "emotion": "excited"}]
         }
     }
 
@@ -1038,6 +1039,8 @@ def turn_off_leds():
         raise HTTPException(503, "LED not available")
     _stop_current_effect()
     rgb_service.clear()
+    if sensing_service:
+        sensing_service.presence.set_last_color((0, 0, 0))
     return {"status": "ok"}
 
 
@@ -1410,6 +1413,42 @@ def record_audio(duration_ms: int = 3000):
 
 # --- Emotion endpoint (orchestrates servo + LED + audio) ---
 
+def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional[list]:
+    """Apply LED effect + display expression for an emotion. Returns scaled LED color or None."""
+    preset = EMOTION_PRESETS.get(emotion)
+    if not preset:
+        return None
+    led_color = None
+    if rgb_service and preset.get("color"):
+        scaled = [int(c * intensity) for c in preset["color"]]
+        try:
+            if preset.get("effect"):
+                _stop_current_effect()
+                global _effect_thread, _effect_name
+                _effect_stop.clear()
+                _effect_name = preset["effect"]
+                _effect_thread = threading.Thread(
+                    target=_run_effect,
+                    args=(preset["effect"], tuple(scaled), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
+                    daemon=True,
+                    name=f"led-emotion-{emotion}",
+                )
+                _effect_thread.start()
+            else:
+                rgb_service.dispatch("solid", tuple(scaled))
+            led_color = scaled
+            if sensing_service:
+                sensing_service.presence.set_last_color(tuple(scaled))
+        except Exception as e:
+            logger.warning("Emotion LED failed: %s", e)
+    if display_service:
+        try:
+            display_service.set_expression(emotion)
+        except Exception as e:
+            logger.warning("Emotion display failed: %s", e)
+    return led_color
+
+
 @app.post("/emotion", response_model=EmotionResponse, tags=["Emotion"])
 def express_emotion(req: EmotionRequest):
     """Express an emotion by coordinating servo animation + LED color simultaneously.
@@ -1425,7 +1464,6 @@ def express_emotion(req: EmotionRequest):
         raise HTTPException(400, f"Unknown emotion '{req.emotion}'. Available: {available}")
 
     servo_played = None
-    led_color = None
 
     # Play servo animation
     if animation_service and preset.get("servo"):
@@ -1435,39 +1473,7 @@ def express_emotion(req: EmotionRequest):
         except Exception as e:
             logger.warning(f"Emotion servo failed: {e}")
 
-    # Set LED color + effect (coordinated with servo)
-    if rgb_service and preset.get("color"):
-        base = preset["color"]
-        scaled = [int(c * req.intensity) for c in base]
-        try:
-            if preset.get("effect"):
-                # Stop any running effect, then start emotion effect
-                _stop_current_effect()
-                global _effect_thread, _effect_name
-                _effect_stop.clear()
-                _effect_name = preset["effect"]
-                _effect_thread = threading.Thread(
-                    target=_run_effect,
-                    args=(preset["effect"], tuple(scaled), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
-                    daemon=True,
-                    name=f"led-emotion-{req.emotion}",
-                )
-                _effect_thread.start()
-            else:
-                rgb_service.dispatch("solid", tuple(scaled))
-            led_color = scaled
-            # Track so GET /led/color returns the correct current color
-            if sensing_service:
-                sensing_service.presence.set_last_color(tuple(scaled))
-        except Exception as e:
-            logger.warning(f"Emotion LED failed: {e}")
-
-    # Set matching eye expression on display (if available)
-    if display_service:
-        try:
-            display_service.set_expression(req.emotion)
-        except Exception as e:
-            logger.warning(f"Emotion display failed: {e}")
+    led_color = _apply_emotion_led_display(req.emotion, req.intensity)
 
     return {
         "status": "ok",
@@ -1770,6 +1776,9 @@ def audio_play(req: MusicPlayRequest):
     logger.info("music style detected: %s", style)
     if animation_service:
         animation_service.dispatch("music_start", style)
+    # Apply LED + display from emotion field (no servo — groove handles that)
+    if req.emotion and req.emotion in EMOTION_PRESETS:
+        _apply_emotion_led_display(req.emotion)
     return {"status": "ok"}
 
 
