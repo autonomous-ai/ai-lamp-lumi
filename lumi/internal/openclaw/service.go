@@ -1382,7 +1382,13 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 
 	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
-	flow.Log("chat_send", map[string]any{"run_id": idempotencyKey, "has_session": sessionKey != "", "has_image": hasImage}, idempotencyKey)
+	flow.Log("chat_send", map[string]any{
+		"run_id":      idempotencyKey,
+		"has_session": sessionKey != "",
+		"has_image":   hasImage,
+		"image_bytes": len(imageBase64),
+		"message":     message,
+	}, idempotencyKey)
 	slog.Info("flow correlation", "op", "ws_chat_send", "section", "lumi_to_openclaw_ws",
 		"device_run_id", idempotencyKey, "req_id", reqID, "has_image", hasImage)
 
