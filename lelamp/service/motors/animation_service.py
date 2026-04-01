@@ -217,8 +217,10 @@ class AnimationService:
         self._handle_play(self._music_recording)
 
     def _handle_music_stop(self):
-        """Stop music groove — return to idle."""
+        """Stop music groove — interrupt immediately and return to idle."""
         self._music_playing = False
+        self._hold_until = 0.0  # skip hold, go to idle right away
+        self._handle_play(self.idle_recording)
     
     def _handle_play(self, recording_name: str):
         """Start playing a recording with interpolation from current state"""
