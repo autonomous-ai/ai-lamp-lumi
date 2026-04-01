@@ -392,7 +392,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 var allowedLogs = map[string]string{
 	"lelamp":   "/var/log/lelamp/server.log",
 	"lumi":     "/var/log/lumi.log",
-	"openclaw": "/tmp/openclaw/*.log",
+	"openclaw": "/var/log/openclaw/lumi.log",
 }
 
 // resolveLogPaths expands a pattern (plain path or glob) to matching files.
