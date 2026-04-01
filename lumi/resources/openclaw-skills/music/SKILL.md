@@ -18,21 +18,8 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
 2. Call `POST /audio/play` with the search query
-3. Call `POST /emotion` with the emotion matching the genre (see Genre → Emotion below)
-4. Confirm what you found and that it's playing
-5. User can ask to stop at any time -> call `POST /audio/stop`
-
-## Genre → Emotion
-Detect the genre from the query and pick the matching emotion for the body/LED expression:
-
-| Genre | Keywords | Emotion |
-|-------|----------|---------|
-| Jazz / Blues / Soul | jazz, blues, soul, funk, swing | `happy` |
-| Classical | classical, orchestra, symphony, beethoven, mozart, piano, violin | `curious` |
-| Hip-hop / Rap | hip hop, rap, trap, r&b | `excited` |
-| Rock / Metal | rock, metal, punk, grunge, guitar | `excited` |
-| Waltz / Ballroom | waltz, tango, ballroom | `happy` |
-| Default (unknown genre) | — | `happy` |
+3. Confirm what you found and that it's playing
+4. User can ask to stop at any time -> call `POST /audio/stop`
 
 ## Examples
 
@@ -89,7 +76,7 @@ Response:
 - Include the artist name in the search query when known for better results.
 - If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
 - This skill is for music playback only. For volume control, use the **Audio** skill.
-- Always call `/emotion` after `/audio/play` — the servo groove loops automatically, but LED and eye expression must be set via `/emotion`.
+- Servo groove animation, LED color, and eye expression are all set automatically when music plays — no need to call Emotion or Servo separately.
 
 ## Output Template
 ```
