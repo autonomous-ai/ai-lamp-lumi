@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,7 +50,21 @@ type OpenClawHandler struct {
 	runIDMapMu sync.Mutex
 	runIDMap   map[string]string // OpenClaw UUID → device idempotencyKey
 
+	// lastEmotion tracks the most recent emotion expressed by the agent.
+	lastEmotionMu sync.Mutex
+	lastEmotion   string
+
 	debugMu sync.Mutex
+}
+
+var emotionRe = regexp.MustCompile(`"emotion"\s*:\s*"([a-zA-Z_]+)"`)
+
+// parseEmotion extracts the emotion name from a tool call args string.
+func parseEmotion(toolArgs string) string {
+	if m := emotionRe.FindStringSubmatch(toolArgs); len(m) == 2 {
+		return m[1]
+	}
+	return ""
 }
 
 // ProvideOpenClawHandler returns an OpenClaw events handler.
@@ -509,6 +524,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				if strings.Contains(toolArgs, "/led/off") {
 					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
 				}
+				if strings.Contains(toolArgs, "/emotion") {
+					if e := parseEmotion(toolArgs); e != "" {
+						h.lastEmotionMu.Lock()
+						h.lastEmotion = e
+						h.lastEmotionMu.Unlock()
+					}
+				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
 				if len(result) > 100 {
@@ -631,6 +653,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			if strings.Contains(toolArgs, "/led/off") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+			}
+			if strings.Contains(toolArgs, "/emotion") {
+				if e := parseEmotion(toolArgs); e != "" {
+					h.lastEmotionMu.Lock()
+					h.lastEmotion = e
+					h.lastEmotionMu.Unlock()
+				}
 			}
 		} else if payload.Data.Phase == "end" {
 			result := payload.Data.Result
@@ -772,10 +801,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 // Status returns the current agent connection status.
 func (h *OpenClawHandler) Status(c *gin.Context) {
+	h.lastEmotionMu.Lock()
+	emotion := h.lastEmotion
+	h.lastEmotionMu.Unlock()
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"name":       h.agentGateway.Name(),
 		"connected":  h.agentGateway.IsReady(),
 		"sessionKey": h.agentGateway.GetSessionKey() != "",
+		"emotion":    emotion,
 	}))
 }
 
