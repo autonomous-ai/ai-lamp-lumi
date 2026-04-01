@@ -15,7 +15,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : turn.status === "error" ? "var(--lm-red)"
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
-  const { input, output, hwOutput } = turnIO(turn);
+  const { input, output, hwOutput, snapshotUrl } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
   const statusLabel = turn.status === "done"
@@ -86,6 +86,18 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
         {input || TURN_INPUT_FALLBACK}
       </div>
+      {snapshotUrl && (
+        <div style={{ marginBottom: 4 }}>
+          <img
+            src={snapshotUrl}
+            alt="sensing snapshot"
+            style={{
+              width: "100%", maxWidth: 180, borderRadius: 6,
+              border: "1px solid var(--lm-border)", opacity: 0.9,
+            }}
+          />
+        </div>
+      )}
       {/* Row 3: output — TTS or no reply */}
       {output === "[no reply]" ? (
         <div style={{

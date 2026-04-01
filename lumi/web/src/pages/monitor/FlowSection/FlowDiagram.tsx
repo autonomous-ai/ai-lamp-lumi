@@ -133,6 +133,11 @@ export function FlowDiagram({
 
   const nodeInfo = extractNodeInfo(turnEvents);
 
+  // Extract snapshot URL from agent_call lines
+  const snapshotLine = (nodeInfo.agent_call ?? []).find((l) => l.startsWith("🖼"));
+  const snapshotFile = snapshotLine?.match(/snapshot:\s*\/tmp\/lumi-sensing-snapshots\/(sensing_[^\s]+\.jpg)/)?.[1];
+  const snapshotUrl = snapshotFile ? `/api/sensing/snapshot/${snapshotFile}` : null;
+
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <svg
@@ -297,7 +302,8 @@ export function FlowDiagram({
               {hasInfo && (() => {
                 const MAX_CHARS = 35;
                 const wrapped: string[] = [];
-                for (const line of lines.slice(0, 6)) {
+                const textLines = lines.filter((l) => !l.startsWith("🖼"));
+                for (const line of textLines.slice(0, 6)) {
                   if (line.length <= MAX_CHARS) { wrapped.push(line); }
                   else {
                     for (let j = 0; j < line.length; j += MAX_CHARS) {
@@ -311,12 +317,11 @@ export function FlowDiagram({
                 // Extract curl command per original line (before wrapping)
                 const curlPerLine: Map<number, string> = new Map();
                 let wrappedIdx = 0;
-                for (const line of lines.slice(0, 6)) {
+                for (const line of textLines.slice(0, 6)) {
                   const firstWrappedIdx = wrappedIdx;
                   if (line.length <= MAX_CHARS) { wrappedIdx++; }
                   else { wrappedIdx += Math.ceil(line.length / MAX_CHARS); }
                   if (line.includes("curl ")) {
-                    // Extract raw curl command starting from "curl"
                     const idx = line.indexOf("curl");
                     const curl = idx >= 0 ? line.slice(idx) : line;
                     curlPerLine.set(firstWrappedIdx, curl);
@@ -394,6 +399,57 @@ export function FlowDiagram({
             </g>
           );
         })}
+
+        {/* Snapshot image — same column as TG IN (775), same row as THINK (390) */}
+        {snapshotUrl && (() => {
+          const snapX = 775;
+          const snapY = 390;
+          const agentX = 625;
+          const agentY = 240;
+          const imgW = 100;
+          const imgH = 75;
+          return (
+            <g>
+              {/* Dashed arrow from snapshot to AGENT */}
+              <line
+                x1={snapX} y1={snapY - imgH / 2 - 4}
+                x2={agentX + nodeR + 2} y2={agentY + nodeR / 2}
+                stroke="#fbbf24" strokeWidth={1.2} strokeDasharray="4 3"
+                opacity={0.7}
+                markerEnd="url(#snap-arrow)"
+              />
+              <defs>
+                <marker id="snap-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" opacity={0.7} />
+                </marker>
+              </defs>
+              {/* Image border */}
+              <rect
+                x={snapX - imgW / 2} y={snapY - imgH / 2}
+                width={imgW} height={imgH}
+                rx={6} ry={6}
+                fill="var(--lm-card)" stroke="#fbbf24" strokeWidth={1}
+                opacity={0.9}
+              />
+              {/* The image */}
+              <image
+                href={snapshotUrl}
+                x={snapX - imgW / 2 + 2} y={snapY - imgH / 2 + 2}
+                width={imgW - 4} height={imgH - 4}
+                preserveAspectRatio="xMidYMid meet"
+                clipPath={`inset(0 round 4px)`}
+              />
+              <text
+                x={snapX} y={snapY + imgH / 2 + 10}
+                textAnchor="middle"
+                fill="#fbbf24" fontSize={6} fontWeight={600}
+              >
+                📷 Snapshot
+              </text>
+            </g>
+          );
+        })()}
       </svg>
 
       {/* Shape legend */}
