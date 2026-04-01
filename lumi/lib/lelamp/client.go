@@ -24,8 +24,9 @@ func StopEffect() {
 	post("/led/effect/stop", "{}")
 }
 
-// SetSolid sets all LEDs to a single color.
+// SetSolid sets all LEDs to a single color, stopping any running effect first.
 func SetSolid(r, g, b int) {
+	post("/led/effect/stop", "{}")
 	body := fmt.Sprintf(`{"color":[%d,%d,%d]}`, r, g, b)
 	post("/led/solid", body)
 }
