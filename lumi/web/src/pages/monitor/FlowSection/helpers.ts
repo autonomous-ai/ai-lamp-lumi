@@ -477,9 +477,22 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const msg = d?.data?.message ?? d?.message ?? "";
       const tts = d?.data?.tts ?? d?.tts ?? "";
       const rule = d?.data?.rule ?? d?.rule ?? "";
+      const actions: string[] = d?.data?.actions ?? d?.actions ?? [];
       info.intent_check.push("⚡ local match");
       const parts = [`"${msg}" → ${tts}`];
       if (rule) parts.push(`rule: ${rule}`);
+      for (const a of actions) {
+        // Convert "POST /path {body}" to full curl command
+        const m = a.match(/^(POST|GET|PUT|DELETE)\s+(\/\S+)\s*(.*)?$/);
+        if (m) {
+          const [, method, path, body] = m;
+          let curl = `curl -s -X ${method} http://127.0.0.1:5001${path}`;
+          if (body) curl += ` -H "Content-Type: application/json" -d '${body}'`;
+          parts.push(`🔧 ${curl}`);
+        } else {
+          parts.push(`🔧 ${a}`);
+        }
+      }
       info.local_match.push(msg ? parts.join("\n") : ev.summary);
     }
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
@@ -679,6 +692,13 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.tts ?? d?.tts ?? ev.summary ?? output;
       outputFromIntent = true;
+      const actions: string[] = d?.data?.actions ?? d?.actions ?? [];
+      for (const a of actions) {
+        const m = a.match(/^(?:POST|GET|PUT|DELETE)\s+(\/\S+)/);
+        if (m && !hwOutput.includes(m[1])) {
+          hwOutput += (hwOutput ? ", " : "") + m[1];
+        }
+      }
     }
     if (!outputFromIntent && sameRun && (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send"))) {
       const d = ev.detail as Record<string, any> | undefined;
