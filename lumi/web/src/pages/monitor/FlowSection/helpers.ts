@@ -619,11 +619,12 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
 }
 
 // Extract input/output summary from a turn
-export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string } {
+export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string; snapshotUrl: string } {
   let input = "";
   let output = "";
   let outputFromIntent = false;
   let hwOutput = "";
+  let snapshotUrl = "";
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
@@ -653,12 +654,19 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       input = d?.name ?? d?.data?.name ?? ev.summary ?? "scheduled task";
     }
-    if (!input && (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send"))) {
+    if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       const d = ev.detail as Record<string, any> | undefined;
-      const raw = (d?.message ?? ev.summary ?? "").trim();
-      const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/i);
-      const extracted = (m?.[1] ?? "").trim();
-      if (extracted) input = extracted;
+      const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
+      // Extract snapshot path → convert to API URL
+      const snap = raw.match(/\[snapshot:\s*\/tmp\/lumi-sensing-snapshots\/(sensing_[^\]]+\.jpg)\]/);
+      if (snap && !snapshotUrl) {
+        snapshotUrl = `/api/sensing/snapshot/${snap[1]}`;
+      }
+      if (!input) {
+        const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/is);
+        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/, "").trim();
+        if (extracted) input = extracted;
+      }
     }
     if (sameRun && (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match"))) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -695,7 +703,7 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       }
     }
   }
-  return { input, output, hwOutput };
+  return { input, output, hwOutput, snapshotUrl };
 }
 
 export function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {

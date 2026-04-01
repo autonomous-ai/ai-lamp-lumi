@@ -3,6 +3,7 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -159,4 +160,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"runId": runID,
 	}))
+}
+
+// GetSnapshot serves a sensing snapshot image from /tmp/lumi-sensing-snapshots/.
+func (h *SensingHandler) GetSnapshot(c *gin.Context) {
+	name := c.Param("name")
+	if !strings.HasPrefix(name, "sensing_") || !strings.HasSuffix(name, ".jpg") {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	path := filepath.Join("/tmp/lumi-sensing-snapshots", name)
+	c.File(path)
 }
