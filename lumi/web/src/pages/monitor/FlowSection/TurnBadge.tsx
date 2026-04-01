@@ -156,12 +156,18 @@ export function TurnBadge({ turn }: { turn: Turn }) {
             <span style={{ color: "var(--lm-text-dim)", fontWeight: 600 }}>{fmtToken(tokenStats.total)}</span>
           </div>
           {(tokenStats.cacheRead || tokenStats.cacheWrite) ? (
-            <div>
-              <span style={{ color: "var(--lm-text)" }}>Cache read </span>
-              <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheRead)}</span>
-              <span style={{ color: "var(--lm-text)" }}> / write </span>
-              <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheWrite)}</span>
-            </div>
+            <>
+              <div>
+                <span style={{ color: "var(--lm-text)" }}>Cache read </span>
+                <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheRead)}</span>
+                <span style={{ color: "var(--lm-text)" }}> / write </span>
+                <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{fmtToken(tokenStats.cacheWrite)}</span>
+              </div>
+              <div>
+                <span style={{ color: "var(--lm-text)" }}>Billed </span>
+                <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>~{fmtToken(tokenStats.inTok + tokenStats.cacheWrite + Math.round(tokenStats.cacheRead * 0.1) + tokenStats.outTok)}</span>
+              </div>
+            </>
           ) : null}
         </div>
       )}

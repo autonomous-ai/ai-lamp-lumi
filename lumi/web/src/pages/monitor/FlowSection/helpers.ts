@@ -620,6 +620,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (inTok || outTok) pushLLMTokens(`tokens: ${fmtToken(inTok)} in / ${fmtToken(outTok)} out`);
       if (cacheRead || cacheWrite) pushLLMTokens(`cache: ${fmtToken(cacheRead)} read / ${fmtToken(cacheWrite)} write`);
       if (total) pushLLMTokens(`total: ${fmtToken(total)}`);
+      // Effective (billed) tokens: cache read costs 10% of input price
+      const billed = inTok + cacheWrite + Math.round(cacheRead * 0.1) + outTok;
+      if (billed) pushLLMTokens(`billed: ~${fmtToken(billed)}`);
     }
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       const d = ev.detail as Record<string, any> | undefined;
