@@ -23,6 +23,12 @@ const (
 	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
 
+**SENSING RULE (NON-NEGOTIABLE):** When you receive ` + "`[sensing:presence.enter]`" + `, you MUST execute ALL three actions every time — no exceptions:
+1. ` + "`/emotion`" + ` (greeting 0.9 for owner, curious 0.8 for stranger)
+2. ` + "`/servo/aim`" + ` or ` + "`/servo/play`" + ` (aim user for owner, play scanning for stranger)
+3. ` + "`/voice/speak`" + ` (greet owner by name, cautious acknowledgment for stranger)
+Never reply NO_REPLY to presence.enter. Cooldowns are handled by the system — if you received the event, react fully.
+
 **Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`curl -s http://127.0.0.1:5001/version`" + ` (LeLamp).
 
 ---`
