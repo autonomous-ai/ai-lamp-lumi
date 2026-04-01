@@ -15,7 +15,7 @@ export function FlowDiagram({
   compact?: boolean;
   turnEvents?: DisplayEvent[];
 }) {
-  const VW = 920;
+  const VW = 1200;
   const VH = 900;
 
   const [zoom, setZoom] = useState(1);
@@ -65,8 +65,8 @@ export function FlowDiagram({
     // Lumi — top row
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
-    schedule_trigger:  { x: 625, y: 50 },
-    lumi_gate:         { x: 370, y: 570 },
+    schedule_trigger:  { x: 800, y: 50 },
+    lumi_gate:         { x: 470, y: 570 },
     // LeLamp — input row (MIC/CAM)
     mic_input:         { x: -40, y: 240 },
     cam_input:         { x: 80, y: 240 },
@@ -75,13 +75,13 @@ export function FlowDiagram({
     hw_led:            { x: 200, y: 510 },
     hw_servo:          { x: 200, y: 630 },
     tts_speak:         { x: 200, y: 750 },
-    // OpenClaw — right
-    agent_call:        { x: 625, y: 240 },
-    telegram_input:    { x: 775, y: 240 },
-    tool_exec:         { x: 500, y: 390 },
-    agent_thinking:    { x: 625, y: 390 },
-    agent_response:    { x: 500, y: 570 },
-    tg_out:            { x: 775, y: 570 },
+    // OpenClaw — right (spread out)
+    agent_call:        { x: 800, y: 240 },
+    telegram_input:    { x: 1000, y: 240 },
+    tool_exec:         { x: 600, y: 390 },
+    agent_thinking:    { x: 800, y: 390 },
+    agent_response:    { x: 600, y: 570 },
+    tg_out:            { x: 1000, y: 570 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
@@ -153,7 +153,7 @@ export function FlowDiagram({
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         style={{
           display: "block", width: "100%", flex: 1, minHeight: 0,
-          cursor: dragging ? "grabbing" : "grab", userSelect: dragging ? "none" : "text",
+          cursor: dragging ? "grabbing" : "grab", userSelect: dragging ? "none" : "auto",
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -172,15 +172,15 @@ export function FlowDiagram({
 
         {/* Cluster group backgrounds */}
         <g>
-          <rect x={-100} y={0} width={933} height={110} rx={14}
+          <rect x={-100} y={0} width={1200} height={110} rx={14}
             fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
             strokeDasharray="4 4"
           />
-          <rect x={320} y={100} width={110} height={520} rx={10}
+          <rect x={420} y={100} width={110} height={520} rx={10}
             fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
             strokeDasharray="3 3"
           />
-          <text x={366} y={-8} textAnchor="middle"
+          <text x={470} y={-8} textAnchor="middle"
             fill="var(--lm-teal)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -200,11 +200,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={448} y={185} width={385} height={445} rx={14}
+          <rect x={540} y={185} width={520} height={445} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={641} y={175} textAnchor="middle"
+          <text x={800} y={175} textAnchor="middle"
             fill="var(--lm-blue)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -261,7 +261,8 @@ export function FlowDiagram({
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
           const descLines = node.desc.split(" · ").length;
-          const boxY = pos.y + nodeR + 18 + descLines * 10 + 6;
+          const boxAbove = node.id === "tool_exec";
+          const boxY = boxAbove ? pos.y - nodeR - 4 : pos.y + nodeR + 14 + descLines * 10;
           return (
             <g key={node.id} opacity={opacity}>
               {/* Node shape based on node.shape */}
@@ -327,111 +328,58 @@ export function FlowDiagram({
               ))}
 
               {hasInfo && (() => {
-                const MAX_CHARS = 35;
-                const wrapped: string[] = [];
                 const textLines = lines.filter((l) => !l.startsWith("🖼"));
-                for (const line of textLines.slice(0, 6)) {
-                  if (line.length <= MAX_CHARS) { wrapped.push(line); }
-                  else {
-                    for (let j = 0; j < line.length; j += MAX_CHARS) {
-                      wrapped.push(line.slice(j, j + MAX_CHARS));
-                    }
-                  }
-                }
-                const showLines = wrapped.slice(0, 8);
-                const maxLen = Math.max(...showLines.map((l) => l.length));
-                const boxW = Math.max(140, maxLen * 4 + 20);
-                // Extract curl command per original line (before wrapping)
-                const curlPerLine: Map<number, string> = new Map();
-                let wrappedIdx = 0;
-                for (const line of textLines.slice(0, 6)) {
-                  const firstWrappedIdx = wrappedIdx;
-                  if (line.length <= MAX_CHARS) { wrappedIdx++; }
-                  else { wrappedIdx += Math.ceil(line.length / MAX_CHARS); }
-                  if (line.includes("curl ")) {
-                    const idx = line.indexOf("curl");
-                    const curl = idx >= 0 ? line.slice(idx) : line;
-                    curlPerLine.set(firstWrappedIdx, curl);
-                  }
-                }
-                const boxH = showLines.length * 10 + 8;
+                const boxW = 190;
                 return (
-                  <g>
-                    <rect
-                      x={pos.x - boxW / 2} y={boxY - 2}
-                      width={boxW} height={boxH}
-                      rx={4} ry={4}
-                      fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
-                      opacity={0.92}
-                    />
-                    {showLines.map((line, i) => {
-                      const isTimer = line.startsWith("⏱");
-                      return (
-                        <text
-                          key={i}
-                          x={pos.x} y={boxY + 8 + i * 10}
-                          textAnchor="middle"
-                          fill={isTimer ? "#fbbf24" : color}
-                          fontSize={isTimer ? 6 : 5.5}
-                          opacity={isTimer ? 1 : 0.9}
-                          fontWeight={isTimer ? 700 : 400}
-                          fontFamily="monospace"
-                        >
+                  <foreignObject
+                    x={boxAbove ? pos.x + nodeR - boxW : pos.x - boxW / 2} y={boxY - 2}
+                    width={boxW} height={1}
+                    overflow="visible"
+                  >
+                    <div
+                      // @ts-expect-error xmlns required for foreignObject HTML
+                      xmlns="http://www.w3.org/1999/xhtml"
+                      onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
+                      style={{
+                        background: "color-mix(in srgb, var(--lm-card) 70%, transparent)",
+                        border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
+                        borderRadius: 4,
+                        padding: "4px 6px",
+                        fontFamily: "monospace",
+                        fontSize: 5.5,
+                        lineHeight: 1.7,
+                        color: color,
+                        opacity: 0.95,
+                        ...(boxAbove ? { transform: "translateY(-100%)" } : {}),
+                        userSelect: "text",
+                        WebkitUserSelect: "text",
+                        cursor: "text",
+                        wordBreak: "break-all" as const,
+                        whiteSpace: "pre-wrap" as const,
+                        maxWidth: boxW,
+                      }}
+                    >
+                      {textLines.map((line, i) => (
+                        <div key={i} style={{
+                          color: line.startsWith("⏱") ? "#fbbf24" : color,
+                          fontWeight: line.startsWith("⏱") ? 700 : 400,
+                        }}>
                           {line}
-                        </text>
-                      );
-                    })}
-                    {[...curlPerLine.entries()].map(([lineIdx, curl]) => (
-                      <g
-                        key={`cp-${lineIdx}`}
-                        style={{ cursor: "pointer" }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (navigator.clipboard?.writeText) {
-                            navigator.clipboard.writeText(curl).catch(() => {});
-                          } else {
-                            const ta = document.createElement("textarea");
-                            ta.value = curl;
-                            ta.style.position = "fixed";
-                            ta.style.opacity = "0";
-                            document.body.appendChild(ta);
-                            ta.select();
-                            document.execCommand("copy");
-                            document.body.removeChild(ta);
-                          }
-                        }}
-                      >
-                        <title>{curl}</title>
-                        <rect
-                          x={pos.x + boxW / 2 - 14} y={boxY + lineIdx * 10}
-                          width={12} height={9}
-                          rx={2} ry={2}
-                          fill={color} fillOpacity={0.15}
-                          stroke={color} strokeWidth={0.4} strokeOpacity={0.5}
-                        />
-                        <text
-                          x={pos.x + boxW / 2 - 8} y={boxY + lineIdx * 10 + 7}
-                          textAnchor="middle"
-                          fill={color} fontSize={4.5}
-                          opacity={0.8}
-                        >
-                          📋
-                        </text>
-                      </g>
-                    ))}
-                  </g>
+                        </div>
+                      ))}
+                    </div>
+                  </foreignObject>
                 );
               })()}
             </g>
           );
         })}
 
-        {/* Snapshot image — same column as TG IN (775), same row as THINK (390) */}
+        {/* Snapshot image — same column as TG IN, same row as THINK */}
         {snapshotUrl && (() => {
-          const snapX = 775;
+          const snapX = 1000;
           const snapY = 390;
-          const agentX = 625;
+          const agentX = 800;
           const agentY = 240;
           const imgW = 100;
           const imgH = 75;
