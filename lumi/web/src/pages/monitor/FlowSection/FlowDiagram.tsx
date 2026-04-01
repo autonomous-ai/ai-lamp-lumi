@@ -16,7 +16,7 @@ export function FlowDiagram({
   turnEvents?: DisplayEvent[];
 }) {
   const VW = 920;
-  const VH = 640;
+  const VH = 900;
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -66,26 +66,31 @@ export function FlowDiagram({
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
     schedule_trigger:  { x: 625, y: 50 },
-    lumi_gate:         { x: 370, y: 480 },
-    // LeLamp — 3 columns: mic | cam | hw+tts (shifted left)
+    lumi_gate:         { x: 370, y: 570 },
+    // LeLamp — input row (MIC/CAM)
     mic_input:         { x: -40, y: 240 },
     cam_input:         { x: 80, y: 240 },
-    hw_action:         { x: 200, y: 390 },
-    tts_speak:         { x: 200, y: 540 },
+    // LeLamp — output column (stacked vertically, same x)
+    hw_emotion:        { x: 200, y: 390 },
+    hw_led:            { x: 200, y: 510 },
+    hw_servo:          { x: 200, y: 630 },
+    tts_speak:         { x: 200, y: 750 },
     // OpenClaw — right
     agent_call:        { x: 625, y: 240 },
     telegram_input:    { x: 775, y: 240 },
     tool_exec:         { x: 500, y: 390 },
     agent_thinking:    { x: 625, y: 390 },
-    agent_response:    { x: 500, y: 540 },
-    tg_out:            { x: 775, y: 540 },
+    agent_response:    { x: 500, y: 570 },
+    tg_out:            { x: 775, y: 570 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
     ["mic_input",         "intent_check"],
     ["cam_input",         "intent_check"],
     ["intent_check",      "local_match"],
-    ["local_match",       "hw_action"],
+    ["local_match",       "hw_emotion"],
+    ["local_match",       "hw_led"],
+    ["local_match",       "hw_servo"],
     ["local_match",       "tts_speak"],
     ["intent_check",      "agent_call"],
     ["telegram_input",    "agent_call"],
@@ -93,7 +98,9 @@ export function FlowDiagram({
     ["agent_call",        "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
-    ["tool_exec",         "hw_action"],
+    ["tool_exec",         "hw_led"],
+    ["tool_exec",         "hw_servo"],
+    ["tool_exec",         "hw_emotion"],
     ["tool_exec",         "lumi_gate"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
@@ -169,7 +176,7 @@ export function FlowDiagram({
             fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
             strokeDasharray="4 4"
           />
-          <rect x={320} y={100} width={110} height={430} rx={10}
+          <rect x={320} y={100} width={110} height={520} rx={10}
             fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
             strokeDasharray="3 3"
           />
@@ -181,7 +188,7 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={-100} y={185} width={360} height={415} rx={14}
+          <rect x={-100} y={185} width={360} height={625} rx={14}
             fill="var(--lm-amber)" fillOpacity={0.04} stroke="var(--lm-amber)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
@@ -193,7 +200,7 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={448} y={185} width={385} height={415} rx={14}
+          <rect x={448} y={185} width={385} height={445} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
@@ -209,6 +216,27 @@ export function FlowDiagram({
         {edges.map(([from, to]) => {
           const f = positions[from];
           const t = positions[to];
+          const color = edgeColor(from, to);
+          const sw = edgeOpacity(from, to) > 0.5 ? 2 : 1.5;
+          const op = edgeOpacity(from, to);
+          const marker = `url(#arrow-${compact ? "c" : "f"})`;
+
+          // Elbow edges: LOCAL → output nodes (bypass intermediate nodes)
+          // Route: go right from LOCAL, then down, then left into target node
+          if (from === "local_match" && (to === "hw_led" || to === "hw_servo" || to === "tts_speak" || to === "hw_emotion")) {
+            const elbowX = t.x - 80; // offset left of target
+            const startY = f.y + nodeR;
+            const endY = t.y;
+            const endX = t.x - nodeR - 4; // enter from left side
+            return (
+              <path key={`${from}-${to}`}
+                d={`M ${f.x - nodeR * 0.7} ${f.y + nodeR * 0.7} L ${elbowX} ${startY + 20} L ${elbowX} ${endY} L ${endX} ${endY}`}
+                stroke={color} strokeWidth={sw} fill="none"
+                markerEnd={marker} opacity={op}
+              />
+            );
+          }
+
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
@@ -217,10 +245,8 @@ export function FlowDiagram({
           const y2 = t.y - (dy / len) * (nodeR + 4);
           return (
             <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={edgeColor(from, to)}
-              strokeWidth={edgeOpacity(from, to) > 0.5 ? 2 : 1.5}
-              markerEnd={`url(#arrow-${compact ? "c" : "f"})`}
-              opacity={edgeOpacity(from, to)}
+              stroke={color} strokeWidth={sw}
+              markerEnd={marker} opacity={op}
             />
           );
         })}

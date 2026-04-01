@@ -515,22 +515,27 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					h.markMusicTurn(payload.RunID)
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 				}
-				// Detect LED tool calls so ambient breathing doesn't override agent-set colors.
-				if strings.Contains(toolArgs, "/led/solid") ||
-					strings.Contains(toolArgs, "/led/effect") ||
-					strings.Contains(toolArgs, "/scene") ||
-					strings.Contains(toolArgs, "/emotion") {
-					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
-				}
-				if strings.Contains(toolArgs, "/led/off") {
-					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
-				}
+				// Emit specific hardware events for flow monitor visualization.
 				if strings.Contains(toolArgs, "/emotion") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: toolArgs, RunID: flowRunID})
 					if e := parseEmotion(toolArgs); e != "" {
 						h.lastEmotionMu.Lock()
 						h.lastEmotion = e
 						h.lastEmotionMu.Unlock()
 					}
+				} else if strings.Contains(toolArgs, "/led/solid") ||
+					strings.Contains(toolArgs, "/led/effect") ||
+					strings.Contains(toolArgs, "/scene") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: toolArgs, RunID: flowRunID})
+				}
+				if strings.Contains(toolArgs, "/led/off") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: toolArgs, RunID: flowRunID})
+				}
+				if strings.Contains(toolArgs, "/servo/aim") || strings.Contains(toolArgs, "/servo/play") {
+					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: toolArgs, RunID: flowRunID})
 				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
@@ -646,21 +651,27 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				h.markMusicTurn(payload.RunID)
 				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
 			}
-			if strings.Contains(toolArgs, "/led/solid") ||
-				strings.Contains(toolArgs, "/led/effect") ||
-				strings.Contains(toolArgs, "/scene") ||
-				strings.Contains(toolArgs, "/emotion") {
-				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
-			}
-			if strings.Contains(toolArgs, "/led/off") {
-				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
-			}
+			// Emit specific hardware events for flow monitor visualization.
 			if strings.Contains(toolArgs, "/emotion") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: toolArgs, RunID: flowRunID})
 				if e := parseEmotion(toolArgs); e != "" {
 					h.lastEmotionMu.Lock()
 					h.lastEmotion = e
 					h.lastEmotionMu.Unlock()
 				}
+			} else if strings.Contains(toolArgs, "/led/solid") ||
+				strings.Contains(toolArgs, "/led/effect") ||
+				strings.Contains(toolArgs, "/scene") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_set", Summary: "agent tool: " + toolName})
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: toolArgs, RunID: flowRunID})
+			}
+			if strings.Contains(toolArgs, "/led/off") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "agent tool: " + toolName})
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: toolArgs, RunID: flowRunID})
+			}
+			if strings.Contains(toolArgs, "/servo/aim") || strings.Contains(toolArgs, "/servo/play") {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: toolArgs, RunID: flowRunID})
 			}
 		} else if payload.Data.Phase == "end" {
 			result := payload.Data.Result
