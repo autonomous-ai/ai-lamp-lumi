@@ -41,7 +41,65 @@ type rule struct {
 	exec  func(string) *Result
 }
 
+// colorKeywords maps Vietnamese/English color keywords to RGB values.
+// Checked in order — first match wins.
+var colorKeywords = []struct {
+	keywords []string
+	rgb      [3]int
+	name     string
+}{
+	{[]string{"vàng", "vang", "yellow"}, [3]int{255, 220, 0}, "Yellow"},
+	{[]string{"đỏ", "do", "red"}, [3]int{255, 0, 0}, "Red"},
+	{[]string{"xanh lá", "xanh la", "xanh lam", "xanh dương", "xanh duong", "green", "blue"}, [3]int{0, 150, 255}, "Blue"},
+	{[]string{"xanh", "cyan"}, [3]int{0, 200, 150}, "Cyan"},
+	{[]string{"tím", "tim", "purple", "violet"}, [3]int{100, 50, 200}, "Purple"},
+	{[]string{"cam", "orange"}, [3]int{255, 100, 0}, "Orange"},
+	{[]string{"hồng", "hong", "pink"}, [3]int{255, 80, 150}, "Pink"},
+	{[]string{"trắng", "trang", "white"}, [3]int{255, 255, 255}, "White"},
+	{[]string{"ấm", "am", "warm"}, [3]int{255, 180, 100}, "Warm"},
+}
+
+// extractColor returns the RGB and name for the first color keyword found in t.
+func extractColor(t string) ([3]int, string, bool) {
+	for _, c := range colorKeywords {
+		for _, kw := range c.keywords {
+			if strings.Contains(t, kw) {
+				return c.rgb, c.name, true
+			}
+		}
+	}
+	return [3]int{}, "", false
+}
+
+// isLEDOnCommand returns true if t contains a "turn on light" trigger phrase.
+func isLEDOnCommand(t string) bool {
+	triggers := []string{"bật đèn", "mở đèn", "bat den", "mo den", "turn on the light", "light on", "turn on", "đổi màu", "doi mau", "đèn màu", "den mau", "set color", "change color"}
+	for _, kw := range triggers {
+		if strings.Contains(t, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 var rules = []rule{
+	// --- LED color (must be before generic LED on/off) ---
+	{
+		match: func(t string) bool {
+			if !isLEDOnCommand(t) {
+				return false
+			}
+			_, _, ok := extractColor(t)
+			return ok
+		},
+		exec: func(t string) *Result {
+			rgb, name, _ := extractColor(t)
+			post("/led/effect/stop", "")
+			post("/led/solid", fmt.Sprintf(`{"color":[%d,%d,%d]}`, rgb[0], rgb[1], rgb[2]))
+			return &Result{TTSText: name + " light on!", LEDChanged: true}
+		},
+	},
+
 	// --- LED on/off ---
 	{
 		match: anyOf("bật đèn", "mở đèn", "bat den", "mo den", "turn on the light", "light on", "turn on"),
