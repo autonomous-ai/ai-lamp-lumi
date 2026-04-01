@@ -185,7 +185,7 @@ export default function Monitor() {
             <button
               key={item.id}
               style={S.navItem(section === item.id)}
-              onClick={() => window.open(`/monitor#${item.id}`, "_blank")}
+              onClick={() => setSection(item.id)}
             >
               <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
               {item.label}
