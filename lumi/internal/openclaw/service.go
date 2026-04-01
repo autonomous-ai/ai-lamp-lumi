@@ -1372,9 +1372,13 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		s.wsMu.Unlock()
 		return "", fmt.Errorf("websocket disconnected before send")
 	}
+	// Set busy before write — closes the timing gap where sensing IsBusy()=false
+	// because lifecycle_start SSE hasn't arrived yet. SSE lifecycle_end still clears it.
+	s.activeTurn.Store(true)
 	err = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
+		s.activeTurn.Store(false) // write failed — no turn will start, clear immediately
 		slog.Error("[chat.send] write failed", "component", "openclaw",
 			"reqId", reqID, "runId", idempotencyKey, "error", err)
 		return "", fmt.Errorf("write chat.send: %w", err)
