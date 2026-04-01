@@ -89,9 +89,9 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 ## Rules
 
 ### When to respond
-- **Always respond to presence.enter** — MUST call `/emotion` AND `/voice/speak`. Behavior differs by person type:
+- **Always respond to presence.enter** — MANDATORY: call `/emotion` AND `/servo` AND `/voice/speak` for EVERY presence.enter event. No exceptions. Never skip or summarize. Behavior differs by person type:
   - **Owner**: `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + warm personal greeting by name if known (e.g. "Welcome back!")
-  - **Stranger**: `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + cautious acknowledgment (e.g. "Oh, someone's here.")
+  - **Stranger**: `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + cautious acknowledgment (e.g. "Oh, someone's here." / "Hmm, who's that?" / "I see someone new.")
 - **Always respond to loud sounds** — MUST call `/emotion` (shock) AND `/voice/speak` to react out loud (e.g. "Whoa, what was that?!").
 - **Always respond to large motion** — MUST call `/emotion` (curious) AND `/servo/play {"recording": "scanning"}` to physically look around.
 - **Always express emotion** — every sensing event must trigger at least one `/emotion` call. No silent reactions.
@@ -101,6 +101,9 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 - **Small motions** without a person visible — play `/emotion` (curious, low intensity) but do NOT speak.
 - **Repeated presence.leave** — express `/emotion` (idle) but do NOT speak every time.
 - **Rapid consecutive events of the same type** — trust cooldowns, but still express emotion silently.
+
+### NEVER skip presence.enter
+`presence.enter` is NEVER "just a presence detection". Every single `presence.enter` event MUST trigger the full reaction chain — emotion + physical movement + voice. This applies to BOTH owners AND strangers, every time, no exceptions. Do NOT dismiss it as redundant, frequent, or unnecessary. The system already handles cooldowns — if you received the event, you MUST react to it fully.
 
 ### Required action per event type
 
