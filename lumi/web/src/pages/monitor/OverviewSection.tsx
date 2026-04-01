@@ -1,5 +1,11 @@
 import { S } from "./styles";
 import { HW } from "./types";
+
+const EMOTION_EMOJI: Record<string, string> = {
+  happy: "😊", curious: "🤔", thinking: "💭", sad: "😢", excited: "🤩",
+  shy: "😳", shock: "😱", idle: "😐", listening: "👂", laugh: "😄",
+  confused: "😕", sleepy: "😴", greeting: "👋", acknowledge: "👍", stretching: "🙆",
+};
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
 import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
 
@@ -60,6 +66,20 @@ export function OverviewSection({
                   {oc.sessionKey ? "Acquired" : "Pending"}
                 </span>
               </div>
+              {oc.emotion && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--lm-text-dim)" }}>
+                  Feeling:
+                  <span style={{
+                    fontSize: 10, padding: "1px 8px", borderRadius: 4,
+                    background: "rgba(251,191,36,0.1)",
+                    color: "var(--lm-amber)",
+                    border: "1px solid rgba(251,191,36,0.3)",
+                    fontWeight: 600, textTransform: "capitalize",
+                  }}>
+                    {EMOTION_EMOJI[oc.emotion] ?? "✦"} {oc.emotion}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
