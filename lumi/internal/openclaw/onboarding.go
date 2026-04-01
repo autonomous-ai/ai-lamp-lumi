@@ -65,7 +65,9 @@ func (s *Service) EnsureOnboarding() error {
 	needRestart := false
 
 	// Seed SOUL.md from embedded binary
-	seedFile(soulFS, "resources/SOUL.md", filepath.Join(workspace, "SOUL.md"))
+	if changed := seedFile(soulFS, "resources/SOUL.md", filepath.Join(workspace, "SOUL.md")); changed {
+		needRestart = true
+	}
 
 	// Download skills from CDN
 	skillsDir := filepath.Join(workspace, "skills")
@@ -80,9 +82,13 @@ func (s *Service) EnsureOnboarding() error {
 		}
 		dst := filepath.Join(dir, "SKILL.md")
 		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
-		if err := downloadFile(url, dst); err != nil {
+		changed, err := downloadFile(url, dst)
+		if err != nil {
 			slog.Error("download skill failed", "component", "onboarding", "skill", name, "error", err)
 			continue
+		}
+		if changed {
+			needRestart = true
 		}
 		slog.Info("seeded skill", "component", "onboarding", "skill", name)
 	}
@@ -102,9 +108,13 @@ func (s *Service) EnsureOnboarding() error {
 		for _, file := range hookFiles {
 			dst := filepath.Join(dir, file)
 			url := fmt.Sprintf("%s/%s/%s", hooksBaseURL, name, file)
-			if err := downloadFile(url, dst); err != nil {
+			changed, err := downloadFile(url, dst)
+			if err != nil {
 				slog.Error("download hook file failed", "component", "onboarding", "hook", name, "file", file, "error", err)
 				continue
+			}
+			if changed {
+				needRestart = true
 			}
 		}
 		slog.Info("seeded hook", "component", "onboarding", "hook", name)
@@ -284,41 +294,51 @@ func stripLegacyMandatoryBlock(text string) string {
 	return strings.Join(cleaned, "\n")
 }
 
-// downloadFile fetches url and writes it to dst, overwriting any existing file.
-func downloadFile(url, dst string) error {
+// downloadFile fetches url and writes it to dst. Returns true if the file content changed.
+func downloadFile(url, dst string) (bool, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	req.Header.Set("Cache-Control", "no-cache")
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	f, err := os.Create(dst)
+	newData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	existing, err := os.ReadFile(dst)
+	if err == nil && string(existing) == string(newData) {
+		return false, nil
+	}
+	if err := os.WriteFile(dst, newData, 0644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-// seedFile writes the embedded file to dst, always overwriting.
-func seedFile(efs embed.FS, src, dst string) {
+// seedFile writes the embedded file to dst. Returns true if the file content changed.
+func seedFile(efs embed.FS, src, dst string) bool {
 	data, err := efs.ReadFile(src)
 	if err != nil {
 		slog.Error("read embedded file failed", "component", "onboarding", "src", src, "error", err)
-		return
+		return false
+	}
+	existing, err := os.ReadFile(dst)
+	if err == nil && string(existing) == string(data) {
+		return false
 	}
 	if err := os.WriteFile(dst, data, 0644); err != nil {
 		slog.Error("write file failed", "component", "onboarding", "dst", dst, "error", err)
-		return
+		return false
 	}
 	slog.Info("seeded file", "component", "onboarding", "file", filepath.Base(dst))
+	return true
 }
