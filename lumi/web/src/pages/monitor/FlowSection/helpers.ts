@@ -473,7 +473,14 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       info.telegram_input.push(`"${msg || TELEGRAM_FALLBACK_MESSAGE}"`);
     }
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
-      info.local_match.push(ev.summary);
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.data?.message ?? d?.message ?? "";
+      const tts = d?.data?.tts ?? d?.tts ?? "";
+      const rule = d?.data?.rule ?? d?.rule ?? "";
+      info.intent_check.push("⚡ local match");
+      const parts = [`"${msg}" → ${tts}`];
+      if (rule) parts.push(`rule: ${rule}`);
+      info.local_match.push(msg ? parts.join("\n") : ev.summary);
     }
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       info.intent_check.push("→ agent route");
