@@ -127,6 +127,8 @@ class FaceRecognizer(Perception):
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
         if frame is None:
             return
+
+
         raw_results = self.app.get(frame)
 
         if not raw_results:
