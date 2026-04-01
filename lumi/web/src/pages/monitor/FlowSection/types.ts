@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "tg_out";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -144,6 +144,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "led_set", "led_off", "ambient_pause", "ambient_resume",
       "flow_event:led_set", "flow_event:led_off",
+      "flow_event:tts_suppressed",
     ] },
 
   { id: "tg_out",
@@ -177,6 +178,15 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "hw_emotion", "emotion",
       "flow_event:hw_emotion", "flow_event:emotion",
+    ] },
+
+  { id: "hw_audio",
+    label: "Audio", short: "AUDIO", icon: "🎵", color: "#a855f7", path: "agent",
+    shape: "diamond",
+    desc: "Music / audio playback · speaker output",
+    triggers: [
+      "hw_audio",
+      "flow_event:hw_audio",
     ] },
 ];
 

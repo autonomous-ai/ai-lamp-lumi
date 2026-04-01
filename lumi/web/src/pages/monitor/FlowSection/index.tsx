@@ -227,6 +227,12 @@ export function FlowSection({
     if (hasActions) visitedStages.add("hw_led");
   }
 
+  // TTS suppressed: mark TTS as visited so it shows red via nodeColor
+  const hasTtsSuppressed = turnEvents.some((ev) =>
+    ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "tts_suppressed"
+  );
+  if (hasTtsSuppressed) visitedStages.add("tts_speak");
+
   // TG OUT: only light up for telegram turns with a real response (not no_reply)
   if (selectedTurn?.type === "telegram" && visitedStages.has("agent_response")) {
     const hasNoReply = turnEvents.some((ev) =>
