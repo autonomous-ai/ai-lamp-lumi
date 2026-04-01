@@ -996,14 +996,18 @@ def get_led_color():
     """Get current LED state: actual pixel color read from strip, effect, scene, brightness."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
-    # Read actual pixel 0 directly from the strip hardware buffer
-    raw = rgb_service.strip.getPixelColor(0)
-    r = (raw >> 16) & 0xFF
-    g = (raw >> 8) & 0xFF
-    b = raw & 0xFF
+    effect_running = _effect_name is not None and _effect_thread is not None and _effect_thread.is_alive()
+    if effect_running and _effect_base_color:
+        # Use the base color the effect was started with — pixel reads are unreliable during animation
+        r, g, b = _effect_base_color
+    else:
+        # Read actual pixel 0 directly from the strip hardware buffer
+        raw = rgb_service.strip.getPixelColor(0)
+        r = (raw >> 16) & 0xFF
+        g = (raw >> 8) & 0xFF
+        b = raw & 0xFF
     brightness = round(max(r, g, b) / 255.0, 3)
-    # Effect animations cycle through dark frames — treat as "on" whenever effect is running
-    is_on = (r, g, b) != (0, 0, 0) or (_effect_name is not None and _effect_thread is not None and _effect_thread.is_alive())
+    is_on = (r, g, b) != (0, 0, 0) or effect_running
     return {
         "led_count": rgb_service.led_count,
         "on": is_on,
@@ -1059,17 +1063,19 @@ def turn_off_leds():
 _effect_thread: Optional[threading.Thread] = None
 _effect_stop: threading.Event = threading.Event()
 _effect_name: Optional[str] = None
+_effect_base_color: Optional[tuple] = None
 _active_scene: Optional[str] = None
 
 
 def _stop_current_effect():
     """Signal the running effect thread to stop and wait for it."""
-    global _effect_thread, _effect_name
+    global _effect_thread, _effect_name, _effect_base_color
     if _effect_thread and _effect_thread.is_alive():
         _effect_stop.set()
         _effect_thread.join(timeout=2.0)
     _effect_thread = None
     _effect_name = None
+    _effect_base_color = None
 
 
 def _run_effect(effect: str, color: tuple, speed: float, duration_ms: Optional[int],
@@ -1225,7 +1231,7 @@ def start_led_effect(req: LEDEffectRequest):
     Any previously running effect is stopped first. Effects run in a background
     thread and update LEDs continuously until stopped or duration expires.
     """
-    global _effect_thread, _effect_name
+    global _effect_thread, _effect_name, _effect_base_color
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     if req.effect not in VALID_LED_EFFECTS:
@@ -1239,6 +1245,7 @@ def start_led_effect(req: LEDEffectRequest):
 
     _effect_stop.clear()
     _effect_name = req.effect
+    _effect_base_color = base_color
     _effect_thread = threading.Thread(
         target=_run_effect,
         args=(req.effect, base_color, req.speed, req.duration_ms, _effect_stop, rgb_service),
