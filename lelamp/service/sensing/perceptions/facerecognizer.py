@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Callable, override
 
 import insightface
@@ -24,24 +25,30 @@ class FaceRecognizer(Perception):
         cv2,
         send_event: Callable,
         on_motion: Callable,
-        encode_frame: Callable,
         threshold: float = 0.4,
-        negative_threshold: float | None = 0.2,
+        negative_threshold: float | None = 0.1,
         model_name: str = "buffalo_sc",
         max_strangers: int = 50,
+        strangers_forget_ts: float = 360,
+        owners_forget_ts: float = 3600,
     ):
         super().__init__(send_event)
         self._cv2 = cv2
         self._on_motion = on_motion
-        self._encode_frame = encode_frame
 
         self.threshold = threshold
         self.negative_threshold = negative_threshold
         self.max_strangers = max_strangers
         self._stranger_counter = 0
 
-        self._face_present: bool = False
-        self._face_absent_count: int = 0
+        self._owners_forget_ts = owners_forget_ts
+        self._strangers_forget_ts = strangers_forget_ts
+
+        self._owners_last_seen: dict[str, float] = {}
+        self._strangers_last_seen: dict[str, float] = {}
+
+        self._face_present = False
+        self._faces_n = 0
 
         # Owner embeddings — populated by train(), cleared by reset_owners()
         self._owner_embeddings: np.ndarray | None = None
@@ -118,24 +125,16 @@ class FaceRecognizer(Perception):
 
     @override
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
+        if frame is None:
+            return
         raw_results = self.app.get(frame)
-        face_found = len(raw_results) > 0
 
-        if not face_found:
-            if self._face_present:
-                self._face_absent_count += 1
-                if self._face_absent_count >= 3:
-                    self._face_present = False
-                    self._face_absent_count = 0
-                    self._send_event(
-                        "presence.leave",
-                        "No face detected — person may have left the area",
-                        cooldown=config.FACE_COOLDOWN_S,
-                    )
+        if not raw_results:
+            self._face_present = False
+            self._faces_n = 0
             return
 
-        H, W, _ = frame.shape
-        embeds = np.array(
+        embeds = np.stack(
             [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
         )
         n = len(embeds)
@@ -156,10 +155,12 @@ class FaceRecognizer(Perception):
 
         new_stranger_embeds = []
         new_stranger_labels = []
-        owners_seen = []
-        strangers_seen = []
+        owners_seen = set()
+        strangers_seen = set()
         # per-face: (bbox_pixels, face_kind, label)  face_kind: "owner"|"stranger"|"unsure"
         face_annotations: list[tuple[list[int], str, str]] = []
+
+        cur_ts = time.time()
 
         for x in range(n):
             o_score = float(owner_scores[x])
@@ -168,24 +169,47 @@ class FaceRecognizer(Perception):
 
             if o_score > self.threshold:
                 person_id = (owner_ids[x] or "").removeprefix(self.OWNER_PREFIX)
-                owners_seen.append(person_id)
-                face_annotations.append((bbox, "owner", person_id))
+
+                if person_id not in self._owners_last_seen:
+                    last_seen = None
+                else:
+                    last_seen = self._owners_last_seen[person_id]
+
+                self._owners_last_seen[person_id] = cur_ts
+
+                if last_seen is None or (cur_ts - last_seen) > self._owners_forget_ts:
+                    owners_seen.add(person_id)
+                    face_annotations.append((bbox, "owner", person_id))
 
             elif s_score > self.threshold:
                 person_id = (stranger_ids[x] or "").removeprefix(self.STRANGER_PREFIX)
-                strangers_seen.append(person_id)
-                face_annotations.append((bbox, "stranger", person_id))
 
-            elif self.negative_threshold is None or (
-                o_score <= self.negative_threshold
-                and s_score <= self.negative_threshold
+                if person_id not in self._strangers_last_seen:
+                    last_seen = None
+                else:
+                    last_seen = self._strangers_last_seen[person_id]
+
+                self._strangers_last_seen[person_id] = cur_ts
+
+                if (
+                    last_seen is None
+                    or (cur_ts - last_seen) > self._strangers_forget_ts
+                ):
+                    strangers_seen.add(person_id)
+                    face_annotations.append((bbox, "stranger", person_id))
+
+            elif (
+                self.negative_threshold is None
+                or max(o_score, s_score) <= self.negative_threshold
             ):
                 self._stranger_counter += 1
                 stranger_id = (
                     self.STRANGER_PREFIX + f"stranger_{self._stranger_counter}"
                 )
                 person_id = stranger_id.removeprefix(self.STRANGER_PREFIX)
-                strangers_seen.append(person_id)
+                self._strangers_last_seen[person_id] = cur_ts
+
+                strangers_seen.add(person_id)
                 face_annotations.append((bbox, "stranger", person_id))
                 new_stranger_embeds.append(embeds[x])
                 new_stranger_labels.append(stranger_id)
@@ -209,9 +233,10 @@ class FaceRecognizer(Perception):
             )
             self._evict_oldest_strangers()
 
-        if not self._face_present:
-            self._face_present = True
-            self._face_absent_count = 0
+        self._faces_n = len(owners_seen) + len(strangers_seen)
+        self._face_present = self._faces_n > 0
+
+        if self._face_present:
             self._on_motion()
 
             unsure_count = sum(1 for _, kind, _ in face_annotations if kind == "unsure")
@@ -225,16 +250,18 @@ class FaceRecognizer(Perception):
             summary = ", ".join(parts) if parts else "unknown person"
 
             self._send_enter_event(frame, face_annotations, summary=summary)
-        else:
-            self._face_absent_count = 0
 
     def to_dict(self) -> dict:
         return {
             "type": "face",
             "face_present": self._face_present,
-            "face_absent_count": self._face_absent_count,
-            "owner_count": len(self._owner_embeddings) if self._owner_embeddings is not None else 0,
-            "stranger_count": len(self._stranger_embeddings) if self._stranger_embeddings is not None else 0,
+            "faces_count": self._faces_n,
+            "owner_count": len(self._owner_embeddings)
+            if self._owner_embeddings is not None
+            else 0,
+            "stranger_count": len(self._stranger_embeddings)
+            if self._stranger_embeddings is not None
+            else 0,
         }
 
     def _send_enter_event(
@@ -246,9 +273,9 @@ class FaceRecognizer(Perception):
         annotated = frame.copy()
         cv2 = self._cv2
         _COLOR = {
-            "owner": (0, 255, 0),    # green
-            "stranger": (0, 0, 255), # red
-            "unsure": (0, 255, 255), # yellow
+            "owner": (0, 255, 0),  # green
+            "stranger": (0, 0, 255),  # red
+            "unsure": (0, 255, 255),  # yellow
         }
         for bbox, face_kind, label in face_annotations:
             x1, y1, x2, y2 = bbox
@@ -265,10 +292,9 @@ class FaceRecognizer(Perception):
                 1,
                 cv2.LINE_AA,
             )
-        image_path = self._encode_frame(annotated)
         self._send_event(
             "presence.enter",
             f"Person detected — {len(face_annotations)} face(s) visible ({summary})",
-            image=image_path,
+            image=annotated,
             cooldown=config.FACE_COOLDOWN_S,
         )
