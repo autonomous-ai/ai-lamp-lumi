@@ -480,8 +480,12 @@ class LEDStateResponse(BaseModel):
 
 class LEDColorResponse(BaseModel):
     led_count: int
-    color: list[int]  # [R, G, B]
-    hex: str          # e.g. "#ff8800"
+    on: bool                        # True if any pixel is lit
+    color: list[int]                # [R, G, B] — actual pixel 0 from strip
+    hex: str                        # e.g. "#ff8800"
+    brightness: float               # 0.0–1.0 derived from max channel
+    effect: Optional[str]           # running effect name, or null
+    scene: Optional[str]            # active scene name, or null
 
 
 VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse"]
@@ -634,11 +638,10 @@ class SpeakRequest(BaseModel):
 
 class MusicPlayRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="Song name or search query")
-    emotion: Optional[str] = Field(None, description="Emotion for LED + display while playing (e.g. excited, happy, curious). Servo groove is automatic.")
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"query": "Bohemian Rhapsody Queen", "emotion": "excited"}]
+            "examples": [{"query": "Bohemian Rhapsody Queen"}]
         }
     }
 
@@ -990,22 +993,23 @@ def get_led_state():
 
 @app.get("/led/color", response_model=LEDColorResponse, tags=["LED"])
 def get_led_color():
-    """Get the current LED color (last color set on the strip)."""
+    """Get current LED state: actual pixel color read from strip, effect, scene, brightness."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
-    # Use last_color tracked by presence service when available,
-    # otherwise fall back to reading the first pixel from the strip directly.
-    if sensing_service:
-        r, g, b = sensing_service.presence._last_color
-    else:
-        raw = rgb_service.strip.getPixelColor(0)
-        r = (raw >> 16) & 0xFF
-        g = (raw >> 8) & 0xFF
-        b = raw & 0xFF
+    # Read actual pixel 0 directly from the strip hardware buffer
+    raw = rgb_service.strip.getPixelColor(0)
+    r = (raw >> 16) & 0xFF
+    g = (raw >> 8) & 0xFF
+    b = raw & 0xFF
+    brightness = round(max(r, g, b) / 255.0, 3)
     return {
         "led_count": rgb_service.led_count,
+        "on": (r, g, b) != (0, 0, 0),
         "color": [r, g, b],
         "hex": f"#{r:02x}{g:02x}{b:02x}",
+        "brightness": brightness,
+        "effect": _effect_name,
+        "scene": _active_scene,
     }
 
 
@@ -1014,8 +1018,10 @@ def set_led_solid(req: LEDSolidRequest):
     """Fill entire LED strip with a single color. Color as [R,G,B] or packed int."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
+    global _active_scene
     color = tuple(req.color) if isinstance(req.color, list) else req.color
     rgb_service.dispatch("solid", color)
+    _active_scene = None  # manual solid color clears scene context
     # Track for presence restore
     if sensing_service and isinstance(color, tuple):
         sensing_service.presence.set_last_color(color)
@@ -1037,8 +1043,10 @@ def turn_off_leds():
     """Turn off all LEDs."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
+    global _active_scene
     _stop_current_effect()
     rgb_service.clear()
+    _active_scene = None
     if sensing_service:
         sensing_service.presence.set_last_color((0, 0, 0))
     return {"status": "ok"}
@@ -1049,6 +1057,7 @@ def turn_off_leds():
 _effect_thread: Optional[threading.Thread] = None
 _effect_stop: threading.Event = threading.Event()
 _effect_name: Optional[str] = None
+_active_scene: Optional[str] = None
 
 
 def _stop_current_effect():
@@ -1502,6 +1511,7 @@ def activate_scene(req: SceneRequest):
     if not rgb_service:
         raise HTTPException(503, "LED not available")
 
+    global _active_scene
     base = preset["color"]
     brightness = preset["brightness"]
     scaled = [int(c * brightness) for c in base]
@@ -1510,6 +1520,7 @@ def activate_scene(req: SceneRequest):
     except Exception as e:
         raise HTTPException(500, f"Failed to set scene: {e}")
 
+    _active_scene = req.scene
     # Track last color for presence restore
     if sensing_service:
         sensing_service.presence.set_last_color(tuple(scaled))
@@ -1751,6 +1762,15 @@ _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
     ("music_waltz",     ["waltz", "tango", "ballroom", "foxtrot"]),
 ]
 
+_MUSIC_STYLE_EMOTION: dict[str, str] = {
+    "music_groove":    "happy",
+    "music_jazz":      "happy",
+    "music_classical": "curious",
+    "music_hiphop":    "excited",
+    "music_rock":      "excited",
+    "music_waltz":     "happy",
+}
+
 def _detect_music_style(query: str) -> str:
     """Return recording name matching the genre keywords in query, else music_groove."""
     q = query.lower()
@@ -1771,14 +1791,13 @@ def audio_play(req: MusicPlayRequest):
     started = music_service.play(req.query)
     if not started:
         raise HTTPException(409, "Music is busy playing")
-    # Start groove servo — style matched from query
+    # Detect genre → start matching groove servo + apply LED + display
     style = _detect_music_style(req.query)
     logger.info("music style detected: %s", style)
     if animation_service:
         animation_service.dispatch("music_start", style)
-    # Apply LED + display from emotion field (no servo — groove handles that)
-    if req.emotion and req.emotion in EMOTION_PRESETS:
-        _apply_emotion_led_display(req.emotion)
+    emotion = _MUSIC_STYLE_EMOTION.get(style, "happy")
+    _apply_emotion_led_display(emotion)
     return {"status": "ok"}
 
 
