@@ -63,6 +63,7 @@ class SensingService:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_event_time: dict[str, float] = {}
+        self._face_recognizer: FaceRecognizer | None = None
 
         # Presence auto on/off state machine
         self.presence = PresenceService(rgb_service=rgb_service)
@@ -75,7 +76,8 @@ class SensingService:
                 send_event=self._send_event,
                 on_motion=self.presence.on_motion,
             )
-            self._load_owners(face_recognizer, cv2_module, numpy_module)
+            self._face_recognizer = face_recognizer
+            face_recognizer.load_from_disk()
             self._perceptions += [
                 MotionPerception(
                     cv2=cv2_module,
@@ -101,48 +103,6 @@ class SensingService:
             self._perceptions.append(self._sound_perception)
         else:
             self._sound_perception = None
-
-    def _load_owners(self, face_recognizer, cv2_module, numpy_module) -> None:
-        """Load owner images from OWNER_PHOTOS_DIR and register embeddings with FaceRecognizer.
-
-        Directory layout: <OWNER_PHOTOS_DIR>/<owner_id>/<image_files>
-        """
-        owners_dir = config.OWNER_PHOTOS_DIR
-        if not os.path.isdir(owners_dir):
-            logger.info("[sensing] No owner photos dir at %s — skipping", owners_dir)
-            return
-
-        _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
-        loaded_total = 0
-
-        for owner_id in os.listdir(owners_dir):
-            owner_path = os.path.join(owners_dir, owner_id)
-            if not os.path.isdir(owner_path):
-                continue
-
-            images = []
-            labels = []
-            for fname in os.listdir(owner_path):
-                if os.path.splitext(fname)[1].lower() not in _IMG_EXTS:
-                    continue
-                img_path = os.path.join(owner_path, fname)
-                img = cv2_module.imread(img_path)
-                if img is None:
-                    logger.warning("[sensing] Failed to load owner image: %s", img_path)
-                    continue
-                images.append(img)
-                labels.append(owner_id)
-
-            if images:
-                face_recognizer.train(images, labels)
-                loaded_total += len(images)
-                logger.info(
-                    "[sensing] Registered %d image(s) for owner '%s'",
-                    len(images),
-                    owner_id,
-                )
-
-        logger.info("[sensing] Owner loading done — %d image(s) total", loaded_total)
 
     def set_tts_service(self, tts_service):
         """Set TTS reference after late initialization (echo suppression)."""
