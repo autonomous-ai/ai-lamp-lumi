@@ -1736,6 +1736,24 @@ def voice_status():
 
 # --- Music ---
 
+_MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("music_jazz",      ["jazz", "swing", "blues", "soul", "funk", "bossa nova"]),
+    ("music_classical", ["classical", "orchestra", "symphony", "beethoven", "mozart",
+                         "chopin", "bach", "opera", "concerto", "sonata", "piano", "violin"]),
+    ("music_hiphop",    ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
+    ("music_rock",      ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
+    ("music_waltz",     ["waltz", "tango", "ballroom", "foxtrot"]),
+]
+
+def _detect_music_style(query: str) -> str:
+    """Return recording name matching the genre keywords in query, else music_groove."""
+    q = query.lower()
+    for recording, keywords in _MUSIC_STYLE_KEYWORDS:
+        if any(k in q for k in keywords):
+            return recording
+    return "music_groove"
+
+
 @app.post("/audio/play", response_model=StatusResponse, tags=["Audio"])
 def audio_play(req: MusicPlayRequest):
     """Search YouTube and play audio through the speaker."""
@@ -1747,9 +1765,11 @@ def audio_play(req: MusicPlayRequest):
     started = music_service.play(req.query)
     if not started:
         raise HTTPException(409, "Music is busy playing")
-    # Groove servo while music plays
+    # Groove servo while music plays — style matched from query
     if animation_service:
-        animation_service.dispatch("music_start", None)
+        style = _detect_music_style(req.query)
+        logger.info("music style detected: %s", style)
+        animation_service.dispatch("music_start", style)
     return {"status": "ok"}
 
 
