@@ -83,35 +83,29 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
-  // Reclassify "telegram" turns that are actually sensing events routed via OpenClaw channel
+  // Reclassify "telegram" turns that are actually sensing events routed via OpenClaw channel.
+  // node-host is Lumi's own WebSocket identity in OpenClaw — it sends sensing events AND
+  // voice commands via chat.send, so sender=node-host alone doesn't mean "system".
   if (turn.type === "telegram") {
     let hasRealUser = false;
-    let allNodeHost = true;
     let sensingType: string | null = null;
+    let hasSystemMsg = false;
+    const systemPatterns = [/you just woke up/i, /\[sensing:[^\]]+\]/i];
     for (const ev of turn.events) {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
         const sender = d?.sender ?? d?.data?.sender ?? "";
         if (sender && sender !== "node-host") hasRealUser = true;
-        if (sender !== "node-host") allNodeHost = false;
-        const m = msg.match(/\[sensing:([^\]]+)\]/i);
-        if (m && !sensingType) sensingType = m[1];
+        const sensM = msg.match(/\[sensing:([^\]]+)\]/i);
+        if (sensM && !sensingType) sensingType = sensM[1];
+        if (systemPatterns.some((p) => p.test(msg))) hasSystemMsg = true;
       }
     }
-    // Only classify as system if ALL chat_input senders are node-host and no real user
-    if (allNodeHost && !hasRealUser && sensingType) {
-      turn.type = sensingType;
-      return;
-    }
-    if (allNodeHost && !hasRealUser) {
-      turn.type = "system";
-      return;
-    }
-    if (sensingType && !hasRealUser) {
-      turn.type = sensingType;
-      return;
-    }
+    if (hasRealUser) return; // keep as telegram
+    if (sensingType) { turn.type = sensingType; return; }
+    if (hasSystemMsg) { turn.type = "system"; return; }
+    // node-host but normal message (e.g. voice command relayed via chat.send) — keep as telegram
     return;
   }
 
@@ -451,6 +445,11 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const chatMsg = d?.data?.message ?? d?.message ?? "";
       if (hasImage) info.agent_call.push(`📷 image attached (~${Math.round(imgBytes * 3 / 4 / 1024)}KB)`);
       if (chatMsg) {
+        // Extract [snapshot: /path] if present
+        const snapMatch = chatMsg.match(/\[snapshot:\s*([^\]]+)\]/);
+        if (snapMatch) {
+          info.agent_call.push(`🖼 snapshot: ${snapMatch[1].trim()}`);
+        }
         // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
         const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
         if (idx >= 0) info.agent_call[idx] = `📩 ${chatMsg}`;
