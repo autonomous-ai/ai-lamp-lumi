@@ -8,9 +8,30 @@ description: Use when the user explicitly asks to see something — "what do you
 ## Quick Start
 Accesses the lamp's built-in camera at `http://127.0.0.1:5001` to take snapshots or check the environment. Only use when the user explicitly asks you to look at something.
 
+## Capture Protocol (MUST follow every time you take a snapshot)
+
+The camera is mounted on a servo arm. If the arm is moving when you capture, the image will be blurry. Always follow these three steps:
+
+1. **Stop motion** — Aim the servo to the fixed center position:
+   ```bash
+   curl -s -X POST http://127.0.0.1:5001/servo/aim \
+     -H "Content-Type: application/json" \
+     -d '{"direction": "center"}'
+   ```
+2. **Wait for stabilization** — Sleep 2 seconds so the servo stops vibrating:
+   ```bash
+   sleep 2
+   ```
+3. **Capture** — Only now take the snapshot:
+   ```bash
+   curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/snapshot.jpg
+   ```
+
+Skipping steps 1–2 will produce a blurry, unusable image.
+
 ## Workflow
 1. Check camera availability with `GET /camera`.
-2. If available, take a snapshot with `GET /camera/snapshot`.
+2. If available, follow the **Capture Protocol** above (aim center → wait 2s → snapshot).
 3. Analyze the image and describe what you see.
 4. Respond helpfully and specifically to the user's question.
 
@@ -19,13 +40,13 @@ You also receive camera snapshots **automatically** as part of sensing events (`
 ## Examples
 
 **Input:** "What do you see right now?"
-**Output:** Call `GET /camera/snapshot`, analyze the image. Say: "I can see your desk with a laptop and a coffee mug. Looks like a productive setup!"
+**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot` → analyze image. Say: "I can see your desk with a laptop and a coffee mug. Looks like a productive setup!"
 
 **Input:** "Is anyone in the room?"
-**Output:** Call `GET /camera/snapshot`, analyze the image. Say: "I can see one person sitting at the desk."
+**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot` → analyze image. Say: "I can see one person sitting at the desk."
 
 **Input:** "Take a photo" or "Send me a photo"
-**Output:** Call `GET /camera/snapshot --output /tmp/snapshot.jpg`, then send the image to the user with `mediaUrl: "/tmp/snapshot.jpg"` and describe what you see.
+**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot --output /tmp/snapshot.jpg` → send image with `mediaUrl: "/tmp/snapshot.jpg"` and describe what you see.
 
 **Input:** (sensing event with image already attached)
 **Output:** Do NOT call the camera API. Just look at the attached image and react.
@@ -85,6 +106,7 @@ Use this when the user asks to "take a photo", "send me a photo", or "show me wh
 - If a sensing event already included an image, do not call the camera API again.
 
 ## Rules
+- **Always follow the Capture Protocol** (aim center → wait 2s → snapshot) — skipping this causes blurry images.
 - **Never use the camera proactively without the user's request** — respect privacy.
 - **Don't repeatedly snapshot without reason.**
 - **Don't call the camera API when a sensing event already included an image.**
