@@ -216,7 +216,7 @@ export function FlowSection({
     }
   }
 
-  // HW ACTION: light up when intent_match has hardware actions
+  // HW nodes: light up when intent_match has hardware actions (local path → LED)
   if (visitedStages.has("local_match")) {
     const hasActions = turnEvents.some((ev) => {
       if (ev.type !== "intent_match" && !(ev.type === "flow_event" && ev.detail?.node === "intent_match")) return false;
@@ -224,7 +224,7 @@ export function FlowSection({
       const actions: string[] = d?.data?.actions ?? d?.actions ?? [];
       return actions.length > 0;
     });
-    if (hasActions) visitedStages.add("hw_action");
+    if (hasActions) visitedStages.add("hw_led");
   }
 
   // TG OUT: only light up for telegram turns with a real response (not no_reply)
