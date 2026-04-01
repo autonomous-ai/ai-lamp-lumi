@@ -85,6 +85,7 @@ export function FlowDiagram({
     ["mic_input",         "intent_check"],
     ["cam_input",         "intent_check"],
     ["intent_check",      "local_match"],
+    ["local_match",       "hw_action"],
     ["local_match",       "tts_speak"],
     ["intent_check",      "agent_call"],
     ["telegram_input",    "agent_call"],
