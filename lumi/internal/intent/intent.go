@@ -24,6 +24,8 @@ type Result struct {
 	Emotion string
 	// Rule is the name of the matched rule for debugging.
 	Rule string
+	// Actions lists hardware API calls made during exec (e.g. "POST /led/solid", "POST /emotion").
+	Actions []string
 }
 
 // Match tries to match a voice command to a local intent.
@@ -104,8 +106,9 @@ var rules = []rule{
 		exec: func(t string) *Result {
 			rgb, name, _ := extractColor(t)
 			post("/led/effect/stop", "")
-			post("/led/solid", fmt.Sprintf(`{"color":[%d,%d,%d]}`, rgb[0], rgb[1], rgb[2]))
-			return &Result{TTSText: name + " light on!", LEDChanged: true}
+			body := fmt.Sprintf(`{"color":[%d,%d,%d]}`, rgb[0], rgb[1], rgb[2])
+			post("/led/solid", body)
+			return &Result{TTSText: name + " light on!", LEDChanged: true, Actions: []string{"POST /led/effect/stop", "POST /led/solid " + body}}
 		},
 	},
 
@@ -116,7 +119,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/led/solid", `{"color":[255,220,180]}`)
 			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
-			return &Result{TTSText: "Light on!", LEDChanged: true}
+			return &Result{TTSText: "Light on!", LEDChanged: true, Actions: []string{`POST /led/solid {"color":[255,220,180]}`, `POST /emotion {"emotion":"happy","intensity":0.6}`}}
 		},
 	},
 	{
@@ -125,7 +128,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/led/off", "")
 			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
-			return &Result{TTSText: "Light off!", LEDOff: true}
+			return &Result{TTSText: "Light off!", LEDOff: true, Actions: []string{"POST /led/off", `POST /emotion {"emotion":"idle","intensity":0.3}`}}
 		},
 	},
 
@@ -156,7 +159,7 @@ var rules = []rule{
 		exec: func(string) *Result {
 			post("/scene", `{"scene":"night"}`)
 			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
-			return &Result{TTSText: "Goodnight!", LEDChanged: true}
+			return &Result{TTSText: "Goodnight!", LEDChanged: true, Actions: []string{`POST /scene {"scene":"night"}`, `POST /emotion {"emotion":"sleepy","intensity":0.4}`}}
 		},
 	},
 	{
@@ -188,7 +191,7 @@ var rules = []rule{
 		match: anyOf("tăng âm", "to hơn", "lớn hơn", "tang am", "to hon", "lon hon", "volume up", "louder"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":80}`)
-			return &Result{TTSText: "Volume up!"}
+			return &Result{TTSText: "Volume up!", Actions: []string{`POST /audio/volume {"volume":80}`}}
 		},
 	},
 	{
@@ -196,7 +199,7 @@ var rules = []rule{
 		match: anyOf("giảm âm", "nhỏ hơn", "bé hơn", "giam am", "nho hon", "be hon", "volume down", "quieter", "softer"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":30}`)
-			return &Result{TTSText: "Volume down!"}
+			return &Result{TTSText: "Volume down!", Actions: []string{`POST /audio/volume {"volume":30}`}}
 		},
 	},
 	{
@@ -204,7 +207,7 @@ var rules = []rule{
 		match: anyOf("im", "im đi", "tắt tiếng", "tat tieng", "mute", "shut up", "quiet"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":0}`)
-			return &Result{TTSText: ""}
+			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
 		},
 	},
 }
@@ -228,15 +231,17 @@ func anyOf(keywords ...string) func(string) bool {
 
 func sceneExec(scene, reply string) func(string) *Result {
 	return func(string) *Result {
-		post("/scene", fmt.Sprintf(`{"scene":"%s"}`, scene))
-		return &Result{TTSText: reply, LEDChanged: true}
+		body := fmt.Sprintf(`{"scene":"%s"}`, scene)
+		post("/scene", body)
+		return &Result{TTSText: reply, LEDChanged: true, Actions: []string{"POST /scene " + body}}
 	}
 }
 
 func emotionExec(emotion, reply string) func(string) *Result {
 	return func(string) *Result {
-		post("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.8}`, emotion))
-		return &Result{TTSText: reply, Emotion: emotion}
+		body := fmt.Sprintf(`{"emotion":"%s","intensity":0.8}`, emotion)
+		post("/emotion", body)
+		return &Result{TTSText: reply, Emotion: emotion, Actions: []string{"POST /emotion " + body}}
 	}
 }
 
