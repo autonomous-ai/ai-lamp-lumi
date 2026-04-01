@@ -21,6 +21,8 @@ type Result struct {
 	LEDOff bool
 	// Emotion is the emotion name if this intent triggered an /emotion call.
 	Emotion string
+	// Rule is the name of the matched rule for debugging.
+	Rule string
 }
 
 // Match tries to match a voice command to a local intent.
@@ -30,7 +32,9 @@ func Match(text string) *Result {
 
 	for _, r := range rules {
 		if r.match(t) {
-			return r.exec(t)
+			res := r.exec(t)
+			res.Rule = r.name
+			return res
 		}
 	}
 	return nil
@@ -39,6 +43,7 @@ func Match(text string) *Result {
 // --- rules table ---
 
 type rule struct {
+	name  string
 	match func(string) bool
 	exec  func(string) *Result
 }
@@ -87,6 +92,7 @@ func isLEDOnCommand(t string) bool {
 var rules = []rule{
 	// --- LED color (must be before generic LED on/off) ---
 	{
+		name: "led_color",
 		match: func(t string) bool {
 			if !isLEDOnCommand(t) {
 				return false
@@ -104,6 +110,7 @@ var rules = []rule{
 
 	// --- LED on/off ---
 	{
+		name:  "led_on",
 		match: anyOf("bật đèn", "mở đèn", "bat den", "mo den", "turn on the light", "light on", "turn on"),
 		exec: func(string) *Result {
 			post("/led/solid", `{"color":[255,220,180]}`)
@@ -112,6 +119,7 @@ var rules = []rule{
 		},
 	},
 	{
+		name:  "led_off",
 		match: anyOf("tắt đèn", "tắt hết đèn", "tat den", "turn off the light", "light off", "turn off"),
 		exec: func(string) *Result {
 			post("/led/off", "")
@@ -122,22 +130,27 @@ var rules = []rule{
 
 	// --- Scenes ---
 	{
+		name:  "scene_reading",
 		match: anyOf("đọc sách", "chế độ đọc", "doc sach", "reading mode", "reading"),
-		exec: sceneExec("reading", "Reading mode!"),
+		exec:  sceneExec("reading", "Reading mode!"),
 	},
 	{
+		name:  "scene_focus",
 		match: anyOf("tập trung", "làm việc", "tap trung", "lam viec", "focus mode", "focus"),
-		exec: sceneExec("focus", "Focus mode!"),
+		exec:  sceneExec("focus", "Focus mode!"),
 	},
 	{
+		name:  "scene_relax",
 		match: anyOf("thư giãn", "thu gian", "relax", "chill"),
-		exec: sceneExec("relax", "Relax mode!"),
+		exec:  sceneExec("relax", "Relax mode!"),
 	},
 	{
+		name:  "scene_movie",
 		match: anyOf("xem phim", "xem film", "movie mode", "movie"),
-		exec: sceneExec("movie", "Movie mode!"),
+		exec:  sceneExec("movie", "Movie mode!"),
 	},
 	{
+		name: "scene_night",
 		match: anyOf("đèn ngủ", "ngủ đi", "chúc ngủ ngon", "den ngu", "ngu di", "goodnight", "night mode", "sleep"),
 		exec: func(string) *Result {
 			post("/scene", `{"scene":"night"}`)
@@ -146,26 +159,31 @@ var rules = []rule{
 		},
 	},
 	{
+		name:  "scene_energize",
 		match: anyOf("sáng lên", "sáng hơn", "sang len", "sang hon", "brighter", "bright", "energize"),
-		exec: sceneExec("energize", "Max brightness!"),
+		exec:  sceneExec("energize", "Max brightness!"),
 	},
 
 	// --- Emotions ---
 	{
+		name:  "emotion_happy",
 		match: anyOf("vui lên", "vui đi", "happy"),
-		exec: emotionExec("happy", "Yay!"),
+		exec:  emotionExec("happy", "Yay!"),
 	},
 	{
+		name:  "emotion_sad",
 		match: anyOf("buồn", "buon", "sad"),
-		exec: emotionExec("sad", "Aww."),
+		exec:  emotionExec("sad", "Aww."),
 	},
 	{
+		name:  "emotion_shock",
 		match: anyOf("ngạc nhiên", "ngac nhien", "wow", "shock", "surprised"),
-		exec: emotionExec("shock", "Wow!"),
+		exec:  emotionExec("shock", "Wow!"),
 	},
 
 	// --- Volume ---
 	{
+		name:  "volume_up",
 		match: anyOf("tăng âm", "to hơn", "lớn hơn", "tang am", "to hon", "lon hon", "volume up", "louder"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":80}`)
@@ -173,6 +191,7 @@ var rules = []rule{
 		},
 	},
 	{
+		name:  "volume_down",
 		match: anyOf("giảm âm", "nhỏ hơn", "bé hơn", "giam am", "nho hon", "be hon", "volume down", "quieter", "softer"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":30}`)
@@ -180,6 +199,7 @@ var rules = []rule{
 		},
 	},
 	{
+		name:  "mute",
 		match: anyOf("im", "im đi", "tắt tiếng", "tat tieng", "mute", "shut up", "quiet"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":0}`)
