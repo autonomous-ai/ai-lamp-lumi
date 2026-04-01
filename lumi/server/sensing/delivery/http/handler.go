@@ -1,10 +1,12 @@
 package http
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -66,8 +68,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
-			turnStart := flow.Start("sensing_input", startPayload)
-			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText, "rule": result.Rule, "actions": result.Actions})
+			// Generate a dedicated local-intent trace ID so this turn doesn't
+			// share the global trace of an in-flight agent turn.
+			localRunID := fmt.Sprintf("local-intent-%d", time.Now().UnixMilli())
+			turnStart := flow.Start("sensing_input", startPayload, localRunID)
+			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText, "rule": result.Rule, "actions": result.Actions}, localRunID)
 			if result.TTSText != "" {
 				go func() {
 					resp, err := http.Post(
@@ -93,7 +98,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
 			})
-			flow.End("sensing_input", turnStart, map[string]any{"path": "local"})
+			flow.End("sensing_input", turnStart, map[string]any{"path": "local"}, localRunID)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 				"handler": "local",
 			}))
