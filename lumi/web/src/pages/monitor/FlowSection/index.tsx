@@ -173,7 +173,11 @@ export function FlowSection({
 
   const turns = groupIntoTurns(events);
   const filteredTurns = turns.filter((t) => turnFilters.has(turnCategory(t.type)));
-  const selectedTurn = selectedTurnId ? turns.find((t) => t.id === selectedTurnId) : filteredTurns[0];
+  // When user explicitly selected a turn, keep it even if new events arrive.
+  // Only auto-select latest turn when nothing is selected.
+  const selectedTurn = selectedTurnId
+    ? (turns.find((t) => t.id === selectedTurnId) ?? turns.find((t) => t.runId === selectedTurnId))
+    : filteredTurns[0];
 
   const turnEvents = selectedTurn?.events ?? events.slice(-30);
   const activeStage = deriveActiveStage(turnEvents);
