@@ -549,9 +549,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
           if (parsed?.command) {
             argsSummary = (parsed.command as string);
           } else {
-            argsSummary = JSON.stringify(parsed).slice(0, 120);
+            argsSummary = JSON.stringify(parsed);
           }
-        } catch { argsSummary = String(rawArgs).slice(0, 60); }
+        } catch { argsSummary = String(rawArgs); }
       }
       if (argsSummary) {
         const entry = `🔧 ${argsSummary}`;
@@ -559,7 +559,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       }
     }
     if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
-      if (ev.type === "thinking" && ev.summary && info.agent_thinking.length < 2) {
+      if (ev.type === "thinking" && ev.summary) {
         info.agent_thinking.push(`"${ev.summary}…"`);
       }
       if (ev.type === "flow_event" && info.agent_thinking.length === 0) {
