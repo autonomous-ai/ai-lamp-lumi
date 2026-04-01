@@ -392,6 +392,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+  const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+    : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
   const pushUnique = (arr: string[], line: string) => {
     if (!line) return;
     if (!arr.includes(line)) arr.push(line);
@@ -402,6 +404,42 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     pushUnique(info.agent_thinking, line);
     pushUnique(info.agent_response, line);
   };
+
+  // Compute per-node timings
+  let sensingEnterTs = 0;
+  let lifecycleStartTs = 0;
+  let lifecycleEndTs = 0;
+  let ttsTs = 0;
+  for (const ev of events) {
+    const ts = new Date(ev.time).getTime();
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+      if (!sensingEnterTs) sensingEnterTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start") {
+      if (!lifecycleStartTs) lifecycleStartTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
+      lifecycleEndTs = ts; // take last one
+    }
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      if (!ttsTs) ttsTs = ts;
+    }
+  }
+  // Sensing → agent call latency (time from sensing event to lifecycle_start)
+  if (sensingEnterTs && lifecycleStartTs) {
+    const lat = lifecycleStartTs - sensingEnterTs;
+    if (lat >= 0) info.agent_call.push(`⏱ queue→start ${fmtDur(lat)}`);
+  }
+  // Agent thinking duration (lifecycle_start → lifecycle_end)
+  if (lifecycleStartTs && lifecycleEndTs) {
+    const dur = lifecycleEndTs - lifecycleStartTs;
+    if (dur >= 0) info.agent_thinking.push(`⏱ ${fmtDur(dur)}`);
+  }
+  // Agent response → TTS latency
+  if (lifecycleEndTs && ttsTs) {
+    const lat = ttsTs - lifecycleEndTs;
+    if (lat >= 0 && lat < 30_000) info.tts_speak.push(`⏱ ${fmtDur(lat)} after response`);
+  }
 
   for (const ev of events) {
     if (ev.type === "sensing_input") {

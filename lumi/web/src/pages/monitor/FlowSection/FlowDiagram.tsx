@@ -332,17 +332,23 @@ export function FlowDiagram({
                       fill="var(--lm-card)" stroke={color} strokeWidth={0.5}
                       opacity={0.92}
                     />
-                    {showLines.map((line, i) => (
-                      <text
-                        key={i}
-                        x={pos.x} y={boxY + 8 + i * 10}
-                        textAnchor="middle"
-                        fill={color} fontSize={5.5} opacity={0.9}
-                        fontFamily="monospace"
-                      >
-                        {line}
-                      </text>
-                    ))}
+                    {showLines.map((line, i) => {
+                      const isTimer = line.startsWith("⏱");
+                      return (
+                        <text
+                          key={i}
+                          x={pos.x} y={boxY + 8 + i * 10}
+                          textAnchor="middle"
+                          fill={isTimer ? "#fbbf24" : color}
+                          fontSize={isTimer ? 6 : 5.5}
+                          opacity={isTimer ? 1 : 0.9}
+                          fontWeight={isTimer ? 700 : 400}
+                          fontFamily="monospace"
+                        >
+                          {line}
+                        </text>
+                      );
+                    })}
                     {[...curlPerLine.entries()].map(([lineIdx, curl]) => (
                       <g
                         key={`cp-${lineIdx}`}
