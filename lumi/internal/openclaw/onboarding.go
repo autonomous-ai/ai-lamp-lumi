@@ -2,6 +2,7 @@ package openclaw
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -116,9 +117,16 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
-	// Restart OpenClaw if AGENTS.md was modified so the new session picks it up
+	// Ensure all hooks are registered in openclaw.json hooks.internal.entries
+	if hooksAdded, err := s.ensureHooksRegistered(hooks); err != nil {
+		slog.Error("ensure hooks registered failed", "component", "onboarding", "error", err)
+	} else if hooksAdded {
+		needRestart = true
+	}
+
+	// Restart OpenClaw if anything changed so the new session picks it up
 	if needRestart {
-		slog.Info("restarting OpenClaw to pick up AGENTS.md changes", "component", "onboarding")
+		slog.Info("restarting OpenClaw to pick up changes", "component", "onboarding")
 		if err := restartOpenclawGateway(); err != nil {
 			return fmt.Errorf("restart openclaw after onboarding: %w", err)
 		}
@@ -126,6 +134,48 @@ func (s *Service) EnsureOnboarding() error {
 	}
 
 	return nil
+}
+
+// ensureHooksRegistered adds any missing hooks to openclaw.json hooks.internal.entries.
+// Returns true if the file was modified.
+func (s *Service) ensureHooksRegistered(hookNames []string) (bool, error) {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configBytes, &configData); err != nil {
+		return false, fmt.Errorf("parse openclaw.json: %w", err)
+	}
+
+	hooksMap := ensureMap(configData, "hooks")
+	internalMap := ensureMap(hooksMap, "internal")
+	if _, ok := internalMap["enabled"]; !ok {
+		internalMap["enabled"] = true
+	}
+	entriesMap := ensureMap(internalMap, "entries")
+
+	changed := false
+	for _, name := range hookNames {
+		if _, exists := entriesMap[name]; !exists {
+			entriesMap[name] = map[string]interface{}{"enabled": true}
+			changed = true
+			slog.Info("registered hook in openclaw.json", "component", "onboarding", "hook", name)
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+
+	outBytes, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal openclaw.json: %w", err)
+	}
+	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
+		return false, fmt.Errorf("write openclaw.json: %w", err)
+	}
+	return true, nil
 }
 
 // ensureAgentsMDBlock injects the mandatory skills block into AGENTS.md.

@@ -1,4 +1,4 @@
-const EMOTION_URL = "http://127.0.0.1:5001/emotion";
+import http from "http";
 
 const handler = async (event: any): Promise<void> => {
   if (event.type !== "message" || event.action !== "preprocessed") return;
@@ -7,20 +7,18 @@ const handler = async (event: any): Promise<void> => {
   const text: string = ctx?.bodyForAgent ?? ctx?.body ?? "";
 
   // Skip sensing events — they have their own defined emotion reactions
-  if (text.startsWith("[sensing:")) return;
+  if (text.startsWith("[sensing:") || !text.trim()) return;
 
-  // Skip empty messages
-  if (!text.trim()) return;
-
-  try {
-    await fetch(EMOTION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ emotion: "listening", intensity: 0.8 }),
-    });
-  } catch {
-    // fail silently — never block message delivery
-  }
+  const req = http.request({
+    hostname: "127.0.0.1",
+    port: 5001,
+    path: "/emotion",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  req.on("error", () => {});
+  req.write(JSON.stringify({ emotion: "listening", intensity: 0.8 }));
+  req.end();
 };
 
 export default handler;
