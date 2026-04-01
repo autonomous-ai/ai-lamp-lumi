@@ -85,22 +85,32 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
 
   // Reclassify "telegram" turns that are actually sensing events routed via OpenClaw channel
   if (turn.type === "telegram") {
+    let hasRealUser = false;
+    let allNodeHost = true;
+    let sensingType: string | null = null;
     for (const ev of turn.events) {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
         const sender = d?.sender ?? d?.data?.sender ?? "";
-        // node-host = OpenClaw internal (wake greeting, sensing relay) — not real telegram user
-        if (sender === "node-host") {
-          turn.type = "system";
-          return;
-        }
+        if (sender && sender !== "node-host") hasRealUser = true;
+        if (sender !== "node-host") allNodeHost = false;
         const m = msg.match(/\[sensing:([^\]]+)\]/i);
-        if (m) {
-          turn.type = m[1];
-          return;
-        }
+        if (m && !sensingType) sensingType = m[1];
       }
+    }
+    // Only classify as system if ALL chat_input senders are node-host and no real user
+    if (allNodeHost && !hasRealUser && sensingType) {
+      turn.type = sensingType;
+      return;
+    }
+    if (allNodeHost && !hasRealUser) {
+      turn.type = "system";
+      return;
+    }
+    if (sensingType && !hasRealUser) {
+      turn.type = sensingType;
+      return;
     }
     return;
   }
@@ -437,9 +447,17 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       info.intent_check.push("→ agent route");
       const d = ev.detail as Record<string, any> | undefined;
       const hasImage = d?.data?.has_image || d?.has_image;
-      if (hasImage) info.agent_call.push("📷 image attached");
+      const imgBytes = Number(d?.data?.image_bytes ?? d?.image_bytes ?? 0);
+      const chatMsg = d?.data?.message ?? d?.message ?? "";
+      if (hasImage) info.agent_call.push(`📷 image attached (~${Math.round(imgBytes * 3 / 4 / 1024)}KB)`);
+      if (chatMsg) {
+        // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
+        const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
+        if (idx >= 0) info.agent_call[idx] = `📩 ${chatMsg}`;
+        else info.agent_call.push(`📩 ${chatMsg}`);
+      }
     }
-    // Show input message on agent_call node
+    // Show input message on agent_call node (fallback if chat_send hasn't fired yet)
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const d = ev.detail as Record<string, any> | undefined;
       const msg = d?.data?.message ?? d?.message ?? ev.summary ?? "";
