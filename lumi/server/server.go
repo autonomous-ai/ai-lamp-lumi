@@ -244,6 +244,7 @@ func (s *Server) Serve(closeFn func()) error {
 	sensing.GET("snapshot/:name", s.sensingHandler.GetSnapshot)
 
 	oc := api.Group("openclaw")
+	oc.POST("busy", s.openclawHandler.SetBusy)
 	oc.GET("status", s.openclawHandler.Status)
 	oc.GET("events", s.openclawHandler.Events)
 	oc.GET("recent", s.openclawHandler.Recent)
