@@ -199,14 +199,20 @@ class AnimationService:
         if event_type == "play":
             self._handle_play(payload)
         elif event_type == "music_start":
-            self._handle_music_start()
+            self._handle_music_start(payload)
         elif event_type == "music_stop":
             self._handle_music_stop()
         else:
             print(f"Unknown event type: {event_type}")
 
-    def _handle_music_start(self):
-        """Start grooving to music — loops music_groove until music stops."""
+    def _handle_music_start(self, recording_name: Optional[str] = None):
+        """Start grooving to music -- loops recording until music stops.
+
+        recording_name: one of music_groove, music_jazz, music_classical,
+                        music_hiphop, music_rock, music_waltz.
+                        Falls back to music_groove when None or unknown.
+        """
+        self._music_recording = recording_name if recording_name else "music_groove"
         self._music_playing = True
         self._handle_play(self._music_recording)
 
