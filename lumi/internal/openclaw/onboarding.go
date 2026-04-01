@@ -32,6 +32,7 @@ const (
 // Each hook has HOOK.md (metadata) and handler.ts (logic).
 var hooks = []string{
 	"camera-inject",
+	"emotion-acknowledge",
 }
 
 // skills is the list of skill names available on CDN.
