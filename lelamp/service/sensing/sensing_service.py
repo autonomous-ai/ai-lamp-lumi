@@ -29,10 +29,12 @@ from lelamp.service.sensing.perceptions import (
     FaceRecognizer,
     LightLevelPerception,
     MotionPerception,
+    SoundPerception,
 )
 from lelamp.service.sensing.presence_service import PresenceService
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class SensingService:
@@ -54,10 +56,7 @@ class SensingService:
         animation_service=None,
     ):
         self._camera = camera_capture
-        self._sd = sound_device_module
-        self._np = numpy_module
         self._cv2 = cv2_module
-        self._input_device = input_device
         self._poll_interval = poll_interval
         self._animation = animation_service
 
@@ -65,28 +64,23 @@ class SensingService:
         self._thread: Optional[threading.Thread] = None
         self._last_event_time: dict[str, float] = {}
 
-        # TTS reference for echo suppression
-        self._tts = tts_service
-
         # Presence auto on/off state machine
         self.presence = PresenceService(rgb_service=rgb_service)
 
-        # Perception detectors (only initialized if cv2 is available)
+        # Perception detectors
         self._perceptions = []
         if cv2_module:
-            self._perceptions = [
+            self._perceptions += [
                 MotionPerception(
                     cv2=cv2_module,
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
-                    encode_frame=self._encode_frame,
                 ),
                 FaceRecognizer(
                     cv2=cv2_module,
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
-                    encode_frame=self._encode_frame,
                 ),
                 LightLevelPerception(
                     cv2=cv2_module,
@@ -94,10 +88,22 @@ class SensingService:
                     send_event=self._send_event,
                 ),
             ]
+        if sound_device_module and numpy_module and input_device is not None:
+            self._sound_perception = SoundPerception(
+                sd=sound_device_module,
+                np_module=numpy_module,
+                send_event=self._send_event,
+                input_device=input_device,
+                tts_service=tts_service,
+            )
+            self._perceptions.append(self._sound_perception)
+        else:
+            self._sound_perception = None
 
     def set_tts_service(self, tts_service):
         """Set TTS reference after late initialization (echo suppression)."""
-        self._tts = tts_service
+        if self._sound_perception is not None:
+            self._sound_perception.set_tts_service(tts_service)
 
     def start(self):
         if self._running:
@@ -121,7 +127,7 @@ class SensingService:
             try:
                 self._tick()
             except Exception as e:
-                logger.error("Sensing tick error: %s", e)
+                logger.error("Sensing tick error: %s", e, exc_info=True)
             time.sleep(self._poll_interval)
 
     def _tick(self):
@@ -131,42 +137,11 @@ class SensingService:
         if self._camera and self._cv2:
             frame = self._camera.last_frame
 
-        if frame is not None:
-            for perception in self._perceptions:
-                perception.check(frame)
-
-        # Sound detection
-        if self._sd and self._np and self._input_device is not None:
-            self._check_sound()
+        for perception in self._perceptions:
+            perception.check(frame)
 
         # Presence timeout check (dim/off)
         self.presence.tick()
-
-    # --- Sound detection ---
-
-    def _check_sound(self):
-        # Skip sound check while TTS is speaking (echo suppression)
-        if self._tts is not None and self._tts.speaking:
-            return
-
-        sd = self._sd
-        np = self._np
-        try:
-            sample_rate = 44100
-            frames = int(sample_rate * config.SOUND_SAMPLE_DURATION_S)
-            recording = sd.rec(
-                frames,
-                samplerate=sample_rate,
-                channels=1,
-                dtype="int16",
-                device=self._input_device,
-                blocking=True,
-            )
-            rms = float(np.sqrt(np.mean(recording.astype(np.float64) ** 2)))
-            if rms >= config.SOUND_RMS_THRESHOLD:
-                self._send_event("sound", f"Loud noise detected (level: {int(rms)})")
-        except Exception as e:
-            logger.debug("Sound check failed: %s", e)
 
     # --- Frame encoding ---
 
@@ -175,19 +150,26 @@ class SensingService:
 
         Returns a camera frame suitable for _encode_frame(), or None on failure.
         This avoids motion blur when the camera is mounted on a moving arm.
+        Skips freeze if an emotion/animation is actively playing — freezing would
+        interrupt the animation and the arm is moving anyway so freeze is pointless.
         """
         if not self._camera or not self._cv2:
             return None
 
         anim = self._animation
-        if anim:
-            anim.freeze()
-            time.sleep(self.FREEZE_SETTLE_S)
+        idle = getattr(anim, "idle_recording", "idle")
+        is_animating = anim and anim._current_recording and anim._current_recording != idle
 
-        frame = self._camera.last_frame
-
-        if anim:
-            anim.unfreeze()
+        if is_animating:
+            # Arm is moving — skip freeze, just grab latest frame
+            frame = self._camera.last_frame
+        else:
+            if anim:
+                anim.freeze()
+                time.sleep(self.FREEZE_SETTLE_S)
+            frame = self._camera.last_frame
+            if anim:
+                anim.unfreeze()
 
         if frame is None:
             return None
@@ -233,17 +215,11 @@ class SensingService:
             logger.debug("Frame save failed: %s", e)
             return None
 
-    def _encode_frame(self, frame) -> Optional[str]:
-        """Save frame to disk and return its path (used as image reference in events)."""
-        return self._save_frame(frame)
-
     # --- Event sending ---
 
     def to_dict(self) -> dict:
         now = time.time()
-        last_events = {
-            k: int(now - v) for k, v in self._last_event_time.items()
-        }
+        last_events = {k: int(now - v) for k, v in self._last_event_time.items()}
         return {
             "running": self._running,
             "poll_interval": self._poll_interval,
@@ -256,7 +232,7 @@ class SensingService:
         self,
         event_type: str,
         message: str,
-        image: Optional[str] = None,
+        image=None,
         cooldown: Optional[float] = None,
     ):
         now = time.time()
@@ -265,14 +241,16 @@ class SensingService:
         if now - last < cd:
             return
 
-        # image is now a file path (from _save_frame / _encode_frame).
-        # Append the path to the message so OpenClaw's hook can pick it up.
-        if image:
-            message = f"{message}\n[snapshot: {image}]"
+        # If a raw frame is provided, save it to disk and append the path to the message.
+        if image is not None:
+            path = self._save_frame(image)
+            if path:
+                message = f"{message}\n[snapshot: {path}]"
 
         logger.info("[sensing] %s: %s", event_type, message)
 
         payload = {"type": event_type, "message": message}
+        logger.debug("[sensing] payload = %s", payload)
 
         try:
             resp = requests.post(

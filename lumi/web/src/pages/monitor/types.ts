@@ -40,6 +40,7 @@ export interface OCStatus {
   name: string;
   connected: boolean;
   sessionKey: boolean;
+  emotion?: string;
 }
 export interface PresenceInfo {
   state: string;
