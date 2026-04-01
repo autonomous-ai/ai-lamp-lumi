@@ -57,9 +57,10 @@ type OpenClawHandler struct {
 	debugMu sync.Mutex
 }
 
-var emotionRe = regexp.MustCompile(`"emotion"\s*:\s*"([a-zA-Z_]+)"`)
+var emotionRe = regexp.MustCompile(`(?:\\"|")emotion(?:\\"|")\s*:\s*(?:\\"|")([a-zA-Z_]+)(?:\\"|")`)
 
 // parseEmotion extracts the emotion name from a tool call args string.
+// Handles both plain JSON ("emotion": "sad") and escaped JSON (\"emotion\": \"sad\").
 func parseEmotion(toolArgs string) string {
 	if m := emotionRe.FindStringSubmatch(toolArgs); len(m) == 2 {
 		return m[1]
