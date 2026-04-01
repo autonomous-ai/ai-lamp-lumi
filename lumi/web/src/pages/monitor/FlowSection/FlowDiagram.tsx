@@ -16,7 +16,7 @@ export function FlowDiagram({
   turnEvents?: DisplayEvent[];
 }) {
   const VW = 1200;
-  const VH = 900;
+  const VH = 1080;
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -66,15 +66,16 @@ export function FlowDiagram({
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
     schedule_trigger:  { x: 800, y: 50 },
-    lumi_gate:         { x: 470, y: 570 },
+    lumi_gate:         { x: 467, y: 570 },
     // LeLamp — input row (MIC/CAM)
     mic_input:         { x: -40, y: 240 },
     cam_input:         { x: 80, y: 240 },
-    // LeLamp — output column (stacked vertically, same x)
+    // LeLamp — output column (stacked vertically, same x, gap=135)
     hw_emotion:        { x: 200, y: 390 },
-    hw_led:            { x: 200, y: 510 },
-    hw_servo:          { x: 200, y: 630 },
-    tts_speak:         { x: 200, y: 750 },
+    hw_led:            { x: 200, y: 525 },
+    hw_servo:          { x: 200, y: 660 },
+    hw_audio:          { x: 200, y: 795 },
+    tts_speak:         { x: 200, y: 930 },
     // OpenClaw — right (spread out)
     agent_call:        { x: 800, y: 240 },
     telegram_input:    { x: 1000, y: 240 },
@@ -101,6 +102,7 @@ export function FlowDiagram({
     ["tool_exec",         "hw_led"],
     ["tool_exec",         "hw_servo"],
     ["tool_exec",         "hw_emotion"],
+    ["tool_exec",         "hw_audio"],
     ["tool_exec",         "lumi_gate"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
@@ -111,7 +113,12 @@ export function FlowDiagram({
   const nodeR = compact ? 28 : 38;
   const gateR = compact ? 22 : 30;
 
+  const ttsSuppressed = turnEvents.some((ev) =>
+    ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "tts_suppressed"
+  );
+
   function nodeColor(id: FlowStage) {
+    if (id === "tts_speak" && ttsSuppressed) return "#ef4444";
     if (id === activeStage || visitedStages.has(id)) {
       return FLOW_NODES.find((n) => n.id === id)?.color ?? "var(--lm-text-muted)";
     }
@@ -176,11 +183,11 @@ export function FlowDiagram({
             fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
             strokeDasharray="4 4"
           />
-          <rect x={420} y={100} width={110} height={520} rx={10}
+          <rect x={417} y={100} width={110} height={520} rx={10}
             fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
             strokeDasharray="3 3"
           />
-          <text x={470} y={-8} textAnchor="middle"
+          <text x={467} y={-8} textAnchor="middle"
             fill="var(--lm-teal)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -188,7 +195,7 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={-100} y={185} width={360} height={625} rx={14}
+          <rect x={-100} y={185} width={360} height={805} rx={14}
             fill="var(--lm-amber)" fillOpacity={0.04} stroke="var(--lm-amber)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
@@ -223,7 +230,7 @@ export function FlowDiagram({
 
           // Elbow edges: LOCAL → output nodes (bypass intermediate nodes)
           // Route: go right from LOCAL, then down, then left into target node
-          if (from === "local_match" && (to === "hw_led" || to === "hw_servo" || to === "tts_speak" || to === "hw_emotion")) {
+          if (from === "local_match" && (to === "hw_led" || to === "hw_servo" || to === "tts_speak" || to === "hw_emotion" || to === "hw_audio")) {
             const elbowX = t.x - 80; // offset left of target
             const startY = f.y + nodeR;
             const endY = t.y;
@@ -237,6 +244,7 @@ export function FlowDiagram({
             );
           }
 
+          const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
@@ -247,6 +255,7 @@ export function FlowDiagram({
             <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
               stroke={color} strokeWidth={sw}
               markerEnd={marker} opacity={op}
+              {...(isGateEdge ? { strokeDasharray: "6 4" } : {})}
             />
           );
         })}
