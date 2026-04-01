@@ -17,7 +17,7 @@ const handler = async (event: any): Promise<void> => {
     headers: { "Content-Type": "application/json" },
   });
   req.on("error", () => {});
-  req.write(JSON.stringify({ emotion: "listening", intensity: 0.8 }));
+  req.write(JSON.stringify({ emotion: "thinking", intensity: 0.7 }));
   req.end();
 };
 
