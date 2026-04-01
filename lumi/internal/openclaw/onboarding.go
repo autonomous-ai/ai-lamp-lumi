@@ -34,6 +34,7 @@ const (
 var hooks = []string{
 	"camera-inject",
 	"emotion-acknowledge",
+	"turn-gate",
 }
 
 // skills is the list of skill names available on CDN.
