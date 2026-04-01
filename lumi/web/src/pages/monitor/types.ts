@@ -70,8 +70,12 @@ export interface AudioVolume {
 }
 export interface LEDColor {
   led_count: number;
+  on: boolean;
   color: [number, number, number];
   hex: string;
+  brightness: number;
+  effect: string | null;
+  scene: string | null;
 }
 export interface SceneInfo {
   scenes: string[];
