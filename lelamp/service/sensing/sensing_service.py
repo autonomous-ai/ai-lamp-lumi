@@ -34,6 +34,7 @@ from lelamp.service.sensing.perceptions import (
 from lelamp.service.sensing.presence_service import PresenceService
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class SensingService:
@@ -126,7 +127,7 @@ class SensingService:
             try:
                 self._tick()
             except Exception as e:
-                logger.error("Sensing tick error: %s", e)
+                logger.error("Sensing tick error: %s", e, exc_info=True)
             time.sleep(self._poll_interval)
 
     def _tick(self):
@@ -211,9 +212,7 @@ class SensingService:
 
     def to_dict(self) -> dict:
         now = time.time()
-        last_events = {
-            k: int(now - v) for k, v in self._last_event_time.items()
-        }
+        last_events = {k: int(now - v) for k, v in self._last_event_time.items()}
         return {
             "running": self._running,
             "poll_interval": self._poll_interval,
@@ -244,6 +243,7 @@ class SensingService:
         logger.info("[sensing] %s: %s", event_type, message)
 
         payload = {"type": event_type, "message": message}
+        logger.debug("[sensing] payload = %s", payload)
 
         try:
             resp = requests.post(
