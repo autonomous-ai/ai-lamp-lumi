@@ -146,7 +146,7 @@ export function FlowDiagram({
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         style={{
           display: "block", width: "100%", flex: 1, minHeight: 0,
-          cursor: dragging ? "grabbing" : "grab", userSelect: "none",
+          cursor: dragging ? "grabbing" : "grab", userSelect: dragging ? "none" : "text",
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
