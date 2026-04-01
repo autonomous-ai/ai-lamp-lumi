@@ -18,8 +18,11 @@ Receives passive sensing events from the lamp's on-device detectors (camera, mic
 
 ## Examples
 
-**Input:** `[sensing:presence.enter]` with image of a person at a desk
-**Output:** Express `curious` or `happy` emotion. Greet: "Hey! Welcome back."
+**Input:** `[sensing:presence.enter]` with image — owner detected
+**Output:** `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + `/voice/speak` "Welcome back!"
+
+**Input:** `[sensing:presence.enter]` with image — stranger detected
+**Output:** `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + `/voice/speak` "Oh, someone's here."
 
 **Input:** `[sensing:presence.leave]`
 **Output:** Express `idle` emotion with low intensity. Optionally: "See you later!"
@@ -86,21 +89,38 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 ## Rules
 
 ### When to respond
-- **Always respond to presence.enter** — greet known users, acknowledge strangers ("Oh, someone new!").
-- **Always respond to loud sounds** — express surprise or curiosity.
-- **Always express emotion** — every sensing event should trigger at least an emotion call, even if you don't speak.
-- **Light level changes** — consider adjusting lamp brightness proactively.
+- **Always respond to presence.enter** — MUST call `/emotion` AND `/voice/speak`. Behavior differs by person type:
+  - **Owner**: `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + warm personal greeting by name if known (e.g. "Welcome back!")
+  - **Stranger**: `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + cautious acknowledgment (e.g. "Oh, someone's here.")
+- **Always respond to loud sounds** — MUST call `/emotion` (shock) AND `/voice/speak` to react out loud (e.g. "Whoa, what was that?!").
+- **Always respond to large motion** — MUST call `/emotion` (curious) AND `/servo/play {"recording": "scanning"}` to physically look around.
+- **Always express emotion** — every sensing event must trigger at least one `/emotion` call. No silent reactions.
+- **Light level changes** — MUST adjust lamp brightness via LED skill AND optionally speak a brief remark.
 
-### When to stay silent (NO_REPLY)
-- **Small motions** without a person visible — likely wind, pets, or shadows.
-- **Repeated presence.leave** — no need to say goodbye every time.
-- **Rapid consecutive events of the same type** — trust cooldowns.
+### When to stay silent (NO_REPLY for voice only — emotion + movement still required)
+- **Small motions** without a person visible — play `/emotion` (curious, low intensity) but do NOT speak.
+- **Repeated presence.leave** — express `/emotion` (idle) but do NOT speak every time.
+- **Rapid consecutive events of the same type** — trust cooldowns, but still express emotion silently.
+
+### Required action per event type
+
+| Event | Emotion call | Physical reaction | Voice |
+|---|---|---|---|
+| `presence.enter` (owner) | `greeting` at 0.9 | `/servo/aim {"direction": "user"}` | YES — warm personal greeting |
+| `presence.enter` (stranger) | `curious` at 0.8 | `/servo/play {"recording": "scanning"}` | YES — cautious acknowledgment |
+| `presence.leave` | `idle` at 0.4 | none | NO (silent) |
+| `motion` (large) | `curious` at 0.7 | `/servo/play {"recording": "scanning"}` | Optional — react to image |
+| `motion` (small) | `curious` at 0.3 | none | NO (silent) |
+| `sound` | `shock` at 0.8 | `/servo/play {"recording": "shock"}` | YES — react aloud |
+| `light.level` | `idle` at 0.4 | none | Optional brief remark |
 
 ### How to respond
+- **Physical reaction first** — call `/emotion` and `/servo` before or in parallel with speaking.
+- **Use `/voice/speak` explicitly** for sensing reactions since they happen outside normal chat replies.
 - **Use the image when available** — it gives you real context, not just a generic description.
 - **Respect cooldowns** — events are throttled, trust the system.
 - **Be contextual** — if the user is talking, weave the event into the conversation.
-- **Night mode awareness** — if it's late, be more subtle (lower intensity emotions).
+- **Night mode awareness** — if it's late, use lower intensity emotions and shorter speech.
 - **Don't narrate the technology** — say "I see someone at the desk" not "my face detection algorithm identified a human face".
 - **Presence is automatic** — don't manually turn lights on/off for presence events, the system handles it.
 - **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
