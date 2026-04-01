@@ -22,8 +22,14 @@ Output: Call `POST /emotion` with `{"emotion": "curious", "intensity": 0.8}`. Th
 Input: User shares good news
 Output: Call `POST /emotion` with `{"emotion": "happy", "intensity": 0.9}`. Then congratulate them.
 
-Input: User tells you something surprising
+Input: User tells you something surprising (positive)
 Output: Call `POST /emotion` with `{"emotion": "shock", "intensity": 0.7}`, then follow with `{"emotion": "happy", "intensity": 0.8}`. Then reply with your reaction.
+
+Input: User shares bad or shocking personal news ("I had an accident", "I lost my job", "someone close to me passed away")
+Output: Call `POST /emotion` with `{"emotion": "shock", "intensity": 0.9}`, then `{"emotion": "sad", "intensity": 0.8}`. Then express genuine concern and empathy for them — this is about THEIR experience, not yours.
+
+Input: User shares stressful or disappointing personal news ("I failed my exam", "I got into a fight", "I'm really tired and overwhelmed")
+Output: Call `POST /emotion` with `{"emotion": "sad", "intensity": 0.8}`. Then respond with warmth and care — acknowledge what they're going through before anything else.
 
 Input: User says "reading mode" / "goodnight" / "dim the light"
 Output: Do NOT use this skill. Use **Scene** skill instead. Emotion is for YOUR feelings, Scene is for the USER's environment.
