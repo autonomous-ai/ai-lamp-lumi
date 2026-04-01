@@ -233,12 +233,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
-			// Detect Telegram/channel-initiated turns: lifecycle_start arrives without an active
-			// sensing trace (device didn't initiate via chat.send — OpenClaw received externally).
-			// Skip if run_id looks like Lumi-originated chat.send (lumi-chat-* or legacy lumi-sensing-*) —
-			// these can appear traceless after a server restart but are NOT from Telegram.
-			if payload.Data.Phase == "start" && payload.RunID != "" && flow.GetTrace() == "" &&
-				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID) {
+			// Detect Telegram/channel-initiated turns: lifecycle_start arrives from OpenClaw
+			// with a UUID run_id (not lumi-chat-* prefix). This covers:
+			// 1. No active trace (original case)
+			// 2. Active trace from a different turn (sensing trace still active when Telegram arrives)
+			isChannelTurn := payload.Data.Phase == "start" && payload.RunID != "" &&
+				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+			if isChannelTurn {
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
@@ -383,14 +384,40 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							CacheRead   int `json:"cacheRead"`
 							CacheWrite  int `json:"cacheWrite"`
 						}
+						type histContent struct {
+							Type     string `json:"type"`
+							Text     string `json:"text,omitempty"`
+							Thinking string `json:"thinking,omitempty"`
+						}
 						var hist struct {
 							Messages []struct {
-								Role  string     `json:"role"`
-								Usage *histUsage `json:"usage,omitempty"`
+								Role    string         `json:"role"`
+								Usage   *histUsage     `json:"usage,omitempty"`
+								Content []histContent  `json:"content,omitempty"`
 							} `json:"messages"`
 						}
 						if json.Unmarshal(histPayload, &hist) != nil {
 							return
+						}
+						// Extract thinking from last assistant message and emit to monitor
+						for i := len(hist.Messages) - 1; i >= 0; i-- {
+							if hist.Messages[i].Role == "assistant" {
+								for _, c := range hist.Messages[i].Content {
+									if c.Type == "thinking" && c.Thinking != "" {
+										flow.Log("agent_thinking", map[string]any{
+											"run_id":  capturedFlowRunID,
+											"source":  "chat_history",
+											"text":    c.Thinking,
+										}, capturedFlowRunID)
+										h.monitorBus.Push(domain.MonitorEvent{
+											Type:    "thinking",
+											Summary: c.Thinking,
+											RunID:   capturedFlowRunID,
+										})
+									}
+								}
+								break
+							}
 						}
 						// Find last assistant message with usage.
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
@@ -541,7 +568,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			musicPlaying := h.clearMusicTurn(payload.RunID)
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				if isAgentNoReply(text) {
-					// NO_REPLY: show on monitor as response but don't speak and don't light TTS node
+					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
 					flow.Log("no_reply", map[string]any{"run_id": flowRunID}, flowRunID)
 					h.monitorBus.Push(domain.MonitorEvent{
@@ -689,8 +716,26 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// (OpenClaw gateway never broadcasts role:"user" on the chat stream.
 		// User messages are captured via lifecycle_start + chat.history above.)
 
+		// Chat error: OpenClaw reports agent processing failure
+		if payload.State == "error" {
+			errMsg := payload.ErrorMessage
+			if errMsg == "" {
+				errMsg = "unknown error"
+			}
+			slog.Error("OpenClaw chat error", "component", "agent", "run_id", flowRunID, "error", errMsg)
+			flow.Log("agent_error", map[string]any{"run_id": flowRunID, "error": errMsg}, flowRunID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_response",
+				Summary: "❌ " + errMsg,
+				RunID:   flowRunID,
+				State:   "error",
+				Error:   errMsg,
+				Detail:  map[string]string{"error": errMsg},
+			})
+		}
+
 		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input)
-		if payload.Role != "user" {
+		if payload.Role != "user" && payload.State != "error" {
 			summary := payload.Message
 			if len(summary) > 120 {
 				summary = summary[:120] + "..."
@@ -709,6 +754,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// TTS is sent from the lifecycle_end path above (assistant delta accumulation).
 		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
+
+	default:
+		// Log unhandled WS events for debugging (health, heartbeat, cron, shutdown, etc.)
+		h.appendDebugJSONL(map[string]any{
+			"source":      "ws_event_unhandled",
+			"event":       evt.Event,
+			"raw_payload": string(evt.Payload),
+		})
 	}
 
 	return nil

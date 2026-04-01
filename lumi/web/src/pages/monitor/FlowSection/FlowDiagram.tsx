@@ -278,7 +278,10 @@ export function FlowDiagram({
               })()}
               <text x={pos.x} y={pos.y - 6} textAnchor="middle"
                 fill={color} fontSize={9} fontWeight={isActive ? 700 : 600}>
-                {node.id === "agent_response" && lines.some((l) => l.includes("no reply")) ? "🚫" : node.icon} {node.short}
+                {node.id === "agent_response" && lines.some((l) => l.includes("no reply")) ? "🚫"
+                  : node.id === "agent_response" && lines.some((l) => l.includes("no output")) ? "💤"
+                  : node.id === "agent_response" && lines.some((l) => l.startsWith('"')) ? "💬"
+                  : node.icon} {node.short}
               </text>
               <text x={pos.x} y={pos.y + 6} textAnchor="middle"
                 fill={color} fontSize={7} opacity={0.9}>
@@ -344,9 +347,21 @@ export function FlowDiagram({
                       <g
                         key={`cp-${lineIdx}`}
                         style={{ cursor: "pointer" }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigator.clipboard.writeText(curl).catch(() => {});
+                          if (navigator.clipboard?.writeText) {
+                            navigator.clipboard.writeText(curl).catch(() => {});
+                          } else {
+                            const ta = document.createElement("textarea");
+                            ta.value = curl;
+                            ta.style.position = "fixed";
+                            ta.style.opacity = "0";
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand("copy");
+                            document.body.removeChild(ta);
+                          }
                         }}
                       >
                         <title>{curl}</title>

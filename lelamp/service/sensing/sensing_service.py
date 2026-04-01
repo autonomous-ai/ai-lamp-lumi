@@ -16,8 +16,9 @@ Events are POST-ed to http://localhost:5000/api/sensing/event as:
   {"type": "motion", "message": "...", "image": "<base64 jpeg>"}
 """
 
-import base64
 import logging
+import os
+import tempfile
 import threading
 import time
 from typing import Optional
@@ -192,21 +193,64 @@ class SensingService:
             return None
         return frame
 
-    def _encode_frame(self, frame) -> Optional[str]:
-        """Encode a camera frame as base64 JPEG for sending to Lumi/OpenClaw."""
+    # Directory and ordered list of saved snapshot paths (oldest first)
+    _snapshot_dir: str = os.path.join(tempfile.gettempdir(), "lumi-sensing-snapshots")
+    _snapshot_paths: list = []
+    _MAX_SNAPSHOTS: int = 20
+
+    def _save_frame(self, frame) -> Optional[str]:
+        """Resize and save a camera frame as a JPEG in the snapshot tmp dir.
+
+        Keeps at most _MAX_SNAPSHOTS files; deletes the oldest when exceeded.
+        Returns the saved file path, or None on failure.
+        """
         cv2 = self._cv2
         try:
-            # Resize to 320px wide for bandwidth efficiency
+            os.makedirs(self._snapshot_dir, exist_ok=True)
+
             h, w = frame.shape[:2]
             scale = 320 / w
             small = cv2.resize(frame, (320, int(h * scale)))
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            return base64.b64encode(buf.tobytes()).decode("ascii")
+
+            filename = f"sensing_{int(time.time() * 1000)}.jpg"
+            filepath = os.path.join(self._snapshot_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(buf.tobytes())
+
+            self._snapshot_paths.append(filepath)
+
+            # Evict oldest files if over the limit
+            while len(self._snapshot_paths) > self._MAX_SNAPSHOTS:
+                oldest = self._snapshot_paths.pop(0)
+                try:
+                    os.remove(oldest)
+                except OSError:
+                    pass
+
+            return filepath
         except Exception as e:
-            logger.debug("Frame encode failed: %s", e)
+            logger.debug("Frame save failed: %s", e)
             return None
 
+    def _encode_frame(self, frame) -> Optional[str]:
+        """Save frame to disk and return its path (used as image reference in events)."""
+        return self._save_frame(frame)
+
     # --- Event sending ---
+
+    def to_dict(self) -> dict:
+        now = time.time()
+        last_events = {
+            k: int(now - v) for k, v in self._last_event_time.items()
+        }
+        return {
+            "running": self._running,
+            "poll_interval": self._poll_interval,
+            "last_event_seconds_ago": last_events,
+            "perceptions": [p.to_dict() for p in self._perceptions],
+            "presence": self.presence.to_dict(),
+        }
 
     def _send_event(
         self,
@@ -221,11 +265,14 @@ class SensingService:
         if now - last < cd:
             return
 
+        # image is now a file path (from _save_frame / _encode_frame).
+        # Append the path to the message so OpenClaw's hook can pick it up.
+        if image:
+            message = f"{message}\n[snapshot: {image}]"
+
         logger.info("[sensing] %s: %s", event_type, message)
 
         payload = {"type": event_type, "message": message}
-        if image:
-            payload["image"] = image
 
         try:
             resp = requests.post(
