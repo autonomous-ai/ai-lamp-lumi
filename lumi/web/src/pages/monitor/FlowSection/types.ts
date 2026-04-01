@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_action" | "tg_out";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "tg_out";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -152,15 +152,31 @@ export const FLOW_NODES: FlowNodeDef[] = [
     desc: "OpenClaw delivers response to Telegram / Slack / Discord",
     triggers: [] },
 
-  { id: "hw_action",
-    label: "Hardware", short: "HARDWARE", icon: "💡", color: "var(--lm-amber)", path: "agent",
+  { id: "hw_led",
+    label: "LED", short: "LED", icon: "🔆", color: "var(--lm-amber)", path: "agent",
     shape: "diamond",
-    desc: "LeLamp hardware · LED / servo / audio · called directly by OpenClaw tool",
+    desc: "LED control · solid color / effect / scene / off",
     triggers: [
-      "led_set", "led_off",
-      "flow_event:led_set", "flow_event:led_off",
-      "tool_call",
-      "flow_event:tool_call",
+      "hw_led", "led_set", "led_off",
+      "flow_event:hw_led", "flow_event:led_set", "flow_event:led_off",
+    ] },
+
+  { id: "hw_servo",
+    label: "Servo", short: "SERVO", icon: "🤖", color: "#8b5cf6", path: "agent",
+    shape: "diamond",
+    desc: "Servo motor · aim direction / play animation",
+    triggers: [
+      "hw_servo",
+      "flow_event:hw_servo",
+    ] },
+
+  { id: "hw_emotion",
+    label: "Emotion", short: "EMO", icon: "😀", color: "#ec4899", path: "agent",
+    shape: "diamond",
+    desc: "Emotion expression · coordinated LED + servo + display eyes",
+    triggers: [
+      "hw_emotion", "emotion",
+      "flow_event:hw_emotion", "flow_event:emotion",
     ] },
 ];
 
