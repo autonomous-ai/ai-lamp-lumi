@@ -1,5 +1,8 @@
 import logging
+import re
+import shutil
 import time
+from pathlib import Path
 from typing import Callable, override
 
 import insightface
@@ -12,6 +15,9 @@ from .base import Perception
 logger = logging.getLogger(__name__)
 
 _NO_MATCH = -2.0  # sentinel score used when an embedding bank is empty
+
+# Persisted owner photos (see save_photo / load_from_disk)
+OWNER_PHOTOS_DIR = Path(config.OWNER_PHOTOS_DIR)
 
 
 class FaceRecognizer(Perception):
@@ -99,11 +105,120 @@ class FaceRecognizer(Perception):
                 else 0,
             )
 
-    def reset_owners(self) -> None:
-        """Clear owner embeddings so they can be retrained without losing stranger memory."""
+    @staticmethod
+    def normalize_label(label: str) -> str:
+        """Lowercase folder-safe label (a-z0-9_-)."""
+        s = label.strip().lower()
+        s = re.sub(r"[^a-z0-9_-]+", "_", s)
+        s = s.strip("_")
+        return (s[:64] if s else "owner")
+
+    def _clear_owner_embeddings(self) -> None:
         self._owner_embeddings = None
         self._owner_labels = None
-        logger.info("Owner embeddings cleared")
+
+    def save_photo(self, image_bytes: bytes, label: str) -> str:
+        """Write JPEG bytes under OWNER_PHOTOS_DIR/{label}/ with a timestamp name."""
+        norm = self.normalize_label(label)
+        dest_dir = OWNER_PHOTOS_DIR / norm
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{int(time.time() * 1000)}.jpg"
+        path = dest_dir / fname
+        path.write_bytes(image_bytes)
+        return str(path)
+
+    def load_from_disk(self) -> int:
+        """Clear owner embeddings and re-train from all JPEG/PNG images under OWNER_PHOTOS_DIR."""
+        self._clear_owner_embeddings()
+        if not OWNER_PHOTOS_DIR.is_dir():
+            logger.info("No owner photos dir at %s — skipping", OWNER_PHOTOS_DIR)
+            return 0
+
+        _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+        loaded_total = 0
+
+        for owner_id in sorted(OWNER_PHOTOS_DIR.iterdir()):
+            if not owner_id.is_dir():
+                continue
+            images = []
+            labels: list[str] = []
+            for fname in sorted(owner_id.iterdir()):
+                if fname.suffix.lower() not in _IMG_EXTS:
+                    continue
+                img = self._cv2.imread(str(fname))
+                if img is None:
+                    logger.warning("Failed to load owner image: %s", fname)
+                    continue
+                images.append(img)
+                labels.append(owner_id.name)
+
+            if images:
+                self.train(images, labels)
+                loaded_total += len(images)
+                logger.info(
+                    "Loaded %d image(s) for owner '%s'",
+                    len(images),
+                    owner_id.name,
+                )
+
+        n_owners = self.owner_count()
+        logger.info(
+            "Owner load from disk done — %d image(s), %d owner(s)",
+            loaded_total,
+            n_owners,
+        )
+        return n_owners
+
+    def enroll_from_bytes(self, image_bytes: bytes, label: str) -> str:
+        """Decode image, save as JPEG on disk, and append embeddings for this owner."""
+        norm = self.normalize_label(label)
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = self._cv2.imdecode(arr, self._cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("could not decode image")
+        if not self.app.get(img):
+            raise ValueError("no face detected in image")
+        ok, buf = self._cv2.imencode(".jpg", img)
+        if not ok:
+            raise ValueError("could not encode image")
+        path = self.save_photo(buf.tobytes(), norm)
+        self.train([img], [norm])
+        return path
+
+    def remove_owner(self, label: str) -> bool:
+        """Remove one owner's directory and re-load remaining owners from disk."""
+        norm = self.normalize_label(label)
+        owner_dir = OWNER_PHOTOS_DIR / norm
+        if not owner_dir.is_dir():
+            return False
+        shutil.rmtree(owner_dir)
+        self.load_from_disk()
+        return True
+
+    def owner_count(self) -> int:
+        if self._owner_labels is None:
+            return 0
+        unique = {
+            str(lbl).removeprefix(self.OWNER_PREFIX) for lbl in self._owner_labels
+        }
+        return len(unique)
+
+    def owner_names(self) -> list[str]:
+        if self._owner_labels is None:
+            return []
+        unique = {
+            str(lbl).removeprefix(self.OWNER_PREFIX) for lbl in self._owner_labels
+        }
+        return sorted(unique)
+
+    def reset_owners(self) -> None:
+        """Clear owner embeddings and delete all saved owner photos. Stranger bank is unchanged."""
+        self._clear_owner_embeddings()
+        if OWNER_PHOTOS_DIR.is_dir():
+            for child in OWNER_PHOTOS_DIR.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child)
+        logger.info("Owner embeddings cleared and owner photos removed")
 
     def _evict_oldest_strangers(self) -> None:
         if self._stranger_embeddings is None or self._stranger_labels is None:
@@ -258,9 +373,7 @@ class FaceRecognizer(Perception):
             "type": "face",
             "face_present": self._face_present,
             "faces_count": self._faces_n,
-            "owner_count": len(self._owner_embeddings)
-            if self._owner_embeddings is not None
-            else 0,
+            "owner_count": self.owner_count(),
             "stranger_count": len(self._stranger_embeddings)
             if self._stranger_embeddings is not None
             else 0,

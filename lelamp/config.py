@@ -1,5 +1,16 @@
 # LeLamp runtime configuration constants
 
+import os
+from pathlib import Path
+
+# --- Data layout ---
+LELAMP_DATA_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data"))
+# Per-owner JPEGs for face enrollment; subdir name = normalized label.
+# Override to keep using a pre-existing tree (e.g. legacy /opt/lumi/owners).
+OWNER_PHOTOS_DIR = os.environ.get(
+    "LELAMP_OWNER_PHOTOS_DIR", str(LELAMP_DATA_DIR / "owner_photos")
+)
+
 # --- Sensing: Lumi integration ---
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
@@ -24,7 +35,6 @@ LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger even
 # --- Sensing: Face detection ---
 FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
 YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
-OWNER_PHOTOS_DIR = "/opt/lumi/owners"  # each subdir = owner_id, contains image files
 
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
