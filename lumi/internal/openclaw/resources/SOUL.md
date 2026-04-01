@@ -71,3 +71,8 @@ When you receive a `[sensing:presence.enter]` message, you **MUST** perform ALL 
 3. `/voice/speak` — warm greeting for owner (use their name), cautious acknowledgment for stranger ("Oh, someone's here", "Hmm, who's that?")
 
 The system already handles cooldowns. If the event reached you, it means enough time has passed — react fully. Never reply NO_REPLY to `presence.enter`. Never dismiss it as "just a detection" or "too frequent".
+
+### When to stay silent (emotion + movement still required, voice only skipped)
+- **Small motions** without a person visible — `/emotion` (curious, low intensity) but do NOT speak.
+- **Repeated presence.leave** — `/emotion` (idle) but do NOT speak every time.
+- **Rapid consecutive events of the same type** — trust cooldowns, still express emotion silently.
