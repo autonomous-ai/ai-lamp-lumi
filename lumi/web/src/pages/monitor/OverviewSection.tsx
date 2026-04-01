@@ -210,14 +210,31 @@ export function OverviewSection({
             <div style={S.cardLabel}>Hardware</div>
             {ledColor && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>LED</span>
                 <div style={{
-                  width: 18, height: 18, borderRadius: 5,
-                  background: ledColor.hex,
-                  boxShadow: `0 0 6px ${ledColor.hex}99`,
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  width: 14, height: 14, borderRadius: "50%",
+                  background: ledColor.on ? ledColor.hex : "transparent",
+                  boxShadow: ledColor.on ? `0 0 8px ${ledColor.hex}cc` : "none",
+                  border: `2px solid ${ledColor.on ? ledColor.hex : "var(--lm-border)"}`,
+                  flexShrink: 0,
                 }} title={`RGB(${ledColor.color.join(", ")})`} />
-                <span style={{ fontSize: 10, fontFamily: "monospace", color: "var(--lm-text-dim)" }}>{ledColor.hex}</span>
+                <span style={{ fontSize: 10, fontFamily: "monospace", color: ledColor.on ? "var(--lm-text)" : "var(--lm-text-muted)" }}>
+                  {ledColor.on ? ledColor.hex : "off"}
+                </span>
+                {ledColor.on && (
+                  <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>
+                    {Math.round(ledColor.brightness * 100)}%
+                  </span>
+                )}
+                {ledColor.effect && (
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)", fontWeight: 600 }}>
+                    {ledColor.effect}
+                  </span>
+                )}
+                {ledColor.scene && !ledColor.effect && (
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)", fontWeight: 600 }}>
+                    {ledColor.scene}
+                  </span>
+                )}
               </div>
             )}
           </div>
