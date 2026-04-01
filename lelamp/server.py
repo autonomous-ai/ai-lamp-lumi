@@ -1002,9 +1002,11 @@ def get_led_color():
     g = (raw >> 8) & 0xFF
     b = raw & 0xFF
     brightness = round(max(r, g, b) / 255.0, 3)
+    # Effect animations cycle through dark frames — treat as "on" whenever effect is running
+    is_on = (r, g, b) != (0, 0, 0) or (_effect_name is not None and _effect_thread is not None and _effect_thread.is_alive())
     return {
         "led_count": rgb_service.led_count,
-        "on": (r, g, b) != (0, 0, 0),
+        "on": is_on,
         "color": [r, g, b],
         "hex": f"#{r:02x}{g:02x}{b:02x}",
         "brightness": brightness,
