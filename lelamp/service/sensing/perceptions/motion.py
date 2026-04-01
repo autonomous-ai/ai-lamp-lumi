@@ -97,7 +97,10 @@ class MotionPerception(Perception):
                     stable = self._capture_stable_frame()
                     image = stable if stable is not None else frame
 
-                self._send_event("motion", msg, image=image)
+                # TODO: re-enable small motion if agent gains intent filtering for low-signal events
+                # self._send_event("motion", msg, image=image)
+                if motion_type == "large":
+                    self._send_event("motion", msg, image=image)
 
     def to_dict(self) -> dict:
         seconds_since = (
