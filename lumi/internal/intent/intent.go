@@ -5,6 +5,7 @@ package intent
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -248,7 +249,12 @@ func post(path, body string) {
 	} else {
 		resp, err = http.Post(url, "application/json", strings.NewReader(body))
 	}
-	if err == nil {
-		resp.Body.Close()
+	if err != nil {
+		slog.Warn("[intent] lelamp call failed", "path", path, "error", err)
+		return
 	}
+	if resp.StatusCode >= 400 {
+		slog.Warn("[intent] lelamp returned error", "path", path, "status", resp.StatusCode)
+	}
+	resp.Body.Close()
 }
