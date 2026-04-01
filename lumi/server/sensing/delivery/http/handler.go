@@ -85,6 +85,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			} else if result.LEDOff {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "led_off", Summary: "intent: " + req.Message})
 			}
+			if result.Emotion != "" {
+				h.monitorBus.Push(domain.MonitorEvent{Type: "emotion", Summary: result.Emotion})
+			}
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
