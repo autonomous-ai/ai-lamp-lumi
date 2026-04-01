@@ -19,6 +19,8 @@ type Result struct {
 	LEDChanged bool
 	// LEDOff is true when this intent turns the LED off (unlocks ambient breathing).
 	LEDOff bool
+	// Emotion is the emotion name if this intent triggered an /emotion call.
+	Emotion string
 }
 
 // Match tries to match a voice command to a local intent.
@@ -213,7 +215,7 @@ func sceneExec(scene, reply string) func(string) *Result {
 func emotionExec(emotion, reply string) func(string) *Result {
 	return func(string) *Result {
 		post("/emotion", fmt.Sprintf(`{"emotion":"%s","intensity":0.8}`, emotion))
-		return &Result{TTSText: reply}
+		return &Result{TTSText: reply, Emotion: emotion}
 	}
 }
 
