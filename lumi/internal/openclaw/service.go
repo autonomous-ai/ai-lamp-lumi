@@ -1352,9 +1352,7 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	}
 
 	// Log full payload (mask image content to avoid log spam)
-	if slog.Default().Enabled(nil, slog.LevelDebug) {
-		slog.Debug("[chat.send] full payload", "component", "openclaw", "reqId", reqID, "payload", string(body))
-	}
+	slog.Info("[chat.send] full payload", "component", "openclaw", "reqId", reqID, "payload", string(body))
 	slog.Info("[chat.send] >>> sending to OpenClaw", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey,
 		"sessionKey", sessionKey,
