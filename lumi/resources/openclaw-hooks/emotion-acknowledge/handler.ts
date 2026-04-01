@@ -17,6 +17,8 @@ const handler = async (event: any): Promise<void> => {
     headers: { "Content-Type": "application/json" },
   });
   req.on("error", () => {});
+  // TODO: differentiate emotion by context — "listening" when voice/mic input (user still speaking),
+  // "acknowledge" for quick command confirmations, "thinking" for text/processed messages (current default)
   req.write(JSON.stringify({ emotion: "thinking", intensity: 0.7 }));
   req.end();
 };
