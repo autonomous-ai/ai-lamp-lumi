@@ -826,6 +826,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 }
 
 // Status returns the current agent connection status.
+// SetBusy marks the agent as busy from an external signal (e.g. turn-gate hook firing at
+// message:preprocessed before lifecycle_start SSE arrives). Closes the timing gap for
+// channel-initiated turns (Telegram, Slack, Discord) that bypass Lumi server entirely.
+func (h *OpenClawHandler) SetBusy(c *gin.Context) {
+	h.agentGateway.SetBusy(true)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+}
+
 func (h *OpenClawHandler) Status(c *gin.Context) {
 	h.lastEmotionMu.Lock()
 	emotion := h.lastEmotion
