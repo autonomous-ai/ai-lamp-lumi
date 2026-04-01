@@ -37,12 +37,14 @@ def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
 
 
 class AnimationService:
-    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle"):
+    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle", hold_s: float = 0.0):
         self.port = port
         self.lamp_id = lamp_id
         self.fps = fps
         self.duration = duration
         self.idle_recording = idle_recording
+        self.hold_s = hold_s
+        self._hold_until: float = 0.0  # timestamp until which to hold pose before returning to idle
         self.robot_config = LeLampFollowerConfig(port=port, id=lamp_id)
         self.robot: LeLampFollower = None
         self.recordings_dir = os.path.join(os.path.dirname(__file__), "..", "..", "recordings")
@@ -295,6 +297,14 @@ class AnimationService:
                     # Loop music groove while music is playing
                     self._current_frame_index = 0
                 elif self._current_recording != self.idle_recording:
+                    # Hold pose before returning to idle
+                    if self.hold_s > 0 and self._hold_until == 0.0:
+                        self._hold_until = time.time() + self.hold_s
+                        return
+                    if self._hold_until > 0.0:
+                        if time.time() < self._hold_until:
+                            return  # still holding
+                        self._hold_until = 0.0
                     # Interpolate back to idle (or music groove if music started)
                     if self._music_playing:
                         next_rec = self._music_recording

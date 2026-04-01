@@ -1,5 +1,24 @@
 import { S } from "./styles";
 import { HW } from "./types";
+
+const EMOTION_EMOJI: Record<string, string> = {
+  happy: "😊", curious: "🤔", thinking: "💭", sad: "😢", excited: "🤩",
+  shy: "😳", shock: "😱", idle: "😐", listening: "👂", laugh: "😄",
+  confused: "😕", sleepy: "😴", greeting: "👋", acknowledge: "👍", stretching: "🙆",
+};
+
+const EMOTION_COLOR: Record<string, string> = {
+  happy:      "#fbbf24", curious:    "#f59e0b", thinking:   "#a78bfa",
+  sad:        "#60a5fa", excited:    "#fb923c", shy:        "#f472b6",
+  shock:      "#f8fafc", idle:       "#2dd4bf", listening:  "#93c5fd",
+  laugh:      "#fbbf24", confused:   "#c4b5fd", sleepy:     "#818cf8",
+  greeting:   "#fb923c", acknowledge:"#34d399", stretching: "#fde68a",
+};
+
+const ALL_EMOTIONS = [
+  "happy","curious","thinking","sad","excited","shy","shock",
+  "idle","listening","laugh","confused","sleepy","greeting","acknowledge","stretching",
+];
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
 import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
 
@@ -132,6 +151,67 @@ export function OverviewSection({
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
       </div>
+
+      {/* Emotion */}
+      {(() => {
+        const emotion = oc?.emotion ?? "";
+        const color = EMOTION_COLOR[emotion] ?? "var(--lm-text-muted)";
+        const emoji = EMOTION_EMOJI[emotion] ?? "✦";
+        return (
+          <div style={{
+            ...S.card, padding: "16px 20px",
+            background: emotion ? `linear-gradient(135deg, var(--lm-bg) 60%, ${color}18)` : "var(--lm-bg)",
+            border: `1px solid ${emotion ? color + "55" : "var(--lm-border)"}`,
+            transition: "all 0.4s ease",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              {/* Big emoji */}
+              <div style={{
+                fontSize: 48, lineHeight: 1,
+                filter: emotion ? `drop-shadow(0 0 12px ${color}88)` : "none",
+                transition: "filter 0.4s ease",
+                flexShrink: 0,
+              }}>
+                {emotion ? emoji : "✦"}
+              </div>
+              {/* Name + label */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Lumi is feeling
+                </div>
+                <div style={{
+                  fontSize: 22, fontWeight: 700,
+                  color: emotion ? color : "var(--lm-text-muted)",
+                  textTransform: "capitalize",
+                  transition: "color 0.4s ease",
+                }}>
+                  {emotion || "—"}
+                </div>
+              </div>
+              {/* All emotions grid */}
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5, justifyContent: "flex-end", maxWidth: 320 }}>
+                {ALL_EMOTIONS.map((e) => {
+                  const active = e === emotion;
+                  const c = EMOTION_COLOR[e] ?? "#fff";
+                  return (
+                    <span key={e} style={{
+                      fontSize: 10, padding: "2px 8px", borderRadius: 10,
+                      background: active ? `${c}22` : "var(--lm-surface)",
+                      border: `1px solid ${active ? c + "88" : "var(--lm-border)"}`,
+                      color: active ? c : "var(--lm-text-muted)",
+                      fontWeight: active ? 700 : 400,
+                      textTransform: "capitalize",
+                      transition: "all 0.3s ease",
+                    }}>
+                      {EMOTION_EMOJI[e]} {e}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Hardware status */}
       <div style={S.card}>

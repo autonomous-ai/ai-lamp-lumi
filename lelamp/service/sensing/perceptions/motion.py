@@ -19,17 +19,20 @@ class MotionPerception(Perception):
         send_event: Callable,
         on_motion: Callable,
         capture_stable_frame: Callable,
-        encode_frame: Callable,
+        motion_update_ts: float = 180,
     ):
         super().__init__(send_event)
         self._cv2 = cv2
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
-        self._encode_frame = encode_frame
         self._last_frame: Optional[np.ndarray] = None
         self._last_motion_time: Optional[float] = None
+        self._motion_update_ts: float = motion_update_ts
+        self._last_motion_event_ts: dict[str, float] = {}
 
     def check(self, frame: np.ndarray) -> None:
+        if frame is None:
+            return
         cv2 = self._cv2
         moved = False
         biggest_ratio = 0.0
@@ -57,7 +60,7 @@ class MotionPerception(Perception):
                 areas = np.array([cv2.contourArea(c) for c in contours])
                 k = int(np.ceil(len(areas) * config.MOTION_BIGGEST_CONTOURS_RATIO))
                 biggest_contours = np.argpartition(areas, -k)[-k:]
-                logger.info(areas[biggest_contours])
+                logger.debug("biggest contour areas: %s", areas[biggest_contours])
                 biggest_ratio = areas[biggest_contours].sum() / areas.sum()
                 change_ratio = areas[biggest_contours].sum() / total_pixels
                 total_ratio = areas.sum() / total_pixels
@@ -71,24 +74,30 @@ class MotionPerception(Perception):
         self._last_frame = frame
 
         if moved:
-            self._last_motion_time = time.time()
+            cur_ts = time.time()
+            self._last_motion_time = cur_ts
             self._on_motion()
 
             if total_ratio >= config.MOTION_LARGE_TOTAL_RATIO:
                 msg = "Large movement detected in camera view — someone may have entered or left the room"
+                motion_type = "large"
             else:
                 msg = "Small movement detected in camera view"
+                motion_type = "small"
 
-            image_path = None
-            if total_ratio >= config.MOTION_LARGE_TOTAL_RATIO:
-                stable = self._capture_stable_frame()
-                image_path = (
-                    self._encode_frame(stable)
-                    if stable is not None
-                    else self._encode_frame(frame)
-                )
+            last_motion_event_ts = self._last_motion_event_ts.get(motion_type, None)
+            if (
+                last_motion_event_ts is None
+                or (cur_ts - last_motion_event_ts) > self._motion_update_ts
+            ):
+                self._last_motion_event_ts[motion_type] = cur_ts
 
-            self._send_event("motion", msg, image=image_path)
+                image = None
+                if motion_type == "large":
+                    stable = self._capture_stable_frame()
+                    image = stable if stable is not None else frame
+
+                self._send_event("motion", msg, image=image)
 
     def to_dict(self) -> dict:
         seconds_since = (
