@@ -150,19 +150,26 @@ class SensingService:
 
         Returns a camera frame suitable for _encode_frame(), or None on failure.
         This avoids motion blur when the camera is mounted on a moving arm.
+        Skips freeze if an emotion/animation is actively playing — freezing would
+        interrupt the animation and the arm is moving anyway so freeze is pointless.
         """
         if not self._camera or not self._cv2:
             return None
 
         anim = self._animation
-        if anim:
-            anim.freeze()
-            time.sleep(self.FREEZE_SETTLE_S)
+        idle = getattr(anim, "idle_recording", "idle")
+        is_animating = anim and anim._current_recording and anim._current_recording != idle
 
-        frame = self._camera.last_frame
-
-        if anim:
-            anim.unfreeze()
+        if is_animating:
+            # Arm is moving — skip freeze, just grab latest frame
+            frame = self._camera.last_frame
+        else:
+            if anim:
+                anim.freeze()
+                time.sleep(self.FREEZE_SETTLE_S)
+            frame = self._camera.last_frame
+            if anim:
+                anim.unfreeze()
 
         if frame is None:
             return None
