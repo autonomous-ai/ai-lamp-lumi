@@ -356,7 +356,7 @@ stage_lelamp() {
   fi
 
   # Install uv + system libs for audio/camera + PulseAudio echo cancellation
-  apt install -y libportaudio2 libatlas-base-dev pulseaudio pulseaudio-utils || true
+  apt install -y libportaudio2 libatlas-base-dev pulseaudio pulseaudio-utils python3-dev || true
 
   # PulseAudio WebRTC AEC (echo cancellation for mic/speaker loopback)
   PULSE_CONF="/etc/pulse/default.pa"
