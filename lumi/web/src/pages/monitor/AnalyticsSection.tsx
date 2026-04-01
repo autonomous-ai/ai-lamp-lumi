@@ -13,6 +13,7 @@ interface VersionMetrics {
   tokensTotal: number;
   tokensInput: number;
   tokensOutput: number;
+  tokensBilled: number;
   tokensAvg: number;
   innerAvg: number;
   innerMax: number;
@@ -117,6 +118,7 @@ export function AnalyticsSection() {
 
   const totalTurns = rows.reduce((s, r) => s + r.metrics.turnCount, 0);
   const totalTokens = rows.reduce((s, r) => s + r.metrics.tokensTotal, 0);
+  const totalBilled = rows.reduce((s, r) => s + r.metrics.tokensBilled, 0);
   const durRows = rows.filter((r) => r.metrics.durationAvg > 0);
   const avgDuration = durRows.length > 0 ? durRows.reduce((s, r) => s + r.metrics.durationAvg, 0) / durRows.length : 0;
   const innerRows = rows.filter((r) => r.metrics.innerAvg > 0);
@@ -218,8 +220,9 @@ export function AnalyticsSection() {
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>TOTAL TURNS</span>
         </div>
         <div style={summaryCardStyle}>
-          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-green)" }}>{totalTokens.toLocaleString()}</span>
-          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>TOTAL TOKENS</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-green)" }}>{totalBilled.toLocaleString()}</span>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>BILLED TOKENS</span>
+          <span style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>({totalTokens.toLocaleString()} raw)</span>
         </div>
         <div style={summaryCardStyle}>
           <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-blue)" }}>{avgDuration ? (avgDuration / 1000).toFixed(1) + "s" : "—"}</span>
@@ -265,11 +268,11 @@ export function AnalyticsSection() {
           {/* Row 2: Tokens stacked bar + Tokens per turn */}
           <div style={S.grid2}>
             <div style={{ ...S.card, height: 260 }}>
-              <div style={S.cardLabel}>Token Usage {multiVersion && "— by version"}</div>
+              <div style={S.cardLabel}>Billed Tokens {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
                 {multiVersion ? (
                   <Bar
-                    data={{ labels, datasets: makeVersionDatasets((m) => m.tokensTotal, { type: "bar" }) }}
+                    data={{ labels, datasets: makeVersionDatasets((m) => m.tokensBilled, { type: "bar" }) }}
                     options={commonOptions}
                   />
                 ) : (
@@ -277,11 +280,11 @@ export function AnalyticsSection() {
                     data={{
                       labels,
                       datasets: [
-                        { label: "Input", data: dates.map((d) => val(d, versions[0], (m) => m.tokensInput)), backgroundColor: CHART_COLORS.blue, borderRadius: 2 },
-                        { label: "Output", data: dates.map((d) => val(d, versions[0], (m) => m.tokensOutput)), backgroundColor: CHART_COLORS.purple, borderRadius: 2 },
+                        { label: "Billed", data: dates.map((d) => val(d, versions[0], (m) => m.tokensBilled)), backgroundColor: CHART_COLORS.green, borderRadius: 2 },
+                        { label: "Raw total", data: dates.map((d) => val(d, versions[0], (m) => m.tokensTotal)), backgroundColor: CHART_COLORS.blue, borderRadius: 2, hidden: true },
                       ],
                     }}
-                    options={{ ...commonOptions, scales: { ...commonOptions.scales, x: { ...chartScaleDefaults, stacked: true }, y: { ...chartScaleDefaults, stacked: true } } }}
+                    options={commonOptions}
                   />
                 )}
               </div>
