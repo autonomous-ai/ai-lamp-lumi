@@ -576,45 +576,6 @@ EMOTION_PRESETS = {
 }
 
 
-# Music style → LED color + effect + display expression
-# Matched from /audio/play query via _detect_music_style()
-MUSIC_STYLE_PRESETS: dict[str, dict] = {
-    "music_groove":    {"color": [0, 204, 102],   "effect": "pulse",              "speed": 1.8, "expression": "happy"},
-    "music_jazz":      {"color": [255, 160, 50],  "effect": "pulse",              "speed": 1.0, "expression": "happy"},
-    "music_classical": {"color": [176, 136, 232], "effect": "breathing",          "speed": 0.5, "expression": "curious"},
-    "music_hiphop":    {"color": [0, 153, 255],   "effect": "pulse",              "speed": 2.5, "expression": "excited"},
-    "music_rock":      {"color": [220, 30, 0],    "effect": "notification_flash", "speed": 3.0, "expression": "excited"},
-    "music_waltz":     {"color": [255, 128, 170], "effect": "breathing",          "speed": 0.7, "expression": "happy"},
-}
-
-
-def _apply_music_led(style: str) -> None:
-    """Set LED + display expression for the given music style."""
-    preset = MUSIC_STYLE_PRESETS.get(style, MUSIC_STYLE_PRESETS["music_groove"])
-    if rgb_service:
-        try:
-            _stop_current_effect()
-            global _effect_thread, _effect_name
-            _effect_stop.clear()
-            _effect_name = preset["effect"]
-            _effect_thread = threading.Thread(
-                target=_run_effect,
-                args=(preset["effect"], tuple(preset["color"]), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
-                daemon=True,
-                name=f"led-music-{style}",
-            )
-            _effect_thread.start()
-            if sensing_service:
-                sensing_service.presence.set_last_color(tuple(preset["color"]))
-        except Exception as e:
-            logger.warning("Music LED failed: %s", e)
-    if display_service:
-        try:
-            display_service.set_expression(preset["expression"])
-        except Exception as e:
-            logger.warning("Music display failed: %s", e)
-
-
 # --- Lighting scene presets ---
 # Simulated color temperature via RGB mixing
 # 2200K = very warm amber, 2700K = warm white, 4000K = neutral, 5000K = cool, 6500K = daylight
@@ -1804,12 +1765,11 @@ def audio_play(req: MusicPlayRequest):
     started = music_service.play(req.query)
     if not started:
         raise HTTPException(409, "Music is busy playing")
-    # Groove servo + LED + display — style matched from query
+    # Start groove servo — style matched from query
     style = _detect_music_style(req.query)
     logger.info("music style detected: %s", style)
     if animation_service:
         animation_service.dispatch("music_start", style)
-    _apply_music_led(style)
     return {"status": "ok"}
 
 
