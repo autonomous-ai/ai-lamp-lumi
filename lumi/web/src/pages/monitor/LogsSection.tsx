@@ -276,11 +276,32 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
 }
 
 export function LogsSection() {
+  const [active, setActive] = useState<LogSource>("openclaw");
+
+  const src = LOG_SOURCES.find((s) => s.id === active)!;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
-      {LOG_SOURCES.map((src) => (
-        <LogPanel key={src.id} source={src.id} label={src.label} color={src.color} />
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, height: "100%" }}>
+      <div style={{ display: "flex", gap: 4, padding: "0 0 8px 0", flexShrink: 0 }}>
+        {LOG_SOURCES.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setActive(s.id)}
+            style={{
+              fontSize: 11, padding: "4px 12px", borderRadius: 6, cursor: "pointer",
+              border: active === s.id ? `1px solid ${s.color}` : "1px solid var(--lm-border)",
+              background: active === s.id ? `${s.color}22` : "var(--lm-surface)",
+              color: active === s.id ? s.color : "var(--lm-text-dim)",
+              fontWeight: active === s.id ? 700 : 400,
+              transition: "all 0.15s",
+            }}
+          >
+            <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: s.color, marginRight: 5, verticalAlign: "middle" }} />
+            {s.label}
+          </button>
+        ))}
+      </div>
+      <LogPanel key={active} source={src.id} label={src.label} color={src.color} />
     </div>
   );
 }

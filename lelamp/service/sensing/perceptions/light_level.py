@@ -21,6 +21,8 @@ class LightLevelPerception(Perception):
         self._last_check: float = 0.0
 
     def check(self, frame: np.ndarray) -> None:
+        if frame is None:
+            return
         now = time.time()
         if now - self._last_check < config.LIGHT_LEVEL_INTERVAL_S:
             return
