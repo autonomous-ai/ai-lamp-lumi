@@ -107,6 +107,7 @@ except ImportError as e:
 SERVO_PORT = os.environ.get("LELAMP_SERVO_PORT", "/dev/ttyACM0")
 LAMP_ID = os.environ.get("LELAMP_LAMP_ID", "lelamp")
 SERVO_FPS = int(os.environ.get("LELAMP_SERVO_FPS", "30"))
+SERVO_HOLD_S = float(os.environ.get("LELAMP_SERVO_HOLD_S", "2.0"))
 HTTP_PORT = int(os.environ.get("LELAMP_HTTP_PORT", "5001"))
 CAMERA_INDEX = int(os.environ.get("LELAMP_CAMERA_INDEX", "0"))
 CAMERA_WIDTH = int(os.environ.get("LELAMP_CAMERA_WIDTH", "640"))
@@ -194,7 +195,7 @@ async def lifespan(app: FastAPI):
     # Start servo/animation service
     if AnimationService:
         try:
-            animation_service = AnimationService(port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS)
+            animation_service = AnimationService(port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS, hold_s=SERVO_HOLD_S)
             animation_service.start()
             logger.info("AnimationService started")
         except Exception as e:
