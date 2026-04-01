@@ -144,6 +144,17 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/presence/enable` | Bật auto presence control |
 | POST | `/presence/disable` | Tắt auto presence (manual mode) |
 
+### Face (đăng ký chủ / owner)
+
+Cần sensing có camera (InsightFace). Mặc định ảnh owner lưu tại `LELAMP_DATA_DIR/owner_photos/{label}/`; có thể ghi đè bằng `LELAMP_OWNER_PHOTOS_DIR` (ví dụ giữ thư mục cũ `/opt/lumi/owners`).
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/face/enroll` | Body: `image_base64`, `label` — lưu ảnh, train embedding |
+| GET | `/face/status` | `owner_count`, `owner_names` |
+| POST | `/face/remove` | Body: `label` — xóa một owner (404 nếu không có) |
+| POST | `/face/reset` | Xóa toàn bộ owner và ảnh trên đĩa |
+
 ### Display (GC9A01 1.28" LCD tròn)
 
 | Method | Endpoint | Mô tả |

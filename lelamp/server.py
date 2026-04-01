@@ -5,6 +5,7 @@ Only starts the drivers we need. LiveKit/OpenAI code stays untouched but never i
 Lumi Server (Go, port 5000) bridges requests here.
 """
 
+import base64
 import io
 import math
 import os
@@ -116,10 +117,14 @@ CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 # --- Lazy import for sensing ---
 
 SensingService = None
+FaceRecognizer = None
 try:
     from lelamp.service.sensing.sensing_service import SensingService
+    from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer
 except ImportError as e:
     logger.warning(f"Sensing service not available: {e}")
+    SensingService = None
+    FaceRecognizer = None
 
 # --- Lazy import for voice ---
 
@@ -698,6 +703,38 @@ class PresenceResponse(BaseModel):
     seconds_since_motion: int
     idle_timeout: int
     away_timeout: int
+
+
+class FaceEnrollRequest(BaseModel):
+    image_base64: str = Field(..., description="Base64-encoded image (JPEG or PNG)")
+    label: str = Field(..., min_length=1, max_length=64, description="Owner label")
+
+
+class FaceEnrollResponse(BaseModel):
+    status: str
+    label: str
+    photo_path: str
+    owner_count: int
+
+
+class FaceStatusResponse(BaseModel):
+    owner_count: int
+    owner_names: list[str]
+
+
+class FaceRemoveRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=64)
+
+
+class FaceRemoveResponse(BaseModel):
+    status: str
+    label: str
+    owner_count: int
+
+
+class FaceResetResponse(BaseModel):
+    status: str
+    owner_count: int
 
 
 class SensingResponse(BaseModel):
@@ -1579,6 +1616,71 @@ def disable_presence():
         raise HTTPException(503, "Sensing not available")
     sensing_service.presence.disable()
     return {"status": "ok"}
+
+
+def _require_face_recognizer():
+    """Return FaceRecognizer or raise 503 if sensing/camera/InsightFace is unavailable."""
+    if not sensing_service or FaceRecognizer is None:
+        raise HTTPException(503, "Sensing not available")
+    fr = getattr(sensing_service, "_face_recognizer", None)
+    if fr is None:
+        raise HTTPException(503, "Face recognition not available (no camera)")
+    return fr
+
+
+@app.post("/face/enroll", response_model=FaceEnrollResponse, tags=["Face"])
+def face_enroll(req: FaceEnrollRequest):
+    """Save a JPEG owner photo, train embeddings, and persist under owner_photos/."""
+    fr = _require_face_recognizer()
+    try:
+        raw = base64.b64decode(req.image_base64)
+    except Exception as exc:
+        raise HTTPException(400, "invalid base64") from exc
+    if not raw:
+        raise HTTPException(400, "empty image")
+    try:
+        path = fr.enroll_from_bytes(raw, req.label)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    norm = FaceRecognizer.normalize_label(req.label)
+    return FaceEnrollResponse(
+        status="ok",
+        label=norm,
+        photo_path=path,
+        owner_count=fr.owner_count(),
+    )
+
+
+@app.get("/face/status", response_model=FaceStatusResponse, tags=["Face"])
+def face_status():
+    """List enrolled owners (unique labels) and count."""
+    fr = _require_face_recognizer()
+    return FaceStatusResponse(
+        owner_count=fr.owner_count(),
+        owner_names=fr.owner_names(),
+    )
+
+
+@app.post("/face/remove", response_model=FaceRemoveResponse, tags=["Face"])
+def face_remove(req: FaceRemoveRequest):
+    """Remove one owner's saved photos and re-train from disk."""
+    fr = _require_face_recognizer()
+    norm = FaceRecognizer.normalize_label(req.label)
+    if not fr.remove_owner(req.label):
+        raise HTTPException(404, "owner not found")
+    return FaceRemoveResponse(
+        status="ok",
+        label=norm,
+        owner_count=fr.owner_count(),
+    )
+
+
+@app.post("/face/reset", response_model=FaceResetResponse, tags=["Face"])
+def face_reset():
+    """Clear all owner embeddings and delete all owner photos on disk."""
+    fr = _require_face_recognizer()
+    fr.reset_owners()
+    return FaceResetResponse(status="ok", owner_count=0)
 
 
 # --- Display endpoints ---

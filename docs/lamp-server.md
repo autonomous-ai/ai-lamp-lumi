@@ -144,6 +144,17 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/presence/enable` | Enable auto presence control |
 | POST | `/presence/disable` | Disable auto presence (manual mode) |
 
+### Face (owner enrollment)
+
+Requires sensing with camera (InsightFace). Owner JPEGs persist under `LELAMP_DATA_DIR/owner_photos/{label}/` by default, or under `LELAMP_OWNER_PHOTOS_DIR` if set (use this to keep a legacy tree such as `/opt/lumi/owners`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/face/enroll` | Body: `image_base64`, `label` — save photo, train owner embeddings |
+| GET | `/face/status` | `owner_count`, `owner_names` |
+| POST | `/face/remove` | Body: `label` — remove one owner (404 if unknown) |
+| POST | `/face/reset` | Clear all owners and photos on disk |
+
 ### Display (GC9A01 1.28" round LCD)
 
 | Method | Endpoint | Description |
