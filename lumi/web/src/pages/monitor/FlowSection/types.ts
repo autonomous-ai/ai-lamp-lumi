@@ -72,6 +72,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
       "chat_send",
       "flow_event:chat_send", "flow_enter:chat_send", "flow_exit:chat_send",
       "flow_event:agent_call",
+      "intent_match", "flow_event:intent_match",
     ] },
 
   { id: "local_match",

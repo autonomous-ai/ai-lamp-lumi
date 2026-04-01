@@ -67,7 +67,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
 			turnStart := flow.Start("sensing_input", startPayload)
-			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText})
+			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText, "rule": result.Rule})
 			if result.TTSText != "" {
 				go func() {
 					resp, err := http.Post(
