@@ -26,7 +26,8 @@
       "Bash(npm run:*)",
       "Bash(find /Users/huynguyen/Autonomous/Projects/ai-lamp-openclaw/lumi -type f -name \"*.go\" -exec grep -l \"sensing\\\\|voice\\\\|presence\" {})",
       "Bash(go build:*)",
-      "Bash(go vet:*)"
+      "Bash(go vet:*)",
+      "WebFetch(domain:docs.openclaw.ai)"
     ]
   }
 }

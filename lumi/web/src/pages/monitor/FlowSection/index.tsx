@@ -29,7 +29,13 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
-  const [turnFilters, setTurnFilters] = useState<Set<string>>(new Set(["mic", "cam", "telegram"]));
+  const [turnFilters, setTurnFilters] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("lumi-turn-filters");
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
+    return new Set(["mic", "cam", "telegram"]);
+  });
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -153,13 +159,14 @@ export function FlowSection({
 
   const turnCategory = (type: string): string => {
     if (type === "telegram") return "telegram";
-    if (/motion|presence|light/i.test(type)) return "cam";
+    if (/motion|presence|light|system/i.test(type)) return "cam";
     return "mic"; // voice, sound, etc.
   };
   const toggleFilter = (f: string) => {
     setTurnFilters((prev) => {
       const next = new Set(prev);
       if (next.has(f)) next.delete(f); else next.add(f);
+      try { localStorage.setItem("lumi-turn-filters", JSON.stringify([...next])); } catch {}
       return next;
     });
   };
@@ -205,6 +212,16 @@ export function FlowSection({
     }
   }
 
+  // TG OUT: only light up for telegram turns with a real response (not no_reply)
+  if (selectedTurn?.type === "telegram" && visitedStages.has("agent_response")) {
+    const hasNoReply = turnEvents.some((ev) =>
+      (ev.type === "flow_event" && ev.detail?.node === "no_reply") ||
+      (ev.type === "chat_response" && ev.summary === "[no reply]")
+    );
+    if (!hasNoReply) {
+      visitedStages.add("tg_out");
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "hidden" }}>

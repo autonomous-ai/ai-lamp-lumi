@@ -4,7 +4,7 @@ import { turnIO, turnTokenStats } from "./helpers";
 
 export function TurnBadge({ turn }: { turn: Turn }) {
   const formatTurnTime = (iso: string): string => {
-    const m = iso.match(/T(\d{2}:\d{2})(?::\d{2})?/);
+    const m = iso.match(/T(\d{2}:\d{2}:\d{2})/);
     return (m?.[1] ?? iso).trim();
   };
 
@@ -63,7 +63,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         {formatTurnTime(turn.startTime)}
       </div>
       {/* Turn ID for tracing */}
-      <div style={{ fontSize: 8, color: "var(--lm-text-muted)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
+      <div style={{ fontSize: 8, color: "var(--lm-text)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
         id: {turn.id}
       </div>
       {/* Row 2: input */}
@@ -89,6 +89,13 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         }}>
           <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
           {output}
+        </div>
+      ) : turn.status === "done" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          💤 no output — agent processed silently
         </div>
       ) : null}
       {/* Row 3b: output — Hardware actions */}

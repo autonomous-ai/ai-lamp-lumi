@@ -89,9 +89,15 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+        const sender = d?.sender ?? d?.data?.sender ?? "";
+        // node-host = OpenClaw internal (wake greeting, sensing relay) — not real telegram user
+        if (sender === "node-host") {
+          turn.type = "system";
+          return;
+        }
         const m = msg.match(/\[sensing:([^\]]+)\]/i);
         if (m) {
-          turn.type = m[1]; // e.g. "presence.leave", "motion", "sound"
+          turn.type = m[1];
           return;
         }
       }
@@ -99,12 +105,21 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
+  // Voice/voice_command always wins — it's the user's actual intent even if mixed with passive sensing
   let sawVoice = false;
   let sawVoiceCommand = false;
   for (const ev of turn.events) {
+    // Check bracket label [voice] / [voice_command]
     const t = sensingInputBracketType(ev);
     if (t === "voice_command") sawVoiceCommand = true;
     else if (t === "voice") sawVoice = true;
+    // Also check data.type field (sensing_input / flow_enter events carry type in detail.data.type)
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const dtype = d?.data?.type ?? d?.type ?? "";
+      if (dtype === "voice_command") sawVoiceCommand = true;
+      else if (dtype === "voice") sawVoice = true;
+    }
   }
   if (sawVoiceCommand) turn.type = "voice_command";
   else if (sawVoice) turn.type = "voice";
@@ -129,6 +144,13 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       return { type: "voice", path: "unknown", forceNewTurn: true, boundary: "mic" };
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      // Check if message already available (resolved event) and is a sensing event
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
+      if (sensingMatch) {
+        return { type: sensingMatch[1], path: "agent", boundary: "chat" as const };
+      }
       return { type: "telegram", path: "agent", boundary: "chat" };
     }
     const ambientNode = ev.detail?.node ?? "";
@@ -190,11 +212,43 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     if (!current) {
       continue;
     }
+
+    // Split turn when a new lifecycle_start arrives after the turn already saw a lifecycle_end.
+    // This handles multiple OpenClaw agent turns mapped to the same device run_id
+    // (e.g. sensing + telegram arriving close together while trace is still active).
+    const isLifecycleStart = (ev.type === "lifecycle" && ev.phase === "start") ||
+      (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start");
+    const hasLifecycleEnd = current.events.some((e) =>
+      (e.type === "lifecycle" && e.phase === "end") ||
+      (e.type === "flow_event" && e.detail?.node === "lifecycle_end"));
+    if (isLifecycleStart && hasLifecycleEnd) {
+      turns.push(current);
+      current = {
+        id: evRunId || `turn-${ev._seq}`,
+        runId: evRunId || current.runId,
+        startTime: ev.time,
+        type: "unknown",
+        path: "agent",
+        status: "active",
+        events: [ev],
+      };
+      continue;
+    }
+
     current.events.push(ev);
+    // Classify unknown turns from chat_input events
+    if (current.type === "unknown" && (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
+      current.type = sensingMatch ? sensingMatch[1] : "telegram";
+    }
     if (!current.runId && evRunId) {
       current.runId = evRunId;
       current.id = evRunId;
     }
+    // Re-check type on every event so sensing-via-channel turns reclassify immediately
+    refineTurnTypeFromSensingInputs(current);
 
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       current.path = "local";
@@ -205,7 +259,8 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       }
     }
 
-    if (ev.type === "lifecycle" && ev.phase === "end") {
+    if ((ev.type === "lifecycle" && ev.phase === "end") ||
+        (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       current.status = ev.error ? "error" : "done";
       current.endTime = ev.time;
     }
@@ -213,7 +268,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "tts_send") {
+    if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "no_reply")) {
       current.status = "done";
       current.endTime = ev.time;
     }
@@ -380,7 +435,25 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       info.intent_check.push("→ agent route");
-      info.agent_call.push(`msg: "${ev.summary}"`);
+      const d = ev.detail as Record<string, any> | undefined;
+      const hasImage = d?.data?.has_image || d?.has_image;
+      if (hasImage) info.agent_call.push("📷 image attached");
+    }
+    // Show input message on agent_call node
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.data?.message ?? d?.message ?? ev.summary ?? "";
+      if (msg && !info.agent_call.some((l) => l.startsWith("📩"))) {
+        info.agent_call.push(`📩 ${msg}`);
+      }
+    }
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? "";
+      const sender = d?.sender ?? d?.data?.sender ?? "";
+      if (msg && !info.agent_call.some((l) => l.startsWith("📩"))) {
+        info.agent_call.push(`📩 ${sender ? `[${sender}] ` : ""}${msg}`);
+      }
     }
     if (ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call")) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -412,13 +485,21 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         info.agent_thinking.push("reasoning…");
       }
     }
+    // Thinking from chat.history (fallback when streaming too fast)
+    if (ev.type === "flow_event" && ev.detail?.node === "agent_thinking") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const text = d?.data?.text ?? d?.text ?? "";
+      if (text && !info.agent_thinking.some((l) => l.startsWith("🧠"))) {
+        info.agent_thinking.push(`🧠 ${text}`);
+      }
+    }
     if (ev.type === "flow_event" && ev.detail?.node === "no_reply") {
       pushAgentResponse("🚫 [no reply] — agent decided to do nothing");
     }
     if (ev.type === "chat_response" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
       const d = ev.detail as Record<string, any> | undefined;
-      if (d?.message && info.agent_response.length < 2) {
-        info.agent_response.push(`"${d.message}…"`);
+      if (d?.message && !info.agent_response.some((l) => l.startsWith('"'))) {
+        info.agent_response.push(`"${d.message}"`);
       }
       const dataErr = d?.data?.error;
       if (dataErr && info.agent_response.length < 2) {
@@ -431,9 +512,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (text && info.tts_speak.length < 2) {
         info.tts_speak.push(`🔊 "${text}"`);
       }
-      if (text && info.agent_response.length < 2) {
-        const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
-        info.agent_response.push(`"${preview}"`);
+      if (text && !info.agent_response.some((l) => l.startsWith('"'))) {
+        info.agent_response.push(`"${text}"`);
       }
     }
     if (ev.type === "lifecycle") {
@@ -471,6 +551,15 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (tts && info.tts_speak.length < 3) info.tts_speak.push(`💡 ${tts}`);
     }
   }
+  // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
+  const hasLifecycleEnd = events.some((e) =>
+    (e.type === "lifecycle" && e.phase === "end") ||
+    (e.type === "flow_event" && e.detail?.node === "lifecycle_end"));
+  const hasNoReply = events.some((e) => e.type === "flow_event" && e.detail?.node === "no_reply");
+  if (hasLifecycleEnd && info.agent_response.length === 0 && !hasNoReply) {
+    info.agent_response.push("💤 no output — processed silently");
+  }
+
   return info;
 }
 
@@ -528,6 +617,10 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     if (!output && sameRun && ev.type === "chat_response" && ev.state === "final") {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.message ?? ev.summary ?? "";
+    }
+    // Detect no_reply from flow event (persisted in JSONL, unlike SSE chat_response)
+    if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "no_reply") {
+      output = "[no reply]";
     }
     if (turn.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
       output = ev.summary || "done";
