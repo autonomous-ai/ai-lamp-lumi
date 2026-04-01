@@ -356,6 +356,7 @@ stage_lelamp() {
   fi
 
   # Install uv + system libs for audio/camera + PulseAudio echo cancellation
+  apt update
   apt install -y libportaudio2 libatlas-base-dev pulseaudio pulseaudio-utils python3-dev || true
 
   # PulseAudio WebRTC AEC (echo cancellation for mic/speaker loopback)
