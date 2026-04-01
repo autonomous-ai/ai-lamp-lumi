@@ -199,20 +199,28 @@ class AnimationService:
         if event_type == "play":
             self._handle_play(payload)
         elif event_type == "music_start":
-            self._handle_music_start()
+            self._handle_music_start(payload)
         elif event_type == "music_stop":
             self._handle_music_stop()
         else:
             print(f"Unknown event type: {event_type}")
 
-    def _handle_music_start(self):
-        """Start grooving to music — loops music_groove until music stops."""
+    def _handle_music_start(self, recording_name: Optional[str] = None):
+        """Start grooving to music -- loops recording until music stops.
+
+        recording_name: one of music_groove, music_jazz, music_classical,
+                        music_hiphop, music_rock, music_waltz.
+                        Falls back to music_groove when None or unknown.
+        """
+        self._music_recording = recording_name if recording_name else "music_groove"
         self._music_playing = True
         self._handle_play(self._music_recording)
 
     def _handle_music_stop(self):
-        """Stop music groove — return to idle."""
+        """Stop music groove — interrupt immediately and return to idle."""
         self._music_playing = False
+        self._hold_until = 0.0  # skip hold, go to idle right away
+        self._handle_play(self.idle_recording)
     
     def _handle_play(self, recording_name: str):
         """Start playing a recording with interpolation from current state"""
@@ -297,14 +305,17 @@ class AnimationService:
                     # Loop music groove while music is playing
                     self._current_frame_index = 0
                 elif self._current_recording != self.idle_recording:
-                    # Hold pose before returning to idle
-                    if self.hold_s > 0 and self._hold_until == 0.0:
-                        self._hold_until = time.time() + self.hold_s
-                        return
-                    if self._hold_until > 0.0:
-                        if time.time() < self._hold_until:
-                            return  # still holding
-                        self._hold_until = 0.0
+                    # Hold pose before returning to idle — skip hold when music is playing
+                    if not self._music_playing:
+                        if self.hold_s > 0 and self._hold_until == 0.0:
+                            self._hold_until = time.time() + self.hold_s
+                            return
+                        if self._hold_until > 0.0:
+                            if time.time() < self._hold_until:
+                                return  # still holding
+                            self._hold_until = 0.0
+                    else:
+                        self._hold_until = 0.0  # clear any stale hold
                     # Interpolate back to idle (or music groove if music started)
                     if self._music_playing:
                         next_rec = self._music_recording
