@@ -695,6 +695,14 @@ class PresenceResponse(BaseModel):
     away_timeout: int
 
 
+class SensingResponse(BaseModel):
+    running: bool
+    poll_interval: float
+    last_event_seconds_ago: dict[str, int]
+    perceptions: list[dict]
+    presence: dict
+
+
 class DisplayStateResponse(BaseModel):
     mode: str
     hardware: bool
@@ -752,11 +760,11 @@ class ServoMoveRequest(BaseModel):
         ...,
         description=(
             "Joint positions (degrees). Ordered by servo ID: "
-            "base_yaw.pos (ID 1, min -78 max 78), "
-            "base_pitch.pos (ID 2, min -78 max 80), "
-            "elbow_pitch.pos (ID 3, min -25 max 97), "
-            "wrist_roll.pos (ID 4, min -68 max 68), "
-            "wrist_pitch.pos (ID 5, min -25 max 72). "
+            "base_yaw.pos (ID 1, min -50 max 73), "
+            "base_pitch.pos (ID 2, min -76 max -20), "
+            "elbow_pitch.pos (ID 3, min 24 max 99), "
+            "wrist_roll.pos (ID 4, min -72 max 67), "
+            "wrist_pitch.pos (ID 5, min -22 max 70). "
             "Values are clamped to safe limits automatically."
         ),
     )
@@ -778,7 +786,7 @@ class ServoMoveRequest(BaseModel):
                         "wrist_roll.pos":   0.0,
                         "wrist_pitch.pos":  0.0,
                     },
-                    "_comment": "ID1 base_yaw [-78,78] | ID2 base_pitch [-78,80] | ID3 elbow_pitch [-25,97] | ID4 wrist_roll [-68,68] | ID5 wrist_pitch [-25,72]",
+                    "_comment": "ID1 base_yaw [-50,73] | ID2 base_pitch [-76,-20] | ID3 elbow_pitch [24,99] | ID4 wrist_roll [-72,67] | ID5 wrist_pitch [-22,70]",
                 },
                 {"positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0}, "duration": 3.0},
             ]
@@ -1505,6 +1513,16 @@ def activate_scene(req: SceneRequest):
         "brightness": brightness,
         "color": scaled,
     }
+
+
+# --- Sensing endpoints ---
+
+@app.get("/sensing", response_model=SensingResponse, tags=["Sensing"])
+def get_sensing_state():
+    """Get perception state: motion, face recognition, light level, presence, and event cooldowns."""
+    if not sensing_service:
+        raise HTTPException(503, "Sensing not available")
+    return sensing_service.to_dict()
 
 
 # --- Presence endpoints ---

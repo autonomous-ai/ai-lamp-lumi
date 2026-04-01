@@ -77,12 +77,13 @@ type TokenUsage struct {
 
 // ChatPayload represents a chat stream event from the gateway.
 type ChatPayload struct {
-	RunID      string          `json:"runId"`
-	SessionKey string          `json:"sessionKey"`
-	State      string          `json:"state"` // "partial", "final"
-	RawMessage json.RawMessage `json:"message"`
-	Message    string          `json:"-"` // resolved from RawMessage
-	Role       string          `json:"role"` // "assistant", "user"
+	RunID        string          `json:"runId"`
+	SessionKey   string          `json:"sessionKey"`
+	State        string          `json:"state"` // "partial", "final", "error"
+	RawMessage   json.RawMessage `json:"message"`
+	Message      string          `json:"-"` // resolved from RawMessage
+	Role         string          `json:"role"` // "assistant", "user"
+	ErrorMessage string          `json:"errorMessage,omitempty"`
 }
 
 // ResolveChatMessage extracts the text from Message which can be a string or an object with a "text" field.
