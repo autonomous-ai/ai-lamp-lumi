@@ -80,8 +80,6 @@ func (s *Service) Pause() {
 	defer s.mu.Unlock()
 	if !s.paused {
 		s.paused = true
-		// Stop any running LeLamp breathing effect so the agent's LED changes are visible
-		stopLeLampEffect()
 		flow.Log("ambient_pause", nil)
 	}
 	s.lastInteraction = time.Now()
