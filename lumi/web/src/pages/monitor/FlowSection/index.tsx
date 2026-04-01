@@ -216,6 +216,17 @@ export function FlowSection({
     }
   }
 
+  // HW ACTION: light up when intent_match has hardware actions
+  if (visitedStages.has("local_match")) {
+    const hasActions = turnEvents.some((ev) => {
+      if (ev.type !== "intent_match" && !(ev.type === "flow_event" && ev.detail?.node === "intent_match")) return false;
+      const d = ev.detail as Record<string, any> | undefined;
+      const actions: string[] = d?.data?.actions ?? d?.actions ?? [];
+      return actions.length > 0;
+    });
+    if (hasActions) visitedStages.add("hw_action");
+  }
+
   // TG OUT: only light up for telegram turns with a real response (not no_reply)
   if (selectedTurn?.type === "telegram" && visitedStages.has("agent_response")) {
     const hasNoReply = turnEvents.some((ev) =>
