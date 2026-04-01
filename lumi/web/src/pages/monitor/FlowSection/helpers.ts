@@ -183,8 +183,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
         continue;
       }
       if (current) turns.push(current);
+      // If another turn already claimed this runId, suffix with seq to keep IDs unique.
+      // This prevents duplicate-id bugs in selection (click turn A, turn B stays highlighted).
+      let turnId = evRunId || `turn-${ev._seq}`;
+      if (evRunId && turns.some((t) => t.id === evRunId)) {
+        turnId = `${evRunId}:${ev._seq}`;
+      }
       current = {
-        id: evRunId || `turn-${ev._seq}`,
+        id: turnId,
         runId: evRunId,
         startTime: ev.time,
         type: start.type,
