@@ -318,9 +318,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	// Disable built-in TTS tool — Lumi handles TTS via LeLamp /voice/speak.
 	// Without this the agent calls OpenClaw's tts tool directly, which generates
 	// audio server-side but never routes it to the physical speaker.
-	disabledMap := ensureMap(toolsMap, "disabled")
-	disabledMap["tts"] = true
-	toolsMap["disabled"] = disabledMap
+	toolsMap["disabled"] = []any{"tts"}
 	configData["tools"] = toolsMap
 
 	slog.Debug("ensuring messages defaults", "component", "openclaw")
