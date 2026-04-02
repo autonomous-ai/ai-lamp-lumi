@@ -265,6 +265,7 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.DELETE("debug-logs", s.openclawHandler.ClearDebugLogs)
 	oc.GET("debug-lines", s.openclawHandler.DebugLogLines)
 	oc.GET("analytics", s.openclawHandler.Analytics)
+	oc.GET("config-json", s.openclawHandler.ConfigJSON)
 
 	logs := api.Group("logs")
 	logs.GET("tail", s.logTail)

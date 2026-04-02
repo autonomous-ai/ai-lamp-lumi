@@ -1340,6 +1340,16 @@ func (s *Service) GetSessionKey() string {
 	return v
 }
 
+// GetConfigJSON reads and returns the raw bytes of openclaw.json.
+func (s *Service) GetConfigJSON() (json.RawMessage, error) {
+	path := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	return json.RawMessage(data), nil
+}
+
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
