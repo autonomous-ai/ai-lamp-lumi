@@ -211,11 +211,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	defaultsMap["sandbox"] = sandboxMap
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
-		metadata := map[string]any{}
-		if s.config.LLMThinkingDisabled() {
-			metadata["thinkingBudget"] = 0
-		}
-		agentModelsMap[m.Key] = metadata
+		agentModelsMap[m.Key] = map[string]any{}
 	}
 	defaultsMap["model"] = map[string]any{
 		"primary": fmt.Sprintf("%s/%s", customProviderName, defaultModel.Name),
