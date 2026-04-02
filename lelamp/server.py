@@ -174,17 +174,24 @@ music_service = None
 
 
 def _find_seeed_device(output: bool = True) -> Optional[int]:
-    """Find Seeed audio device index."""
+    """Find audio device index by known hardware names.
+
+    Searches for Seeed ReSpeaker (Pi 4) and CD002-AUDIO / GENERAL WEBCAM (Pi 5).
+    """
     if not sd:
         return None
+    # Pi 4: Seeed ReSpeaker; Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic)
+    output_names = ["seeed", "cd002"]
+    input_names = ["seeed", "webcam"]
     try:
         for i, d in enumerate(sd.query_devices()):
-            if "seeed" not in d["name"].lower():
-                continue
+            name = d["name"].lower()
             if output and d["max_output_channels"] > 0:
-                return i
+                if any(k in name for k in output_names):
+                    return i
             if not output and d["max_input_channels"] > 0:
-                return i
+                if any(k in name for k in input_names):
+                    return i
     except Exception:
         pass
     return None
