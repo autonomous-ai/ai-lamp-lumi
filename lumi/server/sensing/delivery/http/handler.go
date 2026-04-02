@@ -188,13 +188,28 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		send, occurrence, persistent := h.soundTracker.track(time.Now())
 		if !send {
 			slog.Info("sound event dropped — dedup or suppressed", "component", "sensing")
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "sound_tracker",
+				Summary: "sound dropped (dedup/suppressed)",
+				Detail:  map[string]any{"action": "drop"},
+			})
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
 			return
 		}
 		if persistent {
 			req.Message += fmt.Sprintf(" — persistent (occurrence %d)", occurrence)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "sound_tracker",
+				Summary: fmt.Sprintf("sound persistent — occurrence %d → will speak", occurrence),
+				Detail:  map[string]any{"action": "persistent", "occurrence": occurrence},
+			})
 		} else {
 			req.Message += fmt.Sprintf(" — occurrence %d", occurrence)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "sound_tracker",
+				Summary: fmt.Sprintf("sound occurrence %d → silent", occurrence),
+				Detail:  map[string]any{"action": "silent", "occurrence": occurrence},
+			})
 		}
 	}
 
