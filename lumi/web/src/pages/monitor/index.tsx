@@ -194,6 +194,10 @@ export default function Monitor() {
               {item.label}
             </a>
           ))}
+          <a href="/gw" style={S.navItem(false)}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
+            Gateway
+          </a>
           <a href="/edit" style={S.navItem(false)}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings
