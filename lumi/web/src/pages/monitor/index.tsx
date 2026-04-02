@@ -24,6 +24,8 @@ import { CameraSection } from "./CameraSection";
 import { ServoSection } from "./ServoSection";
 import { AnalyticsSection } from "./AnalyticsSection";
 import { LogsSection } from "./LogsSection";
+import { ChatSection } from "./ChatSection";
+import { FaceOwnersSection } from "./FaceOwnersSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -284,8 +286,13 @@ export default function Monitor() {
           {section === "flow"      && <FlowSection events={events} onClearEvents={clearFlowEvents} />}
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
           {section === "servo"     && <ServoSection />}
+          {section === "face-owners" && <FaceOwnersSection />}
           {section === "analytics" && <AnalyticsSection />}
           {section === "logs"      && <LogsSection />}
+          {/* Chat is always mounted to preserve history across tab switches */}
+          <div style={{ display: section === "chat" ? "contents" : "none" }}>
+            <ChatSection events={events} />
+          </div>
         </div>
       </main>
     </div>

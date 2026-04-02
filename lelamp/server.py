@@ -174,17 +174,24 @@ music_service = None
 
 
 def _find_seeed_device(output: bool = True) -> Optional[int]:
-    """Find Seeed audio device index."""
+    """Find audio device index by known hardware names.
+
+    Searches for Seeed ReSpeaker (Pi 4) and CD002-AUDIO / GENERAL WEBCAM (Pi 5).
+    """
     if not sd:
         return None
+    # Pi 4: Seeed ReSpeaker; Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic)
+    output_names = ["seeed", "cd002"]
+    input_names = ["seeed", "webcam"]
     try:
         for i, d in enumerate(sd.query_devices()):
-            if "seeed" not in d["name"].lower():
-                continue
+            name = d["name"].lower()
             if output and d["max_output_channels"] > 0:
-                return i
+                if any(k in name for k in output_names):
+                    return i
             if not output and d["max_input_channels"] > 0:
-                return i
+                if any(k in name for k in input_names):
+                    return i
     except Exception:
         pass
     return None
@@ -670,6 +677,17 @@ class FaceEnrollResponse(BaseModel):
 class FaceStatusResponse(BaseModel):
     owner_count: int
     owner_names: list[str]
+
+
+class FaceOwnerDetail(BaseModel):
+    label: str
+    photo_count: int
+    photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
+
+
+class FaceOwnersDetailResponse(BaseModel):
+    owner_count: int
+    owners: list[FaceOwnerDetail]
 
 
 class FaceRemoveRequest(BaseModel):
@@ -1757,6 +1775,43 @@ def face_status():
         owner_count=fr.owner_count(),
         owner_names=fr.owner_names(),
     )
+
+
+@app.get("/face/owners", response_model=FaceOwnersDetailResponse, tags=["Face"])
+def face_owners_detail():
+    """List enrolled owners with photo filenames."""
+    fr = _require_face_recognizer()
+    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+    owners: list[FaceOwnerDetail] = []
+    if OWNER_PHOTOS_DIR.is_dir():
+        img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
+        for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            photos = sorted(
+                f.name for f in d.iterdir() if f.suffix.lower() in img_exts
+            )
+            if photos:
+                owners.append(FaceOwnerDetail(
+                    label=d.name,
+                    photo_count=len(photos),
+                    photos=photos,
+                ))
+    return FaceOwnersDetailResponse(owner_count=len(owners), owners=owners)
+
+
+@app.get("/face/photo/{label}/{filename}", tags=["Face"])
+def face_photo(label: str, filename: str):
+    """Serve an owner photo as JPEG."""
+    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+    norm = FaceRecognizer.normalize_label(label)
+    path = (OWNER_PHOTOS_DIR / norm / filename).resolve()
+    # Prevent path traversal
+    if not str(path).startswith(str(OWNER_PHOTOS_DIR.resolve())):
+        raise HTTPException(400, "invalid path")
+    if not path.is_file():
+        raise HTTPException(404, "photo not found")
+    return Response(content=path.read_bytes(), media_type="image/jpeg")
 
 
 @app.post("/face/remove", response_model=FaceRemoveResponse, tags=["Face"])
