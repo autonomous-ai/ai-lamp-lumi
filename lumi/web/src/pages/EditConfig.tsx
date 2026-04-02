@@ -177,6 +177,7 @@ export default function EditConfig() {
     getDeviceConfig()
       .then((cfg: DeviceConfig) => {
         setSsid(cfg.network_ssid ?? "");
+        setPassword(cfg.network_password ?? "");
         setDeviceId(cfg.device_id ?? "");
         setLlmApiKey(cfg.llm_api_key ?? "");
         setLlmUrl(cfg.llm_base_url ?? "");
@@ -240,7 +241,7 @@ export default function EditConfig() {
         channelCreds = { discord_bot_token: discordBotToken, discord_guild_id: discordGuildId, discord_user_id: discordUserId };
       }
       await updateDeviceConfig({
-        ssid: ssid.trim(), ...(password ? { password } : {}),
+        ssid: ssid.trim(), password,
         channel, ...channelCreds,
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
