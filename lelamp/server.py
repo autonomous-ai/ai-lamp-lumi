@@ -571,7 +571,7 @@ EMOTION_PRESETS = {
     "curious":       {"servo": "curious",       "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
     "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
     "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
-    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
+    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "pulse",              "speed": 0.8},
     "idle":          {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
     "excited":       {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
     "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
