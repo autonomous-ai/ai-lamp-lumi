@@ -376,7 +376,7 @@ export default function EditConfig() {
 
                 <SectionCard id="wifi" title="Wi-Fi">
                   <Field label="SSID" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
-                  <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Leave blank to keep current" />
+                  <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                 </SectionCard>
 
                 <SectionCard id="device" title="Device">
