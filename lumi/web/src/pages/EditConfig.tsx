@@ -1,197 +1,98 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { getDeviceConfig, updateDeviceConfig } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import type { ChannelType } from "@/types";
 
-// ── inline style helpers matching monitor design system ──────────────────────
+// ── CSS vars / helpers ────────────────────────────────────────────────────────
 
-const S = {
-  root: {
-    display: "flex",
-    height: "100vh",
-    background: "var(--lm-bg)",
-    color: "var(--lm-text)",
-    fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    fontSize: 13,
-  } as React.CSSProperties,
-  topbar: {
-    padding: "10px 20px",
-    borderBottom: "1px solid var(--lm-border)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexShrink: 0,
-  } as React.CSSProperties,
-  content: {
-    flex: 1,
-    minHeight: 0,
-    overflowY: "auto" as const,
-    padding: "20px",
-  },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column" as const,
-    overflow: "hidden",
-  },
-  card: {
-    background: "var(--lm-card)",
-    border: "1px solid var(--lm-border)",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 14,
-  } as React.CSSProperties,
-  cardLabel: {
-    fontSize: 10,
-    fontWeight: 600,
-    color: "var(--lm-text-dim)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.08em",
-    marginBottom: 14,
-  },
-  label: {
-    display: "block",
-    fontSize: 11,
-    color: "var(--lm-text-dim)",
-    marginBottom: 4,
-    marginTop: 10,
-  } as React.CSSProperties,
-  input: {
-    width: "100%",
-    background: "var(--lm-surface)",
-    border: "1px solid var(--lm-border)",
-    borderRadius: 6,
-    padding: "7px 10px",
-    fontSize: 12.5,
-    color: "var(--lm-text)",
-    outline: "none",
-    boxSizing: "border-box" as const,
-    transition: "border-color 0.15s",
-  } as React.CSSProperties,
-  inputFocus: {
-    borderColor: "var(--lm-amber)",
-  } as React.CSSProperties,
-  select: {
-    width: "100%",
-    background: "var(--lm-surface)",
-    border: "1px solid var(--lm-border)",
-    borderRadius: 6,
-    padding: "7px 10px",
-    fontSize: 12.5,
-    color: "var(--lm-text)",
-    outline: "none",
-    cursor: "pointer",
-    boxSizing: "border-box" as const,
-    appearance: "none" as const,
-  } as React.CSSProperties,
-  checkRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 12,
-    cursor: "pointer",
-  } as React.CSSProperties,
-  btn: (disabled: boolean) => ({
-    padding: "8px 20px",
-    borderRadius: 8,
-    fontSize: 12.5,
-    fontWeight: 600,
-    cursor: disabled ? "not-allowed" : "pointer",
-    border: "none",
-    background: disabled ? "var(--lm-surface)" : "var(--lm-amber)",
-    color: disabled ? "var(--lm-text-muted)" : "#0C0B09",
-    transition: "all 0.15s",
-    opacity: disabled ? 0.6 : 1,
-  } as React.CSSProperties),
-  backLink: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    color: "var(--lm-text-dim)",
-    textDecoration: "none",
-    fontSize: 12.5,
-    transition: "color 0.15s",
-  } as React.CSSProperties,
-  error: {
-    background: "rgba(248,113,113,0.08)",
-    border: "1px solid rgba(248,113,113,0.25)",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 12,
-    color: "var(--lm-red)",
-    marginBottom: 14,
-  } as React.CSSProperties,
-  info: {
-    background: "rgba(245,158,11,0.07)",
-    border: "1px solid rgba(245,158,11,0.2)",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 11.5,
-    color: "var(--lm-text-dim)",
-    marginBottom: 14,
-    lineHeight: 1.5,
-  } as React.CSSProperties,
+const C = {
+  bg:        "var(--lm-bg)",
+  sidebar:   "var(--lm-sidebar)",
+  card:      "var(--lm-card)",
+  surface:   "var(--lm-surface)",
+  border:    "var(--lm-border)",
+  amber:     "var(--lm-amber)",
+  amberDim:  "var(--lm-amber-dim)",
+  text:      "var(--lm-text)",
+  textDim:   "var(--lm-text-dim)",
+  textMuted: "var(--lm-text-muted)",
+  red:       "var(--lm-red)",
+  green:     "var(--lm-green)",
 };
 
-// ── small reusable field ──────────────────────────────────────────────────────
+type SectionId = "wifi" | "device" | "llm" | "deepgram" | "channel" | "mqtt";
+const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
+  { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
+  { id: "device",   label: "Device",   icon: "◈" },
+  { id: "llm",      label: "LLM",      icon: "⬢" },
+  { id: "deepgram", label: "Deepgram", icon: "◉" },
+  { id: "channel",  label: "Channel",  icon: "⬟" },
+  { id: "mqtt",     label: "MQTT",     icon: "☰" },
+];
+
+// ── small components ──────────────────────────────────────────────────────────
 
 function Field({
-  label, id, value, onChange, placeholder, type = "text", autoComplete = "off",
+  label, id, value, onChange, placeholder, type = "text",
 }: {
-  label: string; id: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; autoComplete?: string;
+  label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string;
 }) {
   const [focused, setFocused] = useState(false);
   return (
-    <div>
-      <label htmlFor={id} style={S.label}>{label}</label>
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
       <input
-        id={id}
-        type={type}
-        value={value}
+        id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
+        placeholder={placeholder} autoComplete="off"
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={{ ...S.input, ...(focused ? S.inputFocus : {}) }}
+        style={{
+          width: "100%", boxSizing: "border-box",
+          background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+          borderRadius: 7, padding: "8px 11px",
+          fontSize: 12.5, color: C.text, outline: "none",
+          transition: "border-color 0.15s",
+        }}
       />
     </div>
   );
 }
 
-function PasswordField({
-  label, id, value, onChange, placeholder,
-}: {
-  label: string; id: string; value: string; onChange: (v: string) => void; placeholder?: string;
+function PasswordField({ label, id, value, onChange, placeholder }: {
+  label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string;
 }) {
   const [show, setShow] = useState(false);
   const [focused, setFocused] = useState(false);
   return (
-    <div>
-      <label htmlFor={id} style={S.label}>{label}</label>
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
       <div style={{ position: "relative" }}>
         <input
-          id={id}
-          type={show ? "text" : "password"}
-          value={value}
+          id={id} type={show ? "text" : "password"} value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          autoComplete="off"
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={{ ...S.input, paddingRight: 36, ...(focused ? S.inputFocus : {}) }}
+          placeholder={placeholder} autoComplete="off"
+          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+            borderRadius: 7, padding: "8px 38px 8px 11px",
+            fontSize: 12.5, color: C.text, outline: "none",
+            transition: "border-color 0.15s",
+          }}
         />
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          tabIndex={-1}
+        <button type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
           style={{
             position: "absolute", right: 0, top: 0, height: "100%",
-            padding: "0 10px", background: "none", border: "none",
-            color: "var(--lm-text-muted)", cursor: "pointer", fontSize: 11,
+            padding: "0 11px", background: "none", border: "none",
+            color: C.textMuted, cursor: "pointer", fontSize: 11,
           }}
         >
           {show ? "hide" : "show"}
@@ -201,15 +102,40 @@ function PasswordField({
   );
 }
 
-// ── skeleton loader ───────────────────────────────────────────────────────────
-
-function Skeleton({ w = "100%", h = 10 }: { w?: string | number; h?: number }) {
+function SectionCard({ id, title, children }: { id: SectionId; title: string; children: React.ReactNode }) {
   return (
-    <div style={{
-      width: w, height: h, borderRadius: 6,
-      background: "var(--lm-surface)",
-      animation: "lm-fade-in 1s ease-in-out infinite alternate",
-    }} />
+    <div
+      id={`section-${id}`}
+      style={{
+        background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 12, padding: "18px 20px", marginBottom: 16,
+        scrollMarginTop: 16,
+      }}
+    >
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: C.textDim,
+        textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 16,
+      }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SkeletonBlock() {
+  const bar = (w: string | number, h = 10) => (
+    <div style={{ width: w, height: h, borderRadius: 6, background: C.surface, marginBottom: 10 }} />
+  );
+  return (
+    <>
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 16 }}>
+          {bar(80, 8)}
+          <div style={{ marginTop: 14 }}>{bar("100%", 32)}{bar("100%", 32)}</div>
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -219,18 +145,18 @@ export default function EditConfig() {
   const [loadingCfg, setLoadingCfg] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<SectionId>("wifi");
+  const contentRef = useRef<HTMLDivElement>(null);
 
+  // form state
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [deviceId, setDeviceId] = useState("");
-
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
-
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
-
   const [channel, setChannel] = useState<ChannelType>("telegram");
   const [teleToken, setTeleToken] = useState("");
   const [teleUserId, setTeleUserId] = useState("");
@@ -240,7 +166,6 @@ export default function EditConfig() {
   const [discordBotToken, setDiscordBotToken] = useState("");
   const [discordGuildId, setDiscordGuildId] = useState("");
   const [discordUserId, setDiscordUserId] = useState("");
-
   const [mqttEndpoint, setMqttEndpoint] = useState("");
   const [mqttPort, setMqttPort] = useState("");
   const [mqttUsername, setMqttUsername] = useState("");
@@ -278,6 +203,29 @@ export default function EditConfig() {
       .finally(() => setLoadingCfg(false));
   }, []);
 
+  // scroll spy: update active section as user scrolls
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const handler = () => {
+      for (const s of [...SECTIONS].reverse()) {
+        const node = document.getElementById(`section-${s.id}`);
+        if (node && node.getBoundingClientRect().top <= 80) {
+          setActiveSection(s.id);
+          return;
+        }
+      }
+      setActiveSection("wifi");
+    };
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, []);
+
+  const scrollTo = (id: SectionId) => {
+    setActiveSection(id);
+    document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -292,22 +240,15 @@ export default function EditConfig() {
         channelCreds = { discord_bot_token: discordBotToken, discord_guild_id: discordGuildId, discord_user_id: discordUserId };
       }
       await updateDeviceConfig({
-        ssid: ssid.trim(),
-        ...(password ? { password } : {}),
-        channel,
-        ...channelCreds,
-        llm_base_url: llmUrl,
-        llm_api_key: llmApiKey,
-        llm_model: llmModel,
+        ssid: ssid.trim(), ...(password ? { password } : {}),
+        channel, ...channelCreds,
+        llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
-        deepgram_api_key: deepgramApiKey,
-        device_id: deviceId,
-        mqtt_endpoint: mqttEndpoint,
-        mqtt_username: mqttUsername,
+        deepgram_api_key: deepgramApiKey, device_id: deviceId,
+        mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
-        fa_channel: faChannel,
-        fd_channel: fdChannel,
+        fa_channel: faChannel, fd_channel: fdChannel,
       } as Parameters<typeof updateDeviceConfig>[0]);
       toast.success("Config saved — restart Lumi for changes to take effect.");
     } catch (err) {
@@ -322,89 +263,161 @@ export default function EditConfig() {
   ]);
 
   return (
-    <div className="lm-root" style={S.root}>
-      <main style={S.main}>
-        {/* Topbar */}
-        <div style={S.topbar}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>⚙ Settings</span>
-          <a href="/monitor" style={S.backLink}>
+    <div className="lm-root" style={{
+      display: "flex", height: "100vh",
+      background: C.bg, color: C.text,
+      fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
+    }}>
+
+      {/* ── Sidebar ── */}
+      <aside style={{
+        width: 192, flexShrink: 0,
+        background: C.sidebar, borderRight: `1px solid ${C.border}`,
+        display: "flex", flexDirection: "column",
+      }}>
+        <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.amber, letterSpacing: "-0.3px" }}>
+            ✦ Lumi
+          </div>
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Settings</div>
+        </div>
+
+        <nav style={{ padding: "10px 0", flex: 1 }}>
+          {SECTIONS.map((s) => {
+            const active = activeSection === s.id;
+            return (
+              <button key={s.id} onClick={() => scrollTo(s.id)} style={{
+                display: "flex", alignItems: "center", gap: 9,
+                padding: "8px 14px", borderRadius: 8, margin: "2px 8px",
+                fontSize: 12.5, fontWeight: active ? 600 : 400,
+                color: active ? C.amber : "var(--lm-text-dim)",
+                background: active ? C.amberDim : "transparent",
+                cursor: "pointer", transition: "all 0.15s",
+                border: "none", width: "calc(100% - 16px)", textAlign: "left",
+              }}>
+                <span style={{ fontSize: 14, lineHeight: 1 }}>{s.icon}</span>
+                {s.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div style={{
+          padding: "12px 16px", borderTop: `1px solid ${C.border}`,
+        }}>
+          <a href="/monitor" style={{
+            display: "flex", alignItems: "center", gap: 7,
+            color: C.textMuted, textDecoration: "none", fontSize: 12,
+            transition: "color 0.15s",
+          }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = C.textDim)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = C.textMuted)}
+          >
             ← Monitor
           </a>
         </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Topbar */}
+        <div style={{
+          padding: "10px 24px", borderBottom: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+            {SECTIONS.find((s) => s.id === activeSection)?.label}
+          </span>
+          <button
+            form="edit-form"
+            type="submit"
+            disabled={saving || loadingCfg}
+            style={{
+              padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+              cursor: saving || loadingCfg ? "not-allowed" : "pointer",
+              border: "none",
+              background: saving || loadingCfg ? C.surface : C.amber,
+              color: saving || loadingCfg ? C.textMuted : "#0C0B09",
+              transition: "all 0.15s",
+              opacity: saving || loadingCfg ? 0.6 : 1,
+            }}
+          >
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
 
         {/* Content */}
-        <div style={S.content} className="lm-fade-in">
-          <div style={{ maxWidth: 520 }}>
+        <div ref={contentRef} className="lm-fade-in" style={{
+          flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 32px",
+        }}>
+          <div style={{ maxWidth: 560, margin: "0 auto" }}>
 
-            {loadingCfg ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {[1, 2, 3].map((i) => (
-                  <div key={i} style={S.card}>
-                    <Skeleton h={8} w={80} />
-                    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                      <Skeleton h={30} />
-                      <Skeleton h={30} />
-                    </div>
-                  </div>
-                ))}
+            {error && (
+              <div style={{
+                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)",
+                borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 16,
+              }}>
+                {error}
               </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                {error && <div style={S.error}>{error}</div>}
-                <div style={S.info}>
-                  ↻ &nbsp;Restart Lumi after saving for LLM and channel changes to take effect.
-                </div>
+            )}
 
-                {/* Wi-Fi */}
-                <div style={S.card}>
-                  <div style={S.cardLabel}>Wi-Fi</div>
+            <div style={{
+              background: C.amberDim, border: "1px solid rgba(245,158,11,0.2)",
+              borderRadius: 8, padding: "10px 14px", fontSize: 11.5,
+              color: C.textDim, marginBottom: 20, lineHeight: 1.6,
+            }}>
+              ↻ &nbsp;Restart Lumi after saving for LLM and channel changes to take full effect.
+            </div>
+
+            {loadingCfg ? <SkeletonBlock /> : (
+              <form id="edit-form" onSubmit={handleSubmit}>
+
+                <SectionCard id="wifi" title="Wi-Fi">
                   <Field label="SSID" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
                   <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Leave blank to keep current" />
-                </div>
+                </SectionCard>
 
-                {/* Device */}
-                <div style={S.card}>
-                  <div style={S.cardLabel}>Device</div>
+                <SectionCard id="device" title="Device">
                   <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
-                </div>
+                </SectionCard>
 
-                {/* LLM */}
-                <div style={S.card}>
-                  <div style={S.cardLabel}>LLM</div>
+                <SectionCard id="llm" title="LLM">
                   <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
                   <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
                   <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
-                  <label style={S.checkRow}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
                     <input
-                      type="checkbox"
-                      checked={llmDisableThinking}
+                      type="checkbox" checked={llmDisableThinking}
                       onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                      style={{ accentColor: "var(--lm-amber)", width: 14, height: 14 }}
+                      style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
                     />
-                    <span style={{ color: "var(--lm-text-dim)", fontSize: 12 }}>Disable extended thinking (faster responses)</span>
+                    <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
                   </label>
-                </div>
+                </SectionCard>
 
-                {/* Deepgram */}
-                <div style={S.card}>
-                  <div style={S.cardLabel}>Deepgram STT</div>
+                <SectionCard id="deepgram" title="Deepgram STT">
                   <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
-                </div>
+                </SectionCard>
 
-                {/* Channel */}
-                <div style={S.card}>
-                  <div style={S.cardLabel}>Messaging Channel</div>
-                  <label style={S.label}>Channel</label>
-                  <select
-                    value={channel}
-                    onChange={(e) => setChannel(e.target.value as ChannelType)}
-                    style={S.select}
-                  >
-                    <option value="telegram">Telegram</option>
-                    <option value="slack">Slack</option>
-                    <option value="discord">Discord</option>
-                  </select>
-
+                <SectionCard id="channel" title="Messaging Channel">
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel</label>
+                    <select
+                      value={channel}
+                      onChange={(e) => setChannel(e.target.value as ChannelType)}
+                      style={{
+                        width: "100%", boxSizing: "border-box" as const,
+                        background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 7, padding: "8px 11px",
+                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                      }}
+                    >
+                      <option value="telegram">Telegram</option>
+                      <option value="slack">Slack</option>
+                      <option value="discord">Discord</option>
+                    </select>
+                  </div>
                   {channel === "telegram" && (
                     <>
                       <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
@@ -425,30 +438,17 @@ export default function EditConfig() {
                       <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
                     </>
                   )}
-                </div>
+                </SectionCard>
 
-                {/* MQTT */}
-                <details style={{ marginBottom: 14 }}>
-                  <summary style={{
-                    cursor: "pointer", fontSize: 10, fontWeight: 600,
-                    color: "var(--lm-text-muted)", textTransform: "uppercase",
-                    letterSpacing: "0.08em", padding: "4px 0", userSelect: "none",
-                  }}>
-                    MQTT (optional)
-                  </summary>
-                  <div style={{ ...S.card, marginTop: 8, marginBottom: 0 }}>
-                    <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
-                    <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
-                    <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
-                    <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
-                    <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
-                    <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
-                  </div>
-                </details>
+                <SectionCard id="mqtt" title="MQTT (optional)">
+                  <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
+                  <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
+                  <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
+                  <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
+                  <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
+                  <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
+                </SectionCard>
 
-                <button type="submit" disabled={saving} style={S.btn(saving)}>
-                  {saving ? "Saving…" : "Save Changes"}
-                </button>
               </form>
             )}
           </div>
