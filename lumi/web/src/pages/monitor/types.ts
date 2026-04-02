@@ -82,6 +82,19 @@ export interface SceneInfo {
   scenes: string[];
   active?: string;
 }
+export interface FaceStatus {
+  owner_count: number;
+  owner_names: string[];
+}
+export interface FaceOwnerDetail {
+  label: string;
+  photo_count: number;
+  photos: string[];
+}
+export interface FaceOwnersDetail {
+  owner_count: number;
+  owners: FaceOwnerDetail[];
+}
 export interface MonitorEvent {
   id: string;
   time: string;
@@ -98,7 +111,7 @@ export interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "analytics" | "logs";
+export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs";
 
 export const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview",   label: "Overview",   icon: "◈" },
@@ -106,6 +119,8 @@ export const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "flow",       label: "Flow",       icon: "⬢" },
   { id: "camera",     label: "Camera",     icon: "⬟" },
   { id: "servo",      label: "Servo",      icon: "⚙" },
+  { id: "face-owners", label: "Faces",      icon: "◎" },
   { id: "analytics",  label: "Analytics",  icon: "◉" },
   { id: "logs",       label: "Logs",       icon: "☰" },
+  { id: "chat",       label: "Chat",       icon: "✉" },
 ];
