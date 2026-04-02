@@ -6,6 +6,11 @@
 // trigger a double fault → SIGABRT in the LeLamp Python process.
 // This watcher detects sensing degradation early and restarts the voice
 // pipeline before that happens.
+//
+// Guard against false positives during LeLamp restart:
+// Recovery is only triggered when voice was previously confirmed healthy
+// (voice: true) and then sensing goes false. This prevents premature
+// restarts during normal LeLamp startup or systemd-triggered restarts.
 package healthwatch
 
 import (
@@ -24,9 +29,9 @@ import (
 )
 
 const (
-	pollInterval      = 5 * time.Second
-	failThreshold     = 2  // consecutive failures before acting
-	restartCooldown   = 30 * time.Second
+	pollInterval    = 5 * time.Second
+	failThreshold   = 2 // consecutive sensing failures before acting
+	restartCooldown = 30 * time.Second
 )
 
 // lelampHealth mirrors the /health response from LeLamp.
@@ -67,6 +72,11 @@ func (s *Service) Start(ctx context.Context) {
 
 	consecutiveFails := 0
 	var lastRestart time.Time
+	// voiceWasRunning is true once we confirm voice:true from LeLamp.
+	// Recovery is only triggered after voice was running — this prevents
+	// false positives when LeLamp just restarted (systemd or cold boot)
+	// and voice hasn't been started yet by Lumi.
+	voiceWasRunning := false
 
 	for {
 		select {
@@ -75,13 +85,23 @@ func (s *Service) Start(ctx context.Context) {
 		case <-ticker.C:
 			h, err := s.fetchHealth()
 			if err != nil {
-				// LeLamp not reachable yet — not an ALSA issue, skip
-				consecutiveFails = 0
+				// LeLamp is down (crash / systemd restart in progress).
+				// Don't touch consecutiveFails — LeLamp being unreachable
+				// is not an ALSA error. When it comes back, voiceWasRunning
+				// stays true so we can still detect ALSA re-failure after
+				// restart if it happens again.
+				slog.Debug("LeLamp unreachable", "component", "healthwatch", "error", err)
 				continue
 			}
 
+			// Track when voice is first confirmed running.
+			if h.Voice && !voiceWasRunning {
+				slog.Info("voice pipeline confirmed running", "component", "healthwatch")
+				voiceWasRunning = true
+			}
+
 			if h.Sensing {
-				// Sensing is healthy
+				// Sensing is healthy — reset failure counter.
 				if consecutiveFails >= failThreshold {
 					slog.Info("ALSA/sensing recovered", "component", "healthwatch")
 					s.bus.Push(domain.MonitorEvent{
@@ -93,20 +113,29 @@ func (s *Service) Start(ctx context.Context) {
 				continue
 			}
 
-			// Sensing is degraded
+			// sensing: false — but only act if voice was running before.
+			// If voice was never running (e.g. LeLamp just restarted and
+			// Lumi hasn't called /voice/start yet), sensing=false is expected
+			// and we should not interfere.
+			if !voiceWasRunning {
+				slog.Debug("sensing false but voice never ran — skipping (LeLamp startup?)", "component", "healthwatch")
+				continue
+			}
+
 			consecutiveFails++
 			slog.Warn("ALSA/sensing degraded",
 				"component", "healthwatch",
 				"consecutiveFails", consecutiveFails,
 				"sensing", h.Sensing,
 				"audio", h.Audio,
+				"voice", h.Voice,
 			)
 
 			if consecutiveFails < failThreshold {
 				continue
 			}
 
-			// Threshold reached — emit event
+			// Threshold reached — emit event visible in Flow Monitor.
 			s.bus.Push(domain.MonitorEvent{
 				Type:    "hw_alsa_error",
 				Summary: fmt.Sprintf("ALSA mic stream failing (%d consecutive)", consecutiveFails),
@@ -117,7 +146,7 @@ func (s *Service) Start(ctx context.Context) {
 				},
 			})
 
-			// Restart cooldown to avoid restart storms
+			// Cooldown to avoid restart storms.
 			if time.Since(lastRestart) < restartCooldown {
 				slog.Debug("skipping voice restart — within cooldown", "component", "healthwatch")
 				continue
@@ -125,6 +154,9 @@ func (s *Service) Start(ctx context.Context) {
 
 			s.restartVoice()
 			lastRestart = time.Now()
+			// Reset so we don't keep restarting on every poll after cooldown.
+			// voiceWasRunning stays true — we'll re-confirm after restart.
+			voiceWasRunning = false
 		}
 	}
 }
@@ -156,7 +188,7 @@ func (s *Service) fetchHealth() (*lelampHealth, error) {
 func (s *Service) restartVoice() {
 	slog.Info("restarting LeLamp voice pipeline to recover ALSA", "component", "healthwatch")
 
-	// Stop first — ignore errors (pipeline may already be stopped)
+	// Stop first — ignore errors (pipeline may already be stopped).
 	stopResp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/stop", "application/json", strings.NewReader("{}"))
 	if err == nil {
 		stopResp.Body.Close()
@@ -164,7 +196,7 @@ func (s *Service) restartVoice() {
 
 	time.Sleep(2 * time.Second)
 
-	// Always attempt restart — LeLamp falls back to AutonomousSTT if no Deepgram key
+	// Always attempt restart — LeLamp falls back to AutonomousSTT if no Deepgram key.
 	body, _ := json.Marshal(map[string]string{
 		"deepgram_api_key": s.cfg.DeepgramAPIKey,
 		"llm_api_key":      s.cfg.LLMAPIKey,
