@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { S } from "../styles";
 import { API, FLOW_EVENTS_MAX } from "../types";
 import type { DisplayEvent } from "../types";
@@ -211,13 +211,19 @@ export function FlowSection({
     return [...seen];
   }, [turns]);
 
+  // Auto-enable any new type that appears and hasn't been seen before (opt-out model)
+  useEffect(() => {
+    setTypeFilters((prev) => {
+      const newTypes = availableTypes.filter((t) => !prev.has(t));
+      if (newTypes.length === 0) return prev;
+      const next = new Set(prev);
+      newTypes.forEach((t) => next.add(t));
+      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }, [availableTypes]);
+
   const filteredTurns = useMemo(() => turns.filter((t) => {
-    // Unknown types (e.g. new ambient variants) default to visible
-    if (!typeFilters.has(t.type) && availableTypes.includes(t.type)) {
-      // Only hide if user explicitly has some filters set (i.e. not first load)
-      const hasExplicit = [...CAT_TYPES.mic, ...CAT_TYPES.cam, ...CAT_TYPES.telegram].some((k) => !typeFilters.has(k));
-      if (!hasExplicit) return true; // all known cats on → show unknown too
-    }
     if (!typeFilters.has(t.type)) return false;
     if (fromTime || toTime) {
       const m = t.startTime.match(/T(\d{2}:\d{2})/);
