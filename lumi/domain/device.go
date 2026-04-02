@@ -286,6 +286,7 @@ type ConfigResponse struct {
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
 	DeviceID           string `json:"device_id"`
 	NetworkSSID        string `json:"network_ssid"`
+	NetworkPassword    string `json:"network_password"`
 	MQTTEndpoint       string `json:"mqtt_endpoint"`
 	MQTTUsername       string `json:"mqtt_username"`
 	MQTTPassword       string `json:"mqtt_password"`
