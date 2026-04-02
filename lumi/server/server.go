@@ -23,6 +23,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/ambient"
 	"go-lamp.autonomous.ai/internal/device"
+	"go-lamp.autonomous.ai/internal/healthwatch"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/internal/statusled"
@@ -56,6 +57,7 @@ type Server struct {
 	networkService *network.Service
 	deviceService  *device.Service
 	ambientService *ambient.Service
+	healthWatch    *healthwatch.Service
 	statusLED      *statusled.Service
 
 	// resetButton watches GPIO 23 for press-and-hold >= 10s to trigger factory reset. Nil when GPIO unavailable.
@@ -107,6 +109,7 @@ func ProvideServer(
 	resetBtn *resetbutton.Service,
 	mqttFactory *mqtt.Factory,
 	ambientSvc *ambient.Service,
+	hw *healthwatch.Service,
 	sled *statusled.Service,
 ) *Server {
 	return &Server{
@@ -124,6 +127,7 @@ func ProvideServer(
 		resetButton:       resetBtn,
 		mqttFactory:       mqttFactory,
 		ambientService:    ambientSvc,
+		healthWatch:       hw,
 		statusLED:         sled,
 	}
 }
@@ -244,6 +248,7 @@ func (s *Server) Serve(closeFn func()) error {
 	sensing.GET("snapshot/:name", s.sensingHandler.GetSnapshot)
 
 	oc := api.Group("openclaw")
+	oc.POST("busy", s.openclawHandler.SetBusy)
 	oc.GET("status", s.openclawHandler.Status)
 	oc.GET("events", s.openclawHandler.Events)
 	oc.GET("recent", s.openclawHandler.Recent)
@@ -375,6 +380,8 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
 			safego.Go("ambient", func() { s.ambientService.Start(s.monitorCtx) })
+			// Watch LeLamp component health; auto-restart voice on ALSA failure
+			safego.Go("healthwatch", func() { s.healthWatch.Start(s.monitorCtx) })
 		})
 	} else {
 		s.monitorMu.Lock()

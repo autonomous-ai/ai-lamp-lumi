@@ -48,6 +48,7 @@ export const S = {
     border: "none",
     width: "calc(100% - 16px)",
     textAlign: "left" as const,
+    textDecoration: "none",
   }),
   main: {
     flex: 1,

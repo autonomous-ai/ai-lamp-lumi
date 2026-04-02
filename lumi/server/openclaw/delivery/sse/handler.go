@@ -363,7 +363,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// LED is managed by the agent via /emotion skill calls — do not override here.
 			if payload.Data.Phase == "start" {
 				h.agentGateway.SetBusy(true)
-			} else if payload.Data.Phase == "end" {
+			} else if payload.Data.Phase == "end" || payload.Data.Phase == "error" {
 				h.agentGateway.SetBusy(false)
 			}
 
@@ -475,13 +475,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				}
 			}
 
+			shortErr := shortError(payload.Data.Error)
 			flow.Log("lifecycle_"+payload.Data.Phase, map[string]any{"run_id": flowRunID, "error": payload.Data.Error}, flowRunID)
 			monEvt := domain.MonitorEvent{
 				Type:    "lifecycle",
 				Summary: fmt.Sprintf("Agent %s", payload.Data.Phase),
 				RunID:   flowRunID,
 				Phase:   payload.Data.Phase,
-				Error:   payload.Data.Error,
+				Error:   shortErr,
+			}
+			if payload.Data.Phase == "error" && shortErr != "" {
+				monEvt.Summary = "❌ " + shortErr
 			}
 			if payload.Data.Phase == "end" && payload.Data.Usage != nil {
 				u := payload.Data.Usage
@@ -499,7 +503,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// Keep flow.GetTrace() "active" for the duration of the device turn so Telegram heuristic
 			// (lifecycle_start arriving while no device trace is active) can work correctly.
 			// Clear only after lifecycle_end so openclaw UUID → device runId mapping still succeeds.
-			if payload.Data.Phase == "end" {
+			if payload.Data.Phase == "end" || payload.Data.Phase == "error" {
 				flow.ClearTrace()
 			}
 
@@ -784,11 +788,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			flow.Log("agent_error", map[string]any{"run_id": flowRunID, "error": errMsg}, flowRunID)
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_response",
-				Summary: "❌ " + errMsg,
+				Summary: "❌ " + shortError(errMsg),
 				RunID:   flowRunID,
 				State:   "error",
-				Error:   errMsg,
-				Detail:  map[string]string{"error": errMsg},
+				Error:   shortError(errMsg),
+				Detail:  map[string]string{"error": shortError(errMsg)},
 			})
 		}
 
@@ -826,6 +830,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 }
 
 // Status returns the current agent connection status.
+// SetBusy marks the agent as busy from an external signal (e.g. turn-gate hook firing at
+// message:preprocessed before lifecycle_start SSE arrives). Closes the timing gap for
+// channel-initiated turns (Telegram, Slack, Discord) that bypass Lumi server entirely.
+func (h *OpenClawHandler) SetBusy(c *gin.Context) {
+	h.agentGateway.SetBusy(true)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+}
+
 func (h *OpenClawHandler) Status(c *gin.Context) {
 	h.lastEmotionMu.Lock()
 	emotion := h.lastEmotion
@@ -1468,4 +1480,29 @@ func (h *OpenClawHandler) Events(c *gin.Context) {
 			return false
 		}
 	})
+}
+
+// shortError extracts a short, readable message from a potentially large error string.
+// Strips HTML bodies (e.g. Cloudflare 403 pages) down to the status line.
+func shortError(errMsg string) string {
+	// Extract leading status code + domain if it looks like "403 <!DOCTYPE..."
+	if idx := strings.Index(errMsg, "<!"); idx > 0 {
+		prefix := strings.TrimSpace(errMsg[:idx])
+		// Try to find domain from <h2> "unable to access X"
+		if i := strings.Index(errMsg, "unable_to_access"); i > 0 {
+			if j := strings.Index(errMsg[i:], ">"); j > 0 {
+				if k := strings.Index(errMsg[i+j:], "<"); k > 0 {
+					domain := strings.TrimSpace(errMsg[i+j+1 : i+j+k])
+					if domain != "" {
+						return prefix + " blocked by Cloudflare (" + domain + ")"
+					}
+				}
+			}
+		}
+		return prefix + " (HTML error page)"
+	}
+	if len(errMsg) > 120 {
+		return errMsg[:120] + "..."
+	}
+	return errMsg
 }

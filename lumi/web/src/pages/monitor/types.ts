@@ -22,6 +22,7 @@ export interface SystemInfo {
 export interface NetworkInfo {
   ssid: string;
   ip: string;
+  publicIp: string;
   signal: number;
   internet: boolean;
 }
