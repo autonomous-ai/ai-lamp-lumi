@@ -99,6 +99,7 @@ export default function Setup() {
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "pro-llm-key-57a4783fc9auto0001");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "https://campaign-api.autonomous.ai/api/v1/ai/v1");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "claude-haiku-4-5");
+  const [llmDisableThinking, setLlmDisableThinking] = useState(false);
 
   // Deepgram (optional)
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
@@ -195,6 +196,7 @@ export default function Setup() {
         llm_base_url: urlParams.llmUrl || llmUrl,
         llm_api_key: urlParams.llmApiKey || llmApiKey,
         llm_model: urlParams.llmModel || llmModel,
+        llm_disable_thinking: llmDisableThinking || undefined,
         deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
         device_id: urlParams.deviceId || deviceId,
       };
@@ -340,6 +342,16 @@ export default function Setup() {
                           onChange={(e) => setLlmModel(e.target.value)}
                           autoComplete="off"
                         />
+                        <label htmlFor="llm_disable_thinking" className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                          <input
+                            id="llm_disable_thinking"
+                            type="checkbox"
+                            checked={llmDisableThinking}
+                            onChange={(e) => setLlmDisableThinking(e.target.checked)}
+                            className="size-4 accent-primary"
+                          />
+                          <span className="text-sm text-muted-foreground">Disable extended thinking (faster responses)</span>
+                        </label>
                       </div>
                     </details>
                   )}

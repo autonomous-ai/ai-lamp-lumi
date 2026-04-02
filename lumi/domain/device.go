@@ -48,6 +48,9 @@ type SetupRequest struct {
 	MQTTPort     int    `json:"mqtt_port"`
 	FAChannel    string `json:"fa_channel"`
 	FDChannel    string `json:"fd_channel"`
+
+	// LLMDisableThinking disables extended thinking/reasoning for all models (default false).
+	LLMDisableThinking *bool `json:"llm_disable_thinking,omitempty"`
 }
 
 // EffectiveChannel returns the resolved channel type, defaulting to "telegram".
