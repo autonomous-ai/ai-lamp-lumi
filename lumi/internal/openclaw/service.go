@@ -504,7 +504,7 @@ func (s *Service) ResetAgent() error {
 	return nil
 }
 
-// RefreshModelsConfig patches the models reasoning/thinkingBudget fields in openclaw.json
+// RefreshModelsConfig patches the models reasoning fields in openclaw.json
 // based on current config and restarts the agent. Safe to call after UpdateConfig.
 func (s *Service) RefreshModelsConfig() error {
 	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
@@ -533,26 +533,6 @@ func (s *Service) RefreshModelsConfig() error {
 							}
 						}
 					}
-				}
-			}
-		}
-	}
-
-	// Patch agents.defaults.models[*].thinkingBudget
-	if agentsMap, ok := configData["agents"].(map[string]any); ok {
-		if defaultsMap, ok := agentsMap["defaults"].(map[string]any); ok {
-			if agentModelsMap, ok := defaultsMap["models"].(map[string]any); ok {
-				for key, val := range agentModelsMap {
-					metadata, ok := val.(map[string]any)
-					if !ok {
-						metadata = map[string]any{}
-					}
-					if disableThinking {
-						metadata["thinkingBudget"] = 0
-					} else {
-						delete(metadata, "thinkingBudget")
-					}
-					agentModelsMap[key] = metadata
 				}
 			}
 		}
