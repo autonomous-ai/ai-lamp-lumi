@@ -11,7 +11,7 @@ export function CameraSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={S.grid2}>
+      <div className="lm-grid-2">
         {/* Live camera stream */}
         <div style={S.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

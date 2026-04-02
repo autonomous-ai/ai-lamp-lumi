@@ -172,12 +172,21 @@ export default function Monitor() {
     };
   }, []);
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = () => setSidebarOpen(false);
+
   const ocOnline = oc?.connected ?? false;
 
   return (
     <div className="lm-root" style={S.root}>
+      {/* Mobile overlay */}
+      <div
+        className={`lm-sidebar-overlay${sidebarOpen ? " lm-sidebar-overlay--open" : ""}`}
+        onClick={closeSidebar}
+      />
+
       {/* Sidebar */}
-      <aside style={S.sidebar}>
+      <aside style={S.sidebar} className={`lm-sidebar${sidebarOpen ? " lm-sidebar--open" : ""}`}>
         <div style={S.sidebarLogo}>
           <div style={S.sidebarLogoName}>✦ Lumi</div>
           <div style={S.sidebarLogoSub}>Monitor Dashboard</div>
@@ -188,21 +197,21 @@ export default function Monitor() {
               key={item.id}
               href={`#${item.id}`}
               style={S.navItem(section === item.id)}
-              onClick={(e) => { e.preventDefault(); setSection(item.id); }}
+              onClick={(e) => { e.preventDefault(); setSection(item.id); closeSidebar(); }}
             >
               <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
               {item.label}
             </a>
           ))}
-          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer">
+          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
             Gateway
           </a>
-          <a href="/gw-config" style={S.navItem(false)}>
+          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>◈</span>
             GW Config
           </a>
-          <a href="/edit" style={S.navItem(false)}>
+          <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings
           </a>
@@ -234,9 +243,12 @@ export default function Monitor() {
       <main style={S.main}>
         {/* Topbar */}
         <div style={S.topbar}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>
-            {NAV.find((n) => n.id === section)?.label}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>
+              {NAV.find((n) => n.id === section)?.label}
+            </span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {sys && (
               <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
@@ -258,7 +270,7 @@ export default function Monitor() {
         </div>
 
         {/* Content */}
-        <div style={S.content} className="lm-fade-in">
+        <div style={S.content} className="lm-content lm-fade-in">
           {section === "overview" && (
             <OverviewSection
               sys={sys}

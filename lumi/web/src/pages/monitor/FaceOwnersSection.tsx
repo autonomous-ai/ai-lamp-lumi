@@ -78,7 +78,7 @@ export function FaceOwnersSection() {
 
       {/* Owner cards */}
       {data && data.owners.length > 0 && (
-        <div style={S.grid2}>
+        <div className="lm-grid-2">
           {data.owners.map((owner) => (
             <div key={owner.label} style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
