@@ -24,6 +24,7 @@ import { CameraSection } from "./CameraSection";
 import { ServoSection } from "./ServoSection";
 import { AnalyticsSection } from "./AnalyticsSection";
 import { LogsSection } from "./LogsSection";
+import { ChatSection } from "./ChatSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -286,6 +287,7 @@ export default function Monitor() {
           {section === "servo"     && <ServoSection />}
           {section === "analytics" && <AnalyticsSection />}
           {section === "logs"      && <LogsSection />}
+          {section === "chat"      && <ChatSection events={events} />}
         </div>
       </main>
     </div>
