@@ -212,6 +212,12 @@ export function FlowSection({
   }, [turns]);
 
   const filteredTurns = useMemo(() => turns.filter((t) => {
+    // Unknown types (e.g. new ambient variants) default to visible
+    if (!typeFilters.has(t.type) && availableTypes.includes(t.type)) {
+      // Only hide if user explicitly has some filters set (i.e. not first load)
+      const hasExplicit = [...CAT_TYPES.mic, ...CAT_TYPES.cam, ...CAT_TYPES.telegram].some((k) => !typeFilters.has(k));
+      if (!hasExplicit) return true; // all known cats on → show unknown too
+    }
     if (!typeFilters.has(t.type)) return false;
     if (fromTime || toTime) {
       const m = t.startTime.match(/T(\d{2}:\d{2})/);
@@ -412,12 +418,31 @@ export function FlowSection({
           overflow: "hidden",
         }}>
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
-            {/* Title + count */}
+            {/* Title + count + All button */}
             <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
               <span style={S.cardLabel}>Turns</span>
               <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>
                 {filteredTurns.length}/{turns.length}
               </span>
+              <button
+                onClick={() => {
+                  const allOn = availableTypes.every((t) => typeFilters.has(t));
+                  setTypeFilters((prev) => {
+                    const next = new Set(prev);
+                    if (allOn) { availableTypes.forEach((t) => next.delete(t)); }
+                    else { availableTypes.forEach((t) => next.add(t)); }
+                    try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+                    return next;
+                  });
+                }}
+                style={{
+                  marginLeft: "auto", padding: "1px 6px", borderRadius: 4, fontSize: 9,
+                  cursor: "pointer", fontWeight: 600,
+                  border: `1px solid ${availableTypes.every((t) => typeFilters.has(t)) ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                  background: availableTypes.every((t) => typeFilters.has(t)) ? "rgba(245,158,11,0.15)" : "transparent",
+                  color: availableTypes.every((t) => typeFilters.has(t)) ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                }}
+              >All</button>
             </div>
 
             {/* Search */}
