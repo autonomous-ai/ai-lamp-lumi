@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,16 +31,81 @@ type SensingEventRequest struct {
 	Image string `json:"image,omitempty"`
 }
 
+// soundTracker implements escalating reaction logic for sound sensing events.
+//
+// Behavior mirrors a living creature hearing noise:
+//   - occurrences 1–2: pass through silently (agent expresses emotion only, no speech)
+//   - occurrence 3+: marked "persistent" — agent may speak once to comment on the noise
+//   - after persistent event: 3-minute suppression so Lumi doesn't keep complaining
+//
+// A 15-second dedup prevents flooding when LeLamp fires on every audio sample.
+// The window resets after 2 minutes of silence.
+type soundTracker struct {
+	mu            sync.Mutex
+	count         int
+	windowStart   time.Time
+	lastPassed    time.Time
+	suppressUntil time.Time
+}
+
+const (
+	soundDedupeInterval   = 15 * time.Second
+	soundWindowDuration   = 2 * time.Minute
+	soundPersistentAfter  = 3 // speak after this many occurrences in one window
+	soundSuppressDuration = 3 * time.Minute
+)
+
+// track processes an incoming sound event and returns whether it should be forwarded to the agent,
+// the current occurrence count, and whether this event crossed the persistent threshold.
+func (t *soundTracker) track(now time.Time) (send bool, occurrence int, persistent bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Post-speak suppression: drop until cooldown expires.
+	if now.Before(t.suppressUntil) {
+		return false, 0, false
+	}
+
+	// Reset window after silence longer than windowDuration.
+	if !t.lastPassed.IsZero() && now.Sub(t.lastPassed) > soundWindowDuration {
+		t.count = 0
+		t.windowStart = time.Time{}
+	}
+
+	// Dedup: forward at most one event per dedupeInterval.
+	if !t.lastPassed.IsZero() && now.Sub(t.lastPassed) < soundDedupeInterval {
+		return false, 0, false
+	}
+
+	if t.windowStart.IsZero() {
+		t.windowStart = now
+	}
+	t.count++
+	t.lastPassed = now
+
+	current := t.count
+	isPersistent := current >= soundPersistentAfter
+	if isPersistent {
+		// Agent will speak once; suppress subsequent events for cooldown period.
+		t.suppressUntil = now.Add(soundSuppressDuration)
+		t.count = 0
+		t.windowStart = time.Time{}
+	}
+
+	return true, current, isPersistent
+}
+
 // SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
 type SensingHandler struct {
 	agentGateway domain.AgentGateway
 	monitorBus   *monitor.Bus
 	config       *config.Config
+	soundTracker *soundTracker
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
 func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config) SensingHandler {
-	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg}
+	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, soundTracker: &soundTracker{}}
 }
 
 // PostEvent receives a sensing event and sends it to the agent as a chat message.
@@ -113,6 +179,23 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
 		return
+	}
+
+	// Sound events: dedup + escalation tracking.
+	// Occurrences 1–2 pass through silently; occurrence 3+ is marked persistent so the agent speaks once.
+	// After speaking, a suppression window prevents further events for soundSuppressDuration.
+	if req.Type == "sound" {
+		send, occurrence, persistent := h.soundTracker.track(time.Now())
+		if !send {
+			slog.Info("sound event dropped — dedup or suppressed", "component", "sensing")
+			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
+			return
+		}
+		if persistent {
+			req.Message += fmt.Sprintf(" — persistent (occurrence %d)", occurrence)
+		} else {
+			req.Message += fmt.Sprintf(" — occurrence %d", occurrence)
+		}
 	}
 
 	// No local match — forward to OpenClaw agent
