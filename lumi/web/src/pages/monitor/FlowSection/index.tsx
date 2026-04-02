@@ -1,13 +1,30 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { S } from "../styles";
 import { API, FLOW_EVENTS_MAX } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
-import { FLOW_NODES } from "./types";
-import { deriveActiveStage, groupIntoTurns } from "./helpers";
+import { FLOW_NODES, SOURCE_ICON } from "./types";
+import { deriveActiveStage, groupIntoTurns, turnIO } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
+
+// Category → turn types mapping
+const CAT_TYPES: Record<string, string[]> = {
+  mic: ["voice", "voice_command", "sound"],
+  cam: ["motion", "presence.enter", "presence.leave", "light.level", "environment", "system"],
+  telegram: ["telegram"],
+};
+const TYPE_ICON: Record<string, string> = {
+  ...SOURCE_ICON,
+  voice_command: "🎙",
+};
+const TYPE_LABEL: Record<string, string> = {
+  voice: "voice", voice_command: "cmd", sound: "sound",
+  motion: "motion", "presence.enter": "enter", "presence.leave": "leave",
+  "light.level": "light", environment: "env", system: "sys",
+  telegram: "TG", schedule: "sched",
+};
 
 // Preset sensing events for manual testing
 const FAKE_EVENTS: { label: string; type: string; message: string; color: string; tag: string }[] = [
@@ -29,13 +46,20 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
-  const [turnFilters, setTurnFilters] = useState<Set<string>>(() => {
+  const [typeFilters, setTypeFilters] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("lumi-turn-filters");
+      const saved = localStorage.getItem("lumi-type-filters-v2");
       if (saved) return new Set(JSON.parse(saved));
     } catch {}
-    return new Set(["mic", "cam", "telegram"]);
+    // Default: all known types on
+    return new Set([
+      ...CAT_TYPES.mic, ...CAT_TYPES.cam, ...CAT_TYPES.telegram,
+      "schedule", "unknown",
+    ]);
   });
+  const [searchText, setSearchText] = useState("");
+  const [fromTime, setFromTime] = useState("");
+  const [toTime, setToTime] = useState("");
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -157,22 +181,51 @@ export function FlowSection({
     downloadUISnapshot();
   }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
-  const turnCategory = (type: string): string => {
-    if (type === "telegram") return "telegram";
-    if (/motion|presence|light|system/i.test(type)) return "cam";
-    return "mic"; // voice, sound, etc.
-  };
-  const toggleFilter = (f: string) => {
-    setTurnFilters((prev) => {
+  const toggleType = (type: string) => {
+    setTypeFilters((prev) => {
       const next = new Set(prev);
-      if (next.has(f)) next.delete(f); else next.add(f);
-      try { localStorage.setItem("lumi-turn-filters", JSON.stringify([...next])); } catch {}
+      if (next.has(type)) next.delete(type); else next.add(type);
+      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+
+  const toggleCategory = (cat: string) => {
+    const catTypes = CAT_TYPES[cat] ?? [];
+    setTypeFilters((prev) => {
+      const allOn = catTypes.every((t) => prev.has(t));
+      const next = new Set(prev);
+      if (allOn) { catTypes.forEach((t) => next.delete(t)); }
+      else { catTypes.forEach((t) => next.add(t)); }
+      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
       return next;
     });
   };
 
   const turns = groupIntoTurns(events);
-  const filteredTurns = turns.filter((t) => turnFilters.has(turnCategory(t.type)));
+
+  // Sub-types that actually appear in the current turns list
+  const availableTypes = useMemo(() => {
+    const seen = new Set<string>();
+    for (const t of turns) seen.add(t.type);
+    return [...seen];
+  }, [turns]);
+
+  const filteredTurns = useMemo(() => turns.filter((t) => {
+    if (!typeFilters.has(t.type)) return false;
+    if (fromTime || toTime) {
+      const m = t.startTime.match(/T(\d{2}:\d{2})/);
+      const tt = m?.[1] ?? "";
+      if (fromTime && tt < fromTime) return false;
+      if (toTime && tt > toTime) return false;
+    }
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase().trim();
+      const { input, output } = turnIO(t);
+      if (!`${input} ${output} ${t.type}`.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }), [turns, typeFilters, fromTime, toTime, searchText]);
   // When user explicitly selected a turn, keep it even if new events arrive.
   // Only auto-select latest turn when nothing is selected.
   const selectedTurn = selectedTurnId
@@ -359,27 +412,107 @@ export function FlowSection({
           overflow: "hidden",
         }}>
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
-            <span style={S.cardLabel}>Turns</span>
-            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>{filteredTurns.length}/{turns.length}</span>
-            <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+            {/* Title + count */}
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+              <span style={S.cardLabel}>Turns</span>
+              <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>
+                {filteredTurns.length}/{turns.length}
+              </span>
+            </div>
+
+            {/* Search */}
+            <input
+              type="text"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="search input / output…"
+              style={{
+                width: "100%", boxSizing: "border-box" as const,
+                padding: "4px 8px", borderRadius: 5, fontSize: 10,
+                background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+                color: "var(--lm-text)", marginBottom: 6, outline: "none",
+              }}
+            />
+
+            {/* Category quick-toggle */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 5, flexWrap: "wrap" as const }}>
               {([
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
                 { key: "telegram", icon: "💬", label: "TG" },
               ] as const).map((f) => {
-                const active = turnFilters.has(f.key);
+                const catTypes = CAT_TYPES[f.key] ?? [];
+                const available = catTypes.filter((t) => availableTypes.includes(t));
+                const active = available.length > 0 && available.every((t) => typeFilters.has(t));
+                const partial = !active && available.some((t) => typeFilters.has(t));
+                const border = active ? "var(--lm-amber)" : partial ? "var(--lm-teal)" : "var(--lm-border)";
+                const color = active ? "var(--lm-amber)" : partial ? "var(--lm-teal)" : "var(--lm-text-muted)";
                 return (
-                  <button key={f.key} onClick={() => toggleFilter(f.key)} style={{
+                  <button key={f.key} onClick={() => toggleCategory(f.key)} style={{
                     padding: "2px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer",
-                    border: `1px solid ${active ? "var(--lm-amber)" : "var(--lm-border)"}`,
-                    background: active ? "rgba(245,158,11,0.15)" : "transparent",
-                    color: active ? "var(--lm-amber)" : "var(--lm-text-muted)",
-                    fontWeight: active ? 600 : 400,
+                    border: `1px solid ${border}`,
+                    background: active ? "rgba(245,158,11,0.15)" : partial ? "rgba(45,212,191,0.1)" : "transparent",
+                    color, fontWeight: active || partial ? 600 : 400,
                   }}>
                     {f.icon} {f.label}
                   </button>
                 );
               })}
+            </div>
+
+            {/* Sub-type chips — only for types that actually appear */}
+            {availableTypes.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3, marginBottom: 5 }}>
+                {availableTypes.map((type) => {
+                  const on = typeFilters.has(type);
+                  const icon = TYPE_ICON[type] ?? "•";
+                  const label = TYPE_LABEL[type] ?? type.replace("ambient:", "~");
+                  return (
+                    <button key={type} onClick={() => toggleType(type)} title={type} style={{
+                      padding: "1px 5px", borderRadius: 3, fontSize: 9, cursor: "pointer",
+                      border: `1px solid ${on ? "var(--lm-teal)" : "var(--lm-border)"}`,
+                      background: on ? "rgba(45,212,191,0.12)" : "transparent",
+                      color: on ? "var(--lm-teal)" : "var(--lm-text-muted)",
+                      fontWeight: on ? 600 : 400,
+                    }}>
+                      {icon} {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Time range */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>from</span>
+              <input
+                type="time"
+                value={fromTime}
+                onChange={(e) => setFromTime(e.target.value)}
+                style={{
+                  flex: 1, padding: "2px 4px", borderRadius: 4, fontSize: 9,
+                  background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+                  color: fromTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
+                }}
+              />
+              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>to</span>
+              <input
+                type="time"
+                value={toTime}
+                onChange={(e) => setToTime(e.target.value)}
+                style={{
+                  flex: 1, padding: "2px 4px", borderRadius: 4, fontSize: 9,
+                  background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+                  color: toTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
+                }}
+              />
+              {(fromTime || toTime) && (
+                <button onClick={() => { setFromTime(""); setToTime(""); }} style={{
+                  padding: "1px 4px", borderRadius: 3, fontSize: 9, cursor: "pointer",
+                  border: "1px solid var(--lm-border)", background: "transparent",
+                  color: "var(--lm-red)", fontWeight: 700,
+                }}>✕</button>
+              )}
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
