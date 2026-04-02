@@ -111,7 +111,7 @@ export interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs";
+export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat";
 
 export const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview",   label: "Overview",   icon: "◈" },
