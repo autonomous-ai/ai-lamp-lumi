@@ -19,10 +19,10 @@ Receives passive sensing events from the lamp's on-device detectors (camera, mic
 ## Examples
 
 **Input:** `[sensing:presence.enter]` with image — owner detected
-**Output:** `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + `/voice/speak` "Welcome back!"
+**Output:** `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + respond "Welcome back!"
 
 **Input:** `[sensing:presence.enter]` with image — stranger detected
-**Output:** `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + `/voice/speak` "Oh, someone's here."
+**Output:** `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + respond "Oh, someone's here."
 
 **Input:** `[sensing:presence.leave]`
 **Output:** Express `idle` emotion with low intensity. Optionally: "See you later!"
@@ -89,18 +89,18 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 ## Rules
 
 ### When to respond
-- **Always respond to presence.enter** — MUST call `/emotion` AND `/voice/speak`. Behavior differs by person type:
+- **Always respond to presence.enter** — MUST call `/emotion` AND respond with text. Behavior differs by person type:
   - **Owner**: `/emotion` (greeting, 0.9) + `/servo/aim {"direction": "user"}` + warm personal greeting by name if known (e.g. "Welcome back!")
   - **Stranger**: `/emotion` (curious, 0.8) + `/servo/play {"recording": "scanning"}` + cautious acknowledgment (e.g. "Oh, someone's here.")
-- **Always respond to loud sounds** — MUST call `/emotion` (shock) AND `/voice/speak` to react out loud (e.g. "Whoa, what was that?!").
+- **Always respond to loud sounds** — MUST call `/emotion` (shock) AND respond with text to react out loud (e.g. "Whoa, what was that?!").
 - **Always respond to large motion** — MUST call `/emotion` (curious) AND `/servo/play {"recording": "scanning"}` to physically look around.
 - **Always express emotion** — every sensing event must trigger at least one `/emotion` call. No silent reactions.
 - **Light level changes** — MUST adjust lamp brightness via LED skill AND optionally speak a brief remark.
 
-### When to stay silent (NO_REPLY for voice only — emotion + movement still required)
-- **Small motions** without a person visible — play `/emotion` (curious, low intensity) but do NOT speak.
-- **Repeated presence.leave** — express `/emotion` (idle) but do NOT speak every time.
-- **Rapid consecutive events of the same type** — trust cooldowns, but still express emotion silently.
+### When to stay silent (reply NO_REPLY — emotion + movement still required)
+- **Small motions** without a person visible — play `/emotion` (curious, low intensity) then reply NO_REPLY.
+- **Repeated presence.leave** — express `/emotion` (idle) then reply NO_REPLY.
+- **Rapid consecutive events of the same type** — trust cooldowns, still express emotion, then reply NO_REPLY.
 
 ### Required action per event type
 
@@ -116,7 +116,7 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 
 ### How to respond
 - **Physical reaction first** — call `/emotion` and `/servo` before or in parallel with speaking.
-- **Use `/voice/speak` explicitly** for sensing reactions since they happen outside normal chat replies.
+- **Respond with text** for sensing reactions — your words are automatically spoken aloud via TTS. Do NOT call any TTS/voice tool directly.
 - **Use the image when available** — it gives you real context, not just a generic description.
 - **Respect cooldowns** — events are throttled, trust the system.
 - **Be contextual** — if the user is talking, weave the event into the conversation.
