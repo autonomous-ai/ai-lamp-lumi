@@ -269,9 +269,9 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       }
     }
 
-    if ((ev.type === "lifecycle" && ev.phase === "end") ||
+    if ((ev.type === "lifecycle" && (ev.phase === "end" || ev.phase === "error")) ||
         (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end")) {
-      current.status = ev.error ? "error" : "done";
+      current.status = (ev.phase === "error" || ev.error) ? "error" : "done";
       current.endTime = ev.time;
     }
     if (ev.type === "intent_match") {
@@ -599,6 +599,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
+      if (ev.phase === "error") {
+        pushAgentResponse(`❌ ${ev.error ?? ev.summary ?? "error"}`);
+      }
       if (ev.phase === "end") {
         pushAgentResponse(ev.error ? `❌ ${ev.error}` : "✓ done");
         const d = ev.detail as Record<string, string> | undefined;
