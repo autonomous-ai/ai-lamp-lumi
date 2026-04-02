@@ -18,6 +18,8 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
    | Overall structure | `docs/overview.md` | `docs/vi/overview_vi.md` |
    | MQTT, dispatch, publish | `docs/mqtt.md` | `docs/vi/mqtt_vi.md` |
    | OTA, bootstrap | `docs/bootstrap-ota.md` | `docs/vi/bootstrap-ota.md` |
+   | Sensing behavior, sound escalation, reactions | `docs/sensing-behavior.md` | `docs/vi/sensing-behavior_vi.md` |
+   | Sensing threshold tuning (LeLamp config) | `docs/sensing-tuning.md` | — |
 
 2. **Comments in English** — Project standard.
 3. **Code is the single source of truth** — Docs reflect code, not the other way around.
