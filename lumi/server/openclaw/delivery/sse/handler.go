@@ -39,10 +39,11 @@ type OpenClawHandler struct {
 	assistantMu  sync.Mutex
 	assistantBuf map[string]*strings.Builder
 
-	// musicTurns tracks runIDs where /audio/play was invoked so we can
-	// suppress TTS on lifecycle end (speaker is shared — TTS would collide with music).
-	musicMu    sync.Mutex
-	musicTurns map[string]bool
+	// ttsSuppressReasons tracks runIDs that should skip TTS on lifecycle end.
+	// Value is the reason: "music_playing" (speaker shared with audio) or
+	// "already_spoken" (TTS tool intercepted and already routed to speaker).
+	ttsSuppressMu      sync.Mutex
+	ttsSuppressReasons map[string]string
 
 	// runIDMap maps OpenClaw-assigned UUIDs back to device-originated idempotencyKeys.
 	// When lifecycle_start arrives with UUID while a device trace is active, we store
@@ -91,7 +92,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		monitorBus:   bus,
 		statusLED:    sled,
 		assistantBuf: make(map[string]*strings.Builder),
-		musicTurns:   make(map[string]bool),
+		ttsSuppressReasons: make(map[string]string),
 		runIDMap:     make(map[string]string),
 	}
 }
@@ -150,20 +151,24 @@ func (h *OpenClawHandler) flushAssistantText(runID string) string {
 	return text
 }
 
-// markMusicTurn flags a runID as having triggered music playback.
-func (h *OpenClawHandler) markMusicTurn(runID string) {
-	h.musicMu.Lock()
-	defer h.musicMu.Unlock()
-	h.musicTurns[runID] = true
+// suppressTTS flags a runID to skip TTS on lifecycle end with the given reason.
+func (h *OpenClawHandler) suppressTTS(runID, reason string) {
+	h.ttsSuppressMu.Lock()
+	defer h.ttsSuppressMu.Unlock()
+	// "music_playing" takes priority over "already_spoken" (speaker conflict is more important).
+	if existing := h.ttsSuppressReasons[runID]; existing == "music_playing" && reason != "music_playing" {
+		return
+	}
+	h.ttsSuppressReasons[runID] = reason
 }
 
-// clearMusicTurn removes the music flag for a runID and returns whether it was set.
-func (h *OpenClawHandler) clearMusicTurn(runID string) bool {
-	h.musicMu.Lock()
-	defer h.musicMu.Unlock()
-	was := h.musicTurns[runID]
-	delete(h.musicTurns, runID)
-	return was
+// clearTTSSuppress removes the suppress flag for a runID and returns the reason (empty if none).
+func (h *OpenClawHandler) clearTTSSuppress(runID string) string {
+	h.ttsSuppressMu.Lock()
+	defer h.ttsSuppressMu.Unlock()
+	reason := h.ttsSuppressReasons[runID]
+	delete(h.ttsSuppressReasons, runID)
+	return reason
 }
 
 // resolveRunID maps an OpenClaw-assigned UUID back to the device idempotencyKey if known.
@@ -528,7 +533,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// Detect music playback tool calls so we can suppress TTS on turn end.
 				// The Music skill uses Bash+curl to POST /audio/play.
 				if strings.Contains(toolArgs, "/audio/play") {
-					h.markMusicTurn(payload.RunID)
+					h.suppressTTS(payload.RunID, "music_playing")
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 					flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
@@ -572,7 +577,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							}
 						}(ttsText)
 						// Mark this turn as already spoken so lifecycle_end won't double-speak.
-						h.markMusicTurn(payload.RunID)
+						h.suppressTTS(payload.RunID, "already_spoken")
 					}
 				}
 			} else if payload.Data.Phase == "end" {
@@ -632,9 +637,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 
 		// When agent lifecycle ends, flush accumulated assistant text to TTS.
-		// Suppress TTS if the agent played music this turn (shared speaker).
+		// Suppress TTS if the agent played music or already spoke via tool intercept.
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
-			musicPlaying := h.clearMusicTurn(payload.RunID)
+			suppressReason := h.clearTTSSuppress(payload.RunID)
 			if text := h.flushAssistantText(payload.RunID); text != "" {
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
@@ -647,9 +652,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						State:   "final",
 						Detail:  map[string]string{"role": "assistant", "message": "[no reply]"},
 					})
-				} else if musicPlaying {
-					slog.Info("assistant turn done, TTS suppressed (music playing)", "component", "agent", "text", text[:min(len(text), 100)])
-					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "music_playing", "text": text}, flowRunID)
+				} else if suppressReason != "" {
+					slog.Info("assistant turn done, TTS suppressed", "component", "agent", "reason", suppressReason, "text", text[:min(len(text), 100)])
+					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
 					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
@@ -686,7 +691,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if payload.Data.Phase == "start" {
 			summary = fmt.Sprintf("Tool %s started", toolName)
 			if strings.Contains(toolArgs, "/audio/play") {
-				h.markMusicTurn(payload.RunID)
+				h.suppressTTS(payload.RunID, "music_playing")
 				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 				flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
@@ -728,7 +733,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
 						}
 					}(ttsText)
-					h.markMusicTurn(payload.RunID)
+					h.suppressTTS(payload.RunID, "already_spoken")
 				}
 			}
 		} else if payload.Data.Phase == "end" {
