@@ -182,14 +182,15 @@ export default function Monitor() {
         </div>
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {NAV.map((item) => (
-            <button
+            <a
               key={item.id}
+              href={`#${item.id}`}
               style={S.navItem(section === item.id)}
-              onClick={() => setSection(item.id)}
+              onClick={(e) => { e.preventDefault(); setSection(item.id); }}
             >
               <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
               {item.label}
-            </button>
+            </a>
           ))}
         </nav>
         <div style={{

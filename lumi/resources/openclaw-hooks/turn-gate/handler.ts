@@ -6,20 +6,17 @@ const handler = async (event: any): Promise<void> => {
   const ctx = event.context;
   const text: string = ctx?.bodyForAgent ?? ctx?.body ?? "";
 
-  // Skip sensing events — they have their own defined emotion reactions
+  // Skip sensing events — Lumi sets busy proactively in sendChat for those
   if (text.startsWith("[sensing:") || !text.trim()) return;
 
   const req = http.request({
     hostname: "127.0.0.1",
-    port: 5001,
-    path: "/emotion",
+    port: 5000,
+    path: "/api/openclaw/busy",
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
   req.on("error", () => {});
-  // TODO: differentiate emotion by context — "listening" when voice/mic input (user still speaking),
-  // "acknowledge" for quick command confirmations, "thinking" for text/processed messages (current default)
-  req.write(JSON.stringify({ emotion: "thinking", intensity: 0.7 }));
   req.end();
 };
 
