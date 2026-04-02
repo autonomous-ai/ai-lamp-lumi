@@ -321,10 +321,6 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	elevatedAllowFrom[channel] = []any{"*"}
 	elevatedMap["allowFrom"] = elevatedAllowFrom
 	toolsMap["elevated"] = elevatedMap
-	// Disable built-in TTS tool — Lumi handles TTS via LeLamp /voice/speak.
-	// Without this the agent calls OpenClaw's tts tool directly, which generates
-	// audio server-side but never routes it to the physical speaker.
-	toolsMap["disabled"] = []any{"tts"}
 	configData["tools"] = toolsMap
 
 	slog.Debug("ensuring messages defaults", "component", "openclaw")
@@ -524,62 +520,7 @@ func (s *Service) RestartAgent() error {
 
 // StartWS connects to the gateway WebSocket and runs the read loop, calling handler for each event.
 // It runs until ctx is cancelled. Auto-reconnects when disconnected.
-// ensureConfigDefaults patches openclaw.json with runtime defaults that must
-// be present on every boot (not only during initial setup/add-channel).
-func (s *Service) ensureConfigDefaults() {
-	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		slog.Warn("ensureConfigDefaults: cannot read openclaw.json", "component", "openclaw", "error", err)
-		return
-	}
-	var configData map[string]any
-	if err := json.Unmarshal(raw, &configData); err != nil {
-		slog.Warn("ensureConfigDefaults: cannot parse openclaw.json", "component", "openclaw", "error", err)
-		return
-	}
-
-	changed := false
-
-	// Ensure tools.disabled contains "tts" — Lumi handles TTS via LeLamp.
-	toolsMap := ensureMap(configData, "tools")
-	needTTSDisable := true
-	if disabled, ok := toolsMap["disabled"].([]any); ok {
-		for _, v := range disabled {
-			if s, ok := v.(string); ok && s == "tts" {
-				needTTSDisable = false
-				break
-			}
-		}
-		if needTTSDisable {
-			toolsMap["disabled"] = append(disabled, "tts")
-			changed = true
-		}
-	} else {
-		toolsMap["disabled"] = []any{"tts"}
-		changed = true
-	}
-	if changed {
-		configData["tools"] = toolsMap
-	}
-
-	if !changed {
-		return
-	}
-	written, err := json.MarshalIndent(configData, "", "  ")
-	if err != nil {
-		slog.Warn("ensureConfigDefaults: marshal failed", "component", "openclaw", "error", err)
-		return
-	}
-	if err := os.WriteFile(configPath, written, 0600); err != nil {
-		slog.Warn("ensureConfigDefaults: write failed", "component", "openclaw", "error", err)
-		return
-	}
-	slog.Info("ensureConfigDefaults: patched openclaw.json", "component", "openclaw")
-}
-
 func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler) {
-	s.ensureConfigDefaults()
 	backoff := 5 * time.Second
 	for {
 		select {
