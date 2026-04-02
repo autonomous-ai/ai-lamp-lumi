@@ -398,8 +398,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
-  const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
-    : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
   const pushUnique = (arr: string[], line: string) => {
     if (!line) return;
     if (!arr.includes(line)) arr.push(line);
@@ -411,42 +409,19 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     pushUnique(info.agent_response, line);
   };
 
-  // Compute per-node timings
+  // Sensing → lifecycle timing (used for agent_call node info below)
   let sensingEnterTs = 0;
   let lifecycleStartTs = 0;
-  let lifecycleEndTs = 0;
-  let ttsTs = 0;
   for (const ev of events) {
     const ts = new Date(ev.time).getTime();
-    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
+        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input")) {
       if (!sensingEnterTs) sensingEnterTs = ts;
     }
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start") {
       if (!lifecycleStartTs) lifecycleStartTs = ts;
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
-      lifecycleEndTs = ts; // take last one
-    }
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
-      if (!ttsTs) ttsTs = ts;
-    }
   }
-  // Sensing → agent call latency (time from sensing event to lifecycle_start)
-  if (sensingEnterTs && lifecycleStartTs) {
-    const lat = lifecycleStartTs - sensingEnterTs;
-    if (lat >= 0) info.agent_call.push(`⏱ queue→start ${fmtDur(lat)}`);
-  }
-  // Agent thinking duration (lifecycle_start → lifecycle_end)
-  if (lifecycleStartTs && lifecycleEndTs) {
-    const dur = lifecycleEndTs - lifecycleStartTs;
-    if (dur >= 0) info.agent_thinking.push(`⏱ ${fmtDur(dur)}`);
-  }
-  // Agent response → TTS latency
-  if (lifecycleEndTs && ttsTs) {
-    const lat = ttsTs - lifecycleEndTs;
-    if (lat >= 0 && lat < 30_000) info.tts_speak.push(`⏱ ${fmtDur(lat)} after response`);
-  }
-
   for (const ev of events) {
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
@@ -648,6 +623,104 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   }
 
   return info;
+}
+
+// Timing breakdown for a turn — displayed as a summary bar above the pipeline
+export interface TurnTiming {
+  total: number;       // start → end (ms)
+  segments: { label: string; ms: number; color: string; from?: string; to?: string }[];
+}
+
+export function extractTurnTiming(events: DisplayEvent[], startTime?: string, endTime?: string): TurnTiming | null {
+  if (!startTime || !endTime) return null;
+  const totalMs = new Date(endTime).getTime() - new Date(startTime).getTime();
+  if (!Number.isFinite(totalMs) || totalMs <= 0) return null;
+
+  const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+    : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+
+  let sensingTs = 0, chatSendTs = 0, chatInputTs = 0;
+  let lifecycleStartTs = 0, lifecycleEndTs = 0, ttsTs = 0;
+  let firstToolCallTs = 0, lastToolResultTs = 0;
+  let toolTotalMs = 0, toolStartTs = 0;
+
+  for (const ev of events) {
+    const ts = new Date(ev.time).getTime();
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
+        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input")) {
+      if (!sensingTs) sensingTs = ts;
+    }
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      if (!chatInputTs) chatInputTs = ts;
+    }
+    if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
+      if (!chatSendTs) chatSendTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start") {
+      if (!lifecycleStartTs) lifecycleStartTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
+      lifecycleEndTs = ts;
+    }
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      if (!ttsTs) ttsTs = ts;
+    }
+    const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
+    if (isToolCall) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const phase = d?.data?.phase ?? d?.phase ?? "";
+      if (phase === "start") {
+        if (!firstToolCallTs) firstToolCallTs = ts;
+        toolStartTs = ts;
+      }
+      if (phase === "result") {
+        lastToolResultTs = ts;
+        if (toolStartTs) { toolTotalMs += ts - toolStartTs; toolStartTs = 0; }
+      }
+    }
+  }
+
+  const segments: TurnTiming["segments"] = [];
+  // Sensing / input processing — typically <5ms, only show if notable (>50ms)
+  if (sensingTs && chatSendTs) {
+    const ms = chatSendTs - sensingTs;
+    if (ms > 50) segments.push({ label: `lelamp detect ${fmtDur(ms)}`, ms, color: "var(--lm-amber)", from: "sensing_input (lumi)", to: "chat_send (lumi)" });
+  }
+
+  // Queue → OpenClaw start
+  const callTs = chatSendTs || chatInputTs;
+  if (callTs && lifecycleStartTs) {
+    const ms = lifecycleStartTs - callTs;
+    if (ms > 0) segments.push({ label: `openclaw init ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "chat_send (lumi)", to: "lifecycle_start (openclaw)" });
+  }
+
+  // Thinking (TTFT)
+  if (lifecycleStartTs && firstToolCallTs) {
+    const ms = firstToolCallTs - lifecycleStartTs;
+    segments.push({ label: `llm thinking ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "first tool_call (openclaw)" });
+  } else if (lifecycleStartTs && lifecycleEndTs && !firstToolCallTs) {
+    const ms = lifecycleEndTs - lifecycleStartTs;
+    segments.push({ label: `llm processing ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "lifecycle_end (openclaw)" });
+  }
+
+  // Tool exec
+  if (toolTotalMs > 0) {
+    segments.push({ label: `tool exec ${fmtDur(toolTotalMs)}`, ms: toolTotalMs, color: "#f59e0b", from: "tool_call start (openclaw)", to: "tool_call result (lumi)" });
+  }
+
+  // Response gen (last tool result → lifecycle_end)
+  if (lastToolResultTs && lifecycleEndTs) {
+    const ms = lifecycleEndTs - lastToolResultTs;
+    if (ms > 0) segments.push({ label: `llm response ${fmtDur(ms)}`, ms, color: "var(--lm-green)", from: "last tool_call result (lumi)", to: "lifecycle_end (openclaw)" });
+  }
+
+  // TTS latency
+  if (lifecycleEndTs && ttsTs) {
+    const ms = ttsTs - lifecycleEndTs;
+    if (ms > 0 && ms < 30_000) segments.push({ label: `tts send ${fmtDur(ms)}`, ms, color: "#ec4899", from: "lifecycle_end (openclaw)", to: "tts_send (lumi)" });
+  }
+
+  return { total: totalMs, segments };
 }
 
 // Extract input/output summary from a turn
