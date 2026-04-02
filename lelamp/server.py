@@ -644,6 +644,7 @@ class ServoAimResponse(BaseModel):
 
 class SceneListResponse(BaseModel):
     scenes: list[str]
+    active: Optional[str]  # currently active scene name, or null
 
 
 class PresenceResponse(BaseModel):
@@ -1334,7 +1335,9 @@ def start_led_effect(req: LEDEffectRequest):
         raise HTTPException(400, f"Unknown effect '{req.effect}'. Available: {VALID_LED_EFFECTS}")
 
     # Stop any running effect
+    global _active_scene
     _stop_current_effect()
+    _active_scene = None  # explicit effect replaces any scene context
 
     # Default color: warm white if none provided
     base_color = tuple(req.color) if req.color else (255, 180, 100)
@@ -1551,9 +1554,10 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
         try:
             if preset.get("effect"):
                 _stop_current_effect()
-                global _effect_thread, _effect_name
+                global _effect_thread, _effect_name, _effect_base_color
                 _effect_stop.clear()
                 _effect_name = preset["effect"]
+                _effect_base_color = tuple(scaled)  # used by /led/color for stable color readback during animation
                 _effect_thread = threading.Thread(
                     target=_run_effect,
                     args=(preset["effect"], tuple(scaled), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
@@ -1634,7 +1638,7 @@ def express_emotion(req: EmotionRequest):
 @app.get("/scene", response_model=SceneListResponse, tags=["Scene"])
 def list_scenes():
     """List all available lighting scene presets."""
-    return {"scenes": list(SCENE_PRESETS.keys())}
+    return {"scenes": list(SCENE_PRESETS.keys()), "active": _active_scene}
 
 
 @app.post("/scene", response_model=SceneResponse, tags=["Scene"])
@@ -1649,6 +1653,7 @@ def activate_scene(req: SceneRequest):
         raise HTTPException(503, "LED not available")
 
     global _active_scene
+    _stop_current_effect()  # stop any running effect before applying scene solid
     base = preset["color"]
     brightness = preset["brightness"]
     scaled = [int(c * brightness) for c in base]
