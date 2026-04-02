@@ -212,6 +212,9 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
 		metadata := map[string]any{}
+		if s.config.LLMThinkingDisabled() {
+			metadata["thinkingBudget"] = 0
+		}
 		agentModelsMap[m.Key] = metadata
 	}
 	defaultsMap["model"] = map[string]any{
