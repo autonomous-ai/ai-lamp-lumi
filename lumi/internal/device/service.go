@@ -223,7 +223,8 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if data.LLMModel != "" {
 		s.config.LLMModel = data.LLMModel
 	}
-	if data.LLMDisableThinking != nil {
+	thinkingChanged := data.LLMDisableThinking != nil
+	if thinkingChanged {
 		s.config.LLMDisableThinking = data.LLMDisableThinking
 	}
 	if data.DeepgramAPIKey != "" {
@@ -287,6 +288,11 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 	slog.Info("config updated", "component", "device")
+	if thinkingChanged && s.agentGateway != nil {
+		if err := s.agentGateway.RefreshModelsConfig(); err != nil {
+			slog.Error("refresh models config failed", "component", "device", "error", err)
+		}
+	}
 	return nil
 }
 
