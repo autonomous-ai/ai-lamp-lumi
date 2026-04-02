@@ -27,14 +27,7 @@
       "Bash(find /Users/huynguyen/Autonomous/Projects/ai-lamp-openclaw/lumi -type f -name \"*.go\" -exec grep -l \"sensing\\\\|voice\\\\|presence\" {})",
       "Bash(go build:*)",
       "Bash(go vet:*)",
-      "WebFetch(domain:docs.openclaw.ai)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(ssh:*)",
-      "Bash(scp:*)",
-      "Bash(git stash:*)",
-      "Bash(make upload-lelamp-pi5:*)"
+      "WebFetch(domain:docs.openclaw.ai)"
     ]
   }
 }
