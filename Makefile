@@ -60,6 +60,27 @@ lelamp-clean:
 	rm -rf $(LELAMP_DIR)/.venv $(LELAMP_DIR)/__pycache__
 
 # ============================================================================
+# LeLamp Pi 5 — swap RGB service (SPI on GPIO 10 instead of PWM on GPIO 12)
+# ============================================================================
+
+.PHONY: lelamp-pi5-patch lelamp-pi5-restore upload-lelamp-pi5
+
+RGB_SRC := $(LELAMP_DIR)/service/rgb/rgb_service.py
+RGB_PI5 := $(LELAMP_DIR)/service/rgb/rgb_service_pi5.py
+RGB_BAK := $(LELAMP_DIR)/service/rgb/rgb_service_pi4.py.bak
+
+lelamp-pi5-patch:
+	@cp $(RGB_SRC) $(RGB_BAK)
+	@cp $(RGB_PI5) $(RGB_SRC)
+	@echo "Patched: rgb_service.py → Pi 5 (SPI/GPIO 10)"
+
+lelamp-pi5-restore:
+	@if [ -f $(RGB_BAK) ]; then mv $(RGB_BAK) $(RGB_SRC); echo "Restored: rgb_service.py → Pi 4 (PWM/GPIO 12)"; fi
+
+upload-lelamp-pi5: lelamp-pi5-patch
+	@bash scripts/upload-lelamp.sh; status=$$?; $(MAKE) lelamp-pi5-restore; exit $$status
+
+# ============================================================================
 # Web (React/Vite/Tailwind) — install | dev | build
 # ============================================================================
 
