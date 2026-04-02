@@ -4,29 +4,86 @@ import type { DisplayEvent } from "./types";
 
 // ─── Markdown ───────────────────────────────────────────────────────────────
 
+// Inline: **bold**, *italic*, `code`, URLs
+function renderInline(line: string, keyPrefix: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(https?:\/\/[^\s<>)"]+))/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    if (match.index > last) parts.push(line.slice(last, match.index));
+    const k = `${keyPrefix}-${match.index}`;
+    if (match[2]) parts.push(<strong key={k}>{match[2]}</strong>);
+    else if (match[3]) parts.push(<em key={k}>{match[3]}</em>);
+    else if (match[4]) parts.push(<code key={k} style={{ background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: 3, fontSize: "0.9em" }}>{match[4]}</code>);
+    else if (match[5]) parts.push(<a key={k} href={match[5]} target="_blank" rel="noopener noreferrer" style={{ color: "var(--lm-teal)", textDecoration: "underline" }}>{match[5].length > 50 ? match[5].slice(0, 50) + "…" : match[5]}</a>);
+    last = match.index + match[0].length;
+  }
+  if (last < line.length) parts.push(line.slice(last));
+  return parts;
+}
+
 function renderMarkdown(text: string): ReactNode {
   const lines = text.split("\n");
-  return lines.map((line, li) => {
-    const parts: ReactNode[] = [];
-    const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
-    let last = 0;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(line)) !== null) {
-      if (match.index > last) parts.push(line.slice(last, match.index));
-      if (match[2]) parts.push(<strong key={`${li}-${match.index}`}>{match[2]}</strong>);
-      else if (match[3]) parts.push(<em key={`${li}-${match.index}`}>{match[3]}</em>);
-      else if (match[4]) parts.push(<code key={`${li}-${match.index}`} style={{ background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: 3, fontSize: "0.9em" }}>{match[4]}</code>);
-      last = match.index + match[0].length;
+  const result: ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    // Code block: ```
+    if (lines[i].startsWith("```")) {
+      const codeLines: string[] = [];
+      i++; // skip opening ```
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++; // skip closing ```
+      result.push(
+        <pre key={`cb-${i}`} style={{
+          background: "rgba(0,0,0,0.3)", padding: "8px 12px", borderRadius: 6,
+          fontSize: "0.85em", overflowX: "auto", margin: "4px 0",
+          border: "1px solid var(--lm-border)", whiteSpace: "pre-wrap", wordBreak: "break-word",
+        }}>
+          <code>{codeLines.join("\n")}</code>
+        </pre>,
+      );
+      continue;
     }
-    if (last < line.length) parts.push(line.slice(last));
-    if (parts.length === 0) parts.push("");
-    return (
-      <span key={li}>
-        {li > 0 && <br />}
-        {parts}
-      </span>
+
+    // Unordered list: - item or * item
+    if (/^[\-\*]\s/.test(lines[i])) {
+      const items: ReactNode[] = [];
+      while (i < lines.length && /^[\-\*]\s/.test(lines[i])) {
+        items.push(<li key={`li-${i}`}>{renderInline(lines[i].replace(/^[\-\*]\s/, ""), `ul-${i}`)}</li>);
+        i++;
+      }
+      result.push(<ul key={`ul-${i}`} style={{ margin: "4px 0", paddingLeft: 20 }}>{items}</ul>);
+      continue;
+    }
+
+    // Ordered list: 1. item
+    if (/^\d+\.\s/.test(lines[i])) {
+      const items: ReactNode[] = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(<li key={`oli-${i}`}>{renderInline(lines[i].replace(/^\d+\.\s/, ""), `ol-${i}`)}</li>);
+        i++;
+      }
+      result.push(<ol key={`ol-${i}`} style={{ margin: "4px 0", paddingLeft: 20 }}>{items}</ol>);
+      continue;
+    }
+
+    // Regular line
+    const inline = renderInline(lines[i], `l-${i}`);
+    result.push(
+      <span key={`s-${i}`}>
+        {i > 0 && result.length > 0 && <br />}
+        {inline.length > 0 ? inline : ""}
+      </span>,
     );
-  });
+    i++;
+  }
+
+  return result;
 }
 
 // ─── Storage ────────────────────────────────────────────────────────────────
@@ -56,6 +113,7 @@ interface Conversation {
   createdAt: number;
   messages: ChatMessage[];
   manualTitle?: boolean;
+  pinned?: boolean;
 }
 
 function loadConvos(): Conversation[] {
@@ -198,6 +256,7 @@ export function ChatSection({ events }: Props) {
   const [fileSize, setFileSize] = useState<number>(0);
   const [fileIsImage, setFileIsImage] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [dragging, setDragging] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -343,6 +402,10 @@ export function ChatSection({ events }: Props) {
     setConfirmDeleteId(null);
   };
 
+  const togglePin = (id: string) => {
+    setConvos((prev) => prev.map((c) => c.id === id ? { ...c, pinned: !c.pinned } : c));
+  };
+
   const startRename = (c: Conversation) => {
     setEditingId(c.id);
     setEditTitle(c.title);
@@ -361,12 +424,9 @@ export function ChatSection({ events }: Props) {
 
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const attachFile = useCallback((file: File) => {
     if (file.size > MAX_FILE_SIZE) {
       alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 10 MB.`);
-      e.target.value = "";
       return;
     }
     const isImage = file.type.startsWith("image/");
@@ -380,6 +440,11 @@ export function ChatSection({ events }: Props) {
       setFilePreview(isImage ? dataUrl : null);
     };
     reader.readAsDataURL(file);
+  }, []);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) attachFile(file);
     e.target.value = "";
   };
 
@@ -390,6 +455,38 @@ export function ChatSection({ events }: Props) {
     setFileSize(0);
     setFileIsImage(false);
   };
+
+  // Drag & drop
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  }, []);
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    // Only leave when exiting the container (not children)
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragging(false);
+  }, []);
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) attachFile(file);
+  }, [attachFile]);
+
+  // Paste image from clipboard
+  const onPaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          attachFile(file);
+          return;
+        }
+      }
+    }
+  }, [attachFile]);
 
   const exportConversation = () => {
     if (!active || active.messages.length === 0) return;
@@ -676,30 +773,84 @@ export function ChatSection({ events }: Props) {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteConvo(c.id); }}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: confirmDeleteId === c.id ? "var(--lm-red)" : "var(--lm-text-muted)",
-                      fontSize: confirmDeleteId === c.id ? 10 : 13,
-                      padding: "0 2px", opacity: confirmDeleteId === c.id ? 1 : 0.5,
-                      lineHeight: 1, fontWeight: confirmDeleteId === c.id ? 600 : 400,
-                      transition: "all 0.15s",
-                    }}
-                    onMouseEnter={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "var(--lm-red)"; } }}
-                    onMouseLeave={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "0.5"; e.currentTarget.style.color = "var(--lm-text-muted)"; } }}
-                    title={confirmDeleteId === c.id ? "Click again to confirm" : "Delete conversation"}
-                  >{confirmDeleteId === c.id ? "del?" : "×"}</button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: c.pinned ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                        fontSize: 10, padding: "0 2px", opacity: c.pinned ? 0.9 : 0.4,
+                        lineHeight: 1, transition: "opacity 0.15s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = c.pinned ? "0.9" : "0.4"; }}
+                      title={c.pinned ? "Unpin" : "Pin to top"}
+                    >{c.pinned ? "◆" : "◇"}</button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteConvo(c.id); }}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: confirmDeleteId === c.id ? "var(--lm-red)" : "var(--lm-text-muted)",
+                        fontSize: confirmDeleteId === c.id ? 10 : 13,
+                        padding: "0 2px", opacity: confirmDeleteId === c.id ? 1 : 0.5,
+                        lineHeight: 1, fontWeight: confirmDeleteId === c.id ? 600 : 400,
+                        transition: "all 0.15s",
+                      }}
+                      onMouseEnter={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "var(--lm-red)"; } }}
+                      onMouseLeave={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "0.5"; e.currentTarget.style.color = "var(--lm-text-muted)"; } }}
+                      title={confirmDeleteId === c.id ? "Click again to confirm" : "Delete conversation"}
+                    >{confirmDeleteId === c.id ? "del?" : "×"}</button>
+                  </div>
                 </div>
               ))}
             </div>
           ))}
         </div>
+        {convos.length > 1 && (
+          <div style={{ padding: "8px 12px", borderTop: "1px solid var(--lm-border)" }}>
+            <button
+              onClick={() => {
+                if (confirm(`Delete all ${convos.filter((c) => !c.pinned).length} unpinned conversations?`)) {
+                  setConvos((prev) => prev.filter((c) => c.pinned));
+                  setActiveId(null);
+                }
+              }}
+              style={{
+                width: "100%", padding: "5px 0", borderRadius: 6,
+                background: "none", border: "1px solid var(--lm-border)",
+                color: "var(--lm-text-muted)", fontSize: 10, cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--lm-red)"; e.currentTarget.style.borderColor = "var(--lm-red)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--lm-text-muted)"; e.currentTarget.style.borderColor = "var(--lm-border)"; }}
+            >Clear all unpinned</button>
+          </div>
+        )}
       </div>
       )}
 
       {/* ── Chat area ── */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}>
+      <div
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}
+      >
+        {/* Drop overlay */}
+        {dragging && (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            background: "rgba(245,158,11,0.08)",
+            border: "2px dashed var(--lm-amber)",
+            borderRadius: 8,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            pointerEvents: "none",
+          }}>
+            <span style={{ fontSize: 14, color: "var(--lm-amber)", fontWeight: 600 }}>
+              Drop file here
+            </span>
+          </div>
+        )}
         {/* Chat header bar */}
         <div style={{
           padding: "6px 12px", borderBottom: "1px solid var(--lm-border)",
@@ -935,6 +1086,7 @@ export function ChatSection({ events }: Props) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             disabled={sending}
             placeholder="Send a message to Lumi… (Shift+Enter for new line)"
             rows={1}
@@ -982,10 +1134,19 @@ function groupConvosByDate(convos: Conversation[]): { label: string; items: Conv
   const yesterday = today - 86400_000;
   const weekAgo = today - 7 * 86400_000;
 
+  // Pinned first
+  const pinned = convos.filter((c) => c.pinned);
+  const unpinned = convos.filter((c) => !c.pinned);
+
   const groups: Record<string, Conversation[]> = {};
   const order: string[] = [];
 
-  for (const c of convos) {
+  if (pinned.length > 0) {
+    groups["Pinned"] = pinned;
+    order.push("Pinned");
+  }
+
+  for (const c of unpinned) {
     let label: string;
     if (c.createdAt >= today) label = "Today";
     else if (c.createdAt >= yesterday) label = "Yesterday";
