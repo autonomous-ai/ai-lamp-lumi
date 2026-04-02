@@ -202,7 +202,7 @@ export function FlowSection({
     });
   };
 
-  const turns = groupIntoTurns(events);
+  const turns = useMemo(() => groupIntoTurns(events), [events]);
 
   // Sub-types that actually appear in the current turns list
   const availableTypes = useMemo(() => {
