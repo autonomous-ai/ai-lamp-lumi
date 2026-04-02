@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,81 +30,17 @@ type SensingEventRequest struct {
 	Image string `json:"image,omitempty"`
 }
 
-// soundTracker implements escalating reaction logic for sound sensing events.
-//
-// Behavior mirrors a living creature hearing noise:
-//   - occurrences 1–2: pass through silently (agent expresses emotion only, no speech)
-//   - occurrence 3+: marked "persistent" — agent may speak once to comment on the noise
-//   - after persistent event: 3-minute suppression so Lumi doesn't keep complaining
-//
-// A 15-second dedup prevents flooding when LeLamp fires on every audio sample.
-// The window resets after 2 minutes of silence.
-type soundTracker struct {
-	mu            sync.Mutex
-	count         int
-	windowStart   time.Time
-	lastPassed    time.Time
-	suppressUntil time.Time
-}
-
-const (
-	soundDedupeInterval   = 15 * time.Second
-	soundWindowDuration   = 2 * time.Minute
-	soundPersistentAfter  = 3 // speak after this many occurrences in one window
-	soundSuppressDuration = 3 * time.Minute
-)
-
-// track processes an incoming sound event and returns whether it should be forwarded to the agent,
-// the current occurrence count, and whether this event crossed the persistent threshold.
-func (t *soundTracker) track(now time.Time) (send bool, occurrence int, persistent bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Post-speak suppression: drop until cooldown expires.
-	if now.Before(t.suppressUntil) {
-		return false, 0, false
-	}
-
-	// Reset window after silence longer than windowDuration.
-	if !t.lastPassed.IsZero() && now.Sub(t.lastPassed) > soundWindowDuration {
-		t.count = 0
-		t.windowStart = time.Time{}
-	}
-
-	// Dedup: forward at most one event per dedupeInterval.
-	if !t.lastPassed.IsZero() && now.Sub(t.lastPassed) < soundDedupeInterval {
-		return false, 0, false
-	}
-
-	if t.windowStart.IsZero() {
-		t.windowStart = now
-	}
-	t.count++
-	t.lastPassed = now
-
-	current := t.count
-	isPersistent := current >= soundPersistentAfter
-	if isPersistent {
-		// Agent will speak once; suppress subsequent events for cooldown period.
-		t.suppressUntil = now.Add(soundSuppressDuration)
-		t.count = 0
-		t.windowStart = time.Time{}
-	}
-
-	return true, current, isPersistent
-}
 
 // SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
 type SensingHandler struct {
 	agentGateway domain.AgentGateway
 	monitorBus   *monitor.Bus
 	config       *config.Config
-	soundTracker *soundTracker
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
 func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config) SensingHandler {
-	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, soundTracker: &soundTracker{}}
+	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg}
 }
 
 // PostEvent receives a sensing event and sends it to the agent as a chat message.
@@ -260,6 +195,34 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"runId": runID,
 	}))
+}
+
+// MonitorEventRequest is the payload for pushing an event to the monitor bus.
+type MonitorEventRequest struct {
+	Type    string         `json:"type" validate:"required"`
+	Summary string         `json:"summary" validate:"required"`
+	Detail  map[string]any `json:"detail,omitempty"`
+	RunID   string         `json:"runId,omitempty"`
+}
+
+// PostMonitorEvent allows internal services (e.g. LeLamp) to push events to the monitor bus.
+func (h *SensingHandler) PostMonitorEvent(c *gin.Context) {
+	var req MonitorEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	h.monitorBus.Push(domain.MonitorEvent{
+		Type:    req.Type,
+		Summary: req.Summary,
+		Detail:  req.Detail,
+		RunID:   req.RunID,
+	})
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 }
 
 // GetSnapshot serves a sensing snapshot image from /tmp/lumi-sensing-snapshots/.
