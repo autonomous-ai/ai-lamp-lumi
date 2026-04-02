@@ -8,6 +8,7 @@ import (
 	"go-lamp.autonomous.ai/internal/agent"
 	"go-lamp.autonomous.ai/internal/ambient"
 	"go-lamp.autonomous.ai/internal/beclient"
+	"go-lamp.autonomous.ai/internal/healthwatch"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
@@ -35,6 +36,7 @@ func InitializeServer() (*Server, error) {
 		device.ProviderSet,
 		resetbutton.ProviderSet,
 		ambient.ProviderSet,
+		healthwatch.ProviderSet,
 		statusled.ProviderSet,
 		_healthHttpDeliver.ProviderSet,
 		_networkHttpDeliver.ProviderSet,
