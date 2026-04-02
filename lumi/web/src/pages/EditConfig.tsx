@@ -1,57 +1,236 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Eye, EyeOff, ArrowLeft, Info } from "lucide-react";
 import { toast } from "sonner";
 import { getDeviceConfig, updateDeviceConfig } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import type { ChannelType } from "@/types";
 
-export default function EditConfig() {
-  const navigate = useNavigate();
+// ── inline style helpers matching monitor design system ──────────────────────
 
-  const [loading, setLoading] = useState(true);
+const S = {
+  root: {
+    display: "flex",
+    height: "100vh",
+    background: "var(--lm-bg)",
+    color: "var(--lm-text)",
+    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+    fontSize: 13,
+  } as React.CSSProperties,
+  topbar: {
+    padding: "10px 20px",
+    borderBottom: "1px solid var(--lm-border)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexShrink: 0,
+  } as React.CSSProperties,
+  content: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto" as const,
+    padding: "20px",
+  },
+  main: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column" as const,
+    overflow: "hidden",
+  },
+  card: {
+    background: "var(--lm-card)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 14,
+  } as React.CSSProperties,
+  cardLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--lm-text-dim)",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+    marginBottom: 14,
+  },
+  label: {
+    display: "block",
+    fontSize: 11,
+    color: "var(--lm-text-dim)",
+    marginBottom: 4,
+    marginTop: 10,
+  } as React.CSSProperties,
+  input: {
+    width: "100%",
+    background: "var(--lm-surface)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 6,
+    padding: "7px 10px",
+    fontSize: 12.5,
+    color: "var(--lm-text)",
+    outline: "none",
+    boxSizing: "border-box" as const,
+    transition: "border-color 0.15s",
+  } as React.CSSProperties,
+  inputFocus: {
+    borderColor: "var(--lm-amber)",
+  } as React.CSSProperties,
+  select: {
+    width: "100%",
+    background: "var(--lm-surface)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 6,
+    padding: "7px 10px",
+    fontSize: 12.5,
+    color: "var(--lm-text)",
+    outline: "none",
+    cursor: "pointer",
+    boxSizing: "border-box" as const,
+    appearance: "none" as const,
+  } as React.CSSProperties,
+  checkRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+    cursor: "pointer",
+  } as React.CSSProperties,
+  btn: (disabled: boolean) => ({
+    padding: "8px 20px",
+    borderRadius: 8,
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: disabled ? "not-allowed" : "pointer",
+    border: "none",
+    background: disabled ? "var(--lm-surface)" : "var(--lm-amber)",
+    color: disabled ? "var(--lm-text-muted)" : "#0C0B09",
+    transition: "all 0.15s",
+    opacity: disabled ? 0.6 : 1,
+  } as React.CSSProperties),
+  backLink: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    color: "var(--lm-text-dim)",
+    textDecoration: "none",
+    fontSize: 12.5,
+    transition: "color 0.15s",
+  } as React.CSSProperties,
+  error: {
+    background: "rgba(248,113,113,0.08)",
+    border: "1px solid rgba(248,113,113,0.25)",
+    borderRadius: 8,
+    padding: "10px 14px",
+    fontSize: 12,
+    color: "var(--lm-red)",
+    marginBottom: 14,
+  } as React.CSSProperties,
+  info: {
+    background: "rgba(245,158,11,0.07)",
+    border: "1px solid rgba(245,158,11,0.2)",
+    borderRadius: 8,
+    padding: "10px 14px",
+    fontSize: 11.5,
+    color: "var(--lm-text-dim)",
+    marginBottom: 14,
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+};
+
+// ── small reusable field ──────────────────────────────────────────────────────
+
+function Field({
+  label, id, value, onChange, placeholder, type = "text", autoComplete = "off",
+}: {
+  label: string; id: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; type?: string; autoComplete?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div>
+      <label htmlFor={id} style={S.label}>{label}</label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{ ...S.input, ...(focused ? S.inputFocus : {}) }}
+      />
+    </div>
+  );
+}
+
+function PasswordField({
+  label, id, value, onChange, placeholder,
+}: {
+  label: string; id: string; value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  const [focused, setFocused] = useState(false);
+  return (
+    <div>
+      <label htmlFor={id} style={S.label}>{label}</label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id}
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete="off"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{ ...S.input, paddingRight: 36, ...(focused ? S.inputFocus : {}) }}
+        />
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          tabIndex={-1}
+          style={{
+            position: "absolute", right: 0, top: 0, height: "100%",
+            padding: "0 10px", background: "none", border: "none",
+            color: "var(--lm-text-muted)", cursor: "pointer", fontSize: 11,
+          }}
+        >
+          {show ? "hide" : "show"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── skeleton loader ───────────────────────────────────────────────────────────
+
+function Skeleton({ w = "100%", h = 10 }: { w?: string | number; h?: number }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: 6,
+      background: "var(--lm-surface)",
+      animation: "lm-fade-in 1s ease-in-out infinite alternate",
+    }} />
+  );
+}
+
+// ── main page ─────────────────────────────────────────────────────────────────
+
+export default function EditConfig() {
+  const [loadingCfg, setLoadingCfg] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // WiFi
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const togglePassword = useCallback(() => setShowPassword((v) => !v), []);
-
-  // Device
   const [deviceId, setDeviceId] = useState("");
 
-  // LLM
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
 
-  // Deepgram
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
 
-  // Channel
   const [channel, setChannel] = useState<ChannelType>("telegram");
   const [teleToken, setTeleToken] = useState("");
   const [teleUserId, setTeleUserId] = useState("");
@@ -62,7 +241,6 @@ export default function EditConfig() {
   const [discordGuildId, setDiscordGuildId] = useState("");
   const [discordUserId, setDiscordUserId] = useState("");
 
-  // MQTT
   const [mqttEndpoint, setMqttEndpoint] = useState("");
   const [mqttPort, setMqttPort] = useState("");
   const [mqttUsername, setMqttUsername] = useState("");
@@ -70,7 +248,6 @@ export default function EditConfig() {
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
 
-  // Load current config on mount
   useEffect(() => {
     getDeviceConfig()
       .then((cfg: DeviceConfig) => {
@@ -81,8 +258,7 @@ export default function EditConfig() {
         setLlmModel(cfg.llm_model ?? "");
         setLlmDisableThinking(cfg.llm_disable_thinking ?? false);
         setDeepgramApiKey(cfg.deepgram_api_key ?? "");
-        const ch = (cfg.channel as ChannelType) || "telegram";
-        setChannel(ch);
+        setChannel((cfg.channel as ChannelType) || "telegram");
         setTeleToken(cfg.telegram_bot_token ?? "");
         setTeleUserId(cfg.telegram_user_id ?? "");
         setSlackBotToken(cfg.slack_bot_token ?? "");
@@ -99,43 +275,27 @@ export default function EditConfig() {
         setFdChannel(cfg.fd_channel ?? "");
       })
       .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => setLoadingCfg(false));
   }, []);
 
-  const handleSubmit = async (e: { preventDefault(): void }) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaving(true);
     try {
-      let channelCredentials: Record<string, string> = {};
-      switch (channel) {
-        case "telegram":
-          channelCredentials = {
-            telegram_bot_token: teleToken,
-            telegram_user_id: teleUserId,
-          };
-          break;
-        case "slack":
-          channelCredentials = {
-            slack_bot_token: slackBotToken,
-            slack_app_token: slackAppToken,
-            slack_user_id: slackUserId,
-          };
-          break;
-        case "discord":
-          channelCredentials = {
-            discord_bot_token: discordBotToken,
-            discord_guild_id: discordGuildId,
-            discord_user_id: discordUserId,
-          };
-          break;
+      let channelCreds: Record<string, string> = {};
+      if (channel === "telegram") {
+        channelCreds = { telegram_bot_token: teleToken, telegram_user_id: teleUserId };
+      } else if (channel === "slack") {
+        channelCreds = { slack_bot_token: slackBotToken, slack_app_token: slackAppToken, slack_user_id: slackUserId };
+      } else {
+        channelCreds = { discord_bot_token: discordBotToken, discord_guild_id: discordGuildId, discord_user_id: discordUserId };
       }
-
-      const body: Record<string, unknown> = {
+      await updateDeviceConfig({
         ssid: ssid.trim(),
         ...(password ? { password } : {}),
         channel,
-        ...channelCredentials,
+        ...channelCreds,
         llm_base_url: llmUrl,
         llm_api_key: llmApiKey,
         llm_model: llmModel,
@@ -148,337 +308,150 @@ export default function EditConfig() {
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
         fa_channel: faChannel,
         fd_channel: fdChannel,
-      };
-
-      await updateDeviceConfig(body as Parameters<typeof updateDeviceConfig>[0]);
-      toast.success("Config saved. Restart Lumi for all changes to take effect.");
+      } as Parameters<typeof updateDeviceConfig>[0]);
+      toast.success("Config saved — restart Lumi for changes to take effect.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
     }
     setSaving(false);
-  };
+  }, [
+    channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
+    discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, deviceId,
+    mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
+  ]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-muted/30">
-      <main className="flex-1 flex flex-col overflow-auto">
-        <div className="max-w-sm sm:max-w-md mx-auto w-full px-4 py-6 pb-24">
-          <div className="flex items-center justify-between mb-6">
-            <button
-              onClick={() => navigate(-1)}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="size-4" />
-              Back
-            </button>
-            <ThemeToggle />
-          </div>
+    <div className="lm-root" style={S.root}>
+      <main style={S.main}>
+        {/* Topbar */}
+        <div style={S.topbar}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>⚙ Settings</span>
+          <a href="/monitor" style={S.backLink}>
+            ← Monitor
+          </a>
+        </div>
 
-          {loading ? (
-            <Card className="w-full rounded-2xl shadow-lg">
-              <CardHeader className="space-y-2">
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="h-4 w-48" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full rounded-md" />
-                ))}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="w-full rounded-2xl shadow-lg mb-6">
-              <CardHeader className="space-y-2">
-                <CardTitle className="text-lg">Edit Config</CardTitle>
-                <CardDescription>Update device settings. Leave fields blank to keep current values.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  {error && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                  )}
+        {/* Content */}
+        <div style={S.content} className="lm-fade-in">
+          <div style={{ maxWidth: 520 }}>
 
-                  <Alert>
-                    <Info className="size-4" />
-                    <AlertDescription className="text-xs">
-                      Restart Lumi after saving for LLM and channel changes to take effect.
-                    </AlertDescription>
-                  </Alert>
-
-                  {/* WiFi */}
-                  <details className="space-y-3 rounded-md border p-3" open>
-                    <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
-                      Wi-Fi
-                    </summary>
-                    <div className="space-y-2 pt-2">
-                      <Label htmlFor="ssid">SSID</Label>
-                      <Input
-                        id="ssid"
-                        placeholder="Network name"
-                        value={ssid}
-                        onChange={(e) => setSsid(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="password">Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Leave blank to keep current"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          autoComplete="off"
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={togglePassword}
-                          className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground transition-colors"
-                          tabIndex={-1}
-                          aria-label={showPassword ? "Hide password" : "Show password"}
-                        >
-                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                        </button>
-                      </div>
+            {loadingCfg ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} style={S.card}>
+                    <Skeleton h={8} w={80} />
+                    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                      <Skeleton h={30} />
+                      <Skeleton h={30} />
                     </div>
-                  </details>
-
-                  {/* Device ID */}
-                  <div className="space-y-2">
-                    <Label htmlFor="device_id">Device ID</Label>
-                    <Input
-                      id="device_id"
-                      placeholder="lumi-001"
-                      value={deviceId}
-                      onChange={(e) => setDeviceId(e.target.value)}
-                      autoComplete="off"
-                    />
                   </div>
+                ))}
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                {error && <div style={S.error}>{error}</div>}
+                <div style={S.info}>
+                  ↻ &nbsp;Restart Lumi after saving for LLM and channel changes to take effect.
+                </div>
 
-                  {/* LLM */}
-                  <details className="space-y-3 rounded-md border p-3" open>
-                    <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
-                      LLM
-                    </summary>
-                    <div className="space-y-2 pt-2">
-                      <Label htmlFor="llm_api_key">API Key</Label>
-                      <Input
-                        id="llm_api_key"
-                        placeholder="sk-..."
-                        value={llmApiKey}
-                        onChange={(e) => setLlmApiKey(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="llm_url">Base URL</Label>
-                      <Input
-                        id="llm_url"
-                        placeholder="https://api.openai.com/v1"
-                        value={llmUrl}
-                        onChange={(e) => setLlmUrl(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="llm_model">Model</Label>
-                      <Input
-                        id="llm_model"
-                        placeholder="gpt-4o-mini"
-                        value={llmModel}
-                        onChange={(e) => setLlmModel(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <label htmlFor="llm_disable_thinking" className="flex items-center gap-2 pt-1 cursor-pointer select-none">
-                        <input
-                          id="llm_disable_thinking"
-                          type="checkbox"
-                          checked={llmDisableThinking}
-                          onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                          className="size-4 accent-primary"
-                        />
-                        <span className="text-sm text-muted-foreground">Disable extended thinking (faster responses)</span>
-                      </label>
-                    </div>
-                  </details>
+                {/* Wi-Fi */}
+                <div style={S.card}>
+                  <div style={S.cardLabel}>Wi-Fi</div>
+                  <Field label="SSID" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
+                  <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Leave blank to keep current" />
+                </div>
 
-                  {/* Deepgram */}
-                  <details className="space-y-3 rounded-md border p-3">
-                    <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
-                      Deepgram STT
-                    </summary>
-                    <div className="space-y-2 pt-2">
-                      <Label htmlFor="deepgram_api_key">API Key</Label>
-                      <Input
-                        id="deepgram_api_key"
-                        placeholder="dg-..."
-                        value={deepgramApiKey}
-                        onChange={(e) => setDeepgramApiKey(e.target.value)}
-                        autoComplete="off"
-                      />
-                    </div>
-                  </details>
+                {/* Device */}
+                <div style={S.card}>
+                  <div style={S.cardLabel}>Device</div>
+                  <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
+                </div>
 
-                  {/* Channel */}
-                  <details className="space-y-3 rounded-md border p-3" open>
-                    <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
-                      Messaging Channel
-                    </summary>
-                    <div className="space-y-2 pt-2">
-                      <Label htmlFor="channel">Channel</Label>
-                      <Select value={channel} onValueChange={(v) => setChannel(v as ChannelType)}>
-                        <SelectTrigger id="channel" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="telegram">Telegram</SelectItem>
-                          <SelectItem value="slack">Slack</SelectItem>
-                          <SelectItem value="discord">Discord</SelectItem>
-                        </SelectContent>
-                      </Select>
+                {/* LLM */}
+                <div style={S.card}>
+                  <div style={S.cardLabel}>LLM</div>
+                  <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
+                  <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
+                  <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
+                  <label style={S.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={llmDisableThinking}
+                      onChange={(e) => setLlmDisableThinking(e.target.checked)}
+                      style={{ accentColor: "var(--lm-amber)", width: 14, height: 14 }}
+                    />
+                    <span style={{ color: "var(--lm-text-dim)", fontSize: 12 }}>Disable extended thinking (faster responses)</span>
+                  </label>
+                </div>
 
-                      {channel === "telegram" && (
-                        <>
-                          <Label htmlFor="tele_token">Bot Token</Label>
-                          <Input
-                            id="tele_token"
-                            placeholder="123456:ABC-DEF..."
-                            value={teleToken}
-                            onChange={(e) => setTeleToken(e.target.value)}
-                            autoComplete="off"
-                          />
-                          <Label htmlFor="tele_user_id">User ID</Label>
-                          <Input
-                            id="tele_user_id"
-                            placeholder="123456789"
-                            value={teleUserId}
-                            onChange={(e) => setTeleUserId(e.target.value)}
-                            autoComplete="off"
-                          />
-                        </>
-                      )}
-                      {channel === "slack" && (
-                        <>
-                          <Label htmlFor="slack_bot_token">Bot Token</Label>
-                          <Input
-                            id="slack_bot_token"
-                            placeholder="xoxb-..."
-                            value={slackBotToken}
-                            onChange={(e) => setSlackBotToken(e.target.value)}
-                            autoComplete="off"
-                          />
-                          <Label htmlFor="slack_app_token">App Token</Label>
-                          <Input
-                            id="slack_app_token"
-                            placeholder="xapp-..."
-                            value={slackAppToken}
-                            onChange={(e) => setSlackAppToken(e.target.value)}
-                            autoComplete="off"
-                          />
-                          <Label htmlFor="slack_user_id">User ID</Label>
-                          <Input
-                            id="slack_user_id"
-                            placeholder="U0123456789"
-                            value={slackUserId}
-                            onChange={(e) => setSlackUserId(e.target.value)}
-                            autoComplete="off"
-                          />
-                        </>
-                      )}
-                      {channel === "discord" && (
-                        <>
-                          <Label htmlFor="discord_bot_token">Bot Token</Label>
-                          <Input
-                            id="discord_bot_token"
-                            placeholder="Bot token"
-                            value={discordBotToken}
-                            onChange={(e) => setDiscordBotToken(e.target.value)}
-                            autoComplete="off"
-                          />
-                          <Label htmlFor="discord_guild_id">Guild ID</Label>
-                          <Input
-                            id="discord_guild_id"
-                            placeholder="123456789"
-                            value={discordGuildId}
-                            onChange={(e) => setDiscordGuildId(e.target.value)}
-                            autoComplete="off"
-                          />
-                          <Label htmlFor="discord_user_id">User ID</Label>
-                          <Input
-                            id="discord_user_id"
-                            placeholder="123456789"
-                            value={discordUserId}
-                            onChange={(e) => setDiscordUserId(e.target.value)}
-                            autoComplete="off"
-                          />
-                        </>
-                      )}
-                    </div>
-                  </details>
+                {/* Deepgram */}
+                <div style={S.card}>
+                  <div style={S.cardLabel}>Deepgram STT</div>
+                  <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
+                </div>
 
-                  {/* MQTT */}
-                  <details className="space-y-3 rounded-md border p-3">
-                    <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
-                      MQTT (optional)
-                    </summary>
-                    <div className="space-y-2 pt-2">
-                      <Label htmlFor="mqtt_endpoint">Endpoint</Label>
-                      <Input
-                        id="mqtt_endpoint"
-                        placeholder="mqtt.example.com"
-                        value={mqttEndpoint}
-                        onChange={(e) => setMqttEndpoint(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="mqtt_port">Port</Label>
-                      <Input
-                        id="mqtt_port"
-                        type="number"
-                        placeholder="1883"
-                        value={mqttPort}
-                        onChange={(e) => setMqttPort(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="mqtt_username">Username</Label>
-                      <Input
-                        id="mqtt_username"
-                        placeholder="Optional"
-                        value={mqttUsername}
-                        onChange={(e) => setMqttUsername(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="mqtt_password">Password</Label>
-                      <Input
-                        id="mqtt_password"
-                        type="password"
-                        placeholder="Optional"
-                        value={mqttPassword}
-                        onChange={(e) => setMqttPassword(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="fa_channel">FA Channel</Label>
-                      <Input
-                        id="fa_channel"
-                        placeholder="Lumi/f_a/device_id"
-                        value={faChannel}
-                        onChange={(e) => setFaChannel(e.target.value)}
-                        autoComplete="off"
-                      />
-                      <Label htmlFor="fd_channel">FD Channel</Label>
-                      <Input
-                        id="fd_channel"
-                        placeholder="Lumi/f_d/device_id"
-                        value={fdChannel}
-                        onChange={(e) => setFdChannel(e.target.value)}
-                        autoComplete="off"
-                      />
-                    </div>
-                  </details>
+                {/* Channel */}
+                <div style={S.card}>
+                  <div style={S.cardLabel}>Messaging Channel</div>
+                  <label style={S.label}>Channel</label>
+                  <select
+                    value={channel}
+                    onChange={(e) => setChannel(e.target.value as ChannelType)}
+                    style={S.select}
+                  >
+                    <option value="telegram">Telegram</option>
+                    <option value="slack">Slack</option>
+                    <option value="discord">Discord</option>
+                  </select>
 
-                  <Button type="submit" className="w-full" disabled={saving}>
-                    {saving ? "Saving…" : "Save Changes"}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          )}
+                  {channel === "telegram" && (
+                    <>
+                      <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
+                      <Field label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
+                    </>
+                  )}
+                  {channel === "slack" && (
+                    <>
+                      <Field label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
+                      <Field label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
+                      <Field label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
+                    </>
+                  )}
+                  {channel === "discord" && (
+                    <>
+                      <Field label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
+                      <Field label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
+                      <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
+                    </>
+                  )}
+                </div>
+
+                {/* MQTT */}
+                <details style={{ marginBottom: 14 }}>
+                  <summary style={{
+                    cursor: "pointer", fontSize: 10, fontWeight: 600,
+                    color: "var(--lm-text-muted)", textTransform: "uppercase",
+                    letterSpacing: "0.08em", padding: "4px 0", userSelect: "none",
+                  }}>
+                    MQTT (optional)
+                  </summary>
+                  <div style={{ ...S.card, marginTop: 8, marginBottom: 0 }}>
+                    <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
+                    <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
+                    <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
+                    <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
+                    <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
+                    <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
+                  </div>
+                </details>
+
+                <button type="submit" disabled={saving} style={S.btn(saving)}>
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </main>
     </div>
