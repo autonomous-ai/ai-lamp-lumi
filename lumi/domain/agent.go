@@ -69,6 +69,9 @@ type AgentGateway interface {
 	// Best-effort: returns nil on error or timeout without failing the caller.
 	FetchChatHistory(sessionKey string, limit int) (json.RawMessage, error)
 
+	// GetConfigJSON returns the raw openclaw.json bytes.
+	GetConfigJSON() (json.RawMessage, error)
+
 	// StartWS connects to the agent runtime and runs the event read loop.
 	StartWS(ctx context.Context, handler AgentEventHandler)
 
