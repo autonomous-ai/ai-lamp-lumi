@@ -11,12 +11,12 @@ LeLamp (Python)          Lumi server (Go)             OpenClaw agent
 ─────────────────        ─────────────────────        ──────────────
 Mic/Camera          →    SensingHandler               LLM
 Phát hiện sự kiện        - drop nếu agent bận         - gọi /emotion
-Gửi POST                 - áp dụng logic theo type    - gọi /servo
-/sensing/event           - enrich context             - nói hoặc NO_REPLY
-                         - forward lên agent
+Áp dụng tracker logic    - forward lên agent          - gọi /servo
+Gửi POST                                              - nói hoặc NO_REPLY
+/sensing/event
 ```
 
-Tầng Go là người gác cổng — quyết định cái gì đến được agent và với context nào. Agent quyết định *cách* phản ứng, nhưng các rule trong `SOUL.md` ràng buộc chặt chẽ.
+LeLamp sở hữu logic tracker theo từng type (sound escalation, motion filtering). Go là người gác cổng — drop event nếu agent bận, sau đó forward. Agent quyết định *cách* phản ứng, bị ràng buộc bởi `SOUL.md`.
 
 ---
 
@@ -24,7 +24,7 @@ Tầng Go là người gác cổng — quyết định cái gì đến được 
 
 ### Cơ chế hoạt động
 
-LeLamp bắn một sound event cho mỗi audio sample vượt ngưỡng `SOUND_RMS_THRESHOLD` — có thể nhiều lần mỗi giây. Go server-side **sound tracker** (`lumi/server/sensing/delivery/http/handler.go`) áp dụng dedup và escalation trước khi agent nhận được bất cứ thứ gì.
+LeLamp bắn một sound event cho mỗi audio sample vượt ngưỡng `SOUND_RMS_THRESHOLD` — có thể nhiều lần mỗi giây. Python-side **sound tracker** (`lelamp/service/sensing/perceptions/sound.py`) áp dụng dedup và escalation trước khi forward lên Go. Go chỉ nhận các event đã pass và forward thẳng lên agent.
 
 ### Hành vi leo thang (Escalation)
 
@@ -33,38 +33,38 @@ LeLamp bắn một sound event cho mỗi audio sample vượt ngưỡng `SOUND_R
 | Lần 1 | `... — occurrence 1` | `/emotion shock` (0.8), im lặng |
 | Lần 2 | `... — occurrence 2` | `/emotion curious` (0.7), im lặng |
 | Lần 3+ | `... — persistent (occurrence 3)` | `/emotion curious` (0.9), nói 1 lần |
-| Sau khi nói | Go drop hết | Không có gì đến agent |
+| Sau khi nói | Python drop (suppress 3 phút) | Không có gì đến agent |
 | Im lặng 2 phút | Window reset | Trở về lần 1 |
 
 Ví dụ: một con chó nghe tiếng động — nó nhìn lên (lần 1), tiếp tục theo dõi (lần 2), rồi sủa một lần nếu tiếng ồn kéo dài (lần 3+). Sau khi sủa thì không sủa tiếp.
 
-### Hằng số (`handler.go`)
+### Hằng số (`sound.py`)
 
-```go
-soundDedupeInterval   = 15 * time.Second  // tối đa 1 event forwarded mỗi 15s
-soundWindowDuration   = 2 * time.Minute   // im lặng lâu hơn thế này thì reset counter
-soundPersistentAfter  = 3                 // nói sau bao nhiêu lần
-soundSuppressDuration = 3 * time.Minute   // suppress sau khi đã nói
+```python
+_DEDUPE_INTERVAL_S    = 15.0   # tối đa 1 event forwarded mỗi 15s
+_WINDOW_DURATION_S    = 120.0  # im lặng lâu hơn thế này thì reset counter
+_PERSISTENT_AFTER     = 3      # nói sau bao nhiêu lần
+_SUPPRESS_DURATION_S  = 180.0  # suppress sau khi đã nói (3 phút)
 ```
 
 ### Điều chỉnh (Tuning)
 
 | Triệu chứng | Fix |
 |---|---|
-| Lumi nói quá nhanh | Tăng `soundPersistentAfter` (3 → 5) |
-| Lumi không bao giờ nói dù ồn kéo dài | Giảm `soundPersistentAfter` (3 → 2) |
-| Quá nhiều turn sound trên Flow Monitor | Tăng `soundDedupeInterval` (15s → 30s) |
-| Lumi im quá lâu sau khi đã nói | Giảm `soundSuppressDuration` (3min → 1min) |
-| Lumi phản ứng với tiếng ồn cũ sau khi im lặng | Giảm `soundWindowDuration` (2min → 1min) |
+| Lumi nói quá nhanh | Tăng `_PERSISTENT_AFTER` (3 → 5) |
+| Lumi không bao giờ nói dù ồn kéo dài | Giảm `_PERSISTENT_AFTER` (3 → 2) |
+| Quá nhiều turn sound trên Flow Monitor | Tăng `_DEDUPE_INTERVAL_S` (15 → 30) |
+| Lumi im quá lâu sau khi đã nói | Giảm `_SUPPRESS_DURATION_S` (180 → 60) |
+| Lumi phản ứng với tiếng ồn cũ sau khi im lặng | Giảm `_WINDOW_DURATION_S` (120 → 60) |
 
 ### Xem trên Flow Monitor
 
-Sound events hiện là `sensing_input` turn trong filter **Mic**. Phần Detail hiển thị trạng thái tracker:
+Python đẩy `sound_tracker` events trực tiếp vào monitor bus qua `POST /api/monitor/event`. Chúng hiện trên Flow Monitor cạnh `sensing_input` turn:
 
 ```json
-{ "type": "sound", "occurrence": 1, "escalation": "silent" }
-{ "type": "sound", "occurrence": 3, "escalation": "persistent" }
-{ "type": "sound", "dropped": true, "reason": "dedup/suppressed" }
+{ "action": "silent",    "occurrence": 1 }  // lần 1 hoặc 2 — forwarded, im lặng
+{ "action": "persistent","occurrence": 3 }  // lần 3+ — agent sẽ nói
+{ "action": "drop" }                        // dedup hoặc suppress — không forward
 ```
 
 ---
@@ -83,15 +83,18 @@ LeLamp xử lý cooldown. Nếu event đã đến agent thì đủ thời gian r
 
 ### Ra khỏi phòng (`presence.leave`)
 
-Chỉ phản ứng thầm. Agent gọi `/emotion idle` nhưng **không nói**. Các leave event lặp lại bị LeLamp cooldown loại bỏ.
+Agent gọi `/emotion idle` (0.4) và **nói lời tạm biệt**. Nội dung phụ thuộc vào người đã nhìn thấy trước đó:
+- **Chủ nhà rời đi** → lời chào ấm áp kèm tên (ví dụ "Bye Alice, have a nice day!", "See you later!"). Nhiều chủ nhà thì gọi hết tên.
+- **Người lạ rời đi** → nhận xét cảnh giác (ví dụ "Kept my eyes on you.", "Good, they're gone.")
+- **Không rõ** (không có presence.enter trước đó trong lịch sử) → lời chào chủ nhà mặc định không tên.
 
 ---
 
 ## Chuyển động (Motion)
 
-Chuyển động nhỏ không có người: `/emotion curious` (intensity thấp), không nói. Agent phản ứng về thể chất nhưng giữ im lặng — để ý, không hoảng loạn.
+Chỉ chuyển động lớn được forward — LeLamp lọc và không gửi chuyển động nhỏ lên Go.
 
-Chuyển động lớn hoặc có người: có thể kèm ảnh chụp từ camera. Agent xem ảnh và phản ứng theo ngữ cảnh.
+**Chuyển động lớn**: `/emotion curious` (0.7) + `/servo/play {"recording": "scanning"}` + nói phản ứng tò mò (ví dụ "What was that?", "Whoa, moving so much!"). Có thể kèm ảnh camera để agent thấy ngữ cảnh.
 
 ---
 

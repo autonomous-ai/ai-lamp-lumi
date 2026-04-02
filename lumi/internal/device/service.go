@@ -73,6 +73,9 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.MQTTPort = data.MQTTPort
 	s.config.FAChannel = data.FAChannel
 	s.config.FDChannel = data.FDChannel
+	if data.LLMDisableThinking != nil {
+		s.config.LLMDisableThinking = data.LLMDisableThinking
+	}
 	if err := s.config.Save(); err != nil {
 		slog.Error("save config failed", "component", "device", "error", err)
 	}
@@ -174,6 +177,117 @@ func (s *Service) StartStatusReporter(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// GetConfig returns the current device configuration.
+func (s *Service) GetConfig() domain.ConfigResponse {
+	disableThinking := false
+	if s.config.LLMDisableThinking != nil {
+		disableThinking = *s.config.LLMDisableThinking
+	}
+	return domain.ConfigResponse{
+		Channel:            s.config.Channel,
+		TelegramBotToken:   s.config.TelegramBotToken,
+		TelegramUserID:     s.config.TelegramUserID,
+		SlackBotToken:      s.config.SlackBotToken,
+		SlackAppToken:      s.config.SlackAppToken,
+		SlackUserID:        s.config.SlackUserID,
+		DiscordBotToken:    s.config.DiscordBotToken,
+		DiscordGuildID:     s.config.DiscordGuildID,
+		DiscordUserID:      s.config.DiscordUserID,
+		LLMAPIKey:          s.config.LLMAPIKey,
+		LLMModel:           s.config.LLMModel,
+		LLMBaseURL:         s.config.LLMBaseURL,
+		LLMDisableThinking: disableThinking,
+		DeepgramAPIKey:     s.config.DeepgramAPIKey,
+		DeviceID:           s.config.DeviceID,
+		NetworkSSID:        s.config.NetworkSSID,
+		MQTTEndpoint:       s.config.MQTTEndpoint,
+		MQTTUsername:       s.config.MQTTUsername,
+		MQTTPassword:       s.config.MQTTPassword,
+		MQTTPort:           s.config.MQTTPort,
+		FAChannel:          s.config.FAChannel,
+		FDChannel:          s.config.FDChannel,
+	}
+}
+
+// UpdateConfig saves updated config fields. All fields are optional; empty strings are skipped.
+// WiFi SSID/password are saved to config only (no reconnect). Restart Lumi for all changes to take full effect.
+func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
+	if data.LLMAPIKey != "" {
+		s.config.LLMAPIKey = data.LLMAPIKey
+	}
+	if data.LLMBaseURL != "" {
+		s.config.LLMBaseURL = data.LLMBaseURL
+	}
+	if data.LLMModel != "" {
+		s.config.LLMModel = data.LLMModel
+	}
+	if data.LLMDisableThinking != nil {
+		s.config.LLMDisableThinking = data.LLMDisableThinking
+	}
+	if data.DeepgramAPIKey != "" {
+		s.config.DeepgramAPIKey = data.DeepgramAPIKey
+	}
+	if data.DeviceID != "" {
+		s.config.DeviceID = data.DeviceID
+	}
+	if data.SSID != "" {
+		s.config.NetworkSSID = data.SSID
+	}
+	if data.Password != "" {
+		s.config.NetworkPassword = data.Password
+	}
+	if data.Channel != "" {
+		s.config.Channel = data.Channel
+	}
+	switch s.config.Channel {
+	case "slack":
+		if data.SlackBotToken != "" {
+			s.config.SlackBotToken = data.SlackBotToken
+		}
+		if data.SlackAppToken != "" {
+			s.config.SlackAppToken = data.SlackAppToken
+		}
+		if data.SlackUserID != "" {
+			s.config.SlackUserID = data.SlackUserID
+		}
+	case "discord":
+		if data.DiscordBotToken != "" {
+			s.config.DiscordBotToken = data.DiscordBotToken
+		}
+		if data.DiscordGuildID != "" {
+			s.config.DiscordGuildID = data.DiscordGuildID
+		}
+		if data.DiscordUserID != "" {
+			s.config.DiscordUserID = data.DiscordUserID
+		}
+	default:
+		if data.TelegramBotToken != "" {
+			s.config.TelegramBotToken = data.TelegramBotToken
+		}
+		if data.TelegramUserID != "" {
+			s.config.TelegramUserID = data.TelegramUserID
+		}
+	}
+	// MQTT endpoint: update (empty string clears it)
+	s.config.MQTTEndpoint = data.MQTTEndpoint
+	s.config.MQTTUsername = data.MQTTUsername
+	s.config.MQTTPassword = data.MQTTPassword
+	if data.MQTTPort != 0 {
+		s.config.MQTTPort = data.MQTTPort
+	}
+	if data.FAChannel != "" {
+		s.config.FAChannel = data.FAChannel
+	}
+	if data.FDChannel != "" {
+		s.config.FDChannel = data.FDChannel
+	}
+	if err := s.config.Save(); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	slog.Info("config updated", "component", "device")
+	return nil
 }
 
 // WaitForAgentReady polls agentGateway.IsReady until it returns true or the timeout elapses.

@@ -192,6 +192,32 @@ export default function Monitor() {
               {item.label}
             </a>
           ))}
+          <a
+            href="/edit"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 16px",
+              fontSize: 13,
+              color: "var(--lm-text-muted)",
+              textDecoration: "none",
+              borderRadius: 6,
+              margin: "0 6px",
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLAnchorElement).style.background = "var(--lm-surface)";
+              (e.currentTarget as HTMLAnchorElement).style.color = "var(--lm-text)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLAnchorElement).style.background = "transparent";
+              (e.currentTarget as HTMLAnchorElement).style.color = "var(--lm-text-muted)";
+            }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
+            Settings
+          </a>
         </nav>
         <div style={{
           padding: "12px 16px",

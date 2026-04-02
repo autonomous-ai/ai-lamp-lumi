@@ -48,6 +48,9 @@ type SetupRequest struct {
 	MQTTPort     int    `json:"mqtt_port"`
 	FAChannel    string `json:"fa_channel"`
 	FDChannel    string `json:"fd_channel"`
+
+	// LLMDisableThinking disables extended thinking/reasoning for all models (default false).
+	LLMDisableThinking *bool `json:"llm_disable_thinking,omitempty"`
 }
 
 // EffectiveChannel returns the resolved channel type, defaulting to "telegram".
@@ -263,4 +266,64 @@ func NewMQTTInfoResponse(cfg *config.Config, msgType string, mac string) MQTTInf
 		Mac:     mac,
 		Time:    time.Now().UTC().Format(time.RFC3339Nano),
 	}
+}
+
+// ConfigResponse is returned by GET /api/device/config with current device settings.
+type ConfigResponse struct {
+	Channel            string `json:"channel"`
+	TelegramBotToken   string `json:"telegram_bot_token"`
+	TelegramUserID     string `json:"telegram_user_id"`
+	SlackBotToken      string `json:"slack_bot_token"`
+	SlackAppToken      string `json:"slack_app_token"`
+	SlackUserID        string `json:"slack_user_id"`
+	DiscordBotToken    string `json:"discord_bot_token"`
+	DiscordGuildID     string `json:"discord_guild_id"`
+	DiscordUserID      string `json:"discord_user_id"`
+	LLMAPIKey          string `json:"llm_api_key"`
+	LLMModel           string `json:"llm_model"`
+	LLMBaseURL         string `json:"llm_base_url"`
+	LLMDisableThinking bool   `json:"llm_disable_thinking"`
+	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	DeviceID           string `json:"device_id"`
+	NetworkSSID        string `json:"network_ssid"`
+	MQTTEndpoint       string `json:"mqtt_endpoint"`
+	MQTTUsername       string `json:"mqtt_username"`
+	MQTTPassword       string `json:"mqtt_password"`
+	MQTTPort           int    `json:"mqtt_port"`
+	FAChannel          string `json:"fa_channel"`
+	FDChannel          string `json:"fd_channel"`
+}
+
+// UpdateConfigRequest is used by PUT /api/device/config to update device settings.
+// All fields are optional; only non-empty values are applied.
+type UpdateConfigRequest struct {
+	SSID     string `json:"ssid"`
+	Password string `json:"password"`
+	Channel  string `json:"channel"`
+
+	TelegramBotToken string `json:"telegram_bot_token"`
+	TelegramUserID   string `json:"telegram_user_id"`
+
+	SlackBotToken string `json:"slack_bot_token"`
+	SlackAppToken string `json:"slack_app_token"`
+	SlackUserID   string `json:"slack_user_id"`
+
+	DiscordBotToken string `json:"discord_bot_token"`
+	DiscordGuildID  string `json:"discord_guild_id"`
+	DiscordUserID   string `json:"discord_user_id"`
+
+	LLMBaseURL         string `json:"llm_base_url"`
+	LLMAPIKey          string `json:"llm_api_key"`
+	LLMModel           string `json:"llm_model"`
+	LLMDisableThinking *bool  `json:"llm_disable_thinking,omitempty"`
+
+	DeepgramAPIKey string `json:"deepgram_api_key"`
+	DeviceID       string `json:"device_id"`
+
+	MQTTEndpoint string `json:"mqtt_endpoint"`
+	MQTTUsername string `json:"mqtt_username"`
+	MQTTPassword string `json:"mqtt_password"`
+	MQTTPort     int    `json:"mqtt_port"`
+	FAChannel    string `json:"fa_channel"`
+	FDChannel    string `json:"fd_channel"`
 }
