@@ -282,7 +282,13 @@ WebSocket reconnects cause process-level restarts (seq counter resets). This is 
 - **Impact**: Trace lost mid-turn, events split across restarts.
 - **Mitigation**: Per-event runID + frontend stitching handles most cases.
 
-### 6. OpenClaw tool-call visibility gap (action without `tool_call`)
+### 6. OpenClaw built-in `tts` tool bypasses LeLamp speaker (FIXED)
+Agent called OpenClaw's built-in `tts` tool instead of responding with assistant text. OpenClaw generated audio server-side (`"Generated audio reply."`) but never routed it to the physical speaker (`/voice/speak` on LeLamp). Agent then returned `NO_REPLY`, so Lumi had no assistant text to flush → silent.
+- **Root cause**: OpenClaw provides a built-in `tts` tool when `tools.profile = "full"`. The sensing SKILL.md instructed the agent to call `/voice/speak`, which the agent mapped to the built-in `tts` tool instead of using `curl` to LeLamp.
+- **Fix**: (1) Disabled OpenClaw built-in `tts` tool via `tools.disabled.tts = true` in config generation (`service.go`). (2) Updated sensing SKILL.md and SOUL.md to instruct the agent to respond with plain text — Lumi's assistant-delta accumulation pipeline routes it to LeLamp TTS automatically.
+- **Status**: Fixed in v0.0.138.
+
+### 7. OpenClaw tool-call visibility gap (action without `tool_call`)
 Observed on multiple Telegram turns: user asks for a device action (e.g. LED color change) and the lamp state/output confirms the action, but flow/debug logs contain only lifecycle + assistant/tts and no `tool_call` event.
 
 - **Impact**: `TOOL` node can stay off even when an action appears to be executed.
