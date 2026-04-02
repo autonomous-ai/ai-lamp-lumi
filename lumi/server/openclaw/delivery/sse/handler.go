@@ -68,6 +68,18 @@ func parseEmotion(toolArgs string) string {
 	return ""
 }
 
+// extractTTSText parses the text argument from an OpenClaw built-in tts tool call.
+// Args can be JSON like {"text":"hello"} or a plain string.
+func extractTTSText(toolArgs string) string {
+	var obj struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(toolArgs), &obj) == nil && obj.Text != "" {
+		return obj.Text
+	}
+	return strings.TrimSpace(toolArgs)
+}
+
 // ProvideOpenClawHandler returns an OpenClaw events handler.
 func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *statusled.Service) OpenClawHandler {
 	// Init flow emitter here so ws_connect events (fired from StartWS before any HTTP request)
@@ -548,6 +560,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: toolArgs, RunID: flowRunID})
 					flow.Log("hw_servo", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
 				}
+				// Intercept OpenClaw built-in tts tool: extract text and route to LeLamp speaker.
+				// The built-in tts generates audio server-side but never reaches the physical speaker.
+				if toolName == "tts" {
+					if ttsText := extractTTSText(toolArgs); ttsText != "" {
+						slog.Info("intercepted built-in tts tool, routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)])
+						flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
+						go func(t string) {
+							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+								slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
+							}
+						}(ttsText)
+						// Mark this turn as already spoken so lifecycle_end won't double-speak.
+						h.markMusicTurn(payload.RunID)
+					}
+				}
 			} else if payload.Data.Phase == "end" {
 				result := payload.Data.Result
 				if len(result) > 100 {
@@ -690,6 +717,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if strings.Contains(toolArgs, "/servo/aim") || strings.Contains(toolArgs, "/servo/play") {
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: toolArgs, RunID: flowRunID})
 				flow.Log("hw_servo", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
+			}
+			// Intercept OpenClaw built-in tts tool (session.tool path).
+			if toolName == "tts" {
+				if ttsText := extractTTSText(toolArgs); ttsText != "" {
+					slog.Info("intercepted built-in tts tool (session.tool), routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)])
+					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
+					go func(t string) {
+						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+							slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
+						}
+					}(ttsText)
+					h.markMusicTurn(payload.RunID)
+				}
 			}
 		} else if payload.Data.Phase == "end" {
 			result := payload.Data.Result

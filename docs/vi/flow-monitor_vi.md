@@ -108,6 +108,12 @@ Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng A
 
 ## Issue đang mở
 
+### OpenClaw built-in `tts` tool bypass speaker LeLamp (ĐÃ FIX)
+Agent gọi `tts` built-in tool của OpenClaw thay vì trả assistant text. OpenClaw generate audio phía server (`"Generated audio reply."`) nhưng không route tới speaker LeLamp (`/voice/speak`). Agent trả `NO_REPLY` → Lumi không có text → im lặng.
+- **Nguyên nhân**: OpenClaw cung cấp `tts` tool khi `tools.profile = "full"`. Sensing SKILL.md hướng dẫn gọi `/voice/speak`, agent map nhầm sang built-in `tts` tool thay vì `curl` tới LeLamp.
+- **Fix**: (1) Disable `tts` tool qua `tools.disabled.tts = true` trong config (`service.go`). (2) Cập nhật sensing SKILL.md và SOUL.md — agent trả text bình thường, Lumi pipeline tự TTS qua LeLamp.
+- **Trạng thái**: Đã fix v0.0.138.
+
 ### OpenClaw không thấy `tool_call` dù có action
 Đã gặp nhiều turn (nhất là Telegram): user yêu cầu action (ví dụ đổi màu đèn), kết quả OUT/TTS xác nhận đã đổi, nhưng flow/debug không có `tool_call`.
 
