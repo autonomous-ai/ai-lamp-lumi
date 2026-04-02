@@ -69,6 +69,10 @@ type Config struct {
 	// When false, all voice commands go through the agent (OpenClaw).
 	LocalIntent *bool `json:"local_intent,omitempty" yaml:"localIntent"`
 
+	// LLMDisableThinking disables extended thinking/reasoning for all LLM models (default false).
+	// Enable this to reduce latency on fast models like Haiku that don't benefit from thinking.
+	LLMDisableThinking *bool `json:"llm_disable_thinking,omitempty" yaml:"llmDisableThinking"`
+
 	notify chan bool
 }
 
@@ -180,6 +184,14 @@ func (c *Config) LocalIntentEnabled() bool {
 		return true
 	}
 	return *c.LocalIntent
+}
+
+// LLMThinkingDisabled returns whether extended thinking is disabled (default false).
+func (c *Config) LLMThinkingDisabled() bool {
+	if c.LLMDisableThinking == nil {
+		return false
+	}
+	return *c.LLMDisableThinking
 }
 
 func (c *Config) GetNotifyChannel() chan bool {
