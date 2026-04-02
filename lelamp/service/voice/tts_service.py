@@ -72,7 +72,7 @@ class TTSService:
             logger.warning("openai SDK not available: %s", e)
 
         # Probe device sample rate by actually opening a stream (check_output_settings
-        # is unreliable on some ALSA devices like seeed-2mic wm8960)
+        # is unreliable on some ALSA devices like seeed-2mic wm8960, CD002-AUDIO)
         if self._sd:
             self._probe_device_rate()
 
