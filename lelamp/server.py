@@ -1536,6 +1536,16 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
     if not preset:
         return None
     led_color = None
+    # Idle LED (cyan breathing) is the ambient fallback — only apply when the user has not
+    # explicitly set a scene/color/effect. If a user state exists, skip the LED change so
+    # the user's environment lighting is preserved; the servo still plays normally.
+    if emotion == "idle" and _user_led_state is not None:
+        if display_service:
+            try:
+                display_service.set_expression(emotion)
+            except Exception as e:
+                logger.warning("Emotion display failed: %s", e)
+        return None
     if rgb_service and preset.get("color"):
         scaled = [int(c * intensity) for c in preset["color"]]
         try:
