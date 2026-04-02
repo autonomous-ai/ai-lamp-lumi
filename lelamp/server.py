@@ -1647,10 +1647,21 @@ def express_emotion(req: EmotionRequest):
     # Schedule LED restore after the servo animation finishes.
     # Emotion LED is temporary (Lumi's reaction) — after the animation, restore
     # the user's environment lighting. If user never set anything, fade to idle breathing.
-    # Add 0.5s buffer so the animation fully settles before switching back.
-    servo_name = preset.get("servo", "")
-    restore_delay = _get_recording_duration(servo_name) + 0.5 if servo_name else 3.5
-    _schedule_led_restore(restore_delay)
+    #
+    # Special cases:
+    #   idle    — looping animation with no natural end; it IS the resting state,
+    #             so no restore is scheduled (ambient will take over naturally).
+    #   shock   — notification_flash auto-stops after ~1.5s (3 flashes); restore
+    #             at 2.0s so LED doesn't linger in a blank post-flash state while
+    #             the servo finishes its 4.8s recovery animation.
+    if req.emotion == "idle":
+        pass  # no restore — idle is ambient resting state
+    elif req.emotion == "shock":
+        _schedule_led_restore(2.0)
+    else:
+        servo_name = preset.get("servo", "")
+        restore_delay = _get_recording_duration(servo_name) + 0.5 if servo_name else 3.5
+        _schedule_led_restore(restore_delay)
 
     return {
         "status": "ok",
