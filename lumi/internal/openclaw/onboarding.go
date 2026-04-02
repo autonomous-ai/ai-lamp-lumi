@@ -121,11 +121,9 @@ func (s *Service) EnsureOnboarding() error {
 	}
 
 	// Ensure AGENTS.md has mandatory block
-	modified, err := s.ensureAgentsMDBlock()
-	if err != nil {
-		return fmt.Errorf("ensure AGENTS.md block: %w", err)
-	}
-	if modified {
+	if modified, err := s.ensureAgentsMDBlock(); err != nil {
+		slog.Error("ensure AGENTS.md block failed", "component", "onboarding", "error", err)
+	} else if modified {
 		needRestart = true
 	}
 
