@@ -101,7 +101,12 @@ func getPublicIP() string {
 		return publicIPCache.ip
 	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("https://ifconfig.me")
+	req, err := http.NewRequest("GET", "https://ifconfig.me/ip", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "curl/7.64.1")
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
