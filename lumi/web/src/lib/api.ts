@@ -66,3 +66,40 @@ export async function checkInternet(): Promise<boolean> {
 export async function getSetup(): Promise<boolean> {
   return apiRequest<boolean>(`${API_BASE}/api/setup`);
 }
+
+export interface DeviceConfig {
+  channel: string;
+  telegram_bot_token: string;
+  telegram_user_id: string;
+  slack_bot_token: string;
+  slack_app_token: string;
+  slack_user_id: string;
+  discord_bot_token: string;
+  discord_guild_id: string;
+  discord_user_id: string;
+  llm_api_key: string;
+  llm_model: string;
+  llm_base_url: string;
+  llm_disable_thinking: boolean;
+  deepgram_api_key: string;
+  device_id: string;
+  network_ssid: string;
+  mqtt_endpoint: string;
+  mqtt_username: string;
+  mqtt_password: string;
+  mqtt_port: number;
+  fa_channel: string;
+  fd_channel: string;
+}
+
+export async function getDeviceConfig(): Promise<DeviceConfig> {
+  return apiRequest<DeviceConfig>(`${API_BASE}/api/device/config`);
+}
+
+export async function updateDeviceConfig(body: Partial<DeviceConfig> & { password?: string; ssid?: string }): Promise<boolean> {
+  return apiRequest<boolean>(`${API_BASE}/api/device/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

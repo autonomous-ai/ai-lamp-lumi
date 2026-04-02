@@ -228,10 +228,11 @@ lumi_gate → tts_speak          (Gate passes if not suppressed → LeLamp TTS)
 ### Event → node labels (runtime detail boxes)
 
 Node info extracted from turn events:
-- `sensing_input` → Sensing node (type + message). For sound events, `detail` also carries tracker state:
-  - `{ type, occurrence, escalation: "silent" }` — passed through, agent stays silent
-  - `{ type, occurrence, escalation: "persistent" }` — passed through, agent will speak
-  - `{ type, dropped: true, reason: "dedup/suppressed" }` — dropped by sound tracker before agent
+- `sensing_input` → Sensing node (type + message). Detail: `{ type }`.
+- `sound_tracker` → pushed by LeLamp Python directly via `POST /api/monitor/event`. Appears alongside `sensing_input` turns to show escalation state:
+  - `{ action: "silent", occurrence: 1 }` — forwarded, agent stays silent
+  - `{ action: "persistent", occurrence: 3 }` — forwarded, agent will speak
+  - `{ action: "drop" }` — dropped by dedup or suppression window
 - `chat_input` → Telegram In node
 - `intent_match` → Local Match node
 - `lifecycle_start` → Agent Call + Thinking nodes

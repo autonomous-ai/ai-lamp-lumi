@@ -187,6 +187,9 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	providersMap := ensureMap(modelsMap, "providers")
 	modelsEntries := make([]any, 0, len(modelsResp.Models))
 	for _, m := range modelsResp.Models {
+		if s.config.LLMThinkingDisabled() {
+			m.Reasoning = false
+		}
 		modelsEntries = append(modelsEntries, openclawModelToProviderEntry(m))
 	}
 	providersMap[customProviderName] = map[string]any{
@@ -209,6 +212,9 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
 		metadata := map[string]any{}
+		if s.config.LLMThinkingDisabled() {
+			metadata["thinkingBudget"] = 0
+		}
 		agentModelsMap[m.Key] = metadata
 	}
 	defaultsMap["model"] = map[string]any{

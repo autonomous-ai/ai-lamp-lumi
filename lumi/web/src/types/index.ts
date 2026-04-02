@@ -35,4 +35,6 @@ export interface SetupRequest {
   mqtt_password?: string;
   fa_channel?: string;
   fd_channel?: string;
+  /** Disable extended thinking/reasoning for all LLM models (default false). */
+  llm_disable_thinking?: boolean;
 }
