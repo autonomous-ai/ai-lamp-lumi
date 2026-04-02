@@ -39,6 +39,7 @@
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | POST | `/api/sensing/event` | Nhận sensing event từ LeLamp |
+| POST | `/api/monitor/event` | Push event trực tiếp vào monitor bus (dùng bởi LeLamp để gửi trạng thái sound tracker) |
 
 **Request body:**
 ```json
