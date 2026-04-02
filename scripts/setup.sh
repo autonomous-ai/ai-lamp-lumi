@@ -550,8 +550,9 @@ stage_nginx() {
   rm -f /tmp/setup.zip
 
   cat >/etc/nginx/conf.d/lumi.conf <<EOF
-upstream backend { server 127.0.0.1:5000; }
-upstream lelamp  { server 127.0.0.1:5001; }
+upstream backend  { server 127.0.0.1:5000; }
+upstream lelamp   { server 127.0.0.1:5001; }
+upstream openclaw { server 127.0.0.1:18789; }
 
 server {
   listen 80 default_server;
@@ -576,6 +577,16 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Prefix /hw;
+  }
+
+  location /gw/ {
+    proxy_pass http://openclaw/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
   }
 
   # Return 204 so OS does not detect captive portal (no auto-open browser)
