@@ -11,12 +11,12 @@ LeLamp (Python)          Lumi server (Go)             OpenClaw agent
 ─────────────────        ─────────────────────        ──────────────
 Microphone/Camera   →    SensingHandler               LLM
 Detects event            - drops if agent busy        - calls /emotion
-Sends POST               - applies per-type logic     - calls /servo
-/sensing/event           - enriches message context   - speaks or NO_REPLY
-                         - forwards to agent
+Applies tracker logic    - forwards to agent          - calls /servo
+Sends POST                                            - speaks or NO_REPLY
+/sensing/event
 ```
 
-The Go layer is the gatekeeper — it decides what reaches the agent and with what context. The agent decides *how* to react, but the rules in `SOUL.md` constrain it tightly.
+LeLamp owns per-type tracker logic (sound escalation, motion filtering). Go is the gatekeeper — it drops stale events if the agent is busy, then forwards. The agent decides *how* to react, constrained by `SOUL.md`.
 
 ---
 
@@ -24,7 +24,7 @@ The Go layer is the gatekeeper — it decides what reaches the agent and with wh
 
 ### How it works
 
-LeLamp fires a sound event on every audio sample that crosses `SOUND_RMS_THRESHOLD` — potentially several times per second. The Go server-side **sound tracker** (`lumi/server/sensing/delivery/http/handler.go`) applies dedup and escalation before the agent sees anything.
+LeLamp fires a sound event on every audio sample that crosses `SOUND_RMS_THRESHOLD` — potentially several times per second. The Python-side **sound tracker** (`lelamp/service/sensing/perceptions/sound.py`) applies dedup and escalation before forwarding to Go. Go receives only passed events and forwards them to the agent unchanged.
 
 ### Escalation behavior
 
@@ -33,38 +33,38 @@ LeLamp fires a sound event on every audio sample that crosses `SOUND_RMS_THRESHO
 | Occurrence 1 | `... — occurrence 1` | `/emotion shock` (0.8), NO_REPLY |
 | Occurrence 2 | `... — occurrence 2` | `/emotion curious` (0.7), NO_REPLY |
 | Occurrence 3+ | `... — persistent (occurrence 3)` | `/emotion curious` (0.9), speaks once |
-| After speaking | dropped by Go | nothing reaches agent |
+| After speaking | dropped by Python (suppressed 3 min) | nothing reaches agent |
 | 2 min silence | window resets | back to occurrence 1 |
 
 The analogy: a dog hears a noise — it looks up (occurrence 1), keeps watching (occurrence 2), then barks once if the noise persists (occurrence 3+). After barking it doesn't keep barking.
 
-### Constants (`handler.go`)
+### Constants (`sound.py`)
 
-```go
-soundDedupeInterval   = 15 * time.Second  // max 1 event forwarded per 15s
-soundWindowDuration   = 2 * time.Minute   // silence this long resets the counter
-soundPersistentAfter  = 3                 // speak after this many occurrences
-soundSuppressDuration = 3 * time.Minute   // suppress after speaking
+```python
+_DEDUPE_INTERVAL_S    = 15.0   # max 1 event forwarded per 15s
+_WINDOW_DURATION_S    = 120.0  # silence this long resets the counter
+_PERSISTENT_AFTER     = 3      # speak after this many occurrences
+_SUPPRESS_DURATION_S  = 180.0  # suppress after speaking (3 min)
 ```
 
 ### Tuning
 
 | Symptom | Fix |
 |---|---|
-| Lumi speaks too quickly | Increase `soundPersistentAfter` (3 → 5) |
-| Lumi never speaks even with sustained noise | Decrease `soundPersistentAfter` (3 → 2) |
-| Too many sound turns in Flow Monitor | Increase `soundDedupeInterval` (15s → 30s) |
-| Lumi stays silent too long after speaking | Decrease `soundSuppressDuration` (3min → 1min) |
-| Lumi reacts to stale noise after quiet period | Decrease `soundWindowDuration` (2min → 1min) |
+| Lumi speaks too quickly | Increase `_PERSISTENT_AFTER` (3 → 5) |
+| Lumi never speaks even with sustained noise | Decrease `_PERSISTENT_AFTER` (3 → 2) |
+| Too many sound turns in Flow Monitor | Increase `_DEDUPE_INTERVAL_S` (15 → 30) |
+| Lumi stays silent too long after speaking | Decrease `_SUPPRESS_DURATION_S` (180 → 60) |
+| Lumi reacts to stale noise after quiet period | Decrease `_WINDOW_DURATION_S` (120 → 60) |
 
 ### Monitoring in Flow Monitor
 
-Sound events appear as `sensing_input` turns in the **Mic** filter. The Detail panel shows tracker state:
+Python pushes `sound_tracker` events directly to the monitor bus via `POST /api/monitor/event`. These appear in the Flow Monitor alongside `sensing_input` turns:
 
 ```json
-{ "type": "sound", "occurrence": 1, "escalation": "silent" }
-{ "type": "sound", "occurrence": 3, "escalation": "persistent" }
-{ "type": "sound", "dropped": true, "reason": "dedup/suppressed" }
+{ "action": "silent",    "occurrence": 1 }  // occurrence 1 or 2 — forwarded silently
+{ "action": "persistent","occurrence": 3 }  // occurrence 3+ — agent will speak
+{ "action": "drop" }                        // dedup or suppressed — not forwarded
 ```
 
 ---
@@ -83,15 +83,18 @@ The system handles cooldowns on the LeLamp side. If the event reached the agent,
 
 ### Leave (`presence.leave`)
 
-Silent reaction only. Agent calls `/emotion idle` but does **not** speak. Repeated leave events are suppressed by LeLamp cooldowns.
+Agent calls `/emotion idle` (0.4) and **speaks a farewell**. The voice content depends on who was last seen:
+- **Owner left** → warm farewell by name (e.g. "Bye Alice, have a nice day!", "See you later!"). If multiple owners were seen, name them all.
+- **Stranger left** → watchful remark (e.g. "Kept my eyes on you.", "Good, they're gone.")
+- **Unknown** (no prior presence.enter in history) → default owner farewell without a name.
 
 ---
 
 ## Motion
 
-Small motion without a visible person: `/emotion curious` (low intensity), no speech. The agent reacts physically but stays quiet — noticing, not alarmed.
+Only large motion is forwarded — small motion is filtered out by LeLamp and never reaches the agent.
 
-Large motion or motion with a person detected: may include a camera snapshot. Agent can see the image and react accordingly.
+**Large motion**: `/emotion curious` (0.7) + `/servo/play {"recording": "scanning"}` + speak a curious reaction (e.g. "What was that?", "Whoa, moving so much!"). May include a camera snapshot so the agent can see the context.
 
 ---
 
