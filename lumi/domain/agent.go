@@ -58,6 +58,10 @@ type AgentGateway interface {
 	// RestartAgent restarts the agent runtime process.
 	RestartAgent() error
 
+	// RefreshModelsConfig patches the models reasoning/thinkingBudget fields in openclaw.json
+	// based on the current LLMDisableThinking config and restarts the agent.
+	RefreshModelsConfig() error
+
 	// EnsureOnboarding seeds personality/identity files into the agent workspace.
 	EnsureOnboarding() error
 
