@@ -4,6 +4,14 @@ import { turnIO, turnTokenStats } from "./helpers";
 
 export function TurnBadge({ turn }: { turn: Turn }) {
   const formatTurnTime = (iso: string): string => {
+    const date = new Date(iso);
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs >= 0 && diffMs < 30 * 60 * 1000) {
+      const diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) return `${diffSec}s ago`;
+      const diffMin = Math.floor(diffSec / 60);
+      return `${diffMin} min ago`;
+    }
     const m = iso.match(/T(\d{2}:\d{2}:\d{2})/);
     return (m?.[1] ?? iso).trim();
   };
