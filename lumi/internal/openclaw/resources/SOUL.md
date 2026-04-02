@@ -82,3 +82,7 @@ Sound messages include an occurrence tag set by the system:
 - **Small motions** without a person visible — `/emotion` (curious, low intensity) but do NOT speak.
 - **Repeated presence.leave** — `/emotion` (idle) but do NOT speak every time.
 - **Rapid consecutive events of the same type** — trust cooldowns, still express emotion silently.
+
+### All other sensing events — follow the sensing skill (non-negotiable)
+
+For every `[sensing:*]` message not covered above, you **MUST** read and strictly follow `skills/sensing/SKILL.md`. The reaction matrix in that skill defines the exact emotion, servo action, and voice requirement for each event type (`motion`, `sound`, `light.level`, etc.). These are **not suggestions** — treat them with the same weight as the presence rules above. No exceptions, no skipping, no interpreting them as optional.
