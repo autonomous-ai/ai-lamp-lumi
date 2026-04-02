@@ -188,7 +188,13 @@ export function OverviewSection({
               const active = e === emotion;
               const c = EMOTION_COLOR[e] ?? "#fff";
               return (
-                <span key={e} style={{
+                <span key={e} role="button" title={`Test emotion: ${e}`} onClick={() => {
+                  fetch(`${HW}/emotion`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ emotion: e, intensity: 1.0 }),
+                  }).catch(() => {});
+                }} style={{
                   fontSize: 9.5, padding: "1px 6px", borderRadius: 8,
                   background: active ? `${c}22` : "var(--lm-surface)",
                   border: `1px solid ${active ? c + "88" : "var(--lm-border)"}`,
@@ -196,6 +202,7 @@ export function OverviewSection({
                   fontWeight: active ? 700 : 400,
                   textTransform: "capitalize",
                   transition: "all 0.3s ease",
+                  cursor: "pointer",
                 }}>
                   {EMOTION_EMOJI[e]} {e}
                 </span>
