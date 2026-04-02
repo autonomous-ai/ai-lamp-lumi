@@ -65,6 +65,42 @@ func (h *DeviceHandler) Setup(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
 }
 
+// GetConfig godoc
+//
+//	@Summary	get current device config
+//	@Schemes
+//	@Description	get current device config
+//	@Tags			device
+//	@Success		200	{object}	serializers.ResponseSuccess
+//	@Router			/device/config [get]
+func (h *DeviceHandler) GetConfig(c *gin.Context) {
+	cfg := h.service.GetConfig()
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(cfg))
+}
+
+// UpdateConfig godoc
+//
+//	@Summary	update device config
+//	@Schemes
+//	@Description	update device config fields (all optional; saves to disk, restart Lumi for full effect)
+//	@Tags			device
+//	@Accept			json
+//	@Param			body	body		domain.UpdateConfigRequest	true	"update config request"
+//	@Success		200		{object}	serializers.ResponseSuccess
+//	@Router			/device/config [put]
+func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
+	var req domain.UpdateConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := h.service.UpdateConfig(req); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
+}
+
 // ChangeChannel godoc
 //
 //	@Summary	change messaging channel
