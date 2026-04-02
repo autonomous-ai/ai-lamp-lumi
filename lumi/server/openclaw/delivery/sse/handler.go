@@ -1551,3 +1551,13 @@ func shortError(errMsg string) string {
 	}
 	return errMsg
 }
+
+// ConfigJSON returns the raw openclaw.json contents for the gw-config UI.
+func (h *OpenClawHandler) ConfigJSON(c *gin.Context) {
+	data, err := h.agentGateway.GetConfigJSON()
+	if err != nil {
+		c.JSON(http.StatusOK, serializers.ResponseError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(data))
+}

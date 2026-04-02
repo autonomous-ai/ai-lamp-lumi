@@ -194,9 +194,13 @@ export default function Monitor() {
               {item.label}
             </a>
           ))}
-          <a href="/gw" style={S.navItem(false)}>
+          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer">
             <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
             Gateway
+          </a>
+          <a href="/gw-config" style={S.navItem(false)}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>◈</span>
+            GW Config
           </a>
           <a href="/edit" style={S.navItem(false)}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
