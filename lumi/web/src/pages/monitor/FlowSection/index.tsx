@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { S } from "../styles";
 import { API, FLOW_EVENTS_MAX } from "../types";
 import type { DisplayEvent } from "../types";
@@ -11,7 +11,7 @@ import { CanvasModal } from "./CanvasModal";
 
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
-  mic: ["voice", "voice_command", "sound"],
+  mic: ["voice", "voice_command", "sound", "sound_tracker"],
   cam: ["motion", "presence.enter", "presence.leave", "light.level", "environment", "system"],
   telegram: ["telegram"],
 };
@@ -20,7 +20,7 @@ const TYPE_ICON: Record<string, string> = {
   voice_command: "🎙",
 };
 const TYPE_LABEL: Record<string, string> = {
-  voice: "voice", voice_command: "cmd", sound: "sound",
+  voice: "voice", voice_command: "cmd", sound: "sound", sound_tracker: "🔊",
   motion: "motion", "presence.enter": "enter", "presence.leave": "leave",
   "light.level": "light", environment: "env", system: "sys",
   telegram: "TG", schedule: "sched",
@@ -46,16 +46,13 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
-  const [typeFilters, setTypeFilters] = useState<Set<string>>(() => {
+  // Opt-out model: store what user has EXCLUDED. Empty = show all.
+  const [excludedTypes, setExcludedTypes] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("lumi-type-filters-v2");
+      const saved = localStorage.getItem("lumi-excluded-types-v1");
       if (saved) return new Set(JSON.parse(saved));
     } catch {}
-    // Default: all known types on
-    return new Set([
-      ...CAT_TYPES.mic, ...CAT_TYPES.cam, ...CAT_TYPES.telegram,
-      "schedule", "unknown",
-    ]);
+    return new Set();
   });
   const [searchText, setSearchText] = useState("");
   const [fromTime, setFromTime] = useState("");
@@ -181,23 +178,27 @@ export function FlowSection({
     downloadUISnapshot();
   }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
 
+  const saveExcluded = (next: Set<string>) => {
+    try { localStorage.setItem("lumi-excluded-types-v1", JSON.stringify([...next])); } catch {}
+  };
+
   const toggleType = (type: string) => {
-    setTypeFilters((prev) => {
+    setExcludedTypes((prev) => {
       const next = new Set(prev);
       if (next.has(type)) next.delete(type); else next.add(type);
-      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+      saveExcluded(next);
       return next;
     });
   };
 
   const toggleCategory = (cat: string) => {
     const catTypes = CAT_TYPES[cat] ?? [];
-    setTypeFilters((prev) => {
-      const allOn = catTypes.every((t) => prev.has(t));
+    setExcludedTypes((prev) => {
+      const allExcluded = catTypes.every((t) => prev.has(t));
       const next = new Set(prev);
-      if (allOn) { catTypes.forEach((t) => next.delete(t)); }
+      if (allExcluded) { catTypes.forEach((t) => next.delete(t)); }
       else { catTypes.forEach((t) => next.add(t)); }
-      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+      saveExcluded(next);
       return next;
     });
   };
@@ -211,20 +212,8 @@ export function FlowSection({
     return [...seen];
   }, [turns]);
 
-  // Auto-enable any new type that appears and hasn't been seen before (opt-out model)
-  useEffect(() => {
-    setTypeFilters((prev) => {
-      const newTypes = availableTypes.filter((t) => !prev.has(t));
-      if (newTypes.length === 0) return prev;
-      const next = new Set(prev);
-      newTypes.forEach((t) => next.add(t));
-      try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
-      return next;
-    });
-  }, [availableTypes]);
-
   const filteredTurns = useMemo(() => turns.filter((t) => {
-    if (!typeFilters.has(t.type)) return false;
+    if (excludedTypes.has(t.type)) return false;
     if (fromTime || toTime) {
       const m = t.startTime.match(/T(\d{2}:\d{2})/);
       const tt = m?.[1] ?? "";
@@ -237,7 +226,7 @@ export function FlowSection({
       if (!`${input} ${output} ${t.type}`.toLowerCase().includes(q)) return false;
     }
     return true;
-  }), [turns, typeFilters, fromTime, toTime, searchText]);
+  }), [turns, excludedTypes, fromTime, toTime, searchText]);
   // When user explicitly selected a turn, keep it even if new events arrive.
   // Only auto-select latest turn when nothing is selected.
   const selectedTurn = selectedTurnId
@@ -432,21 +421,21 @@ export function FlowSection({
               </span>
               <button
                 onClick={() => {
-                  const allOn = availableTypes.every((t) => typeFilters.has(t));
-                  setTypeFilters((prev) => {
+                  const allOn = availableTypes.every((t) => !excludedTypes.has(t));
+                  setExcludedTypes((prev) => {
                     const next = new Set(prev);
-                    if (allOn) { availableTypes.forEach((t) => next.delete(t)); }
-                    else { availableTypes.forEach((t) => next.add(t)); }
-                    try { localStorage.setItem("lumi-type-filters-v2", JSON.stringify([...next])); } catch {}
+                    if (allOn) { availableTypes.forEach((t) => next.add(t)); }
+                    else { availableTypes.forEach((t) => next.delete(t)); }
+                    saveExcluded(next);
                     return next;
                   });
                 }}
                 style={{
                   marginLeft: "auto", padding: "1px 6px", borderRadius: 4, fontSize: 9,
                   cursor: "pointer", fontWeight: 600,
-                  border: `1px solid ${availableTypes.every((t) => typeFilters.has(t)) ? "var(--lm-amber)" : "var(--lm-border)"}`,
-                  background: availableTypes.every((t) => typeFilters.has(t)) ? "rgba(245,158,11,0.15)" : "transparent",
-                  color: availableTypes.every((t) => typeFilters.has(t)) ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                  border: `1px solid ${availableTypes.every((t) => !excludedTypes.has(t)) ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                  background: availableTypes.every((t) => !excludedTypes.has(t)) ? "rgba(245,158,11,0.15)" : "transparent",
+                  color: availableTypes.every((t) => !excludedTypes.has(t)) ? "var(--lm-amber)" : "var(--lm-text-muted)",
                 }}
               >All</button>
             </div>
@@ -474,8 +463,8 @@ export function FlowSection({
               ] as const).map((f) => {
                 const catTypes = CAT_TYPES[f.key] ?? [];
                 const available = catTypes.filter((t) => availableTypes.includes(t));
-                const active = available.length > 0 && available.every((t) => typeFilters.has(t));
-                const partial = !active && available.some((t) => typeFilters.has(t));
+                const active = available.length > 0 && available.every((t) => !excludedTypes.has(t));
+                const partial = !active && available.some((t) => !excludedTypes.has(t));
                 const border = active ? "var(--lm-amber)" : partial ? "var(--lm-teal)" : "var(--lm-border)";
                 const color = active ? "var(--lm-amber)" : partial ? "var(--lm-teal)" : "var(--lm-text-muted)";
                 return (
@@ -495,7 +484,7 @@ export function FlowSection({
             {availableTypes.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3, marginBottom: 5 }}>
                 {availableTypes.map((type) => {
-                  const on = typeFilters.has(type);
+                  const on = !excludedTypes.has(type);
                   const icon = TYPE_ICON[type] ?? "•";
                   const label = TYPE_LABEL[type] ?? type.replace("ambient:", "~");
                   return (
