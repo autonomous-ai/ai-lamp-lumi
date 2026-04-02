@@ -110,3 +110,4 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 - **Voice events** luôn pass through — người dùng đang chủ động nói chuyện.
 - Prefix `[sensing:type]` trong message là cách agent biết đây là ambient event, không phải message từ người dùng.
 - Sensing events được miễn rule "phải gọi `/emotion thinking` trước" — mỗi type có emotion đầu tiên riêng.
+- **Image pruning echo**: OpenClaw strip image payload cũ khỏi conversation history để tiết kiệm token. Model nhỏ (Haiku) có thể echo marker dưới dạng `[image description removed]` trong response. `SOUL.md` hướng dẫn agent không được echo các marker này.

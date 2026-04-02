@@ -110,3 +110,4 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 - **Voice events** always pass through — the user is explicitly speaking.
 - The `[sensing:type]` prefix in the message is how the agent knows it's an ambient event, not a user message.
 - Sensing events are exempt from the "call `/emotion thinking` first" rule — each type has its own defined first emotion.
+- **Image pruning echo**: OpenClaw strips old image payloads from conversation history to save tokens. Smaller models (Haiku) may echo the pruning markers as `[image description removed]` in their response text. `SOUL.md` instructs the agent to never echo these markers.
