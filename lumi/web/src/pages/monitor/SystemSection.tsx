@@ -35,7 +35,7 @@ export function SystemSection({
       </div>
 
       {/* Sparklines */}
-      <div style={S.grid2}>
+      <div className="lm-grid-2">
         <div style={S.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={S.cardLabel}>CPU History</div>
@@ -53,7 +53,7 @@ export function SystemSection({
       </div>
 
       {/* Detail stats */}
-      <div style={S.grid2}>
+      <div className="lm-grid-2">
         <div style={S.card}>
           <div style={S.cardLabel}>Process</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

@@ -57,7 +57,7 @@ export function OverviewSection({
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
       {/* Row 1: 4 status cards in one row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+      <div className="lm-grid-4">
         {/* OpenClaw */}
         <div style={S.card}>
           <div style={S.cardLabel}>OpenClaw AI</div>
@@ -157,7 +157,7 @@ export function OverviewSection({
       </div>
 
       {/* Row 2: Emotion (left) + Hardware (right) */}
-      <div style={S.grid2}>
+      <div className="lm-grid-2">
         {/* Emotion */}
         <div style={{
           ...S.card, padding: "14px 16px",
@@ -261,7 +261,7 @@ export function OverviewSection({
       </div>
 
       {/* Row 3: Scene + Servo + Display */}
-      <div style={S.grid3}>
+      <div className="lm-grid-3">
         {/* Scene */}
         <div style={S.card}>
           <div style={S.cardLabel}>Scene</div>
@@ -352,7 +352,7 @@ export function OverviewSection({
       {/* Row 4: System stats */}
       {sys && (
         <div style={S.card}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+          <div className="lm-grid-5">
             <StatPill label="CPU" value={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" />
             <StatPill label="RAM" value={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" />
             <StatPill label="Disk" value={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} />
