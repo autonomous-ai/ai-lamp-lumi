@@ -100,7 +100,7 @@ export function OverviewSection({
                 </div>
                 <SignalBars value={net.signal} />
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span></div>
+              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span>{net.publicIp && <span style={{ color: "var(--lm-text-dim)" }}> · Public: <span style={{ color: "var(--lm-teal)" }}>{net.publicIp}</span></span>}</div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
                 {net.signal} dBm · Internet: <span style={{ color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>{net.internet ? "OK" : "No"}</span>
               </div>
@@ -188,7 +188,13 @@ export function OverviewSection({
               const active = e === emotion;
               const c = EMOTION_COLOR[e] ?? "#fff";
               return (
-                <span key={e} style={{
+                <span key={e} role="button" title={`Test emotion: ${e}`} onClick={() => {
+                  fetch(`${HW}/emotion`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ emotion: e, intensity: 1.0 }),
+                  }).catch(() => {});
+                }} style={{
                   fontSize: 9.5, padding: "1px 6px", borderRadius: 8,
                   background: active ? `${c}22` : "var(--lm-surface)",
                   border: `1px solid ${active ? c + "88" : "var(--lm-border)"}`,
@@ -196,6 +202,7 @@ export function OverviewSection({
                   fontWeight: active ? 700 : 400,
                   textTransform: "capitalize",
                   transition: "all 0.3s ease",
+                  cursor: "pointer",
                 }}>
                   {EMOTION_EMOJI[e]} {e}
                 </span>

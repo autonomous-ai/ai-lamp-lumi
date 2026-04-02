@@ -87,11 +87,44 @@ func readDiskUsage(path string) (totalMB, usedMB int64, percent float64) {
 	return
 }
 
-// NetworkInfo returns combined network status: SSID, IP, signal, internet.
+// publicIPCache caches the public IP to avoid calling ifconfig.me on every request.
+var publicIPCache = struct {
+	mu        sync.Mutex
+	ip        string
+	fetchedAt time.Time
+}{}
+
+func getPublicIP() string {
+	publicIPCache.mu.Lock()
+	defer publicIPCache.mu.Unlock()
+	if time.Since(publicIPCache.fetchedAt) < 5*time.Minute && publicIPCache.ip != "" {
+		return publicIPCache.ip
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", "https://ifconfig.me/ip", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "curl/7.64.1")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 64)
+	n, _ := resp.Body.Read(buf)
+	ip := strings.TrimSpace(string(buf[:n]))
+	publicIPCache.ip = ip
+	publicIPCache.fetchedAt = time.Now()
+	return ip
+}
+
+// NetworkInfo returns combined network status: SSID, IP, public IP, signal, internet.
 func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 	info := map[string]any{
 		"ssid":     "",
 		"ip":       "",
+		"publicIp": "",
 		"signal":   0,
 		"internet": false,
 	}
@@ -108,6 +141,7 @@ func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 	// Quick internet check (non-blocking, use cached result if possible)
 	if ok, _ := h.networkService.CheckInternet(); ok {
 		info["internet"] = true
+		info["publicIp"] = getPublicIP()
 	}
 
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(info))

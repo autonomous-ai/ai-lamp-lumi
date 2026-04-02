@@ -548,6 +548,7 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandler) error {
 	s.wsConnected.Store(false)
 	defer s.wsConnected.Store(false)
+	defer s.activeTurn.Store(false) // clear busy on disconnect — lifecycle_end may never arrive
 
 	connStart := flow.Start("ws_connect", map[string]any{"url": defaultGatewayWSURL})
 
@@ -1378,9 +1379,13 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		s.wsMu.Unlock()
 		return "", fmt.Errorf("websocket disconnected before send")
 	}
+	// Set busy before write — closes the timing gap where sensing IsBusy()=false
+	// because lifecycle_start SSE hasn't arrived yet. SSE lifecycle_end still clears it.
+	s.activeTurn.Store(true)
 	err = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
 	if err != nil {
+		s.activeTurn.Store(false) // write failed — no turn will start, clear immediately
 		slog.Error("[chat.send] write failed", "component", "openclaw",
 			"reqId", reqID, "runId", idempotencyKey, "error", err)
 		return "", fmt.Errorf("write chat.send: %w", err)

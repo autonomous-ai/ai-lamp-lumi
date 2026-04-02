@@ -6,6 +6,7 @@ Lumi Server (Go, port 5000) bridges requests here.
 """
 
 import base64
+import csv
 import io
 import math
 import os
@@ -22,6 +23,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Union
+
+from lelamp.presets import AIM_PRESETS, EMOTION_PRESETS, SCENE_PRESETS, VALID_LED_EFFECTS
 
 # --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
@@ -493,9 +496,6 @@ class LEDColorResponse(BaseModel):
     scene: Optional[str]            # active scene name, or null
 
 
-VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse"]
-
-
 class LEDEffectRequest(BaseModel):
     effect: str = Field(..., description="Effect name: breathing, candle, rainbow, notification_flash, pulse")
     color: Optional[list[int]] = Field(None, description="Base RGB color for the effect (default: current color)")
@@ -561,57 +561,6 @@ class EmotionResponse(BaseModel):
     emotion: str
     servo: Optional[str]
     led: Optional[list[int]]
-
-
-# Emotion presets: maps emotion name to servo recording + LED color + optional LED effect
-# "effect" triggers a background LED animation; "color" is the base color for that effect.
-# When no "effect" is set, LED is a simple solid fill.
-EMOTION_PRESETS = {
-    "curious":       {"servo": "curious",       "color": [255, 200, 80],  "effect": "pulse",              "speed": 1.2},
-    "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "pulse",              "speed": 1.5},
-    "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.4},
-    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "breathing",          "speed": 0.8},
-    "idle":          {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.3},
-    "excited":       {"servo": "excited",       "color": [255, 100, 0],   "effect": "pulse",              "speed": 2.5},
-    "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "breathing",          "speed": 0.5},
-    "shock":         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 3.0},
-    "listening":     {"servo": "listening",     "color": [100, 180, 255], "effect": "breathing",          "speed": 0.6},
-    "laugh":         {"servo": "laugh",         "color": [255, 200, 50],  "effect": "pulse",              "speed": 2.0},
-    "confused":      {"servo": "confused",      "color": [200, 150, 255], "effect": "pulse",              "speed": 0.8},
-    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.2},
-    "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "pulse",              "speed": 1.5},
-    "acknowledge":   {"servo": "acknowledge",   "color": [100, 255, 150], "effect": "pulse",              "speed": 1.0},
-    "stretching":    {"servo": "stretching",    "color": [255, 230, 180], "effect": "breathing",          "speed": 0.6},
-}
-
-
-# --- Lighting scene presets ---
-# Simulated color temperature via RGB mixing
-# 2200K = very warm amber, 2700K = warm white, 4000K = neutral, 5000K = cool, 6500K = daylight
-SCENE_PRESETS = {
-    "reading":  {"brightness": 0.80, "color": [255, 225, 180]},  # ~4000K neutral
-    "focus":    {"brightness": 1.00, "color": [235, 240, 255]},  # ~5000K cool white
-    "relax":    {"brightness": 0.40, "color": [255, 180, 100]},  # ~2700K warm
-    "movie":    {"brightness": 0.15, "color": [255, 170, 80]},   # ~2700K dim amber
-    "night":    {"brightness": 0.05, "color": [255, 140, 40]},   # ~2200K very warm
-    "energize": {"brightness": 1.00, "color": [220, 235, 255]},  # ~6500K daylight
-}
-
-
-
-# --- Servo aim presets ---
-# Named lamp-head directions mapped to joint positions (normalized -100..100)
-# Neutral: base_yaw=3, base_pitch=-30, elbow_pitch=57, wrist_roll=0, wrist_pitch=18
-AIM_PRESETS = {
-    "center":  {"base_yaw.pos": 3.0,   "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
-    "desk":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -25.0, "elbow_pitch.pos": 50.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 40.0},
-    "wall":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -40.0, "elbow_pitch.pos": 65.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -5.0},
-    "left":    {"base_yaw.pos": -35.0, "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
-    "right":   {"base_yaw.pos": 40.0,  "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
-    "up":      {"base_yaw.pos": 3.0,   "base_pitch.pos": -45.0, "elbow_pitch.pos": 70.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -10.0},
-    "down":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -22.0, "elbow_pitch.pos": 45.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 50.0},
-    "user":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -28.0, "elbow_pitch.pos": 55.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 22.0},
-}
 
 
 class SceneRequest(BaseModel):
@@ -1068,6 +1017,8 @@ def set_led_solid(req: LEDSolidRequest):
     # Track for presence restore
     if sensing_service and isinstance(color, tuple):
         sensing_service.presence.set_last_color(color)
+    # Save as user LED state so emotion calls can restore it afterward
+    _save_user_led_state({"type": "solid", "color": list(color)})
     return {"status": "ok"}
 
 
@@ -1092,6 +1043,8 @@ def turn_off_leds():
     _active_scene = None
     if sensing_service:
         sensing_service.presence.set_last_color((0, 0, 0))
+    # User explicitly turned off — save as user state so emotion restore respects it
+    _save_user_led_state({"type": "off"})
     return {"status": "ok"}
 
 
@@ -1102,6 +1055,112 @@ _effect_stop: threading.Event = threading.Event()
 _effect_name: Optional[str] = None
 _effect_base_color: Optional[tuple] = None
 _active_scene: Optional[str] = None
+
+# --- User LED state tracking (for emotion restore) ---
+# Tracks the last LED state explicitly set by the user (solid/effect/scene/off).
+# Emotion calls are temporary — after the servo animation finishes, we restore this state.
+# None means user has never set anything; restore falls back to idle breathing.
+_user_led_state: Optional[dict] = None
+_restore_timer: Optional[threading.Timer] = None
+
+
+def _get_recording_duration(recording_name: str) -> float:
+    """Return the playback duration (seconds) of a servo recording CSV.
+
+    Reads the first and last timestamp row. Falls back to 3.0s if the file
+    is missing or unreadable — a safe default for most short emotion clips.
+    """
+    recordings_dir = os.path.join(os.path.dirname(__file__), "recordings")
+    path = os.path.join(recordings_dir, f"{recording_name}.csv")
+    try:
+        with open(path, newline="") as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            rows = list(reader)
+        if len(rows) < 2:
+            return 3.0
+        t0 = float(rows[0][0])
+        t1 = float(rows[-1][0])
+        return max(0.5, t1 - t0)
+    except Exception:
+        return 3.0
+
+
+def _save_user_led_state(state: dict):
+    """Save the user-set LED state and cancel any pending emotion restore."""
+    global _user_led_state, _restore_timer
+    _user_led_state = state
+    if _restore_timer is not None and _restore_timer.is_alive():
+        _restore_timer.cancel()
+        _restore_timer = None
+
+
+def _restore_user_led():
+    """Restore LED to user state after emotion animation completes.
+
+    Called by a Timer after the servo recording finishes. If the user never
+    set an explicit state, falls back to a calm idle breathing so the lamp
+    looks alive rather than frozen on the emotion color.
+    """
+    global _restore_timer
+    _restore_timer = None
+
+    if not rgb_service:
+        return
+
+    state = _user_led_state
+    if state is None:
+        # No user state — return to gentle idle breathing
+        _apply_emotion_led_display("idle", 0.4)
+        return
+
+    stype = state.get("type")
+    try:
+        if stype == "solid":
+            _stop_current_effect()
+            rgb_service.dispatch("solid", tuple(state["color"]))
+        elif stype == "effect":
+            _stop_current_effect()
+            global _effect_thread, _effect_name, _effect_base_color
+            color = tuple(state["color"])
+            speed = state.get("speed", 1.0)
+            effect = state["effect"]
+            _effect_stop.clear()
+            _effect_name = effect
+            _effect_base_color = color
+            _effect_thread = threading.Thread(
+                target=_run_effect,
+                args=(effect, color, speed, None, _effect_stop, rgb_service),
+                daemon=True,
+                name=f"led-restore-{effect}",
+            )
+            _effect_thread.start()
+        elif stype == "scene":
+            preset = SCENE_PRESETS.get(state["scene"])
+            if preset:
+                _stop_current_effect()
+                scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
+                rgb_service.dispatch("solid", scaled)
+        elif stype == "off":
+            _stop_current_effect()
+            rgb_service.clear()
+    except Exception as e:
+        logger.warning("LED restore failed: %s", e)
+
+
+def _schedule_led_restore(delay_s: float):
+    """Schedule _restore_user_led to run after delay_s seconds.
+
+    Cancels any previously scheduled restore so overlapping emotions don't
+    fire multiple restores.
+    """
+    global _restore_timer
+    if _restore_timer is not None and _restore_timer.is_alive():
+        _restore_timer.cancel()
+    t = threading.Timer(delay_s, _restore_user_led)
+    t.daemon = True
+    t.start()
+    _restore_timer = t
 
 
 def _stop_current_effect():
@@ -1292,6 +1351,9 @@ def start_led_effect(req: LEDEffectRequest):
     _effect_thread.start()
     logger.info("LED effect started: %s (speed=%.1f, duration=%s)", req.effect, req.speed, req.duration_ms)
 
+    # Save as user LED state so emotion calls can restore it afterward
+    _save_user_led_state({"type": "effect", "effect": req.effect, "color": list(base_color), "speed": req.speed})
+
     return {"status": "ok", "effect": req.effect, "speed": req.speed}
 
 
@@ -1474,6 +1536,16 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
     if not preset:
         return None
     led_color = None
+    # Idle LED (cyan breathing) is the ambient fallback — only apply when the user has not
+    # explicitly set a scene/color/effect. If a user state exists, skip the LED change so
+    # the user's environment lighting is preserved; the servo still plays normally.
+    if emotion == "idle" and _user_led_state is not None:
+        if display_service:
+            try:
+                display_service.set_expression(emotion)
+            except Exception as e:
+                logger.warning("Emotion display failed: %s", e)
+        return None
     if rgb_service and preset.get("color"):
         scaled = [int(c * intensity) for c in preset["color"]]
         try:
@@ -1530,6 +1602,25 @@ def express_emotion(req: EmotionRequest):
 
     led_color = _apply_emotion_led_display(req.emotion, req.intensity)
 
+    # Schedule LED restore after the servo animation finishes.
+    # Emotion LED is temporary (Lumi's reaction) — after the animation, restore
+    # the user's environment lighting. If user never set anything, fade to idle breathing.
+    #
+    # Special cases:
+    #   idle    — looping animation with no natural end; it IS the resting state,
+    #             so no restore is scheduled (ambient will take over naturally).
+    #   shock   — notification_flash auto-stops after ~1.5s (3 flashes); restore
+    #             at 2.0s so LED doesn't linger in a blank post-flash state while
+    #             the servo finishes its 4.8s recovery animation.
+    if req.emotion == "idle":
+        pass  # no restore — idle is ambient resting state
+    elif req.emotion == "shock":
+        _schedule_led_restore(2.0)
+    else:
+        servo_name = preset.get("servo", "")
+        restore_delay = _get_recording_duration(servo_name) + 0.5 if servo_name else 3.5
+        _schedule_led_restore(restore_delay)
+
     return {
         "status": "ok",
         "emotion": req.emotion,
@@ -1570,6 +1661,8 @@ def activate_scene(req: SceneRequest):
     # Track last color for presence restore
     if sensing_service:
         sensing_service.presence.set_last_color(tuple(scaled))
+    # Save as user LED state so emotion calls can restore it afterward
+    _save_user_led_state({"type": "scene", "scene": req.scene})
 
     return {
         "status": "ok",
