@@ -1,6 +1,7 @@
 import logging
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Callable, override
@@ -69,6 +70,35 @@ class FaceRecognizer(Perception):
             name=model_name
         )
         self.app.prepare(ctx_id=-1)
+
+        self._start_watcher()
+
+    def _start_watcher(self) -> None:
+        """Poll OWNER_PHOTOS_DIR every 2s and reload embeddings when files change."""
+        OWNER_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+        def _latest_mtime() -> float:
+            try:
+                return max(
+                    (e.stat().st_mtime for e in OWNER_PHOTOS_DIR.rglob("*")),
+                    default=0.0,
+                )
+            except OSError:
+                return 0.0
+
+        def _poll():
+            last = _latest_mtime()
+            while True:
+                time.sleep(2)
+                current = _latest_mtime()
+                if current != last:
+                    last = current
+                    logger.info("Owner photos changed — reloading embeddings")
+                    self.load_from_disk()
+
+        t = threading.Thread(target=_poll, daemon=True, name="owner-photos-watcher")
+        t.start()
+        logger.info("Watching owner photos dir: %s", OWNER_PHOTOS_DIR)
 
     def train(
         self, images: list[npt.NDArray[np.uint8]], labels: list[int | str]
@@ -351,6 +381,7 @@ class FaceRecognizer(Perception):
             self._evict_oldest_strangers()
 
         self._faces_n = len(owners_seen) + len(strangers_seen)
+        logger.info(f"Detected owners={list(owners_seen)} and strangers={list(strangers_seen)}")
         self._face_present = self._faces_n > 0
 
         if self._face_present:
