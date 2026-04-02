@@ -508,6 +508,76 @@ func (s *Service) ResetAgent() error {
 	return nil
 }
 
+// RefreshModelsConfig patches the models reasoning/thinkingBudget fields in openclaw.json
+// based on current config and restarts the agent. Safe to call after UpdateConfig.
+func (s *Service) RefreshModelsConfig() error {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read openclaw config: %w", err)
+	}
+	var configData map[string]any
+	if err := json.Unmarshal(data, &configData); err != nil {
+		return fmt.Errorf("parse openclaw config: %w", err)
+	}
+
+	disableThinking := s.config.LLMThinkingDisabled()
+
+	// Patch models.providers.autonomous.models[*].reasoning
+	if modelsMap, ok := configData["models"].(map[string]any); ok {
+		if providersMap, ok := modelsMap["providers"].(map[string]any); ok {
+			if providerEntry, ok := providersMap[customProviderName].(map[string]any); ok {
+				if modelsList, ok := providerEntry["models"].([]any); ok {
+					for _, entry := range modelsList {
+						if m, ok := entry.(map[string]any); ok {
+							if disableThinking {
+								m["reasoning"] = false
+							} else {
+								m["reasoning"] = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Patch agents.defaults.models[*].thinkingBudget
+	if agentsMap, ok := configData["agents"].(map[string]any); ok {
+		if defaultsMap, ok := agentsMap["defaults"].(map[string]any); ok {
+			if agentModelsMap, ok := defaultsMap["models"].(map[string]any); ok {
+				for key, val := range agentModelsMap {
+					metadata, ok := val.(map[string]any)
+					if !ok {
+						metadata = map[string]any{}
+					}
+					if disableThinking {
+						metadata["thinkingBudget"] = 0
+					} else {
+						delete(metadata, "thinkingBudget")
+					}
+					agentModelsMap[key] = metadata
+				}
+			}
+		}
+	}
+
+	written, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal openclaw config: %w", err)
+	}
+	if err := os.WriteFile(configPath, written, 0600); err != nil {
+		return fmt.Errorf("write openclaw config: %w", err)
+	}
+	slog.Info("refreshed models config in openclaw.json", "component", "openclaw", "disableThinking", disableThinking)
+
+	if err := restartOpenclawGateway(); err != nil {
+		return err
+	}
+	slog.Info("restart completed after models config refresh", "component", "openclaw")
+	return nil
+}
+
 // RestartAgent restarts the openclaw gateway only.
 func (s *Service) RestartAgent() error {
 	slog.Debug("restarting openclaw gateway", "component", "openclaw")
