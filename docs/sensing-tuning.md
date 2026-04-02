@@ -86,55 +86,6 @@ Watch the `level` value during normal ambient conditions vs. when you clap/speak
 | Normal speech doesn't trigger event | Decrease `SOUND_RMS_THRESHOLD` (3000 → 1500) |
 | Triggers on fan noise / AC hum | Increase `SOUND_RMS_THRESHOLD` (3000 → 5000) |
 
----
-
-## Sound Escalation (Lumi-side)
-
-LeLamp fires a sound event on every audio sample that crosses the threshold — potentially several per second. Lumi's server-side **sound tracker** (`lumi/server/sensing/delivery/http/handler.go`) applies dedup and escalation logic before forwarding to the agent.
-
-**Behavior — mirrors a living creature:**
-
-| Occurrence | Agent reaction |
-|---|---|
-| 1st | `/emotion shock` (0.8) — flinch, no speech |
-| 2nd | `/emotion curious` (0.7) — still noticing, no speech |
-| 3rd+ in window | Marked **persistent** — agent speaks once ("Sao ồn vậy?") |
-| After speaking | 3-minute suppression — all sound events dropped silently |
-| 2 min of silence | Window resets — back to occurrence 1 |
-
-**Constants** (in `handler.go`):
-
-```go
-soundDedupeInterval   = 15 * time.Second  // max 1 event forwarded per 15s
-soundWindowDuration   = 2 * time.Minute   // silence this long resets the counter
-soundPersistentAfter  = 3                 // speak after this many occurrences
-soundSuppressDuration = 3 * time.Minute   // suppress after speaking
-```
-
-**Monitoring in Flow Monitor:**
-
-Each sound event appears as a `sensing_input` turn in the Mic category. The Detail field shows tracker state:
-
-```json
-// occurrence 1 or 2 — silent
-{ "type": "sound", "occurrence": 1, "escalation": "silent" }
-
-// occurrence 3+ — agent will speak
-{ "type": "sound", "occurrence": 3, "escalation": "persistent" }
-
-// dropped by dedup or suppression
-{ "type": "sound", "dropped": true, "reason": "dedup/suppressed" }
-```
-
-**Tuning:**
-
-| Symptom | Fix |
-|---|---|
-| Lumi speaks too quickly after first noise | Increase `soundPersistentAfter` (3 → 5) |
-| Lumi never speaks even with sustained noise | Decrease `soundPersistentAfter` (3 → 2) |
-| Too many sound turns in Flow Monitor | Increase `soundDedupeInterval` (15s → 30s) |
-| Lumi stays silent too long after speaking | Decrease `soundSuppressDuration` (3min → 1min) |
-| Lumi reacts to old noise after quiet period | Decrease `soundWindowDuration` (2min → 1min) |
 
 ---
 
