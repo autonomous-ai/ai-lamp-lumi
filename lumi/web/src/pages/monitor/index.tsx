@@ -287,7 +287,10 @@ export default function Monitor() {
           {section === "servo"     && <ServoSection />}
           {section === "analytics" && <AnalyticsSection />}
           {section === "logs"      && <LogsSection />}
-          {section === "chat"      && <ChatSection events={events} />}
+          {/* Chat is always mounted to preserve history across tab switches */}
+          <div style={{ display: section === "chat" ? "contents" : "none" }}>
+            <ChatSection events={events} />
+          </div>
         </div>
       </main>
     </div>
