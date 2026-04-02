@@ -103,7 +103,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			})
 			flow.End("sensing_input", turnStart, map[string]any{"path": "local"}, localRunID)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
-				"handler": "local",
+				"handler":  "local",
+				"response": result.TTSText,
 			}))
 			return
 		}
