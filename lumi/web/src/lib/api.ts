@@ -84,6 +84,7 @@ export interface DeviceConfig {
   deepgram_api_key: string;
   device_id: string;
   network_ssid: string;
+  network_password: string;
   mqtt_endpoint: string;
   mqtt_username: string;
   mqtt_password: string;
