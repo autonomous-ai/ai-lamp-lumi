@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { API } from "./types";
 import type { DisplayEvent } from "./types";
 
+const STORAGE_KEY = "lumi_chat_history";
+const MAX_STORED = 200;
+
 interface ChatMessage {
   id: string;
   role: "user" | "lumi";
@@ -10,6 +13,26 @@ interface ChatMessage {
   runId?: string;
   pending?: boolean;
   error?: boolean;
+}
+
+function loadMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const msgs = JSON.parse(raw) as ChatMessage[];
+    // Clear any pending/error states from a previous session
+    return msgs.map((m) =>
+      m.pending ? { ...m, pending: false, text: "…", error: true } : m,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(msgs: ChatMessage[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs.slice(-MAX_STORED)));
+  } catch {}
 }
 
 interface Props {
@@ -48,7 +71,7 @@ function extractResponse(ev: DisplayEvent): { text: string; final: boolean } | n
 }
 
 export function ChatSection({ events }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -56,6 +79,9 @@ export function ChatSection({ events }: Props) {
   const pendingRunIdRef = useRef<string | null>(null);
   // runIds already resolved (avoid double-applying)
   const resolvedIds = useRef<Set<string>>(new Set());
+
+  // Persist messages to localStorage on every change
+  useEffect(() => { saveMessages(messages); }, [messages]);
 
   // Watch flow events for Lumi's response
   useEffect(() => {
@@ -169,6 +195,15 @@ export function ChatSection({ events }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", maxWidth: 720, margin: "0 auto" }}>
+      {/* Header */}
+      {messages.length > 0 && (
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--lm-border)", display: "flex", justifyContent: "flex-end" }}>
+          <button
+            onClick={() => { setMessages([]); localStorage.removeItem(STORAGE_KEY); }}
+            style={{ fontSize: 11, color: "var(--lm-text-muted)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+          >clear history</button>
+        </div>
+      )}
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 8px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && (
