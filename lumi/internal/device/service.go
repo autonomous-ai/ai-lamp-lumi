@@ -202,6 +202,7 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		DeepgramAPIKey:     s.config.DeepgramAPIKey,
 		DeviceID:           s.config.DeviceID,
 		NetworkSSID:        s.config.NetworkSSID,
+		NetworkPassword:    s.config.NetworkPassword,
 		MQTTEndpoint:       s.config.MQTTEndpoint,
 		MQTTUsername:       s.config.MQTTUsername,
 		MQTTPassword:       s.config.MQTTPassword,
@@ -233,6 +234,7 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if data.DeviceID != "" {
 		s.config.DeviceID = data.DeviceID
 	}
+	wifiChanged := data.SSID != "" && data.SSID != s.config.NetworkSSID
 	if data.SSID != "" {
 		s.config.NetworkSSID = data.SSID
 	}
@@ -288,6 +290,16 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 	slog.Info("config updated", "component", "device")
+	if wifiChanged {
+		ssid := s.config.NetworkSSID
+		password := s.config.NetworkPassword
+		go func() {
+			slog.Info("reconnecting to new WiFi", "component", "device", "ssid", ssid)
+			if _, err := s.networkService.SetupNetwork(ssid, password); err != nil {
+				slog.Error("WiFi reconnect failed", "component", "device", "error", err)
+			}
+		}()
+	}
 	if thinkingChanged && s.agentGateway != nil {
 		if err := s.agentGateway.RefreshModelsConfig(); err != nil {
 			slog.Error("refresh models config failed", "component", "device", "error", err)
