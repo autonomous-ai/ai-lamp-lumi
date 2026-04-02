@@ -58,37 +58,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Sound events: run tracker before anything else so dropped events are visible in the monitor
-	// with their reason, and passed events carry occurrence context in the sensing_input turn.
-	var soundTrackerDetail map[string]any
-	if req.Type == "sound" {
-		send, occurrence, persistent := h.soundTracker.track(time.Now())
-		if !send {
-			slog.Info("sound event dropped — dedup or suppressed", "component", "sensing")
-			h.monitorBus.Push(domain.MonitorEvent{
-				Type:    "sensing_input",
-				Summary: "[sound] " + req.Message + " — dropped (dedup/suppressed)",
-				Detail:  map[string]any{"type": req.Type, "dropped": true, "reason": "dedup/suppressed"},
-			})
-			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
-			return
-		}
-		if persistent {
-			req.Message += fmt.Sprintf(" — persistent (occurrence %d)", occurrence)
-			soundTrackerDetail = map[string]any{"occurrence": occurrence, "escalation": "persistent"}
-		} else {
-			req.Message += fmt.Sprintf(" — occurrence %d", occurrence)
-			soundTrackerDetail = map[string]any{"occurrence": occurrence, "escalation": "silent"}
-		}
-	}
-
 	startPayload := map[string]any{"type": req.Type, "message": req.Message}
 
-	// Push sensing input to monitor — embed sound tracker state in Detail when present.
+	// Push sensing input to monitor.
 	monitorDetail := map[string]any{"type": req.Type}
-	for k, v := range soundTrackerDetail {
-		monitorDetail[k] = v
-	}
 	h.monitorBus.Push(domain.MonitorEvent{
 		Type:    "sensing_input",
 		Summary: "[" + req.Type + "] " + req.Message,
