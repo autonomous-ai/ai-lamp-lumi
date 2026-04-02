@@ -100,7 +100,7 @@ export function OverviewSection({
                 </div>
                 <SignalBars value={net.signal} />
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span></div>
+              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span>{net.publicIp && <span style={{ color: "var(--lm-text-dim)" }}> · Public: <span style={{ color: "var(--lm-teal)" }}>{net.publicIp}</span></span>}</div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
                 {net.signal} dBm · Internet: <span style={{ color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>{net.internet ? "OK" : "No"}</span>
               </div>
