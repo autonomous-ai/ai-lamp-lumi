@@ -73,6 +73,9 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.MQTTPort = data.MQTTPort
 	s.config.FAChannel = data.FAChannel
 	s.config.FDChannel = data.FDChannel
+	if data.LLMDisableThinking != nil {
+		s.config.LLMDisableThinking = data.LLMDisableThinking
+	}
 	if err := s.config.Save(); err != nil {
 		slog.Error("save config failed", "component", "device", "error", err)
 	}
