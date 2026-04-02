@@ -1122,6 +1122,10 @@ func (s *Service) onboardOpenclaw() error {
 				agentsMap["defaults"] = defaultsMap
 			}
 			defaultsMap["workspace"] = workspacePath
+			// Deny built-in TTS tool — Lumi handles TTS via LeLamp.
+			toolsMap := ensureMap(configData, "tools")
+			toolsMap["deny"] = []any{"tts"}
+			configData["tools"] = toolsMap
 			// Remove "tailscale" section from gateway if present
 			gateway, ok := configData["gateway"].(map[string]interface{})
 			if ok {
