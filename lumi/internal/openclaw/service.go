@@ -1318,6 +1318,117 @@ func (s *Service) GetConfigJSON() (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
+// BroadcastAlert sends a message (with optional image) to ALL active OpenClaw sessions.
+// It fetches the current session list via sessions.list RPC, then calls chat.send for each.
+// Used by guard mode to notify all Telegram chats/groups about stranger detection.
+func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
+
+	// Fetch all active sessions.
+	listReqID := fmt.Sprintf("guard-list-%d", time.Now().UnixMilli())
+	listReq := map[string]interface{}{
+		"type":   "req",
+		"id":     listReqID,
+		"method": "sessions.list",
+	}
+	listBody, err := json.Marshal(listReq)
+	if err != nil {
+		return fmt.Errorf("marshal sessions.list: %w", err)
+	}
+
+	s.wsMu.Lock()
+	err = conn.WriteMessage(websocket.TextMessage, listBody)
+	s.wsMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("write sessions.list: %w", err)
+	}
+
+	// Read response (with timeout).
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, listResp, err := conn.ReadMessage()
+	conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return fmt.Errorf("read sessions.list response: %w", err)
+	}
+
+	var listResult struct {
+		Result struct {
+			Sessions []struct {
+				SessionKey string `json:"sessionKey"`
+			} `json:"sessions"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(listResp, &listResult); err != nil {
+		return fmt.Errorf("parse sessions.list: %w", err)
+	}
+
+	sessions := listResult.Result.Sessions
+	if len(sessions) == 0 {
+		slog.Warn("guard broadcast: no active sessions", "component", "openclaw")
+		return nil
+	}
+
+	slog.Info("guard broadcast", "component", "openclaw",
+		"sessions", len(sessions), "hasImage", imageBase64 != "",
+		"message", msg)
+
+	// Send to each session.
+	for _, sess := range sessions {
+		reqID := fmt.Sprintf("guard-%d", s.reqCounter.Add(1))
+		idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+
+		params := map[string]interface{}{
+			"idempotencyKey": idempotencyKey,
+			"sessionKey":     sess.SessionKey,
+			"message":        msg,
+		}
+		if imageBase64 != "" {
+			params["attachments"] = []map[string]interface{}{
+				{
+					"type":     "image",
+					"mimeType": "image/jpeg",
+					"content":  imageBase64,
+				},
+			}
+		}
+
+		req := map[string]interface{}{
+			"type":   "req",
+			"id":     reqID,
+			"method": "chat.send",
+			"params": params,
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			slog.Error("guard broadcast marshal failed", "component", "openclaw", "session", sess.SessionKey, "err", err)
+			continue
+		}
+
+		s.wsMu.Lock()
+		err = conn.WriteMessage(websocket.TextMessage, body)
+		s.wsMu.Unlock()
+		if err != nil {
+			slog.Error("guard broadcast send failed", "component", "openclaw", "session", sess.SessionKey, "err", err)
+			continue
+		}
+
+		slog.Info("guard broadcast sent", "component", "openclaw",
+			"session", sess.SessionKey, "reqId", reqID)
+	}
+
+	flow.Log("guard_broadcast", map[string]any{
+		"sessions": len(sessions),
+		"message":  msg,
+	})
+
+	return nil
+}
+
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
