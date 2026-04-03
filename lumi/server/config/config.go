@@ -115,7 +115,7 @@ func Default() Config {
 		OTAMetadataURL:  "",
 		OTAPollInterval: "1h",
 
-		OpenclawConfigDir: "/root/openclaw",
+		OpenclawConfigDir: "/root/.openclaw",
 
 		NetworkSSID:     "",
 		NetworkPassword: "",
