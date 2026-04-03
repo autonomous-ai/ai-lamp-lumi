@@ -27,6 +27,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -42,6 +43,15 @@ const (
 
 // Compile-time check: *Service implements domain.AgentGateway.
 var _ domain.AgentGateway = (*Service)(nil)
+
+// hwMarkerRe matches inline hardware markers like [HW:/emotion:{"emotion":"happy","intensity":0.9}]
+// JSON body must not contain '}' except as the final closing brace (no nested objects).
+var hwMarkerRe = regexp.MustCompile(`\[HW:(/[^:]+):(\{[^}]*\})\]`)
+
+type hwCall struct {
+	path string
+	body string
+}
 
 // Service provides setup, reset, restart of openclaw config/gateway and StartWS.
 type Service struct {
@@ -1228,6 +1238,65 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// WatchIdentity polls IDENTITY.md in the OpenClaw workspace and pushes updated wake words
+// to LeLamp whenever the agent's name changes (e.g. user says "call yourself Noah").
+func (s *Service) WatchIdentity(ctx context.Context) {
+	identityPath := filepath.Join(s.config.OpenclawConfigDir, "workspace", "IDENTITY.md")
+	var lastName string
+	for {
+		if !sleepCtx(ctx, 5*time.Second) {
+			return
+		}
+		data, err := os.ReadFile(identityPath)
+		if err != nil {
+			continue
+		}
+		name := parseIdentityName(string(data))
+		if name == "" || name == lastName {
+			continue
+		}
+		lastName = name
+		words := buildWakeWords(name)
+		slog.Info("agent renamed, updating wake words", "component", "openclaw", "name", name, "words", words)
+		lelamp.SetVoiceConfig(words)
+	}
+}
+
+// parseIdentityName extracts the agent name from IDENTITY.md content.
+// Looks for a line matching: - **Name:** <value>
+func parseIdentityName(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		// Match: - **Name:** Lumi  or  **Name:** Lumi
+		lower := strings.ToLower(line)
+		idx := strings.Index(lower, "**name:**")
+		if idx < 0 {
+			continue
+		}
+		name := strings.TrimSpace(line[idx+len("**name:**"):])
+		// Strip trailing markdown (e.g. " — some description")
+		if i := strings.IndexAny(name, "—-|"); i > 0 {
+			name = strings.TrimSpace(name[:i])
+		}
+		if name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// buildWakeWords generates wake word variants from an agent name.
+func buildWakeWords(name string) []string {
+	n := strings.ToLower(name)
+	return []string{
+		"hey " + n,
+		n,
+		"này " + n,
+		"ê " + n,
+		n + " ơi",
+	}
+}
+
 // StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
 func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error {
 	if deepgramKey == "" {
@@ -1269,8 +1338,48 @@ func stripForTTS(text string) string {
 	return strings.TrimSpace(text)
 }
 
+// extractHWCalls parses all [HW:/path:{"json"}] markers from text,
+// returns the list of calls and the text with markers stripped.
+func extractHWCalls(text string) ([]hwCall, string) {
+	matches := hwMarkerRe.FindAllStringSubmatch(text, -1)
+	calls := make([]hwCall, 0, len(matches))
+	for _, m := range matches {
+		calls = append(calls, hwCall{path: m[1], body: m[2]})
+	}
+	return calls, strings.TrimSpace(hwMarkerRe.ReplaceAllString(text, ""))
+}
+
+// fireHWCallsAsync fires hardware calls to LeLamp sequentially inside a goroutine.
+// Sequential order matters (e.g. /led/effect/stop must precede /led/solid).
+func (s *Service) fireHWCallsAsync(calls []hwCall) {
+	if len(calls) == 0 {
+		return
+	}
+	go func() {
+		for _, c := range calls {
+			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
+			if err != nil {
+				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
+				continue
+			}
+			resp.Body.Close()
+			slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
+			switch {
+			case strings.Contains(c.path, "/emotion"):
+				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.body})
+			case strings.Contains(c.path, "/led"), strings.Contains(c.path, "/scene"):
+				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: c.body})
+			case strings.Contains(c.path, "/servo"):
+				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: c.body})
+			}
+		}
+	}()
+}
+
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
 func (s *Service) SendToLeLampTTS(text string) error {
+	calls, text := extractHWCalls(text)
+	s.fireHWCallsAsync(calls)
 	text = stripForTTS(text)
 	if text == "" {
 		return nil

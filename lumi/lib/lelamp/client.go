@@ -3,6 +3,7 @@
 package lelamp
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -34,6 +35,15 @@ func SetSolid(r, g, b int) {
 // Off turns off all LEDs.
 func Off() {
 	post("/led/off", "{}")
+}
+
+// SetVoiceConfig updates the voice pipeline config at runtime (e.g. wake words after rename).
+func SetVoiceConfig(wakeWords []string) {
+	b, err := json.Marshal(map[string]any{"wake_words": wakeWords})
+	if err != nil {
+		return
+	}
+	post("/voice/config", string(b))
 }
 
 func post(path, body string) {

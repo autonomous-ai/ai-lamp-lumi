@@ -10,51 +10,44 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 
 ## Workflow
 1. Determine if the user wants to **aim** the light or **play an animation**.
-2. For aiming: identify the closest named direction from the available set.
-3. For animation: pick the animation that best matches the intent.
-4. Call the appropriate endpoint on `http://127.0.0.1:5001`.
-5. Confirm the action to the user.
+2. Prefix reply with the appropriate `[HW:...]` marker — Lumi fires it before TTS.
+3. Confirm the action to the user.
 
-**Important**: For conversation reactions (responding emotionally to what the user says), use the **Emotion** skill instead — it combines servo + LED + eyes automatically.
+**Important**: For conversation reactions, use the **Emotion** skill instead — it combines servo + LED + eyes automatically.
 
 ## Examples
 
 **Input:** "Point the light at my desk"
-**Output:** Call `POST /servo/aim` with `{"direction": "desk"}`. Confirm: "Done, I've aimed the light at your desk."
+**Output:** `[HW:/servo/aim:{"direction":"desk"}]` Done, aimed the light at your desk.
 
 **Input:** "Look to the left"
-**Output:** Call `POST /servo/aim` with `{"direction": "left"}`. Confirm: "Looking left now."
+**Output:** `[HW:/servo/aim:{"direction":"left"}]` Looking left now.
 
 **Input:** "Aim at the wall slowly"
-**Output:** Call `POST /servo/aim` with `{"direction": "wall", "duration": 3.0}`. Confirm: "Aiming at the wall."
+**Output:** `[HW:/servo/aim:{"direction":"wall","duration":3.0}]` Aiming at the wall slowly.
 
 **Input:** "Nod for me"
-**Output:** Call `POST /servo/play` with `{"recording": "nod"}`. Confirm: "Nodding!"
+**Output:** `[HW:/servo/play:{"recording":"nod"}]` Nodding!
 
 **Input:** "Release the motors"
-**Output:** Call `POST /servo/release`. Confirm: "Servos released — you can move the lamp by hand now."
+**Output:** `[HW:/servo/release:{}]` Servos released — you can move the lamp by hand now.
 
 ## Tools
 
-**Bash** with `curl` for HTTP calls to `http://127.0.0.1:5001`.
+## How to Control Servo
 
-### Aim the lamp head (named directions)
+**No exec/curl needed.** Inline markers at start of reply:
 
-```bash
-curl -s -X POST http://127.0.0.1:5001/servo/aim \
-  -H "Content-Type: application/json" \
-  -d '{"direction": "desk"}'
+```
+[HW:/servo/aim:{"direction":"desk"}] Aimed at your desk.
+[HW:/servo/aim:{"direction":"left","duration":3.0}] Aiming left slowly.
+[HW:/servo/play:{"recording":"nod"}] Nodding!
+[HW:/servo/release:{}] Servos released.
 ```
 
-Optional `duration` parameter controls move speed (seconds, default 2.0). Set to 0 for instant jump.
+`duration` on `/servo/aim` controls move speed in seconds (default 2.0, 0 = instant).
 
-```bash
-curl -s -X POST http://127.0.0.1:5001/servo/aim \
-  -H "Content-Type: application/json" \
-  -d '{"direction": "left", "duration": 3.0}'
-```
-
-Available directions:
+### Available directions
 
 | Direction | What it does |
 |---|---|
@@ -67,21 +60,7 @@ Available directions:
 | `down` | Points downward |
 | `user` | Slightly toward the user (default interaction pose) |
 
-### List available directions
-
-```bash
-curl -s http://127.0.0.1:5001/servo/aim
-```
-
-Response: `{"directions": ["center", "desk", "wall", "left", "right", "up", "down", "user"]}`
-
 ### Play animation
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/servo/play \
-  -H "Content-Type: application/json" \
-  -d '{"recording": "nod"}'
-```
 
 Available animations:
 
@@ -108,22 +87,10 @@ Available animations:
 | `acknowledge` | Quick micro-nod (1.5s), confirming |
 | `stretching` | Big extension + settle, after waking up |
 
-### Get servo state
-
-```bash
-curl -s http://127.0.0.1:5001/servo
-```
-
-### Read current position
-
-```bash
-curl -s http://127.0.0.1:5001/servo/position
-```
-
 ### Release servos (disable motors)
 
-```bash
-curl -s -X POST http://127.0.0.1:5001/servo/release
+```
+[HW:/servo/release:{}] Servos released.
 ```
 
 Disables all servo motors so they can be moved freely by hand.

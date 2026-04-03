@@ -10,26 +10,26 @@ Activate predefined lighting presets that set optimal color temperature and brig
 
 ## Workflow
 1. Determine which scene matches the user's request or activity
-2. Call `POST /scene` with the scene name
+2. Prefix reply with `[HW:/scene:{"scene":"name"}]` — Lumi fires it before TTS
 3. Confirm the scene activation to the user
-4. Optionally call **Emotion** skill to express your personality alongside the scene
+4. Optionally chain emotion: `[HW:/scene:{"scene":"night"}][HW:/emotion:{"emotion":"sleepy","intensity":0.7}]`
 
 ## Examples
 
 Input: "Reading mode"
-Output: Call `POST /scene` with `{"scene": "reading"}`. Confirm: "Reading mode activated — 80% brightness, neutral white."
+Output: `[HW:/scene:{"scene":"reading"}]` Reading mode activated — 80% brightness, neutral white.
 
 Input: "Goodnight" / "buon ngu" / "di ngu"
-Output: Call `POST /scene` with `{"scene": "night"}`. Confirm: "Night mode on. Sweet dreams!"
+Output: `[HW:/scene:{"scene":"night"}][HW:/emotion:{"emotion":"sleepy","intensity":0.7}]` Night mode on. Sweet dreams!
 
 Input: "I want to relax" / "thu gian"
-Output: Call `POST /scene` with `{"scene": "relax"}`. Confirm: "Relax mode — warm, gentle light at 40%."
+Output: `[HW:/scene:{"scene":"relax"}]` Relax mode — warm, gentle light at 40%.
 
 Input: "Movie time" / "xem phim"
-Output: Call `POST /scene` with `{"scene": "movie"}`. Confirm: "Movie mode — dim amber bias lighting."
+Output: `[HW:/scene:{"scene":"movie"}]` Movie mode — dim amber bias lighting.
 
 Input: "I need to focus"
-Output: Call `POST /scene` with `{"scene": "focus"}`. Confirm: "Focus mode — full brightness, cool white."
+Output: `[HW:/scene:{"scene":"focus"}]` Focus mode — full brightness, cool white.
 
 Input: "Make it purple"
 Output: Do NOT use this skill. Use **LED Control** skill instead.
@@ -37,31 +37,13 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 Input: Conversational reply needing emotion
 Output: Do NOT use this skill for emotion. Use **Emotion** skill instead (you CAN use both Scene + Emotion together).
 
-## Tools
+## How to Activate a Scene
 
-Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
+**No exec/curl needed.** Inline marker at start of reply:
 
-### List available scenes
-```bash
-curl -s http://127.0.0.1:5001/scene
 ```
-Response: `{"scenes": ["reading", "focus", "relax", "movie", "night", "energize"]}`
-
-### Activate a scene
-```bash
-curl -s -X POST http://127.0.0.1:5001/scene \
-  -H "Content-Type: application/json" \
-  -d '{"scene": "night"}'
-```
-
-Response:
-```json
-{
-  "status": "ok",
-  "scene": "night",
-  "brightness": 0.05,
-  "color": [12, 7, 2]
-}
+[HW:/scene:{"scene":"reading"}] Reading mode activated.
+[HW:/scene:{"scene":"night"}][HW:/emotion:{"emotion":"sleepy","intensity":0.7}] Night mode on. Sweet dreams!
 ```
 
 ### Available scenes
