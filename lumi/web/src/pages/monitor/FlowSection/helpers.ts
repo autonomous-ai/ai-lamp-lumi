@@ -622,6 +622,132 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     info.agent_response.push("💤 no output — processed silently");
   }
 
+  // --- Per-node duration from timestamp deltas ---
+  const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+    : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+
+  let nSensingTs = 0, nChatSendTs = 0, nChatInputTs = 0;
+  let nLifecycleStartTs = 0, nLifecycleEndTs = 0, nTtsTs = 0;
+  let nFirstToolTs = 0, nLastToolResultTs = 0;
+  let nToolTotalMs = 0, nToolStartTs = 0;
+  let nIntentMatchTs = 0;
+  let nSensingExitDur = 0; // duration_ms from flow_exit:sensing_input
+  let nLastBatchResultTs = 0, nInterToolMs = 0; // inter-tool LLM thinking
+
+  for (const ev of events) {
+    const ts = new Date(ev.time).getTime();
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
+        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input")) {
+      if (!nSensingTs) nSensingTs = ts;
+    }
+    if (ev.type === "flow_exit" && ev.detail?.node === "sensing_input") {
+      const dur = Number(ev.detail?.dur_ms ?? ev.detail?.data?.dur_ms ?? 0);
+      if (dur > 0) nSensingExitDur = dur;
+    }
+    if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
+      if (!nIntentMatchTs) nIntentMatchTs = ts;
+    }
+    if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+      if (!nChatInputTs) nChatInputTs = ts;
+    }
+    if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
+      if (!nChatSendTs) nChatSendTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start") {
+      if (!nLifecycleStartTs) nLifecycleStartTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
+      nLifecycleEndTs = ts;
+    }
+    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+      if (!nTtsTs) nTtsTs = ts;
+    }
+    const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
+    if (isToolCall) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const source = d?.data?.source;
+      if (source === "session.tool") continue;
+      const phase = d?.data?.phase ?? d?.phase ?? "";
+      if (phase === "start") {
+        if (!nFirstToolTs) nFirstToolTs = ts;
+        if (nLastBatchResultTs && ts > nLastBatchResultTs) {
+          nInterToolMs += ts - nLastBatchResultTs;
+          nLastBatchResultTs = 0;
+        }
+        nToolStartTs = ts;
+      }
+      if (phase === "result") {
+        nLastToolResultTs = ts;
+        nLastBatchResultTs = ts;
+        if (nToolStartTs) { nToolTotalMs += ts - nToolStartTs; nToolStartTs = 0; }
+      }
+    }
+  }
+
+  // sensing_input exit duration → mic/cam input node
+  if (nSensingExitDur > 0) {
+    const dur = fmtDur(nSensingExitDur);
+    if (info.mic_input.length > 0) info.mic_input.unshift(`⏱ ${dur}`);
+    else if (info.cam_input.length > 0) info.cam_input.unshift(`⏱ ${dur}`);
+  }
+
+  // intent_check: sensing → chat_send or intent_match (whichever comes first)
+  if (nSensingTs || nChatInputTs) {
+    const from = nSensingTs || nChatInputTs;
+    const to = nIntentMatchTs || nChatSendTs;
+    if (to && to > from) {
+      const ms = to - from;
+      info.intent_check.unshift(`⏱ ${fmtDur(ms)}`);
+    }
+  }
+
+  // local_match: intent_match duration (instant, but show if > 0)
+  // (local_match is triggered by intent_match, timing is included in intent_check)
+
+  // agent_call: chat_send → lifecycle_start
+  if (nChatSendTs && nLifecycleStartTs) {
+    const ms = nLifecycleStartTs - nChatSendTs;
+    if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
+  } else if (nChatInputTs && nLifecycleStartTs) {
+    const ms = nLifecycleStartTs - nChatInputTs;
+    if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
+  }
+
+  // agent_thinking: lifecycle_start → first tool_call (TTFT) + inter-tool thinking
+  if (nLifecycleStartTs) {
+    const to = nFirstToolTs || nLifecycleEndTs;
+    if (to && to > nLifecycleStartTs) {
+      const ttft = to - nLifecycleStartTs;
+      const totalThinking = ttft + nInterToolMs;
+      if (nInterToolMs > 0) {
+        info.agent_thinking.unshift(`⏱ ${fmtDur(totalThinking)} (first ${fmtDur(ttft)} + between tools ${fmtDur(nInterToolMs)})`);
+      } else {
+        info.agent_thinking.unshift(`⏱ ${fmtDur(ttft)}`);
+      }
+    }
+  }
+
+  // tool_exec: total tool execution time
+  if (nToolTotalMs > 0) {
+    info.tool_exec.unshift(`⏱ ${fmtDur(nToolTotalMs)}`);
+  }
+
+  // agent_response: last tool_result → lifecycle_end (or lifecycle_start → lifecycle_end if no tools)
+  if (nLastToolResultTs && nLifecycleEndTs && nLifecycleEndTs > nLastToolResultTs) {
+    const ms = nLifecycleEndTs - nLastToolResultTs;
+    if (ms > 0) info.agent_response.unshift(`⏱ ${fmtDur(ms)}`);
+  }
+
+  // tts_speak: lifecycle_end → tts_send
+  if (nLifecycleEndTs && nTtsTs) {
+    const ms = nTtsTs - nLifecycleEndTs;
+    if (ms > 0 && ms < 30_000) info.tts_speak.unshift(`⏱ ${fmtDur(ms)}`);
+  } else if (nIntentMatchTs && nTtsTs) {
+    // Local path: intent_match → tts
+    const ms = nTtsTs - nIntentMatchTs;
+    if (ms > 0 && ms < 30_000) info.tts_speak.unshift(`⏱ ${fmtDur(ms)}`);
+  }
+
   return info;
 }
 
