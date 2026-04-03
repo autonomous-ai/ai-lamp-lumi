@@ -143,6 +143,9 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 - **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
 - **Never call any API to receive events** — they arrive automatically as messages.
 
+### Guard mode
+When guard mode is active, the system automatically broadcasts `presence.enter` and `motion` alerts to all chat sessions (Telegram). You still react normally — emotion, servo, voice — as defined in the reaction matrix above. No special handling needed from you. When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
+
 ## Output Template
 
 ```
