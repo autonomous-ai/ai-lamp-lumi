@@ -21,36 +21,8 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
-_FALLBACK_MODEL = "flux-general-en"
-_FALLBACK_LANGUAGE = None
-
-_NOVA_MODEL = "nova-3"
-_NOVA_LANGUAGE = "vi"
-
-
-def _load_lumi_stt_defaults() -> tuple[str, Optional[str]]:
-    """Read stt_model / stt_language from Lumi's config.json.
-
-    Config path: env var LUMI_CONFIG_PATH, otherwise /opt/lumi/config/config.json.
-    Falls back to flux-general-en / None when the file is absent or fields are empty.
-    """
-    path = os.environ.get("LUMI_CONFIG_PATH", "/opt/lumi/config/config.json")
-    try:
-        with open(path, "r") as f:
-            cfg = json.load(f)
-        model = (cfg.get("stt_model") or "").strip()
-        language = (cfg.get("stt_language") or "").strip() or None
-        if model:
-            logger.info("STT config from %s: model=%s language=%s", path, model, language)
-            return model, language
-    except FileNotFoundError:
-        logger.debug("Lumi config not found at %s, using STT defaults", path)
-    except Exception as e:
-        logger.warning("Failed to read Lumi config at %s: %s", path, e)
-    return _FALLBACK_MODEL, _FALLBACK_LANGUAGE
-
-
-DEFAULT_MODEL, DEFAULT_LANGUAGE = _load_lumi_stt_defaults()
+DEFAULT_MODEL = "flux-general-en"
+DEFAULT_LANGUAGE = None
 
 DEFAULT_ENCODING = "linear16"
 DEFAULT_ENDPOINTING_MS = 1500  # ms of silence before Deepgram fires is_final (same as stt_deepgram.py)
