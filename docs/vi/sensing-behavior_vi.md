@@ -104,6 +104,33 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 
 ---
 
+## Chế độ canh gác (Guard Mode)
+
+Khi guard mode được bật (`guard_mode: true` trong config), sensing có thêm một lớp broadcast bên trên hành vi bình thường:
+
+- Sự kiện **`presence.enter`** và **`motion`** được broadcast đến TẤT CẢ chat session OpenClaw (mọi Telegram DM và group đã kết nối) qua `chat.send` RPC.
+- Broadcast bao gồm message và ảnh (nếu có).
+- Phản ứng sensing bình thường (emotion, servo, TTS) vẫn hoạt động như thường — guard mode chỉ là thêm vào.
+- Agent có thể bật/tắt guard mode qua skill `guard` (lệnh giọng nói hoặc text).
+- Cảnh báo thủ công có thể gửi qua `POST /api/guard/alert` với message và ảnh tùy chọn.
+
+Trường hợp sử dụng: Lumi hoạt động như trợ lý an ninh nhà. Khi chủ nhà rời đi và bật guard mode, bất kỳ sự hiện diện hoặc chuyển động nào được phát hiện sẽ được báo cáo đến tất cả kênh chat ngay lập tức.
+
+---
+
+## Theo dõi người lạ (Stranger Visit Tracking)
+
+LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
+
+- Mỗi sự kiện `presence.enter` chứa stranger ID (ví dụ `stranger_5`), số lần xuất hiện được tăng lên.
+- Stats bao gồm `count`, `first_seen`, và `last_seen` timestamps cho mỗi stranger.
+- Lưu trữ tại thư mục data của LeLamp (giữ qua restart).
+- Truy vấn stats qua `GET http://127.0.0.1:5001/face/stranger-stats`.
+
+**Gợi ý đăng ký tự động:** Khi stranger đạt 3+ lần xuất hiện, sensing skill gợi ý đăng ký khuôn mặt — người này có thể là khách quen nên được đăng ký làm owner.
+
+---
+
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.
