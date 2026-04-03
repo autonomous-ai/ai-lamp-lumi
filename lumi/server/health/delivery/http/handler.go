@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -48,8 +49,9 @@ func (h *HealthHandler) SystemInfo(c *gin.Context) {
 		"memUsed":    0,
 		"memPercent": 0.0,
 		"cpuTemp":    readCPUTemp(),
-		"uptime":        readUptime(),
-		"serviceUptime": int64(time.Since(serverStartTime).Seconds()),
+		"uptime":         readUptime(),
+		"serviceUptime":  int64(time.Since(serverStartTime).Seconds()),
+		"lelampUptime":   readLeLampUptime(),
 		"goRoutines": runtime.NumGoroutine(),
 		"version":    config.LumiVersion,
 		"deviceId":   h.config.DeviceID,
@@ -236,6 +238,33 @@ func readCPUTemp() float64 {
 	}
 	milliC, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return float64(milliC) / 1000.0
+}
+
+// readLeLampUptime returns uptime in seconds of the lumi-lelamp systemd service.
+func readLeLampUptime() int64 {
+	out, err := exec.Command("systemctl", "show", "lumi-lelamp",
+		"--property=ActiveEnterTimestamp", "--value").Output()
+	if err != nil {
+		return 0
+	}
+	ts := strings.TrimSpace(string(out))
+	if ts == "" || ts == "n/a" {
+		return 0
+	}
+	// systemd format: "Fri 2026-04-03 10:53:50 +0700" or "Fri 2026-04-03 10:53:50 UTC"
+	formats := []string{
+		"Mon 2006-01-02 15:04:05 -0700",
+		"Mon 2006-01-02 15:04:05 MST",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, ts); err == nil {
+			d := time.Since(t)
+			if d > 0 {
+				return int64(d.Seconds())
+			}
+		}
+	}
+	return 0
 }
 
 // readUptime reads system uptime in seconds from /proc/uptime.
