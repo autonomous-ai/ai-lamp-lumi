@@ -13,6 +13,7 @@ export interface SystemInfo {
   cpuTemp: number;
   uptime: number;
   serviceUptime: number;
+  lelampUptime: number;
   goRoutines: number;
   version: string;
   deviceId: string;
