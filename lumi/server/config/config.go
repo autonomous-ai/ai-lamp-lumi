@@ -151,6 +151,19 @@ func ProvideConfig() *Config {
 		panic(fmt.Errorf("parse config %s: %w", configPath, err))
 	}
 	cfg.notify = make(chan bool, 1)
+
+	// Migrate old openclaw config dir /root/openclaw → /root/.openclaw on startup.
+	if cfg.OpenclawConfigDir == "/root/openclaw" {
+		if err := migrateOpenclawDir("/root/openclaw", "/root/.openclaw"); err != nil {
+			slog.Error("openclaw dir migration failed", "component", "config", "error", err)
+		} else {
+			cfg.OpenclawConfigDir = "/root/.openclaw"
+			if err := cfg.Save(); err != nil {
+				slog.Error("save config after migration failed", "component", "config", "error", err)
+			}
+		}
+	}
+
 	return &cfg
 }
 
@@ -214,4 +227,16 @@ func ProvideMQTTConfig(c *Config) mqtt.Config {
 		Password: c.MQTTPassword,
 		Port:     c.MQTTPort,
 	}
+}
+
+// migrateOpenclawDir moves oldDir to newDir if oldDir exists and newDir does not.
+func migrateOpenclawDir(oldDir, newDir string) error {
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		return nil // nothing to migrate
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		return nil // destination already exists, skip
+	}
+	slog.Info("migrating openclaw config dir", "component", "config", "from", oldDir, "to", newDir)
+	return os.Rename(oldDir, newDir)
 }
