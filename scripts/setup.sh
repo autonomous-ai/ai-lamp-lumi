@@ -1006,7 +1006,9 @@ elif [ "$APP" = "lelamp" ]; then
   curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lelamp"; exit 1; }
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
-  cd "$LELAMP_DIR" && uv sync --extra hardware && cd /
+  UV_BIN=$(command -v uv || echo "/home/pi/.local/bin/uv")
+  cd "$LELAMP_DIR" && "$UV_BIN" sync --extra hardware || { echo "uv sync failed"; exit 1; }
+  cd /
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
 fi
