@@ -1849,6 +1849,13 @@ def face_reset():
     return FaceResetResponse(status="ok", owner_count=0)
 
 
+@app.get("/face/stranger-stats", tags=["Face"])
+def face_stranger_stats():
+    """Return visit counts for all tracked stranger IDs."""
+    fr = _require_face_recognizer()
+    return fr.stranger_stats()
+
+
 # --- Display endpoints ---
 
 class DisplayEyesRequest(BaseModel):
