@@ -42,8 +42,8 @@ ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, dro
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
 
-# Wake word patterns (lowercase match)
-WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+# Wake word patterns (lowercase match) — default for agent named "Lumi"
+DEFAULT_WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
 
 class VoiceService:
@@ -54,6 +54,7 @@ class VoiceService:
             stt_provider: STTProvider,
             input_device: Optional[int] = None,
             tts_service=None,
+            wake_words: Optional[list] = None,
     ):
         self._stt = stt_provider
         self._input_device = input_device
@@ -61,6 +62,14 @@ class VoiceService:
         self._thread: Optional[threading.Thread] = None
         self._listening = False
         self._tts = tts_service
+        self._wake_words: list = list(wake_words) if wake_words else list(DEFAULT_WAKE_WORDS)
+        self._wake_words_lock = threading.Lock()
+
+    def set_wake_words(self, words: list) -> None:
+        """Update wake word list at runtime (called when agent is renamed)."""
+        with self._wake_words_lock:
+            self._wake_words = [w.lower() for w in words]
+        logger.info("Wake words updated: %s", self._wake_words)
 
         # Lazy imports
         self._sd = None
@@ -221,10 +230,12 @@ class VoiceService:
                 return
             lower = text.lower()
             # Check for wake word
-            is_command = any(w in lower for w in WAKE_WORDS)
+            with self._wake_words_lock:
+                wake_words = list(self._wake_words)
+            is_command = any(w in lower for w in wake_words)
             if is_command:
                 cmd = lower
-                for w in WAKE_WORDS:
+                for w in wake_words:
                     if cmd.startswith(w):
                         cmd = text[len(w):].strip().lstrip(",").strip()
                         break
