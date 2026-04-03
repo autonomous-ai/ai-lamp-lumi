@@ -65,6 +65,12 @@ export function turnHasSensingInput(turn: Turn): boolean {
   );
 }
 
+export function turnHasVoicePipeline(turn: Turn): boolean {
+  return turn.events.some((ev) =>
+    (ev.type === "flow_event" || ev.type === "flow_enter") && ev.detail?.node === "voice_pipeline_start",
+  );
+}
+
 /** Bracket label from "[voice] hello" / "[motion] ..." on sensing_input / flow_enter sensing_input. */
 export function sensingInputBracketType(ev: DisplayEvent): string | null {
   if (ev.type !== "sensing_input" && !(ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
@@ -370,6 +376,10 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       turn.type = "unknown";
     }
     if (turn.type === "telegram" && turnHasChatInputEvent(turn) && !turnHasRealTelegramInput(turn) && !turnHasOutput(turn)) {
+      turn.type = "unknown";
+    }
+    // Done turn with no recognizable input source → unknown
+    if (turn.status === "done" && !turnHasSensingInput(turn) && !turnHasRealTelegramInput(turn) && !turnHasVoicePipeline(turn)) {
       turn.type = "unknown";
     }
   }
@@ -859,6 +869,29 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
   }
 
   return { total: totalMs, segments };
+}
+
+// Extract total duration (ms) from a turn's start/end times.
+export function turnDurationMs(turn: Turn): number {
+  if (!turn.startTime || !turn.endTime) return 0;
+  const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
+  return ms > 0 ? ms : 0;
+}
+
+// Extract billed tokens from a turn's token_usage event.
+// Billed = input + cache_write + ceil(cache_read * 0.1) + output.
+export function turnBilledTokens(turn: Turn): number {
+  for (const ev of turn.events) {
+    if (ev.type === "flow_event" && ev.detail?.node === "token_usage") {
+      const u = (ev.detail as Record<string, any>)?.data;
+      const inTok = Number(u?.input_tokens ?? 0);
+      const outTok = Number(u?.output_tokens ?? 0);
+      const cacheRead = Number(u?.cache_read_tokens ?? 0);
+      const cacheWrite = Number(u?.cache_write_tokens ?? 0);
+      return inTok + cacheWrite + Math.round(cacheRead * 0.1) + outTok;
+    }
+  }
+  return 0;
 }
 
 // Extract input/output summary from a turn
