@@ -34,12 +34,35 @@
 | GET | `/api/network/current` | SSID + IP hiện tại |
 | GET | `/api/network/check-internet` | Kiểm tra kết nối internet |
 
+### Guard Mode (Chế độ canh gác)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/guard/enable` | Bật chế độ canh gác |
+| POST | `/api/guard/disable` | Tắt chế độ canh gác |
+| GET | `/api/guard` | Kiểm tra trạng thái guard mode (trả về `{"guard_mode": true/false}`) |
+| POST | `/api/guard/alert` | Gửi cảnh báo thủ công đến tất cả chat session OpenClaw |
+
+**Request body cảnh báo:**
+```json
+{
+  "message": "Phát hiện người lạ trong phòng khách",
+  "image": "<base64 JPEG, optional>"
+}
+```
+
+Khi guard mode BẬT, các sự kiện `presence.enter` và `motion` được gửi thêm đến TẤT CẢ chat session OpenClaw (Telegram DM + group) qua `chat.send` RPC. Flow sensing bình thường (emotion, servo, TTS) vẫn hoạt động không thay đổi.
+
+Config field: `guard_mode` trong `config/config.json` (bool, mặc định `false`). OpenClaw agent cũng có thể bật/tắt guard mode qua skill `guard`.
+
 ### Sensing
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | POST | `/api/sensing/event` | Nhận sensing event từ LeLamp |
 | POST | `/api/monitor/event` | Push event trực tiếp vào monitor bus (dùng bởi LeLamp để gửi trạng thái sound tracker) |
+
+> **Ghi chú:** Theo dõi stranger (stats, lưu trữ) được xử lý bởi **LeLamp** (port 5001) tại `GET /face/stranger-stats`. Xem [sensing-behavior_vi.md](sensing-behavior_vi.md#theo-dõi-người-lạ-stranger-visit-tracking) để biết chi tiết.
 
 **Request body:**
 ```json

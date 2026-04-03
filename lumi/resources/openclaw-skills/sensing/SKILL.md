@@ -143,6 +143,22 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 - **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
 - **Never call any API to receive events** — they arrive automatically as messages.
 
+### Recurring stranger → suggest face enrollment
+When you receive `[sensing:presence.enter]` with a stranger, LeLamp automatically tracks their visit count. Check the stranger stats API to see if this person is a regular visitor:
+
+```bash
+curl -s http://127.0.0.1:5001/face/stranger-stats
+```
+
+Response: `{"stranger_5": {"count": 3, "first_seen": "...", "last_seen": "..."}}`
+
+If a stranger's count is **3 or more**:
+1. React normally (emotion + servo + greeting as usual).
+2. After your reaction, mention to the owner: "This person keeps showing up... Want me to remember their face? Just tell me their name!"
+3. If the owner replies with a name (e.g. "That's Bob"), use the Face Enroll skill: take the latest snapshot from the enter event and call `POST /face/enroll` with that image and the given name.
+4. Once enrolled, confirm: "Got it! I'll recognize Bob from now on."
+5. If the owner says no or ignores it, don't ask again for the same stranger ID in the current session.
+
 ### Guard mode
 When guard mode is active, the system automatically broadcasts `presence.enter` and `motion` alerts to all chat sessions (Telegram). You still react normally — emotion, servo, voice — as defined in the reaction matrix above. No special handling needed from you. When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
 

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import shutil
@@ -19,6 +20,7 @@ _NO_MATCH = -2.0  # sentinel score used when an embedding bank is empty
 
 # Persisted owner photos (see save_photo / load_from_disk)
 OWNER_PHOTOS_DIR = Path(config.OWNER_PHOTOS_DIR)
+_STRANGER_STATS_FILE = OWNER_PHOTOS_DIR.parent / "stranger_stats.json"
 
 
 class FaceRecognizer(Perception):
@@ -53,6 +55,7 @@ class FaceRecognizer(Perception):
 
         self._owners_last_seen: dict[str, float] = {}
         self._strangers_last_seen: dict[str, float] = {}
+        self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
         self._face_present = False
         self._faces_n = 0
@@ -398,6 +401,8 @@ class FaceRecognizer(Perception):
             summary = ", ".join(parts) if parts else "unknown person"
 
             self._send_enter_event(frame, face_annotations, summary=summary)
+            if strangers_seen:
+                self._track_stranger_visits(strangers_seen)
 
     def to_dict(self) -> dict:
         return {
@@ -409,6 +414,41 @@ class FaceRecognizer(Perception):
             if self._stranger_embeddings is not None
             else 0,
         }
+
+    # -- Stranger visit tracking -------------------------------------------------
+
+    @staticmethod
+    def _load_stranger_stats() -> dict[str, dict]:
+        try:
+            return json.loads(_STRANGER_STATS_FILE.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_stranger_stats(self) -> None:
+        try:
+            _STRANGER_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _STRANGER_STATS_FILE.write_text(json.dumps(self._stranger_visit_counts, indent=2))
+        except OSError as e:
+            logger.warning("Failed to save stranger stats: %s", e)
+
+    def _track_stranger_visits(self, stranger_ids: set[str]) -> None:
+        """Increment visit count for each stranger seen in this frame."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        for sid in stranger_ids:
+            rec = self._stranger_visit_counts.get(sid)
+            if rec is None:
+                self._stranger_visit_counts[sid] = {"count": 1, "first_seen": now, "last_seen": now}
+            else:
+                rec["count"] += 1
+                rec["last_seen"] = now
+        if stranger_ids:
+            self._save_stranger_stats()
+
+    def stranger_stats(self) -> dict[str, dict]:
+        """Return visit counts for all tracked stranger IDs."""
+        return dict(self._stranger_visit_counts)
+
+    # -- Events -----------------------------------------------------------------
 
     def _send_enter_event(
         self,

@@ -34,12 +34,35 @@
 | GET | `/api/network/current` | Current SSID + IP |
 | GET | `/api/network/check-internet` | Check internet connectivity |
 
+### Guard Mode
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/guard/enable` | Enable guard mode |
+| POST | `/api/guard/disable` | Disable guard mode |
+| GET | `/api/guard` | Check guard mode status (returns `{"guard_mode": true/false}`) |
+| POST | `/api/guard/alert` | Manually broadcast alert to all OpenClaw chat sessions |
+
+**Alert request body:**
+```json
+{
+  "message": "Intruder detected in living room",
+  "image": "<base64 JPEG, optional>"
+}
+```
+
+When guard mode is ON, `presence.enter` and `motion` sensing events are additionally broadcast to ALL OpenClaw chat sessions (Telegram DMs + groups) via `chat.send` RPC. Normal sensing flow (emotion, servo, TTS) continues unchanged.
+
+Config field: `guard_mode` in `config/config.json` (bool, default `false`). The OpenClaw agent can also toggle guard mode via the `guard` skill.
+
 ### Sensing
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/sensing/event` | Receive sensing event from LeLamp |
 | POST | `/api/monitor/event` | Push an event directly to the monitor bus (used by LeLamp for sound tracker state) |
+
+> **Note:** Stranger visit tracking (stats, persistence) is handled by **LeLamp** (port 5001) at `GET /face/stranger-stats`. See [sensing-behavior.md](sensing-behavior.md#stranger-visit-tracking) for details.
 
 **Request body:**
 ```json

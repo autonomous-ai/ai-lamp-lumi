@@ -104,6 +104,33 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 
 ---
 
+## Guard Mode
+
+When guard mode is enabled (`guard_mode: true` in config), sensing gains an additional broadcast layer on top of normal behavior:
+
+- **`presence.enter`** and **`motion`** events are broadcast to ALL OpenClaw chat sessions (every connected Telegram DM and group) via `chat.send` RPC.
+- The broadcast includes the event message and image (if present).
+- Normal sensing reactions (emotion, servo, TTS) still happen as usual — guard mode is purely additive.
+- The agent can toggle guard mode via the `guard` skill (voice or text command).
+- Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
+
+Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels immediately.
+
+---
+
+## Stranger Visit Tracking
+
+LeLamp (port 5001) tracks how many times each stranger has been seen:
+
+- On every `presence.enter` event containing a stranger ID (e.g. `stranger_5`), the visit count is incremented.
+- Stats include `count`, `first_seen`, and `last_seen` timestamps per stranger.
+- Persisted in LeLamp's data directory (survives restarts).
+- Query stats via `GET http://127.0.0.1:5001/face/stranger-stats`.
+
+**Auto-enrollment suggestion:** When a stranger reaches 3+ visits, the sensing skill suggests face enrollment — this person is likely a regular visitor who should be registered as an owner.
+
+---
+
 ## General Rules (all event types)
 
 - **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn.
