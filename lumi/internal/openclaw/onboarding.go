@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -200,6 +201,16 @@ func (s *Service) ensureHooksRegistered(hookNames []string) (bool, error) {
 // Returns true if the file was modified.
 func (s *Service) ensureAgentsMDBlock() (bool, error) {
 	agentsFile := filepath.Join(s.config.OpenclawConfigDir, "workspace", "AGENTS.md")
+
+	// If AGENTS.md is missing, run `openclaw setup` to regenerate the base template
+	// before injecting the mandatory block. This preserves the full default content
+	// (session startup instructions, memory rules, etc.) instead of writing to an empty file.
+	if _, err := os.Stat(agentsFile); os.IsNotExist(err) {
+		slog.Info("AGENTS.md missing, running openclaw setup to regenerate", "component", "onboarding")
+		if out, err := exec.Command("openclaw", "setup").CombinedOutput(); err != nil {
+			slog.Warn("openclaw setup failed, will inject into empty file", "component", "onboarding", "error", err, "output", strings.TrimSpace(string(out)))
+		}
+	}
 
 	content, err := os.ReadFile(agentsFile)
 	if err != nil && !os.IsNotExist(err) {
