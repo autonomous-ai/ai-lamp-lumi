@@ -413,7 +413,7 @@ EOF
 # ----------------------------------------------------------
 stage_openclaw() {
   echo "[stage] Install OpenClaw"
-  OPENCLAW_VERSION="${OPENCLAW_VERSION:-latest}"
+  OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.3.24}"
   retry "npm install -g openclaw@${OPENCLAW_VERSION}" 5
   openclaw --version || true
 
@@ -1007,6 +1007,7 @@ elif [ "$APP" = "lelamp" ]; then
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
   UV_BIN=$(command -v uv || echo "/home/pi/.local/bin/uv")
+  cd "$LELAMP_DIR" && .venv/bin/pip uninstall lerobot -y 2>/dev/null || true
   cd "$LELAMP_DIR" && "$UV_BIN" sync --extra hardware || { echo "uv sync failed"; exit 1; }
   cd /
   systemctl restart lumi-lelamp
