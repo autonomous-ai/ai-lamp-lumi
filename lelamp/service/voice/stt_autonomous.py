@@ -11,8 +11,9 @@ Protocol (Deepgram-compatible):
 
 import json
 import logging
+import os
 import threading
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlencode
 
 from lelamp.service.voice.stt_provider import STTProvider, STTSession
@@ -28,10 +29,80 @@ DEFAULT_LANGUAGE = "vi"
 
 DEFAULT_ENCODING = "linear16"
 DEFAULT_ENDPOINTING_MS = 1500  # ms of silence before Deepgram fires is_final (same as stt_deepgram.py)
+DEFAULT_INTERIM_RESULTS = "true"
 
 
 def _is_flux(model: str) -> bool:
     return model.startswith("flux")
+
+
+def _is_nova3(model: str) -> bool:
+    return model.startswith("nova-3")
+
+
+def _keyword_boost_to_terms(keywords: List[str]) -> List[str]:
+    """Strip 'word:int' → 'word' for keyterm (nova-3 rejects keywords on upstream Deepgram)."""
+    out: List[str] = []
+    for k in keywords:
+        k = k.strip()
+        if not k:
+            continue
+        out.append(k.split(":", 1)[0].strip())
+    return out
+
+
+def _build_flux_query_params(
+    *,
+    model: str,
+    encoding: str,
+    sample_rate: int,
+) -> Dict[str, Any]:
+    """Flux (`flux-*`): model + PCM + channels only (Listen v2 style)."""
+    return dict(
+        model=model,
+        encoding=encoding,
+        sample_rate=sample_rate,
+    )
+
+
+def _build_nova_query_params(
+    *,
+    model: str,
+    sample_rate: int,
+    channels: int,
+    language: str,
+    keywords: List[str],
+) -> Dict[str, Any]:
+    """Nova (`nova-*`): v1-style options; nova-3 uses keyterm, not keywords."""
+    params: Dict[str, Any] = dict(
+        model=model,
+        encoding=DEFAULT_ENCODING,
+        sample_rate=sample_rate,
+        channels=channels,
+        language=language,
+        smart_format="true",
+        interim_results=DEFAULT_INTERIM_RESULTS,
+        endpointing=DEFAULT_ENDPOINTING_MS,
+        vad_events="true",
+    )
+    if not keywords:
+        return params
+    if _is_nova3(model):
+        terms = _keyword_boost_to_terms(keywords)
+        if terms:
+            params["keyterm"] = terms
+            logger.info(
+                "Autonomous STT: nova-3 — keyterm=%s (do not use keywords on query)",
+                terms,
+            )
+    else:
+        params["keywords"] = ",".join(keywords)
+    return params
+
+
+def _transcriptions_ws_url(ws_base: str, params: Dict[str, Any]) -> str:
+    q = urlencode(params, doseq=True)
+    return f"{ws_base}/ws/audio/transcriptions?{q}"
 
 
 class AutonomousSTTSession(STTSession):
@@ -45,6 +116,8 @@ class AutonomousSTTSession(STTSession):
         self._recv_thread: Optional[threading.Thread] = None
         self._closed = threading.Event()
         self._ready = threading.Event()
+        self._bytes_sent = 0
+        self._logged_first_send = False
 
     def start(self, on_transcript: Callable[[str, bool], None]) -> bool:
         try:
@@ -62,11 +135,14 @@ class AutonomousSTTSession(STTSession):
                 close_timeout=5,
             )
         except Exception as e:
-            logger.error("Autonomous STT connect failed: %s", e)
+            logger.error("Autonomous STT: WebSocket connect failed: %s", e)
             self._closed.set()
             return False
 
-        logger.info("Autonomous STT WebSocket opened")
+        logger.info(
+            "Autonomous STT: WebSocket OPEN — ready to receive audio (url=%s)",
+            self._ws_url[:160] + ("…" if len(self._ws_url) > 160 else ""),
+        )
         self._ready.set()
 
         def recv_loop():
@@ -74,15 +150,17 @@ class AutonomousSTTSession(STTSession):
                 for raw in self._ws:
                     if self._closed.is_set():
                         break
-                    logger.debug("STT recv: %s", str(raw)[:200])
                     try:
                         msg = json.loads(raw)
                     except (json.JSONDecodeError, TypeError):
-                        logger.warning("STT recv non-JSON: %s", str(raw)[:200])
+                        r = str(raw)[:200]
+                        logger.warning(
+                            "Autonomous STT: recv non-JSON (truncated): %s",
+                            r + ("…" if len(str(raw)) > 200 else ""),
+                        )
                         continue
                     msg_type = msg.get("type", "")
 
-                    # Deepgram format: {"type": "Results", "channel": {"alternatives": [...]}, "is_final": true}
                     if msg_type == "Results":
                         alts = msg.get("channel", {}).get("alternatives", [])
                         if not alts:
@@ -92,15 +170,28 @@ class AutonomousSTTSession(STTSession):
                             continue
                         on_transcript(transcript, msg.get("is_final", False))
 
-                    # Autonomous format: {"type": "TurnInfo", "event": "Update"/"EndOfTurn", "transcript": "..."}
                     elif msg_type == "TurnInfo":
                         transcript = msg.get("transcript", "").strip()
                         if not transcript:
                             continue
-                        on_transcript(transcript, msg.get("event", "") == "EndOfTurn")
+                        ev = msg.get("event", "")
+                        on_transcript(transcript, ev == "EndOfTurn")
             except Exception as e:
                 if not self._closed.is_set():
-                    logger.error("Autonomous STT recv error: %s", e)
+                    code = getattr(e, "code", None)
+                    reason = getattr(e, "reason", None)
+                    if code is not None or reason is not None:
+                        logger.error(
+                            "Autonomous STT: WebSocket closed in recv loop (code=%s reason=%s)",
+                            code,
+                            reason,
+                        )
+                    else:
+                        logger.error("Autonomous STT: recv loop error: %s", e)
+                    if code == 1011 or "1011" in str(e):
+                        logger.error(
+                            "Autonomous STT: 1011 = server-side failure (often upstream STT). "
+                        )
             finally:
                 self._closed.set()
 
@@ -114,6 +205,13 @@ class AutonomousSTTSession(STTSession):
     def send_audio(self, data: bytes):
         if self._ws and not self._closed.is_set():
             self._ws.send(data)
+            self._bytes_sent += len(data)
+            if not self._logged_first_send:
+                self._logged_first_send = True
+                logger.info(
+                    "Autonomous STT: first audio chunk sent to WebSocket (%d bytes, linear16)",
+                    len(data),
+                )
 
     def close(self):
         if self._closed.is_set():
@@ -147,27 +245,22 @@ class AutonomousSTT(STTProvider):
         self._language = language or DEFAULT_LANGUAGE
         self._keywords = keywords or []
 
-        # Convert HTTP base_url to WebSocket URL
-        # base_url: https://campaign-api.autonomous.ai/api/v1/ai/v1
-        # ws_url:   wss://campaign-api.autonomous.ai/api/v1/ai/v1/ws/audio/transcriptions
         ws_base = base_url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/")
-        params = dict(
-            model=model,
-            encoding=DEFAULT_ENCODING,
-            sample_rate=sample_rate,
-            channels=channels,
-        )
-        if not _is_flux(model):
-            params.update(
-                language=self._language,
-                smart_format="true",
-                interim_results="false",
-                endpointing=DEFAULT_ENDPOINTING_MS,
-                vad_events="true",
+        if _is_flux(model):
+            params = _build_flux_query_params(
+                model=model,
+                sample_rate=sample_rate,
+                encoding=DEFAULT_ENCODING,
             )
-            if self._keywords:
-                params["keywords"] = ",".join(self._keywords)
-        self._ws_url = f"{ws_base}/ws/audio/transcriptions?{urlencode(params)}"
+        else:
+            params = _build_nova_query_params(
+                model=model,
+                sample_rate=sample_rate,
+                channels=channels,
+                language=self._language,
+                keywords=self._keywords,
+            )
+        self._ws_url = _transcriptions_ws_url(ws_base, params)
         logger.info("AutonomousSTT ready (url=%s, model=%s)", self._ws_url, model)
 
     def create_session(self) -> STTSession:
