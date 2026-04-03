@@ -119,6 +119,17 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
+	// Guard mode: also broadcast stranger/motion alerts to all chat sessions.
+	// Normal flow continues — agent still does emotion, servo, TTS as usual.
+	if isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion") {
+		slog.Info("guard mode broadcast", "component", "sensing", "type", req.Type)
+		go func() {
+			if err := h.agentGateway.BroadcastAlert("[guard:"+req.Type+"] "+req.Message, req.Image); err != nil {
+				slog.Error("guard broadcast failed", "component", "sensing", "err", err)
+			}
+		}()
+	}
+
 	// No local match — forward to OpenClaw agent
 	if !h.agentGateway.IsReady() {
 		turnStart := flow.Start("sensing_input", startPayload)
@@ -196,6 +207,61 @@ func (h *SensingHandler) PostMonitorEvent(c *gin.Context) {
 		Detail:  req.Detail,
 		RunID:   req.RunID,
 	})
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+}
+
+// EnableGuard activates guard mode.
+func (h *SensingHandler) EnableGuard(c *gin.Context) {
+	t := true
+	h.config.GuardMode = &t
+	if err := h.config.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
+		return
+	}
+	slog.Info("guard mode enabled", "component", "sensing")
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]bool{"guard_mode": true}))
+}
+
+// DisableGuard deactivates guard mode.
+func (h *SensingHandler) DisableGuard(c *gin.Context) {
+	f := false
+	h.config.GuardMode = &f
+	if err := h.config.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
+		return
+	}
+	slog.Info("guard mode disabled", "component", "sensing")
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]bool{"guard_mode": false}))
+}
+
+// GetGuardStatus returns the current guard mode state.
+func (h *SensingHandler) GetGuardStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]bool{
+		"guard_mode": h.config.GuardModeEnabled(),
+	}))
+}
+
+// GuardAlertRequest is the payload for manually triggering a guard broadcast.
+type GuardAlertRequest struct {
+	Message string `json:"message" validate:"required"`
+	Image   string `json:"image,omitempty"`
+}
+
+// PostGuardAlert broadcasts an alert message to all chat sessions.
+func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
+	var req GuardAlertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := h.agentGateway.BroadcastAlert(req.Message, req.Image); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
+		return
+	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 }
 
