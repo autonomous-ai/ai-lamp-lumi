@@ -138,6 +138,10 @@ func (h *OpenClawHandler) accumulateAssistantDelta(runID, delta string) {
 	buf.WriteString(delta)
 }
 
+// prunedImageMarkerRe matches bracket markers echoed by the LLM after OpenClaw
+// strips image payloads from conversation history (e.g. "[image description removed]").
+var prunedImageMarkerRe = regexp.MustCompile(`\[image[^\]]*removed[^\]]*\]`)
+
 // flushAssistantText returns the accumulated text for runId and clears the buffer.
 func (h *OpenClawHandler) flushAssistantText(runID string) string {
 	h.assistantMu.Lock()
@@ -146,7 +150,8 @@ func (h *OpenClawHandler) flushAssistantText(runID string) string {
 	if !ok || buf.Len() == 0 {
 		return ""
 	}
-	text := strings.TrimSpace(buf.String())
+	text := prunedImageMarkerRe.ReplaceAllString(buf.String(), "")
+	text = strings.TrimSpace(text)
 	delete(h.assistantBuf, runID)
 	return text
 }
