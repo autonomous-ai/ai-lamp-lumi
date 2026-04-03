@@ -27,6 +27,11 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
 
 See `docs/DEV-MULTI-IDE.md` for full conventions.
 
+## Device Access Rules
+
+- **Always ask the user before running any `sshpass` or `ssh` command to the Pi.** Do not SSH automatically.
+- Pi SSH: `sshpass -p "12345" ssh pi@<IP>` (IP may vary per session).
+
 ## Project Overview
 
 AI Lamp OpenClaw is a Go backend and provisioning API for smart lamp devices running the OpenClaw AI gateway. It provides device onboarding (WiFi, LLM provider, messaging channel setup), LED control, OTA updates, and OpenClaw WebSocket integration.
