@@ -1007,8 +1007,8 @@ elif [ "$APP" = "lelamp" ]; then
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
   UV_BIN=$(command -v uv || echo "/home/pi/.local/bin/uv")
-  cd "$LELAMP_DIR" && .venv/bin/pip uninstall lerobot -y 2>/dev/null || true
-  cd "$LELAMP_DIR" && "$UV_BIN" sync --extra hardware || { echo "uv sync failed"; exit 1; }
+  find /root /home -name "lerobot.egg-info" -type d 2>/dev/null | xargs rm -rf
+  cd "$LELAMP_DIR" && UV_CACHE_DIR=/home/pi/.cache/uv "$UV_BIN" sync --extra hardware || { echo "uv sync failed"; exit 1; }
   cd /
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
