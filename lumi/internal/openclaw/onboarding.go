@@ -44,6 +44,7 @@ var skills = []string{
 	"display",
 	"emotion",
 	"face-enroll",
+	"guard",
 	"led-control",
 	"music",
 	"scene",
