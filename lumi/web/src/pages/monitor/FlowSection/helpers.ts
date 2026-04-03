@@ -643,6 +643,8 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
   let lifecycleStartTs = 0, lifecycleEndTs = 0, ttsTs = 0;
   let firstToolCallTs = 0, lastToolResultTs = 0;
   let toolTotalMs = 0, toolStartTs = 0;
+  // Track inter-tool LLM thinking: time between a batch of tool results and the next tool start.
+  let lastBatchResultTs = 0, interToolMs = 0;
 
   for (const ev of events) {
     const ts = new Date(ev.time).getTime();
@@ -668,13 +670,22 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
     if (isToolCall) {
       const d = ev.detail as Record<string, any> | undefined;
+      // Skip duplicate events echoed with source: "session.tool" to avoid double-counting.
+      const source = d?.data?.source;
+      if (source === "session.tool") continue;
       const phase = d?.data?.phase ?? d?.phase ?? "";
       if (phase === "start") {
         if (!firstToolCallTs) firstToolCallTs = ts;
+        // If a previous batch finished, the gap is LLM thinking between rounds.
+        if (lastBatchResultTs && ts > lastBatchResultTs) {
+          interToolMs += ts - lastBatchResultTs;
+          lastBatchResultTs = 0;
+        }
         toolStartTs = ts;
       }
       if (phase === "result") {
         lastToolResultTs = ts;
+        lastBatchResultTs = ts;
         if (toolStartTs) { toolTotalMs += ts - toolStartTs; toolStartTs = 0; }
       }
     }
@@ -706,6 +717,11 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
   // Tool exec
   if (toolTotalMs > 0) {
     segments.push({ label: `tool exec ${fmtDur(toolTotalMs)}`, ms: toolTotalMs, color: "#f59e0b", from: "tool_call start (openclaw)", to: "tool_call result (lumi)" });
+  }
+
+  // Inter-tool LLM thinking (between tool call batches)
+  if (interToolMs > 0) {
+    segments.push({ label: `llm thinking ${fmtDur(interToolMs)}`, ms: interToolMs, color: "var(--lm-purple)", from: "tool_call result (batch N)", to: "tool_call start (batch N+1)" });
   }
 
   // Response gen (last tool result → lifecycle_end)
