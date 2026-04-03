@@ -18,6 +18,9 @@ import (
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
+// serverStartTime records when the Lumi process started.
+var serverStartTime = time.Now()
+
 // HealthHandler represents the HTTP handler for health and system info.
 type HealthHandler struct {
 	config         *config.Config
@@ -45,7 +48,8 @@ func (h *HealthHandler) SystemInfo(c *gin.Context) {
 		"memUsed":    0,
 		"memPercent": 0.0,
 		"cpuTemp":    readCPUTemp(),
-		"uptime":     readUptime(),
+		"uptime":        readUptime(),
+		"serviceUptime": int64(time.Since(serverStartTime).Seconds()),
 		"goRoutines": runtime.NumGoroutine(),
 		"version":    config.LumiVersion,
 		"deviceId":   h.config.DeviceID,
