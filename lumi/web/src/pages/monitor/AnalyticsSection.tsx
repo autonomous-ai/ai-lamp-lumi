@@ -214,7 +214,7 @@ export function AnalyticsSection() {
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      <div className="lm-grid-4">
         <div style={summaryCardStyle}>
           <span style={{ fontSize: 22, fontWeight: 700, color: "var(--lm-amber)" }}>{totalTurns}</span>
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600 }}>TOTAL TURNS</span>
@@ -243,7 +243,7 @@ export function AnalyticsSection() {
       {rows.length > 0 && (
         <>
           {/* Row 1: Turn count + Duration */}
-          <div style={S.grid2}>
+          <div className="lm-grid-2">
             <div style={{ ...S.card, height: 260 }}>
               <div style={S.cardLabel}>Turn Count per Day {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>
@@ -266,7 +266,7 @@ export function AnalyticsSection() {
           </div>
 
           {/* Row 2: Tokens stacked bar + Tokens per turn */}
-          <div style={S.grid2}>
+          <div className="lm-grid-2">
             <div style={{ ...S.card, height: 260 }}>
               <div style={S.cardLabel}>Billed Tokens {multiVersion && "— by version"}</div>
               <div style={{ height: 210 }}>

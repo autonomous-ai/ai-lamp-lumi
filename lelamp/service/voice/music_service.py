@@ -17,9 +17,9 @@ logger = logging.getLogger("lelamp.voice.music")
 logger.setLevel(logging.DEBUG)
 
 # ALSA output device — MUST use "default" (not hw:X,Y or plughw:X,Y).
-# The seeed-voicecard driver installs asound_2mic.conf which routes "default"
-# through dmix (playback) and dsnoop (capture). Using hw: or plughw: takes an
-# exclusive lock on the WM8960 card, blocking the mic and killing STT.
+# Pi 4: seeed-voicecard asound_2mic.conf routes "default" through dmix/dsnoop.
+# Pi 5: /etc/asound.conf routes playback to CD002-AUDIO, capture to WEBCAM.
+# Using hw: or plughw: takes an exclusive lock, blocking the mic and killing STT.
 ALSA_DEVICE = "default"
 
 
