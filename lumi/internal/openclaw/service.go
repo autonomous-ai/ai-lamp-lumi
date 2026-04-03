@@ -299,8 +299,6 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 		gatewayAuthMap["token"] = token
 	}
 	gatewayMap["auth"] = gatewayAuthMap
-	// Disable device identity checks — Lumi connects locally on loopback
-	gatewayMap["dangerouslyDisableDeviceAuth"] = true
 	configData["gateway"] = gatewayMap
 
 	slog.Debug("ensuring full-access tools defaults", "component", "openclaw")
