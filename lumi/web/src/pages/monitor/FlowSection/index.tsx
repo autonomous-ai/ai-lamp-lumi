@@ -4,7 +4,7 @@ import { API, FLOW_EVENTS_MAX } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
 import { FLOW_NODES, SOURCE_ICON } from "./types";
-import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming } from "./helpers";
+import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
@@ -57,6 +57,7 @@ export function FlowSection({
   const [searchText, setSearchText] = useState("");
   const [fromTime, setFromTime] = useState("");
   const [toTime, setToTime] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "time_desc" | "time_asc" | "tokens_desc" | "tokens_asc">("newest");
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -212,21 +213,36 @@ export function FlowSection({
     return [...seen];
   }, [turns]);
 
-  const filteredTurns = useMemo(() => turns.filter((t) => {
-    if (excludedTypes.has(t.type)) return false;
-    if (fromTime || toTime) {
-      const m = t.startTime.match(/T(\d{2}:\d{2})/);
-      const tt = m?.[1] ?? "";
-      if (fromTime && tt < fromTime) return false;
-      if (toTime && tt > toTime) return false;
+  const filteredTurns = useMemo(() => {
+    const filtered = turns.filter((t) => {
+      if (excludedTypes.has(t.type)) return false;
+      if (fromTime || toTime) {
+        const m = t.startTime.match(/T(\d{2}:\d{2})/);
+        const tt = m?.[1] ?? "";
+        if (fromTime && tt < fromTime) return false;
+        if (toTime && tt > toTime) return false;
+      }
+      if (searchText.trim()) {
+        const q = searchText.toLowerCase().trim();
+        const { input, output } = turnIO(t);
+        if (!`${input} ${output} ${t.type}`.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+    if (sortBy === "oldest") {
+      filtered.reverse();
+    } else if (sortBy === "time_desc") {
+      filtered.sort((a, b) => turnDurationMs(b) - turnDurationMs(a));
+    } else if (sortBy === "time_asc") {
+      filtered.sort((a, b) => turnDurationMs(a) - turnDurationMs(b));
+    } else if (sortBy === "tokens_desc") {
+      filtered.sort((a, b) => turnBilledTokens(b) - turnBilledTokens(a));
+    } else if (sortBy === "tokens_asc") {
+      filtered.sort((a, b) => turnBilledTokens(a) - turnBilledTokens(b));
     }
-    if (searchText.trim()) {
-      const q = searchText.toLowerCase().trim();
-      const { input, output } = turnIO(t);
-      if (!`${input} ${output} ${t.type}`.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  }), [turns, excludedTypes, fromTime, toTime, searchText]);
+    // "newest" = default order from groupIntoTurns (newest first)
+    return filtered;
+  }, [turns, excludedTypes, fromTime, toTime, searchText, sortBy]);
   // When user explicitly selected a turn, keep it even if new events arrive.
   // Only auto-select latest turn when nothing is selected.
   const selectedTurn = selectedTurnId
@@ -438,6 +454,30 @@ export function FlowSection({
                   color: availableTypes.every((t) => !excludedTypes.has(t)) ? "var(--lm-amber)" : "var(--lm-text-muted)",
                 }}
               >All</button>
+            </div>
+
+            {/* Sort */}
+            <div style={{ display: "flex", gap: 3, marginBottom: 5 }}>
+              {([
+                { key: "newest", label: "Newest" },
+                { key: "oldest", label: "Oldest" },
+                { key: "time_desc", label: "Slowest" },
+                { key: "time_asc", label: "Fastest" },
+                { key: "tokens_desc", label: "Most tokens" },
+                { key: "tokens_asc", label: "Least tokens" },
+              ] as const).map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSortBy(s.key)}
+                  style={{
+                    padding: "1px 5px", borderRadius: 3, fontSize: 9, cursor: "pointer",
+                    border: `1px solid ${sortBy === s.key ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                    background: sortBy === s.key ? "rgba(245,158,11,0.15)" : "transparent",
+                    color: sortBy === s.key ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                    fontWeight: sortBy === s.key ? 600 : 400,
+                  }}
+                >{s.label}</button>
+              ))}
             </div>
 
             {/* Search */}
