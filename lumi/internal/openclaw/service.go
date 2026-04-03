@@ -326,6 +326,13 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	messagesMap["removeAckAfterReply"] = true
 	configData["messages"] = messagesMap
 
+	slog.Debug("ensuring logging defaults", "component", "openclaw")
+	loggingMap := ensureMap(configData, "logging")
+	loggingMap["consoleStyle"] = "pretty"
+	loggingMap["file"] = "/var/log/openclaw/lumi.log"
+	loggingMap["level"] = "debug"
+	configData["logging"] = loggingMap
+
 	slog.Debug("ensuring commands defaults", "component", "openclaw")
 	commandsMap := ensureMap(configData, "commands")
 	commandsMap["native"] = true

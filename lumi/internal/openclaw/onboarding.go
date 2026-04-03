@@ -134,6 +134,13 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
+	// Ensure logging config is present in openclaw.json
+	if loggingAdded, err := s.ensureLoggingConfig(); err != nil {
+		slog.Error("ensure logging config failed", "component", "onboarding", "error", err)
+	} else if loggingAdded {
+		needRestart = true
+	}
+
 	// Restart OpenClaw if anything changed so the new session picks it up
 	if needRestart {
 		slog.Info("restarting OpenClaw to pick up changes", "component", "onboarding")
@@ -290,6 +297,40 @@ func stripLegacyMandatoryBlock(text string) string {
 		cleaned = append(cleaned, line)
 	}
 	return strings.Join(cleaned, "\n")
+}
+
+// ensureLoggingConfig adds the logging block to openclaw.json if it is missing.
+// Returns true if the file was modified.
+func (s *Service) ensureLoggingConfig() (bool, error) {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configBytes, &configData); err != nil {
+		return false, fmt.Errorf("parse openclaw.json: %w", err)
+	}
+
+	if _, ok := configData["logging"]; ok {
+		return false, nil
+	}
+
+	configData["logging"] = map[string]interface{}{
+		"consoleStyle": "pretty",
+		"file":         "/var/log/openclaw/lumi.log",
+		"level":        "debug",
+	}
+
+	outBytes, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal openclaw.json: %w", err)
+	}
+	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
+		return false, fmt.Errorf("write openclaw.json: %w", err)
+	}
+	slog.Info("added logging config to openclaw.json", "component", "onboarding")
+	return true, nil
 }
 
 // downloadFile fetches url and writes it to dst. Returns true if the file content changed.
