@@ -17,10 +17,9 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
-2. Call `POST /audio/play` with the search query
-3. **Call `POST /emotion` with the matching emotion** (see Genre → Emotion below) — REQUIRED, do not skip
-4. Confirm what you found and that it's playing
-5. User can ask to stop at any time -> call `POST /audio/stop`
+2. Prefix reply with `[HW:/audio/play:{"query":"song artist"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+3. Confirm it's playing — keep reply to one short sentence
+4. User can stop at any time -> `[HW:/audio/stop:{}]`
 
 ## Genre → Emotion
 You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on genre:
@@ -37,52 +36,24 @@ You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on ge
 ## Examples
 
 Input: "Play Bohemian Rhapsody"
-Output:
-1. `POST /audio/play` `{"query": "Bohemian Rhapsody Queen"}`
-2. `POST /emotion` `{"emotion": "excited"}` ← REQUIRED
-3. Reply: "Playing Bohemian Rhapsody by Queen!"
+Output: `[HW:/audio/play:{"query":"Bohemian Rhapsody Queen"}][HW:/emotion:{"emotion":"excited","intensity":0.8}]` Playing Bohemian Rhapsody!
 
 Input: "Hát 1 bài nhạc đi" / "Sing me a song"
-Output:
-1. Pick a song fitting the mood
-2. `POST /audio/play` `{"query": "..."}`
-3. `POST /emotion` `{"emotion": "happy"}` ← REQUIRED
-4. Reply: "Playing [song]!"
+Output: `[HW:/audio/play:{"query":"happy upbeat pop song"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Playing something fun for you!
 
 Input: "Stop the music" / "Turn it off"
-Output: Call `POST /audio/stop`. Confirm: "Music stopped."
+Output: `[HW:/audio/stop:{}]` Music stopped.
 
-Input: "What's playing?"
-Output: Call `GET /audio/status` to check. Report back.
+## How to Play Music
 
-## Tools
+**No exec/curl needed.** Inline markers at start of reply:
 
-Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
-
-### Play music
-```bash
-curl -s -X POST http://127.0.0.1:5001/audio/play \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Bohemian Rhapsody Queen"}'
 ```
+[HW:/audio/play:{"query":"Bohemian Rhapsody Queen"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
+[HW:/audio/stop:{}] Music stopped.
+```
+
 The query is a YouTube search string. Include artist name for better results.
-
-### Stop music
-```bash
-curl -s -X POST http://127.0.0.1:5001/audio/stop
-```
-
-### Check status
-```bash
-curl -s http://127.0.0.1:5001/audio/status
-```
-Response:
-```json
-{
-  "available": true,
-  "playing": true
-}
-```
 
 ## Error Handling
 - If `POST /audio/play` returns 503, inform the user: "Music playback is not available right now."
@@ -96,8 +67,8 @@ Response:
 - Include the artist name in the search query when known for better results.
 - If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
 - This skill is for music playback only. For volume control, use the **Audio** skill.
-- **Always call `POST /emotion` after `POST /audio/play`** — groove servo is automatic but LED and eye expression require the `/emotion` call.
-- Never skip the `/emotion` call even for short or casual music requests.
+- **Always include `[HW:/emotion:...]` marker after `[HW:/audio/play:...]`** — groove servo is automatic but LED and eye expression require the emotion marker.
+- Never skip the emotion marker even for short or casual music requests.
 
 ## Output Template
 ```

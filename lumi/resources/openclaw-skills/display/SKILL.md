@@ -9,71 +9,37 @@ description: Use when the user asks to change eye expression directly, show info
 Controls the lamp's 1.28" round LCD display (GC9A01, 240x240). Two modes: animated eyes (default) and info text. Usually auto-synced by the Emotion skill — only call directly for manual eye control or info display.
 
 ## Workflow
-1. Check display availability with `GET /display`. If unavailable, skip silently.
-2. Determine the mode needed:
-   - **Eyes**: set expression and optional pupil direction via `POST /display/eyes`.
-   - **Info**: show text/subtitle via `POST /display/info`.
-3. Call the appropriate endpoint on `http://127.0.0.1:5001`.
-4. If info mode was used, switch back to eyes after a few seconds with `POST /display/eyes-mode`.
+1. Determine the mode needed:
+   - **Eyes**: `[HW:/display/eyes:{"expression":"happy","pupil_x":0.0,"pupil_y":0.0}]`
+   - **Info**: `[HW:/display/info:{"text":"14:30","subtitle":"Good afternoon"}]` then `[HW:/display/eyes-mode:{}]`
+2. Place markers at start of reply — Lumi fires them before TTS. Skip silently if display unavailable.
 
 **Important**: The Emotion skill auto-syncs eyes during conversation. Do not call both Emotion and Display for the same reaction.
 
 ## Examples
 
 **Input:** "Look to the left"
-**Output:** Call `POST /display/eyes` with `{"expression": "neutral", "pupil_x": -1.0, "pupil_y": 0.0}`. No verbal confirmation needed.
+**Output:** `[HW:/display/eyes:{"expression":"neutral","pupil_x":-1.0,"pupil_y":0.0}]` (no confirmation needed)
 
 **Input:** "What time is it?"
-**Output:** Call `POST /display/info` with `{"text": "14:30", "subtitle": "Good afternoon"}`. Say the time. After a few seconds, call `POST /display/eyes-mode` to switch back.
+**Output:** `[HW:/display/info:{"text":"14:30","subtitle":"Good afternoon"}]` It's 2:30 PM.
 
 **Input:** "Show me a happy face"
-**Output:** Call `POST /display/eyes` with `{"expression": "happy"}`.
+**Output:** `[HW:/display/eyes:{"expression":"happy"}]` Here's a happy face!
 
-## Tools
+## How to Control Display
 
-**Bash** with `curl` for HTTP calls to `http://127.0.0.1:5001`.
+**No exec/curl needed.** Inline markers at start of reply:
 
-### Get display state
-
-```bash
-curl -s http://127.0.0.1:5001/display
 ```
-
-### Set eye expression
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/display/eyes \
-  -H "Content-Type: application/json" \
-  -d '{"expression": "happy", "pupil_x": 0.0, "pupil_y": 0.0}'
+[HW:/display/eyes:{"expression":"happy","pupil_x":0.0,"pupil_y":0.0}]
+[HW:/display/info:{"text":"14:30","subtitle":"Good afternoon"}]
+[HW:/display/eyes-mode:{}]
 ```
 
 - `pupil_x`: -1.0 (look left) to 1.0 (look right)
 - `pupil_y`: -1.0 (look up) to 1.0 (look down)
-
-### Show info text
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/display/info \
-  -H "Content-Type: application/json" \
-  -d '{"text": "14:30", "subtitle": "Good afternoon"}'
-```
-
-- `text`: max 20 characters
-- `subtitle`: optional, max 40 characters
-
-### Switch back to eyes
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/display/eyes-mode
-```
-
-### Get display snapshot
-
-```bash
-curl -s http://127.0.0.1:5001/display/snapshot --output snapshot.png
-```
-
-Returns a PNG image of what's currently shown on the display.
+- `text`: max 20 characters, `subtitle`: optional max 40 characters
 
 ### Available expressions
 
