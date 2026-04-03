@@ -357,7 +357,7 @@ stage_lelamp() {
 
   # Install uv + system libs for audio/camera + PulseAudio echo cancellation
   apt update
-  apt install -y libportaudio2 libatlas-base-dev pulseaudio pulseaudio-utils python3-dev || true
+  apt install -y libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils || true
 
   # PulseAudio WebRTC AEC (echo cancellation for mic/speaker loopback)
   PULSE_CONF="/etc/pulse/default.pa"
@@ -377,9 +377,13 @@ PULSE_EOF
     export PATH="$HOME/.local/bin:$PATH"
   fi
 
-  # uv sync handles Python version + venv + dependencies from pyproject.toml
+  # Clean stale lerobot distutils egg-info that blocks uv uninstall, then recreate venv
+  find /root/.cache/uv -name 'lerobot.egg-info' -type d 2>/dev/null | xargs rm -rf
+  rm -rf "$LELAMP_DIR/.venv"
+
+  # uv sync downloads Python 3.12 standalone (includes Python.h) + all deps
   cd "$LELAMP_DIR"
-  uv sync --extra hardware
+  uv sync --python 3.12 --extra hardware
   cd /
 
   cat >/etc/systemd/system/lumi-lelamp.service <<EOF
@@ -1006,9 +1010,10 @@ elif [ "$APP" = "lelamp" ]; then
   curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download lelamp"; exit 1; }
   LELAMP_DIR="/opt/lelamp"
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
-  UV_BIN=$(command -v uv || echo "/home/pi/.local/bin/uv")
-  find /root /home -name "lerobot.egg-info" -type d 2>/dev/null | xargs rm -rf
-  cd "$LELAMP_DIR" && UV_CACHE_DIR=/home/pi/.cache/uv "$UV_BIN" sync --extra hardware || { echo "uv sync failed"; exit 1; }
+  UV_BIN=$(command -v uv || echo "/root/.local/bin/uv")
+  find /root/.cache/uv -name "lerobot.egg-info" -type d 2>/dev/null | xargs rm -rf
+  rm -rf "$LELAMP_DIR/.venv"
+  cd "$LELAMP_DIR" && "$UV_BIN" sync --python 3.12 --extra hardware || { echo "uv sync failed"; exit 1; }
   cd /
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
