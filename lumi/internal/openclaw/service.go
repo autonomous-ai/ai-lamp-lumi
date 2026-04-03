@@ -495,7 +495,6 @@ func (s *Service) ResetAgent() error {
 	if err := s.onboardOpenclaw(); err != nil {
 		return fmt.Errorf("onboard openclaw: %w", err)
 	}
-	// To comply with your request, delete the openclaw/agents folder from the repository.
 	if err := chownRuntimeUserIfRoot(configPath, openclawRuntimeUser); err != nil {
 		return fmt.Errorf("set openclaw config ownership: %w", err)
 	}
@@ -1082,24 +1081,19 @@ func chownRuntimeUserIfRoot(path, username string) error {
 }
 
 func (s *Service) onboardOpenclaw() error {
-	env := os.Environ()
-	env = append(env,
-		fmt.Sprintf("OPENCLAW_CONFIG_PATH=%s/openclaw.json", s.config.OpenclawConfigDir),
-		fmt.Sprintf("OPENCLAW_HOME=%s", s.config.OpenclawConfigDir),
-		fmt.Sprintf("OPENCLAW_STATE_DIR=%s", s.config.OpenclawConfigDir),
-	)
+	// openclaw default home is ~/.openclaw; OpenclawConfigDir must match this path.
+	// No env overrides needed — let openclaw use its standard paths.
 	cmd := exec.Command("bash", "-c", "openclaw onboard --non-interactive --accept-risk")
-	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		slog.Error("openclaw onboard failed", "component", "openclaw", "error", err, "output", strings.TrimSpace(string(out)))
+		return fmt.Errorf("openclaw onboard: %w — output: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	// After onboard, update openclaw.json workspace to our custom workspace path and move workspace dir
+	// After onboard, ensure openclaw.json points workspace to our config dir's workspace.
+	// Since OpenclawConfigDir matches openclaw's default home (~/.openclaw), the workspace
+	// is already at the correct path; we only patch the field to be explicit.
 	configPath := fmt.Sprintf("%s/openclaw.json", s.config.OpenclawConfigDir)
 	workspacePath := fmt.Sprintf("%s/workspace", s.config.OpenclawConfigDir)
-	defaultWorkspaceDir := fmt.Sprintf("%s/.openclaw/workspace", s.config.OpenclawConfigDir)
-	// Update the openclaw.json's agents.defaults.workspace field
 	if configBytes, err := os.ReadFile(configPath); err == nil {
 		var configData map[string]interface{}
 		if err := json.Unmarshal(configBytes, &configData); err == nil {
@@ -1123,13 +1117,6 @@ func (s *Service) onboardOpenclaw() error {
 			if outBytes, err := json.MarshalIndent(configData, "", "  "); err == nil {
 				_ = os.WriteFile(configPath, outBytes, 0600)
 			}
-		}
-	}
-	// Move the generated workspace directory to our configured workspace path if not already there
-	// Only do it if the default workspace exists and custom isn't there yet
-	if _, err := os.Stat(defaultWorkspaceDir); err == nil {
-		if _, err2 := os.Stat(workspacePath); os.IsNotExist(err2) {
-			_ = os.Rename(defaultWorkspaceDir, workspacePath)
 		}
 	}
 
