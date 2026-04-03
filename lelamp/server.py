@@ -323,7 +323,14 @@ async def lifespan(app: FastAPI):
             if dgk and DeepgramSTT:
                 stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
             elif llm_key and llm_url and AutonomousSTT:
-                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url)
+                stt_model = (lumi_cfg.get("stt_model") or "").strip() or None
+                stt_language = (lumi_cfg.get("stt_language") or "").strip() or None
+                stt_kwargs = {}
+                if stt_model:
+                    stt_kwargs["model"] = stt_model
+                if stt_language:
+                    stt_kwargs["language"] = stt_language
+                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url, **stt_kwargs)
             if stt_provider:
                 voice_service = VoiceService(
                     stt_provider=stt_provider,
