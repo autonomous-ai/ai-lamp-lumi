@@ -17,7 +17,7 @@ Guard mode turns Lumi into a silent watchdog. When enabled, stranger detections 
 ## Enable Guard Mode
 
 ```bash
-curl -s -X POST http://127.0.0.1:5001/guard/enable
+curl -s -X POST http://127.0.0.1:5000/api/guard/enable
 ```
 
 Response: `{"status": 1, "data": {"guard_mode": true}}`
@@ -25,7 +25,7 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 ## Disable Guard Mode
 
 ```bash
-curl -s -X POST http://127.0.0.1:5001/guard/disable
+curl -s -X POST http://127.0.0.1:5000/api/guard/disable
 ```
 
 Response: `{"status": 1, "data": {"guard_mode": false}}`
@@ -33,7 +33,7 @@ Response: `{"status": 1, "data": {"guard_mode": false}}`
 ## Check Guard Status
 
 ```bash
-curl -s http://127.0.0.1:5001/guard
+curl -s http://127.0.0.1:5000/api/guard
 ```
 
 Response: `{"status": 1, "data": {"guard_mode": true}}`
@@ -41,7 +41,7 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 ## Manually Broadcast an Alert
 
 ```bash
-curl -s -X POST http://127.0.0.1:5001/guard/alert \
+curl -s -X POST http://127.0.0.1:5000/api/guard/alert \
   -H "Content-Type: application/json" \
   -d '{"message": "Something suspicious happening"}'
 ```
