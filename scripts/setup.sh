@@ -195,6 +195,17 @@ install_binary_from_zip() {
 stage_backend() {
   echo "[stage] Install backend (bootstrap + lumi)"
 
+  # Migrate old openclaw config dir from /root/openclaw → /root/.openclaw
+  if [ -d "/root/openclaw" ] && [ ! -d "/root/.openclaw" ]; then
+    echo "[migrate] Moving /root/openclaw → /root/.openclaw"
+    mv /root/openclaw /root/.openclaw
+    # Update openclaw_config_dir in lumi config.json if it still points to old path
+    if [ -f "/root/config/config.json" ]; then
+      sed -i 's|"openclaw_config_dir"[[:space:]]*:[[:space:]]*"/root/openclaw"|"openclaw_config_dir": "/root/.openclaw"|g' /root/config/config.json
+      echo "[migrate] Updated config.json openclaw_config_dir"
+    fi
+  fi
+
   install_binary_from_zip "$BOOTSTRAP_URL" /usr/local/bin/bootstrap-server "bootstrap"
   install_binary_from_zip "$LUMI_URL" /usr/local/bin/lumi-server "lumi"
 
