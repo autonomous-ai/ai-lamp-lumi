@@ -1,5 +1,14 @@
 declare const __WEB_VERSION__: string;
 import { useCallback, useEffect, useRef, useState } from "react";
+
+function fmtDur(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -57,10 +66,17 @@ export default function Monitor() {
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [ramHistory, setRamHistory] = useState<number[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string>("");
+  const [webTick, setWebTick] = useState(0);
 
   const evtIdRef = useRef(0);
   const clearFlowEvents = useCallback(() => {
     setEvents([]);
+  }, []);
+
+  // Ticker for web lifetime display
+  useEffect(() => {
+    const id = setInterval(() => setWebTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
   }, []);
 
   // Fetch LeLamp version once
@@ -231,9 +247,9 @@ export default function Monitor() {
           </div>
           {lastUpdate && <div>Updated {lastUpdate}</div>}
           <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2, fontSize: 9.5, color: "var(--lm-text-muted)" }}>
-            <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span></div>
-            <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span></div>
-            <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span></div>
+            <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span>{" "}<span style={{ opacity: 0.65 }}>{fmtDur(webTick)}</span></div>
+            <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.serviceUptime != null ? fmtDur(sys.serviceUptime) : "—"}</span></div>
+            <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.uptime != null ? fmtDur(sys.uptime) : "—"}</span></div>
             <ForceUpdateButton />
           </div>
         </div>
