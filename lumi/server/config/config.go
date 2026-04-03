@@ -73,6 +73,15 @@ type Config struct {
 	// Enable this to reduce latency on fast models like Haiku that don't benefit from thinking.
 	LLMDisableThinking *bool `json:"llm_disable_thinking,omitempty" yaml:"llmDisableThinking"`
 
+	// STTModel selects the speech-to-text model for lelamp.
+	// Empty string means use lelamp's default (flux-general-en).
+	// Example: "nova-3" to enable Deepgram Nova 3 with language support.
+	STTModel string `json:"stt_model,omitempty" yaml:"sttModel"`
+
+	// STTLanguage sets the BCP-47 language code for STT (e.g. "vi", "en").
+	// Only used when STTModel is non-empty. Empty means auto-detect.
+	STTLanguage string `json:"stt_language,omitempty" yaml:"sttLanguage"`
+
 	notify chan bool
 }
 
