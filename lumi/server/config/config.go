@@ -82,6 +82,11 @@ type Config struct {
 	// Only used when STTModel is non-empty. Empty means auto-detect.
 	STTLanguage string `json:"stt_language,omitempty" yaml:"sttLanguage"`
 
+	// GuardMode enables guard/security mode (default false).
+	// When enabled, stranger/motion sensing events are broadcast to all chat sessions
+	// instead of being spoken via TTS.
+	GuardMode *bool `json:"guard_mode,omitempty" yaml:"guardMode"`
+
 	notify chan bool
 }
 
@@ -214,6 +219,14 @@ func (c *Config) LLMThinkingDisabled() bool {
 		return false
 	}
 	return *c.LLMDisableThinking
+}
+
+// GuardModeEnabled returns whether guard mode is on (default false).
+func (c *Config) GuardModeEnabled() bool {
+	if c.GuardMode == nil {
+		return false
+	}
+	return *c.GuardMode
 }
 
 func (c *Config) GetNotifyChannel() chan bool {
