@@ -75,6 +75,10 @@ type AgentGateway interface {
 	// StartWS connects to the agent runtime and runs the event read loop.
 	StartWS(ctx context.Context, handler AgentEventHandler)
 
+	// BroadcastAlert sends a message (with optional image) to ALL active OpenClaw
+	// chat sessions. Used by guard mode to notify all Telegram chats/groups.
+	BroadcastAlert(msg string, imageBase64 string) error
+
 	// SendToLeLampTTS posts response text to LeLamp for TTS playback.
 	SendToLeLampTTS(text string) error
 
