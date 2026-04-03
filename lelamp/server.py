@@ -183,14 +183,17 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
         return None
     output_names = ["seeed", "cd002"]
     input_names = ["seeed", "webcam"]
+    names = output_names if output else input_names
     try:
-        for i, d in enumerate(sd.query_devices()):
-            name = d["name"].lower()
-            if output and d["max_output_channels"] > 0:
-                if any(k in name for k in output_names):
+        devices = list(sd.query_devices())
+        for keyword in names:  # seeed checked first across all devices before webcam
+            for i, d in enumerate(devices):
+                name = d["name"].lower()
+                if keyword not in name:
+                    continue
+                if output and d["max_output_channels"] > 0:
                     return i
-            if not output and d["max_input_channels"] > 0:
-                if any(k in name for k in input_names):
+                if not output and d["max_input_channels"] > 0:
                     return i
     except Exception:
         pass
