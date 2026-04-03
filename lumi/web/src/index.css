@@ -126,6 +126,69 @@
 .lm-hide-scroll { scrollbar-width: none; }
 .lm-hide-scroll::-webkit-scrollbar { display: none; }
 
+/* Hamburger button — hidden on desktop */
+.lm-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--lm-text-dim);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 6px;
+}
+.lm-hamburger:hover { color: var(--lm-text); background: var(--lm-surface); }
+
+/* Sidebar overlay — hidden on desktop */
+.lm-sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.55);
+}
+.lm-sidebar-overlay--open { display: block; }
+
+/* Responsive grid utility classes */
+.lm-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.lm-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.lm-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.lm-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+
+@media (max-width: 900px) {
+  .lm-grid-4 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .lm-grid-5 { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+}
+
+@media (max-width: 768px) {
+  /* Sidebar becomes a slide-in drawer */
+  .lm-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100% !important;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .lm-sidebar--open { transform: translateX(0) !important; }
+
+  .lm-hamburger { display: flex; align-items: center; justify-content: center; }
+
+  .lm-grid-3 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .lm-grid-2 { grid-template-columns: 1fr; }
+  .lm-grid-5 { grid-template-columns: repeat(2, 1fr); }
+
+  .lm-content { padding: 12px !important; }
+}
+
+@media (max-width: 480px) {
+  .lm-grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .lm-grid-3 { grid-template-columns: 1fr; }
+  .lm-grid-5 { grid-template-columns: 1fr 1fr; gap: 6px; }
+}
+
 /* Animations */
 @keyframes lm-fade-in {
   from { opacity: 0; transform: translateY(6px); }

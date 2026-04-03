@@ -173,39 +173,42 @@ tts_service = None
 music_service = None
 
 
-def _find_seeed_device(output: bool = True) -> Optional[int]:
+def _find_audio_device(output: bool = True) -> Optional[int]:
     """Find audio device index by known hardware names.
 
-    Searches for Seeed ReSpeaker (Pi 4) and CD002-AUDIO / GENERAL WEBCAM (Pi 5).
+    Pi 4: Seeed ReSpeaker (single card for both speaker + mic).
+    Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic) — separate USB devices.
     """
     if not sd:
         return None
-    # Pi 4: Seeed ReSpeaker; Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic)
     output_names = ["seeed", "cd002"]
     input_names = ["seeed", "webcam"]
+    names = output_names if output else input_names
     try:
-        for i, d in enumerate(sd.query_devices()):
-            name = d["name"].lower()
-            if output and d["max_output_channels"] > 0:
-                if any(k in name for k in output_names):
+        devices = list(sd.query_devices())
+        for keyword in names:  # seeed checked first across all devices before webcam
+            for i, d in enumerate(devices):
+                name = d["name"].lower()
+                if keyword not in name:
+                    continue
+                if output and d["max_output_channels"] > 0:
                     return i
-            if not output and d["max_input_channels"] > 0:
-                if any(k in name for k in input_names):
+                if not output and d["max_input_channels"] > 0:
                     return i
     except Exception:
         pass
     return None
 
 
-seeed_output_device: Optional[int] = None
-seeed_input_device: Optional[int] = None
+audio_output_device: Optional[int] = None
+audio_input_device: Optional[int] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global animation_service, rgb_service, camera_capture, sensing_service
     global voice_service, tts_service, display_service
-    global seeed_output_device, seeed_input_device
+    global audio_output_device, audio_input_device
 
     # Start servo/animation service
     if AnimationService:
@@ -242,12 +245,12 @@ async def lifespan(app: FastAPI):
     # Detect audio devices
     global music_service
     if sd:
-        seeed_output_device = _find_seeed_device(output=True)
-        seeed_input_device = _find_seeed_device(output=False)
-        if seeed_output_device is not None:
-            logger.info(f"Audio output device: {seeed_output_device}")
-        if seeed_input_device is not None:
-            logger.info(f"Audio input device: {seeed_input_device}")
+        audio_output_device = _find_audio_device(output=True)
+        audio_input_device = _find_audio_device(output=False)
+        if audio_output_device is not None:
+            logger.info(f"Audio output device: {audio_output_device}")
+        if audio_input_device is not None:
+            logger.info(f"Audio input device: {audio_input_device}")
 
     # Start music service (uses ffmpeg + ALSA directly, no sounddevice needed)
     if MusicService:
@@ -266,7 +269,7 @@ async def lifespan(app: FastAPI):
                 sound_device_module=sd,
                 numpy_module=np,
                 cv2_module=cv2,
-                input_device=seeed_input_device,
+                input_device=audio_input_device,
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=rgb_service,
                 tts_service=tts_service,
@@ -303,10 +306,10 @@ async def lifespan(app: FastAPI):
                 base_url=llm_url,
                 sound_device_module=sd,
                 numpy_module=np,
-                output_device=seeed_output_device,
+                output_device=audio_output_device,
             )
             logger.info("TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
-                        llm_url, seeed_output_device, tts_service.available)
+                        llm_url, audio_output_device, tts_service.available)
             # Wire TTS to SensingService for echo suppression
             if sensing_service:
                 sensing_service.set_tts_service(tts_service)
@@ -324,7 +327,7 @@ async def lifespan(app: FastAPI):
             if stt_provider:
                 voice_service = VoiceService(
                     stt_provider=stt_provider,
-                    input_device=seeed_input_device,
+                    input_device=audio_input_device,
                     tts_service=tts_service,
                 )
                 voice_service.start()
@@ -1452,9 +1455,9 @@ def camera_stream():
 def get_audio_info():
     """Get audio device availability."""
     return {
-        "output_device": seeed_output_device,
-        "input_device": seeed_input_device,
-        "available": seeed_output_device is not None or seeed_input_device is not None,
+        "output_device": audio_output_device,
+        "input_device": audio_input_device,
+        "available": audio_output_device is not None or audio_input_device is not None,
     }
 
 
@@ -1515,12 +1518,14 @@ def play_tone(frequency: int = 440, duration_ms: int = 500):
     """Play a test tone through the speaker."""
     if not sd or not np:
         raise HTTPException(503, "Audio not available")
-    if seeed_output_device is None:
+    if audio_output_device is None:
         raise HTTPException(503, "No output audio device found")
-    sample_rate = 44100
+    # Use device native rate (48kHz for CD002-AUDIO on Pi 5, 44.1/48kHz for Seeed on Pi 4)
+    dev_info = sd.query_devices(audio_output_device)
+    sample_rate = int(dev_info["default_samplerate"])
     t = np.linspace(0, duration_ms / 1000, int(sample_rate * duration_ms / 1000), endpoint=False)
     tone = 0.5 * np.sin(2 * np.pi * frequency * t).astype(np.float32)
-    sd.play(tone, samplerate=sample_rate, device=seeed_output_device)
+    sd.play(tone, samplerate=sample_rate, device=audio_output_device)
     return {"status": "ok"}
 
 
@@ -1529,14 +1534,15 @@ def record_audio(duration_ms: int = 3000):
     """Record audio from the microphone. Returns WAV bytes."""
     if not sd or not np:
         raise HTTPException(503, "Audio not available")
-    if seeed_input_device is None:
+    if audio_input_device is None:
         raise HTTPException(503, "No input audio device found")
     import wave
-    sample_rate = 44100
+    dev_info = sd.query_devices(audio_input_device)
+    sample_rate = int(dev_info["default_samplerate"])
     channels = 1
     frames = int(sample_rate * duration_ms / 1000)
     recording = sd.rec(frames, samplerate=sample_rate, channels=channels,
-                       dtype="int16", device=seeed_input_device)
+                       dtype="int16", device=audio_input_device)
     sd.wait()
 
     buf = io.BytesIO()
@@ -1929,7 +1935,7 @@ def start_voice(req: VoiceStartRequest):
                 base_url=req.llm_base_url,
                 sound_device_module=sd,
                 numpy_module=np,
-                output_device=seeed_output_device,
+                output_device=audio_output_device,
             )
             logger.info("TTSService started")
             # Wire TTS to MusicService so music pauses during speech
@@ -1954,7 +1960,7 @@ def start_voice(req: VoiceStartRequest):
             raise HTTPException(503, "No STT provider available")
         voice_service = VoiceService(
             stt_provider=stt_provider,
-            input_device=seeed_input_device,
+            input_device=audio_input_device,
             tts_service=tts_service,
         )
         voice_service.start()
@@ -2124,7 +2130,7 @@ def health():
         "servo": animation_service is not None,
         "led": rgb_service is not None,
         "camera": camera_capture is not None,
-        "audio": seeed_output_device is not None or seeed_input_device is not None,
+        "audio": audio_output_device is not None or audio_input_device is not None,
         "sensing": sensing_service is not None,
         "voice": voice_service is not None and voice_service.available if voice_service else False,
         "tts": tts_service is not None and tts_service.available if tts_service else False,
