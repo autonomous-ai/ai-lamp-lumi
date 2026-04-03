@@ -641,7 +641,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (!nSensingTs) nSensingTs = ts;
     }
     if (ev.type === "flow_exit" && ev.detail?.node === "sensing_input") {
-      const dur = Number(ev.detail?.dur_ms ?? ev.detail?.data?.dur_ms ?? 0);
+      const dataObj = typeof ev.detail?.data === "string" ? (() => { try { return JSON.parse(ev.detail!.data); } catch { return null; } })() : null;
+      const dur = Number(ev.detail?.dur_ms ?? dataObj?.dur_ms ?? 0);
       if (dur > 0) nSensingExitDur = dur;
     }
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
@@ -665,8 +666,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
     if (isToolCall) {
       const d = ev.detail as Record<string, any> | undefined;
-      const source = d?.data?.source;
-      if (source === "session.tool") continue;
       const phase = d?.data?.phase ?? d?.phase ?? "";
       if (phase === "start") {
         if (!nFirstToolTs) nFirstToolTs = ts;
@@ -796,9 +795,6 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
     if (isToolCall) {
       const d = ev.detail as Record<string, any> | undefined;
-      // Skip duplicate events echoed with source: "session.tool" to avoid double-counting.
-      const source = d?.data?.source;
-      if (source === "session.tool") continue;
       const phase = d?.data?.phase ?? d?.phase ?? "";
       if (phase === "start") {
         if (!firstToolCallTs) firstToolCallTs = ts;
