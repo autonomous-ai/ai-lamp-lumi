@@ -20,11 +20,11 @@ from lelamp.service.voice.stt_provider import STTProvider, STTSession
 logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
-# DEFAULT_MODEL = "flux-general-en"
-# DEFAULT_LANGUAGE = None
+DEFAULT_MODEL = "flux-general-en"
+DEFAULT_LANGUAGE = None
 
-DEFAULT_MODEL = "nova-3"
-DEFAULT_LANGUAGE = "vi"
+# DEFAULT_MODEL = "nova-3"
+# DEFAULT_LANGUAGE = "vi"
 
 DEFAULT_ENCODING = "linear16"
 DEFAULT_ENDPOINTING_MS = 1500  # ms of silence before Deepgram fires is_final (same as stt_deepgram.py)
