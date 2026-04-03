@@ -216,6 +216,7 @@ func (s *Server) Serve(closeFn func()) error {
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	defer cancelEvents()
 	go s.agentGateway.StartWS(eventCtx, s.openclawHandler.HandleEvent)
+	go s.agentGateway.WatchIdentity(eventCtx)
 
 	r := gin.Default()
 	r.RedirectTrailingSlash = false // avoid 301 redirect loop on /network vs /network/
