@@ -21,7 +21,7 @@ logger = logging.getLogger("lelamp.voice.stt")
 logger.setLevel(logging.INFO)
 
 # DEFAULT_MODEL = "flux-general-en"
-#DEFAULT_LANGUAGE = None
+# DEFAULT_LANGUAGE = None
 
 DEFAULT_MODEL = "nova-3"
 DEFAULT_LANGUAGE = "vi"
