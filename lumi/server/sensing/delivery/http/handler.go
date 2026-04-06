@@ -60,9 +60,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Light up listening LED as soon as wake word arrives so user gets instant feedback.
-	if req.Type == "voice_command" {
+	// Light up listening LED as soon as mic opens (voice_listening) or wake word arrives.
+	if req.Type == "voice_listening" || req.Type == "voice_command" {
 		h.statusLED.Set(statusled.StateListening)
+	}
+	// voice_listening is internal LED signal only — don't forward to agent.
+	if req.Type == "voice_listening" {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+		return
 	}
 
 	startPayload := map[string]any{"type": req.Type, "message": req.Message}
