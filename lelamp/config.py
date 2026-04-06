@@ -44,8 +44,8 @@ LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger even
 # --- Sensing: Face detection ---
 FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
 YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
-FACE_OWNER_FORGET_S = 30.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
-FACE_STRANGER_FORGET_S = 15.0   # same for strangers
+FACE_OWNER_FORGET_S = 10 * 60.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 
 # --- Sensing: Wellbeing check ---
 # Production: 30*60 and 45*60. Set low for testing.
