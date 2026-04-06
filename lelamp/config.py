@@ -47,6 +47,11 @@ YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face dete
 FACE_OWNER_FORGET_S = 30.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
 FACE_STRANGER_FORGET_S = 15.0   # same for strangers
 
+# --- Sensing: Wellbeing check ---
+# Production: 30*60 and 45*60. Set low for testing.
+WELLBEING_HYDRATION_S = 60        # TEST: 1 min (production: 30 min)
+WELLBEING_BREAK_S = 60            # TEST: 1 min (production: 45 min)
+
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60  # 5 min → dim
 AWAY_TIMEOUT_S = 15 * 60  # 15 min → off
