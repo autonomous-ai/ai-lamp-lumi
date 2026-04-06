@@ -60,8 +60,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Light up listening LED as soon as mic opens (voice_listening) or wake word arrives.
-	if req.Type == "voice_listening" || req.Type == "voice_command" {
+	// Light up listening LED only when wake word is confirmed (voice_command).
+	// Do NOT set on voice_listening — that fires for every STT session (any RMS spike),
+	// not just wake word interactions, causing false cyan after agent responds.
+	if req.Type == "voice_command" {
 		slog.Info("listening LED set", "component", "statusled", "reason", req.Type, "message", req.Message)
 		h.statusLED.Set(statusled.StateListening)
 	}
