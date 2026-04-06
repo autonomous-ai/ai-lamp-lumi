@@ -152,12 +152,14 @@ Lumi proactively cares for the user's health by sending periodic camera snapshot
 - **Triggers** after 30 minutes of continuous presence, repeats every 30 minutes.
 - Sends a camera snapshot with context: "User has been sitting for X minutes without a water break."
 - The LLM looks at the image and decides: remind to drink water, or reply NO_REPLY if unnecessary.
+- **If no user is visible in the frame** → NO_REPLY (they may have stepped away).
 
 ### Break (`wellbeing.break`)
 
 - **Triggers** after 45 minutes of continuous presence, repeats every 45 minutes.
 - Sends a camera snapshot with context: "User has been sitting continuously for X minutes."
 - The LLM looks at the image and decides: remind to stand up and stretch, or reply NO_REPLY if the user seems fine.
+- **If no user is visible in the frame** → NO_REPLY.
 
 ### How it works
 
