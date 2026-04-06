@@ -39,6 +39,40 @@ import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          ...S.navItem(false),
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "transparent", cursor: "pointer",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
+          Agent GW
+        </span>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
+      </button>
+      {open && (
+        <div style={{ paddingLeft: 12 }}>
+          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
+            <span style={{ fontSize: 12, lineHeight: 1 }}>↗</span>
+            Gateway
+          </a>
+          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
+            <span style={{ fontSize: 12, lineHeight: 1 }}>◈</span>
+            GW Config
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Monitor() {
   const [section, setSectionRaw] = useState<Section>(() => {
     const h = window.location.hash.replace("#", "") as Section;
