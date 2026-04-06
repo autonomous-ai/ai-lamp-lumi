@@ -117,13 +117,13 @@ export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "fac
 
 export const NAV: { id: Section; label: string; icon: string }[] = [
   { id: "overview",   label: "Overview",   icon: "◈" },
-  { id: "system",     label: "System",     icon: "⬡" },
-  { id: "flow",       label: "Flow",       icon: "⬢" },
-  { id: "camera",     label: "Camera",     icon: "⬟" },
+  { id: "system",     label: "System",     icon: "▣" },
+  { id: "flow",       label: "Flow",       icon: "⇉" },
+  { id: "camera",     label: "Camera",     icon: "⊙" },
   { id: "servo",      label: "Servo",      icon: "⚙" },
   { id: "face-owners", label: "Faces",      icon: "◎" },
-  { id: "analytics",  label: "Analytics",  icon: "◉" },
-  { id: "logs",       label: "Logs",       icon: "☰" },
+  { id: "analytics",  label: "Analytics",  icon: "▦" },
+  { id: "logs",       label: "Logs",       icon: "≡" },
   { id: "chat",       label: "Chat",       icon: "✉" },
-  { id: "cli",        label: "CLI",        icon: ">" },
+  { id: "cli",        label: "CLI",        icon: "$" },
 ];
