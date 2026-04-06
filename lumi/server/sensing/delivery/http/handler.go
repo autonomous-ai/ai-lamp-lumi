@@ -73,9 +73,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 	if req.Type == "voice_listening_end" {
-		// Mic closed — do NOT clear listening LED here. The agent is still processing
-		// the transcript; lifecycle_start will clear it at the right time.
-		// If local intent handled the command, that path clears the LED itself.
+		// Mic session closed — safe to clear listening LED here: STT is done but agent
+		// hasn't made any tool calls yet, so StopEffect won't race with LED changes.
+		slog.Info("listening LED cleared", "component", "statusled", "reason", "voice_listening_end")
+		h.statusLED.Clear(statusled.StateListening)
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 		return
 	}
