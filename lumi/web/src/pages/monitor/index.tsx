@@ -23,8 +23,8 @@ import {
 } from "chart.js";
 
 import { S } from "./styles";
-import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV } from "./types";
-import type { Section, SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo, MonitorEvent, DisplayEvent } from "./types";
+import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV, isNavGroup, isNavLink } from "./types";
+import type { Section, SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo, MonitorEvent, DisplayEvent, NavEntry } from "./types";
 import { StatusDot, ForceUpdateButton } from "./components";
 import { OverviewSection } from "./OverviewSection";
 import { SystemSection } from "./SystemSection";
@@ -35,13 +35,110 @@ import { AnalyticsSection } from "./AnalyticsSection";
 import { LogsSection } from "./LogsSection";
 import { ChatSection } from "./ChatSection";
 import { FaceOwnersSection } from "./FaceOwnersSection";
+import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+
+function allNavLeaves(): { id: Section; label: string }[] {
+  const leaves: { id: Section; label: string }[] = [];
+  for (const entry of NAV) {
+    if (isNavGroup(entry)) entry.children.forEach((c) => { if (!isNavLink(c)) leaves.push(c); });
+    else leaves.push(entry);
+  }
+  return leaves;
+}
+
+function NavGroupItem({ entry, section, setSection, closeSidebar }: {
+  entry: Extract<NavEntry, { group: string }>;
+  section: Section;
+  setSection: (s: Section) => void;
+  closeSidebar: () => void;
+}) {
+  const hasActiveChild = entry.children.some((c) => !isNavLink(c) && c.id === section);
+  const [open, setOpen] = useState(hasActiveChild);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ ...S.navGroupHeader(hasActiveChild), display: "flex", alignItems: "center", justifyContent: "space-between" }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>{entry.icon}</span>
+          {entry.label}
+        </span>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
+      </button>
+      {open && (
+        <div>
+          {entry.children.map((child) =>
+            isNavLink(child) ? (
+              <a
+                key={child.href}
+                href={child.href}
+                style={S.navSubItem(false)}
+                target={child.external ? "_blank" : undefined}
+                rel={child.external ? "noreferrer" : undefined}
+                onClick={closeSidebar}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{child.icon}</span>
+                {child.label}
+              </a>
+            ) : (
+              <a
+                key={child.id}
+                href={`#${child.id}`}
+                style={S.navSubItem(section === child.id)}
+                onClick={(e) => { e.preventDefault(); setSection(child.id); closeSidebar(); }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{child.icon}</span>
+                {child.label}
+              </a>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          ...S.navItem(false),
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "transparent", cursor: "pointer",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
+          Agent GW
+        </span>
+        <span style={{ fontSize: 9, color: "var(--lm-text-muted)", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
+      </button>
+      {open && (
+        <div style={{ paddingLeft: 12 }}>
+          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
+            <span style={{ fontSize: 12, lineHeight: 1 }}>↗</span>
+            Gateway
+          </a>
+          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
+            <span style={{ fontSize: 12, lineHeight: 1 }}>◈</span>
+            GW Config
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Monitor() {
   const [section, setSectionRaw] = useState<Section>(() => {
     const h = window.location.hash.replace("#", "") as Section;
-    return NAV.some((n) => n.id === h) ? h : "overview";
+    return allNavLeaves().some((n) => n.id === h) ? h : "overview";
   });
   const setSection = (s: Section) => {
     window.location.hash = s;
@@ -208,25 +305,22 @@ export default function Monitor() {
           <div style={S.sidebarLogoSub}>Monitor Dashboard</div>
         </div>
         <nav style={{ padding: "10px 0", flex: 1 }}>
-          {NAV.map((item) => (
-            <a
-              key={item.id}
-              href={`#${item.id}`}
-              style={S.navItem(section === item.id)}
-              onClick={(e) => { e.preventDefault(); setSection(item.id); closeSidebar(); }}
-            >
-              <span style={{ fontSize: 14, lineHeight: 1 }}>{item.icon}</span>
-              {item.label}
-            </a>
-          ))}
-          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
-            Gateway
-          </a>
-          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>◈</span>
-            GW Config
-          </a>
+          {NAV.map((entry) =>
+            isNavGroup(entry) ? (
+              <NavGroupItem key={entry.group} entry={entry} section={section} setSection={setSection} closeSidebar={closeSidebar} />
+            ) : (
+              <a
+                key={entry.id}
+                href={`#${entry.id}`}
+                style={S.navItem(section === entry.id)}
+                onClick={(e) => { e.preventDefault(); setSection(entry.id); closeSidebar(); }}
+              >
+                <span style={{ fontSize: 14, lineHeight: 1 }}>{entry.icon}</span>
+                {entry.label}
+              </a>
+            )
+          )}
+          <AgentGWMenu closeSidebar={closeSidebar} />
           <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings
@@ -262,7 +356,7 @@ export default function Monitor() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>
-              {NAV.find((n) => n.id === section)?.label}
+              {allNavLeaves().find((n) => n.id === section)?.label}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -329,6 +423,7 @@ export default function Monitor() {
           <div style={{ display: section === "chat" ? "contents" : "none" }}>
             <ChatSection events={events} />
           </div>
+          {section === "cli" && <CliSection />}
         </div>
       </main>
     </div>

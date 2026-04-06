@@ -24,9 +24,9 @@ logger = logging.getLogger("lelamp.voice")
 
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
-SAMPLE_RATE = 16000
+STT_RATE = 16000   # Rate expected by all STT providers
 CHANNELS = 1
-FRAME_SIZE = 1024  # 64ms at 16kHz
+FRAME_DURATION_MS = 64  # Frame duration in ms (device-rate-independent)
 
 # Local VAD config
 RMS_THRESHOLD = 500       # Audio energy above this = speech (tune on device)
@@ -42,8 +42,8 @@ ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, dro
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
 
-# Wake word patterns (lowercase match)
-WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+# Wake word patterns (lowercase match) — default for agent named "Lumi"
+DEFAULT_WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
 
 class VoiceService:
@@ -54,6 +54,7 @@ class VoiceService:
             stt_provider: STTProvider,
             input_device: Optional[int] = None,
             tts_service=None,
+            wake_words: Optional[list] = None,
     ):
         self._stt = stt_provider
         self._input_device = input_device
@@ -61,8 +62,10 @@ class VoiceService:
         self._thread: Optional[threading.Thread] = None
         self._listening = False
         self._tts = tts_service
+        self._wake_words: list = list(wake_words) if wake_words else list(DEFAULT_WAKE_WORDS)
+        self._wake_words_lock = threading.Lock()
+        self._device_rate: Optional[int] = None  # detected once at first use
 
-        # Lazy imports
         self._sd = None
         self._np = None
 
@@ -77,6 +80,12 @@ class VoiceService:
             self._sd = sd
         except ImportError:
             logger.warning("sounddevice not available")
+
+    def set_wake_words(self, words: list) -> None:
+        """Update wake word list at runtime (called when agent is renamed)."""
+        with self._wake_words_lock:
+            self._wake_words = [w.lower() for w in words]
+        logger.info("Wake words updated: %s", self._wake_words)
 
     @property
     def available(self) -> bool:
@@ -113,6 +122,40 @@ class VoiceService:
             self._thread = None
         logger.info("VoiceService stopped")
 
+    def _detect_device_rate(self) -> int:
+        """Detect the highest-quality sample rate the input device supports.
+        Tries STT_RATE first (ideal), then falls back to device native rate."""
+        sd = self._sd
+        try:
+            info = sd.query_devices(self._input_device, "input")
+            native = int(info["default_samplerate"])
+            # Prefer STT_RATE if device supports it natively
+            try:
+                sd.check_input_settings(device=self._input_device, samplerate=STT_RATE, channels=CHANNELS, dtype="int16")
+                logger.info("Audio device supports %dHz natively", STT_RATE)
+                return STT_RATE
+            except Exception:
+                logger.info("Audio device native rate: %dHz (will resample to %dHz for STT)", native, STT_RATE)
+                return native
+        except Exception as e:
+            logger.warning("Could not detect device rate, defaulting to %dHz: %s", STT_RATE, e)
+            return STT_RATE
+
+    def _resample_to_stt(self, data, device_rate: int):
+        """Resample audio from device_rate to STT_RATE using linear interpolation.
+        Returns raw bytes at STT_RATE. No-op if rates already match."""
+        if device_rate == STT_RATE:
+            return data.tobytes()
+        np = self._np
+        samples = data.flatten().astype(np.float32)
+        new_len = int(len(samples) * STT_RATE / device_rate)
+        resampled = np.interp(
+            np.linspace(0, len(samples) - 1, new_len),
+            np.arange(len(samples)),
+            samples,
+        ).astype(np.int16)
+        return resampled.tobytes()
+
     def _rms(self, audio_data) -> float:
         """Calculate RMS energy of audio frame."""
         np = self._np
@@ -137,11 +180,12 @@ class VoiceService:
         logger.info("TTS done, waiting for reverb decay (RMS < %d)...", ECHO_RMS_FLOOR)
         sd = self._sd
         np = self._np
+        device_rate = self._device_rate or STT_RATE
         try:
-            window_frames = int(SAMPLE_RATE * ECHO_GATE_WINDOW_S)
+            window_frames = int(device_rate * ECHO_GATE_WINDOW_S)
             elapsed = 0.0
             with sd.InputStream(
-                samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16",
+                samplerate=device_rate, channels=CHANNELS, dtype="int16",
                 blocksize=window_frames, device=self._input_device,
             ) as tmp_mic:
                 while elapsed < ECHO_GATE_MAX_WAIT_S and self._running:
@@ -163,26 +207,31 @@ class VoiceService:
         time.sleep(3)  # Wait for hardware init
         sd = self._sd
 
+        if self._device_rate is None:
+            self._device_rate = self._detect_device_rate()
+        device_rate = self._device_rate
+        frame_size = int(device_rate * FRAME_DURATION_MS / 1000)
+
         while self._running:
             # Wait for TTS to finish before opening mic
             self._wait_for_tts()
 
             try:
                 with sd.InputStream(
-                        samplerate=SAMPLE_RATE,
+                        samplerate=device_rate,
                         channels=CHANNELS,
                         dtype="int16",
-                        blocksize=FRAME_SIZE,
+                        blocksize=frame_size,
                         device=self._input_device,
                 ) as mic:
-                    logger.info("Listening locally for speech (RMS threshold=%d)...", RMS_THRESHOLD)
-                    self._vad_loop(mic)
+                    logger.info("Listening locally for speech (RMS threshold=%d, rate=%dHz)...", RMS_THRESHOLD, device_rate)
+                    self._vad_loop(mic, frame_size, device_rate)
             except Exception as e:
                 logger.error("Voice loop error: %s", e)
                 if self._running:
                     time.sleep(3)
 
-    def _vad_loop(self, mic):
+    def _vad_loop(self, mic, frame_size: int, device_rate: int):
         """Monitor mic with local VAD, connect STT when speech detected.
         Breaks out when TTS starts speaking so _loop can close mic and reopen after."""
         speech_start = None
@@ -193,7 +242,7 @@ class VoiceService:
                 logger.info("TTS started, releasing mic...")
                 return
 
-            data, overflowed = mic.read(FRAME_SIZE)
+            data, overflowed = mic.read(frame_size)
             if overflowed:
                 continue
 
@@ -205,14 +254,14 @@ class VoiceService:
                 # Wait for holdoff before connecting STT (avoid short noises)
                 elif (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
                     logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
-                    self._stream_session(mic)
+                    self._stream_session(mic, frame_size, device_rate)
                     speech_start = None
                     # Cooldown after session to let resources clean up
                     time.sleep(SESSION_COOLDOWN_S)
             else:
                 speech_start = None
 
-    def _stream_session(self, mic):
+    def _stream_session(self, mic, frame_size: int, device_rate: int):
         """Stream audio to STT provider until silence or TTS interrupts."""
         session = self._stt.create_session()
 
@@ -221,10 +270,12 @@ class VoiceService:
                 return
             lower = text.lower()
             # Check for wake word
-            is_command = any(w in lower for w in WAKE_WORDS)
+            with self._wake_words_lock:
+                wake_words = list(self._wake_words)
+            is_command = any(w in lower for w in wake_words)
             if is_command:
                 cmd = lower
-                for w in WAKE_WORDS:
+                for w in wake_words:
                     if cmd.startswith(w):
                         cmd = text[len(w):].strip().lstrip(",").strip()
                         break
@@ -253,12 +304,12 @@ class VoiceService:
                     logger.warning("STT session exceeded %ds, force-closing", MAX_SESSION_DURATION_S)
                     break
 
-                data, overflowed = mic.read(FRAME_SIZE)
+                data, overflowed = mic.read(frame_size)
                 if overflowed:
                     continue
 
                 try:
-                    session.send_audio(data.tobytes())
+                    session.send_audio(self._resample_to_stt(data, device_rate))
                 except Exception as e:
                     logger.warning("send_audio failed (connection dead?): %s", e)
                     break

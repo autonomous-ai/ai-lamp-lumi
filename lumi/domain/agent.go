@@ -84,4 +84,7 @@ type AgentGateway interface {
 
 	// StartLeLampVoice starts the voice pipeline on LeLamp.
 	StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
+
+	// WatchIdentity polls IDENTITY.md and pushes updated wake words to LeLamp on rename.
+	WatchIdentity(ctx context.Context)
 }
