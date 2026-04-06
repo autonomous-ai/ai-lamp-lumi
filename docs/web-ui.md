@@ -240,6 +240,43 @@ Turn Pipeline grouping behavior:
 
 > **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
 
+### 5.6 Chat Section
+
+Interactive chat interface for communicating with Lumi AI. Layout: sidebar (conversation list) + main chat area.
+
+**Conversations**
+- Multiple conversations stored in localStorage (max 50, 200 messages each)
+- Sidebar with search, pin, rename (double-click), delete (double-click confirm), export as TXT
+- Grouped by date: Today / Yesterday / This week / Older, pinned at top
+- Keyboard shortcut: Cmd/Ctrl+N for new chat
+- Collapsible sidebar
+
+**Message Input**
+- Textarea with Shift+Enter for multi-line, Enter to send
+- File/image attachment (max 10 MB): button, drag-drop, clipboard paste
+- Messages sent via `POST /api/sensing/event` with `type: "voice"`
+
+**Real-time Streaming**
+- **Thinking indicator**: collapsible purple block showing LLM reasoning tokens as they stream in (`thinking` events). Click to expand full text (max-height 200px scrollable). Auto-hides on response completion.
+- **Assistant delta streaming**: response text appears token-by-token via `assistant_delta` events, instead of waiting for final response. Fallback to `chat_response` partial events for non-agent paths.
+- **Tool call chips**: teal badges showing tools the agent invoked during the response (emotion, LED, servo, audio, etc.). Displayed above the message bubble during streaming and persisted on completed messages.
+
+**Response Handling**
+- Tracks response by `runId` correlation across SSE events
+- Inline HW control markers (`[HW:/emotion:...]`) stripped from displayed text
+- 30-second timeout: if streaming text received, shows partial text; otherwise shows error with retry button
+- Local intent fast path: sub-50ms responses bypassing agent
+- Busy/dropped handling: shows "busy — try again"
+- Markdown rendering: bold, italic, inline code, code blocks, URLs, ordered/unordered lists
+
+**Data Flow**
+```
+Chat UI → POST /api/sensing/event → SensingHandler
+  → openclaw.SendChatMessage() → WebSocket chat.send → OpenClaw
+  → Response streams via WebSocket (thinking → assistant deltas → lifecycle end)
+  → SSE /api/openclaw/flow-stream → Chat UI updates message in real-time
+```
+
 ---
 
 ## 6. LED Color API

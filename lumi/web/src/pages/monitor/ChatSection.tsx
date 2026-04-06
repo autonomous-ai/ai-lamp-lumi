@@ -91,6 +91,55 @@ function stripHWMarkers(text: string): string {
   return text.replace(/\[HW:\/[^\]]*\]/g, "").trim();
 }
 
+// ─── Tool call parsing ──────────────────────────────────────────────────────
+
+interface ToolChip {
+  id: string;       // dedup key
+  icon: string;
+  label: string;
+}
+
+const TOOL_EVENT_TYPES = new Set(["tool_call", "hw_emotion", "hw_led", "hw_audio", "hw_servo", "led_set", "led_off"]);
+
+function parseToolChip(ev: { type: string; summary: string; id: string }): ToolChip | null {
+  const s = ev.summary;
+  switch (ev.type) {
+    case "hw_emotion": {
+      const m = s.match(/"emotion"\s*:\s*"([^"]+)"/);
+      return { id: ev.id, icon: "🎭", label: m ? m[1] : "emotion" };
+    }
+    case "hw_led": {
+      if (s.includes("/scene/")) {
+        const m = s.match(/\/scene\/(\w+)/);
+        return { id: ev.id, icon: "🎨", label: m ? `scene: ${m[1]}` : "LED scene" };
+      }
+      if (s.includes("/led/off")) return { id: ev.id, icon: "💡", label: "LED off" };
+      const m = s.match(/"hex"\s*:\s*"([^"]+)"/);
+      return { id: ev.id, icon: "💡", label: m ? `LED ${m[1]}` : "LED" };
+    }
+    case "led_off": return { id: ev.id, icon: "💡", label: "LED off" };
+    case "led_set": return null; // redundant with hw_led/hw_emotion
+    case "hw_audio": return { id: ev.id, icon: "🎵", label: "music" };
+    case "hw_servo": {
+      if (s.includes("/aim")) return { id: ev.id, icon: "⚙", label: "servo aim" };
+      if (s.includes("/play")) {
+        const m = s.match(/\/play\/(\w+)/);
+        return { id: ev.id, icon: "⚙", label: m ? `servo: ${m[1]}` : "servo play" };
+      }
+      return { id: ev.id, icon: "⚙", label: "servo" };
+    }
+    case "tool_call": {
+      // Generic tool_call — extract tool name from summary "toolName(phase)"
+      const m = s.match(/^(\w+)/);
+      const name = m ? m[1] : "tool";
+      // Skip if already covered by hw_* events
+      if (["set_emotion", "set_led", "play_music", "move_servo"].includes(name)) return null;
+      return { id: ev.id, icon: "🔧", label: name };
+    }
+    default: return null;
+  }
+}
+
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const CONVOS_KEY = "lumi_chat_convos";
@@ -110,6 +159,7 @@ interface ChatMessage {
   runId?: string;
   pending?: boolean;
   error?: boolean;
+  tools?: ToolChip[];  // tool calls made during this response
 }
 
 interface Conversation {
@@ -288,6 +338,7 @@ export function ChatSection({ events }: Props) {
   const thinkingBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated thinking text
   const lastThinkingSeqRef = useRef<Map<string, number>>(new Map());
   const [thinkingText, setThinkingText] = useState<string | null>(null); // current thinking display
+  const [toolChips, setToolChips] = useState<ToolChip[]>([]); // tool calls for current pending response
 
   const active = convos.find((c) => c.id === activeId) ?? null;
   const messages = active?.messages ?? [];
@@ -349,6 +400,8 @@ export function ChatSection({ events }: Props) {
     const lastThinkSeq = lastThinkingSeqRef.current.get(pending) ?? -1;
     let finalResult: { text: string } | null = null;
     let partialText: string | null = null; // from chat_response partial (non-delta path)
+    const chips: ToolChip[] = [];
+    const seenChipTypes = new Set<string>();
 
     // Process events in chronological order to accumulate deltas correctly
     for (const ev of events) {
@@ -358,6 +411,19 @@ export function ChatSection({ events }: Props) {
         (ev.detail as any)?.runId ??
         (ev.detail as any)?.data?.run_id;
       if (!evRunId || evRunId !== pending) continue;
+
+      // Collect tool call events
+      if (TOOL_EVENT_TYPES.has(ev.type)) {
+        const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id });
+        // Deduplicate by type+label
+        if (chip) {
+          const key = chip.icon + chip.label;
+          if (!seenChipTypes.has(key)) {
+            seenChipTypes.add(key);
+            chips.push(chip);
+          }
+        }
+      }
 
       const result = extractResponse(ev);
       if (!result) continue;
@@ -384,9 +450,10 @@ export function ChatSection({ events }: Props) {
       }
     }
 
-    // Update thinking display
+    // Update thinking + tool chips display
     const currentThinking = thinkingBufRef.current.get(pending) ?? null;
     setThinkingText(currentThinking);
+    setToolChips(chips);
 
     if (finalResult) {
       // Final response arrived — use it (or fall back to accumulated deltas)
@@ -399,10 +466,11 @@ export function ChatSection({ events }: Props) {
       lastDeltaSeqRef.current.delete(pending);
       thinkingBufRef.current.delete(pending);
       lastThinkingSeqRef.current.delete(pending);
+      const savedChips = chips.length > 0 ? chips : undefined;
       updateMessages((prev) =>
         prev.map((m) =>
           m.runId === pending && m.role === "lumi" && m.pending
-            ? { ...m, text, pending: false }
+            ? { ...m, text, pending: false, tools: savedChips }
             : m,
         ),
       );
@@ -651,6 +719,7 @@ export function ChatSection({ events }: Props) {
             pendingRunIdRef.current = null;
             setSending(false);
             setThinkingText(null);
+            setToolChips([]);
             const streamed = deltaBufRef.current.get(runId);
             deltaBufRef.current.delete(runId);
             lastDeltaSeqRef.current.delete(runId);
@@ -992,10 +1061,30 @@ export function ChatSection({ events }: Props) {
                 }}>✦</div>
               )}
               <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
-                {/* Thinking indicator — shown above pending Lumi message */}
-                {msg.pending && msg.role === "lumi" && thinkingText && (
+                {/* Thinking indicator — shown only for the active pending message */}
+                {msg.pending && msg.role === "lumi" && msg.runId === pendingRunIdRef.current && thinkingText && (
                   <ThinkingBlock text={thinkingText} />
                 )}
+                {/* Tool call chips — live during pending, persisted after finalize */}
+                {msg.role === "lumi" && (() => {
+                  const isActivePending = msg.pending && msg.runId === pendingRunIdRef.current;
+                  const chips = isActivePending ? toolChips : msg.tools;
+                  if (!chips || chips.length === 0) return null;
+                  return (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 2 }}>
+                      {chips.map((c) => (
+                        <span key={c.id} style={{
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                          padding: "2px 8px", borderRadius: 10, fontSize: 10,
+                          background: "rgba(20,184,166,0.1)", border: "1px solid rgba(20,184,166,0.2)",
+                          color: "rgba(20,184,166,0.85)",
+                        }}>
+                          <span>{c.icon}</span>{c.label}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style={{
                   padding: "9px 13px",
                   borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
