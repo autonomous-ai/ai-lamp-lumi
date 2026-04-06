@@ -131,6 +131,44 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 
 ---
 
+## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi)
+
+Lumi chủ động chăm sóc sức khỏe người dùng bằng cách gửi ảnh camera định kỳ cho LLM khi có người hiện diện. Hai timer độc lập chạy song song:
+
+### Nhắc uống nước (`wellbeing.hydration`)
+
+- **Kích hoạt** sau 30 phút hiện diện liên tục, lặp lại mỗi 30 phút.
+- Gửi ảnh camera kèm context: "User ngồi X phút chưa uống nước."
+- LLM nhìn ảnh và quyết định: nhắc uống nước, hoặc NO_REPLY nếu không cần.
+
+### Nhắc nghỉ ngơi (`wellbeing.break`)
+
+- **Kích hoạt** sau 45 phút hiện diện liên tục, lặp lại mỗi 45 phút.
+- Gửi ảnh camera kèm context: "User ngồi liên tục X phút."
+- LLM nhìn ảnh và quyết định: nhắc đứng lên stretch, hoặc NO_REPLY nếu user trông ổn.
+
+### Cơ chế hoạt động
+
+Class `WellbeingPerception` (`lelamp/service/sensing/perceptions/wellbeing.py`) theo dõi trạng thái presence từ `PresenceService`. Khi user đến (`presence.enter`), hai timer độc lập bắt đầu. Mỗi timer chụp ảnh ổn định (freeze servo tạm thời) và gửi event lên Go handler, được forward lên agent như mọi sensing event khác. Khi user rời đi (`presence.leave` hoặc state chuyển sang IDLE/AWAY), cả hai timer reset.
+
+### Hằng số (`config.py`)
+
+```python
+WELLBEING_HYDRATION_S = 30 * 60   # 30 phút giữa các lần nhắc uống nước
+WELLBEING_BREAK_S     = 45 * 60   # 45 phút giữa các lần nhắc nghỉ
+```
+
+### Hành vi của agent
+
+| Event | Emotion | Nói |
+|---|---|---|
+| `wellbeing.hydration` | `curious` (0.5) | CÓ (nhắc uống nước) hoặc NO_REPLY |
+| `wellbeing.break` | `curious` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc NO_REPLY |
+
+LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
+
+---
+
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.
