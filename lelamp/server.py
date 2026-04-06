@@ -185,12 +185,16 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
 
     Priority:
       1. Known hardware keywords (Seeed ReSpeaker, CD002, webcam, etc.)
-      2. Any USB audio device with the right channel type
+      2. USB dedicated audio devices (prefer "usb audio" over composite/webcam)
+      3. Any USB device with the right channel type
     """
     if not sd:
         return None
+    # Known hardware — checked in order (first match wins)
     output_names = ["seeed", "cd002"]
-    input_names = ["seeed", "webcam"]
+    input_names = ["seeed", "webcam", "usb audio"]
+    # Keywords that indicate a composite/camera device — lower priority for input
+    input_skip = ["composite", "camera", "video"]
     names = output_names if output else input_names
     try:
         devices = list(sd.query_devices())
@@ -204,10 +208,12 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                     return i
                 if not output and d["max_input_channels"] > 0:
                     return i
-        # Pass 2: fallback — first USB audio device with correct channel type
+        # Pass 2: fallback — USB dedicated audio (skip composite/camera devices for input)
         for i, d in enumerate(devices):
             name = d["name"].lower()
             if "usb" not in name:
+                continue
+            if not output and any(s in name for s in input_skip):
                 continue
             if output and d["max_output_channels"] > 0:
                 logger.info("Audio fallback: using USB device %d '%s' for output", i, d["name"])
@@ -215,6 +221,13 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
             if not output and d["max_input_channels"] > 0:
                 logger.info("Audio fallback: using USB device %d '%s' for input", i, d["name"])
                 return i
+        # Pass 3: last resort — any USB device including composite
+        if not output:
+            for i, d in enumerate(devices):
+                name = d["name"].lower()
+                if "usb" in name and d["max_input_channels"] > 0:
+                    logger.info("Audio last-resort: using %d '%s' for input", i, d["name"])
+                    return i
     except Exception:
         pass
     return None
