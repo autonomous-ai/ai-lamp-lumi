@@ -104,6 +104,7 @@ export function FlowDiagram({
     ["tool_exec",         "hw_emotion"],
     ["tool_exec",         "hw_audio"],
     ["tool_exec",         "lumi_gate"],
+    ["agent_response",    "hw_emotion"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
     ["agent_response",    "tg_out"],

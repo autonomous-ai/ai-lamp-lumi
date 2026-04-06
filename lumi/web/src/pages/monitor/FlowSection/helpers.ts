@@ -622,6 +622,21 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const tts = d?.data?.tts ?? d?.tts ?? "";
       if (tts && info.tts_speak.length < 3) info.tts_speak.push(`💡 ${tts}`);
     }
+    if (ev.type === "hw_emotion" || (ev.type === "flow_event" && ev.detail?.node === "hw_emotion")) {
+      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
+      if (body) {
+        const curl = `curl -s -X POST http://127.0.0.1:5001/emotion -H "Content-Type: application/json" -d '${body}'`;
+        pushUnique(info.hw_emotion, `🔧 ${curl}`);
+      }
+    }
+    if (ev.type === "hw_led" || (ev.type === "flow_event" && ev.detail?.node === "hw_led")) {
+      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
+      if (body) pushUnique(info.hw_led, `🔧 curl -s -X POST http://127.0.0.1:5001/led -d '${body}'`);
+    }
+    if (ev.type === "hw_servo" || (ev.type === "flow_event" && ev.detail?.node === "hw_servo")) {
+      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
+      if (body) pushUnique(info.hw_servo, `🔧 curl -s -X POST http://127.0.0.1:5001/servo/play -d '${body}'`);
+    }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
   const hasLifecycleEnd = events.some((e) =>
