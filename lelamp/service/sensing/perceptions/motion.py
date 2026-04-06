@@ -1,17 +1,98 @@
 import logging
 import time
-from typing import Callable, Optional
+from enum import Enum
+from typing import Callable, Optional, cast, override
 
 import lelamp.config as config
 import numpy as np
+import numpy.typing as npt
 
 from .base import Perception
 
 logger = logging.getLogger(__name__)
 
 
+class MoveEnum(Enum):
+    BACKGROUND = "background"  # whole scene shifting — camera shake or very close object
+    FOREGROUND = "foreground"  # localized movement — person walking, object moving
+    NONE = "none"
+
+
+class MotionChecker:
+    """Optical flow-based motion classifier using Farneback dense flow."""
+
+    def __init__(
+        self,
+        cv2,
+        pixel_threshold: float = config.MOTION_PIXEL_THRESHOLD,
+        moving_pixel_ratio: float = config.MOTION_BG_RATIO,
+        move_threshold: float = config.MOTION_FLOW_THRESHOLD,
+    ):
+        self._cv2 = cv2
+        self._last_frame: npt.NDArray[np.uint8] | None = None
+        self._flow: npt.NDArray[np.float32] | None = None
+        self._pixel_threshold = pixel_threshold
+        self._moving_pixel_ratio = moving_pixel_ratio
+        self._move_threshold = move_threshold
+
+    def _classify_move(self, flow: npt.NDArray[np.float32]) -> MoveEnum:
+        H, W = flow.shape[:2]
+        flow_mag = np.linalg.norm(flow, axis=-1)
+        mask = flow_mag > self._pixel_threshold
+
+        if mask.sum() == 0:
+            return MoveEnum.NONE
+
+        if mask.sum() / (H * W) > self._moving_pixel_ratio:
+            return MoveEnum.BACKGROUND
+
+        mean_flow = flow_mag[mask].mean()
+        if mean_flow > self._move_threshold:
+            return MoveEnum.FOREGROUND
+
+        return MoveEnum.NONE
+
+    def update(self, rgb_frame: npt.NDArray[np.uint8]) -> MoveEnum:
+        cv2 = self._cv2
+        H, W = rgb_frame.shape[:2]
+        frame = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2GRAY)
+        frame = cv2.resize(frame, (320, 180))
+        frame = cast(npt.NDArray[np.uint8], frame)
+
+        if self._last_frame is None:
+            self._last_frame = frame.copy()
+            return MoveEnum.NONE
+
+        flow = np.zeros_like(frame)
+        flow = np.repeat(np.expand_dims(flow, axis=-1), repeats=2, axis=-1)
+        flow = cv2.calcOpticalFlowFarneback(
+            self._last_frame,
+            frame,
+            flow,
+            pyr_scale=0.5,
+            levels=3,
+            winsize=15,
+            iterations=3,
+            poly_n=5,
+            poly_sigma=1.2,
+            flags=0,
+        )
+        flow = cv2.resize(flow, (W, H))
+        flow = cv2.GaussianBlur(flow, (21, 21), -1)
+        flow = cast(npt.NDArray[np.float32], flow)
+
+        self._flow = flow
+        self._last_frame = frame
+
+        return self._classify_move(flow)
+
+    @property
+    def flow(self) -> npt.NDArray[np.float32] | None:
+        return self._flow
+
+
 class MotionPerception(Perception):
-    """Detects motion via frame differencing (grayscale absdiff + contour area)."""
+    """Detects foreground motion via optical flow (Farneback). Ignores background/camera shake."""
 
     def __init__(
         self,
@@ -19,88 +100,41 @@ class MotionPerception(Perception):
         send_event: Callable,
         on_motion: Callable,
         capture_stable_frame: Callable,
-        motion_update_ts: float = 180,
+        motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,
     ):
         super().__init__(send_event)
-        self._cv2 = cv2
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
-        self._last_frame: Optional[np.ndarray] = None
-        self._last_motion_time: Optional[float] = None
         self._motion_update_ts: float = motion_update_ts
-        self._last_motion_event_ts: dict[str, float] = {}
+        self._last_motion_time: Optional[float] = None
+        self._last_motion_event_ts: float = 0.0
+        self._checker = MotionChecker(cv2)
 
-    def check(self, frame: np.ndarray) -> None:
+    @override
+    def check(self, frame: npt.NDArray[np.uint8]) -> None:
         if frame is None:
             return
-        cv2 = self._cv2
-        moved = False
-        biggest_ratio = 0.0
-        change_ratio = 0.0
-        total_ratio = 0.0
 
-        if self._last_frame is not None:
-            total_pixels = int(frame.shape[0] * frame.shape[1])
-            prev_gray = cv2.GaussianBlur(
-                cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
-            )
-            cur_gray = cv2.GaussianBlur(
-                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (21, 21), 0
-            )
+        result = self._checker.update(frame)
 
-            delta = cv2.absdiff(prev_gray, cur_gray)
-            thresh = cv2.threshold(
-                delta, config.MOTION_THRESHOLD, 255, cv2.THRESH_BINARY
-            )[1]
-            contours, _ = cv2.findContours(
-                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
+        if result != MoveEnum.FOREGROUND:
+            return
 
-            if len(contours):
-                areas = np.array([cv2.contourArea(c) for c in contours])
-                k = int(np.ceil(len(areas) * config.MOTION_BIGGEST_CONTOURS_RATIO))
-                biggest_contours = np.argpartition(areas, -k)[-k:]
-                logger.debug("biggest contour areas: %s", areas[biggest_contours])
-                biggest_ratio = areas[biggest_contours].sum() / areas.sum()
-                change_ratio = areas[biggest_contours].sum() / total_pixels
-                total_ratio = areas.sum() / total_pixels
+        cur_ts = time.time()
+        self._last_motion_time = cur_ts
+        self._on_motion()
 
-            if (
-                biggest_ratio >= config.MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS
-                and change_ratio >= config.MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL
-            ):
-                moved = True
+        if (cur_ts - self._last_motion_event_ts) < self._motion_update_ts:
+            return
 
-        self._last_frame = frame
-
-        if moved:
-            cur_ts = time.time()
-            self._last_motion_time = cur_ts
-            self._on_motion()
-
-            if total_ratio >= config.MOTION_LARGE_TOTAL_RATIO:
-                msg = "Large movement detected in camera view — someone may have entered or left the room"
-                motion_type = "large"
-            else:
-                msg = "Small movement detected in camera view"
-                motion_type = "small"
-
-            last_motion_event_ts = self._last_motion_event_ts.get(motion_type, None)
-            if (
-                last_motion_event_ts is None
-                or (cur_ts - last_motion_event_ts) > self._motion_update_ts
-            ):
-                self._last_motion_event_ts[motion_type] = cur_ts
-
-                image = None
-                if motion_type == "large":
-                    stable = self._capture_stable_frame()
-                    image = stable if stable is not None else frame
-
-                # TODO: re-enable small motion if agent gains intent filtering for low-signal events
-                # self._send_event("motion", msg, image=image)
-                if motion_type == "large":
-                    self._send_event("motion", msg, image=image)
+        self._last_motion_event_ts = cur_ts
+        stable = self._capture_stable_frame()
+        image = stable if stable is not None else frame
+        self._send_event(
+            "motion",
+            "Large movement detected in camera view — someone may have entered or left the room",
+            image=image,
+        )
 
     def to_dict(self) -> dict:
         seconds_since = (
@@ -110,7 +144,7 @@ class MotionPerception(Perception):
         )
         return {
             "type": "motion",
-            "has_baseline": self._last_frame is not None,
+            "has_baseline": self._checker._last_frame is not None,
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,
         }
