@@ -306,7 +306,7 @@ export default function EditConfig() {
         <div style={{
           padding: "12px 16px", borderTop: `1px solid ${C.border}`,
         }}>
-          <a href="/monitor" style={{
+          <a href="/" style={{
             display: "flex", alignItems: "center", gap: 7,
             color: C.textMuted, textDecoration: "none", fontSize: 12,
             transition: "color 0.15s",
