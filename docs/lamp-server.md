@@ -67,7 +67,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|light.level",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -83,6 +83,9 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | `presence.leave` | Camera (3 consecutive ticks without face) | No | Person left |
 | `light.level` | Camera (mean brightness) | No | Significant ambient light change (>30/255) |
 | `sound` | Mic (RMS energy) | No | Loud noise |
+| `presence.away` | PresenceService (15 min no motion) | No | No one around for 15+ min — Lumi going to sleep |
+| `wellbeing.hydration` | WellbeingPerception (30 min timer) | Yes | User sitting 30+ min without water break |
+| `wellbeing.break` | WellbeingPerception (45 min timer) | Yes | User sitting 45+ min continuously |
 
 **Processing flow:**
 1. `voice_command` or `voice` + local intent enabled → match intent → execute directly (~50ms)

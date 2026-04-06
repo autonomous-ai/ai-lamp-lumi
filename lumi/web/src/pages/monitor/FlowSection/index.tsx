@@ -12,7 +12,7 @@ import { CanvasModal } from "./CanvasModal";
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
-  cam: ["motion", "presence.enter", "presence.leave", "light.level", "environment"],
+  cam: ["motion", "presence.enter", "presence.leave", "presence.away", "light.level", "environment"],
   telegram: ["telegram"],
   system: ["system", "schedule"],
 };
@@ -22,7 +22,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "presence.enter": "enter", "presence.leave": "leave",
+  motion: "motion", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "light.level": "light", environment: "env", system: "sys",
   telegram: "TG", schedule: "sched",
 };

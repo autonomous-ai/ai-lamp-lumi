@@ -92,6 +92,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
 | `sound` | `[sensing:sound]` | Microphone detected a loud noise (clap, door slam, etc.) | No |
+| `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
 | `wellbeing.hydration` | `[sensing:wellbeing.hydration]` | User sitting 30+ min without water break | Yes |
 | `wellbeing.break` | `[sensing:wellbeing.break]` | User sitting 45+ min continuously — posture/fatigue check | Yes |
 
@@ -144,6 +145,7 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `sound` occurrence 2 | `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` | NO (NO_REPLY) |
 | `sound` persistent (3+) | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
 | `light.level` | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | Optional brief remark |
+| `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
 | `wellbeing.hydration` | `[HW:/emotion:{"emotion":"curious","intensity":0.5}]` | YES or NO_REPLY |
 | `wellbeing.break` | `[HW:/emotion:{"emotion":"curious","intensity":0.6}]` | YES or NO_REPLY |
 
