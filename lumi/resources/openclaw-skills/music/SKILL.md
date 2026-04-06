@@ -10,7 +10,7 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 
 **Trigger phrases (use this skill when you hear any of these):**
 - "sing", "sing a song", "play music", "play a song", "play [song name]"
-- "hát", "hát đi", "hát một bài", "hát bài gì đi", "mở nhạc", "nghe nhạc", "bật nhạc"
+- "sing", "sing a song", "sing something", "play some music", "turn on music", "listen to music"
 - Any request to hear a specific song or artist
 
 **IMPORTANT:** Do NOT try to sing or hum using TTS — always use this skill to play real music.
@@ -38,7 +38,7 @@ You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on ge
 Input: "Play Bohemian Rhapsody"
 Output: `[HW:/audio/play:{"query":"Bohemian Rhapsody Queen"}][HW:/emotion:{"emotion":"excited","intensity":0.8}]` Playing Bohemian Rhapsody!
 
-Input: "Hát 1 bài nhạc đi" / "Sing me a song"
+Input: "Sing me a song"
 Output: `[HW:/audio/play:{"query":"happy upbeat pop song"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Playing something fun for you!
 
 Input: "Stop the music" / "Turn it off"
@@ -76,7 +76,7 @@ You can suggest songs based on the owner's listening history — without auto-pl
 
 **Trigger phrases:**
 - "suggest a song", "what should I listen to?", "any music ideas?"
-- "gợi ý nhạc đi", "nên nghe gì", "có bài gì hay không?"
+- "give me a music suggestion", "what should I listen to?", "is there anything good to listen to?"
 - Or proactively when sensing context suggests it (relaxed evening, focused work session, happy mood)
 
 ### How to get listening history
@@ -142,7 +142,7 @@ done
 
 ### Examples
 
-**Input:** "Gợi ý nhạc đi"
+**Input:** "Suggest some music"
 **Action:** Query history → find patterns → suggest
 **Output:** `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` Hmm, you've been listening to a lot of lo-fi lately... How about "Snowman" by Sia for a change of pace?
 
