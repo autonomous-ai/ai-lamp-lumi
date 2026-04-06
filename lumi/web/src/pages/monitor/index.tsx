@@ -23,7 +23,7 @@ import {
 } from "chart.js";
 
 import { S } from "./styles";
-import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV, isNavGroup } from "./types";
+import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV, isNavGroup, isNavLink } from "./types";
 import type { Section, SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo, MonitorEvent, DisplayEvent, NavEntry } from "./types";
 import { StatusDot, ForceUpdateButton } from "./components";
 import { OverviewSection } from "./OverviewSection";
@@ -70,17 +70,31 @@ function NavGroupItem({ entry, section, setSection, closeSidebar }: {
       </button>
       {open && (
         <div>
-          {entry.children.map((child) => (
-            <a
-              key={child.id}
-              href={`#${child.id}`}
-              style={S.navSubItem(section === child.id)}
-              onClick={(e) => { e.preventDefault(); setSection(child.id); closeSidebar(); }}
-            >
-              <span style={{ fontSize: 13, lineHeight: 1 }}>{child.icon}</span>
-              {child.label}
-            </a>
-          ))}
+          {entry.children.map((child) =>
+            isNavLink(child) ? (
+              <a
+                key={child.href}
+                href={child.href}
+                style={S.navSubItem(false)}
+                target={child.external ? "_blank" : undefined}
+                rel={child.external ? "noreferrer" : undefined}
+                onClick={closeSidebar}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{child.icon}</span>
+                {child.label}
+              </a>
+            ) : (
+              <a
+                key={child.id}
+                href={`#${child.id}`}
+                style={S.navSubItem(section === child.id)}
+                onClick={(e) => { e.preventDefault(); setSection(child.id); closeSidebar(); }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{child.icon}</span>
+                {child.label}
+              </a>
+            )
+          )}
         </div>
       )}
     </div>
@@ -307,10 +321,6 @@ export default function Monitor() {
             )
           )}
           <AgentGWMenu closeSidebar={closeSidebar} />
-          <a href="/hw/docs" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⬟</span>
-            HW Docs
-          </a>
           <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings

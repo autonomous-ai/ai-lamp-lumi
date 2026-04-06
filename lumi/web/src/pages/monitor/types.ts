@@ -116,11 +116,16 @@ export interface DisplayEvent extends MonitorEvent {
 export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli";
 
 export type NavLeaf = { id: Section; label: string; icon: string };
-export type NavGroup = { group: string; label: string; icon: string; children: NavLeaf[] };
+export type NavLink = { href: string; label: string; icon: string; external?: boolean };
+export type NavChild = NavLeaf | NavLink;
+export type NavGroup = { group: string; label: string; icon: string; children: NavChild[] };
 export type NavEntry = NavLeaf | NavGroup;
 
 export function isNavGroup(e: NavEntry): e is NavGroup {
   return "group" in e;
+}
+export function isNavLink(c: NavChild): c is NavLink {
+  return "href" in c;
 }
 
 export const NAV: NavEntry[] = [
@@ -135,7 +140,6 @@ export const NAV: NavEntry[] = [
       { id: "face-owners", label: "Faces",  icon: "◎" },
     ],
   },
-  { id: "servo",     label: "Servo",     icon: "⚙" },
   { id: "analytics", label: "Analytics", icon: "▦" },
   { id: "chat",      label: "Chat",      icon: "✉" },
   {
@@ -143,9 +147,11 @@ export const NAV: NavEntry[] = [
     label: "System",
     icon: "▣",
     children: [
-      { id: "system", label: "Info", icon: "◧" },
-      { id: "logs",   label: "Logs", icon: "≡" },
-      { id: "cli",    label: "CLI",  icon: "$" },
+      { id: "system", label: "Info",  icon: "◧" },
+      { id: "servo",  label: "Servo", icon: "⚙" },
+      { id: "logs",                       label: "Logs",    icon: "≡" },
+      { id: "cli",                        label: "CLI",     icon: "$" },
+      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⬟" },
     ],
   },
 ];
