@@ -1,6 +1,6 @@
 ---
 name: led-control
-description: Control the 64-pixel WS2812 RGB LED strip when the user asks for a SPECIFIC color (e.g. "yellow", "red", "màu vàng", "màu đỏ", "mở đèn màu X", "bật đèn X"), LED effect, pixel painting, or turning LEDs off. Do NOT use for ambiance/activity lighting (use Scene) or emotion expression (use Emotion).
+description: Control the 64-pixel WS2812 RGB LED strip when the user asks for a SPECIFIC color (e.g. "yellow", "red", "yellow", "red", "turn on color X", "enable X light"), LED effect, pixel painting, or turning LEDs off. Do NOT use for ambiance/activity lighting (use Scene) or emotion expression (use Emotion).
 ---
 
 # LED Control
@@ -18,16 +18,16 @@ Control the lamp's 64-pixel WS2812 RGB LED strip directly. Use this skill only w
 
 ## Examples
 
-Input: "Make it purple" / "bật màu tím"
+Input: "Make it purple" / "turn on purple"
 Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[100,50,200]}]` I've set the LEDs to purple.
 
-Input: "Mở đèn màu vàng" / "bật đèn vàng" / "đổi sang màu vàng" / "yellow light"
+Input: "Turn on yellow light" / "set yellow" / "switch to yellow" / "yellow light"
 Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,220,0]}]` Yellow light on!
 
-Input: "Mở đèn màu đỏ" / "bật đèn đỏ" / "đổi sang màu đỏ" / "red light"
+Input: "Turn on red light" / "set red" / "switch to red" / "red light"
 Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,0,0]}]` Red light on!
 
-Input: "Mở đèn trắng" / "bật đèn trắng" / "white light"
+Input: "Turn on white light" / "set white" / "white light"
 Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,255,255]}]` White light on!
 
 Input: "Do a breathing light with warm color"
@@ -85,21 +85,22 @@ Color is an RGB array `[R, G, B]`.
 | Color name | Color (RGB) |
 |---|---|
 | White | `[255, 255, 255]` |
-| Yellow / vàng | `[255, 220, 0]` |
-| Warm white / trắng ấm | `[255, 180, 100]` |
-| Orange / cam | `[255, 100, 0]` |
-| Red / đỏ | `[255, 0, 0]` |
-| Green / xanh lá | `[0, 200, 80]` |
-| Blue / xanh dương | `[0, 150, 255]` |
-| Purple / tím | `[100, 50, 200]` |
-| Pink / hồng | `[255, 80, 150]` |
+| Yellow | `[255, 220, 0]` |
+| Warm white | `[255, 180, 100]` |
+| Orange | `[255, 100, 0]` |
+| Red | `[255, 0, 0]` |
+| Green | `[0, 200, 80]` |
+| Blue | `[0, 150, 255]` |
+| Purple | `[100, 50, 200]` |
+| Pink | `[255, 80, 150]` |
 
 ## Error Handling
 - If the API returns an error or is unreachable, inform the user: "I couldn't control the LEDs right now. The hardware service may be unavailable."
 - If the user requests an unknown effect name, pick the closest match from the available effects table or tell the user which effects are available.
 
 ## Rules
-- **"Mở đèn màu X" / "bật đèn X" / "đổi màu X" = THIS skill.** Any request naming a color (vàng, đỏ, xanh, tím, trắng, cam, hồng…) routes here — NOT to Emotion or Scene. Emotion yellow/happy is for YOUR feelings, not user's lighting request.
+- **"Turn on color X" / "set light X" / "change color X" = THIS skill.** Any request naming a color (yellow, red, green, purple, white, orange, pink…) routes here — NOT to Emotion or Scene. Emotion yellow/happy is for YOUR feelings, not user's lighting request.
+- **NEVER use `/led-color` or `/led/color` for setting color — these endpoints do NOT exist.** Always use `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[R,G,B]}]`.
 - **Stop effect before solid.** Always call `/led/effect/stop` before `/led/solid`. A running effect thread overwrites solid every 40ms — skipping the stop causes the color to flicker and revert.
 - **Solid colors = full brightness.** For dim/ambient lighting, use the Scene skill instead.
 - **Effects run until stopped** (unless `duration_ms` is set). Starting a new effect auto-stops the previous one.
