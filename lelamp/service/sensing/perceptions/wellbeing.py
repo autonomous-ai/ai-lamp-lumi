@@ -85,7 +85,8 @@ class WellbeingPerception(Perception):
         ):
             self._last_hydration_time = now
             minutes = int(elapsed_since_arrive / 60)
-            stable = self._capture_stable_frame() or frame
+            captured = self._capture_stable_frame()
+            stable = captured if captured is not None else frame
             logger.info("Wellbeing: hydration check after %d min", minutes)
             self._send_event(
                 "wellbeing.hydration",
@@ -104,7 +105,8 @@ class WellbeingPerception(Perception):
         ):
             self._last_break_time = now
             minutes = int(elapsed_since_arrive / 60)
-            stable = self._capture_stable_frame() or frame
+            captured = self._capture_stable_frame()
+            stable = captured if captured is not None else frame
             logger.info("Wellbeing: break check after %d min", minutes)
             self._send_event(
                 "wellbeing.break",
