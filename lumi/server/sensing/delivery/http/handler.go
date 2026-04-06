@@ -170,10 +170,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	turnStart := flow.Start("sensing_input", startPayload, runID)
 
 	var msg string
-	if req.Type == "voice" || req.Type == "voice_command" {
-		// Voice input is a human speaking — always respond conversationally,
-		// even if the transcript is unclear. Never reply NO_REPLY to voice.
+	if req.Type == "voice_command" {
+		// Wake word confirmed — direct command, agent must always respond.
 		msg = req.Message
+	} else if req.Type == "voice" {
+		// Ambient speech without wake word — agent may choose NO_REPLY.
+		msg = "[ambient] " + req.Message
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
