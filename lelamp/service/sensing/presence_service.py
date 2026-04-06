@@ -33,8 +33,9 @@ class PresenceState(str, Enum):
 class PresenceService:
     """Tracks presence state based on motion events. Controls LED via rgb_service."""
 
-    def __init__(self, rgb_service=None):
+    def __init__(self, rgb_service=None, send_event=None):
         self._rgb_service = rgb_service
+        self._send_event = send_event
         self._state = PresenceState.PRESENT
         self._last_motion_time: float = time.time()
         self._enabled = True
@@ -96,6 +97,7 @@ class PresenceService:
             self._state = PresenceState.AWAY
             logger.info("Presence: IDLE → AWAY (no motion for %ds)", int(elapsed))
             self._turn_off_light()
+            self._notify_away(int(elapsed))
 
     def _restore_light(self):
         """Restore last known color at full brightness."""
@@ -115,6 +117,19 @@ class PresenceService:
             self._rgb_service.dispatch("solid", dimmed)
         except Exception as e:
             logger.warning("Presence: failed to dim light: %s", e)
+
+    def _notify_away(self, elapsed_s: int):
+        """Send presence.away event so agent can announce sleep via TTS + Telegram."""
+        if not self._send_event:
+            return
+        minutes = elapsed_s // 60
+        self._send_event(
+            "presence.away",
+            f"No one has been around for {minutes} minute(s). "
+            f"Lumi is going to sleep — lights off. "
+            f"Announce that you're going to sleep in a cozy, sleepy way.",
+            cooldown=config.AWAY_TIMEOUT_S,
+        )
 
     def _turn_off_light(self):
         """Turn off LEDs."""

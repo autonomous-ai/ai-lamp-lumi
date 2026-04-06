@@ -67,7 +67,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|light.level",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -83,6 +83,9 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | `presence.leave` | Camera (3 tick liên tục không thấy mặt) | Không | Người rời đi |
 | `light.level` | Camera (mean brightness) | Không | Ánh sáng môi trường thay đổi đáng kể (>30/255) |
 | `sound` | Mic (RMS energy) | Không | Tiếng động lớn |
+| `presence.away` | PresenceService (15 phút không chuyển động) | Không | Không ai xung quanh 15+ phút — Lumi đi ngủ |
+| `wellbeing.hydration` | WellbeingPerception (timer 30 phút) | Có | User ngồi 30+ phút chưa uống nước |
+| `wellbeing.break` | WellbeingPerception (timer 45 phút) | Có | User ngồi 45+ phút liên tục |
 
 **Flow xử lý:**
 1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms)

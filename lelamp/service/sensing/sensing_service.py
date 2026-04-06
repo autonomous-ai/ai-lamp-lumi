@@ -67,7 +67,7 @@ class SensingService:
         self._face_recognizer: FaceRecognizer | None = None
 
         # Presence auto on/off state machine
-        self.presence = PresenceService(rgb_service=rgb_service)
+        self.presence = PresenceService(rgb_service=rgb_service, send_event=self._send_event)
 
         # Perception detectors
         self._perceptions = []

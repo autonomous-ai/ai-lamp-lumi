@@ -88,6 +88,18 @@ Agent calls `/emotion idle` (0.4) and **speaks a farewell**. The voice content d
 - **Stranger left** → watchful remark (e.g. "Kept my eyes on you.", "Good, they're gone.")
 - **Unknown** (no prior presence.enter in history) → default owner farewell without a name.
 
+### Away (`presence.away`)
+
+Sent automatically by LeLamp's `PresenceService` when **no motion is detected for 15 minutes** (after already dimming at 5 min). By this point the lights are already off — the agent's job is to **announce going to sleep** via TTS and Telegram.
+
+Agent calls `/emotion sleepy` (0.8) and speaks a cozy sleepy farewell (e.g. "No one's around… I'm going to sleep now. Goodnight!"). This is the last action before Lumi goes fully idle.
+
+The full presence auto-control timeline:
+1. **5 min no motion** → light dims to 20% (automatic, no agent involvement)
+2. **15 min no motion** → light off + `presence.away` event sent → agent announces sleep
+
+LeLamp manages the light control; the agent only handles the verbal announcement. If the user returns (motion detected), light restores automatically and a `presence.enter` event fires.
+
 ---
 
 ## Motion
