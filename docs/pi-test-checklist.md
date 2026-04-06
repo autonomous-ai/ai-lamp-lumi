@@ -26,9 +26,9 @@ Track which features have been manually tested on the Raspberry Pi 4.
 
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
-| UC-01 | Voice control | Nói: **"bật đèn"** → LED bật. Nói: **"tắt đèn"** → LED tắt. Nói: **"sáng hơn"** → LED tăng brightness | ⚠️ | Intent matching code có (`intent.go`), chưa test thực tế |
-| UC-02 | LED color via voice | Nói: **"đèn màu xanh"** → LED xanh. Nói: **"đèn vàng ấm"** → LED vàng. Nói: **"màu hoàng hôn"** → LED gradient cam-hồng | ⚠️ | 11 màu có trong code (`intent.go`), "hoàng hôn" chưa có — chưa test thực tế |
-| UC-14 | Voice reply (TTS + body language) | Hỏi: **"hôm nay thời tiết thế nào?"** → Lumi trả lời bằng giọng + servo cử động + LED đổi theo cảm xúc khi nói | ⚠️ | TTS + servo + `/emotion` đều có code, chưa test thực tế |
+| UC-01 | Voice control | Nói: **"bật đèn"** → LED bật. Nói: **"tắt đèn"** → LED tắt. Nói: **"sáng hơn"** → LED tăng brightness | ✅ | |
+| UC-02 | LED color via voice | Nói: **"đèn màu xanh"** → LED xanh. Nói: **"đèn vàng ấm"** → LED vàng. Nói: **"màu hoàng hôn"** → LED gradient cam-hồng | ✅ | |
+| UC-14 | Voice reply (TTS + body language) | Hỏi: **"hôm nay thời tiết thế nào?"** → Lumi trả lời bằng giọng + servo cử động + LED đổi theo cảm xúc khi nói | ✅ | |
 
 ---
 
@@ -36,7 +36,7 @@ Track which features have been manually tested on the Raspberry Pi 4.
 
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
-| UC-03 | Scene presets | Nói: **"chế độ làm việc"** → LED trắng sáng. Nói: **"thư giãn"** → LED vàng ấm tối. Nói: **"xem phim"** → LED dim amber. Nói: **"đi ngủ"** → LED tắt dần | ⚠️ | 6 scene có (`intent.go` + `presets.py`), chưa test thực tế |
+| UC-03 | Scene presets | Nói: **"chế độ làm việc"** → LED trắng sáng. Nói: **"thư giãn"** → LED vàng ấm tối. Nói: **"xem phim"** → LED dim amber. Nói: **"đi ngủ"** → LED tắt dần | ✅ | |
 | UC-04 | Scheduling | Nói: **"30 giây nữa tắt đèn"** → đợi 30s → LED tắt. Nói: **"hủy timer"** → timer bị cancel | ⚠️ | Skill "scheduling" đã download qua CDN, logic nằm trong agent — chưa test |
 | UC-06 | AI assistant | Nói: **"dịch hello sang tiếng Việt"** → trả lời đúng. Nói: **"thời tiết Hà Nội hôm nay"** → có thông tin thời tiết | ⚠️ | OpenClaw LLM agent handle, infra đủ — chưa test thực tế |
 | UC-08 | Servo via voice | Nói: **"nghiêng sang trái"** → servo tilt trái. Nói: **"hướng xuống bàn"** → servo cúi xuống. Nói: **"thẳng lên"** → servo về thẳng | ⚠️ | AIM_PRESETS có 8 hướng (`presets.py`), skill-based parsing — chưa test thực tế |
