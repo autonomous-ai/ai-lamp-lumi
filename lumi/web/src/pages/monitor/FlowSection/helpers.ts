@@ -545,6 +545,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         if (/\/emotion/.test(argsSummary)) pushUnique(info.hw_emotion, `🤖 LLM tool → ${argsSummary}`);
         else if (/\/led|\/scene/.test(argsSummary)) pushUnique(info.hw_led, `🤖 LLM tool → ${argsSummary}`);
         else if (/\/servo/.test(argsSummary)) pushUnique(info.hw_servo, `🤖 LLM tool → ${argsSummary}`);
+        else if (/\/audio/.test(argsSummary)) pushUnique(info.hw_audio, `🤖 LLM tool → ${argsSummary}`);
       }
     }
     if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
