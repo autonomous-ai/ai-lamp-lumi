@@ -627,20 +627,33 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const tts = d?.data?.tts ?? d?.tts ?? "";
       if (tts && info.tts_speak.length < 3) info.tts_speak.push(`💡 ${tts}`);
     }
+    // HW marker events: extract path+body from either flow_event (detail.data) or direct event (summary = "/path body")
+    const parseHWEvent = (ev: DisplayEvent, fallbackPath: string): { path: string; body: string } => {
+      const d = ev.detail as Record<string, any> | undefined;
+      if (d?.data?.path && d?.data?.args) return { path: d.data.path, body: d.data.args };
+      const s = ev.summary ?? "";
+      const i = s.indexOf(" ");
+      return i > 0 ? { path: s.slice(0, i), body: s.slice(i + 1) } : { path: fallbackPath, body: s };
+    };
     if (ev.type === "hw_emotion" || (ev.type === "flow_event" && ev.detail?.node === "hw_emotion")) {
-      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
-      if (body) {
-        const curl = `curl -s -X POST http://127.0.0.1:5001/emotion -H "Content-Type: application/json" -d '${body}'`;
-        pushUnique(info.hw_emotion, `⚡ HW marker → ${curl}`);
-      }
+      const { path, body } = parseHWEvent(ev, "/emotion");
+      if (body && body.startsWith("{"))
+        pushUnique(info.hw_emotion, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -H "Content-Type: application/json" -d '${body}'`);
     }
     if (ev.type === "hw_led" || (ev.type === "flow_event" && ev.detail?.node === "hw_led")) {
-      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
-      if (body) pushUnique(info.hw_led, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001/led -d '${body}'`);
+      const { path, body } = parseHWEvent(ev, "/led/solid");
+      if (body && body.startsWith("{"))
+        pushUnique(info.hw_led, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
     }
     if (ev.type === "hw_servo" || (ev.type === "flow_event" && ev.detail?.node === "hw_servo")) {
-      const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
-      if (body) pushUnique(info.hw_servo, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001/servo/play -d '${body}'`);
+      const { path, body } = parseHWEvent(ev, "/servo/play");
+      if (body && body.startsWith("{"))
+        pushUnique(info.hw_servo, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
+    }
+    if (ev.type === "hw_audio" || (ev.type === "flow_event" && ev.detail?.node === "hw_audio")) {
+      const { path, body } = parseHWEvent(ev, "/audio/play");
+      if (body && body.startsWith("{"))
+        pushUnique(info.hw_audio, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
     }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
