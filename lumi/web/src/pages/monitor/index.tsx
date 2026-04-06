@@ -42,7 +42,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineEleme
 function allNavLeaves(): { id: Section; label: string }[] {
   const leaves: { id: Section; label: string }[] = [];
   for (const entry of NAV) {
-    if (isNavGroup(entry)) entry.children.forEach((c) => leaves.push(c));
+    if (isNavGroup(entry)) entry.children.forEach((c) => { if (!isNavLink(c)) leaves.push(c); });
     else leaves.push(entry);
   }
   return leaves;
@@ -54,7 +54,7 @@ function NavGroupItem({ entry, section, setSection, closeSidebar }: {
   setSection: (s: Section) => void;
   closeSidebar: () => void;
 }) {
-  const hasActiveChild = entry.children.some((c) => c.id === section);
+  const hasActiveChild = entry.children.some((c) => !isNavLink(c) && c.id === section);
   const [open, setOpen] = useState(hasActiveChild);
   return (
     <div>
