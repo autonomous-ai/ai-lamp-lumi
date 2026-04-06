@@ -30,6 +30,7 @@ from lelamp.service.sensing.perceptions import (
     LightLevelPerception,
     MotionPerception,
     SoundPerception,
+    WellbeingPerception,
 )
 from lelamp.service.sensing.presence_service import PresenceService
 
@@ -90,6 +91,12 @@ class SensingService:
                     cv2=cv2_module,
                     np_module=numpy_module,
                     send_event=self._send_event,
+                ),
+                WellbeingPerception(
+                    cv2=cv2_module,
+                    send_event=self._send_event,
+                    presence_service=self.presence,
+                    capture_stable_frame=self._capture_stable_frame,
                 ),
             ]
         if sound_device_module and numpy_module and input_device is not None:

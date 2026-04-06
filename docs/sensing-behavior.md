@@ -131,6 +131,44 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 
 ---
 
+## Wellbeing (Hydration + Break Reminders)
+
+Lumi proactively cares for the user's health by sending periodic camera snapshots to the LLM while someone is present. Two independent timers run:
+
+### Hydration (`wellbeing.hydration`)
+
+- **Triggers** after 30 minutes of continuous presence, repeats every 30 minutes.
+- Sends a camera snapshot with context: "User has been sitting for X minutes without a water break."
+- The LLM looks at the image and decides: remind to drink water, or reply NO_REPLY if unnecessary.
+
+### Break (`wellbeing.break`)
+
+- **Triggers** after 45 minutes of continuous presence, repeats every 45 minutes.
+- Sends a camera snapshot with context: "User has been sitting continuously for X minutes."
+- The LLM looks at the image and decides: remind to stand up and stretch, or reply NO_REPLY if the user seems fine.
+
+### How it works
+
+The `WellbeingPerception` class (`lelamp/service/sensing/perceptions/wellbeing.py`) tracks presence state from `PresenceService`. When the user arrives (`presence.enter`), two independent timers start. Each timer captures a stable frame (servo frozen briefly) and sends an event to the Go handler, which forwards it to the agent like any other sensing event. When the user leaves (`presence.leave` or state transitions to IDLE/AWAY), both timers reset.
+
+### Constants (`config.py`)
+
+```python
+WELLBEING_HYDRATION_S = 30 * 60   # 30 min between hydration reminders
+WELLBEING_BREAK_S     = 45 * 60   # 45 min between break reminders
+```
+
+### Agent behavior
+
+| Event | Emotion | Voice |
+|---|---|---|
+| `wellbeing.hydration` | `curious` (0.5) | YES (remind water) or NO_REPLY |
+| `wellbeing.break` | `curious` (0.6) | YES (remind stretch/walk) or NO_REPLY |
+
+The LLM uses the attached image to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
+
+---
+
 ## General Rules (all event types)
 
 - **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn.
