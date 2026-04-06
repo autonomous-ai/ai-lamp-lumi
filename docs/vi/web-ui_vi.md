@@ -240,6 +240,43 @@ Hành vi gom nhóm Turn Pipeline:
 
 > **Lưu ý**: Camera có vai trò kép — (1) hiển thị live stream cho user xem, (2) nguồn dữ liệu sensing tự động. Sensing service đọc frame từ camera mỗi 2s để detect motion, face (Haar cascade), và light level. Khi phát hiện sự kiện đáng kể (người xuất hiện, chuyển động lớn), auto-snapshot 320px JPEG được gửi kèm event tới OpenClaw AI để phân tích bằng vision.
 
+### 5.6 Chat Section
+
+Giao diện chat tương tác với Lumi AI. Layout: sidebar (danh sách hội thoại) + vùng chat chính.
+
+**Hội thoại**
+- Nhiều hội thoại lưu trong localStorage (tối đa 50, mỗi cái 200 tin nhắn)
+- Sidebar: tìm kiếm, ghim, đổi tên (double-click), xóa (xác nhận 2 lần), xuất TXT
+- Nhóm theo ngày: Today / Yesterday / This week / Older, ghim lên đầu
+- Phím tắt: Cmd/Ctrl+N tạo chat mới
+- Sidebar thu gọn được
+
+**Nhập tin nhắn**
+- Textarea, Shift+Enter xuống dòng, Enter gửi
+- Đính kèm file/ảnh (tối đa 10 MB): nút, kéo thả, dán từ clipboard
+- Gửi qua `POST /api/sensing/event` với `type: "voice"`
+
+**Streaming real-time**
+- **Thinking indicator**: khối tím thu gọn được, hiển thị reasoning tokens của LLM khi stream (`thinking` events). Click mở rộng toàn bộ (max-height 200px, scroll). Tự ẩn khi response hoàn tất.
+- **Assistant delta streaming**: text response hiện từng token qua `assistant_delta` events, thay vì đợi response cuối cùng. Fallback sang `chat_response` partial cho đường non-agent.
+- **Tool call chips**: badge màu teal hiển thị các tool agent gọi trong response (emotion, LED, servo, audio, v.v.). Hiển thị phía trên bubble tin nhắn khi đang stream, lưu lại trên tin nhắn đã hoàn tất.
+
+**Xử lý response**
+- Theo dõi response qua `runId` correlation trên SSE events
+- HW control markers inline (`[HW:/emotion:...]`) được lọc bỏ khỏi text hiển thị
+- Timeout 30 giây: nếu đã nhận streaming text thì hiển thị phần đó; nếu không thì báo lỗi với nút retry
+- Local intent fast path: response dưới 50ms bypass agent
+- Busy/dropped: hiển thị "busy — try again"
+- Markdown: bold, italic, inline code, code block, URL, danh sách
+
+**Luồng dữ liệu**
+```
+Chat UI → POST /api/sensing/event → SensingHandler
+  → openclaw.SendChatMessage() → WebSocket chat.send → OpenClaw
+  → Response stream qua WebSocket (thinking → assistant deltas → lifecycle end)
+  → SSE /api/openclaw/flow-stream → Chat UI cập nhật tin nhắn real-time
+```
+
 ---
 
 ## 6. LED Color API
