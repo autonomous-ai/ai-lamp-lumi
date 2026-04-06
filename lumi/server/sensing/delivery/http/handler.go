@@ -71,8 +71,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 	if req.Type == "voice_listening_end" {
-		slog.Info("listening LED cleared", "component", "statusled", "reason", "voice_listening_end")
-		h.statusLED.Clear(statusled.StateListening)
+		// Mic closed — do NOT clear listening LED here. The agent is still processing
+		// the transcript; lifecycle_start will clear it at the right time.
+		// If local intent handled the command, that path clears the LED itself.
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 		return
 	}
@@ -120,6 +121,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
 			})
+			// Local intent handled — clear listening LED now (no lifecycle_start will come).
+			h.statusLED.Clear(statusled.StateListening)
 			flow.End("sensing_input", turnStart, map[string]any{"path": "local"}, localRunID)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 				"handler":  "local",
