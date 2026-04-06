@@ -91,6 +91,55 @@ function stripHWMarkers(text: string): string {
   return text.replace(/\[HW:\/[^\]]*\]/g, "").trim();
 }
 
+// ─── Tool call parsing ──────────────────────────────────────────────────────
+
+interface ToolChip {
+  id: string;       // dedup key
+  icon: string;
+  label: string;
+}
+
+const TOOL_EVENT_TYPES = new Set(["tool_call", "hw_emotion", "hw_led", "hw_audio", "hw_servo", "led_set", "led_off"]);
+
+function parseToolChip(ev: { type: string; summary: string; id: string }): ToolChip | null {
+  const s = ev.summary;
+  switch (ev.type) {
+    case "hw_emotion": {
+      const m = s.match(/"emotion"\s*:\s*"([^"]+)"/);
+      return { id: ev.id, icon: "🎭", label: m ? m[1] : "emotion" };
+    }
+    case "hw_led": {
+      if (s.includes("/scene/")) {
+        const m = s.match(/\/scene\/(\w+)/);
+        return { id: ev.id, icon: "🎨", label: m ? `scene: ${m[1]}` : "LED scene" };
+      }
+      if (s.includes("/led/off")) return { id: ev.id, icon: "💡", label: "LED off" };
+      const m = s.match(/"hex"\s*:\s*"([^"]+)"/);
+      return { id: ev.id, icon: "💡", label: m ? `LED ${m[1]}` : "LED" };
+    }
+    case "led_off": return { id: ev.id, icon: "💡", label: "LED off" };
+    case "led_set": return null; // redundant with hw_led/hw_emotion
+    case "hw_audio": return { id: ev.id, icon: "🎵", label: "music" };
+    case "hw_servo": {
+      if (s.includes("/aim")) return { id: ev.id, icon: "⚙", label: "servo aim" };
+      if (s.includes("/play")) {
+        const m = s.match(/\/play\/(\w+)/);
+        return { id: ev.id, icon: "⚙", label: m ? `servo: ${m[1]}` : "servo play" };
+      }
+      return { id: ev.id, icon: "⚙", label: "servo" };
+    }
+    case "tool_call": {
+      // Generic tool_call — extract tool name from summary "toolName(phase)"
+      const m = s.match(/^(\w+)/);
+      const name = m ? m[1] : "tool";
+      // Skip if already covered by hw_* events
+      if (["set_emotion", "set_led", "play_music", "move_servo"].includes(name)) return null;
+      return { id: ev.id, icon: "🔧", label: name };
+    }
+    default: return null;
+  }
+}
+
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const CONVOS_KEY = "lumi_chat_convos";
@@ -110,6 +159,7 @@ interface ChatMessage {
   runId?: string;
   pending?: boolean;
   error?: boolean;
+  tools?: ToolChip[];  // tool calls made during this response
 }
 
 interface Conversation {
@@ -192,10 +242,16 @@ function saveActiveId(id: string | null) {
 
 // ─── Event extraction ───────────────────────────────────────────────────────
 
-type EventResult = { text: string; final: boolean; delta?: boolean };
+type EventResult = { text: string; final: boolean; delta?: boolean; thinking?: boolean };
 
 function extractResponse(ev: DisplayEvent): EventResult | null {
   const d = ev.detail as Record<string, any> | undefined;
+
+  // Thinking deltas — LLM reasoning tokens
+  if (ev.type === "thinking") {
+    const delta: string = ev.summary ?? "";
+    if (delta) return { text: delta, final: false, thinking: true };
+  }
 
   // Streaming assistant deltas — token-by-token chunks
   if (ev.type === "assistant_delta") {
@@ -279,6 +335,10 @@ export function ChatSection({ events }: Props) {
   const resolvedIds = useRef<Set<string>>(new Set());
   const deltaBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated delta text
   const lastDeltaSeqRef = useRef<Map<string, number>>(new Map()); // runId → last processed _seq
+  const thinkingBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated thinking text
+  const lastThinkingSeqRef = useRef<Map<string, number>>(new Map());
+  const [thinkingText, setThinkingText] = useState<string | null>(null); // current thinking display
+  const [toolChips, setToolChips] = useState<ToolChip[]>([]); // tool calls for current pending response
 
   const active = convos.find((c) => c.id === activeId) ?? null;
   const messages = active?.messages ?? [];
@@ -337,8 +397,11 @@ export function ChatSection({ events }: Props) {
     if (!pending || resolvedIds.current.has(pending)) return;
 
     const lastSeq = lastDeltaSeqRef.current.get(pending) ?? -1;
+    const lastThinkSeq = lastThinkingSeqRef.current.get(pending) ?? -1;
     let finalResult: { text: string } | null = null;
     let partialText: string | null = null; // from chat_response partial (non-delta path)
+    const chips: ToolChip[] = [];
+    const seenChipTypes = new Set<string>();
 
     // Process events in chronological order to accumulate deltas correctly
     for (const ev of events) {
@@ -349,10 +412,30 @@ export function ChatSection({ events }: Props) {
         (ev.detail as any)?.data?.run_id;
       if (!evRunId || evRunId !== pending) continue;
 
+      // Collect tool call events
+      if (TOOL_EVENT_TYPES.has(ev.type)) {
+        const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id });
+        // Deduplicate by type+label
+        if (chip) {
+          const key = chip.icon + chip.label;
+          if (!seenChipTypes.has(key)) {
+            seenChipTypes.add(key);
+            chips.push(chip);
+          }
+        }
+      }
+
       const result = extractResponse(ev);
       if (!result) continue;
 
-      if (result.delta) {
+      if (result.thinking) {
+        // Thinking delta — accumulate reasoning tokens
+        if (ev._seq > lastThinkSeq) {
+          const buf = thinkingBufRef.current.get(pending) ?? "";
+          thinkingBufRef.current.set(pending, buf + result.text);
+          lastThinkingSeqRef.current.set(pending, ev._seq);
+        }
+      } else if (result.delta) {
         // Streaming delta — append only new chunks (use _seq to deduplicate)
         if (ev._seq > lastSeq) {
           const buf = deltaBufRef.current.get(pending) ?? "";
@@ -367,18 +450,27 @@ export function ChatSection({ events }: Props) {
       }
     }
 
+    // Update thinking + tool chips display
+    const currentThinking = thinkingBufRef.current.get(pending) ?? null;
+    setThinkingText(currentThinking);
+    setToolChips(chips);
+
     if (finalResult) {
       // Final response arrived — use it (or fall back to accumulated deltas)
       resolvedIds.current.add(pending);
       pendingRunIdRef.current = null;
       setSending(false);
+      setThinkingText(null);
       const text = stripHWMarkers(finalResult.text || deltaBufRef.current.get(pending) || "…");
       deltaBufRef.current.delete(pending);
       lastDeltaSeqRef.current.delete(pending);
+      thinkingBufRef.current.delete(pending);
+      lastThinkingSeqRef.current.delete(pending);
+      const savedChips = chips.length > 0 ? chips : undefined;
       updateMessages((prev) =>
         prev.map((m) =>
           m.runId === pending && m.role === "lumi" && m.pending
-            ? { ...m, text, pending: false }
+            ? { ...m, text, pending: false, tools: savedChips }
             : m,
         ),
       );
@@ -626,9 +718,13 @@ export function ChatSection({ events }: Props) {
           if (pendingRunIdRef.current === runId) {
             pendingRunIdRef.current = null;
             setSending(false);
+            setThinkingText(null);
+            setToolChips([]);
             const streamed = deltaBufRef.current.get(runId);
             deltaBufRef.current.delete(runId);
             lastDeltaSeqRef.current.delete(runId);
+            thinkingBufRef.current.delete(runId);
+            lastThinkingSeqRef.current.delete(runId);
             setConvos((prev) =>
               prev.map((c) =>
                 c.id === targetId
@@ -965,6 +1061,30 @@ export function ChatSection({ events }: Props) {
                 }}>✦</div>
               )}
               <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+                {/* Thinking indicator — shown only for the active pending message */}
+                {msg.pending && msg.role === "lumi" && msg.runId === pendingRunIdRef.current && thinkingText && (
+                  <ThinkingBlock text={thinkingText} />
+                )}
+                {/* Tool call chips — live during pending, persisted after finalize */}
+                {msg.role === "lumi" && (() => {
+                  const isActivePending = msg.pending && msg.runId === pendingRunIdRef.current;
+                  const chips = isActivePending ? toolChips : msg.tools;
+                  if (!chips || chips.length === 0) return null;
+                  return (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 2 }}>
+                      {chips.map((c) => (
+                        <span key={c.id} style={{
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                          padding: "2px 8px", borderRadius: 10, fontSize: 10,
+                          background: "rgba(20,184,166,0.1)", border: "1px solid rgba(20,184,166,0.2)",
+                          color: "rgba(20,184,166,0.85)",
+                        }}>
+                          <span>{c.icon}</span>{c.label}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style={{
                   padding: "9px 13px",
                   borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
@@ -1152,6 +1272,53 @@ export function ChatSection({ events }: Props) {
           >{sending ? "…" : "Send"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Thinking Block ──────────────────────────────────────────────────────────
+
+function ThinkingBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
+
+  return (
+    <div style={{
+      fontSize: 11, lineHeight: 1.5, borderRadius: 8,
+      border: "1px solid rgba(168,85,247,0.2)",
+      background: "rgba(168,85,247,0.06)",
+      overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          width: "100%", padding: "6px 10px",
+          background: "none", border: "none", cursor: "pointer",
+          color: "rgba(168,85,247,0.8)", fontSize: 11, fontWeight: 600,
+          textAlign: "left",
+        }}
+      >
+        <span className="lm-blink" style={{ fontSize: 8 }}>●</span>
+        <span>Thinking</span>
+        <span style={{ fontSize: 9, opacity: 0.6 }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded ? (
+        <div style={{
+          padding: "0 10px 8px", color: "var(--lm-text-muted)",
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+          maxHeight: 200, overflowY: "auto",
+        }}>
+          {text}
+        </div>
+      ) : (
+        <div style={{
+          padding: "0 10px 6px", color: "var(--lm-text-muted)",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          {preview}
+        </div>
+      )}
     </div>
   );
 }

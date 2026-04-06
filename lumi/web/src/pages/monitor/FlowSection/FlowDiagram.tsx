@@ -105,6 +105,9 @@ export function FlowDiagram({
     ["tool_exec",         "hw_audio"],
     ["tool_exec",         "lumi_gate"],
     ["agent_response",    "hw_emotion"],
+    ["agent_response",    "hw_led"],
+    ["agent_response",    "hw_servo"],
+    ["agent_response",    "hw_audio"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
     ["agent_response",    "tg_out"],
@@ -246,17 +249,20 @@ export function FlowDiagram({
           }
 
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
+          // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
+          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio");
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
           const y1 = f.y + (dy / len) * nodeR;
           const x2 = t.x - (dx / len) * (nodeR + 4);
           const y2 = t.y - (dy / len) * (nodeR + 4);
+          const dashArray = isGateEdge || isHWMarkerEdge ? "6 4" : undefined;
           return (
             <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
               stroke={color} strokeWidth={sw}
               markerEnd={marker} opacity={op}
-              {...(isGateEdge ? { strokeDasharray: "6 4" } : {})}
+              {...(dashArray ? { strokeDasharray: dashArray } : {})}
             />
           );
         })}
