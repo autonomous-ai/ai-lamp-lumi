@@ -192,10 +192,16 @@ function saveActiveId(id: string | null) {
 
 // ─── Event extraction ───────────────────────────────────────────────────────
 
-type EventResult = { text: string; final: boolean; delta?: boolean };
+type EventResult = { text: string; final: boolean; delta?: boolean; thinking?: boolean };
 
 function extractResponse(ev: DisplayEvent): EventResult | null {
   const d = ev.detail as Record<string, any> | undefined;
+
+  // Thinking deltas — LLM reasoning tokens
+  if (ev.type === "thinking") {
+    const delta: string = ev.summary ?? "";
+    if (delta) return { text: delta, final: false, thinking: true };
+  }
 
   // Streaming assistant deltas — token-by-token chunks
   if (ev.type === "assistant_delta") {
@@ -279,6 +285,9 @@ export function ChatSection({ events }: Props) {
   const resolvedIds = useRef<Set<string>>(new Set());
   const deltaBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated delta text
   const lastDeltaSeqRef = useRef<Map<string, number>>(new Map()); // runId → last processed _seq
+  const thinkingBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated thinking text
+  const lastThinkingSeqRef = useRef<Map<string, number>>(new Map());
+  const [thinkingText, setThinkingText] = useState<string | null>(null); // current thinking display
 
   const active = convos.find((c) => c.id === activeId) ?? null;
   const messages = active?.messages ?? [];
@@ -337,6 +346,7 @@ export function ChatSection({ events }: Props) {
     if (!pending || resolvedIds.current.has(pending)) return;
 
     const lastSeq = lastDeltaSeqRef.current.get(pending) ?? -1;
+    const lastThinkSeq = lastThinkingSeqRef.current.get(pending) ?? -1;
     let finalResult: { text: string } | null = null;
     let partialText: string | null = null; // from chat_response partial (non-delta path)
 
@@ -352,7 +362,14 @@ export function ChatSection({ events }: Props) {
       const result = extractResponse(ev);
       if (!result) continue;
 
-      if (result.delta) {
+      if (result.thinking) {
+        // Thinking delta — accumulate reasoning tokens
+        if (ev._seq > lastThinkSeq) {
+          const buf = thinkingBufRef.current.get(pending) ?? "";
+          thinkingBufRef.current.set(pending, buf + result.text);
+          lastThinkingSeqRef.current.set(pending, ev._seq);
+        }
+      } else if (result.delta) {
         // Streaming delta — append only new chunks (use _seq to deduplicate)
         if (ev._seq > lastSeq) {
           const buf = deltaBufRef.current.get(pending) ?? "";
@@ -367,14 +384,21 @@ export function ChatSection({ events }: Props) {
       }
     }
 
+    // Update thinking display
+    const currentThinking = thinkingBufRef.current.get(pending) ?? null;
+    setThinkingText(currentThinking);
+
     if (finalResult) {
       // Final response arrived — use it (or fall back to accumulated deltas)
       resolvedIds.current.add(pending);
       pendingRunIdRef.current = null;
       setSending(false);
+      setThinkingText(null);
       const text = stripHWMarkers(finalResult.text || deltaBufRef.current.get(pending) || "…");
       deltaBufRef.current.delete(pending);
       lastDeltaSeqRef.current.delete(pending);
+      thinkingBufRef.current.delete(pending);
+      lastThinkingSeqRef.current.delete(pending);
       updateMessages((prev) =>
         prev.map((m) =>
           m.runId === pending && m.role === "lumi" && m.pending
@@ -626,9 +650,12 @@ export function ChatSection({ events }: Props) {
           if (pendingRunIdRef.current === runId) {
             pendingRunIdRef.current = null;
             setSending(false);
+            setThinkingText(null);
             const streamed = deltaBufRef.current.get(runId);
             deltaBufRef.current.delete(runId);
             lastDeltaSeqRef.current.delete(runId);
+            thinkingBufRef.current.delete(runId);
+            lastThinkingSeqRef.current.delete(runId);
             setConvos((prev) =>
               prev.map((c) =>
                 c.id === targetId
@@ -965,6 +992,10 @@ export function ChatSection({ events }: Props) {
                 }}>✦</div>
               )}
               <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+                {/* Thinking indicator — shown above pending Lumi message */}
+                {msg.pending && msg.role === "lumi" && thinkingText && (
+                  <ThinkingBlock text={thinkingText} />
+                )}
                 <div style={{
                   padding: "9px 13px",
                   borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
@@ -1152,6 +1183,53 @@ export function ChatSection({ events }: Props) {
           >{sending ? "…" : "Send"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Thinking Block ──────────────────────────────────────────────────────────
+
+function ThinkingBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
+
+  return (
+    <div style={{
+      fontSize: 11, lineHeight: 1.5, borderRadius: 8,
+      border: "1px solid rgba(168,85,247,0.2)",
+      background: "rgba(168,85,247,0.06)",
+      overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          width: "100%", padding: "6px 10px",
+          background: "none", border: "none", cursor: "pointer",
+          color: "rgba(168,85,247,0.8)", fontSize: 11, fontWeight: 600,
+          textAlign: "left",
+        }}
+      >
+        <span className="lm-blink" style={{ fontSize: 8 }}>●</span>
+        <span>Thinking</span>
+        <span style={{ fontSize: 9, opacity: 0.6 }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded ? (
+        <div style={{
+          padding: "0 10px 8px", color: "var(--lm-text-muted)",
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+          maxHeight: 200, overflowY: "auto",
+        }}>
+          {text}
+        </div>
+      ) : (
+        <div style={{
+          padding: "0 10px 6px", color: "var(--lm-text-muted)",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          {preview}
+        </div>
+      )}
     </div>
   );
 }
