@@ -4,10 +4,10 @@ import type { DisplayEvent, MonitorEvent } from "./types";
 
 // ─── Markdown ───────────────────────────────────────────────────────────────
 
-// Inline: **bold**, *italic*, `code`, URLs
+// Inline: **bold**, *italic*, ~~strikethrough~~, `code`, URLs
 function renderInline(line: string, keyPrefix: string): ReactNode[] {
   const parts: ReactNode[] = [];
-  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(https?:\/\/[^\s<>)"]+))/g;
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~|`(.+?)`|(https?:\/\/[^\s<>)"]+))/g;
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = re.exec(line)) !== null) {
@@ -15,8 +15,9 @@ function renderInline(line: string, keyPrefix: string): ReactNode[] {
     const k = `${keyPrefix}-${match.index}`;
     if (match[2]) parts.push(<strong key={k}>{match[2]}</strong>);
     else if (match[3]) parts.push(<em key={k}>{match[3]}</em>);
-    else if (match[4]) parts.push(<code key={k} style={{ background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: 3, fontSize: "0.9em" }}>{match[4]}</code>);
-    else if (match[5]) parts.push(<a key={k} href={match[5]} target="_blank" rel="noopener noreferrer" style={{ color: "var(--lm-teal)", textDecoration: "underline" }}>{match[5].length > 50 ? match[5].slice(0, 50) + "…" : match[5]}</a>);
+    else if (match[4]) parts.push(<del key={k} style={{ opacity: 0.6 }}>{match[4]}</del>);
+    else if (match[5]) parts.push(<code key={k} style={{ background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: 3, fontSize: "0.9em" }}>{match[5]}</code>);
+    else if (match[6]) parts.push(<a key={k} href={match[6]} target="_blank" rel="noopener noreferrer" style={{ color: "var(--lm-teal)", textDecoration: "underline" }}>{match[6].length > 50 ? match[6].slice(0, 50) + "…" : match[6]}</a>);
     last = match.index + match[0].length;
   }
   if (last < line.length) parts.push(line.slice(last));
@@ -46,6 +47,91 @@ function renderMarkdown(text: string): ReactNode {
         }}>
           <code>{codeLines.join("\n")}</code>
         </pre>,
+      );
+      continue;
+    }
+
+    // Headings: # ## ### #### ##### ######
+    const headingMatch = lines[i].match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const sizes = [0, "1.3em", "1.15em", "1.05em", "1em", "0.95em", "0.9em"];
+      result.push(
+        <div key={`h-${i}`} style={{
+          fontSize: sizes[level], fontWeight: 600,
+          margin: "6px 0 2px", lineHeight: 1.3,
+        }}>
+          {renderInline(headingMatch[2], `h-${i}`)}
+        </div>,
+      );
+      i++;
+      continue;
+    }
+
+    // Horizontal rule: --- or *** or ___
+    if (/^([-*_])\1{2,}\s*$/.test(lines[i])) {
+      result.push(<hr key={`hr-${i}`} style={{ border: "none", borderTop: "1px solid var(--lm-border)", margin: "8px 0" }} />);
+      i++;
+      continue;
+    }
+
+    // Blockquote: > text
+    if (lines[i].startsWith("> ")) {
+      const quoteLines: ReactNode[] = [];
+      while (i < lines.length && lines[i].startsWith("> ")) {
+        quoteLines.push(
+          <div key={`bq-${i}`}>{renderInline(lines[i].slice(2), `bq-${i}`)}</div>,
+        );
+        i++;
+      }
+      result.push(
+        <div key={`blockquote-${i}`} style={{
+          borderLeft: "3px solid rgba(245,158,11,0.4)", paddingLeft: 10,
+          margin: "4px 0", color: "var(--lm-text-muted)", fontStyle: "italic",
+        }}>
+          {quoteLines}
+        </div>,
+      );
+      continue;
+    }
+
+    // Table: | col | col | with separator row | --- | --- |
+    if (lines[i].includes("|") && i + 1 < lines.length && /^\|?\s*[-:]+[-| :]*$/.test(lines[i + 1])) {
+      const headerCells = lines[i].split("|").map((c) => c.trim()).filter(Boolean);
+      i += 2; // skip header + separator
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes("|")) {
+        rows.push(lines[i].split("|").map((c) => c.trim()).filter(Boolean));
+        i++;
+      }
+      result.push(
+        <div key={`tw-${i}`} style={{ overflowX: "auto", margin: "4px 0" }}>
+          <table style={{
+            borderCollapse: "collapse", fontSize: "0.9em", width: "100%",
+          }}>
+            <thead>
+              <tr>
+                {headerCells.map((h, ci) => (
+                  <th key={ci} style={{
+                    padding: "4px 8px", borderBottom: "1px solid var(--lm-border)",
+                    textAlign: "left", fontWeight: 600, fontSize: "0.9em",
+                  }}>{renderInline(h, `th-${i}-${ci}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} style={{
+                      padding: "3px 8px", borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    }}>{renderInline(cell, `td-${i}-${ri}-${ci}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
