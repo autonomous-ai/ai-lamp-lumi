@@ -470,6 +470,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						"cache_write_tokens": u.CacheWriteTokens,
 						"total_tokens":      u.TotalTokens,
 					}, flowRunID)
+					h.monitorBus.Push(domain.MonitorEvent{
+						Type:    "token_usage",
+						Summary: fmt.Sprintf("in:%d out:%d total:%d", u.InputTokens, u.OutputTokens, u.TotalTokens),
+						RunID:   flowRunID,
+						Detail: map[string]string{
+							"input_tokens":       fmt.Sprintf("%d", u.InputTokens),
+							"output_tokens":      fmt.Sprintf("%d", u.OutputTokens),
+							"cache_read_tokens":  fmt.Sprintf("%d", u.CacheReadTokens),
+							"cache_write_tokens": fmt.Sprintf("%d", u.CacheWriteTokens),
+							"total_tokens":       fmt.Sprintf("%d", u.TotalTokens),
+						},
+					})
 				} else {
 					// OpenClaw lifecycle_end does not include usage. Fetch from chat.history instead.
 					capturedFlowRunID := flowRunID
@@ -553,6 +565,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										"cacheRead":    fmt.Sprintf("%d", u.CacheRead),
 										"cacheWrite":   fmt.Sprintf("%d", u.CacheWrite),
 										"totalTokens":  fmt.Sprintf("%d", u.TotalTokens),
+									},
+								})
+								h.monitorBus.Push(domain.MonitorEvent{
+									Type:    "token_usage",
+									Summary: fmt.Sprintf("in:%d out:%d total:%d", u.Input, u.Output, u.TotalTokens),
+									RunID:   capturedFlowRunID,
+									Detail: map[string]string{
+										"input_tokens":       fmt.Sprintf("%d", u.Input),
+										"output_tokens":      fmt.Sprintf("%d", u.Output),
+										"cache_read_tokens":  fmt.Sprintf("%d", u.CacheRead),
+										"cache_write_tokens": fmt.Sprintf("%d", u.CacheWrite),
+										"total_tokens":       fmt.Sprintf("%d", u.TotalTokens),
 									},
 								})
 								break
