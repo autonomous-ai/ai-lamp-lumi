@@ -35,6 +35,7 @@ import { AnalyticsSection } from "./AnalyticsSection";
 import { LogsSection } from "./LogsSection";
 import { ChatSection } from "./ChatSection";
 import { FaceOwnersSection } from "./FaceOwnersSection";
+import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -329,6 +330,7 @@ export default function Monitor() {
           <div style={{ display: section === "chat" ? "contents" : "none" }}>
             <ChatSection events={events} />
           </div>
+          {section === "cli" && <CliSection />}
         </div>
       </main>
     </div>
