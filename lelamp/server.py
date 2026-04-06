@@ -174,10 +174,11 @@ music_service = None
 
 
 def _find_audio_device(output: bool = True) -> Optional[int]:
-    """Find audio device index by known hardware names.
+    """Find audio device index by known hardware names, with USB fallback.
 
-    Pi 4: Seeed ReSpeaker (single card for both speaker + mic).
-    Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic) — separate USB devices.
+    Priority:
+      1. Known hardware keywords (Seeed ReSpeaker, CD002, webcam, etc.)
+      2. Any USB audio device with the right channel type
     """
     if not sd:
         return None
@@ -186,7 +187,8 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
     names = output_names if output else input_names
     try:
         devices = list(sd.query_devices())
-        for keyword in names:  # seeed checked first across all devices before webcam
+        # Pass 1: match known hardware keywords
+        for keyword in names:
             for i, d in enumerate(devices):
                 name = d["name"].lower()
                 if keyword not in name:
@@ -195,6 +197,17 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                     return i
                 if not output and d["max_input_channels"] > 0:
                     return i
+        # Pass 2: fallback — first USB audio device with correct channel type
+        for i, d in enumerate(devices):
+            name = d["name"].lower()
+            if "usb" not in name:
+                continue
+            if output and d["max_output_channels"] > 0:
+                logger.info("Audio fallback: using USB device %d '%s' for output", i, d["name"])
+                return i
+            if not output and d["max_input_channels"] > 0:
+                logger.info("Audio fallback: using USB device %d '%s' for input", i, d["name"])
+                return i
     except Exception:
         pass
     return None
@@ -803,6 +816,14 @@ def play_recording(req: ServoRequest):
     logger.debug("POST /servo/play recording=%s", req.recording)
     if not animation_service:
         raise HTTPException(503, "Servo not available")
+    # Restart event loop if it was stopped (e.g. after /servo/zero or /servo/release)
+    if not animation_service._running.is_set():
+        animation_service._running.set()
+        animation_service._event_thread = threading.Thread(
+            target=animation_service._event_loop, daemon=True
+        )
+        animation_service._event_thread.start()
+        logger.info("Animation event loop restarted via /servo/play")
     t0 = time.perf_counter()
     animation_service.dispatch("play", req.recording)
     logger.debug("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
@@ -906,6 +927,33 @@ def move_servo(req: ServoMoveRequest):
         "duration": req.duration,
         "errors": errors if errors else None,
     }
+
+
+@app.post("/servo/zero", response_model=StatusResponse, tags=["Servo"])
+def zero_servos():
+    """Move all servos to 0° and hold (torque stays ON). Stops the animation loop.
+
+    Useful for calibration and testing range-of-motion from a known reference.
+    While in zero-hold mode, /servo/play and other dispatch calls are blocked
+    until the animation loop is restarted (call /servo/play to resume).
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    # Stop animation loop so move_to has exclusive bus access
+    animation_service._running.clear()
+    if animation_service._event_thread and animation_service._event_thread.is_alive():
+        animation_service._event_thread.join(timeout=3.0)
+    # Move all joints to 0°, torque stays ON
+    zero_pos = {f"{m}.pos": 0.0 for m in animation_service.robot.bus.motors}
+    try:
+        animation_service.move_to(zero_pos, duration=2.0)
+    except Exception as e:
+        logger.warning(f"Could not move to zero: {e}")
+    # Sync internal state so next interpolation starts from here
+    animation_service._current_state = {k: 0.0 for k in zero_pos}
+    return {"status": "ok"}
 
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
