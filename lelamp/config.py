@@ -48,9 +48,8 @@ FACE_OWNER_FORGET_S = 10 * 60.0     # re-fire presence.enter / fire presence.lea
 FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 
 # --- Sensing: Wellbeing check ---
-# Production: 30*60 and 45*60. Set low for testing.
-WELLBEING_HYDRATION_S = 60        # TEST: 1 min (production: 30 min)
-WELLBEING_BREAK_S = 60            # TEST: 1 min (production: 45 min)
+WELLBEING_HYDRATION_S = 30 * 60   # 30 min
+WELLBEING_BREAK_S = 45 * 60      # 45 min
 
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
