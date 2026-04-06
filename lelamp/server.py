@@ -816,7 +816,11 @@ def play_recording(req: ServoRequest):
     logger.debug("POST /servo/play recording=%s", req.recording)
     if not animation_service:
         raise HTTPException(503, "Servo not available")
-    # Restart event loop if it was stopped (e.g. after /servo/zero or /servo/release)
+    # Zero-hold mode is active — block external play calls (e.g. ambient micro-movements)
+    if getattr(animation_service, "_zero_mode", False):
+        logger.debug("servo/play blocked: zero-hold mode active")
+        return {"status": "ok"}
+    # Restart event loop if it was stopped (e.g. after /servo/release)
     if not animation_service._running.is_set():
         animation_service._running.set()
         animation_service._event_thread = threading.Thread(
@@ -827,6 +831,27 @@ def play_recording(req: ServoRequest):
     t0 = time.perf_counter()
     animation_service.dispatch("play", req.recording)
     logger.debug("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
+    return {"status": "ok"}
+
+
+@app.post("/servo/resume", response_model=StatusResponse, tags=["Servo"])
+def resume_servos():
+    """Exit zero-hold mode and resume normal animation loop (plays idle).
+
+    Call this after /servo/zero to return to normal operation.
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    animation_service._zero_mode = False
+    if not animation_service._running.is_set():
+        animation_service._running.set()
+        animation_service._event_thread = threading.Thread(
+            target=animation_service._event_loop, daemon=True
+        )
+        animation_service._event_thread.start()
+        logger.info("Animation event loop restarted via /servo/resume")
+    animation_service.dispatch("play", animation_service.idle_recording)
+    logger.info("Servo resumed from zero-hold mode")
     return {"status": "ok"}
 
 
@@ -941,6 +966,8 @@ def zero_servos():
         raise HTTPException(503, "Servo not available")
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
+    # Set zero-hold flag before stopping loop — blocks /servo/play from restarting it
+    animation_service._zero_mode = True
     # Stop animation loop so move_to has exclusive bus access
     animation_service._running.clear()
     if animation_service._event_thread and animation_service._event_thread.is_alive():
