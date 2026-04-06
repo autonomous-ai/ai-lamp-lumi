@@ -53,6 +53,6 @@ WELLBEING_HYDRATION_S = 60        # TEST: 1 min (production: 30 min)
 WELLBEING_BREAK_S = 60            # TEST: 1 min (production: 45 min)
 
 # --- Presence: Auto light on/off ---
-IDLE_TIMEOUT_S = 5 * 60  # 5 min → dim
+IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
 AWAY_TIMEOUT_S = 15 * 60  # 15 min → off
 IDLE_BRIGHTNESS = 0.20
