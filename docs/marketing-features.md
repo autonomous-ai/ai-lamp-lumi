@@ -89,17 +89,21 @@ Status: **Under Review** — not scheduled, not implemented.
 - Current behavior: **reactive only** — user must ask "play some music"
 - This UC adds the **proactive trigger layer** — Lumi decides to offer/play without being asked
 
+**Implementation status** (partial):
+- ✅ **History-based suggestion** — Music SKILL.md updated with "Music Suggestion (Proactive)" section. Queries `hw_audio` events from flow log API (`GET /api/openclaw/flow-events`) to build listening history. Suggests 1–2 songs via TTS without auto-playing; plays only after user confirmation.
+- ⬜ **Sensing-triggered suggestion** — Proactive triggers from stress/focus/morning context not yet wired (requires sensing event → suggestion pipeline)
+
 **Architecture fit**:
 - Lowest effort of the 4 proposed features — no new hardware model needed
-- Requires updating `lelamp/openclaw/SKILL.md` (music) and `SOUL.md` with proactive music behavior rules
+- Music SKILL.md updated with suggestion workflow, bash recipes to query flow logs, and suggestion rules
 - Sensing events already available: `sound.voice_tone` (stress), `sound.silence` (focus), `time.schedule` (morning/night)
 - OpenClaw maps: stress → ambient/lo-fi, focus → instrumental, morning → upbeat
 
 **Open questions**:
-- [ ] Should Lumi ask first ("Want some music?") or just play? Context-dependent?
+- [x] User music preferences: how does Lumi learn over time what the user likes? → **Solved: queries `hw_audio` flow log history**
+- [x] Should Lumi ask first ("Want some music?") or just play? → **Always suggest first, play only after confirmation**
 - [ ] How to avoid being annoying — music interrupting a phone call or video meeting?
 - [ ] Integrate with UC-16 (Screen Awareness) to detect Spotify/YouTube already running → don't suggest
-- [ ] User music preferences: how does Lumi learn over time what the user likes?
 
 **Acceptance Criteria**:
 - Proactive music trigger fires on: stress detection, sustained focus (>15 min silence), morning schedule
@@ -156,7 +160,7 @@ Status: **Under Review** — not scheduled, not implemented.
 
 | UC | Feature | Effort | Pi 4 Risk | Recommended Priority |
 |---|---|---|---|---|
-| UC-M3 | Proactive Music Suggestion | Low (SKILL.md + SOUL.md only) | None | **P1 — do first** |
+| UC-M3 | Proactive Music Suggestion | Low (SKILL.md + SOUL.md only) | None | **P1 — partial (history-based suggestion done)** |
 | UC-M2 | Proactive Wellness Reminders | Low (sensing loop logic) | None | **P1 — do first** |
 | UC-M1 | Facial Expression Detection | Medium (new ONNX model) | Low | P2 |
 | UC-M4a | Screen-Time / Eye-Care | Medium (gaze estimation) | Medium | P2 |
