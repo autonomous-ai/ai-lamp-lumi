@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { API } from "./types";
-import type { DisplayEvent } from "./types";
+import type { DisplayEvent, MonitorEvent } from "./types";
 
 // ─── Markdown ───────────────────────────────────────────────────────────────
 
@@ -160,6 +160,7 @@ interface ChatMessage {
   pending?: boolean;
   error?: boolean;
   tools?: ToolChip[];  // tool calls made during this response
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number; total: number };
 }
 
 interface Conversation {
@@ -240,47 +241,6 @@ function saveActiveId(id: string | null) {
   } catch {}
 }
 
-// ─── Event extraction ───────────────────────────────────────────────────────
-
-type EventResult = { text: string; final: boolean; delta?: boolean; thinking?: boolean };
-
-function extractResponse(ev: DisplayEvent): EventResult | null {
-  const d = ev.detail as Record<string, any> | undefined;
-
-  // Thinking deltas — LLM reasoning tokens
-  if (ev.type === "thinking") {
-    const delta: string = ev.summary ?? "";
-    if (delta) return { text: delta, final: false, thinking: true };
-  }
-
-  // Streaming assistant deltas — token-by-token chunks
-  if (ev.type === "assistant_delta") {
-    const delta: string = ev.summary ?? "";
-    if (delta) return { text: delta, final: false, delta: true };
-  }
-
-  if (ev.type === "flow_event" && d?.node === "tts_send") {
-    const text: string = d?.data?.text ?? d?.text ?? "";
-    if (text) return { text, final: true };
-  }
-  if (ev.type === "flow_event" && d?.node === "no_reply") {
-    return { text: "…", final: true };
-  }
-  if (ev.type === "chat_response" && d?.message === "[no reply]") {
-    return { text: "…", final: true };
-  }
-  if (ev.type === "chat_response" && (ev.state === "complete" || ev.state === "final")) {
-    const msg: string = d?.message ?? ev.summary ?? "";
-    if (msg && msg !== "[no reply]") return { text: msg, final: true };
-    if (msg === "[no reply]") return { text: "…", final: true };
-  }
-  if (ev.type === "chat_response" && ev.state !== "error") {
-    const msg: string = d?.message ?? ev.summary ?? "";
-    if (msg) return { text: msg, final: false };
-  }
-  return null;
-}
-
 // ─── Clipboard helper ───────────────────────────────────────────────────────
 
 function copyToClipboard(text: string): Promise<void> {
@@ -334,9 +294,9 @@ export function ChatSection({ events }: Props) {
   const pendingRunIdRef = useRef<string | null>(null);
   const resolvedIds = useRef<Set<string>>(new Set());
   const deltaBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated delta text
-  const lastDeltaSeqRef = useRef<Map<string, number>>(new Map()); // runId → last processed _seq
   const thinkingBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated thinking text
-  const lastThinkingSeqRef = useRef<Map<string, number>>(new Map());
+  const rafRef = useRef<number | null>(null); // requestAnimationFrame handle for batched rendering
+  const dirtyRef = useRef(false); // whether there are pending delta/thinking updates to flush
   const [thinkingText, setThinkingText] = useState<string | null>(null); // current thinking display
   const [toolChips, setToolChips] = useState<ToolChip[]>([]); // tool calls for current pending response
 
@@ -391,20 +351,181 @@ export function ChatSection({ events }: Props) {
     );
   }, [activeId]);
 
-  // Watch flow events for response — supports streaming assistant deltas
+  // Real-time monitor bus SSE — streaming deltas, thinking, tool calls
+  // Uses /api/openclaw/events (live bus) instead of flow-stream (file-based JSONL)
+  const toolChipsRef = useRef<Map<string, ToolChip>>(new Map()); // key → chip for dedup
+  const tokenUsageRef = useRef<ChatMessage["tokenUsage"]>(undefined); // token usage for current run
+
+  useEffect(() => {
+    const es = new EventSource(`${API}/openclaw/events`);
+
+    // Batch delta/thinking updates into a single render per animation frame
+    const scheduleFlush = () => {
+      if (rafRef.current != null) return; // already scheduled
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        if (!dirtyRef.current) return;
+        dirtyRef.current = false;
+        const p = pendingRunIdRef.current;
+        if (!p) return;
+        // Flush thinking
+        setThinkingText(thinkingBufRef.current.get(p) ?? null);
+        // Flush assistant text
+        const buf = deltaBufRef.current.get(p);
+        if (buf) {
+          const cleaned = stripHWMarkers(buf);
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.runId === p && m.role === "lumi" && m.pending
+                ? { ...m, text: cleaned }
+                : m,
+            ),
+          );
+        }
+      });
+    };
+
+    const resolveRun = (runId: string) => {
+      const buf = deltaBufRef.current.get(runId) ?? "";
+      const text = stripHWMarkers(buf || "…");
+      deltaBufRef.current.delete(runId);
+      thinkingBufRef.current.delete(runId);
+      resolvedIds.current.add(runId);
+      pendingRunIdRef.current = null;
+      setSending(false);
+      setThinkingText(null);
+      const chips = Array.from(toolChipsRef.current.values());
+      const savedChips = chips.length > 0 ? chips : undefined;
+      toolChipsRef.current.clear();
+      setToolChips([]);
+      const usage = tokenUsageRef.current;
+      tokenUsageRef.current = undefined;
+      return { text, savedChips, usage };
+    };
+
+    es.onmessage = (msg) => {
+      try {
+        const ev = JSON.parse(msg.data) as MonitorEvent;
+        if (!ev.type) return;
+        const pending = pendingRunIdRef.current;
+        if (!pending || resolvedIds.current.has(pending)) return;
+
+        const evRunId = ev.runId ?? (ev.detail as any)?.run_id ?? (ev.detail as any)?.runId;
+        if (!evRunId || evRunId !== pending) return;
+
+        // Tool call chips
+        if (TOOL_EVENT_TYPES.has(ev.type)) {
+          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id });
+          if (chip) {
+            const key = chip.icon + chip.label;
+            if (!toolChipsRef.current.has(key)) {
+              toolChipsRef.current.set(key, chip);
+              setToolChips(Array.from(toolChipsRef.current.values()));
+            }
+          }
+        }
+
+        // Token usage — save for attaching to message on finalize
+        if (ev.type === "token_usage") {
+          const d = ev.detail as Record<string, string> | undefined;
+          if (d) {
+            tokenUsageRef.current = {
+              input: parseInt(d.input_tokens ?? "0", 10),
+              output: parseInt(d.output_tokens ?? "0", 10),
+              cacheRead: parseInt(d.cache_read_tokens ?? "0", 10) || undefined,
+              cacheWrite: parseInt(d.cache_write_tokens ?? "0", 10) || undefined,
+              total: parseInt(d.total_tokens ?? "0", 10),
+            };
+          }
+          return;
+        }
+
+        // Thinking deltas — accumulate, flush on next animation frame
+        if (ev.type === "thinking") {
+          const delta = ev.summary ?? "";
+          if (delta) {
+            const buf = thinkingBufRef.current.get(pending) ?? "";
+            thinkingBufRef.current.set(pending, buf + delta);
+            dirtyRef.current = true;
+            scheduleFlush();
+          }
+          return;
+        }
+
+        // Assistant streaming deltas — accumulate, flush on next animation frame
+        if (ev.type === "assistant_delta") {
+          const delta = ev.summary ?? "";
+          if (delta) {
+            const buf = deltaBufRef.current.get(pending) ?? "";
+            deltaBufRef.current.set(pending, buf + delta);
+            dirtyRef.current = true;
+            scheduleFlush();
+          }
+          return;
+        }
+
+        // Chat response (partial or final) from "chat" event path
+        if (ev.type === "chat_response") {
+          const d = ev.detail as Record<string, any> | undefined;
+          const chatMsg = d?.message ?? ev.summary ?? "";
+
+          if (chatMsg === "[no reply]") {
+            const { text, savedChips, usage } = resolveRun(pending);
+            updateMessages((prev) =>
+              prev.map((m) =>
+                m.runId === pending && m.role === "lumi" && m.pending
+                  ? { ...m, text: text === "…" ? "…" : text, pending: false, tools: savedChips, tokenUsage: usage }
+                  : m,
+              ),
+            );
+            return;
+          }
+
+          if (ev.state === "complete" || ev.state === "final") {
+            const { savedChips, usage } = resolveRun(pending);
+            const finalText = stripHWMarkers(chatMsg || deltaBufRef.current.get(pending) || "…");
+            updateMessages((prev) =>
+              prev.map((m) =>
+                m.runId === pending && m.role === "lumi" && m.pending
+                  ? { ...m, text: finalText, pending: false, tools: savedChips, tokenUsage: usage }
+                  : m,
+              ),
+            );
+            return;
+          }
+
+          if (ev.state === "error") return; // error handled separately
+
+          // Partial (non-delta path)
+          if (chatMsg && !deltaBufRef.current.has(pending)) {
+            const cleaned = stripHWMarkers(chatMsg);
+            updateMessages((prev) =>
+              prev.map((m) =>
+                m.runId === pending && m.role === "lumi" && m.pending
+                  ? { ...m, text: cleaned }
+                  : m,
+              ),
+            );
+          }
+        }
+      } catch {
+        // ignore malformed SSE data
+      }
+    };
+
+    return () => {
+      es.close();
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [updateMessages]);
+
+  // Watch flow events for final response (tts_send, no_reply from JSONL)
+  // This catches responses that only appear in flow logs, not on the live bus
   useEffect(() => {
     const pending = pendingRunIdRef.current;
     if (!pending || resolvedIds.current.has(pending)) return;
 
-    const lastSeq = lastDeltaSeqRef.current.get(pending) ?? -1;
-    const lastThinkSeq = lastThinkingSeqRef.current.get(pending) ?? -1;
-    let finalResult: { text: string } | null = null;
-    let partialText: string | null = null; // from chat_response partial (non-delta path)
-    const chips: ToolChip[] = [];
-    const seenChipTypes = new Set<string>();
-
-    // Process events in chronological order to accumulate deltas correctly
-    for (const ev of events) {
+    for (const ev of [...events].reverse()) {
       const evRunId: string | undefined =
         ev.runId ??
         (ev.detail as any)?.run_id ??
@@ -412,80 +533,47 @@ export function ChatSection({ events }: Props) {
         (ev.detail as any)?.data?.run_id;
       if (!evRunId || evRunId !== pending) continue;
 
-      // Collect tool call events
-      if (TOOL_EVENT_TYPES.has(ev.type)) {
-        const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id });
-        // Deduplicate by type+label
-        if (chip) {
-          const key = chip.icon + chip.label;
-          if (!seenChipTypes.has(key)) {
-            seenChipTypes.add(key);
-            chips.push(chip);
-          }
+      const d = ev.detail as Record<string, any> | undefined;
+      if (ev.type === "flow_event" && d?.node === "tts_send") {
+        const text: string = d?.data?.text ?? d?.text ?? "";
+        if (text) {
+          resolvedIds.current.add(pending);
+          pendingRunIdRef.current = null;
+          setSending(false);
+          setThinkingText(null);
+          const chips = Array.from(toolChipsRef.current.values());
+          const savedChips = chips.length > 0 ? chips : undefined;
+          toolChipsRef.current.clear();
+          setToolChips([]);
+          const usage = tokenUsageRef.current;
+          tokenUsageRef.current = undefined;
+          const cleaned = stripHWMarkers(text);
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.runId === pending && m.role === "lumi" && m.pending
+                ? { ...m, text: cleaned, pending: false, tools: savedChips, tokenUsage: usage }
+                : m,
+            ),
+          );
+          return;
         }
       }
-
-      const result = extractResponse(ev);
-      if (!result) continue;
-
-      if (result.thinking) {
-        // Thinking delta — accumulate reasoning tokens
-        if (ev._seq > lastThinkSeq) {
-          const buf = thinkingBufRef.current.get(pending) ?? "";
-          thinkingBufRef.current.set(pending, buf + result.text);
-          lastThinkingSeqRef.current.set(pending, ev._seq);
-        }
-      } else if (result.delta) {
-        // Streaming delta — append only new chunks (use _seq to deduplicate)
-        if (ev._seq > lastSeq) {
-          const buf = deltaBufRef.current.get(pending) ?? "";
-          deltaBufRef.current.set(pending, buf + result.text);
-          lastDeltaSeqRef.current.set(pending, ev._seq);
-        }
-      } else if (result.final) {
-        finalResult = { text: result.text };
-      } else {
-        // Non-delta partial (chat_response from "chat" event path) — use latest
-        partialText = result.text;
-      }
-    }
-
-    // Update thinking + tool chips display
-    const currentThinking = thinkingBufRef.current.get(pending) ?? null;
-    setThinkingText(currentThinking);
-    setToolChips(chips);
-
-    if (finalResult) {
-      // Final response arrived — use it (or fall back to accumulated deltas)
-      resolvedIds.current.add(pending);
-      pendingRunIdRef.current = null;
-      setSending(false);
-      setThinkingText(null);
-      const text = stripHWMarkers(finalResult.text || deltaBufRef.current.get(pending) || "…");
-      deltaBufRef.current.delete(pending);
-      lastDeltaSeqRef.current.delete(pending);
-      thinkingBufRef.current.delete(pending);
-      lastThinkingSeqRef.current.delete(pending);
-      const savedChips = chips.length > 0 ? chips : undefined;
-      updateMessages((prev) =>
-        prev.map((m) =>
-          m.runId === pending && m.role === "lumi" && m.pending
-            ? { ...m, text, pending: false, tools: savedChips }
-            : m,
-        ),
-      );
-    } else {
-      // Show in-progress text: prefer accumulated deltas, fall back to chat_response partial
-      const display = deltaBufRef.current.get(pending) || partialText;
-      if (display) {
-        const cleaned = stripHWMarkers(display);
+      if (ev.type === "flow_event" && d?.node === "no_reply") {
+        resolvedIds.current.add(pending);
+        pendingRunIdRef.current = null;
+        setSending(false);
+        setThinkingText(null);
+        toolChipsRef.current.clear();
+        setToolChips([]);
+        tokenUsageRef.current = undefined;
         updateMessages((prev) =>
           prev.map((m) =>
             m.runId === pending && m.role === "lumi" && m.pending
-              ? { ...m, text: cleaned }
+              ? { ...m, text: "…", pending: false }
               : m,
           ),
         );
+        return;
       }
     }
   }, [events, updateMessages]);
@@ -722,9 +810,8 @@ export function ChatSection({ events }: Props) {
             setToolChips([]);
             const streamed = deltaBufRef.current.get(runId);
             deltaBufRef.current.delete(runId);
-            lastDeltaSeqRef.current.delete(runId);
             thinkingBufRef.current.delete(runId);
-            lastThinkingSeqRef.current.delete(runId);
+            toolChipsRef.current.clear();
             setConvos((prev) =>
               prev.map((c) =>
                 c.id === targetId
@@ -1133,9 +1220,11 @@ export function ChatSection({ events }: Props) {
                   ) : msg.pending && msg.text ? (
                     <>
                       {msg.role === "lumi" ? renderMarkdown(msg.text) : msg.text}
-                      <span style={{ color: "var(--lm-text-muted)", marginLeft: 4, fontSize: 10 }}>
-                        <span className="lm-blink">●</span>
-                      </span>
+                      <span className="lm-cursor" style={{
+                        display: "inline-block", width: 2, height: "1em",
+                        background: "var(--lm-amber)", marginLeft: 2,
+                        verticalAlign: "text-bottom", borderRadius: 1,
+                      }} />
                     </>
                   ) : msg.role === "lumi" ? renderMarkdown(msg.text) : msg.text}
                 </div>
@@ -1167,6 +1256,13 @@ export function ChatSection({ events }: Props) {
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.7"; }}
                       title="Retry"
                     >↻ retry</button>
+                  )}
+                  {msg.tokenUsage && msg.role === "lumi" && (
+                    <span style={{ fontSize: 9, color: "var(--lm-text-muted)", opacity: 0.5 }}
+                      title={`in: ${msg.tokenUsage.input} / out: ${msg.tokenUsage.output}${msg.tokenUsage.cacheRead ? ` / cache read: ${msg.tokenUsage.cacheRead}` : ""}${msg.tokenUsage.cacheWrite ? ` / cache write: ${msg.tokenUsage.cacheWrite}` : ""} / total: ${msg.tokenUsage.total}`}
+                    >
+                      {msg.tokenUsage.input}↓ {msg.tokenUsage.output}↑
+                    </span>
                   )}
                 </div>
               </div>
