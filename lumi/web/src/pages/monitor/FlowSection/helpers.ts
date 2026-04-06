@@ -541,6 +541,10 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (argsSummary) {
         const entry = `🔧 ${argsSummary}`;
         if (!info.tool_exec.includes(entry)) info.tool_exec.push(entry);
+        // Also surface emotion/led/servo tool calls in their HW nodes with LLM source label
+        if (/\/emotion/.test(argsSummary)) pushUnique(info.hw_emotion, `🤖 LLM tool → ${argsSummary}`);
+        else if (/\/led|\/scene/.test(argsSummary)) pushUnique(info.hw_led, `🤖 LLM tool → ${argsSummary}`);
+        else if (/\/servo/.test(argsSummary)) pushUnique(info.hw_servo, `🤖 LLM tool → ${argsSummary}`);
       }
     }
     if (ev.type === "thinking" || (ev.type === "flow_event" && ev.detail?.node === "lifecycle_start")) {
@@ -626,16 +630,16 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
       if (body) {
         const curl = `curl -s -X POST http://127.0.0.1:5001/emotion -H "Content-Type: application/json" -d '${body}'`;
-        pushUnique(info.hw_emotion, `🔧 ${curl}`);
+        pushUnique(info.hw_emotion, `⚡ HW marker → ${curl}`);
       }
     }
     if (ev.type === "hw_led" || (ev.type === "flow_event" && ev.detail?.node === "hw_led")) {
       const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
-      if (body) pushUnique(info.hw_led, `🔧 curl -s -X POST http://127.0.0.1:5001/led -d '${body}'`);
+      if (body) pushUnique(info.hw_led, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001/led -d '${body}'`);
     }
     if (ev.type === "hw_servo" || (ev.type === "flow_event" && ev.detail?.node === "hw_servo")) {
       const body = ev.summary ?? (ev.detail as Record<string, any> | undefined)?.args ?? "";
-      if (body) pushUnique(info.hw_servo, `🔧 curl -s -X POST http://127.0.0.1:5001/servo/play -d '${body}'`);
+      if (body) pushUnique(info.hw_servo, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001/servo/play -d '${body}'`);
     }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
