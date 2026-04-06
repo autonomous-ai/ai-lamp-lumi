@@ -174,10 +174,11 @@ music_service = None
 
 
 def _find_audio_device(output: bool = True) -> Optional[int]:
-    """Find audio device index by known hardware names.
+    """Find audio device index by known hardware names, with USB fallback.
 
-    Pi 4: Seeed ReSpeaker (single card for both speaker + mic).
-    Pi 5: CD002-AUDIO (speaker), GENERAL WEBCAM (mic) — separate USB devices.
+    Priority:
+      1. Known hardware keywords (Seeed ReSpeaker, CD002, webcam, etc.)
+      2. Any USB audio device with the right channel type
     """
     if not sd:
         return None
@@ -186,7 +187,8 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
     names = output_names if output else input_names
     try:
         devices = list(sd.query_devices())
-        for keyword in names:  # seeed checked first across all devices before webcam
+        # Pass 1: match known hardware keywords
+        for keyword in names:
             for i, d in enumerate(devices):
                 name = d["name"].lower()
                 if keyword not in name:
@@ -195,6 +197,17 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                     return i
                 if not output and d["max_input_channels"] > 0:
                     return i
+        # Pass 2: fallback — first USB audio device with correct channel type
+        for i, d in enumerate(devices):
+            name = d["name"].lower()
+            if "usb" not in name:
+                continue
+            if output and d["max_output_channels"] > 0:
+                logger.info("Audio fallback: using USB device %d '%s' for output", i, d["name"])
+                return i
+            if not output and d["max_input_channels"] > 0:
+                logger.info("Audio fallback: using USB device %d '%s' for input", i, d["name"])
+                return i
     except Exception:
         pass
     return None
@@ -202,6 +215,32 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
 
 audio_output_device: Optional[int] = None
 audio_input_device: Optional[int] = None
+
+_DEFAULT_AGENT_NAME = "lumi"
+_OPENCLAW_WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/root/.openclaw/workspace")
+
+
+def _read_agent_name(lumi_cfg: dict) -> str:
+    """Read agent name from IDENTITY.md. Falls back to default 'lumi'."""
+    identity_path = os.path.join(_OPENCLAW_WORKSPACE, "IDENTITY.md")
+    try:
+        with open(identity_path) as f:
+            for line in f:
+                lower = line.lower()
+                idx = lower.find("**name:**")
+                if idx >= 0:
+                    name = line[idx + len("**name:**"):].strip().split("—")[0].split("-")[0].strip()
+                    if name:
+                        return name.lower()
+    except Exception:
+        pass
+    return _DEFAULT_AGENT_NAME
+
+
+def _build_wake_words(name: str) -> list[str]:
+    """Generate wake word variants from agent name."""
+    n = name.lower()
+    return [f"hey {n}", n, f"này {n}", f"ê {n}", f"{n} ơi"]
 
 
 @asynccontextmanager
@@ -317,11 +356,18 @@ async def lifespan(app: FastAPI):
             if music_service:
                 music_service._tts_service = tts_service
         if VoiceService and not voice_service:
+            # Read agent name from IDENTITY.md for wake words / Deepgram keyword hints
+            agent_name = _read_agent_name(lumi_cfg)
+            wake_words = _build_wake_words(agent_name)
             stt_provider = None
-            logger.info("STT selection: deepgram_key=%s, DeepgramSTT=%s, AutonomousSTT=%s",
-                        bool(dgk), DeepgramSTT is not None, AutonomousSTT is not None)
+            logger.info("STT selection: deepgram_key=%s, DeepgramSTT=%s, AutonomousSTT=%s, agent=%s",
+                        bool(dgk), DeepgramSTT is not None, AutonomousSTT is not None, agent_name)
             if dgk and DeepgramSTT:
-                stt_provider = DeepgramSTT(api_key=dgk, keywords=["lumi:3", "lu mi:2"])
+                dg_keywords = [f"{agent_name}:3"]
+                if " " in agent_name:
+                    # Also boost space-separated pronunciation variant
+                    dg_keywords.append(" ".join(agent_name) + ":2")
+                stt_provider = DeepgramSTT(api_key=dgk, keywords=dg_keywords)
             elif llm_key and llm_url and AutonomousSTT:
                 stt_model = (lumi_cfg.get("stt_model") or "").strip() or None
                 stt_language = (lumi_cfg.get("stt_language") or "").strip() or None
@@ -336,9 +382,10 @@ async def lifespan(app: FastAPI):
                     stt_provider=stt_provider,
                     input_device=audio_input_device,
                     tts_service=tts_service,
+                    wake_words=wake_words,
                 )
                 voice_service.start()
-                logger.info("VoiceService auto-started (%s)", stt_provider.name)
+                logger.info("VoiceService auto-started (%s, wake_words=%s)", stt_provider.name, wake_words)
     except FileNotFoundError:
         logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
     except Exception as e:
@@ -769,6 +816,14 @@ def play_recording(req: ServoRequest):
     logger.debug("POST /servo/play recording=%s", req.recording)
     if not animation_service:
         raise HTTPException(503, "Servo not available")
+    # Restart event loop if it was stopped (e.g. after /servo/zero or /servo/release)
+    if not animation_service._running.is_set():
+        animation_service._running.set()
+        animation_service._event_thread = threading.Thread(
+            target=animation_service._event_loop, daemon=True
+        )
+        animation_service._event_thread.start()
+        logger.info("Animation event loop restarted via /servo/play")
     t0 = time.perf_counter()
     animation_service.dispatch("play", req.recording)
     logger.debug("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
@@ -872,6 +927,33 @@ def move_servo(req: ServoMoveRequest):
         "duration": req.duration,
         "errors": errors if errors else None,
     }
+
+
+@app.post("/servo/zero", response_model=StatusResponse, tags=["Servo"])
+def zero_servos():
+    """Move all servos to 0° and hold (torque stays ON). Stops the animation loop.
+
+    Useful for calibration and testing range-of-motion from a known reference.
+    While in zero-hold mode, /servo/play and other dispatch calls are blocked
+    until the animation loop is restarted (call /servo/play to resume).
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+    # Stop animation loop so move_to has exclusive bus access
+    animation_service._running.clear()
+    if animation_service._event_thread and animation_service._event_thread.is_alive():
+        animation_service._event_thread.join(timeout=3.0)
+    # Move all joints to 0°, torque stays ON
+    zero_pos = {f"{m}.pos": 0.0 for m in animation_service.robot.bus.motors}
+    try:
+        animation_service.move_to(zero_pos, duration=2.0)
+    except Exception as e:
+        logger.warning(f"Could not move to zero: {e}")
+    # Sync internal state so next interpolation starts from here
+    animation_service._current_state = {k: 0.0 for k in zero_pos}
+    return {"status": "ok"}
 
 
 @app.post("/servo/release", response_model=StatusResponse, tags=["Servo"])
@@ -1967,15 +2049,18 @@ def start_voice(req: VoiceStartRequest):
         # Prefer AutonomousSTT (uses llm_api_key), fall back to Deepgram
         stt_provider = None
         if req.deepgram_api_key and DeepgramSTT:
-            stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=["lumi:3", "lu mi:2"])
+            agent_name = _read_agent_name({})
+            stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=[f"{agent_name}:3"])
         elif AutonomousSTT:
             stt_provider = AutonomousSTT(api_key=req.llm_api_key, base_url=req.llm_base_url)
         if not stt_provider:
             raise HTTPException(503, "No STT provider available")
+        wake_words = _build_wake_words(_read_agent_name({}))
         voice_service = VoiceService(
             stt_provider=stt_provider,
             input_device=audio_input_device,
             tts_service=tts_service,
+            wake_words=wake_words,
         )
         voice_service.start()
         return {"status": "ok"}
@@ -1992,6 +2077,19 @@ def stop_voice():
         voice_service.stop()
         voice_service = None
     tts_service = None
+    return {"status": "ok"}
+
+
+class VoiceConfigRequest(BaseModel):
+    wake_words: list[str] = Field(..., min_length=1, description="Wake word list (lowercase matched)")
+
+
+@app.post("/voice/config", response_model=StatusResponse, tags=["Voice"])
+def update_voice_config(req: VoiceConfigRequest):
+    """Update voice pipeline config at runtime. Called by Lumi when agent is renamed."""
+    if not voice_service:
+        return {"status": "ok"}  # Not running yet — no-op, will pick up on next start
+    voice_service.set_wake_words(req.wake_words)
     return {"status": "ok"}
 
 

@@ -9,37 +9,35 @@ description: Control the 64-pixel WS2812 RGB LED strip when the user asks for a 
 Control the lamp's 64-pixel WS2812 RGB LED strip directly. Use this skill only when the user requests a specific color, effect, pixel pattern, or to turn LEDs off.
 
 ## Workflow
-1. Check what is currently showing: `GET /led/color`
-2. Determine the user's intent:
-   - Specific color request -> use `POST /led/solid`
-   - Effect request (breathing, candle, rainbow, etc.) -> use `POST /led/effect`
-   - Pixel pattern -> use `POST /led/paint`
-   - Turn off -> use `POST /led/off`
-3. Execute the appropriate API call
-4. Confirm the action to the user
+1. Determine the user's intent:
+   - Specific color -> `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[R,G,B]}]`
+   - Effect -> `[HW:/led/effect:{"effect":"name","color":[R,G,B],"speed":1.0}]`
+   - Turn off -> `[HW:/led/off:{}]`
+2. Place markers at start of reply — Lumi fires them in order before TTS
+3. Confirm the action to the user
 
 ## Examples
 
 Input: "Make it purple" / "bật màu tím"
-Output: Call `POST /led/solid` with `{"color": [100, 50, 200]}`. Confirm: "I've set the LEDs to purple."
+Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[100,50,200]}]` I've set the LEDs to purple.
 
 Input: "Mở đèn màu vàng" / "bật đèn vàng" / "đổi sang màu vàng" / "yellow light"
-Output: Call `POST /led/solid` with `{"color": [255, 220, 0]}`. Confirm: "Yellow light on!"
+Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,220,0]}]` Yellow light on!
 
 Input: "Mở đèn màu đỏ" / "bật đèn đỏ" / "đổi sang màu đỏ" / "red light"
-Output: Call `POST /led/solid` with `{"color": [255, 0, 0]}`. Confirm: "Red light on!"
+Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,0,0]}]` Red light on!
 
 Input: "Mở đèn trắng" / "bật đèn trắng" / "white light"
-Output: Call `POST /led/solid` with `{"color": [255, 255, 255]}`. Confirm: "White light on!"
+Output: `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,255,255]}]` White light on!
 
 Input: "Do a breathing light with warm color"
-Output: Call `POST /led/effect` with `{"effect": "breathing", "color": [255, 180, 100], "speed": 0.5}`. Confirm: "Breathing effect started with a warm glow."
+Output: `[HW:/led/effect:{"effect":"breathing","color":[255,180,100],"speed":0.5}]` Breathing effect started with a warm glow.
 
 Input: "Rainbow mode!"
-Output: Call `POST /led/effect` with `{"effect": "rainbow", "speed": 1.0}`. Confirm: "Rainbow effect is running!"
+Output: `[HW:/led/effect:{"effect":"rainbow","speed":1.0}]` Rainbow effect is running!
 
 Input: "Turn off the lights"
-Output: Call `POST /led/off`. Confirm: "LEDs are off."
+Output: `[HW:/led/off:{}]` LEDs are off.
 
 Input: "I want to relax" / "reading mode" / "goodnight"
 Output: Do NOT use this skill. Use **Scene** skill instead.
@@ -47,60 +45,29 @@ Output: Do NOT use this skill. Use **Scene** skill instead.
 Input: Conversational reply needing emotion
 Output: Do NOT use this skill. Use **Emotion** skill instead.
 
-## Tools
+## How to Control LEDs
 
-Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
+**No exec/curl needed.** Use inline markers at start of reply — Lumi fires them in order:
 
-### Get LED info
-```bash
-curl -s http://127.0.0.1:5001/led
+### Solid color (stop effect first)
 ```
-Response: `{"led_count": 64}`
-
-### Get current color
-```bash
-curl -s http://127.0.0.1:5001/led/color
+[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[255,220,0]}] Yellow light on!
 ```
-Response: `{"color": [255, 180, 100], "effect_running": true, "effect_name": "breathing"}`
+Color is an RGB array `[R, G, B]`.
 
-### Set solid color (fill all LEDs)
-
-**Always stop any running effect first, then set the color — use a single chained command:**
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/effect/stop && \
-curl -s -X POST http://127.0.0.1:5001/led/solid \
-  -H "Content-Type: application/json" \
-  -d '{"color": [R, G, B]}'
+### Effect
 ```
-Color can be an RGB array `[255, 100, 0]` or a packed integer `16711680`.
-
-### Paint individual pixels
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/paint \
-  -H "Content-Type: application/json" \
-  -d '{"colors": [[R,G,B], [R,G,B], ...]}'
+[HW:/led/effect:{"effect":"breathing","color":[255,180,100],"speed":0.5}] Breathing warm glow.
 ```
-Array of up to 64 colors, one per pixel.
-
-### Turn off all LEDs
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/off
-```
-
-### Start an effect
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/effect \
-  -H "Content-Type: application/json" \
-  -d '{"effect": "breathing", "color": [255, 180, 100], "speed": 1.0, "duration_ms": null}'
-```
-- `effect` (required): effect name (see table below)
-- `color` (optional): base RGB color, default uses current color
+- `effect` (required): effect name from table below
+- `color` (optional): RGB array
 - `speed` (optional): 0.1 (slow) to 5.0 (fast), default 1.0
-- `duration_ms` (optional): auto-stop after N ms, null = run until stopped
+- `duration_ms` (optional): auto-stop after N ms
 
-### Stop current effect
-```bash
-curl -s -X POST http://127.0.0.1:5001/led/effect/stop
+### Turn off / stop effect
+```
+[HW:/led/off:{}] LEDs off.
+[HW:/led/effect/stop:{}]
 ```
 
 ### Available effects
