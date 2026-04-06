@@ -115,15 +115,37 @@ export interface DisplayEvent extends MonitorEvent {
 
 export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli";
 
-export const NAV: { id: Section; label: string; icon: string }[] = [
-  { id: "overview",   label: "Overview",   icon: "◈" },
-  { id: "system",     label: "System",     icon: "▣" },
-  { id: "flow",       label: "Flow",       icon: "⇉" },
-  { id: "camera",     label: "Camera",     icon: "⊙" },
-  { id: "servo",      label: "Servo",      icon: "⚙" },
-  { id: "face-owners", label: "Faces",      icon: "◎" },
-  { id: "analytics",  label: "Analytics",  icon: "▦" },
-  { id: "logs",       label: "Logs",       icon: "≡" },
-  { id: "chat",       label: "Chat",       icon: "✉" },
-  { id: "cli",        label: "CLI",        icon: "$" },
+export type NavLeaf = { id: Section; label: string; icon: string };
+export type NavGroup = { group: string; label: string; icon: string; children: NavLeaf[] };
+export type NavEntry = NavLeaf | NavGroup;
+
+export function isNavGroup(e: NavEntry): e is NavGroup {
+  return "group" in e;
+}
+
+export const NAV: NavEntry[] = [
+  { id: "overview",  label: "Overview",  icon: "◈" },
+  { id: "flow",      label: "Flow",      icon: "⇉" },
+  {
+    group: "vision",
+    label: "Vision",
+    icon: "⊙",
+    children: [
+      { id: "camera",      label: "Camera", icon: "◫" },
+      { id: "face-owners", label: "Faces",  icon: "◎" },
+    ],
+  },
+  { id: "servo",     label: "Servo",     icon: "⚙" },
+  { id: "analytics", label: "Analytics", icon: "▦" },
+  { id: "chat",      label: "Chat",      icon: "✉" },
+  {
+    group: "system",
+    label: "System",
+    icon: "▣",
+    children: [
+      { id: "system", label: "Info", icon: "◧" },
+      { id: "logs",   label: "Logs", icon: "≡" },
+      { id: "cli",    label: "CLI",  icon: "$" },
+    ],
+  },
 ];
