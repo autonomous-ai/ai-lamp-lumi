@@ -380,7 +380,7 @@ export default function Monitor() {
         </div>
 
         {/* Content */}
-        <div style={S.content} className="lm-content lm-fade-in">
+        <div style={{ ...S.content, ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}) }} className="lm-content lm-fade-in">
           {section === "overview" && (
             <OverviewSection
               sys={sys}

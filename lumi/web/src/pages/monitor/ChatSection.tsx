@@ -86,6 +86,11 @@ function renderMarkdown(text: string): ReactNode {
   return result;
 }
 
+// Strip inline HW control markers like [HW:/emotion:{"emotion":"curious","intensity":0.7}]
+function stripHWMarkers(text: string): string {
+  return text.replace(/\[HW:\/[^\]]*\]/g, "").trim();
+}
+
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const CONVOS_KEY = "lumi_chat_convos";
@@ -187,8 +192,16 @@ function saveActiveId(id: string | null) {
 
 // ─── Event extraction ───────────────────────────────────────────────────────
 
-function extractResponse(ev: DisplayEvent): { text: string; final: boolean } | null {
+type EventResult = { text: string; final: boolean; delta?: boolean };
+
+function extractResponse(ev: DisplayEvent): EventResult | null {
   const d = ev.detail as Record<string, any> | undefined;
+
+  // Streaming assistant deltas — token-by-token chunks
+  if (ev.type === "assistant_delta") {
+    const delta: string = ev.summary ?? "";
+    if (delta) return { text: delta, final: false, delta: true };
+  }
 
   if (ev.type === "flow_event" && d?.node === "tts_send") {
     const text: string = d?.data?.text ?? d?.text ?? "";
@@ -264,6 +277,8 @@ export function ChatSection({ events }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingRunIdRef = useRef<string | null>(null);
   const resolvedIds = useRef<Set<string>>(new Set());
+  const deltaBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated delta text
+  const lastDeltaSeqRef = useRef<Map<string, number>>(new Map()); // runId → last processed _seq
 
   const active = convos.find((c) => c.id === activeId) ?? null;
   const messages = active?.messages ?? [];
@@ -316,13 +331,17 @@ export function ChatSection({ events }: Props) {
     );
   }, [activeId]);
 
-  // Watch flow events for response
+  // Watch flow events for response — supports streaming assistant deltas
   useEffect(() => {
     const pending = pendingRunIdRef.current;
     if (!pending || resolvedIds.current.has(pending)) return;
 
-    let bestResult: { text: string; final: boolean } | null = null;
-    for (const ev of [...events].reverse()) {
+    const lastSeq = lastDeltaSeqRef.current.get(pending) ?? -1;
+    let finalResult: { text: string } | null = null;
+    let partialText: string | null = null; // from chat_response partial (non-delta path)
+
+    // Process events in chronological order to accumulate deltas correctly
+    for (const ev of events) {
       const evRunId: string | undefined =
         ev.runId ??
         (ev.detail as any)?.run_id ??
@@ -332,18 +351,30 @@ export function ChatSection({ events }: Props) {
 
       const result = extractResponse(ev);
       if (!result) continue;
-      if (!bestResult || result.final) {
-        bestResult = result;
-        if (result.final) break;
+
+      if (result.delta) {
+        // Streaming delta — append only new chunks (use _seq to deduplicate)
+        if (ev._seq > lastSeq) {
+          const buf = deltaBufRef.current.get(pending) ?? "";
+          deltaBufRef.current.set(pending, buf + result.text);
+          lastDeltaSeqRef.current.set(pending, ev._seq);
+        }
+      } else if (result.final) {
+        finalResult = { text: result.text };
+      } else {
+        // Non-delta partial (chat_response from "chat" event path) — use latest
+        partialText = result.text;
       }
     }
-    if (!bestResult) return;
 
-    if (bestResult.final) {
+    if (finalResult) {
+      // Final response arrived — use it (or fall back to accumulated deltas)
       resolvedIds.current.add(pending);
       pendingRunIdRef.current = null;
       setSending(false);
-      const text = bestResult.text;
+      const text = stripHWMarkers(finalResult.text || deltaBufRef.current.get(pending) || "…");
+      deltaBufRef.current.delete(pending);
+      lastDeltaSeqRef.current.delete(pending);
       updateMessages((prev) =>
         prev.map((m) =>
           m.runId === pending && m.role === "lumi" && m.pending
@@ -352,14 +383,18 @@ export function ChatSection({ events }: Props) {
         ),
       );
     } else {
-      const text = bestResult.text;
-      updateMessages((prev) =>
-        prev.map((m) =>
-          m.runId === pending && m.role === "lumi" && m.pending
-            ? { ...m, text }
-            : m,
-        ),
-      );
+      // Show in-progress text: prefer accumulated deltas, fall back to chat_response partial
+      const display = deltaBufRef.current.get(pending) || partialText;
+      if (display) {
+        const cleaned = stripHWMarkers(display);
+        updateMessages((prev) =>
+          prev.map((m) =>
+            m.runId === pending && m.role === "lumi" && m.pending
+              ? { ...m, text: cleaned }
+              : m,
+          ),
+        );
+      }
     }
   }, [events, updateMessages]);
 
@@ -591,10 +626,15 @@ export function ChatSection({ events }: Props) {
           if (pendingRunIdRef.current === runId) {
             pendingRunIdRef.current = null;
             setSending(false);
+            const streamed = deltaBufRef.current.get(runId);
+            deltaBufRef.current.delete(runId);
+            lastDeltaSeqRef.current.delete(runId);
             setConvos((prev) =>
               prev.map((c) =>
                 c.id === targetId
-                  ? { ...c, messages: c.messages.map((m) => m.runId === runId && m.pending ? { ...m, text: "⏱ no response", pending: false, error: true } : m) }
+                  ? { ...c, messages: c.messages.map((m) => m.runId === runId && m.pending
+                      ? { ...m, text: streamed || "⏱ no response", pending: false, error: !streamed }
+                      : m) }
                   : c,
               ),
             );
