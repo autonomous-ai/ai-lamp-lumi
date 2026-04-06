@@ -24,7 +24,7 @@ Input: Normal conversational reply
 Output: Do NOT call this skill. Just reply normally — your text is automatically spoken.
 
 Input: You need to greet the user while also activating a scene
-Output: Call `POST /voice/speak` with `{"text": "Chao buoi sang!"}` in parallel with the Scene API call.
+Output: Call `POST /voice/speak` with `{"text": "Good morning!"}` in parallel with the Scene API call.
 
 Input: You want to say something different from your chat reply
 Output: Call `POST /voice/speak` with the spoken text. Then provide your chat reply separately.
@@ -40,7 +40,7 @@ Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
 ```bash
 curl -s -X POST http://127.0.0.1:5001/voice/speak \
   -H "Content-Type: application/json" \
-  -d '{"text": "Xin chao! Toi la Lumi."}'
+  -d '{"text": "Hello! I am Lumi."}'
 ```
 Text max 2000 characters. Returns immediately; audio plays in background.
 
@@ -79,6 +79,6 @@ Response:
 [Voice] Spoke: "{text}" ({character_count} chars)
 ```
 Examples:
-- `[Voice] Spoke: "Xin chao! Toi la Lumi." (23 chars)`
+- `[Voice] Spoke: "Hello! I am Lumi." (23 chars)`
 - `[Voice] Skipped — TTS already speaking`
 - `[Voice] Auto-TTS — no explicit call needed`

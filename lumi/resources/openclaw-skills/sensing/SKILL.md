@@ -57,7 +57,7 @@ curl -s -X POST http://127.0.0.1:5001/servo/aim -H "Content-Type: application/js
 **Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` NO_REPLY
 
 **Input:** `[sensing:sound]` — persistent (occurrence 3+)
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` Sao ồn vậy?
+**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` Why is it so loud?
 
 ## Tools
 
