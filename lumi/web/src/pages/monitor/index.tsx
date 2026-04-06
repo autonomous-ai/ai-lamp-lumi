@@ -220,13 +220,10 @@ export default function Monitor() {
               {item.label}
             </a>
           ))}
-          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
-            Gateway
-          </a>
-          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>◈</span>
-            GW Config
+          <AgentGWMenu closeSidebar={closeSidebar} />
+          <a href="/hw/docs" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⬟</span>
+            HW Docs
           </a>
           <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
