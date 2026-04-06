@@ -16,11 +16,19 @@ LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # --- Sensing: Motion detection (optical flow) ---
 # MotionChecker thresholds
-MOTION_PIXEL_THRESHOLD = 1.0   # minimum flow magnitude (px/frame) to count a pixel as moving
-MOTION_BG_RATIO = 0.7          # if more than this fraction of pixels are moving → background (camera shake)
-MOTION_FLOW_THRESHOLD = 3.0    # minimum mean flow magnitude of moving pixels → foreground (person/object)
+MOTION_PIXEL_THRESHOLD = (
+    1.0  # minimum flow magnitude (px/frame) to count a pixel as moving
+)
+MOTION_BG_RATIO = (
+    0.7  # if more than this fraction of pixels are moving → background (camera shake)
+)
+MOTION_FLOW_THRESHOLD = (
+    3.0  # minimum mean flow magnitude of moving pixels → foreground (person/object)
+)
 # MotionPerception event cooldown
-MOTION_EVENT_COOLDOWN_S = 180.0  # minimum seconds between motion events forwarded to the agent
+MOTION_EVENT_COOLDOWN_S = (
+    180.0  # minimum seconds between motion events forwarded to the agent
+)
 
 # --- Sensing: Event cooldown ---
 EVENT_COOLDOWN_S = 60.0  # minimum seconds between events of the same type
@@ -34,10 +42,12 @@ LIGHT_LEVEL_INTERVAL_S = 30.0  # check every 30 seconds
 LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger event
 
 # --- Sensing: Face detection ---
-FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
+FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
 YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
+FACE_OWNER_FORGET_S = 30.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 15.0   # same for strangers
 
 # --- Presence: Auto light on/off ---
-IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
+IDLE_TIMEOUT_S = 5 * 60  # 5 min → dim
 AWAY_TIMEOUT_S = 15 * 60  # 15 min → off
 IDLE_BRIGHTNESS = 0.20

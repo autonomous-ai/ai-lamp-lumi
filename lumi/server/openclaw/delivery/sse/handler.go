@@ -311,6 +311,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		lumiSession := h.agentGateway.GetSessionKey()
 		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
+			// Wake word already delivered — agent is now thinking, switch LED from listening to processing.
+			h.statusLED.Clear(statusled.StateListening)
 			if deviceTrace := flow.GetTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
 				h.mapRunID(payload.RunID, deviceTrace)
 				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)

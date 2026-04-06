@@ -12,6 +12,7 @@ STT provider is pluggable (default: Deepgram).
 """
 
 import logging
+import re
 import threading
 import time
 from typing import Optional
@@ -269,15 +270,17 @@ class VoiceService:
             if not is_final:
                 return
             lower = text.lower()
+            # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
+            normalized = re.sub(r"[^\w\s]", "", lower)
             # Check for wake word
             with self._wake_words_lock:
                 wake_words = list(self._wake_words)
-            is_command = any(w in lower for w in wake_words)
+            is_command = any(w in normalized for w in wake_words)
             if is_command:
-                cmd = lower
+                cmd = normalized
                 for w in wake_words:
                     if cmd.startswith(w):
-                        cmd = text[len(w):].strip().lstrip(",").strip()
+                        cmd = text[len(w):].strip().lstrip(",. ").strip()
                         break
                 logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
                 self._send_to_lumi(cmd or text, event_type="voice_command")
