@@ -1447,9 +1447,18 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 
 	// The payload may be {"sessions":[...]} or the sessions array directly.
 	// Try both: first as object with sessions field, then as direct array.
+	type deliveryCtx struct {
+		Channel   string `json:"channel"`
+		To        string `json:"to,omitempty"`
+		AccountID string `json:"accountId,omitempty"`
+	}
 	type sessionEntry struct {
-		SessionKey string `json:"sessionKey"`
-		Key        string `json:"key"`
+		SessionKey      string       `json:"sessionKey"`
+		Key             string       `json:"key"`
+		DeliveryContext *deliveryCtx `json:"deliveryContext,omitempty"`
+		LastChannel     string       `json:"lastChannel,omitempty"`
+		LastTo          string       `json:"lastTo,omitempty"`
+		LastAccountID   string       `json:"lastAccountId,omitempty"`
 	}
 	var listResult struct {
 		Sessions []sessionEntry `json:"sessions"`
@@ -1493,6 +1502,28 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 			"sessionKey":     sess.SessionKey,
 			"message":        msg,
 		}
+
+		// Pass deliveryContext so OpenClaw routes the response back to the
+		// correct channel (e.g. Telegram) instead of defaulting to webchat.
+		if dc := sess.DeliveryContext; dc != nil && dc.Channel != "" {
+			params["channel"] = dc.Channel
+			if dc.To != "" {
+				params["to"] = dc.To
+			}
+			if dc.AccountID != "" {
+				params["accountId"] = dc.AccountID
+			}
+		} else if sess.LastChannel != "" {
+			// Fallback: use lastChannel/lastTo/lastAccountId
+			params["channel"] = sess.LastChannel
+			if sess.LastTo != "" {
+				params["to"] = sess.LastTo
+			}
+			if sess.LastAccountID != "" {
+				params["accountId"] = sess.LastAccountID
+			}
+		}
+
 		if imageBase64 != "" {
 			params["attachments"] = []map[string]interface{}{
 				{
@@ -1524,7 +1555,8 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 		}
 
 		slog.Info("guard broadcast sent", "component", "openclaw",
-			"session", sess.SessionKey, "reqId", reqID)
+			"session", sess.SessionKey, "reqId", reqID,
+			"channel", params["channel"])
 	}
 
 	flow.Log("guard_broadcast", map[string]any{
