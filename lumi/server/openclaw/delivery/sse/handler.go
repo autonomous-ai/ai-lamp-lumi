@@ -180,19 +180,19 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
 			switch {
 			case strings.Contains(c.path, "/emotion"):
-				flow.Log("hw_emotion", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
+				flow.Log("hw_emotion", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 				if e := parseEmotion(c.body); e != "" {
 					h.lastEmotionMu.Lock()
 					h.lastEmotion = e
 					h.lastEmotionMu.Unlock()
 				}
-				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.body, RunID: flowRunID})
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.path + " " + c.body, RunID: flowRunID})
 			case strings.Contains(c.path, "/scene"), strings.Contains(c.path, "/led"):
-				flow.Log("hw_led", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
-				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: c.body, RunID: flowRunID})
+				flow.Log("hw_led", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: c.path + " " + c.body, RunID: flowRunID})
 			case strings.Contains(c.path, "/servo"):
-				flow.Log("hw_servo", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
-				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: c.body, RunID: flowRunID})
+				flow.Log("hw_servo", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: c.path + " " + c.body, RunID: flowRunID})
 			default:
 				flow.Log("hw_call", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 			}
