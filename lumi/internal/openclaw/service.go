@@ -44,15 +44,6 @@ const (
 // Compile-time check: *Service implements domain.AgentGateway.
 var _ domain.AgentGateway = (*Service)(nil)
 
-// hwMarkerRe matches inline hardware markers like [HW:/emotion:{"emotion":"happy","intensity":0.9}]
-// JSON body must not contain '}' except as the final closing brace (no nested objects).
-var hwMarkerRe = regexp.MustCompile(`\[HW:(/[^:]+):(\{[^}]*\})\]`)
-
-type hwCall struct {
-	path string
-	body string
-}
-
 // Service provides setup, reset, restart of openclaw config/gateway and StartWS.
 type Service struct {
 	config      *config.Config
@@ -1338,53 +1329,10 @@ func stripForTTS(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// extractHWCalls parses all [HW:/path:{"json"}] markers from text,
-// returns the list of calls and the text with markers stripped.
-func extractHWCalls(text string) ([]hwCall, string) {
-	matches := hwMarkerRe.FindAllStringSubmatch(text, -1)
-	calls := make([]hwCall, 0, len(matches))
-	for _, m := range matches {
-		calls = append(calls, hwCall{path: m[1], body: m[2]})
-	}
-	return calls, strings.TrimSpace(hwMarkerRe.ReplaceAllString(text, ""))
-}
-
-// fireHWCallsAsync fires hardware calls to LeLamp sequentially inside a goroutine.
-// Sequential order matters (e.g. /led/effect/stop must precede /led/solid).
-func (s *Service) fireHWCallsAsync(calls []hwCall) {
-	if len(calls) == 0 {
-		return
-	}
-	go func() {
-		for _, c := range calls {
-			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
-			if err != nil {
-				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
-				continue
-			}
-			resp.Body.Close()
-			slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
-			switch {
-			case strings.Contains(c.path, "/emotion"):
-				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.body})
-			case strings.Contains(c.path, "/led"), strings.Contains(c.path, "/scene"):
-				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: c.body})
-			case strings.Contains(c.path, "/servo"):
-				s.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: c.body})
-			}
-		}
-	}()
-}
 
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
+// Text must already be stripped of HW markers by the caller (SSE handler).
 func (s *Service) SendToLeLampTTS(text string) error {
-	calls, text := extractHWCalls(text)
-	if len(calls) > 0 {
-		for _, c := range calls {
-			slog.Info("HW marker extracted", "component", "openclaw", "path", c.path, "body", c.body)
-		}
-	}
-	s.fireHWCallsAsync(calls)
 	text = stripForTTS(text)
 	if text == "" {
 		return nil
