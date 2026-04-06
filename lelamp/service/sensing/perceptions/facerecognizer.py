@@ -38,8 +38,8 @@ class FaceRecognizer(Perception):
         negative_threshold: float | None = 0.1,
         model_name: str = "buffalo_sc",
         max_strangers: int = 50,
-        strangers_forget_ts: float = 360,
-        owners_forget_ts: float = 3600,
+        strangers_forget_ts: float = config.FACE_STRANGER_FORGET_S,
+        owners_forget_ts: float = config.FACE_OWNER_FORGET_S,
     ):
         super().__init__(send_event)
         self._cv2 = cv2
