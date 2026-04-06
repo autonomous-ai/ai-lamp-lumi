@@ -185,7 +185,7 @@ class MusicService:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,
             )
 
             if result.returncode != 0:
