@@ -14,12 +14,13 @@ OWNER_PHOTOS_DIR = os.environ.get(
 # --- Sensing: Lumi integration ---
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
-# --- Sensing: Motion detection ---
-MOTION_THRESHOLD = 60  # pixel intensity change to count as "changed"
-MOTION_BIGGEST_CONTOURS_RATIO = 0.1  # top percentage to classify big contours
-MOTION_MIN_BIGGEST_COUNTOURS_TO_TOTAL = 0.05  # minimum fraction of the biggest contours to total pixels that must change (5%)
-MOTION_MIN_BIGGEST_COUNTOURS_TO_CONTOURS = 0.5  # minimum fraction of the biggest contours to total area of all contoures that must change (50%)
-MOTION_LARGE_TOTAL_RATIO = 0.25  # fraction of changing areas to total pixels for "large movement" (25%)
+# --- Sensing: Motion detection (optical flow) ---
+# MotionChecker thresholds
+MOTION_PIXEL_THRESHOLD = 1.0   # minimum flow magnitude (px/frame) to count a pixel as moving
+MOTION_BG_RATIO = 0.7          # if more than this fraction of pixels are moving → background (camera shake)
+MOTION_FLOW_THRESHOLD = 3.0    # minimum mean flow magnitude of moving pixels → foreground (person/object)
+# MotionPerception event cooldown
+MOTION_EVENT_COOLDOWN_S = 180.0  # minimum seconds between motion events forwarded to the agent
 
 # --- Sensing: Event cooldown ---
 EVENT_COOLDOWN_S = 60.0  # minimum seconds between events of the same type
