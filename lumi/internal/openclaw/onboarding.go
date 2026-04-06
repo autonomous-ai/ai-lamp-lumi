@@ -51,6 +51,7 @@ var skills = []string{
 	"scene",
 	"scheduling",
 	"sensing",
+	"sensing-track",
 	"servo-control",
 	"voice",
 }
