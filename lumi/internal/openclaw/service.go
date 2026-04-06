@@ -1329,8 +1329,14 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 		return fmt.Errorf("websocket not connected")
 	}
 
-	// Fetch all active sessions.
+	// Fetch all active sessions via pendingRPC dispatch (same pattern as FetchChatHistory).
 	listReqID := fmt.Sprintf("guard-list-%d", time.Now().UnixMilli())
+	ch := make(chan json.RawMessage, 1)
+
+	s.pendingRPCMu.Lock()
+	s.pendingRPC[listReqID] = ch
+	s.pendingRPCMu.Unlock()
+
 	listReq := map[string]interface{}{
 		"type":   "req",
 		"id":     listReqID,
@@ -1338,39 +1344,77 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 	}
 	listBody, err := json.Marshal(listReq)
 	if err != nil {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, listReqID)
+		s.pendingRPCMu.Unlock()
 		return fmt.Errorf("marshal sessions.list: %w", err)
 	}
 
 	s.wsMu.Lock()
+	conn = s.wsConn
+	if conn == nil {
+		s.wsMu.Unlock()
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, listReqID)
+		s.pendingRPCMu.Unlock()
+		return fmt.Errorf("websocket disconnected before send")
+	}
 	err = conn.WriteMessage(websocket.TextMessage, listBody)
 	s.wsMu.Unlock()
 	if err != nil {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, listReqID)
+		s.pendingRPCMu.Unlock()
 		return fmt.Errorf("write sessions.list: %w", err)
 	}
 
-	// Read response (with timeout).
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, listResp, err := conn.ReadMessage()
-	conn.SetReadDeadline(time.Time{})
-	if err != nil {
-		return fmt.Errorf("read sessions.list response: %w", err)
+	// Wait for response via main read loop dispatch.
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var listResp json.RawMessage
+	select {
+	case listResp = <-ch:
+	case <-timer.C:
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, listReqID)
+		s.pendingRPCMu.Unlock()
+		return fmt.Errorf("sessions.list timeout")
 	}
 
+	slog.Info("guard sessions.list raw response", "component", "openclaw", "payload", string(listResp))
+
+	// The payload may be {"sessions":[...]} or the sessions array directly.
+	// Try both: first as object with sessions field, then as direct array.
+	type sessionEntry struct {
+		SessionKey string `json:"sessionKey"`
+		Key        string `json:"key"`
+	}
 	var listResult struct {
-		Result struct {
-			Sessions []struct {
-				SessionKey string `json:"sessionKey"`
-			} `json:"sessions"`
-		} `json:"result"`
+		Sessions []sessionEntry `json:"sessions"`
 	}
 	if err := json.Unmarshal(listResp, &listResult); err != nil {
 		return fmt.Errorf("parse sessions.list: %w", err)
 	}
 
-	sessions := listResult.Result.Sessions
+	sessions := listResult.Sessions
+	if len(sessions) == 0 {
+		// Maybe payload is directly an array
+		var arr []sessionEntry
+		if json.Unmarshal(listResp, &arr) == nil && len(arr) > 0 {
+			sessions = arr
+		}
+	}
+
 	if len(sessions) == 0 {
 		slog.Warn("guard broadcast: no active sessions", "component", "openclaw")
 		return nil
+	}
+
+	// Normalize: some responses use "key" instead of "sessionKey"
+	for i, sess := range sessions {
+		if sess.SessionKey == "" && sess.Key != "" {
+			sessions[i].SessionKey = sess.Key
+		}
 	}
 
 	slog.Info("guard broadcast", "component", "openclaw",
