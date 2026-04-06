@@ -972,8 +972,10 @@ def zero_servos():
     animation_service._running.clear()
     if animation_service._event_thread and animation_service._event_thread.is_alive():
         animation_service._event_thread.join(timeout=3.0)
-    # Move all joints to 0°, torque stays ON
+    # Move all joints to their practical zero (0° where reachable, actual min otherwise).
+    # elbow_pitch physical minimum is 24° — sending 0° causes it to stall against the stop.
     zero_pos = {f"{m}.pos": 0.0 for m in animation_service.robot.bus.motors}
+    zero_pos["elbow_pitch.pos"] = 24.0
     try:
         animation_service.move_to(zero_pos, duration=2.0)
     except Exception as e:
