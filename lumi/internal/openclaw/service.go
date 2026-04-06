@@ -1379,6 +1379,11 @@ func (s *Service) fireHWCallsAsync(calls []hwCall) {
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
 func (s *Service) SendToLeLampTTS(text string) error {
 	calls, text := extractHWCalls(text)
+	if len(calls) > 0 {
+		for _, c := range calls {
+			slog.Info("HW marker extracted", "component", "openclaw", "path", c.path, "body", c.body)
+		}
+	}
 	s.fireHWCallsAsync(calls)
 	text = stripForTTS(text)
 	if text == "" {
