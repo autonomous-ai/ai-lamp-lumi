@@ -107,6 +107,7 @@ export function FlowDiagram({
     ["agent_response",    "hw_emotion"],
     ["agent_response",    "hw_led"],
     ["agent_response",    "hw_servo"],
+    ["agent_response",    "hw_audio"],
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
     ["agent_response",    "tg_out"],
@@ -249,7 +250,7 @@ export function FlowDiagram({
 
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
-          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo");
+          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio");
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
