@@ -44,7 +44,7 @@ ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window af
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
-DEFAULT_WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
 
 class VoiceService:
