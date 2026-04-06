@@ -15,6 +15,7 @@ import (
 type State string
 
 const (
+	StateListening   State = "listening"   // Wake word detected — waiting for user to finish speaking
 	StateProcessing  State = "processing"  // Agent is thinking — blue pulse
 	StateOTA         State = "ota"         // Firmware updating — orange breathing (used by bootstrap binary)
 	StateError       State = "error"       // Something went wrong — red pulse
@@ -30,6 +31,7 @@ type stateConfig struct {
 }
 
 var configs = map[State]stateConfig{
+	StateListening:   {Effect: "breathing", R: 0, G: 220, B: 180, Speed: 1.2},
 	StateProcessing:  {Effect: "pulse", R: 80, G: 140, B: 255, Speed: 1.0},
 	StateOTA:         {Effect: "breathing", R: 255, G: 140, B: 0, Speed: 0.4},
 	StateError:       {Effect: "pulse", R: 255, G: 30, B: 30, Speed: 1.5},
@@ -39,11 +41,12 @@ var configs = map[State]stateConfig{
 
 // priority determines which state wins when multiple are active.
 var priority = map[State]int{
-	StateProcessing:  1,
-	StateConnectivity: 2,
-	StateBooting:     3,
-	StateOTA:         4,
-	StateError:       5,
+	StateListening:   1,
+	StateProcessing:  2,
+	StateConnectivity: 3,
+	StateBooting:     4,
+	StateOTA:         5,
+	StateError:       6,
 }
 
 // Service manages status LED states.

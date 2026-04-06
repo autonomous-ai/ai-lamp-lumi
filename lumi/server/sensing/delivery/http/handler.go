@@ -14,6 +14,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/intent"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -36,11 +37,12 @@ type SensingHandler struct {
 	agentGateway domain.AgentGateway
 	monitorBus   *monitor.Bus
 	config       *config.Config
+	statusLED    *statusled.Service
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
-func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config) SensingHandler {
-	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg}
+func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config, sled *statusled.Service) SensingHandler {
+	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, statusLED: sled}
 }
 
 // PostEvent receives a sensing event and sends it to the agent as a chat message.
@@ -57,6 +59,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
+
+	// Light up listening LED as soon as wake word arrives so user gets instant feedback.
+	if req.Type == "voice_command" {
+		h.statusLED.Set(statusled.StateListening)
+	}
 
 	startPayload := map[string]any{"type": req.Type, "message": req.Message}
 
