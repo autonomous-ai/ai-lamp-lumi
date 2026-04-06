@@ -19,13 +19,13 @@ Activate predefined lighting presets that set optimal color temperature and brig
 Input: "Reading mode"
 Output: `[HW:/scene:{"scene":"reading"}]` Reading mode activated — 80% brightness, neutral white.
 
-Input: "Goodnight" / "buon ngu" / "di ngu"
+Input: "Goodnight" / "good night" / "time to sleep"
 Output: `[HW:/scene:{"scene":"night"}][HW:/emotion:{"emotion":"sleepy","intensity":0.7}]` Night mode on. Sweet dreams!
 
-Input: "I want to relax" / "thu gian"
+Input: "I want to relax" / "let me chill"
 Output: `[HW:/scene:{"scene":"relax"}]` Relax mode — warm, gentle light at 40%.
 
-Input: "Movie time" / "xem phim"
+Input: "Movie time" / "watching a movie"
 Output: `[HW:/scene:{"scene":"movie"}]` Movie mode — dim amber bias lighting.
 
 Input: "I need to focus"
@@ -63,9 +63,9 @@ Output: Do NOT use this skill for emotion. Use **Emotion** skill instead (you CA
 
 ## Rules
 - **Scene = brightness + color.** This is why you must use Scene instead of direct LED for ambiance. LED `/led/solid` is always 100% brightness — useless for sleep/relax.
-- **"buon ngu", "sleepy", "goodnight", "ngu thoi", "di ngu"** -> ALWAYS use `night` (5% brightness, ultra-dim).
-- **"thu gian", "relax", "chill"** -> use `relax` (40%).
-- **"xem phim", "movie"** -> use `movie` (15%).
+- **"sleepy", "goodnight", "time to sleep", "going to bed"** -> ALWAYS use `night` (5% brightness, ultra-dim).
+- **"relax", "chill", "unwind"** -> use `relax` (40%).
+- **"watch a movie", "movie"** -> use `movie` (15%).
 - After activating a scene, you can ALSO call Emotion to show your personality — emotion is a brief reaction, scene is the persistent ambient light.
 - You can switch scenes smoothly — just call the endpoint, the LED update is immediate.
 - For custom lighting beyond these presets, use the LED Control skill directly with specific RGB values.
