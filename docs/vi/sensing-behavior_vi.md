@@ -152,12 +152,14 @@ Lumi chủ động chăm sóc sức khỏe người dùng bằng cách gửi ả
 - **Kích hoạt** sau 30 phút hiện diện liên tục, lặp lại mỗi 30 phút.
 - Gửi ảnh camera kèm context: "User ngồi X phút chưa uống nước."
 - LLM nhìn ảnh và quyết định: nhắc uống nước, hoặc NO_REPLY nếu không cần.
+- **Nếu không thấy user trong ảnh** → NO_REPLY (có thể họ đã đi ra ngoài).
 
 ### Nhắc nghỉ ngơi (`wellbeing.break`)
 
 - **Kích hoạt** sau 45 phút hiện diện liên tục, lặp lại mỗi 45 phút.
 - Gửi ảnh camera kèm context: "User ngồi liên tục X phút."
 - LLM nhìn ảnh và quyết định: nhắc đứng lên stretch, hoặc NO_REPLY nếu user trông ổn.
+- **Nếu không thấy user trong ảnh** → NO_REPLY.
 
 ### Cơ chế hoạt động
 
