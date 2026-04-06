@@ -8,40 +8,45 @@ Lumi Server (Go, port 5000) bridges requests here.
 import base64
 import csv
 import io
-import math
-import os
 import logging
 import logging.handlers
+import math
+import os
 import random
 import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional, Union
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from lelamp.presets import (
+    AIM_PRESETS,
+    EMOTION_PRESETS,
+    SCENE_PRESETS,
+    VALID_LED_EFFECTS,
+)
 from pydantic import BaseModel, Field
-from typing import Optional, Union
-
-from lelamp.presets import AIM_PRESETS, EMOTION_PRESETS, SCENE_PRESETS, VALID_LED_EFFECTS
 
 # --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _LEVEL_COLORS = {
-    logging.DEBUG:    "\033[37m",     # gray
-    logging.INFO:     "\033[32m",     # green
-    logging.WARNING:  "\033[33m",     # yellow
-    logging.ERROR:    "\033[31m",     # red
-    logging.CRITICAL: "\033[1;31m",   # bold red
+    logging.DEBUG: "\033[37m",  # gray
+    logging.INFO: "\033[32m",  # green
+    logging.WARNING: "\033[33m",  # yellow
+    logging.ERROR: "\033[31m",  # red
+    logging.CRITICAL: "\033[1;31m",  # bold red
 }
 _RESET = "\033[0m"
 
 
 class _ColorFormatter(logging.Formatter):
     """Adds ANSI colors to levelname for console output."""
+
     _fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
     def format(self, record):
@@ -61,7 +66,9 @@ _root.addHandler(_console)
 
 # File handler: 1 MB per file, keep 3 backups (~4 MB max) — no color codes
 _file = logging.handlers.RotatingFileHandler(
-    LOG_DIR / "server.log", maxBytes=1 * 1024 * 1024, backupCount=3,
+    LOG_DIR / "server.log",
+    maxBytes=1 * 1024 * 1024,
+    backupCount=3,
 )
 _file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
 _root.addHandler(_file)
@@ -87,8 +94,8 @@ except ImportError as e:
     logger.warning(f"LED drivers not available: {e}")
 
 try:
-    import sounddevice as sd
     import numpy as np
+    import sounddevice as sd
 except ImportError as e:
     logger.warning(f"Audio drivers not available: {e}")
 
@@ -101,8 +108,8 @@ except ImportError as e:
 LocalVideoCaptureDevice = None
 VideoCaptureDeviceInfo = None
 try:
-    from lelamp.devices.video_capture_device import LocalVideoCaptureDevice
     from lelamp.devices.models import VideoCaptureDeviceInfo
+    from lelamp.devices.video_capture_device import LocalVideoCaptureDevice
 except ImportError as e:
     logger.warning(f"Video capture device not available: {e}")
 
@@ -122,8 +129,8 @@ CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 SensingService = None
 FaceRecognizer = None
 try:
-    from lelamp.service.sensing.sensing_service import SensingService
     from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer
+    from lelamp.service.sensing.sensing_service import SensingService
 except ImportError as e:
     logger.warning(f"Sensing service not available: {e}")
     SensingService = None
@@ -136,9 +143,9 @@ DeepgramSTT = None
 AutonomousSTT = None
 TTSService = None
 try:
-    from lelamp.service.voice.voice_service import VoiceService
-    from lelamp.service.voice.stt_deepgram import DeepgramSTT
     from lelamp.service.voice.stt_autonomous import AutonomousSTT
+    from lelamp.service.voice.stt_deepgram import DeepgramSTT
+    from lelamp.service.voice.voice_service import VoiceService
 except ImportError as e:
     logger.warning(f"Voice service not available: {e}")
 
@@ -252,7 +259,9 @@ async def lifespan(app: FastAPI):
     # Start servo/animation service
     if AnimationService:
         try:
-            animation_service = AnimationService(port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS, hold_s=SERVO_HOLD_S)
+            animation_service = AnimationService(
+                port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS, hold_s=SERVO_HOLD_S
+            )
             animation_service.start()
             logger.info("AnimationService started")
         except Exception as e:
@@ -273,11 +282,17 @@ async def lifespan(app: FastAPI):
     if LocalVideoCaptureDevice and VideoCaptureDeviceInfo and cv2:
         try:
             cap = LocalVideoCaptureDevice(
-                VideoCaptureDeviceInfo(device_id=CAMERA_INDEX, max_width=CAMERA_WIDTH, max_height=CAMERA_HEIGHT, rotate=180)
+                VideoCaptureDeviceInfo(
+                    device_id=CAMERA_INDEX,
+                    max_width=CAMERA_WIDTH,
+                    max_height=CAMERA_HEIGHT,
+                )
             )
             cap.start()
             camera_capture = cap
-            logger.info(f"Camera opened (index={CAMERA_INDEX}, {CAMERA_WIDTH}x{CAMERA_HEIGHT})")
+            logger.info(
+                f"Camera opened (index={CAMERA_INDEX}, {CAMERA_WIDTH}x{CAMERA_HEIGHT})"
+            )
         except Exception as e:
             logger.warning(f"Camera failed to start: {e}")
 
@@ -300,7 +315,11 @@ async def lifespan(app: FastAPI):
             logger.warning(f"MusicService failed to start: {e}")
 
     # Start sensing loop (motion + sound detection → push events to Lumi → OpenClaw)
-    sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in ("true", "1", "yes")
+    sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
     if SensingService and sensing_enabled:
         try:
             sensing_service = SensingService(
@@ -334,6 +353,7 @@ async def lifespan(app: FastAPI):
     lumi_config_path = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")
     try:
         import json
+
         with open(lumi_config_path) as f:
             lumi_cfg = json.load(f)
         dgk = lumi_cfg.get("deepgram_api_key", "")
@@ -347,8 +367,12 @@ async def lifespan(app: FastAPI):
                 numpy_module=np,
                 output_device=audio_output_device,
             )
-            logger.info("TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
-                        llm_url, audio_output_device, tts_service.available)
+            logger.info(
+                "TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
+                llm_url,
+                audio_output_device,
+                tts_service.available,
+            )
             # Wire TTS to SensingService for echo suppression
             if sensing_service:
                 sensing_service.set_tts_service(tts_service)
@@ -376,7 +400,9 @@ async def lifespan(app: FastAPI):
                     stt_kwargs["model"] = stt_model
                 if stt_language:
                     stt_kwargs["language"] = stt_language
-                stt_provider = AutonomousSTT(api_key=llm_key, base_url=llm_url, **stt_kwargs)
+                stt_provider = AutonomousSTT(
+                    api_key=llm_key, base_url=llm_url, **stt_kwargs
+                )
             if stt_provider:
                 voice_service = VoiceService(
                     stt_provider=stt_provider,
@@ -387,7 +413,9 @@ async def lifespan(app: FastAPI):
                 voice_service.start()
                 logger.info("VoiceService auto-started (%s, wake_words=%s)", stt_provider.name, wake_words)
     except FileNotFoundError:
-        logger.info(f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start")
+        logger.info(
+            f"Lumi config not found at {lumi_config_path}, voice will wait for /voice/start"
+        )
     except Exception as e:
         logger.warning(f"Auto-start voice from lumi config failed: {e}")
 
@@ -407,7 +435,10 @@ async def lifespan(app: FastAPI):
     # torque so servos hold their current position and prevent gravity drop.
     if animation_service:
         animation_service._running.clear()
-        if animation_service._event_thread and animation_service._event_thread.is_alive():
+        if (
+            animation_service._event_thread
+            and animation_service._event_thread.is_alive()
+        ):
             animation_service._event_thread.join(timeout=3.0)
     if rgb_service:
         rgb_service.stop()
@@ -423,7 +454,9 @@ app = FastAPI(
         "camera, audio (mic/speaker), display, and AI voice pipeline. "
         "Lumi Server (Go, port 5000) bridges requests here."
     ),
-    version=(Path(__file__).parent / "VERSION_LELAMP").read_text().strip() if (Path(__file__).parent / "VERSION_LELAMP").exists() else "dev",
+    version=(Path(__file__).parent / "VERSION_LELAMP").read_text().strip()
+    if (Path(__file__).parent / "VERSION_LELAMP").exists()
+    else "dev",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -474,6 +507,7 @@ app = FastAPI(
 
 class ProxyPrefixMiddleware:
     """ASGI middleware: reads X-Forwarded-Prefix and sets root_path before FastAPI processes the request."""
+
     def __init__(self, app):
         self.app = app
 
@@ -485,6 +519,7 @@ class ProxyPrefixMiddleware:
                 scope["root_path"] = prefix
         await self.app(scope, receive, send)
 
+
 app.add_middleware(ProxyPrefixMiddleware)
 
 
@@ -493,20 +528,23 @@ async def request_logging_middleware(request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - start) * 1000
-    logger.debug("%s %s → %d (%.1fms)", request.method, request.url.path, response.status_code, elapsed_ms)
+    logger.debug(
+        "%s %s → %d (%.1fms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
     return response
 
 
 # --- Request/Response models ---
 
+
 class ServoRequest(BaseModel):
     recording: str
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [{"recording": "curious"}]
-        }
-    }
+    model_config = {"json_schema_extra": {"examples": [{"recording": "curious"}]}}
 
 
 class ServoStateResponse(BaseModel):
@@ -515,10 +553,33 @@ class ServoStateResponse(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{
-                "available_recordings": ["nod", "curious", "happy_wiggle", "idle", "sad", "excited", "shy", "shock", "listening", "thinking_deep", "laugh", "confused", "sleepy", "greeting", "acknowledge", "stretching", "scanning", "wake_up", "headshake", "music_groove"],
-                "current": "idle",
-            }]
+            "examples": [
+                {
+                    "available_recordings": [
+                        "nod",
+                        "curious",
+                        "happy_wiggle",
+                        "idle",
+                        "sad",
+                        "excited",
+                        "shy",
+                        "shock",
+                        "listening",
+                        "thinking_deep",
+                        "laugh",
+                        "confused",
+                        "sleepy",
+                        "greeting",
+                        "acknowledge",
+                        "stretching",
+                        "scanning",
+                        "wake_up",
+                        "headshake",
+                        "music_groove",
+                    ],
+                    "current": "idle",
+                }
+            ]
         }
     }
 
@@ -552,26 +613,42 @@ class LEDStateResponse(BaseModel):
 
 class LEDColorResponse(BaseModel):
     led_count: int
-    on: bool                        # True if any pixel is lit
-    color: list[int]                # [R, G, B] — actual pixel 0 from strip
-    hex: str                        # e.g. "#ff8800"
-    brightness: float               # 0.0–1.0 derived from max channel
-    effect: Optional[str]           # running effect name, or null
-    scene: Optional[str]            # active scene name, or null
+    on: bool  # True if any pixel is lit
+    color: list[int]  # [R, G, B] — actual pixel 0 from strip
+    hex: str  # e.g. "#ff8800"
+    brightness: float  # 0.0–1.0 derived from max channel
+    effect: Optional[str]  # running effect name, or null
+    scene: Optional[str]  # active scene name, or null
 
 
 class LEDEffectRequest(BaseModel):
-    effect: str = Field(..., description="Effect name: breathing, candle, rainbow, notification_flash, pulse")
-    color: Optional[list[int]] = Field(None, description="Base RGB color for the effect (default: current color)")
-    speed: float = Field(1.0, ge=0.1, le=5.0, description="Speed multiplier (0.1=slow, 1.0=normal, 5.0=fast)")
-    duration_ms: Optional[int] = Field(None, ge=100, le=60000, description="Auto-stop after duration (null=indefinite)")
+    effect: str = Field(
+        ...,
+        description="Effect name: breathing, candle, rainbow, notification_flash, pulse",
+    )
+    color: Optional[list[int]] = Field(
+        None, description="Base RGB color for the effect (default: current color)"
+    )
+    speed: float = Field(
+        1.0,
+        ge=0.1,
+        le=5.0,
+        description="Speed multiplier (0.1=slow, 1.0=normal, 5.0=fast)",
+    )
+    duration_ms: Optional[int] = Field(
+        None, ge=100, le=60000, description="Auto-stop after duration (null=indefinite)"
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {"effect": "breathing", "color": [255, 100, 0], "speed": 1.0},
                 {"effect": "rainbow", "speed": 0.5},
-                {"effect": "notification_flash", "color": [255, 0, 0], "duration_ms": 3000},
+                {
+                    "effect": "notification_flash",
+                    "color": [255, 0, 0],
+                    "duration_ms": 3000,
+                },
             ]
         }
     }
@@ -590,11 +667,7 @@ class StatusResponse(BaseModel):
 class VolumeRequest(BaseModel):
     volume: int = Field(..., ge=0, le=100, description="Volume percentage 0-100")
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [{"volume": 75}]
-        }
-    }
+    model_config = {"json_schema_extra": {"examples": [{"volume": 75}]}}
 
 
 class AudioDevicesResponse(BaseModel):
@@ -610,13 +683,14 @@ class CameraInfoResponse(BaseModel):
 
 
 class EmotionRequest(BaseModel):
-    emotion: str = Field(..., description="Emotion name: curious, happy, sad, thinking, idle, excited, shy, shock")
+    emotion: str = Field(
+        ...,
+        description="Emotion name: curious, happy, sad, thinking, idle, excited, shy, shock",
+    )
     intensity: float = Field(0.7, ge=0.0, le=1.0, description="Intensity 0.0-1.0")
 
     model_config = {
-        "json_schema_extra": {
-            "examples": [{"emotion": "curious", "intensity": 0.8}]
-        }
+        "json_schema_extra": {"examples": [{"emotion": "curious", "intensity": 0.8}]}
     }
 
 
@@ -628,13 +702,11 @@ class EmotionResponse(BaseModel):
 
 
 class SceneRequest(BaseModel):
-    scene: str = Field(..., description="Scene name: reading, focus, relax, movie, night, energize")
+    scene: str = Field(
+        ..., description="Scene name: reading, focus, relax, movie, night, energize"
+    )
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [{"scene": "reading"}]
-        }
-    }
+    model_config = {"json_schema_extra": {"examples": [{"scene": "reading"}]}}
 
 
 class SceneResponse(BaseModel):
@@ -645,22 +717,22 @@ class SceneResponse(BaseModel):
 
 
 class SpeakRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=2000, description="Text to speak via TTS")
+    text: str = Field(
+        ..., min_length=1, max_length=2000, description="Text to speak via TTS"
+    )
 
     model_config = {
-        "json_schema_extra": {
-            "examples": [{"text": "Hi there! I am Lumi."}]
-        }
+        "json_schema_extra": {"examples": [{"text": "Hi there! I am Lumi."}]}
     }
 
 
 class MusicPlayRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=500, description="Song name or search query")
+    query: str = Field(
+        ..., min_length=1, max_length=500, description="Song name or search query"
+    )
 
     model_config = {
-        "json_schema_extra": {
-            "examples": [{"query": "Bohemian Rhapsody Queen"}]
-        }
+        "json_schema_extra": {"examples": [{"query": "Bohemian Rhapsody Queen"}]}
     }
 
 
@@ -690,8 +762,13 @@ class ServoStatusResponse(BaseModel):
 
 
 class ServoAimRequest(BaseModel):
-    direction: str = Field(..., description="Named direction: desk, wall, left, right, up, down, center, user")
-    duration: float = Field(2.0, ge=0.0, le=10.0, description="Move duration in seconds (default: 2.0)")
+    direction: str = Field(
+        ...,
+        description="Named direction: desk, wall, left, right, up, down, center, user",
+    )
+    duration: float = Field(
+        2.0, ge=0.0, le=10.0, description="Move duration in seconds (default: 2.0)"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -799,6 +876,7 @@ class HealthResponse(BaseModel):
 
 # --- Servo endpoints ---
 
+
 @app.get("/servo", response_model=ServoStateResponse, tags=["Servo"])
 def get_servo_state():
     """Get available recordings and current animation state."""
@@ -880,15 +958,18 @@ class ServoMoveRequest(BaseModel):
             "examples": [
                 {
                     "positions": {
-                        "base_yaw.pos":     0.0,
-                        "base_pitch.pos":   10.0,
-                        "elbow_pitch.pos":  -5.0,
-                        "wrist_roll.pos":   0.0,
-                        "wrist_pitch.pos":  0.0,
+                        "base_yaw.pos": 0.0,
+                        "base_pitch.pos": 10.0,
+                        "elbow_pitch.pos": -5.0,
+                        "wrist_roll.pos": 0.0,
+                        "wrist_pitch.pos": 0.0,
                     },
                     "_comment": "ID1 base_yaw [-50,73] | ID2 base_pitch [-76,-20] | ID3 elbow_pitch [24,99] | ID4 wrist_roll [-72,67] | ID5 wrist_pitch [-22,70]",
                 },
-                {"positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0}, "duration": 3.0},
+                {
+                    "positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0},
+                    "duration": 3.0,
+                },
             ]
         }
     }
@@ -919,7 +1000,9 @@ def move_servo(req: ServoMoveRequest):
     valid_joints = {f"{m}.pos" for m in animation_service.robot.bus.motors}
     unknown = [j for j in req.positions if j not in valid_joints]
     if unknown:
-        raise HTTPException(400, f"Unknown joints: {unknown}. Valid: {sorted(valid_joints)}")
+        raise HTTPException(
+            400, f"Unknown joints: {unknown}. Valid: {sorted(valid_joints)}"
+        )
 
     errors = {}
 
@@ -941,7 +1024,9 @@ def move_servo(req: ServoMoveRequest):
             if actual is not None:
                 error = abs(actual - target)
                 if error > 5.0:
-                    errors[joint] = f"position error {error:.1f} deg (target={target:.1f}, actual={actual:.1f})"
+                    errors[joint] = (
+                        f"position error {error:.1f} deg (target={target:.1f}, actual={actual:.1f})"
+                    )
     except Exception as e:
         errors["read_position"] = str(e)
 
@@ -1092,7 +1177,9 @@ def aim_servo(req: ServoAimRequest):
     positions = AIM_PRESETS.get(req.direction)
     if positions is None:
         available = list(AIM_PRESETS.keys())
-        raise HTTPException(400, f"Unknown direction '{req.direction}'. Available: {available}")
+        raise HTTPException(
+            400, f"Unknown direction '{req.direction}'. Available: {available}"
+        )
 
     try:
         if req.duration > 0:
@@ -1107,6 +1194,7 @@ def aim_servo(req: ServoAimRequest):
 
 # --- LED endpoints ---
 
+
 @app.get("/led", response_model=LEDStateResponse, tags=["LED"])
 def get_led_state():
     """Get LED strip info."""
@@ -1120,7 +1208,11 @@ def get_led_color():
     """Get current LED state: actual pixel color read from strip, effect, scene, brightness."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
-    effect_running = _effect_name is not None and _effect_thread is not None and _effect_thread.is_alive()
+    effect_running = (
+        _effect_name is not None
+        and _effect_thread is not None
+        and _effect_thread.is_alive()
+    )
     if effect_running and _effect_base_color:
         # Use the base color the effect was started with — pixel reads are unreliable during animation
         r, g, b = _effect_base_color
@@ -1312,8 +1404,14 @@ def _stop_current_effect():
     _effect_base_color = None
 
 
-def _run_effect(effect: str, color: tuple, speed: float, duration_ms: Optional[int],
-                stop_event: threading.Event, svc):
+def _run_effect(
+    effect: str,
+    color: tuple,
+    speed: float,
+    duration_ms: Optional[int],
+    stop_event: threading.Event,
+    svc,
+):
     """Dispatch to the appropriate effect loop. Runs in a background thread."""
     deadline = None
     if duration_ms is not None:
@@ -1343,8 +1441,13 @@ def _is_done(deadline: Optional[float], stop_event: threading.Event) -> bool:
     return False
 
 
-def _effect_breathing(color: tuple, speed: float, deadline: Optional[float],
-                      stop_event: threading.Event, svc):
+def _effect_breathing(
+    color: tuple,
+    speed: float,
+    deadline: Optional[float],
+    stop_event: threading.Event,
+    svc,
+):
     """Fade in/out with the given color."""
     step_delay = 0.03 / speed
     while not _is_done(deadline, stop_event):
@@ -1358,8 +1461,13 @@ def _effect_breathing(color: tuple, speed: float, deadline: Optional[float],
             time.sleep(step_delay)
 
 
-def _effect_candle(color: tuple, speed: float, deadline: Optional[float],
-                   stop_event: threading.Event, svc):
+def _effect_candle(
+    color: tuple,
+    speed: float,
+    deadline: Optional[float],
+    stop_event: threading.Event,
+    svc,
+):
     """Warm flicker effect with randomized warm tones."""
     step_delay = 0.05 / speed
     led_count = getattr(svc, "led_count", 64)
@@ -1376,8 +1484,9 @@ def _effect_candle(color: tuple, speed: float, deadline: Optional[float],
         time.sleep(step_delay)
 
 
-def _effect_rainbow(speed: float, deadline: Optional[float],
-                    stop_event: threading.Event, svc):
+def _effect_rainbow(
+    speed: float, deadline: Optional[float], stop_event: threading.Event, svc
+):
     """Cycle through hue spectrum across all pixels."""
     step_delay = 0.03 / speed
     led_count = getattr(svc, "led_count", 64)
@@ -1393,8 +1502,9 @@ def _effect_rainbow(speed: float, deadline: Optional[float],
         time.sleep(step_delay)
 
 
-def _effect_notification_flash(color: tuple, speed: float,
-                               stop_event: threading.Event, svc):
+def _effect_notification_flash(
+    color: tuple, speed: float, stop_event: threading.Event, svc
+):
     """3 quick flashes then stop."""
     flash_on = 0.15 / speed
     flash_off = 0.1 / speed
@@ -1409,8 +1519,13 @@ def _effect_notification_flash(color: tuple, speed: float,
         time.sleep(flash_off)
 
 
-def _effect_pulse(color: tuple, speed: float, deadline: Optional[float],
-                  stop_event: threading.Event, svc):
+def _effect_pulse(
+    color: tuple,
+    speed: float,
+    deadline: Optional[float],
+    stop_event: threading.Event,
+    svc,
+):
     """Single color pulse outward from center."""
     step_delay = 0.04 / speed
     led_count = getattr(svc, "led_count", 64)
@@ -1425,7 +1540,9 @@ def _effect_pulse(color: tuple, speed: float, deadline: Optional[float],
                 dist = abs(i - center)
                 if dist <= radius:
                     # Brightness falls off with distance from the wavefront
-                    falloff = max(0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1))
+                    falloff = max(
+                        0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1)
+                    )
                     pixels[i] = tuple(int(c * falloff) for c in color)
             svc.dispatch("paint", pixels)
             time.sleep(step_delay)
@@ -1458,6 +1575,7 @@ def _hsv_to_rgb(h: float, s: float, v: float) -> tuple:
 
 # --- LED effect endpoints ---
 
+
 @app.post("/led/effect", response_model=LEDEffectResponse, tags=["LED"])
 def start_led_effect(req: LEDEffectRequest):
     """Start a LED effect (breathing, candle, rainbow, notification_flash, pulse).
@@ -1469,7 +1587,9 @@ def start_led_effect(req: LEDEffectRequest):
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     if req.effect not in VALID_LED_EFFECTS:
-        raise HTTPException(400, f"Unknown effect '{req.effect}'. Available: {VALID_LED_EFFECTS}")
+        raise HTTPException(
+            400, f"Unknown effect '{req.effect}'. Available: {VALID_LED_EFFECTS}"
+        )
 
     # Stop any running effect
     global _active_scene
@@ -1484,15 +1604,34 @@ def start_led_effect(req: LEDEffectRequest):
     _effect_base_color = base_color
     _effect_thread = threading.Thread(
         target=_run_effect,
-        args=(req.effect, base_color, req.speed, req.duration_ms, _effect_stop, rgb_service),
+        args=(
+            req.effect,
+            base_color,
+            req.speed,
+            req.duration_ms,
+            _effect_stop,
+            rgb_service,
+        ),
         daemon=True,
         name=f"led-effect-{req.effect}",
     )
     _effect_thread.start()
-    logger.info("LED effect started: %s (speed=%.1f, duration=%s)", req.effect, req.speed, req.duration_ms)
+    logger.info(
+        "LED effect started: %s (speed=%.1f, duration=%s)",
+        req.effect,
+        req.speed,
+        req.duration_ms,
+    )
 
     # Save as user LED state so emotion calls can restore it afterward
-    _save_user_led_state({"type": "effect", "effect": req.effect, "color": list(base_color), "speed": req.speed})
+    _save_user_led_state(
+        {
+            "type": "effect",
+            "effect": req.effect,
+            "color": list(base_color),
+            "speed": req.speed,
+        }
+    )
 
     return {"status": "ok", "effect": req.effect, "speed": req.speed}
 
@@ -1508,6 +1647,7 @@ def stop_led_effect():
 
 # --- Camera endpoints ---
 
+
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
     """Get camera availability and resolution."""
@@ -1519,7 +1659,6 @@ def get_camera_info():
         "width": CAMERA_WIDTH,
         "height": CAMERA_HEIGHT,
     }
-
 
 
 @app.get("/camera/snapshot", tags=["Camera"])
@@ -1558,14 +1697,16 @@ def camera_stream():
                 continue
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
             )
 
-    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(
+        generate(), media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
 
 # --- Audio endpoints ---
+
 
 @app.get("/audio", response_model=AudioDevicesResponse, tags=["Audio"])
 def get_audio_info():
@@ -1582,10 +1723,13 @@ def _detect_playback_controls() -> list[str]:
     try:
         result = subprocess.run(
             ["amixer", "scontrols"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             import re
+
             # Parse lines like: Simple mixer control 'Speaker',0
             return re.findall(r"Simple mixer control '([^']+)'", result.stdout)
     except Exception:
@@ -1603,7 +1747,9 @@ def set_volume(req: VolumeRequest):
         try:
             subprocess.run(
                 ["amixer", "sset", ctrl, f"{req.volume}%"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
         except Exception:
             pass
@@ -1614,11 +1760,14 @@ def set_volume(req: VolumeRequest):
 def get_volume():
     """Get current speaker volume from amixer."""
     import re
+
     for ctrl in _detect_playback_controls():
         try:
             result = subprocess.run(
                 ["amixer", "sget", ctrl],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 match = re.search(r"\[(\d+)%\]", result.stdout)
@@ -1639,7 +1788,9 @@ def play_tone(frequency: int = 440, duration_ms: int = 500):
     # Use device native rate (48kHz for CD002-AUDIO on Pi 5, 44.1/48kHz for Seeed on Pi 4)
     dev_info = sd.query_devices(audio_output_device)
     sample_rate = int(dev_info["default_samplerate"])
-    t = np.linspace(0, duration_ms / 1000, int(sample_rate * duration_ms / 1000), endpoint=False)
+    t = np.linspace(
+        0, duration_ms / 1000, int(sample_rate * duration_ms / 1000), endpoint=False
+    )
     tone = 0.5 * np.sin(2 * np.pi * frequency * t).astype(np.float32)
     sd.play(tone, samplerate=sample_rate, device=audio_output_device)
     return {"status": "ok"}
@@ -1653,12 +1804,18 @@ def record_audio(duration_ms: int = 3000):
     if audio_input_device is None:
         raise HTTPException(503, "No input audio device found")
     import wave
+
     dev_info = sd.query_devices(audio_input_device)
     sample_rate = int(dev_info["default_samplerate"])
     channels = 1
     frames = int(sample_rate * duration_ms / 1000)
-    recording = sd.rec(frames, samplerate=sample_rate, channels=channels,
-                       dtype="int16", device=audio_input_device)
+    recording = sd.rec(
+        frames,
+        samplerate=sample_rate,
+        channels=channels,
+        dtype="int16",
+        device=audio_input_device,
+    )
     sd.wait()
 
     buf = io.BytesIO()
@@ -1672,6 +1829,7 @@ def record_audio(duration_ms: int = 3000):
 
 
 # --- Emotion endpoint (orchestrates servo + LED + audio) ---
+
 
 def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional[list]:
     """Apply LED effect + display expression for an emotion. Returns scaled LED color or None."""
@@ -1697,10 +1855,19 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
                 global _effect_thread, _effect_name, _effect_base_color
                 _effect_stop.clear()
                 _effect_name = preset["effect"]
-                _effect_base_color = tuple(scaled)  # used by /led/color for stable color readback during animation
+                _effect_base_color = tuple(
+                    scaled
+                )  # used by /led/color for stable color readback during animation
                 _effect_thread = threading.Thread(
                     target=_run_effect,
-                    args=(preset["effect"], tuple(scaled), preset.get("speed", 1.0), None, _effect_stop, rgb_service),
+                    args=(
+                        preset["effect"],
+                        tuple(scaled),
+                        preset.get("speed", 1.0),
+                        None,
+                        _effect_stop,
+                        rgb_service,
+                    ),
                     daemon=True,
                     name=f"led-emotion-{emotion}",
                 )
@@ -1732,7 +1899,9 @@ def express_emotion(req: EmotionRequest):
     preset = EMOTION_PRESETS.get(req.emotion)
     if not preset:
         available = list(EMOTION_PRESETS.keys())
-        raise HTTPException(400, f"Unknown emotion '{req.emotion}'. Available: {available}")
+        raise HTTPException(
+            400, f"Unknown emotion '{req.emotion}'. Available: {available}"
+        )
 
     servo_played = None
 
@@ -1774,6 +1943,7 @@ def express_emotion(req: EmotionRequest):
 
 
 # --- Scene endpoints ---
+
 
 @app.get("/scene", response_model=SceneListResponse, tags=["Scene"])
 def list_scenes():
@@ -1819,6 +1989,7 @@ def activate_scene(req: SceneRequest):
 
 # --- Sensing endpoints ---
 
+
 @app.get("/sensing", response_model=SensingResponse, tags=["Sensing"])
 def get_sensing_state():
     """Get perception state: motion, face recognition, light level, presence, and event cooldowns."""
@@ -1829,12 +2000,18 @@ def get_sensing_state():
 
 # --- Presence endpoints ---
 
+
 @app.get("/presence", response_model=PresenceResponse, tags=["Presence"])
 def get_presence():
     """Get current presence state (present/idle/away) and config."""
     if not sensing_service:
-        return {"state": "unknown", "enabled": False, "seconds_since_motion": 0,
-                "idle_timeout": 0, "away_timeout": 0}
+        return {
+            "state": "unknown",
+            "enabled": False,
+            "seconds_since_motion": 0,
+            "idle_timeout": 0,
+            "away_timeout": 0,
+        }
     return sensing_service.presence.to_dict()
 
 
@@ -1904,21 +2081,22 @@ def face_owners_detail():
     """List enrolled owners with photo filenames."""
     fr = _require_face_recognizer()
     from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+
     owners: list[FaceOwnerDetail] = []
     if OWNER_PHOTOS_DIR.is_dir():
         img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
         for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
             if not d.is_dir():
                 continue
-            photos = sorted(
-                f.name for f in d.iterdir() if f.suffix.lower() in img_exts
-            )
+            photos = sorted(f.name for f in d.iterdir() if f.suffix.lower() in img_exts)
             if photos:
-                owners.append(FaceOwnerDetail(
-                    label=d.name,
-                    photo_count=len(photos),
-                    photos=photos,
-                ))
+                owners.append(
+                    FaceOwnerDetail(
+                        label=d.name,
+                        photo_count=len(photos),
+                        photos=photos,
+                    )
+                )
     return FaceOwnersDetailResponse(owner_count=len(owners), owners=owners)
 
 
@@ -1926,6 +2104,7 @@ def face_owners_detail():
 def face_photo(label: str, filename: str):
     """Serve an owner photo as JPEG."""
     from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+
     norm = FaceRecognizer.normalize_label(label)
     path = (OWNER_PHOTOS_DIR / norm / filename).resolve()
     # Prevent path traversal
@@ -1967,10 +2146,18 @@ def face_stranger_stats():
 
 # --- Display endpoints ---
 
+
 class DisplayEyesRequest(BaseModel):
-    expression: str = Field(..., description="Expression: neutral, happy, sad, curious, thinking, excited, shy, shock, sleepy, angry, love")
-    pupil_x: float = Field(0.0, ge=-1.0, le=1.0, description="Pupil X: -1.0 (left) to 1.0 (right)")
-    pupil_y: float = Field(0.0, ge=-1.0, le=1.0, description="Pupil Y: -1.0 (up) to 1.0 (down)")
+    expression: str = Field(
+        ...,
+        description="Expression: neutral, happy, sad, curious, thinking, excited, shy, shock, sleepy, angry, love",
+    )
+    pupil_x: float = Field(
+        0.0, ge=-1.0, le=1.0, description="Pupil X: -1.0 (left) to 1.0 (right)"
+    )
+    pupil_y: float = Field(
+        0.0, ge=-1.0, le=1.0, description="Pupil Y: -1.0 (up) to 1.0 (down)"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -1980,8 +2167,12 @@ class DisplayEyesRequest(BaseModel):
 
 
 class DisplayInfoRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=20, description="Main text (short, e.g. '14:30')")
-    subtitle: str = Field("", max_length=40, description="Subtitle (e.g. 'Good afternoon')")
+    text: str = Field(
+        ..., min_length=1, max_length=20, description="Main text (short, e.g. '14:30')"
+    )
+    subtitle: str = Field(
+        "", max_length=40, description="Subtitle (e.g. 'Good afternoon')"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -2040,9 +2231,15 @@ def display_snapshot():
 
 
 class VoiceStartRequest(BaseModel):
-    llm_api_key: str = Field(..., min_length=1, description="OpenAI-compatible API key for TTS and STT")
-    llm_base_url: str = Field(..., min_length=1, description="OpenAI-compatible base URL for TTS and STT")
-    deepgram_api_key: str = Field("", description="Deepgram API key (optional, falls back to Autonomous STT)")
+    llm_api_key: str = Field(
+        ..., min_length=1, description="OpenAI-compatible API key for TTS and STT"
+    )
+    llm_base_url: str = Field(
+        ..., min_length=1, description="OpenAI-compatible base URL for TTS and STT"
+    )
+    deepgram_api_key: str = Field(
+        "", description="Deepgram API key (optional, falls back to Autonomous STT)"
+    )
 
 
 @app.post("/voice/start", response_model=StatusResponse, tags=["Voice"])
@@ -2079,7 +2276,9 @@ def start_voice(req: VoiceStartRequest):
             agent_name = _read_agent_name({})
             stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=[f"{agent_name}:3"])
         elif AutonomousSTT:
-            stt_provider = AutonomousSTT(api_key=req.llm_api_key, base_url=req.llm_base_url)
+            stt_provider = AutonomousSTT(
+                api_key=req.llm_api_key, base_url=req.llm_base_url
+            )
         if not stt_provider:
             raise HTTPException(503, "No STT provider available")
         wake_words = _build_wake_words(_read_agent_name({}))
@@ -2125,14 +2324,24 @@ def speak_text(req: SpeakRequest):
     """Synthesize text to speech and play through the speaker."""
     if not tts_service:
         logger.error("POST /voice/speak: tts_service is None (not initialized)")
-        raise HTTPException(503, "TTS not initialized — call /voice/start first or check lumi config has llm_api_key + llm_base_url")
+        raise HTTPException(
+            503,
+            "TTS not initialized — call /voice/start first or check lumi config has llm_api_key + llm_base_url",
+        )
     if not tts_service.available:
-        logger.error("POST /voice/speak: tts_service not available — client=%s, sd=%s",
-                      tts_service._client is not None, tts_service._sd is not None)
-        raise HTTPException(503, "TTS not available — missing openai SDK or sounddevice")
+        logger.error(
+            "POST /voice/speak: tts_service not available — client=%s, sd=%s",
+            tts_service._client is not None,
+            tts_service._sd is not None,
+        )
+        raise HTTPException(
+            503, "TTS not available — missing openai SDK or sounddevice"
+        )
     # Reject TTS while music is playing — shared speaker, TTS would kill the music
     if music_service and music_service.playing:
-        logger.info("POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80])
+        logger.info(
+            "POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80]
+        )
         raise HTTPException(409, "Speaker busy — music is playing")
     logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
     started = tts_service.speak(req.text)
@@ -2152,9 +2361,13 @@ def voice_status():
             "base_url": getattr(tts_service, "_base_url", "unknown"),
         }
     return {
-        "voice_available": voice_service is not None and voice_service.available if voice_service else False,
+        "voice_available": voice_service is not None and voice_service.available
+        if voice_service
+        else False,
         "voice_listening": voice_service.listening if voice_service else False,
-        "tts_available": tts_service is not None and tts_service.available if tts_service else False,
+        "tts_available": tts_service is not None and tts_service.available
+        if tts_service
+        else False,
         "tts_speaking": tts_service.speaking if tts_service else False,
         "tts_detail": tts_detail,
     }
@@ -2163,22 +2376,38 @@ def voice_status():
 # --- Music ---
 
 _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("music_jazz",      ["jazz", "swing", "blues", "soul", "funk", "bossa nova"]),
-    ("music_classical", ["classical", "orchestra", "symphony", "beethoven", "mozart",
-                         "chopin", "bach", "opera", "concerto", "sonata", "piano", "violin"]),
-    ("music_hiphop",    ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
-    ("music_rock",      ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
-    ("music_waltz",     ["waltz", "tango", "ballroom", "foxtrot"]),
+    ("music_jazz", ["jazz", "swing", "blues", "soul", "funk", "bossa nova"]),
+    (
+        "music_classical",
+        [
+            "classical",
+            "orchestra",
+            "symphony",
+            "beethoven",
+            "mozart",
+            "chopin",
+            "bach",
+            "opera",
+            "concerto",
+            "sonata",
+            "piano",
+            "violin",
+        ],
+    ),
+    ("music_hiphop", ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
+    ("music_rock", ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
+    ("music_waltz", ["waltz", "tango", "ballroom", "foxtrot"]),
 ]
 
 _MUSIC_STYLE_EMOTION: dict[str, str] = {
-    "music_groove":    "happy",
-    "music_jazz":      "happy",
+    "music_groove": "happy",
+    "music_jazz": "happy",
     "music_classical": "curious",
-    "music_hiphop":    "excited",
-    "music_rock":      "excited",
-    "music_waltz":     "happy",
+    "music_hiphop": "excited",
+    "music_rock": "excited",
+    "music_waltz": "happy",
 }
+
 
 def _detect_music_style(query: str) -> str:
     """Return recording name matching the genre keywords in query, else music_groove."""
@@ -2195,7 +2424,9 @@ def audio_play(req: MusicPlayRequest):
     if not music_service:
         raise HTTPException(503, "Music service not available")
     if not music_service.available:
-        raise HTTPException(503, "Music service not available — missing sounddevice or numpy")
+        raise HTTPException(
+            503, "Music service not available — missing sounddevice or numpy"
+        )
     logger.info("POST /audio/play: query='%s'", req.query[:80])
     started = music_service.play(req.query)
     if not started:
@@ -2227,7 +2458,14 @@ def audio_stop():
             _effect_name = idle_preset["effect"]
             _effect_thread = threading.Thread(
                 target=_run_effect,
-                args=(idle_preset["effect"], tuple(idle_preset["color"]), idle_preset.get("speed", 0.3), None, _effect_stop, rgb_service),
+                args=(
+                    idle_preset["effect"],
+                    tuple(idle_preset["color"]),
+                    idle_preset.get("speed", 0.3),
+                    None,
+                    _effect_stop,
+                    rgb_service,
+                ),
                 daemon=True,
                 name="led-music-idle",
             )
@@ -2253,6 +2491,7 @@ def audio_status():
 
 # --- Version ---
 
+
 @app.get("/version", tags=["System"])
 def version():
     """Return LeLamp runtime version."""
@@ -2260,6 +2499,7 @@ def version():
 
 
 # --- Health ---
+
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 def health():
@@ -2271,13 +2511,20 @@ def health():
         "camera": camera_capture is not None,
         "audio": audio_output_device is not None or audio_input_device is not None,
         "sensing": sensing_service is not None,
-        "voice": voice_service is not None and voice_service.available if voice_service else False,
-        "tts": tts_service is not None and tts_service.available if tts_service else False,
-        "music": music_service is not None and music_service.available if music_service else False,
+        "voice": voice_service is not None and voice_service.available
+        if voice_service
+        else False,
+        "tts": tts_service is not None and tts_service.available
+        if tts_service
+        else False,
+        "music": music_service is not None and music_service.available
+        if music_service
+        else False,
         "display": display_service is not None,
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=HTTP_PORT)
