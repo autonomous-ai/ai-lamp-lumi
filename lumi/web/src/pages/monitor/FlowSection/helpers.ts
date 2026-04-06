@@ -153,6 +153,13 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     if ((ev.type === "flow_event" || ev.type === "flow_enter") && ev.detail?.node === "voice_pipeline_start") {
       return { type: "voice", path: "unknown", forceNewTurn: true, boundary: "mic" };
     }
+    if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      if (/you just woke up/i.test(msg)) {
+        return { type: "system", path: "agent", boundary: "chat" as const };
+      }
+    }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
       // Check if message already available (resolved event) and is a sensing event
       const d = ev.detail as Record<string, any> | undefined;
