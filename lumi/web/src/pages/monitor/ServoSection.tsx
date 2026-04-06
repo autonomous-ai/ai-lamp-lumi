@@ -72,12 +72,21 @@ export function ServoSection() {
   };
 
   const zeroServos = async () => {
-    flash("Moving to 0°...");
+    flash("Moving to 0° (hold mode)...");
     await fetch(`${HW}/servo/zero`, {
       method: "POST",
       headers: { accept: "application/json" },
     }).catch(() => {});
     setTimeout(refresh, 2500);
+  };
+
+  const resumeServos = async () => {
+    flash("Resuming animation...");
+    await fetch(`${HW}/servo/resume`, {
+      method: "POST",
+      headers: { accept: "application/json" },
+    }).catch(() => {});
+    setTimeout(refresh, 500);
   };
 
   const onlineCount = servos ? Object.values(servos).filter((s) => s.online).length : 0;
@@ -186,9 +195,19 @@ export function ServoSection() {
               fontSize: 12, padding: "6px 18px", borderRadius: 5,
               background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.35)",
               color: "var(--lm-teal, #14b8a6)", cursor: "pointer", fontWeight: 600,
-            }}>Zero All Servos (0°)</button>
+            }}>Zero All (0°)</button>
             <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Holds at 0° — animation paused for testing
+              Hold at 0° — blocks all play calls
+            </div>
+          </div>
+          <div>
+            <button onClick={resumeServos} style={{
+              fontSize: 12, padding: "6px 18px", borderRadius: 5,
+              background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.35)",
+              color: "var(--lm-indigo, #6366f1)", cursor: "pointer", fontWeight: 600,
+            }}>Resume</button>
+            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
+              Exit hold mode, restart idle
             </div>
           </div>
           <div>
@@ -196,9 +215,9 @@ export function ServoSection() {
               fontSize: 12, padding: "6px 18px", borderRadius: 5,
               background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
               color: "var(--lm-red, #ef4444)", cursor: "pointer", fontWeight: 600,
-            }}>Release All Servos</button>
+            }}>Release All</button>
             <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Disables torque — lamp can be moved by hand
+              Disables torque — move by hand
             </div>
           </div>
         </div>
