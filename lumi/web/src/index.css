@@ -200,6 +200,8 @@
 }
 .lm-fade-in  { animation: lm-fade-in 0.35s ease-out both; }
 @keyframes lm-blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+@keyframes lm-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.lm-cursor { animation: lm-cursor-blink 0.8s step-end infinite; }
 .lm-blink { animation: lm-blink 1.4s infinite; display: inline-block; }
 .lm-blink + span { animation: lm-blink 1.4s infinite; animation-delay: 0.2s; display: inline-block; }
 .lm-blink + span + span { animation: lm-blink 1.4s infinite; animation-delay: 0.4s; display: inline-block; }
