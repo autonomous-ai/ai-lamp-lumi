@@ -160,6 +160,7 @@ interface ChatMessage {
   pending?: boolean;
   error?: boolean;
   tools?: ToolChip[];  // tool calls made during this response
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number; total: number };
 }
 
 interface Conversation {
@@ -353,6 +354,7 @@ export function ChatSection({ events }: Props) {
   // Real-time monitor bus SSE — streaming deltas, thinking, tool calls
   // Uses /api/openclaw/events (live bus) instead of flow-stream (file-based JSONL)
   const toolChipsRef = useRef<Map<string, ToolChip>>(new Map()); // key → chip for dedup
+  const tokenUsageRef = useRef<ChatMessage["tokenUsage"]>(undefined); // token usage for current run
 
   useEffect(() => {
     const es = new EventSource(`${API}/openclaw/events`);
@@ -396,7 +398,9 @@ export function ChatSection({ events }: Props) {
       const savedChips = chips.length > 0 ? chips : undefined;
       toolChipsRef.current.clear();
       setToolChips([]);
-      return { text, savedChips };
+      const usage = tokenUsageRef.current;
+      tokenUsageRef.current = undefined;
+      return { text, savedChips, usage };
     };
 
     es.onmessage = (msg) => {
@@ -419,6 +423,21 @@ export function ChatSection({ events }: Props) {
               setToolChips(Array.from(toolChipsRef.current.values()));
             }
           }
+        }
+
+        // Token usage — save for attaching to message on finalize
+        if (ev.type === "token_usage") {
+          const d = ev.detail as Record<string, string> | undefined;
+          if (d) {
+            tokenUsageRef.current = {
+              input: parseInt(d.input_tokens ?? "0", 10),
+              output: parseInt(d.output_tokens ?? "0", 10),
+              cacheRead: parseInt(d.cache_read_tokens ?? "0", 10) || undefined,
+              cacheWrite: parseInt(d.cache_write_tokens ?? "0", 10) || undefined,
+              total: parseInt(d.total_tokens ?? "0", 10),
+            };
+          }
+          return;
         }
 
         // Thinking deltas — accumulate, flush on next animation frame
@@ -451,11 +470,11 @@ export function ChatSection({ events }: Props) {
           const chatMsg = d?.message ?? ev.summary ?? "";
 
           if (chatMsg === "[no reply]") {
-            const { text, savedChips } = resolveRun(pending);
+            const { text, savedChips, usage } = resolveRun(pending);
             updateMessages((prev) =>
               prev.map((m) =>
                 m.runId === pending && m.role === "lumi" && m.pending
-                  ? { ...m, text: text === "…" ? "…" : text, pending: false, tools: savedChips }
+                  ? { ...m, text: text === "…" ? "…" : text, pending: false, tools: savedChips, tokenUsage: usage }
                   : m,
               ),
             );
@@ -463,12 +482,12 @@ export function ChatSection({ events }: Props) {
           }
 
           if (ev.state === "complete" || ev.state === "final") {
-            const { savedChips } = resolveRun(pending);
+            const { savedChips, usage } = resolveRun(pending);
             const finalText = stripHWMarkers(chatMsg || deltaBufRef.current.get(pending) || "…");
             updateMessages((prev) =>
               prev.map((m) =>
                 m.runId === pending && m.role === "lumi" && m.pending
-                  ? { ...m, text: finalText, pending: false, tools: savedChips }
+                  ? { ...m, text: finalText, pending: false, tools: savedChips, tokenUsage: usage }
                   : m,
               ),
             );
@@ -526,11 +545,13 @@ export function ChatSection({ events }: Props) {
           const savedChips = chips.length > 0 ? chips : undefined;
           toolChipsRef.current.clear();
           setToolChips([]);
+          const usage = tokenUsageRef.current;
+          tokenUsageRef.current = undefined;
           const cleaned = stripHWMarkers(text);
           updateMessages((prev) =>
             prev.map((m) =>
               m.runId === pending && m.role === "lumi" && m.pending
-                ? { ...m, text: cleaned, pending: false, tools: savedChips }
+                ? { ...m, text: cleaned, pending: false, tools: savedChips, tokenUsage: usage }
                 : m,
             ),
           );
@@ -544,6 +565,7 @@ export function ChatSection({ events }: Props) {
         setThinkingText(null);
         toolChipsRef.current.clear();
         setToolChips([]);
+        tokenUsageRef.current = undefined;
         updateMessages((prev) =>
           prev.map((m) =>
             m.runId === pending && m.role === "lumi" && m.pending
@@ -1234,6 +1256,13 @@ export function ChatSection({ events }: Props) {
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.7"; }}
                       title="Retry"
                     >↻ retry</button>
+                  )}
+                  {msg.tokenUsage && msg.role === "lumi" && (
+                    <span style={{ fontSize: 9, color: "var(--lm-text-muted)", opacity: 0.5 }}
+                      title={`in: ${msg.tokenUsage.input} / out: ${msg.tokenUsage.output}${msg.tokenUsage.cacheRead ? ` / cache read: ${msg.tokenUsage.cacheRead}` : ""}${msg.tokenUsage.cacheWrite ? ` / cache write: ${msg.tokenUsage.cacheWrite}` : ""} / total: ${msg.tokenUsage.total}`}
+                    >
+                      {msg.tokenUsage.input}↓ {msg.tokenUsage.output}↑
+                    </span>
                   )}
                 </div>
               </div>
