@@ -62,7 +62,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// Light up listening LED as soon as mic opens (voice_listening) or wake word arrives.
 	if req.Type == "voice_listening" || req.Type == "voice_command" {
-		slog.Info("listening LED set", "component", "statusled", "reason", req.Type)
+		slog.Info("listening LED set", "component", "statusled", "reason", req.Type, "message", req.Message)
 		h.statusLED.Set(statusled.StateListening)
 	}
 	// voice_listening / voice_listening_end are internal LED signals — don't forward to agent.
