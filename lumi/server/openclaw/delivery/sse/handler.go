@@ -142,18 +142,80 @@ func (h *OpenClawHandler) accumulateAssistantDelta(runID, delta string) {
 // strips image payloads from conversation history (e.g. "[image description removed]").
 var prunedImageMarkerRe = regexp.MustCompile(`\[image[^\]]*removed[^\]]*\]`)
 
+// hwMarkerRe matches inline hardware markers like [HW:/emotion:{"emotion":"happy","intensity":0.9}]
+// JSON body must not contain '}' except as the final closing brace (no nested objects).
+var hwMarkerRe = regexp.MustCompile(`\[HW:(/[^:]+):(\{[^}]*\})\]`)
+
+type hwCall struct {
+	path string
+	body string
+}
+
+// extractHWCalls parses all [HW:/path:{"json"}] markers from text,
+// returns the list of calls and the text with all markers stripped.
+func extractHWCalls(text string) ([]hwCall, string) {
+	matches := hwMarkerRe.FindAllStringSubmatch(text, -1)
+	calls := make([]hwCall, 0, len(matches))
+	for _, m := range matches {
+		calls = append(calls, hwCall{path: m[1], body: m[2]})
+	}
+	return calls, strings.TrimSpace(hwMarkerRe.ReplaceAllString(text, ""))
+}
+
+// fireHWCalls fires hardware calls to LeLamp sequentially in a goroutine,
+// with full flow tracking, lastEmotion update, and monitorBus events.
+// Sequential order matters (e.g. emotion sequences must fire in order).
+func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
+	if len(calls) == 0 {
+		return
+	}
+	go func() {
+		for _, c := range calls {
+			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
+			if err != nil {
+				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
+				continue
+			}
+			resp.Body.Close()
+			slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
+			switch {
+			case strings.Contains(c.path, "/emotion"):
+				flow.Log("hw_emotion", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
+				if e := parseEmotion(c.body); e != "" {
+					h.lastEmotionMu.Lock()
+					h.lastEmotion = e
+					h.lastEmotionMu.Unlock()
+				}
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.body, RunID: flowRunID})
+			case strings.Contains(c.path, "/scene"), strings.Contains(c.path, "/led"):
+				flow.Log("hw_led", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_led", Summary: c.body, RunID: flowRunID})
+			case strings.Contains(c.path, "/servo"):
+				flow.Log("hw_servo", map[string]any{"args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_servo", Summary: c.body, RunID: flowRunID})
+			default:
+				flow.Log("hw_call", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+			}
+		}
+	}()
+}
+
 // flushAssistantText returns the accumulated text for runId and clears the buffer.
-func (h *OpenClawHandler) flushAssistantText(runID string) string {
+// HW markers are stripped here so they never appear in Telegram or other channel replies.
+// The caller is responsible for extracting and firing HW calls before flushing.
+func (h *OpenClawHandler) flushAssistantText(runID string) (string, []hwCall) {
 	h.assistantMu.Lock()
 	defer h.assistantMu.Unlock()
 	buf, ok := h.assistantBuf[runID]
 	if !ok || buf.Len() == 0 {
-		return ""
+		return "", nil
 	}
-	text := prunedImageMarkerRe.ReplaceAllString(buf.String(), "")
+	raw := buf.String()
+	raw = prunedImageMarkerRe.ReplaceAllString(raw, "")
+	calls, text := extractHWCalls(raw)
 	text = strings.TrimSpace(text)
 	delete(h.assistantBuf, runID)
-	return text
+	return text, calls
 }
 
 // suppressTTS flags a runID to skip TTS on lifecycle end with the given reason.
@@ -645,7 +707,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Suppress TTS if the agent played music or already spoke via tool intercept.
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
 			suppressReason := h.clearTTSSuppress(payload.RunID)
-			if text := h.flushAssistantText(payload.RunID); text != "" {
+			if text, hwCalls := h.flushAssistantText(payload.RunID); text != "" || len(hwCalls) > 0 {
+				// Fire HW calls with full tracking (flow.Log + lastEmotion + monitorBus).
+				h.fireHWCalls(hwCalls, flowRunID)
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
@@ -657,6 +721,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						State:   "final",
 						Detail:  map[string]string{"role": "assistant", "message": "[no reply]"},
 					})
+				} else if text == "" {
+					// HW-only reply (only markers, no spoken text)
+					flow.Log("hw_only_reply", map[string]any{"run_id": flowRunID}, flowRunID)
 				} else if suppressReason != "" {
 					slog.Info("assistant turn done, TTS suppressed", "component", "agent", "reason", suppressReason, "text", text[:min(len(text), 100)])
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
