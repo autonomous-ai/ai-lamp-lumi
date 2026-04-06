@@ -100,6 +100,7 @@ Color is an RGB array `[R, G, B]`.
 
 ## Rules
 - **"Mở đèn màu X" / "bật đèn X" / "đổi màu X" = THIS skill.** Any request naming a color (vàng, đỏ, xanh, tím, trắng, cam, hồng…) routes here — NOT to Emotion or Scene. Emotion yellow/happy is for YOUR feelings, not user's lighting request.
+- **NEVER use `/led-color` or `/led/color` for setting color — these endpoints do NOT exist.** Always use `[HW:/led/effect/stop:{}][HW:/led/solid:{"color":[R,G,B]}]`.
 - **Stop effect before solid.** Always call `/led/effect/stop` before `/led/solid`. A running effect thread overwrites solid every 40ms — skipping the stop causes the color to flicker and revert.
 - **Solid colors = full brightness.** For dim/ambient lighting, use the Scene skill instead.
 - **Effects run until stopped** (unless `duration_ms` is set). Starting a new effect auto-stops the previous one.
