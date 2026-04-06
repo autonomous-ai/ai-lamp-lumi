@@ -65,8 +65,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		slog.Info("listening LED set", "component", "statusled", "reason", req.Type)
 		h.statusLED.Set(statusled.StateListening)
 	}
-	// voice_listening is internal LED signal only — don't forward to agent.
+	// voice_listening / voice_listening_end are internal LED signals — don't forward to agent.
 	if req.Type == "voice_listening" {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+		return
+	}
+	if req.Type == "voice_listening_end" {
+		slog.Info("listening LED cleared", "component", "statusled", "reason", "voice_listening_end")
+		h.statusLED.Clear(statusled.StateListening)
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 		return
 	}

@@ -335,6 +335,13 @@ class VoiceService:
         finally:
             self._listening = False
             session.close()
+            # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
+            try:
+                requests.post("http://127.0.0.1:5000/api/sensing/event",
+                              json={"type": "voice_listening_end", "message": "done"},
+                              timeout=0.3)
+            except Exception:
+                pass
 
     def _is_echo(self, transcript: str) -> bool:
         """Check if transcript is echo of last TTS output (Layer 3: transcript self-filter)."""
