@@ -7,6 +7,7 @@ and output directly to ALSA device (bypassing sounddevice/PortAudio).
 
 import json
 import logging
+import re
 import subprocess
 import sys
 import threading
@@ -16,11 +17,41 @@ from typing import Optional
 logger = logging.getLogger("lelamp.voice.music")
 logger.setLevel(logging.DEBUG)
 
-# ALSA output device — MUST use "default" (not hw:X,Y or plughw:X,Y).
-# Pi 4: seeed-voicecard asound_2mic.conf routes "default" through dmix/dsnoop.
-# Pi 5: /etc/asound.conf routes playback to CD002-AUDIO, capture to WEBCAM.
-# Using hw: or plughw: takes an exclusive lock, blocking the mic and killing STT.
-ALSA_DEVICE = "default"
+
+def _detect_alsa_output_device() -> str:
+    """Detect ALSA output device from aplay -l.
+
+    Priority: CD002 > Seeed ReSpeaker > any USB audio device.
+    Returns plughw:CARD,0 for direct hardware access (handles sample rate
+    conversion), or "default" as fallback.
+    """
+    try:
+        result = subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return "default"
+        speaker_keywords = ["cd002", "seeed", "usb audio"]
+        for keyword in speaker_keywords:
+            for line in result.stdout.splitlines():
+                if not line.startswith("card "):
+                    continue
+                if keyword not in line.lower():
+                    continue
+                m = re.search(r"card \d+: (\S+)", line)
+                if m:
+                    card = m.group(1)
+                    logger.info("Detected ALSA output: plughw:%s,0 (matched '%s')", card, keyword)
+                    return f"plughw:{card},0"
+    except Exception as e:
+        logger.warning("ALSA device detection failed: %s", e)
+    logger.info("ALSA output: using default")
+    return "default"
+
+
+# Detect at import time so it's logged during service startup.
+# plughw:CARD,0 handles sample rate conversion natively; music and TTS
+# use the device exclusively but the service serialises them (music pauses
+# while TTS speaks, so no simultaneous access).
+ALSA_DEVICE = _detect_alsa_output_device()
 
 
 class MusicService:
@@ -129,7 +160,7 @@ class MusicService:
                 [
                     "ffmpeg",
                     "-i", "pipe:0",
-                    "-ar", "16000",
+                    "-ar", "44100",
                     "-f", "alsa",
                     self._alsa_device,
                 ],
@@ -185,7 +216,7 @@ class MusicService:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=90,
             )
 
             if result.returncode != 0:
