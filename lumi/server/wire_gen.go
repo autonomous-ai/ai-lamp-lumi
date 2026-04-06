@@ -48,7 +48,7 @@ func InitializeServer() (*Server, error) {
 	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, agentGateway)
 	statusledService := statusled.ProvideService()
 	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus, statusledService)
-	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig)
+	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig, statusledService)
 	resetbuttonService := resetbutton.ProvideServiceOptional()
 	ambientService := ambient.ProvideService(bus)
 	healthwatchService := healthwatch.ProvideService(bus, configConfig)
