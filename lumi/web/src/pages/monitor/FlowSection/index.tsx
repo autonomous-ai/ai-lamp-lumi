@@ -12,8 +12,9 @@ import { CanvasModal } from "./CanvasModal";
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
-  cam: ["motion", "presence.enter", "presence.leave", "light.level", "environment", "system"],
+  cam: ["motion", "presence.enter", "presence.leave", "light.level", "environment"],
   telegram: ["telegram"],
+  system: ["system", "schedule"],
 };
 const TYPE_ICON: Record<string, string> = {
   ...SOURCE_ICON,
@@ -500,6 +501,7 @@ export function FlowSection({
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
                 { key: "telegram", icon: "💬", label: "TG" },
+                { key: "system", icon: "⚙", label: "Sys" },
               ] as const).map((f) => {
                 const catTypes = CAT_TYPES[f.key] ?? [];
                 const available = catTypes.filter((t) => availableTypes.includes(t));
