@@ -42,8 +42,10 @@ LIGHT_LEVEL_INTERVAL_S = 30.0  # check every 30 seconds
 LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger event
 
 # --- Sensing: Face detection ---
-FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
+FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
 YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
+FACE_OWNER_FORGET_S = 30.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 15.0   # same for strangers
 
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60  # 5 min → dim
