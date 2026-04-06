@@ -44,7 +44,7 @@ ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window af
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
-DEFAULT_WAKE_WORDS = ["hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
 
 class VoiceService:
@@ -295,6 +295,13 @@ class VoiceService:
             self._listening = True
             last_speech_time = time.time()
             session_start = time.time()
+            # Signal Lumi to show listening LED as soon as mic session opens (before transcript arrives)
+            try:
+                requests.post("http://127.0.0.1:5000/api/sensing/event",
+                              json={"type": "voice_listening", "message": "listening"},
+                              timeout=0.3)
+            except Exception:
+                pass
 
             while self._running and not session.is_closed():
                 # If TTS starts speaking mid-session, stop streaming immediately
