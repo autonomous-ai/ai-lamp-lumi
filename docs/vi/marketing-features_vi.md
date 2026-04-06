@@ -89,17 +89,21 @@ Trạng thái: **Đang Xem Xét** — chưa lên lịch, chưa implement.
 - Hành vi hiện tại: **chỉ reactive** — người dùng phải yêu cầu "phát nhạc cho tôi"
 - UC này thêm **lớp trigger chủ động** — Lumi tự quyết định gợi ý/phát mà không cần được nhờ
 
+**Trạng thái implement** (một phần):
+- ✅ **Gợi ý từ lịch sử nghe** — Music SKILL.md đã cập nhật section "Music Suggestion (Proactive)". Query `hw_audio` events từ flow log API (`GET /api/openclaw/flow-events`) để build listening history. Gợi ý 1–2 bài qua TTS mà không auto-play; chỉ play sau khi user xác nhận.
+- ⬜ **Gợi ý từ sensing** — Proactive trigger từ stress/focus/morning context chưa wire (cần sensing event → suggestion pipeline)
+
 **Phù hợp kiến trúc**:
 - Effort thấp nhất trong 4 features đề xuất — không cần model hardware mới
-- Cần cập nhật `lelamp/openclaw/SKILL.md` (music) và `SOUL.md` với quy tắc hành vi nhạc chủ động
+- Music SKILL.md đã cập nhật suggestion workflow, bash recipes query flow logs, và suggestion rules
 - Sensing events đã có sẵn: `sound.voice_tone` (stress), `sound.silence` (tập trung), `time.schedule` (sáng/tối)
 - OpenClaw map: stress → ambient/lo-fi, tập trung → instrumental, buổi sáng → upbeat
 
 **Câu hỏi mở**:
-- [ ] Lumi có nên hỏi trước ("Muốn nghe nhạc không?") hay phát thẳng? Tùy ngữ cảnh?
+- [x] Sở thích nhạc của người dùng: Lumi học theo thời gian như thế nào? → **Đã giải quyết: query `hw_audio` flow log history**
+- [x] Lumi có nên hỏi trước hay phát thẳng? → **Luôn gợi ý trước, chỉ play sau khi user xác nhận**
 - [ ] Làm sao tránh làm phiền — nhạc cắt ngang cuộc gọi điện thoại hay video meeting?
 - [ ] Tích hợp với UC-16 (Screen Awareness) để phát hiện Spotify/YouTube đang chạy → không gợi ý
-- [ ] Sở thích nhạc của người dùng: Lumi học theo thời gian như thế nào?
 
 **Tiêu chí nghiệm thu**:
 - Trigger nhạc chủ động khi: phát hiện stress, tập trung liên tục (>15 phút im lặng), lịch buổi sáng
@@ -156,7 +160,7 @@ Trạng thái: **Đang Xem Xét** — chưa lên lịch, chưa implement.
 
 | UC | Tính năng | Effort | Rủi ro Pi 4 | Độ ưu tiên đề xuất |
 |---|---|---|---|---|
-| UC-M3 | Gợi ý nhạc chủ động | Thấp (SKILL.md + SOUL.md) | Không có | **P1 — làm trước** |
+| UC-M3 | Gợi ý nhạc chủ động | Thấp (SKILL.md + SOUL.md) | Không có | **P1 — một phần (gợi ý từ history done)** |
 | UC-M2 | Nhắc nhở sức khỏe chủ động | Thấp (logic sensing loop) | Không có | **P1 — làm trước** |
 | UC-M1 | Nhận diện cảm xúc khuôn mặt | Trung bình (ONNX model mới) | Thấp | P2 |
 | UC-M4a | Thời gian nhìn màn hình / chăm sóc mắt | Trung bình (gaze estimation) | Trung bình | P2 |
