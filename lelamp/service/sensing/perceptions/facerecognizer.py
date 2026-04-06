@@ -278,10 +278,12 @@ class FaceRecognizer(Perception):
 
 
         raw_results = self.app.get(frame)
+        cur_ts = time.time()
 
         if not raw_results:
             self._face_present = False
             self._faces_n = 0
+            self._check_leaves(cur_ts)
             return
 
         embeds = np.stack(
@@ -309,8 +311,6 @@ class FaceRecognizer(Perception):
         strangers_seen = set()
         # per-face: (bbox_pixels, face_kind, label)  face_kind: "owner"|"stranger"|"unsure"
         face_annotations: list[tuple[list[int], str, str]] = []
-
-        cur_ts = time.time()
 
         for x in range(n):
             o_score = float(owner_scores[x])
@@ -404,6 +404,8 @@ class FaceRecognizer(Perception):
             if strangers_seen:
                 self._track_stranger_visits(strangers_seen)
 
+        self._check_leaves(cur_ts)
+
     def to_dict(self) -> dict:
         return {
             "type": "face",
@@ -414,6 +416,27 @@ class FaceRecognizer(Perception):
             if self._stranger_embeddings is not None
             else 0,
         }
+
+    # -- Presence leave detection ------------------------------------------------
+
+    def _check_leaves(self, cur_ts: float) -> None:
+        """Fire presence.leave for anyone not seen within their forget interval."""
+        for person_id, last_seen in list(self._owners_last_seen.items()):
+            if (cur_ts - last_seen) > self._owners_forget_ts:
+                del self._owners_last_seen[person_id]
+                self._send_leave_event(person_id, kind="owner")
+
+        for person_id, last_seen in list(self._strangers_last_seen.items()):
+            if (cur_ts - last_seen) > self._strangers_forget_ts:
+                del self._strangers_last_seen[person_id]
+                self._send_leave_event(person_id, kind="stranger")
+
+    def _send_leave_event(self, person_id: str, kind: str) -> None:
+        self._send_event(
+            "presence.leave",
+            f"Person no longer visible — {kind} ({person_id})",
+            cooldown=config.FACE_COOLDOWN_S,
+        )
 
     # -- Stranger visit tracking -------------------------------------------------
 
