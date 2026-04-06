@@ -2,13 +2,16 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -216,6 +219,7 @@ func (s *Server) Serve(closeFn func()) error {
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	defer cancelEvents()
 	go s.agentGateway.StartWS(eventCtx, s.openclawHandler.HandleEvent)
+	go s.agentGateway.WatchIdentity(eventCtx)
 
 	r := gin.Default()
 	r.RedirectTrailingSlash = false // avoid 301 redirect loop on /network vs /network/
@@ -233,6 +237,7 @@ func (s *Server) Serve(closeFn func()) error {
 	system.GET("network", s.healthHandler.NetworkInfo)
 	system.GET("dashboard", s.healthHandler.Dashboard)
 	system.POST("force-update", s.forceUpdate)
+	system.POST("exec", s.execCommand)
 
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
@@ -563,6 +568,45 @@ func (s *Server) forceUpdate(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 	c.JSON(http.StatusOK, serializers.ResponseSuccess("update check triggered"))
+}
+
+// execCommand runs a shell command (sh -c) and returns stdout, stderr, and exit code.
+// POST /api/system/exec  body: {"cmd": "..."}
+func (s *Server) execCommand(c *gin.Context) {
+	var body struct {
+		Cmd string `json:"cmd"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Cmd) == "" {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("cmd required"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", body.Cmd)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	exitCode := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+			if stderr.Len() == 0 {
+				stderr.WriteString(err.Error())
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"stdout":    stdout.String(),
+		"stderr":    stderr.String(),
+		"exit_code": exitCode,
+	}))
 }
 
 // tailFile reads the last n lines from a single file.

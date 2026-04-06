@@ -11,56 +11,48 @@ Express emotion through the lamp's servo motors, LED colors, and display eyes si
 ## Workflow
 1. Determine which emotion best matches your conversational tone
 2. Choose an intensity level (0.0 subtle to 1.0 full expression)
-3. Call `POST /emotion` with the emotion name and intensity
-4. Continue with your conversational reply
+3. Prefix your reply with `[HW:/emotion:{"emotion":"name","intensity":0.9}]` — Lumi fires it async before TTS
+4. Write your reply immediately after the marker
+
+## How to Express Emotion
+
+**No exec/curl needed.** Place inline markers at the start of your reply:
+
+```
+[HW:/emotion:{"emotion":"curious","intensity":0.8}] That's a great question!
+```
+
+For sequences (shock then happy):
+```
+[HW:/emotion:{"emotion":"shock","intensity":0.9}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Wow, amazing!
+```
+
+Parameters:
+- `emotion` (required): emotion name from the table below
+- `intensity` (required): 0.0 (subtle) to 1.0 (full expression)
 
 ## Examples
 
 Input: User asks an interesting question
-Output: Call `POST /emotion` with `{"emotion": "curious", "intensity": 0.8}`. Then reply to the question.
+Output: `[HW:/emotion:{"emotion":"curious","intensity":0.8}]` Then reply to the question.
 
 Input: User shares good news
-Output: Call `POST /emotion` with `{"emotion": "happy", "intensity": 0.9}`. Then congratulate them.
+Output: `[HW:/emotion:{"emotion":"happy","intensity":0.9}]` Then congratulate them.
 
 Input: User tells you something surprising (positive)
-Output: Call `POST /emotion` with `{"emotion": "shock", "intensity": 0.7}`, then follow with `{"emotion": "happy", "intensity": 0.8}`. Then reply with your reaction.
+Output: `[HW:/emotion:{"emotion":"shock","intensity":0.7}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Then reply with your reaction.
 
 Input: User shares bad or shocking personal news ("I had an accident", "I lost my job", "someone close to me passed away")
-Output: Call `POST /emotion` with `{"emotion": "shock", "intensity": 0.9}`, then `{"emotion": "sad", "intensity": 0.8}`. Then express genuine concern and empathy for them — this is about THEIR experience, not yours.
+Output: `[HW:/emotion:{"emotion":"shock","intensity":0.9}][HW:/emotion:{"emotion":"sad","intensity":0.8}]` Then express genuine concern and empathy.
 
 Input: User shares stressful or disappointing personal news ("I failed my exam", "I got into a fight", "I'm really tired and overwhelmed")
-Output: Call `POST /emotion` with `{"emotion": "sad", "intensity": 0.8}`. Then respond with warmth and care — acknowledge what they're going through before anything else.
+Output: `[HW:/emotion:{"emotion":"sad","intensity":0.8}]` Then respond with warmth and care.
 
 Input: User says "reading mode" / "goodnight" / "dim the light"
 Output: Do NOT use this skill. Use **Scene** skill instead. Emotion is for YOUR feelings, Scene is for the USER's environment.
 
 Input: User says "make it purple"
 Output: Do NOT use this skill. Use **LED Control** skill instead.
-
-## Tools
-
-Use `Bash` with `curl` to call the HTTP API at `http://127.0.0.1:5001`.
-
-### Express emotion
-```bash
-curl -s -X POST http://127.0.0.1:5001/emotion \
-  -H "Content-Type: application/json" \
-  -d '{"emotion": "curious", "intensity": 0.8}'
-```
-
-Parameters:
-- `emotion` (required): emotion name from the table below
-- `intensity` (optional): 0.0 (subtle) to 1.0 (full expression), default 0.7
-
-Response:
-```json
-{
-  "status": "ok",
-  "emotion": "curious",
-  "servo": "curious",
-  "led": [204, 160, 64]
-}
-```
 
 ### Available emotions
 
@@ -105,9 +97,9 @@ Response:
 
 ## Output Template
 ```
-[Emotion] {emotion} at intensity {intensity}
+[HW:/emotion:{"emotion":"{name}","intensity":{n}}] {your reply}
 ```
 Examples:
-- `[Emotion] curious at intensity 0.8`
-- `[Emotion] happy at intensity 0.9`
-- `[Emotion] shock at intensity 0.7 -> happy at intensity 0.8`
+- `[HW:/emotion:{"emotion":"curious","intensity":0.8}] That's interesting!`
+- `[HW:/emotion:{"emotion":"happy","intensity":0.9}] Great news!`
+- `[HW:/emotion:{"emotion":"shock","intensity":0.7}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Wow amazing!`

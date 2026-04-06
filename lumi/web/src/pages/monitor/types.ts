@@ -113,16 +113,45 @@ export interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat";
+export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli";
 
-export const NAV: { id: Section; label: string; icon: string }[] = [
-  { id: "overview",   label: "Overview",   icon: "◈" },
-  { id: "system",     label: "System",     icon: "⬡" },
-  { id: "flow",       label: "Flow",       icon: "⬢" },
-  { id: "camera",     label: "Camera",     icon: "⬟" },
-  { id: "servo",      label: "Servo",      icon: "⚙" },
-  { id: "face-owners", label: "Faces",      icon: "◎" },
-  { id: "analytics",  label: "Analytics",  icon: "◉" },
-  { id: "logs",       label: "Logs",       icon: "☰" },
-  { id: "chat",       label: "Chat",       icon: "✉" },
+export type NavLeaf = { id: Section; label: string; icon: string };
+export type NavLink = { href: string; label: string; icon: string; external?: boolean };
+export type NavChild = NavLeaf | NavLink;
+export type NavGroup = { group: string; label: string; icon: string; children: NavChild[] };
+export type NavEntry = NavLeaf | NavGroup;
+
+export function isNavGroup(e: NavEntry): e is NavGroup {
+  return "group" in e;
+}
+export function isNavLink(c: NavChild): c is NavLink {
+  return "href" in c;
+}
+
+export const NAV: NavEntry[] = [
+  { id: "overview",  label: "Overview",  icon: "◈" },
+  { id: "flow",      label: "Flow",      icon: "⇉" },
+  {
+    group: "vision",
+    label: "Vision",
+    icon: "⊙",
+    children: [
+      { id: "camera",      label: "Camera", icon: "◫" },
+      { id: "face-owners", label: "Faces",  icon: "◎" },
+    ],
+  },
+  { id: "analytics", label: "Analytics", icon: "▦" },
+  { id: "chat",      label: "Chat",      icon: "✉" },
+  {
+    group: "system",
+    label: "System",
+    icon: "▣",
+    children: [
+      { id: "system", label: "Info",  icon: "◧" },
+      { id: "servo",  label: "Servo", icon: "⚙" },
+      { id: "logs",                       label: "Logs",    icon: "≡" },
+      { id: "cli",                        label: "CLI",     icon: "$" },
+      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⬟" },
+    ],
+  },
 ];
