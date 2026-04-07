@@ -1503,27 +1503,6 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 			"message":        msg,
 		}
 
-		// Pass deliveryContext so OpenClaw routes the response back to the
-		// correct channel (e.g. Telegram) instead of defaulting to webchat.
-		if dc := sess.DeliveryContext; dc != nil && dc.Channel != "" {
-			params["channel"] = dc.Channel
-			if dc.To != "" {
-				params["to"] = dc.To
-			}
-			if dc.AccountID != "" {
-				params["accountId"] = dc.AccountID
-			}
-		} else if sess.LastChannel != "" {
-			// Fallback: use lastChannel/lastTo/lastAccountId
-			params["channel"] = sess.LastChannel
-			if sess.LastTo != "" {
-				params["to"] = sess.LastTo
-			}
-			if sess.LastAccountID != "" {
-				params["accountId"] = sess.LastAccountID
-			}
-		}
-
 		if imageBase64 != "" {
 			params["attachments"] = []map[string]interface{}{
 				{
