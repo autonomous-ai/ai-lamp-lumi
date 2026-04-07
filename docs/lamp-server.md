@@ -67,7 +67,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break|wellbeing.music",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -86,6 +86,8 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | `presence.away` | PresenceService (15 min no motion) | No | No one around for 15+ min — Lumi going to sleep |
 | `wellbeing.hydration` | WellbeingPerception (30 min timer) | Yes | User sitting 30+ min without water break |
 | `wellbeing.break` | WellbeingPerception (45 min timer) | Yes | User sitting 45+ min continuously |
+| `wellbeing.music` | WellbeingPerception (60 min timer) | Yes | User present 60+ min — mood-based music suggestion |
+| `motion.activity` | MotionPerception (while PRESENT) | Yes | Motion detected while user is present — activity analysis |
 
 **Processing flow:**
 1. `voice_command` or `voice` + local intent enabled → match intent → execute directly (~50ms)
@@ -170,6 +172,12 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | GET | `/presence` | Current state (present/idle/away) |
 | POST | `/presence/enable` | Enable auto presence control |
 | POST | `/presence/disable` | Disable auto presence (manual mode) |
+
+### Wellbeing
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/sensing/wellbeing/reset` | Reset a wellbeing timer. Body: `{"type": "break" \| "hydration"}`. Called via `[HW:/sensing/wellbeing/reset:...]` markers when the agent observes the user stretching or drinking water. |
 
 ### Face (owner enrollment)
 
