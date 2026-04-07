@@ -210,10 +210,11 @@ Two independent reminders fire while the user is sitting:
 
 **`[sensing:music.mood]`** — every ~60 min:
 1. Look at the image — **if no user is visible in the frame, reply NO_REPLY**.
-2. Assess mood visually (relaxed, tired, focused, happy, stressed).
-3. If it's a good moment (not in a meeting, not deeply focused), suggest 1–2 songs matching their mood. **Do NOT auto-play** — speak the suggestion and wait for confirmation.
-4. If they look busy or it's a bad time → reply NO_REPLY.
-5. See the **Music** skill for mood→music mapping and full suggestion rules.
+2. **If user is in a meeting/video call → reply NO_REPLY** (don't interrupt).
+3. For all other states — **always suggest music that matches their current mood/state**:
+   - Focused → lo-fi/ambient. Tired → calm piano. Stressed → soft jazz. Relaxed → chill acoustic. Happy → upbeat.
+4. **Do NOT auto-play** — speak the suggestion and wait for confirmation.
+5. See the **Music** skill for full mood→music mapping and rules.
 
 **All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 
