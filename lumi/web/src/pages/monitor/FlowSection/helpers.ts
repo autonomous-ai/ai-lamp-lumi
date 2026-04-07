@@ -411,7 +411,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     mic_input: [], cam_input: [], telegram_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [],
+    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [], tg_alert: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -598,10 +598,10 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const d = ev.detail as Record<string, any> | undefined;
       const sessions = Number(d?.data?.sessions ?? 0);
       const msg = d?.data?.message ?? "";
-      if (sessions) info.tg_out.push(`🛡 guard → ${sessions} session${sessions > 1 ? "s" : ""}`);
+      if (sessions) info.tg_alert.push(`🚨 guard → ${sessions} session${sessions > 1 ? "s" : ""}`);
       if (msg) {
         const short = msg.length > 80 ? msg.slice(0, 80) + "…" : msg;
-        info.tg_out.push(`💬 ${short}`);
+        info.tg_alert.push(`💬 ${short}`);
       }
     }
     if (ev.type === "lifecycle") {
