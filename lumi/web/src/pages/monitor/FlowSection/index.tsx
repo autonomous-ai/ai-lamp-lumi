@@ -12,7 +12,7 @@ import { CanvasModal } from "./CanvasModal";
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
-  cam: ["motion", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
+  cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
   telegram: ["telegram"],
   system: ["system", "schedule"],
 };
@@ -22,7 +22,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
+  motion: "motion", "motion.activity": "activity", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
   telegram: "TG", schedule: "sched",
@@ -274,7 +274,7 @@ export function FlowSection({
     const d = ev.detail as Record<string, any> | undefined;
     const sensingType = d?.data?.type ?? d?.type;
     const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
-      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "sound");
+      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "sound");
     if (isSensingInput || fromSensingChatSend || fromSensingAgentCall) {
       // Determine mic vs cam from sensing type or summary bracket
       let detectedType = sensingType;
