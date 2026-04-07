@@ -1645,64 +1645,25 @@ func (s *Service) ConsumeGuardRun(runID string) (string, bool) {
 	return snap, ok
 }
 
-// BroadcastTelegram sends a message directly via Telegram Bot API to all connected
-// Telegram chats. Fetches chat IDs from sessions.list, then calls sendMessage/sendPhoto.
-func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
-	// Prefer OpenClaw token — it matches the bot that owns the sessions.
-	// Lumi config may have a different bot's token from onboarding.
-	botToken := s.readOpenClawTelegramToken()
-	if botToken == "" {
-		botToken = s.config.TelegramBotToken
+// --- Channel abstraction (backend-agnostic) ---
+
+// GetTelegramBotToken returns the Telegram bot token from the agent runtime config.
+// Prefers the runtime config (OpenClaw) over Lumi config, since the runtime owns the sessions.
+func (s *Service) GetTelegramBotToken() string {
+	if token := s.readOpenClawTelegramToken(); token != "" {
+		return token
 	}
-	if botToken == "" {
-		return fmt.Errorf("telegram bot token not configured")
-	}
-	slog.Info("telegram broadcast token", "component", "openclaw", "tokenPrefix", botToken[:min(len(botToken), 15)]+"...")
-
-	// Get Telegram chat IDs from sessions.list
-	chatIDs := s.getTelegramChatIDs()
-	if len(chatIDs) == 0 {
-		slog.Warn("telegram broadcast: no Telegram chats found", "component", "openclaw")
-		return nil
-	}
-
-	slog.Info("telegram broadcast", "component", "openclaw", "chats", len(chatIDs), "hasSnapshot", snapshotPath != "")
-
-	var photoBytes []byte
-	if snapshotPath != "" {
-		if data, err := os.ReadFile(snapshotPath); err == nil {
-			photoBytes = data
-		} else {
-			slog.Warn("telegram broadcast: failed to read snapshot", "component", "openclaw", "path", snapshotPath, "err", err)
-		}
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	for _, chatID := range chatIDs {
-		if photoBytes != nil {
-			s.sendTelegramPhoto(client, botToken, chatID, msg, photoBytes)
-		} else {
-			s.sendTelegramMessage(client, botToken, chatID, msg)
-		}
-	}
-
-	flow.Log("telegram_alert_broadcast", map[string]any{
-		"method":   "bot_api",
-		"chats":    len(chatIDs),
-		"message":  msg,
-		"snapshot":  snapshotPath != "",
-	})
-
-	return nil
+	return s.config.TelegramBotToken
 }
 
-// getTelegramChatIDs fetches active sessions and extracts Telegram chat IDs.
-func (s *Service) getTelegramChatIDs() []string {
+// GetTelegramTargets returns all Telegram chats the bot is connected to.
+// Fetches from the agent runtime's session list.
+func (s *Service) GetTelegramTargets() ([]domain.TelegramTarget, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
 	s.wsMu.Unlock()
 	if conn == nil {
-		return nil
+		return nil, fmt.Errorf("agent gateway not connected")
 	}
 
 	listReqID := fmt.Sprintf("tg-list-%d", time.Now().UnixMilli())
@@ -1720,7 +1681,7 @@ func (s *Service) getTelegramChatIDs() []string {
 	conn = s.wsConn
 	if conn == nil {
 		s.wsMu.Unlock()
-		return nil
+		return nil, fmt.Errorf("agent gateway disconnected")
 	}
 	_ = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
@@ -1734,7 +1695,7 @@ func (s *Service) getTelegramChatIDs() []string {
 		s.pendingRPCMu.Lock()
 		delete(s.pendingRPC, listReqID)
 		s.pendingRPCMu.Unlock()
-		return nil
+		return nil, fmt.Errorf("sessions.list timeout")
 	}
 
 	type deliveryCtx struct {
@@ -1750,7 +1711,7 @@ func (s *Service) getTelegramChatIDs() []string {
 		Sessions []sessionEntry `json:"sessions"`
 	}
 	if err := json.Unmarshal(listResp, &result); err != nil {
-		return nil
+		return nil, fmt.Errorf("parse sessions: %w", err)
 	}
 	sessions := result.Sessions
 	if len(sessions) == 0 {
@@ -1761,7 +1722,7 @@ func (s *Service) getTelegramChatIDs() []string {
 	}
 
 	seen := make(map[string]bool)
-	var chatIDs []string
+	var targets []domain.TelegramTarget
 	for _, sess := range sessions {
 		ch := sess.LastChannel
 		to := sess.LastTo
@@ -1776,14 +1737,63 @@ func (s *Service) getTelegramChatIDs() []string {
 		if ch != "telegram" || to == "" {
 			continue
 		}
-		// to format: "telegram:158406741" or "-5179782244"
 		chatID := strings.TrimPrefix(to, "telegram:")
 		if chatID != "" && !seen[chatID] {
 			seen[chatID] = true
-			chatIDs = append(chatIDs, chatID)
+			chatType := "private"
+			if strings.HasPrefix(chatID, "-") {
+				chatType = "group"
+			}
+			targets = append(targets, domain.TelegramTarget{ChatID: chatID, Type: chatType})
 		}
 	}
-	return chatIDs
+	return targets, nil
+}
+
+// BroadcastTelegram sends a message directly via Telegram Bot API to all connected
+// Telegram chats. Uses GetTelegramBotToken() and GetTelegramTargets() for backend abstraction.
+func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
+	botToken := s.GetTelegramBotToken()
+	if botToken == "" {
+		return fmt.Errorf("telegram bot token not configured")
+	}
+
+	targets, err := s.GetTelegramTargets()
+	if err != nil {
+		return fmt.Errorf("get telegram targets: %w", err)
+	}
+	if len(targets) == 0 {
+		slog.Warn("telegram broadcast: no Telegram chats found", "component", "openclaw")
+		return nil
+	}
+
+	slog.Info("telegram broadcast", "component", "openclaw", "chats", len(targets), "hasSnapshot", snapshotPath != "")
+
+	var photoBytes []byte
+	if snapshotPath != "" {
+		if data, err := os.ReadFile(snapshotPath); err == nil {
+			photoBytes = data
+		} else {
+			slog.Warn("telegram broadcast: failed to read snapshot", "component", "openclaw", "path", snapshotPath, "err", err)
+		}
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	for _, t := range targets {
+		if photoBytes != nil {
+			s.sendTelegramPhoto(client, botToken, t.ChatID, msg, photoBytes)
+		} else {
+			s.sendTelegramMessage(client, botToken, t.ChatID, msg)
+		}
+	}
+
+	flow.Log("telegram_alert_broadcast", map[string]any{
+		"method":  "bot_api",
+		"chats":   len(targets),
+		"message": msg,
+	})
+
+	return nil
 }
 
 func (s *Service) sendTelegramMessage(client *http.Client, token, chatID, text string) {
