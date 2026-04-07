@@ -155,7 +155,7 @@ export function FlowDiagram({
 
   // Extract snapshot URL from agent_call lines
   const snapshotLine = (nodeInfo.agent_call ?? []).find((l) => l.startsWith("🖼"));
-  const snapshotFile = snapshotLine?.match(/snapshot:\s*\/tmp\/lumi-sensing-snapshots\/(sensing_[^\s]+\.jpg)/)?.[1];
+  const snapshotFile = snapshotLine?.match(/snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\s]+\.jpg)/)?.[1];
   const snapshotUrl = snapshotFile ? `/api/sensing/snapshot/${snapshotFile}` : null;
 
   return (
