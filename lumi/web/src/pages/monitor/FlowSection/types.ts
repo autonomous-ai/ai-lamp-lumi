@@ -201,7 +201,8 @@ export const FLOW_NODES: FlowNodeDef[] = [
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", sound: "🔊",
-  motion: "👁", "presence.enter": "🙂", "presence.leave": "👋", "light.level": "🌡",
+  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡",
+  "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   telegram: "💬", schedule: "⏰",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
