@@ -1788,7 +1788,7 @@ func (s *Service) getTelegramChatIDs() []string {
 
 func (s *Service) sendTelegramMessage(client *http.Client, token, chatID, text string) {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q,"parse_mode":"Markdown"}`, chatID, text)
+	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q}`, chatID, text)
 	resp, err := client.Post(apiURL, "application/json", strings.NewReader(payload))
 	if err != nil {
 		slog.Error("telegram sendMessage failed", "component", "openclaw", "chatID", chatID, "err", err)
@@ -1810,7 +1810,6 @@ func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption 
 	w := multipart.NewWriter(&buf)
 	w.WriteField("chat_id", chatID)
 	w.WriteField("caption", caption)
-	w.WriteField("parse_mode", "Markdown")
 	part, _ := w.CreateFormFile("photo", "snapshot.jpg")
 	part.Write(photo)
 	w.Close()
