@@ -1,49 +1,37 @@
 ---
 name: sensing-track
-description: Query the system log to answer questions about past sensing events — "Have you seen anybody between 10pm and 12pm?", "Is there any motion in the last hour?", "What happened while I was away?".
+description: Query flow event logs to answer questions about past sensing events — "Have you seen anybody between 10pm and 12pm?", "Is there any motion in the last hour?", "What happened while I was away?".
 ---
 
 # Sensing Event History
 
 ## Quick Start
 
-The system log at `${LUMI_LOG:-/var/log/lumi.log}` records every sensing event that reached Lumi server. Use Bash to grep it and answer history questions conversationally. The file is **read-only** — never write to it.
+The primary data source is the **flow events JSONL** at `local/flow_events_YYYY-MM-DD.jsonl`. Each file covers one calendar day (30-day retention, no size-rotation mid-day). Use Bash + `jq` to query it.
 
-## Log format
+Persistent camera snapshots are stored in `/var/log/lumi/snapshots/` (72h TTL, 50 MB cap). Reference these when the user asks what happened visually.
 
-The file contains ANSI color codes. Strip them before parsing:
+## JSONL format
 
-```bash
-sed 's/\x1b\[[0-9;]*m//g' "${LUMI_LOG:-/var/log/lumi.log}"
+Each line is a JSON object:
+
+```json
+{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (owner (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_1712345678123.jpg]"},"version":"1.2.3"}
+{"kind":"exit","node":"sensing_input","ts":1712345678.456,"seq":43,"trace_id":"run-abc","duration_ms":332,"data":{"path":"agent","run_id":"run-abc"},"version":"1.2.3"}
 ```
 
-After stripping, sensing event lines look like this:
-
-```
-2026-04-03 09:12:18 INFO  sensing event received component=sensing type=presence.enter message=Person detected — 1 face(s) visible (stranger (stranger_1))
-2026-04-03 09:29:32 INFO  sensing event received component=sensing type=motion message=Large movement detected in camera view — someone may have entered or left the room
-2026-04-03 09:50:04 INFO  sensing event received component=sensing type=light.level message=Ambient light decreased significantly (level: 139/255, change: -30)
-```
-
-Fields:
-- `$1` — date: `YYYY-MM-DD`
-- `$2` — time: `HH:MM:SS`
-- `$1 " " $2` — full sortable timestamp
-- `type=VALUE` — event type: `presence.enter`, `motion`, `sound`, `light.level`, `voice`
-- `message=...` — description (rest of the line); may continue onto the next line as `[snapshot: /tmp/...]`
-
-When the agent was busy and dropped the event, an additional line appears right after:
-
-```
-2026-04-03 09:59:01 INFO  sensing event received component=sensing type=presence.enter message=Person detected — 1 face(s) visible (owner (gray))
-2026-04-03 09:59:01 INFO  sensing event dropped — agent busy component=sensing type=presence.enter
-```
-
-Use `"sensing event received"` as your primary grep target — it captures all events regardless of whether they were forwarded or dropped. The message field carries useful context (who was seen, what moved).
+Key fields:
+- `node` — filter on `"sensing_input"` for sensing events
+- `kind` — `"enter"` = event received, `"exit"` = event processed (with `duration_ms`)
+- `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `sound`, `light.level`, `voice`, `voice_command`, `wellbeing.hydration`, `wellbeing.break`
+- `data.message` — natural-language description; may contain `[snapshot: /var/log/lumi/snapshots/...]`
+- `data.path` — in `exit` records: `"agent"` (forwarded), `"local"` (handled locally), or has `"error"` key (failed/dropped)
+- `ts` — Unix timestamp (seconds with fractional ms)
+- `trace_id` — correlates enter/exit and links to agent turn
 
 ## Tools
 
-**Bash** — grep, sed, awk. No writes.
+**Bash** — `jq`, `cat`, date arithmetic. No writes.
 
 ---
 
@@ -52,95 +40,102 @@ Use `"sensing event received"` as your primary grep target — it captures all e
 ### All sensing events in a time range
 
 ```bash
-LOG="${LUMI_LOG:-/var/log/lumi.log}"
-sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
-  | grep "sensing event received" \
-  | awk -v from="2026-04-03 22:00:00" -v to="2026-04-04 00:00:00" \
-      '($1 " " $2) >= from && ($1 " " $2) <= to'
+DATE="2026-04-03"
+FROM_TS=$(date -d "$DATE 22:00:00" +%s)
+TO_TS=$(date -d "$DATE 23:59:59" +%s)
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')' \
+  "local/flow_events_${DATE}.jsonl"
 ```
 
-### Events of a specific type in the last N hours/minutes
+### Events of a specific type in the last N hours
 
 ```bash
-LOG="${LUMI_LOG:-/var/log/lumi.log}"
-SINCE=$(date -d "1 hour ago" "+%Y-%m-%d %H:%M:%S")
-sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
-  | grep "sensing event received" \
-  | grep "type=motion" \
-  | awk -v since="$SINCE" '($1 " " $2) >= since'
+SINCE=$(date -d "1 hour ago" +%s)
+TODAY=$(date +%Y-%m-%d)
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"' and .data.type=="motion")' \
+  "local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Any activity in the last N minutes
 
 ```bash
-LOG="${LUMI_LOG:-/var/log/lumi.log}"
-SINCE=$(date -d "30 minutes ago" "+%Y-%m-%d %H:%M:%S")
-sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
-  | grep "sensing event received" \
-  | awk -v since="$SINCE" '($1 " " $2) >= since'
+SINCE=$(date -d "30 minutes ago" +%s)
+TODAY=$(date +%Y-%m-%d)
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"')' \
+  "local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Presence events only (who came by)
 
 ```bash
-LOG="${LUMI_LOG:-/var/log/lumi.log}"
-sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
-  | grep "sensing event received" \
-  | grep "type=presence.enter"
+TODAY=$(date +%Y-%m-%d)
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and (.data.type=="presence.enter" or .data.type=="presence.leave"))' \
+  "local/flow_events_${TODAY}.jsonl"
 ```
 
-### What happened since a specific timestamp
+### Events spanning multiple days
 
 ```bash
-LOG="${LUMI_LOG:-/var/log/lumi.log}"
-SINCE="2026-04-03 15:14:00"
-sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
-  | grep "sensing event received" \
-  | awk -v since="$SINCE" '($1 " " $2) > since'
+cat local/flow_events_2026-04-02.jsonl local/flow_events_2026-04-03.jsonl \
+  | jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')'
+```
+
+### Dropped events (agent was busy)
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+jq -c 'select(.node=="sensing_input" and .kind=="exit" and .data.error != null)' \
+  "local/flow_events_${TODAY}.jsonl"
+```
+
+### List snapshots for a time range
+
+```bash
+ls -lt /var/log/lumi/snapshots/ | head -20
 ```
 
 ---
 
-## Log rotation
+## Fallback: system log
 
-Lumi rotates logs automatically (lumberjack, 1 MB cap). For questions spanning more than a few hours, include backup files:
+For detailed debugging or when you need Go-side log context (errors, warnings, lifecycle details), fall back to `${LUMI_LOG:-/var/log/lumi.log}`:
 
 ```bash
 LOG="${LUMI_LOG:-/var/log/lumi.log}"
-cat "$LOG" "$LOG.1" "$LOG.2" "$LOG.3" 2>/dev/null \
-  | sed 's/\x1b\[[0-9;]*m//g' \
-  | grep "sensing event received" \
-  | awk -v from="DATE TIME" -v to="DATE TIME" '($1 " " $2) >= from && ($1 " " $2) <= to'
+sed 's/\x1b\[[0-9;]*m//g' "$LOG" | grep "sensing event received"
 ```
+
+The system log uses lumberjack rotation (1 MB cap, 3 backups) — it may miss data during high traffic. Use it only when JSONL doesn't have enough detail, or when investigating bugs.
 
 ---
 
 ## Rules
 
-- **Never write to the log** — it is owned by the system.
-- **Answer conversationally** — translate results into natural language. Never dump raw log lines to the user.
-- **Handle empty results** — if no matching lines, say "I didn't detect any [type] events in that window."
-- **Mention dropped events when relevant** — a dropped event means something happened physically but the agent was busy at the time. Mention it if the user is asking about missed events: "There was motion at 10:45 PM but I was mid-conversation and missed it."
-- **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete `YYYY-MM-DD HH:MM:SS` timestamps using `date -d` before filtering.
-- **Check backup logs** for questions spanning several hours — lumi.log rotates at 1 MB.
-- **Parse the message field** for who/what details — `owner (gray)`, `stranger (stranger_1)`, `Large movement detected`, etc. Use these to give specific answers.
+- **Never write to any log file** — they are owned by the system.
+- **Answer conversationally** — translate results into natural language. Never dump raw JSON to the user.
+- **Handle empty results** — if no matching events, say "I didn't detect any [type] events in that window."
+- **Mention dropped events when relevant** — check `exit` records with `data.error` for events the agent missed. Mention it: "There was motion at 10:45 PM but I was mid-conversation and missed it."
+- **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete Unix timestamps using `date -d` before filtering.
+- **Span multiple days** — for questions covering more than today, `cat` multiple JSONL files together.
+- **Parse the message field** for who/what details — `owner (gray)`, `stranger (stranger_1)`, `Large movement detected`, etc.
+- **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message and mention it. The snapshot is viewable at `/var/log/lumi/snapshots/`.
 
 ---
 
 ## Examples
 
 **Input:** "Have you seen anybody between 10pm and 12pm?"
-**Action:** Query `type=presence.enter` between `22:00:00` and `00:00:00` on today's date.
+**Action:** Query `data.type` in `["presence.enter"]` between 22:00 and 00:00 from today's JSONL.
 **Response:** "Yes — I detected a stranger at 10:03 PM and again at 10:07 PM." or "No one came by between 10 PM and midnight."
 
 ---
 
 **Input:** "Is there any motion in the last hour?"
-**Action:** Query `type=motion` with `SINCE=$(date -d "1 hour ago" ...)`.
+**Action:** Query `data.type=="motion"` with `SINCE=$(date -d "1 hour ago" +%s)`.
 **Response:** "Yes, I detected large movement 3 times — at 9:29, 9:59, and 10:12." or "No motion in the last hour."
 
 ---
 
 **Input:** "What happened while I was away?"
-**Action:** Ask the user when they left, or estimate from when the last `presence.enter` was followed by a long gap. Query all events after that timestamp.
-**Response:** "After around 3 PM — I saw motion at 4:30 PM and again at 5:15 PM. No one was identified though."
+**Action:** Ask the user when they left, or find the last `presence.leave` and query all events after that timestamp.
+**Response:** "After around 3 PM — I saw motion at 4:30 PM and again at 5:15 PM. No one was identified though. I have snapshots from those moments if you want to see."
