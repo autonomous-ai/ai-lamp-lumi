@@ -951,11 +951,11 @@ class ServoMoveRequest(BaseModel):
         ...,
         description=(
             "Joint positions (degrees). Ordered by servo ID: "
-            "base_yaw.pos (ID 1, min -50 max 73), "
-            "base_pitch.pos (ID 2, min -76 max -20), "
-            "elbow_pitch.pos (ID 3, min 24 max 99), "
-            "wrist_roll.pos (ID 4, min -72 max 67), "
-            "wrist_pitch.pos (ID 5, min -22 max 70). "
+            "base_yaw.pos (ID 1, min -90 max 90), "
+            "base_pitch.pos (ID 2, min -90 max 90), "
+            "elbow_pitch.pos (ID 3, min -90 max 90), "
+            "wrist_roll.pos (ID 4, min -90 max 90), "
+            "wrist_pitch.pos (ID 5, min -90 max 90). "
             "Values are clamped to safe limits automatically."
         ),
     )
@@ -977,7 +977,7 @@ class ServoMoveRequest(BaseModel):
                         "wrist_roll.pos": 0.0,
                         "wrist_pitch.pos": 0.0,
                     },
-                    "_comment": "ID1 base_yaw [-50,73] | ID2 base_pitch [-76,-20] | ID3 elbow_pitch [24,99] | ID4 wrist_roll [-72,67] | ID5 wrist_pitch [-22,70]",
+                    "_comment": "ID1 base_yaw [-90,90] | ID2 base_pitch [-90,90] | ID3 elbow_pitch [-90,90] | ID4 wrist_roll [-90,90] | ID5 wrist_pitch [-90,90]",
                 },
                 {
                     "positions": {"base_pitch.pos": 5.0, "elbow_pitch.pos": 5.0},
@@ -1189,14 +1189,28 @@ def aim_servo(req: ServoAimRequest):
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
 
-    positions = AIM_PRESETS.get(req.direction)
-    if positions is None:
+    preset = AIM_PRESETS.get(req.direction)
+    if preset is None:
         available = list(AIM_PRESETS.keys())
         raise HTTPException(
             400, f"Unknown direction '{req.direction}'. Available: {available}"
         )
 
     try:
+        # Get current positions to preserve joints not being overridden
+        with animation_service.bus_lock:
+            obs = animation_service.robot.get_observation()
+        current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+
+        if req.direction in ("left", "right"):
+            # Keep current pose, only rotate yaw
+            positions = {**current, "base_yaw.pos": preset["base_yaw.pos"]}
+        elif req.direction in ("up", "down"):
+            # Change body posture but keep current yaw direction
+            positions = {**preset, "base_yaw.pos": current.get("base_yaw.pos", preset["base_yaw.pos"])}
+        else:
+            positions = dict(preset)
+
         if req.duration > 0:
             animation_service.move_to(positions, duration=req.duration)
         else:
