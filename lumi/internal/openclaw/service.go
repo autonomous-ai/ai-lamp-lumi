@@ -1648,10 +1648,11 @@ func (s *Service) ConsumeGuardRun(runID string) (string, bool) {
 // BroadcastTelegram sends a message directly via Telegram Bot API to all connected
 // Telegram chats. Fetches chat IDs from sessions.list, then calls sendMessage/sendPhoto.
 func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
-	botToken := s.config.TelegramBotToken
+	// Prefer OpenClaw token — it matches the bot that owns the sessions.
+	// Lumi config may have a different bot's token from onboarding.
+	botToken := s.readOpenClawTelegramToken()
 	if botToken == "" {
-		// Fallback: read from OpenClaw config (token may only exist there if set via OpenClaw UI).
-		botToken = s.readOpenClawTelegramToken()
+		botToken = s.config.TelegramBotToken
 	}
 	if botToken == "" {
 		return fmt.Errorf("telegram bot token not configured")
