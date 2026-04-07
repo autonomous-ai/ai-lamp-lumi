@@ -83,6 +83,7 @@ export function FlowDiagram({
     agent_thinking:    { x: 800, y: 390 },
     agent_response:    { x: 600, y: 570 },
     tg_out:            { x: 1000, y: 570 },
+    tg_alert:          { x: 1000, y: 700 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
