@@ -185,6 +185,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// Same run_id as chat.send / JSONL: SetTrace before flow.Start so enter matches this turn (not previous).
 	reqID, runID := h.agentGateway.NextChatRunID()
+	mood.TrackRun(runID, req.Type)
 	flow.SetTrace(runID)
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
