@@ -5,6 +5,12 @@ import (
 	"encoding/json"
 )
 
+// TelegramTarget represents a Telegram chat the bot is connected to.
+type TelegramTarget struct {
+	ChatID string // e.g. "158406741" (DM) or "-5179782244" (group)
+	Type   string // "private", "group", "supergroup", "channel"
+}
+
 // AgentEventHandler processes events from an agent gateway connection.
 type AgentEventHandler func(ctx context.Context, evt WSEvent) error
 
@@ -79,8 +85,8 @@ type AgentGateway interface {
 	// StartWS connects to the agent runtime and runs the event read loop.
 	StartWS(ctx context.Context, handler AgentEventHandler)
 
-	// BroadcastAlert sends a message (with optional image) to ALL active OpenClaw
-	// chat sessions. Used by guard mode to notify all Telegram chats/groups.
+	// BroadcastAlert sends a message (with optional image) to ALL active
+	// chat sessions via the agent runtime RPC. Used for manual guard alerts.
 	BroadcastAlert(msg string, imageBase64 string) error
 
 	// MarkGuardRun marks a runID as a guard-active turn. When the agent responds,
@@ -90,6 +96,14 @@ type AgentGateway interface {
 	// ConsumeGuardRun checks if a runID is a guard-active turn and returns the
 	// snapshot path. Returns ("", false) if not a guard run.
 	ConsumeGuardRun(runID string) (snapshotPath string, ok bool)
+
+	// --- Channel abstraction (backend-agnostic) ---
+
+	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.
+	GetTelegramBotToken() string
+
+	// GetTelegramTargets returns all Telegram chats (DMs + groups) the bot is connected to.
+	GetTelegramTargets() ([]TelegramTarget, error)
 
 	// BroadcastTelegram sends a message directly via Telegram Bot API to all
 	// connected Telegram chats. snapshotPath is an optional local image file.
