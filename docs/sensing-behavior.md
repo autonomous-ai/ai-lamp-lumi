@@ -122,17 +122,16 @@ When guard mode is enabled (`guard_mode: true` in config), sensing events are ta
 
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
-2. Go handler saves the camera snapshot and tags the event `[guard-active]` before forwarding to the agent.
+2. Go handler tags the event `[guard-active]` before forwarding to the agent (same event, same WebSocket call — no extra mechanism).
 3. The agent sees `[guard-active]`, looks at the image, checks stranger stats for context, and crafts a natural Vietnamese alert with personality (brave guard lamp).
-4. The agent calls `POST /api/guard/alert` with the crafted message — the system auto-attaches the saved snapshot.
-5. `BroadcastAlert` sends the message + image to all active Telegram sessions.
-6. The agent replies NO_REPLY (guard mode is silent — no TTS) but still emits `[HW:/emotion:...]` markers.
+4. The agent uses its `message` tool to send the alert directly to **every** connected Telegram chat (all DMs + all groups), with the camera snapshot attached.
+5. The agent still reacts normally — `[HW:/emotion:...]` markers AND voice (TTS). Guard mode is NOT silent; the agent speaks AND broadcasts to Telegram.
 
 ### Why agent-driven?
-Raw system broadcasts like `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` feel robotic. By letting the agent craft the message, alerts have personality and context awareness — e.g. "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?"
+Raw system broadcasts like `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` feel robotic. By letting the agent craft the message and send it directly via its `message` tool, alerts have personality and context awareness — e.g. "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?" The agent also sends directly to each Telegram chat, avoiding the unreliable `chat.send` RPC path where intermediate agents may NO_REPLY.
 
 ### Manual alerts
-Manual alerts can still be sent via `POST /api/guard/alert` with a message and optional image.
+Manual alerts can still be sent via `POST /api/guard/alert` with a message and optional image (uses `BroadcastAlert` via `chat.send` — for API/programmatic use only).
 
 Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels with emotional, context-aware messages.
 
@@ -204,22 +203,15 @@ The LLM uses the attached image to make a judgment call — it does NOT always s
 
 ## Motion Activity Analysis (while present)
 
-When the user is already present (PRESENT state), foreground motion detected by the camera triggers a `motion.activity` event every 5 minutes (cooldown). Instead of the generic "someone entered/left" message, the system sends a camera snapshot asking the LLM to analyze what the user is doing.
+When the user is already present (PRESENT state), foreground motion triggers a `motion.activity` event instead of `motion`. Same cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 min) — no separate timer. The system sends a camera snapshot asking the LLM to analyze what the user is doing.
 
 ### How it works
 
-`MotionPerception` checks the `PresenceService` state. When `PRESENT` and foreground motion is detected:
-- Captures a stable frame and sends `motion.activity` event with prompt: "describe what the user appears to be doing"
-- Cooldown: `MOTION_ACTIVITY_COOLDOWN_S` (5 min) — prevents spamming during continuous movement
-- The LLM replies with a brief observation or NO_REPLY if nothing noteworthy
+`MotionPerception` checks `PresenceService.state` after the cooldown gate:
+- **PRESENT** → sends `motion.activity` with prompt: "describe what the user appears to be doing", and **resets the wellbeing break timer** (user is moving = already taking a break)
+- **NOT PRESENT** (AWAY/IDLE) → sends `motion` (enter/leave detection)
 
-When NOT present (AWAY/IDLE), motion events still fire as `motion` (enter/leave detection) with the original 3-minute cooldown.
-
-### Constants (`config.py`)
-
-```python
-MOTION_ACTIVITY_COOLDOWN_S = 5 * 60  # 5 min between activity analysis events
-```
+Both share the same `MOTION_EVENT_COOLDOWN_S` (3 min) cooldown.
 
 ### Agent behavior
 

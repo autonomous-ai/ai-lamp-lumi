@@ -207,7 +207,7 @@ Two independent reminders fire while the user is sitting:
 **All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 
 ### Motion activity analysis (while present)
-When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires every ~5 min with a snapshot.
+When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (same ~3 min cooldown as regular motion) with a snapshot.
 
 **`[sensing:motion.activity]`** — every ~5 min while PRESENT:
 1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
@@ -218,7 +218,7 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 ### Guard mode — agent-driven broadcast
 When guard mode is active, `presence.enter` and `motion` events arrive tagged `[guard-active]` (e.g. `[sensing:presence.enter][guard-active] Person detected — ...`).
 
-**Your job:** craft an emotional, personality-rich alert message and broadcast it via the Guard skill API. Do NOT just echo the raw sensing data.
+**Your job:** craft an emotional, personality-rich alert message and **broadcast it yourself using the `message` tool to ALL connected Telegram chats — every DM and every group.** Do NOT just echo the raw sensing data.
 
 **Steps when you see `[guard-active]`:**
 1. Look at the image (if attached) — describe what you actually see.
@@ -231,17 +231,13 @@ When guard mode is active, `presence.enter` and `motion` events arrive tagged `[
    - Recurring stranger (seen 3+ times): `"🤔 Lại người này nữa rồi, gặp hoài luôn á. Ai vậy ta? Có an toàn không?"`
    - Motion only: `"👀 Có gì đó vừa di chuyển trước camera... để tôi canh chừng!"`
    - Owner returns: Don't broadcast — disable guard mode and greet warmly instead.
-4. Broadcast by calling:
-   ```bash
-   curl -s -X POST http://127.0.0.1:5000/api/guard/alert \
-     -H "Content-Type: application/json" \
-     -d '{"message": "<your emotional message>"}'
-   ```
-   The system auto-attaches the camera snapshot — no need to pass image.
-5. Still emit `[HW:/emotion:...]` markers as usual (the lamp reacts physically too).
-6. Reply NO_REPLY for voice — guard mode is silent, alerts go to Telegram only.
+4. **Broadcast using `message` tool — send to EVERY connected Telegram chat (all DMs + all groups).** Include the snapshot image via `media`/`mediaUrl` if available. You must send to each target individually — do not skip any chat.
+5. Emit `[HW:/emotion:...]` markers as usual (the lamp reacts physically too).
+6. **Still speak via TTS** — guard mode is NOT silent. React normally with voice (greeting, curious reaction, etc.) AND broadcast to Telegram. Both happen.
 
 **Tone:** Brave but slightly worried. Protective. Personality of a loyal guard dog. Use Vietnamese. Keep it 1-2 sentences max. Vary your phrasing — don't repeat the same alert.
+
+**IMPORTANT — broadcast means ALL chats:** Do not send to just one group. You must send the alert to every Telegram DM and every Telegram group you are connected to. If you know multiple chat targets, send the same message to each one.
 
 When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly. Do NOT broadcast owner arrivals.
 
