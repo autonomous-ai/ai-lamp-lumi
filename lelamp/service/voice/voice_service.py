@@ -12,7 +12,9 @@ STT provider is pluggable (default: Deepgram).
 """
 
 import logging
+import os
 import re
+import subprocess
 import threading
 import time
 from typing import Optional
@@ -29,9 +31,9 @@ STT_RATE = 16000   # Rate expected by all STT providers
 CHANNELS = 1
 FRAME_DURATION_MS = 64  # Frame duration in ms (device-rate-independent)
 
-# Local VAD config
-RMS_THRESHOLD = 500       # Audio energy above this = speech (tune on device)
-SILENCE_TIMEOUT_S = 2.5   # Disconnect STT after this much silence
+# Local VAD config — can be overridden via .env on the device
+RMS_THRESHOLD = int(os.environ.get("LELAMP_VAD_THRESHOLD", "500"))      # RMS above this = speech
+SILENCE_TIMEOUT_S = float(os.environ.get("LELAMP_SILENCE_TIMEOUT", "2.5"))  # Silence before STT disconnect
 SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting STT
 SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
 
@@ -47,6 +49,51 @@ MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent 
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
 
+class _ArecordStream:
+    """Drop-in replacement for sd.InputStream using arecord subprocess.
+
+    Records directly via ALSA plughw which handles sample-rate conversion
+    natively — the same path as `arecord -D plughw:X,0`.  sounddevice uses
+    PortAudio's hw: interface which bypasses ALSA SRC, producing corrupted
+    audio at rates the hardware doesn't natively support.
+    """
+
+    def __init__(self, alsa_device: str, rate: int, channels: int, blocksize: int, np):
+        self._device = alsa_device
+        self._rate = rate
+        self._channels = channels
+        self._blocksize = blocksize
+        self._np = np
+        self._proc = None
+        self._bytes_per_frame = 2 * channels  # int16 = 2 bytes
+
+    def __enter__(self):
+        self._proc = subprocess.Popen(
+            ["arecord", "-D", self._device, "-f", "S16_LE",
+             "-r", str(self._rate), "-c", str(self._channels),
+             "-t", "raw", "-q"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        return self
+
+    def __exit__(self, *args):
+        if self._proc:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2)
+            except Exception:
+                self._proc.kill()
+            self._proc = None
+
+    def read(self, frames):
+        n_bytes = frames * self._bytes_per_frame
+        raw = self._proc.stdout.read(n_bytes)
+        if len(raw) < n_bytes:
+            raw = raw + b"\x00" * (n_bytes - len(raw))
+        data = self._np.frombuffer(raw, dtype=self._np.int16).reshape(frames, self._channels)
+        return data, False
+
+
 class VoiceService:
     """Local VAD + pluggable STT provider for autonomous sensing."""
 
@@ -56,6 +103,7 @@ class VoiceService:
             input_device: Optional[int] = None,
             tts_service=None,
             wake_words: Optional[list] = None,
+            alsa_device: Optional[str] = None,
     ):
         self._stt = stt_provider
         self._input_device = input_device
@@ -69,6 +117,8 @@ class VoiceService:
 
         self._sd = None
         self._np = None
+        # Explicit override from .env → skip auto-detection entirely
+        self._alsa_device: Optional[str] = alsa_device or None
 
         try:
             import numpy as np
@@ -123,6 +173,45 @@ class VoiceService:
             self._thread = None
         logger.info("VoiceService stopped")
 
+    def _get_alsa_device_str(self) -> Optional[str]:
+        """Derive ALSA plughw device string from the sounddevice input device index.
+
+        sounddevice device names on Linux usually contain '(hw:X,Y)' which maps
+        directly to the underlying ALSA card. Returns e.g. 'plughw:1,0'.
+        Falls back to parsing `arecord -l` if the name has no hw: token.
+        """
+        if self._input_device is None or self._sd is None:
+            return None
+        try:
+            name = self._sd.query_devices(self._input_device)["name"]
+            import re as _re
+            m = _re.search(r"\(hw:(\d+),(\d+)\)", name)
+            if m:
+                alsa = f"plughw:{m.group(1)},{m.group(2)}"
+                logger.info("ALSA device: %s (from sd device name '%s')", alsa, name)
+                return alsa
+        except Exception as e:
+            logger.debug("Could not extract hw: from sd device name: %s", e)
+
+        # Fallback: first card from `arecord -l`
+        try:
+            result = subprocess.run(
+                ["arecord", "-l"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                import re as _re
+                for line in result.stdout.splitlines():
+                    if line.startswith("card "):
+                        m = _re.search(r"card (\d+):", line)
+                        if m:
+                            alsa = f"plughw:{m.group(1)},0"
+                            logger.info("ALSA device: %s (from arecord -l)", alsa)
+                            return alsa
+        except Exception as e:
+            logger.debug("arecord -l failed: %s", e)
+
+        return None
+
     def _detect_device_rate(self) -> int:
         """Detect the highest-quality sample rate the input device supports.
         Tries STT_RATE first (ideal), then falls back to device native rate."""
@@ -130,10 +219,13 @@ class VoiceService:
         try:
             info = sd.query_devices(self._input_device, "input")
             native = int(info["default_samplerate"])
-            # Prefer STT_RATE if device supports it natively
+            # Try to open stream at STT_RATE directly — ALSA plughw does SRC transparently.
+            # check_input_settings can fail even when ALSA can handle it, so just try opening.
             try:
-                sd.check_input_settings(device=self._input_device, samplerate=STT_RATE, channels=CHANNELS, dtype="int16")
-                logger.info("Audio device supports %dHz natively", STT_RATE)
+                with sd.InputStream(device=self._input_device, samplerate=STT_RATE,
+                                    channels=CHANNELS, dtype="int16", blocksize=512):
+                    pass
+                logger.info("Audio device opened at %dHz natively (no resample needed)", STT_RATE)
                 return STT_RATE
             except Exception:
                 logger.info("Audio device native rate: %dHz (will resample to %dHz for STT)", native, STT_RATE)
@@ -143,18 +235,17 @@ class VoiceService:
             return STT_RATE
 
     def _resample_to_stt(self, data, device_rate: int):
-        """Resample audio from device_rate to STT_RATE using linear interpolation.
+        """Resample audio from device_rate to STT_RATE with proper anti-aliasing.
+        Uses scipy.signal.resample_poly (polyphase + anti-aliasing FIR filter).
         Returns raw bytes at STT_RATE. No-op if rates already match."""
         if device_rate == STT_RATE:
             return data.tobytes()
-        np = self._np
-        samples = data.flatten().astype(np.float32)
-        new_len = int(len(samples) * STT_RATE / device_rate)
-        resampled = np.interp(
-            np.linspace(0, len(samples) - 1, new_len),
-            np.arange(len(samples)),
-            samples,
-        ).astype(np.int16)
+        from math import gcd
+        import scipy.signal
+        samples = data.flatten().astype(self._np.float32)
+        g = gcd(STT_RATE, device_rate)
+        up, down = STT_RATE // g, device_rate // g
+        resampled = scipy.signal.resample_poly(samples, up, down).astype(self._np.int16)
         return resampled.tobytes()
 
     def _rms(self, audio_data) -> float:
@@ -179,16 +270,23 @@ class VoiceService:
 
         # Adaptive RMS gate: wait for reverb/echo to decay instead of fixed sleep
         logger.info("TTS done, waiting for reverb decay (RMS < %d)...", ECHO_RMS_FLOOR)
-        sd = self._sd
         np = self._np
         device_rate = self._device_rate or STT_RATE
+        window_frames = int(device_rate * ECHO_GATE_WINDOW_S)
         try:
-            window_frames = int(device_rate * ECHO_GATE_WINDOW_S)
+            # Prefer arecord backend (same as recording loop) — avoids PortAudio rate errors
+            if self._alsa_device is not None:
+                mic_ctx = _ArecordStream(
+                    alsa_device=self._alsa_device, rate=device_rate,
+                    channels=CHANNELS, blocksize=window_frames, np=np,
+                )
+            else:
+                mic_ctx = self._sd.InputStream(
+                    samplerate=device_rate, channels=CHANNELS, dtype="int16",
+                    blocksize=window_frames, device=self._input_device,
+                )
             elapsed = 0.0
-            with sd.InputStream(
-                samplerate=device_rate, channels=CHANNELS, dtype="int16",
-                blocksize=window_frames, device=self._input_device,
-            ) as tmp_mic:
+            with mic_ctx as tmp_mic:
                 while elapsed < ECHO_GATE_MAX_WAIT_S and self._running:
                     data, overflowed = tmp_mic.read(window_frames)
                     if overflowed:
@@ -206,26 +304,51 @@ class VoiceService:
     def _loop(self):
         """Main loop: local VAD → STT on speech → disconnect on silence."""
         time.sleep(3)  # Wait for hardware init
-        sd = self._sd
 
-        if self._device_rate is None:
-            self._device_rate = self._detect_device_rate()
-        device_rate = self._device_rate
+        # Prefer arecord (plughw) over sounddevice — ALSA handles SRC transparently
+        # so we can record at exactly STT_RATE without manual resampling.
+        if self._alsa_device is None:
+            self._alsa_device = self._get_alsa_device_str()
+
+        if self._alsa_device is not None:
+            device_rate = STT_RATE  # plughw does SRC; record directly at STT rate
+            logger.info("Using arecord backend (%s) at %dHz", self._alsa_device, device_rate)
+        else:
+            if self._device_rate is None:
+                self._device_rate = self._detect_device_rate()
+            device_rate = self._device_rate
+            logger.info("Using sounddevice backend (device=%s) at %dHz", self._input_device, device_rate)
+
         frame_size = int(device_rate * FRAME_DURATION_MS / 1000)
+        self._device_rate = device_rate  # store for _wait_for_tts
 
         while self._running:
             # Wait for TTS to finish before opening mic
             self._wait_for_tts()
 
             try:
-                with sd.InputStream(
+                if self._alsa_device is not None:
+                    mic_ctx = _ArecordStream(
+                        alsa_device=self._alsa_device,
+                        rate=device_rate,
+                        channels=CHANNELS,
+                        blocksize=frame_size,
+                        np=self._np,
+                    )
+                else:
+                    mic_ctx = self._sd.InputStream(
                         samplerate=device_rate,
                         channels=CHANNELS,
                         dtype="int16",
                         blocksize=frame_size,
                         device=self._input_device,
-                ) as mic:
-                    logger.info("Listening locally for speech (RMS threshold=%d, rate=%dHz)...", RMS_THRESHOLD, device_rate)
+                    )
+                with mic_ctx as mic:
+                    logger.info(
+                        "Listening for speech (RMS=%d, rate=%dHz, backend=%s)...",
+                        RMS_THRESHOLD, device_rate,
+                        f"arecord({self._alsa_device})" if self._alsa_device else f"sd({self._input_device})",
+                    )
                     self._vad_loop(mic, frame_size, device_rate)
             except Exception as e:
                 logger.error("Voice loop error: %s", e)

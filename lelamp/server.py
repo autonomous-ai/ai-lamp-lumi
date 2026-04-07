@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Union
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from lelamp.presets import (
@@ -30,6 +31,9 @@ from lelamp.presets import (
     VALID_LED_EFFECTS,
 )
 from pydantic import BaseModel, Field
+
+# Load .env from the install dir (/opt/lelamp/.env) — no-op if missing
+load_dotenv(Path(__file__).parent / ".env", override=False)
 
 # --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
@@ -125,6 +129,11 @@ CAMERA_INDEX = int(os.environ.get("LELAMP_CAMERA_INDEX", "0"))
 CAMERA_WIDTH = int(os.environ.get("LELAMP_CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 
+# Audio hardware overrides — set in .env to bypass auto-detection
+# e.g. LELAMP_AUDIO_INPUT_ALSA=plughw:1,0  LELAMP_AUDIO_OUTPUT_ALSA=plughw:2,0
+AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or None
+AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
+
 # --- Lazy import for sensing ---
 
 SensingService = None
@@ -193,9 +202,11 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
         return None
     # Known hardware — checked in order (first match wins)
     output_names = ["seeed", "cd002"]
-    input_names = ["seeed", "webcam", "usb audio"]
-    # Keywords that indicate a composite/camera device — lower priority for input
-    input_skip = ["composite", "camera", "video"]
+    input_names = ["seeed", "webcam"]
+    # Keywords that indicate a camera/video device — lower priority for input
+    # Note: "composite" removed — USB Composite Device is often a valid mic
+    # Note: "usb audio" removed — it matches USB Audio Device (speakers) in daemon mode
+    input_skip = ["camera", "video"]
     names = output_names if output else input_names
     try:
         devices = list(sd.query_devices())
@@ -458,6 +469,7 @@ async def lifespan(app: FastAPI):
                     input_device=audio_input_device,
                     tts_service=tts_service,
                     wake_words=wake_words,
+                    alsa_device=AUDIO_INPUT_ALSA,
                 )
                 voice_service.start()
                 logger.info("VoiceService auto-started (%s, wake_words=%s)", stt_provider.name, wake_words)
@@ -2386,6 +2398,7 @@ def start_voice(req: VoiceStartRequest):
             input_device=audio_input_device,
             tts_service=tts_service,
             wake_words=wake_words,
+            alsa_device=AUDIO_INPUT_ALSA,
         )
         voice_service.start()
         return {"status": "ok"}
