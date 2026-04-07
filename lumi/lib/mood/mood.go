@@ -26,10 +26,16 @@ import (
 type Event struct {
 	TS          float64 `json:"ts"`                     // Unix seconds
 	Seq         int64   `json:"seq"`                    // global sequence
-	Event       string  `json:"event"`                  // sensing event type (e.g. "wellbeing.break")
+	Event       string  `json:"event"`                  // "presence.enter", "music.mood", "mood.assessed", etc.
 	PresenceMin int     `json:"presence_min,omitempty"` // minutes since presence started
 	Hour        int     `json:"hour"`                   // hour of day (0-23) for time-of-day context
-	Message     string  `json:"message,omitempty"`      // brief description
+	Message     string  `json:"message,omitempty"`      // brief description (for sensing input events)
+
+	// Assessment fields (only for "mood.assessed" events)
+	Emotion  string `json:"emotion,omitempty"`  // LLM's emotion response (e.g. "caring", "curious")
+	Source   string `json:"source,omitempty"`   // which sensing event triggered this assessment
+	Response string `json:"response,omitempty"` // what LLM said (or "" for NO_REPLY)
+	NoReply  bool   `json:"no_reply,omitempty"` // true if agent decided not to respond
 }
 
 const (
@@ -57,9 +63,15 @@ type logger struct {
 	seqN atomic.Int64
 	file *os.File
 	day  string
+
+	// pendingRuns tracks sensing runID → event type for assessment logging.
+	pendingMu   sync.Mutex
+	pendingRuns map[string]string // runID → sensing event type
 }
 
-var global = &logger{}
+var global = &logger{
+	pendingRuns: make(map[string]string),
+}
 
 // Init creates the logs directory and cleans old mood files.
 // Call once at startup.
@@ -95,6 +107,57 @@ func Log(eventType string, presenceMin int, message string) {
 	global.mu.Lock()
 	global.writeJSONL(now, evt)
 	global.mu.Unlock()
+}
+
+// TrackRun registers a sensing run so we can log the LLM's mood assessment
+// when the agent lifecycle ends. Call from sensing handler after sending event.
+func TrackRun(runID string, eventType string) {
+	if !moodEvents[eventType] {
+		return
+	}
+	global.pendingMu.Lock()
+	global.pendingRuns[runID] = eventType
+	global.pendingMu.Unlock()
+}
+
+// CompleteRun logs the LLM's mood assessment for a tracked sensing run.
+// Returns the sensing event type if found (empty string if runID was not tracked).
+// Call from lifecycle end handler with the emotion and response text.
+func CompleteRun(runID string, emotion string, responseText string) string {
+	global.pendingMu.Lock()
+	eventType, ok := global.pendingRuns[runID]
+	if ok {
+		delete(global.pendingRuns, runID)
+	}
+	global.pendingMu.Unlock()
+
+	if !ok {
+		return ""
+	}
+
+	now := time.Now()
+	seq := global.seqN.Add(1)
+
+	// Determine if agent replied or stayed silent
+	isNoReply := responseText == "" || strings.EqualFold(strings.TrimSpace(responseText), "no_reply") ||
+		strings.EqualFold(strings.TrimSpace(responseText), "[no reply]")
+
+	evt := Event{
+		TS:       float64(now.UnixNano()) / 1e9,
+		Seq:      seq,
+		Event:    "mood.assessed",
+		Hour:     now.Hour(),
+		Emotion:  emotion,
+		Source:   eventType,
+		Response: responseText,
+		NoReply:  isNoReply,
+	}
+
+	global.mu.Lock()
+	global.writeJSONL(now, evt)
+	global.mu.Unlock()
+
+	return eventType
 }
 
 // Query reads mood events for a given day (YYYY-MM-DD format).
