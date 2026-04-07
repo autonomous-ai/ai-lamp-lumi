@@ -1205,11 +1205,9 @@ def aim_servo(req: ServoAimRequest):
         if req.direction in ("left", "right"):
             # Keep current pose, only rotate yaw
             positions = {**current, "base_yaw.pos": preset["base_yaw.pos"]}
-        elif req.direction in ("up", "down"):
-            # Change body posture but keep current yaw direction
-            positions = {**preset, "base_yaw.pos": current.get("base_yaw.pos", preset["base_yaw.pos"])}
         else:
-            positions = dict(preset)
+            # All other directions: use preset posture but keep current yaw
+            positions = {**preset, "base_yaw.pos": current.get("base_yaw.pos", preset["base_yaw.pos"])}
 
         if req.duration > 0:
             animation_service.move_to(positions, duration=req.duration)
