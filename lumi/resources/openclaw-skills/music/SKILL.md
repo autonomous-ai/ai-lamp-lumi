@@ -87,23 +87,36 @@ Lumi proactively suggests music based on the owner's **mood and context** — in
 
 ### How to read mood context (for reactive suggestions)
 
-Query today's sensing events from the flow log to build a mood picture:
+Query the dedicated mood history API — it returns only mood-relevant sensing events (no flow noise):
 
 ```bash
-curl -s "http://127.0.0.1:5000/api/openclaw/flow-events?date=$(date +%Y-%m-%d)&last=2000" \
-  | python3 -c "
+# Today's mood history (last 100 events)
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
+```
+
+Response:
+```json
+{"status":1,"data":{"date":"2026-04-07","events":[
+  {"ts":1712345678.12,"seq":1,"event":"presence.enter","presence_min":0,"hour":9,"message":"Owner detected..."},
+  {"ts":1712347478.12,"seq":5,"event":"wellbeing.hydration","presence_min":30,"hour":9,"message":"User sitting 30 min..."},
+  {"ts":1712348378.12,"seq":8,"event":"light.level","presence_min":45,"hour":10,"message":"Room got darker..."}
+]}}
+```
+
+Each event has: `event` (type), `presence_min` (minutes since arrival), `hour` (time of day), `message` (context).
+
+```bash
+# Past 3 days
+for i in 0 1 2; do
+  D=$(date -v-${i}d +%Y-%m-%d)
+  echo "=== $D ==="
+  curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$D&last=50" | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
-MOOD_NODES = {'sensing', 'wellbeing'}
-for e in resp.get('data', {}).get('events', []):
-    detail = e.get('detail') or {}
-    node = detail.get('node', '')
-    # Filter for sensing/wellbeing events
-    if not any(node.startswith(m) for m in MOOD_NODES):
-        continue
-    data = detail.get('data') or {}
-    print(e.get('time',''), '|', node, '|', data.get('type',''), '|', data.get('message','')[:80])
+for e in resp.get('data',{}).get('events',[]):
+    print(f\"{e['hour']:02d}:00 | {e['event']:25s} | {e.get('presence_min',0):3d}min | {e.get('message','')[:60]}\")
 "
+done
 ```
 
 Relevant event types for mood inference:

@@ -17,6 +17,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -91,6 +92,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		Summary: "[" + req.Type + "] " + req.Message,
 		Detail:  monitorDetail,
 	})
+
+	// Log mood-relevant events to dedicated mood history.
+	mood.Log(req.Type, 0, req.Message)
 
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
