@@ -86,7 +86,7 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 - Use `greeting` when a new person is detected or at the start of a conversation.
 - Use `sleepy` before transitioning to sleep/night mode.
 - Use `stretching` after waking up or starting a new session.
-- Use `idle` as the resting state between interactions.
+- Do **NOT** call `idle` explicitly — the lamp returns to idle automatically after any animation finishes. Calling idle interrupts smooth transitions.
 - **Always include `intensity`** — never omit it. Use 0.3-0.5 for subtle reactions, 0.7 for normal, 0.8-1.0 for strong ones.
 - You can call emotion multiple times in one response for a sequence (e.g., `shock` then `happy`).
 - **Emotion LED is temporary** — it shows YOUR reaction. If the user previously set a Scene (reading, night, etc.), the scene color takes precedence for ambient lighting. Emotion is a brief flash of personality.
