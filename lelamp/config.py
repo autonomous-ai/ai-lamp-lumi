@@ -15,6 +15,8 @@ OWNER_PHOTOS_DIR = os.environ.get(
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # --- Sensing: Motion detection (optical flow) ---
+MOTION_ENABLED = False  # feature flag — set True to enable motion events
+
 # MotionChecker thresholds
 MOTION_PIXEL_THRESHOLD = (
     1.0  # minimum flow magnitude (px/frame) to count a pixel as moving
@@ -50,6 +52,7 @@ FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 # --- Sensing: Wellbeing check ---
 WELLBEING_HYDRATION_S = 30 * 60   # 30 min
 WELLBEING_BREAK_S = 45 * 60      # 45 min
+WELLBEING_MUSIC_S = 60 * 60      # 60 min — proactive music suggestion based on mood
 
 # --- Sensing: Snapshot storage ---
 # Temporary buffer (fast rotation, lost on reboot)
