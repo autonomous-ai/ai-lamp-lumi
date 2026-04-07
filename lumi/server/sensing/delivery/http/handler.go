@@ -136,13 +136,19 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
-	// Drop passive sensing events while agent is processing another turn.
-	// Only voice_command (wake word confirmed) always passes through.
-	// voice (no wake word) is treated as passive — it may be background speech, so drop if busy.
+	// When agent is busy:
+	// - voice_command (wake word confirmed) always passes through immediately.
+	// - light.level is dropped (frequent, low value when stale).
+	// - All other passive events (motion, presence, voice) are queued and replayed when agent becomes idle.
 	isPassive := req.Type != "voice_command"
 	if isPassive && h.agentGateway.IsBusy() {
-		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
-		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
+		if req.Type == "light.level" {
+			slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
+			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
+			return
+		}
+		h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
 		return
 	}
 
