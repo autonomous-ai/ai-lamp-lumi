@@ -85,6 +85,7 @@ class SensingService:
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
+                    presence_service=self.presence,
                 ),
                 face_recognizer,
                 LightLevelPerception(
