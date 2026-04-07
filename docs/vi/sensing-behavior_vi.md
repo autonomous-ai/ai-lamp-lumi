@@ -118,15 +118,23 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 
 ## Chế độ canh gác (Guard Mode)
 
-Khi guard mode được bật (`guard_mode: true` trong config), sensing có thêm một lớp broadcast bên trên hành vi bình thường:
+Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sensing được gắn tag `[guard-active]` và **agent tự viết message cảm xúc** thay vì hệ thống broadcast dữ liệu thô.
 
-- Sự kiện **`presence.enter`** và **`motion`** được broadcast đến TẤT CẢ chat session OpenClaw (mọi Telegram DM và group đã kết nối) qua `chat.send` RPC.
-- Broadcast bao gồm message và ảnh (nếu có).
-- Phản ứng sensing bình thường (emotion, servo, TTS) vẫn hoạt động như thường — guard mode chỉ là thêm vào.
-- Agent có thể bật/tắt guard mode qua skill `guard` (lệnh giọng nói hoặc text).
-- Cảnh báo thủ công có thể gửi qua `POST /api/guard/alert` với message và ảnh tùy chọn.
+### Luồng xử lý
+1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
+2. Go handler lưu snapshot camera và gắn tag `[guard-active]` trước khi chuyển cho agent.
+3. Agent thấy `[guard-active]`, nhìn ảnh, kiểm tra stranger stats, rồi viết cảnh báo tiếng Việt có cảm xúc (tính cách đèn canh gác dũng cảm).
+4. Agent gọi `POST /api/guard/alert` với message đã viết — hệ thống tự đính kèm snapshot.
+5. `BroadcastAlert` gửi message + ảnh đến tất cả Telegram session đang hoạt động.
+6. Agent trả lời NO_REPLY (guard mode im lặng — cảnh báo chỉ lên Telegram) nhưng vẫn gửi `[HW:/emotion:...]`.
 
-Trường hợp sử dụng: Lumi hoạt động như trợ lý an ninh nhà. Khi chủ nhà rời đi và bật guard mode, bất kỳ sự hiện diện hoặc chuyển động nào được phát hiện sẽ được báo cáo đến tất cả kênh chat ngay lập tức.
+### Tại sao để agent viết?
+Broadcast thô kiểu `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` quá máy móc. Để agent viết, cảnh báo có tính cách và nhận biết ngữ cảnh — ví dụ: "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?"
+
+### Cảnh báo thủ công
+Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn.
+
+Trường hợp sử dụng: Lumi hoạt động như trợ lý an ninh nhà. Khi chủ nhà rời đi và bật guard mode, mọi sự hiện diện hoặc chuyển động được báo cáo đến Telegram với message có cảm xúc và nhận biết ngữ cảnh.
 
 ---
 
@@ -194,9 +202,36 @@ LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng 
 
 ---
 
+## Phân tích Motion Activity (khi đang có mặt)
+
+Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển động foreground, hệ thống gửi event `motion.activity` mỗi 5 phút (cooldown). Thay vì thông báo chung "ai đó vào/ra", hệ thống chụp ảnh và yêu cầu LLM phân tích user đang làm gì.
+
+### Cách hoạt động
+
+`MotionPerception` kiểm tra trạng thái `PresenceService`. Khi `PRESENT` và phát hiện foreground motion:
+- Chụp stable frame và gửi event `motion.activity` với prompt: "mô tả user đang làm gì"
+- Cooldown: `MOTION_ACTIVITY_COOLDOWN_S` (5 phút) — tránh spam khi user cử động liên tục
+- LLM trả lời nhận xét ngắn hoặc NO_REPLY nếu không có gì đáng chú ý
+
+Khi KHÔNG có mặt (AWAY/IDLE), motion event vẫn fire bình thường dưới dạng `motion` (phát hiện enter/leave) với cooldown 3 phút.
+
+### Hằng số (`config.py`)
+
+```python
+MOTION_ACTIVITY_COOLDOWN_S = 5 * 60  # 5 phút giữa các lần phân tích activity
+```
+
+### Hành vi Agent
+
+| Event | Emotion | Voice |
+|---|---|---|
+| `motion.activity` | `curious` (0.4) | CÓ (nhận xét ngắn về activity) hoặc NO_REPLY |
+
+---
+
 ## Lưu trữ Snapshot (hai tầng)
 
-Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, wellbeing) lưu snapshot ở hai nơi:
+Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, wellbeing, motion.activity) lưu snapshot ở hai nơi:
 
 | Tầng | Đường dẫn | Rotation | Giữ qua reboot |
 |------|-----------|----------|-----------------|

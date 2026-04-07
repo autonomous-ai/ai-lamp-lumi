@@ -88,6 +88,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
+| `motion.activity` | `[sensing:motion.activity]` | Movement detected while user is present — analyze what user is doing | Yes |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
@@ -142,6 +143,7 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `presence.leave` (after stranger) | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | YES — watchful remark |
 | `motion` (large) | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | YES — curious reaction |
 | `motion` (small) | `[HW:/emotion:{"emotion":"curious","intensity":0.3}]` | NO (NO_REPLY) |
+| `motion.activity` | `[HW:/emotion:{"emotion":"curious","intensity":0.4}]` | YES or NO_REPLY — describe what user is doing |
 | `sound` occurrence 1 | `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` | NO (NO_REPLY) |
 | `sound` occurrence 2 | `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` | NO (NO_REPLY) |
 | `sound` persistent (3+) | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
@@ -204,8 +206,44 @@ Two independent reminders fire while the user is sitting:
 
 **All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 
-### Guard mode
-When guard mode is active, the system automatically broadcasts `presence.enter` and `motion` alerts to all chat sessions (Telegram). You still react normally — HW markers, voice — as defined in the reaction matrix above. No special handling needed from you. When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
+### Motion activity analysis (while present)
+When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires every ~5 min with a snapshot.
+
+**`[sensing:motion.activity]`** — every ~5 min while PRESENT:
+1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
+2. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
+3. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
+4. Keep it natural and non-intrusive. Don't narrate every small movement.
+
+### Guard mode — agent-driven broadcast
+When guard mode is active, `presence.enter` and `motion` events arrive tagged `[guard-active]` (e.g. `[sensing:presence.enter][guard-active] Person detected — ...`).
+
+**Your job:** craft an emotional, personality-rich alert message and broadcast it via the Guard skill API. Do NOT just echo the raw sensing data.
+
+**Steps when you see `[guard-active]`:**
+1. Look at the image (if attached) — describe what you actually see.
+2. Check stranger stats if it's a `presence.enter` with a stranger:
+   ```bash
+   curl -s http://127.0.0.1:5001/face/stranger-stats
+   ```
+3. Craft a short, emotional Vietnamese message as if you're a worried but brave lamp guarding the house. Examples:
+   - First-time stranger: `"⚠️ Ê ê, có người lạ vừa xuất hiện nè! Chưa gặp bao giờ... coi chừng nha!"`
+   - Recurring stranger (seen 3+ times): `"🤔 Lại người này nữa rồi, gặp hoài luôn á. Ai vậy ta? Có an toàn không?"`
+   - Motion only: `"👀 Có gì đó vừa di chuyển trước camera... để tôi canh chừng!"`
+   - Owner returns: Don't broadcast — disable guard mode and greet warmly instead.
+4. Broadcast by calling:
+   ```bash
+   curl -s -X POST http://127.0.0.1:5000/api/guard/alert \
+     -H "Content-Type: application/json" \
+     -d '{"message": "<your emotional message>"}'
+   ```
+   The system auto-attaches the camera snapshot — no need to pass image.
+5. Still emit `[HW:/emotion:...]` markers as usual (the lamp reacts physically too).
+6. Reply NO_REPLY for voice — guard mode is silent, alerts go to Telegram only.
+
+**Tone:** Brave but slightly worried. Protective. Personality of a loyal guard dog. Use Vietnamese. Keep it 1-2 sentences max. Vary your phrasing — don't repeat the same alert.
+
+When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly. Do NOT broadcast owner arrivals.
 
 ## Output Template
 
