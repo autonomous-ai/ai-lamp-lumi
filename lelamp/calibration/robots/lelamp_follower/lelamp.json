@@ -2,36 +2,36 @@
     "base_yaw": {
         "id": 1,
         "drive_mode": 0,
-        "homing_offset": 1068,
-        "range_min": 906,
-        "range_max": 2328
+        "homing_offset": -962,
+        "range_min": 574,
+        "range_max": 3052
     },
     "base_pitch": {
         "id": 2,
         "drive_mode": 0,
-        "homing_offset": -677,
-        "range_min": 1556,
-        "range_max": 2128
+        "homing_offset": -475,
+        "range_min": 1516,
+        "range_max": 2468
     },
     "elbow_pitch": {
         "id": 3,
         "drive_mode": 0,
-        "homing_offset": 1527,
-        "range_min": 1089,
-        "range_max": 2524
+        "homing_offset": -1697,
+        "range_min": 1184,
+        "range_max": 2620
     },
     "wrist_roll": {
         "id": 4,
         "drive_mode": 0,
-        "homing_offset": 1919,
-        "range_min": 1154,
-        "range_max": 2977
+        "homing_offset": 912,
+        "range_min": 897,
+        "range_max": 3013
     },
     "wrist_pitch": {
         "id": 5,
         "drive_mode": 0,
-        "homing_offset": -80,
-        "range_min": 1178,
-        "range_max": 2766
+        "homing_offset": -587,
+        "range_min": 1750,
+        "range_max": 3310
     }
 }
