@@ -213,7 +213,10 @@ class AutonomousSTTSession(STTSession):
     def close(self):
         if self._closed.is_set():
             return
-        self._closed.set()
+        # Close WebSocket first so the server can flush the final transcript,
+        # then wait for recv_loop to process it before marking as closed.
+        # Setting _closed BEFORE ws.close() causes recv_loop to break on the
+        # `if self._closed.is_set()` guard and miss the final transcript.
         if self._ws:
             try:
                 self._ws.close()
@@ -223,6 +226,7 @@ class AutonomousSTTSession(STTSession):
             self._recv_thread.join(timeout=5)
             if self._recv_thread.is_alive():
                 logger.warning("Autonomous STT recv thread did not exit in 5s")
+        self._closed.set()
         logger.info("Autonomous STT connection closed")
 
     def is_closed(self) -> bool:
