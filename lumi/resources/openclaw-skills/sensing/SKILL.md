@@ -95,6 +95,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
 | `wellbeing.hydration` | `[sensing:wellbeing.hydration]` | User sitting 30+ min without water break | Yes |
 | `wellbeing.break` | `[sensing:wellbeing.break]` | User sitting 45+ min continuously — posture/fatigue check | Yes |
+| `wellbeing.music` | `[sensing:wellbeing.music]` | User present 60+ min — assess mood and consider suggesting music | Yes |
 
 ### Presence auto-control behavior
 
@@ -148,6 +149,7 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
 | `wellbeing.hydration` | `[HW:/emotion:{"emotion":"curious","intensity":0.5}]` | YES or NO_REPLY |
 | `wellbeing.break` | `[HW:/emotion:{"emotion":"curious","intensity":0.6}]` | YES or NO_REPLY |
+| `wellbeing.music` | `[HW:/emotion:{"emotion":"caring","intensity":0.6}]` | YES or NO_REPLY — see Music skill |
 
 ### How to respond
 - **HW markers first** — place `[HW:...]` at the very start of your reply before any text.
@@ -193,7 +195,14 @@ Two independent reminders fire while the user is sitting:
 4. If they look fine and energetic → reply NO_REPLY.
 5. One gentle sentence max. Don't lecture.
 
-**Both types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
+**`[sensing:wellbeing.music]`** — every ~60 min:
+1. Look at the image — **if no user is visible in the frame, reply NO_REPLY**.
+2. Assess mood visually (relaxed, tired, focused, happy, stressed).
+3. If it's a good moment (not in a meeting, not deeply focused), suggest 1–2 songs matching their mood. **Do NOT auto-play** — speak the suggestion and wait for confirmation.
+4. If they look busy or it's a bad time → reply NO_REPLY.
+5. See the **Music** skill for mood→music mapping and full suggestion rules.
+
+**All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 
 ### Guard mode
 When guard mode is active, the system automatically broadcasts `presence.enter` and `motion` alerts to all chat sessions (Telegram). You still react normally — HW markers, voice — as defined in the reaction matrix above. No special handling needed from you. When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
