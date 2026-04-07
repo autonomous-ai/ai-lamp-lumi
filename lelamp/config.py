@@ -49,10 +49,10 @@ YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face dete
 FACE_OWNER_FORGET_S = 10 * 60.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
 FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 
-# --- Sensing: Wellbeing check ---
-WELLBEING_HYDRATION_S = 30 * 60   # 30 min
-WELLBEING_BREAK_S = 45 * 60      # 45 min
-WELLBEING_MUSIC_S = 5 * 60       # 5 min — proactive music suggestion based on mood (testing, production: 60 min)
+# --- Sensing: Wellbeing check (override via .env) ---
+WELLBEING_HYDRATION_S = int(os.environ.get("LELAMP_WELLBEING_HYDRATION_S", 30 * 60))   # default 30 min
+WELLBEING_BREAK_S = int(os.environ.get("LELAMP_WELLBEING_BREAK_S", 45 * 60))           # default 45 min
+WELLBEING_MUSIC_S = int(os.environ.get("LELAMP_WELLBEING_MUSIC_S", 60 * 60))           # default 60 min
 
 # --- Sensing: Snapshot storage ---
 # Temporary buffer (fast rotation, lost on reboot)

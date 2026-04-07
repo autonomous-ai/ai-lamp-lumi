@@ -305,11 +305,12 @@ class VoiceService:
         """Main loop: local VAD → STT on speech → disconnect on silence."""
         time.sleep(3)  # Wait for hardware init
 
-        # Prefer arecord (plughw) over sounddevice — ALSA handles SRC transparently
-        # so we can record at exactly STT_RATE without manual resampling.
-        if self._alsa_device is None:
-            self._alsa_device = self._get_alsa_device_str()
-
+        # Use arecord only when explicitly configured via LELAMP_AUDIO_INPUT_ALSA.
+        # Auto-detection is disabled because arecord uses exclusive ALSA access,
+        # which conflicts with SoundPerception's sd.rec() calls on the same device
+        # (both try to open plughw:X,0 — one silently reads zeros and STT never fires).
+        # Auto-detection is safe only on Pi5 where SoundPerception is not using the mic.
+        # Set LELAMP_AUDIO_INPUT_ALSA=plughw:X,0 in .env to opt in explicitly.
         if self._alsa_device is not None:
             device_rate = STT_RATE  # plughw does SRC; record directly at STT rate
             logger.info("Using arecord backend (%s) at %dHz", self._alsa_device, device_rate)
