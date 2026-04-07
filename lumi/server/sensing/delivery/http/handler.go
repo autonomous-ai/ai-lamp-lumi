@@ -152,15 +152,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Guard mode: also broadcast stranger/motion alerts to all chat sessions.
-	// Normal flow continues — agent still does emotion, servo, TTS as usual.
-	if isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion") {
-		slog.Info("guard mode broadcast", "component", "sensing", "type", req.Type)
-		go func() {
-			if err := h.agentGateway.BroadcastAlert("[guard:"+req.Type+"] "+req.Message, req.Image); err != nil {
-				slog.Error("guard broadcast failed", "component", "sensing", "err", err)
-			}
-		}()
+	// Guard mode: tag the event so agent knows to broadcast via its own message tool.
+	guardActive := isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion")
+	if guardActive {
+		slog.Info("guard mode active — agent will broadcast via message tool", "component", "sensing", "type", req.Type)
 	}
 
 	// No local match — forward to OpenClaw agent
@@ -185,6 +180,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = "[ambient] " + req.Message
+	} else if guardActive {
+		// Guard mode active — agent crafts emotional broadcast and calls /api/guard/alert.
+		msg = "[sensing:" + req.Type + "][guard-active] " + req.Message
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
@@ -282,7 +280,7 @@ type GuardAlertRequest struct {
 	Image   string `json:"image,omitempty"`
 }
 
-// PostGuardAlert broadcasts an alert message to all chat sessions.
+// PostGuardAlert broadcasts an alert message to all chat sessions (manual alerts only).
 func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 	var req GuardAlertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
