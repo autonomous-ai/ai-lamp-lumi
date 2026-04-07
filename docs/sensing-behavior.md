@@ -123,15 +123,26 @@ When guard mode is enabled (`guard_mode: true` in config), sensing events are ta
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
 2. Go handler tags the event `[guard-active]` and marks the runID as a guard run (with snapshot path).
-3. The agent processes the event normally — emotion, servo, TTS response.
-4. When the agent's response arrives (SSE lifecycle end), the Go SSE handler checks if the runID is a guard run.
-5. If yes: the agent's natural response text + camera snapshot are sent directly via **Telegram Bot API** (`sendPhoto`) to all connected Telegram chats.
-6. Delivery is 100% reliable — bypasses OpenClaw agent processing in other sessions.
+3. The agent processes the event normally — emotion, servo, TTS response. No special guard instructions needed.
+4. When the agent's response arrives (SSE lifecycle end), the Go SSE handler detects the guard run.
+5. The agent's natural response text + camera snapshot are sent directly via **Telegram Bot API** (`sendPhoto`) to all connected Telegram chats.
+6. Delivery is 100% reliable — bypasses OpenClaw agent processing entirely.
 
 ### Why this approach?
+After trying 6 different approaches (see below), this hybrid proved the most reliable:
 - **Agent crafts the message** → natural, context-aware, with personality
-- **Go side delivers** → direct Telegram Bot API, no agent NO_REPLY risk
-- **SOUL.md + SKILL.md** still instruct the agent to broadcast via `message` tool as a bonus (double delivery is fine)
+- **Go side delivers** → direct Telegram Bot API, guaranteed delivery, no agent NO_REPLY risk
+- **Agent doesn't need special instructions** → no SOUL.md/SKILL.md guard rules, agent just reacts normally
+
+### Solution evolution (2026-04-07)
+| # | Approach | Why it failed |
+|---|----------|---------------|
+| 1 | `BroadcastAlert` with `[guard:type]` prefix | `chat.send` goes through agent → 2/3 NO_REPLY |
+| 2 | Agent-driven via `[guard-active]` tag | Haiku ignored SKILL instruction (buried at line 222) |
+| 3 | Move instruction to top of SKILL.md | Haiku still ignored |
+| 4 | Go-side emotional templates + `BroadcastAlert` | Agents recognize `sender: node-host` → ignore. No image attached |
+| 5 | Agent-driven + SOUL.md enforcement | Better compliance but not 100%. Token mismatch issues |
+| 6 | **Hook agent response + Telegram Bot API** | ✅ Agent crafts message naturally, Go delivers 100% |
 
 ### Manual alerts
 Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
