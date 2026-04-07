@@ -65,6 +65,7 @@ class SensingService:
         self._thread: Optional[threading.Thread] = None
         self._last_event_time: dict[str, float] = {}
         self._face_recognizer: FaceRecognizer | None = None
+        self._wellbeing: WellbeingPerception | None = None
 
         # Presence auto on/off state machine
         self.presence = PresenceService(rgb_service=rgb_service, send_event=self._send_event)
@@ -79,6 +80,12 @@ class SensingService:
             )
             self._face_recognizer = face_recognizer
             face_recognizer.load_from_disk()
+            self._wellbeing = WellbeingPerception(
+                cv2=cv2_module,
+                send_event=self._send_event,
+                presence_service=self.presence,
+                capture_stable_frame=self._capture_stable_frame,
+            )
             self._perceptions += [
                 MotionPerception(
                     cv2=cv2_module,
@@ -93,12 +100,7 @@ class SensingService:
                     np_module=numpy_module,
                     send_event=self._send_event,
                 ),
-                WellbeingPerception(
-                    cv2=cv2_module,
-                    send_event=self._send_event,
-                    presence_service=self.presence,
-                    capture_stable_frame=self._capture_stable_frame,
-                ),
+                self._wellbeing,
             ]
         if sound_device_module and numpy_module and input_device is not None:
             self._sound_perception = SoundPerception(
