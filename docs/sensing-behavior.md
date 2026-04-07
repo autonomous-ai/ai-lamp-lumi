@@ -208,10 +208,19 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 ### How it works
 
 `MotionPerception` checks `PresenceService.state` after the cooldown gate:
-- **PRESENT** → sends `motion.activity` with prompt: "describe what the user appears to be doing", and **resets the wellbeing break timer** (user is moving = already taking a break)
+- **PRESENT** → sends `motion.activity` with prompt: "describe what the user appears to be doing"
 - **NOT PRESENT** (AWAY/IDLE) → sends `motion` (enter/leave detection)
 
 Both share the same `MOTION_EVENT_COOLDOWN_S` (3 min) cooldown.
+
+### Wellbeing timer reset (LLM-driven)
+
+When the agent responds to `motion.activity`, it visually assesses what the user is doing and resets the appropriate wellbeing timer via `[HW:...]` markers:
+
+- User stretching/standing → `[HW:/sensing/wellbeing/reset:{"type":"break"}]` — resets the 45-min break timer
+- User drinking water → `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]` — resets the 30-min hydration timer
+
+The existing `fireHWCalls()` mechanism POSTs to LeLamp's `/sensing/wellbeing/reset` endpoint, which calls `WellbeingPerception.reset_break()` or `reset_hydration()`. This way the LLM decides *which* timer to reset based on what it actually sees — stretching ≠ drinking water.
 
 ### Agent behavior
 
