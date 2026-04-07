@@ -23,6 +23,10 @@ type AgentGateway interface {
 	// SetBusy marks the agent as busy (true on lifecycle start, false on lifecycle end).
 	SetBusy(busy bool)
 
+	// QueuePendingEvent buffers a sensing event to replay when the agent becomes idle.
+	// Last-write-wins per event type.
+	QueuePendingEvent(eventType, msg, image string)
+
 	// SendChatMessage sends a user message to the agent. Returns the run ID.
 	SendChatMessage(msg string) (string, error)
 
