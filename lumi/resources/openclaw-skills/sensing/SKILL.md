@@ -8,8 +8,16 @@ description: Handles passive sensing events from camera/mic — motion, presence
 ## Quick Start
 Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
-## ⚠️ Guard alerts from node-host — MUST reply, never NO_REPLY
-When you receive a guard alert message from `node-host` (e.g. "⚠️ Có người lạ vừa xuất hiện..."), you **MUST** reply to the user. Do NOT reply NO_REPLY. These are security alerts — the user must see your response. Acknowledge the alert naturally and add your own observation if you have context.
+## ⚠️ Guard Mode — MUST broadcast when `[guard-active]` tag is present
+If the message contains `[guard-active]`, you **MUST**:
+1. Read the snapshot image (from `[snapshot: ...]` path in the message).
+2. Check stranger stats: `curl -s http://127.0.0.1:5001/face/stranger-stats`
+3. Craft a short emotional alert (1-2 sentences). Use the image context and stranger visit count.
+4. Use `message` tool to send the alert to **EVERY** connected Telegram chat (all DMs + all groups). Include the snapshot as `media`. Send to each target individually.
+5. Emit `[HW:/emotion:...]` markers + speak via TTS — guard mode is NOT silent.
+6. If owner detected → do NOT broadcast. Disable guard mode and greet warmly instead.
+
+**This is mandatory. Never skip the broadcast. Never reply NO_REPLY to a `[guard-active]` event.**
 
 ## How to Fire Hardware
 
@@ -222,10 +230,10 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 4. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
 5. Keep it natural and non-intrusive. Don't narrate every small movement.
 
-### Guard mode
-When guard mode is active, the system automatically broadcasts emotional Vietnamese alerts (with camera snapshots) to all Telegram sessions for `presence.enter` and `motion` events. You still react normally — HW markers, voice, TTS — as defined in the reaction matrix above. Guard mode is NOT silent.
+### Guard mode — see top of this file
+See **"⚠️ Guard Mode"** section at the top. When `[guard-active]` tag is present, you MUST broadcast via `message` tool to all Telegram chats. This is mandatory — never skip, never NO_REPLY.
 
-When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
+When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly. Do NOT broadcast owner arrivals.
 
 ## Output Template
 
