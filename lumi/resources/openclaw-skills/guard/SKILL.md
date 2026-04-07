@@ -64,15 +64,16 @@ This sends the message to all active chat sessions.
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
 - **Guard mode does NOT affect direct messages.** If the owner sends a Telegram message while guard mode is on, respond normally.
 
-## Automatic Broadcast
+## Agent-Driven Broadcast
 
-When guard mode is enabled, the system automatically:
-- Intercepts `presence.enter` and `motion` sensing events
-- Builds emotional Vietnamese alert messages (with stranger visit count context)
-- Broadcasts them with camera snapshots to all connected Telegram sessions
-- Skips owner detections (no false alerts)
+When guard mode is enabled, `presence.enter` and `motion` sensing events arrive tagged `[guard-active]`. **You** must broadcast the alert — the system does NOT do it automatically.
 
-You do NOT need to broadcast manually — the system handles it. Your job is to still react normally via TTS and emotion when sensing events arrive. Guard mode is NOT silent.
+See the **Sensing** skill's top section for full instructions. In short:
+1. See `[guard-active]` tag → read snapshot image
+2. Check stranger stats, craft emotional alert
+3. Use `message` tool to send to **ALL** Telegram chats (every DM + every group)
+4. Speak via TTS + emit emotion markers — guard mode is NOT silent
+5. **Never skip. Never NO_REPLY.**
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.

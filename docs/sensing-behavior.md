@@ -118,21 +118,17 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 
 ## Guard Mode
 
-When guard mode is enabled (`guard_mode: true` in config), the Go handler builds emotional Vietnamese alert messages and broadcasts them to all Telegram sessions.
+When guard mode is enabled (`guard_mode: true` in config), sensing events are tagged `[guard-active]` and the **agent broadcasts alerts directly** using its `message` tool.
 
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
-2. Go handler builds an emotional alert message (template + stranger visit count from LeLamp API).
-3. `BroadcastAlert` sends the message + camera snapshot via `chat.send` to all active Telegram sessions.
-4. Each session's agent receives the alert as a natural message (no system prefix) — instructed to always reply, never NO_REPLY.
-5. Normal sensing flow continues in parallel — the main agent still does emotion, servo, TTS as usual. Guard mode is NOT silent.
+2. Go handler tags the event `[guard-active]` before forwarding to the agent.
+3. The agent sees `[guard-active]`, reads the snapshot image, checks stranger stats, and crafts an emotional alert.
+4. The agent uses its `message` tool to send the alert to **every** connected Telegram chat (all DMs + all groups).
+5. The agent also speaks via TTS + emits `[HW:/emotion:...]` markers — guard mode is NOT silent.
 
-### Alert messages
-Instead of raw `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)`, the system sends emotional Vietnamese messages:
-- First-time stranger: "⚠️ Có người lạ vừa xuất hiện trước camera! Chưa gặp bao giờ..."
-- Recurring stranger: "🤔 Lại người này nữa rồi, gặp 3 lần rồi đó. Ai vậy ta?"
-- Motion only: "👀 Có gì đó vừa di chuyển trước camera! Để tôi canh chừng..."
-- Owner detected: no broadcast (prevents false alerts).
+### Why agent-driven?
+The agent crafts context-aware messages with personality. The broadcast instruction is enforced in both `SOUL.md` (non-negotiable rule) and sensing `SKILL.md` (detailed steps) for maximum compliance.
 
 ### Manual alerts
 Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
