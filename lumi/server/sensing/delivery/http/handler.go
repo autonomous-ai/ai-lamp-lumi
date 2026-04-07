@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -293,13 +294,20 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 }
 
-// GetSnapshot serves a sensing snapshot image from /tmp/lumi-sensing-snapshots/.
+// GetSnapshot serves a sensing snapshot image.
+// Checks persistent dir first (/var/log/lumi/snapshots/), falls back to tmp.
 func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	name := c.Param("name")
 	if !strings.HasPrefix(name, "sensing_") || !strings.HasSuffix(name, ".jpg") {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	path := filepath.Join("/tmp/lumi-sensing-snapshots", name)
-	c.File(path)
+	// Prefer persistent dir (survives reboot), fall back to tmp buffer.
+	persistPath := filepath.Join("/var/log/lumi/snapshots", name)
+	if _, err := os.Stat(persistPath); err == nil {
+		c.File(persistPath)
+		return
+	}
+	tmpPath := filepath.Join("/tmp/lumi-sensing-snapshots", name)
+	c.File(tmpPath)
 }
