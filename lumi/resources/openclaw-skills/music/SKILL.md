@@ -80,7 +80,7 @@ Lumi proactively suggests music based on the owner's **mood and context** — in
 - "suggest a song", "what should I listen to?", "any music ideas?"
 - You already have conversation context → infer mood from the chat and suggest. No extra code needed.
 
-**Proactive** — sensing pipeline pushes `[sensing:wellbeing.music]`:
+**Proactive** — sensing pipeline pushes `[sensing:music.mood]`:
 - Fires every ~60 min while user is present (similar to hydration/break checks).
 - Arrives with a camera snapshot so you can visually assess mood.
 - You decide whether to offer music or reply NO_REPLY.
@@ -130,7 +130,7 @@ Relevant event types for mood inference:
 | `light.level` (dimming) | Evening setting — winding down, relaxed |
 | `presence.away` → `presence.enter` | Returned from break — refreshed |
 
-### Proactive workflow (`[sensing:wellbeing.music]`)
+### Proactive workflow (`[sensing:music.mood]`)
 
 1. **Look at the image** — if no user visible, reply NO_REPLY.
 2. **Assess mood visually**: relaxed? focused? tired? happy? stressed?
@@ -162,11 +162,11 @@ Relevant event types for mood inference:
 ### Examples
 
 **Proactive — user looks tired after long session:**
-**Input:** `[sensing:wellbeing.music]` with image — user slouching, dim room
+**Input:** `[sensing:music.mood]` with image — user slouching, dim room
 **Output:** `[HW:/emotion:{"emotion":"caring","intensity":0.7}]` You've been at it for a while... Want me to put on something relaxing? I'm thinking Chet Baker or some lo-fi piano.
 
 **Proactive — user looks fine, bad timing:**
-**Input:** `[sensing:wellbeing.music]` with image — user on a call
+**Input:** `[sensing:music.mood]` with image — user on a call
 **Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.3}]` NO_REPLY
 
 **Reactive — user asks:**

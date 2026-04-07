@@ -67,7 +67,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break|wellbeing.music",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break|music.mood",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -86,7 +86,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | `presence.away` | PresenceService (15 min no motion) | No | No one around for 15+ min — Lumi going to sleep |
 | `wellbeing.hydration` | WellbeingPerception (30 min timer) | Yes | User sitting 30+ min without water break |
 | `wellbeing.break` | WellbeingPerception (45 min timer) | Yes | User sitting 45+ min continuously |
-| `wellbeing.music` | WellbeingPerception (60 min timer) | Yes | User present 60+ min — mood-based music suggestion |
+| `music.mood` | WellbeingPerception (60 min timer) | Yes | User present 60+ min — mood-based music suggestion |
 | `motion.activity` | MotionPerception (while PRESENT) | Yes | Motion detected while user is present — activity analysis |
 
 **Processing flow:**
