@@ -346,9 +346,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			isChannelTurn := payload.Data.Phase == "start" && payload.RunID != "" &&
 				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
 			if isChannelTurn {
-				// Channel turns (Telegram, Slack, etc.) never need TTS — no one is listening to the speaker.
-				h.suppressTTS(payload.RunID, "channel_turn")
-
 				h.appendDebugJSONL(map[string]any{
 					"source":      "agent.lifecycle_start_fallback_chat_input",
 					"run_id":      payload.RunID,
