@@ -1829,11 +1829,25 @@ func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption 
 
 // readOpenClawTelegramToken reads the Telegram bot token from OpenClaw's config file.
 func (s *Service) readOpenClawTelegramToken() string {
-	configDir := s.config.OpenclawConfigDir
-	if configDir == "" {
-		configDir = "/root/openclaw"
+	// Try configured dir first, then common locations.
+	candidates := []string{s.config.OpenclawConfigDir}
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		candidates = append(candidates, filepath.Join(home, ".openclaw"))
 	}
-	data, err := os.ReadFile(filepath.Join(configDir, "openclaw.json"))
+	candidates = append(candidates, "/root/.openclaw", "/root/openclaw")
+
+	var data []byte
+	var err error
+	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
+		data, err = os.ReadFile(filepath.Join(dir, "openclaw.json"))
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return ""
 	}
