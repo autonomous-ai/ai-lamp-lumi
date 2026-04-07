@@ -191,7 +191,9 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     const start = isTurnStart(ev);
     if (start) {
       const shouldForceSplit = Boolean(start.forceNewTurn);
-      if (!shouldForceSplit && current && current.runId && evRunId && current.runId === evRunId) {
+      // Split if current turn is already done — don't append new turn's events to a finished turn.
+      const currentDone = current?.status === "done" || current?.status === "error";
+      if (!shouldForceSplit && !currentDone && current && current.runId && evRunId && current.runId === evRunId) {
         current.events.push(ev);
         continue;
       }
