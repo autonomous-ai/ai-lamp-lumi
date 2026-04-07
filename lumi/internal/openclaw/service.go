@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -1649,6 +1650,10 @@ func (s *Service) ConsumeGuardRun(runID string) (string, bool) {
 func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
 	botToken := s.config.TelegramBotToken
 	if botToken == "" {
+		// Fallback: read from OpenClaw config (token may only exist there if set via OpenClaw UI).
+		botToken = s.readOpenClawTelegramToken()
+	}
+	if botToken == "" {
 		return fmt.Errorf("telegram bot token not configured")
 	}
 
@@ -1780,19 +1785,24 @@ func (s *Service) getTelegramChatIDs() []string {
 }
 
 func (s *Service) sendTelegramMessage(client *http.Client, token, chatID, text string) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q,"parse_mode":"Markdown"}`, chatID, text)
-	resp, err := client.Post(url, "application/json", strings.NewReader(payload))
+	resp, err := client.Post(apiURL, "application/json", strings.NewReader(payload))
 	if err != nil {
 		slog.Error("telegram sendMessage failed", "component", "openclaw", "chatID", chatID, "err", err)
 		return
 	}
+	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		slog.Error("telegram sendMessage error", "component", "openclaw", "chatID", chatID, "status", resp.StatusCode, "body", string(body))
+		return
+	}
 	slog.Info("telegram sendMessage sent", "component", "openclaw", "chatID", chatID)
 }
 
 func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption string, photo []byte) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -1803,13 +1813,41 @@ func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption 
 	part.Write(photo)
 	w.Close()
 
-	resp, err := client.Post(url, w.FormDataContentType(), &buf)
+	resp, err := client.Post(apiURL, w.FormDataContentType(), &buf)
 	if err != nil {
 		slog.Error("telegram sendPhoto failed", "component", "openclaw", "chatID", chatID, "err", err)
 		return
 	}
+	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		slog.Error("telegram sendPhoto error", "component", "openclaw", "chatID", chatID, "status", resp.StatusCode, "body", string(body))
+		return
+	}
 	slog.Info("telegram sendPhoto sent", "component", "openclaw", "chatID", chatID)
+}
+
+// readOpenClawTelegramToken reads the Telegram bot token from OpenClaw's config file.
+func (s *Service) readOpenClawTelegramToken() string {
+	configDir := s.config.OpenclawConfigDir
+	if configDir == "" {
+		configDir = "/root/openclaw"
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "openclaw.json"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Channels struct {
+			Telegram struct {
+				BotToken string `json:"botToken"`
+			} `json:"telegram"`
+		} `json:"channels"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return ""
+	}
+	return cfg.Channels.Telegram.BotToken
 }
 
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
