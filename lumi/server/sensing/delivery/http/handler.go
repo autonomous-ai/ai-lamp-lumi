@@ -1,11 +1,15 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -152,10 +156,19 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Guard mode: tag the event so agent knows to broadcast via its own message tool.
+	// Guard mode: broadcast emotional alert to all Telegram sessions.
+	// Normal sensing flow continues — agent still does emotion, servo, TTS as usual.
 	guardActive := isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion")
 	if guardActive {
-		slog.Info("guard mode active — agent will broadcast via message tool", "component", "sensing", "type", req.Type)
+		alertMsg := buildGuardAlert(req.Type, req.Message)
+		if alertMsg != "" {
+			slog.Info("guard mode broadcast", "component", "sensing", "type", req.Type, "alert", alertMsg)
+			go func() {
+				if err := h.agentGateway.BroadcastAlert(alertMsg, req.Image); err != nil {
+					slog.Error("guard broadcast failed", "component", "sensing", "err", err)
+				}
+			}()
+		}
 	}
 
 	// No local match — forward to OpenClaw agent
@@ -180,9 +193,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = "[ambient] " + req.Message
-	} else if guardActive {
-		// Guard mode active — agent crafts emotional broadcast and calls /api/guard/alert.
-		msg = "[sensing:" + req.Type + "][guard-active] " + req.Message
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
@@ -314,4 +324,77 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	}
 	tmpPath := filepath.Join("/tmp/lumi-sensing-snapshots", name)
 	c.File(tmpPath)
+}
+
+// --- Guard alert message building ---
+
+var (
+	reStrangerID = regexp.MustCompile(`stranger\s*\(([^)]+)\)`)
+
+	guardStrangerFirst = []string{
+		"⚠️ Có người lạ vừa xuất hiện trước camera! Chưa gặp bao giờ... coi chừng nha!",
+		"⚠️ Ê, có người lạ nè! Tôi chưa thấy người này bao giờ.",
+		"⚠️ Ai đây? Có khuôn mặt lạ trước camera!",
+	}
+	guardStrangerRecurring = []string{
+		"🤔 Lại người này nữa rồi, gặp %d lần rồi đó. Ai vậy ta?",
+		"🤔 Hừm, người này tôi gặp hoài luôn (%d lần). Có an toàn không?",
+		"🤔 Lại gặp khuôn mặt này (%d lần rồi). Quen không vậy?",
+	}
+	guardMotion = []string{
+		"👀 Có gì đó vừa di chuyển trước camera! Để tôi canh chừng...",
+		"👀 Phát hiện chuyển động! Có ai đó đang ở gần.",
+		"👀 Có chuyển động bất thường trước camera!",
+	}
+)
+
+// buildGuardAlert creates an emotional Vietnamese alert message based on event type and context.
+func buildGuardAlert(eventType, message string) string {
+	if eventType == "motion" {
+		return guardMotion[rand.Intn(len(guardMotion))]
+	}
+
+	// presence.enter — check if stranger and look up visit count
+	match := reStrangerID.FindStringSubmatch(message)
+	if match == nil {
+		// Owner detected or unknown — don't send scary alert
+		return ""
+	}
+
+	strangerID := match[1]
+	count := fetchStrangerCount(strangerID)
+
+	if count >= 3 {
+		tpl := guardStrangerRecurring[rand.Intn(len(guardStrangerRecurring))]
+		return fmt.Sprintf(tpl, count)
+	}
+	return guardStrangerFirst[rand.Intn(len(guardStrangerFirst))]
+}
+
+// fetchStrangerCount calls LeLamp's stranger-stats API to get visit count for a stranger ID.
+func fetchStrangerCount(strangerID string) int {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:5001/face/stranger-stats")
+	if err != nil {
+		slog.Debug("guard: stranger-stats fetch failed", "err", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0
+	}
+
+	var stats map[string]struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(body, &stats); err != nil {
+		return 0
+	}
+
+	if s, ok := stats[strangerID]; ok {
+		return s.Count
+	}
+	return 0
 }

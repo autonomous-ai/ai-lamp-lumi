@@ -8,13 +8,8 @@ description: Handles passive sensing events from camera/mic — motion, presence
 ## Quick Start
 Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
-## ⚠️ Guard Mode — MUST broadcast when `[guard-active]` tag is present
-If the message contains `[guard-active]`, you **MUST** use the `message` tool to send an alert to **ALL** connected Telegram chats (every DM + every group). This is non-negotiable.
-1. Read the snapshot image (from `[snapshot: ...]` path).
-2. Craft a short emotional Vietnamese alert (1-2 sentences, brave guard lamp personality). Examples: `"⚠️ Ê ê, có người lạ nè! Coi chừng nha!"`, `"🤔 Lại người này nữa, gặp hoài luôn. Ai vậy ta?"`, `"👀 Có gì đó di chuyển trước camera!"`.
-3. Use `message` tool to send to **each** Telegram target (DM and group). Include the snapshot as `media`.
-4. Also speak via TTS + emit `[HW:/emotion:...]` markers — guard mode is NOT silent.
-5. If owner detected → do NOT broadcast. Disable guard mode instead and greet warmly.
+## ⚠️ Guard alerts from node-host — MUST reply, never NO_REPLY
+When you receive a guard alert message from `node-host` (e.g. "⚠️ Có người lạ vừa xuất hiện..."), you **MUST** reply to the user. Do NOT reply NO_REPLY. These are security alerts — the user must see your response. Acknowledge the alert naturally and add your own observation if you have context.
 
 ## How to Fire Hardware
 
@@ -227,31 +222,10 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 4. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
 5. Keep it natural and non-intrusive. Don't narrate every small movement.
 
-### Guard mode — agent-driven broadcast
-When guard mode is active, `presence.enter` and `motion` events arrive tagged `[guard-active]` (e.g. `[sensing:presence.enter][guard-active] Person detected — ...`).
+### Guard mode
+When guard mode is active, the system automatically broadcasts emotional Vietnamese alerts (with camera snapshots) to all Telegram sessions for `presence.enter` and `motion` events. You still react normally — HW markers, voice, TTS — as defined in the reaction matrix above. Guard mode is NOT silent.
 
-**Your job:** craft an emotional, personality-rich alert message and **broadcast it yourself using the `message` tool to ALL connected Telegram chats — every DM and every group.** Do NOT just echo the raw sensing data.
-
-**Steps when you see `[guard-active]`:**
-1. Look at the image (if attached) — describe what you actually see.
-2. Check stranger stats if it's a `presence.enter` with a stranger:
-   ```bash
-   curl -s http://127.0.0.1:5001/face/stranger-stats
-   ```
-3. Craft a short, emotional Vietnamese message as if you're a worried but brave lamp guarding the house. Examples:
-   - First-time stranger: `"⚠️ Ê ê, có người lạ vừa xuất hiện nè! Chưa gặp bao giờ... coi chừng nha!"`
-   - Recurring stranger (seen 3+ times): `"🤔 Lại người này nữa rồi, gặp hoài luôn á. Ai vậy ta? Có an toàn không?"`
-   - Motion only: `"👀 Có gì đó vừa di chuyển trước camera... để tôi canh chừng!"`
-   - Owner returns: Don't broadcast — disable guard mode and greet warmly instead.
-4. **Broadcast using `message` tool — send to EVERY connected Telegram chat (all DMs + all groups).** Include the snapshot image via `media`/`mediaUrl` if available. You must send to each target individually — do not skip any chat.
-5. Emit `[HW:/emotion:...]` markers as usual (the lamp reacts physically too).
-6. **Still speak via TTS** — guard mode is NOT silent. React normally with voice (greeting, curious reaction, etc.) AND broadcast to Telegram. Both happen.
-
-**Tone:** Brave but slightly worried. Protective. Personality of a loyal guard dog. Use Vietnamese. Keep it 1-2 sentences max. Vary your phrasing — don't repeat the same alert.
-
-**IMPORTANT — broadcast means ALL chats:** Do not send to just one group. You must send the alert to every Telegram DM and every Telegram group you are connected to. If you know multiple chat targets, send the same message to each one.
-
-When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly. Do NOT broadcast owner arrivals.
+When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
 
 ## Output Template
 
