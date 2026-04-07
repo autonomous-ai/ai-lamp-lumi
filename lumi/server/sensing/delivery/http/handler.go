@@ -136,8 +136,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	// Drop passive sensing events while agent is processing another turn.
-	// Voice commands always pass through — the user is explicitly speaking.
-	isPassive := req.Type != "voice" && req.Type != "voice_command"
+	// Only voice_command (wake word confirmed) always passes through.
+	// voice (no wake word) is treated as passive — it may be background speech, so drop if busy.
+	isPassive := req.Type != "voice_command"
 	if isPassive && h.agentGateway.IsBusy() {
 		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
@@ -171,9 +172,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	turnStart := flow.Start("sensing_input", startPayload, runID)
 
 	var msg string
-	if req.Type == "voice" || req.Type == "voice_command" {
-		// Voice input is a human speaking — always respond conversationally.
+	if req.Type == "voice_command" {
+		// Wake word confirmed — agent always responds conversationally.
 		msg = req.Message
+	} else if req.Type == "voice" {
+		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
+		msg = "[ambient] " + req.Message
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
