@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "telegram_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out" | "tg_alert";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -151,6 +151,12 @@ export const FLOW_NODES: FlowNodeDef[] = [
     label: "Telegram Out", short: "TG OUT", icon: "💬", color: "#229ed9", path: "agent",
     shape: "diamond",
     desc: "OpenClaw delivers response to Telegram / Slack / Discord",
+    triggers: [] },
+
+  { id: "tg_alert",
+    label: "Guard Alert", short: "ALERT", icon: "🚨", color: "#e53935", path: "agent",
+    shape: "diamond",
+    desc: "Guard mode broadcast — emotional alert sent to all Telegram sessions",
     triggers: [
       "flow_event:telegram_alert_broadcast",
     ] },
