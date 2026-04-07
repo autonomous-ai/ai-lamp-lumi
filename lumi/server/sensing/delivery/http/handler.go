@@ -332,23 +332,23 @@ var (
 	reStrangerID = regexp.MustCompile(`stranger\s*\(([^)]+)\)`)
 
 	guardStrangerFirst = []string{
-		"⚠️ Có người lạ vừa xuất hiện trước camera! Chưa gặp bao giờ... coi chừng nha!",
-		"⚠️ Ê, có người lạ nè! Tôi chưa thấy người này bao giờ.",
-		"⚠️ Ai đây? Có khuôn mặt lạ trước camera!",
+		"⚠️ A stranger just appeared on camera! Never seen this person before.",
+		"⚠️ Unknown face detected! Who is this? Stay alert.",
+		"⚠️ Someone unfamiliar just showed up in front of the camera!",
 	}
 	guardStrangerRecurring = []string{
-		"🤔 Lại người này nữa rồi, gặp %d lần rồi đó. Ai vậy ta?",
-		"🤔 Hừm, người này tôi gặp hoài luôn (%d lần). Có an toàn không?",
-		"🤔 Lại gặp khuôn mặt này (%d lần rồi). Quen không vậy?",
+		"🤔 This person again — seen them %d times now. Who are they? Is this safe?",
+		"🤔 Same stranger, %d visits so far. Should I be worried?",
+		"🤔 I keep seeing this face (%d times). Do you know them?",
 	}
 	guardMotion = []string{
-		"👀 Có gì đó vừa di chuyển trước camera! Để tôi canh chừng...",
-		"👀 Phát hiện chuyển động! Có ai đó đang ở gần.",
-		"👀 Có chuyển động bất thường trước camera!",
+		"👀 Movement detected on camera! Something just moved.",
+		"👀 Something is moving in front of the camera! Keeping watch.",
+		"👀 Motion alert — someone or something just passed by the camera!",
 	}
 )
 
-// buildGuardAlert creates an emotional Vietnamese alert message based on event type and context.
+// buildGuardAlert creates an emotional alert message based on event type and context.
 func buildGuardAlert(eventType, message string) string {
 	if eventType == "motion" {
 		return guardMotion[rand.Intn(len(guardMotion))]
