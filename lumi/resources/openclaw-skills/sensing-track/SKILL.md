@@ -7,7 +7,9 @@ description: Query flow event logs to answer questions about past sensing events
 
 ## Quick Start
 
-The primary data source is the **flow events JSONL** at `local/flow_events_YYYY-MM-DD.jsonl`. Each file covers one calendar day (30-day retention, no size-rotation mid-day). Use Bash + `jq` to query it.
+The primary data source is the **flow events JSONL** at `/root/local/flow_events_YYYY-MM-DD.jsonl`. Each file covers one calendar day (30-day retention, no size-rotation mid-day). Use Bash + `jq` to query it.
+
+> **Important:** Always use the absolute path `/root/local/` — the `read` tool cannot access files outside the workspace, so use `exec` (Bash) for all JSONL queries.
 
 Persistent camera snapshots are stored in `/var/log/lumi/snapshots/` (72h TTL, 50 MB cap). Reference these when the user asks what happened visually.
 
@@ -44,7 +46,7 @@ DATE="2026-04-03"
 FROM_TS=$(date -d "$DATE 22:00:00" +%s)
 TO_TS=$(date -d "$DATE 23:59:59" +%s)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')' \
-  "local/flow_events_${DATE}.jsonl"
+  "/root/local/flow_events_${DATE}.jsonl"
 ```
 
 ### Events of a specific type in the last N hours
@@ -53,7 +55,7 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' 
 SINCE=$(date -d "1 hour ago" +%s)
 TODAY=$(date +%Y-%m-%d)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"' and .data.type=="motion")' \
-  "local/flow_events_${TODAY}.jsonl"
+  "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Any activity in the last N minutes
@@ -62,7 +64,7 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"' an
 SINCE=$(date -d "30 minutes ago" +%s)
 TODAY=$(date +%Y-%m-%d)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"')' \
-  "local/flow_events_${TODAY}.jsonl"
+  "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Presence events only (who came by)
@@ -70,13 +72,13 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"')' 
 ```bash
 TODAY=$(date +%Y-%m-%d)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and (.data.type=="presence.enter" or .data.type=="presence.leave"))' \
-  "local/flow_events_${TODAY}.jsonl"
+  "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Events spanning multiple days
 
 ```bash
-cat local/flow_events_2026-04-02.jsonl local/flow_events_2026-04-03.jsonl \
+cat /root/local/flow_events_2026-04-02.jsonl /root/local/flow_events_2026-04-03.jsonl \
   | jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')'
 ```
 
@@ -85,7 +87,7 @@ cat local/flow_events_2026-04-02.jsonl local/flow_events_2026-04-03.jsonl \
 ```bash
 TODAY=$(date +%Y-%m-%d)
 jq -c 'select(.node=="sensing_input" and .kind=="exit" and .data.error != null)' \
-  "local/flow_events_${TODAY}.jsonl"
+  "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### List snapshots for a time range
@@ -128,7 +130,7 @@ Returns two types of entries:
 {"event":"mood.assessed","hour":15,"emotion":"caring","source":"music.mood","response":"How about some lo-fi?","no_reply":false}
 ```
 
-Storage: `local/mood_YYYY-MM-DD.jsonl` (30-day retention).
+Storage: `/root/local/mood_YYYY-MM-DD.jsonl` (30-day retention).
 
 ---
 
