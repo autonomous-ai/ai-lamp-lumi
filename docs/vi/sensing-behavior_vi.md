@@ -118,20 +118,31 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 
 ## Chế độ canh gác (Guard Mode)
 
-Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sensing được gắn tag `[guard-active]` và **agent tự broadcast** bằng `message` tool.
+Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sensing được gắn tag `[guard-active]` và Go side **hook agent response** rồi gửi thẳng Telegram Bot API.
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
 2. Go handler gắn tag `[guard-active]` và đánh dấu runID là guard run (kèm snapshot path).
-3. Agent xử lý event bình thường — emotion, servo, TTS response.
-4. Khi agent response trả về (SSE lifecycle end), Go SSE handler kiểm tra runID có phải guard run không.
-5. Nếu có: text tự nhiên của agent + ảnh camera được gửi thẳng qua **Telegram Bot API** (`sendPhoto`) đến tất cả Telegram chat.
-6. Delivery 100% đáng tin — bypass hoàn toàn agent processing ở các session khác.
+3. Agent xử lý event bình thường — emotion, servo, TTS. Không cần instruction đặc biệt.
+4. Khi agent response trả về (SSE lifecycle end), Go SSE handler phát hiện guard run.
+5. Text tự nhiên của agent + ảnh camera được gửi thẳng qua **Telegram Bot API** (`sendPhoto`) đến tất cả Telegram chat.
+6. Delivery 100% đáng tin — bypass hoàn toàn OpenClaw agent.
 
 ### Tại sao approach này?
+Sau khi thử 6 approaches khác nhau, hybrid này đáng tin nhất:
 - **Agent viết message** → tự nhiên, có ngữ cảnh, có tính cách
-- **Go side delivery** → trực tiếp Telegram Bot API, không rủi ro agent NO_REPLY
-- **SOUL.md + SKILL.md** vẫn hướng dẫn agent broadcast qua `message` tool (double delivery không sao)
+- **Go side delivery** → Telegram Bot API trực tiếp, đảm bảo gửi, không rủi ro NO_REPLY
+- **Agent không cần instruction đặc biệt** → không cần SOUL.md/SKILL.md guard rules
+
+### Quá trình thử nghiệm (2026-04-07)
+| # | Approach | Tại sao fail |
+|---|----------|--------------|
+| 1 | `BroadcastAlert` với prefix `[guard:type]` | `chat.send` đi qua agent → 2/3 NO_REPLY |
+| 2 | Agent-driven qua tag `[guard-active]` | Haiku bỏ qua SKILL instruction (chôn ở dòng 222) |
+| 3 | Đưa instruction lên đầu SKILL.md | Haiku vẫn bỏ qua |
+| 4 | Go-side template + `BroadcastAlert` | Agent nhận ra `sender: node-host` → ignore. Không có ảnh |
+| 5 | Agent-driven + ép buộc trong SOUL.md | Tốt hơn nhưng không 100%. Lỗi token |
+| 6 | **Hook agent response + Telegram Bot API** | ✅ Agent viết tự nhiên, Go gửi 100% |
 
 ### Cảnh báo thủ công
 Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn.
