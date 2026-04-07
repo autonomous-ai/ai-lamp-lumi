@@ -594,6 +594,16 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         info.agent_response.push(`"${text}"`);
       }
     }
+    if (ev.type === "flow_event" && ev.detail?.node === "guard_broadcast") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const sessions = Number(d?.data?.sessions ?? 0);
+      const msg = d?.data?.message ?? "";
+      if (sessions) info.tg_out.push(`🛡 guard → ${sessions} session${sessions > 1 ? "s" : ""}`);
+      if (msg) {
+        const short = msg.length > 80 ? msg.slice(0, 80) + "…" : msg;
+        info.tg_out.push(`💬 ${short}`);
+      }
+    }
     if (ev.type === "lifecycle") {
       if (ev.phase === "start") info.agent_call.push(`run: ${ev.runId ?? "?"}`);
       if (ev.phase === "error") {
