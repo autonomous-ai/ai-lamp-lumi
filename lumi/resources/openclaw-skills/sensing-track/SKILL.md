@@ -23,7 +23,7 @@ Each line is a JSON object:
 Key fields:
 - `node` — filter on `"sensing_input"` for sensing events
 - `kind` — `"enter"` = event received, `"exit"` = event processed (with `duration_ms`)
-- `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `sound`, `light.level`, `voice`, `voice_command`, `wellbeing.hydration`, `wellbeing.break`
+- `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `motion.activity`, `sound`, `light.level`, `voice`, `voice_command`, `wellbeing.hydration`, `wellbeing.break`, `music.mood`
 - `data.message` — natural-language description; may contain `[snapshot: /var/log/lumi/snapshots/...]`
 - `data.path` — in `exit` records: `"agent"` (forwarded), `"local"` (handled locally), or has `"error"` key (failed/dropped)
 - `ts` — Unix timestamp (seconds with fractional ms)
@@ -106,6 +106,29 @@ sed 's/\x1b\[[0-9;]*m//g' "$LOG" | grep "sensing event received"
 ```
 
 The system log uses lumberjack rotation (1 MB cap, 3 backups) — it may miss data during high traffic. Use it only when JSONL doesn't have enough detail, or when investigating bugs.
+
+---
+
+## Mood history
+
+A dedicated mood history log tracks mood-relevant sensing events and LLM mood assessments separately from the flow log. Use it for mood/music context queries.
+
+**API:**
+```bash
+# Today's mood history
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
+```
+
+Returns two types of entries:
+- **Sensing input** — raw events: `presence.enter`, `wellbeing.break`, `light.level`, `music.mood`, etc.
+- **`mood.assessed`** — LLM's assessment result with `emotion`, `source` (which event triggered it), `response` (what LLM said), and `no_reply` flag.
+
+```json
+{"event":"music.mood","hour":15,"message":"User here 60 min..."}
+{"event":"mood.assessed","hour":15,"emotion":"caring","source":"music.mood","response":"How about some lo-fi?","no_reply":false}
+```
+
+Storage: `local/mood_YYYY-MM-DD.jsonl` (30-day retention).
 
 ---
 
