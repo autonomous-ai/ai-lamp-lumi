@@ -62,7 +62,6 @@ This sends the message to all active chat sessions.
 - **Enable:** `/emotion` (acknowledge, 0.7) + enable API + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
-- **Never speak in guard mode for sensing events.** The system handles alert broadcasting automatically — your only job is to respond to the broadcast messages that arrive in each chat session.
 - **Guard mode does NOT affect direct messages.** If the owner sends a Telegram message while guard mode is on, respond normally.
 
 ## What Happens Automatically (No Skill Action Needed)
