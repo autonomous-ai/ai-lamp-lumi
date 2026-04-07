@@ -83,6 +83,17 @@ type AgentGateway interface {
 	// chat sessions. Used by guard mode to notify all Telegram chats/groups.
 	BroadcastAlert(msg string, imageBase64 string) error
 
+	// MarkGuardRun marks a runID as a guard-active turn. When the agent responds,
+	// the SSE handler will broadcast the response to all Telegram chats via Bot API.
+	MarkGuardRun(runID string, snapshotPath string)
+
+	// ConsumeGuardRun checks if a runID is a guard-active turn and returns the
+	// snapshot path. Returns ("", false) if not a guard run.
+	ConsumeGuardRun(runID string) (snapshotPath string, ok bool)
+
+	// BroadcastTelegram sends a message directly via Telegram Bot API to all
+	// connected Telegram chats. snapshotPath is an optional local image file.
+	BroadcastTelegram(msg string, snapshotPath string) error
 
 	// SendToLeLampTTS posts response text to LeLamp for TTS playback.
 	SendToLeLampTTS(text string) error
