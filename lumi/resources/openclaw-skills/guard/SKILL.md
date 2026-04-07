@@ -64,15 +64,16 @@ This sends the message to all active chat sessions.
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
 - **Guard mode does NOT affect direct messages.** If the owner sends a Telegram message while guard mode is on, respond normally.
 
-## What Happens Automatically (No Skill Action Needed)
+## Agent-Driven Broadcast
 
-When guard mode is enabled, the system (not the agent) automatically:
-- Intercepts `presence.enter` and `motion` sensing events
-- Broadcasts them as `[guard:presence.enter]` or `[guard:motion]` messages to all chat sessions
-- Includes camera snapshots when available
-- Drops other passive events (sound, light) silently
+When guard mode is enabled, `presence.enter` and `motion` sensing events arrive tagged `[guard-active]`. **You** craft the alert message — the system does NOT broadcast automatically.
 
-You do NOT need to call `/guard/alert` for sensing events — the system does this automatically. The `/guard/alert` endpoint is for manual alerts only.
+See the **Sensing** skill's "Guard mode" section for full instructions. In short:
+1. See `[guard-active]` tag on a sensing event
+2. Look at the image, check stranger stats for context
+3. Craft an emotional Vietnamese alert (brave guard lamp personality)
+4. Call `POST /api/guard/alert` with your message — snapshot is auto-attached
+5. Reply NO_REPLY (guard mode is silent — alerts go to Telegram only)
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
