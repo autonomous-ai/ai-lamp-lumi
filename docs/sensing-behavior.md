@@ -183,6 +183,24 @@ The LLM uses the attached image to make a judgment call — it does NOT always s
 
 ---
 
+## Snapshot Storage (two-tier)
+
+Sensing events that include a camera frame (motion, presence.enter, presence.leave, wellbeing) save snapshots in two locations:
+
+| Tier | Path | Rotation | Survives reboot |
+|------|------|----------|-----------------|
+| **Tmp buffer** | `/tmp/lumi-sensing-snapshots/` | Count-based (max 50 files) | No |
+| **Persistent** | `/var/log/lumi/snapshots/` | TTL (72h) + size (50 MB max) | Yes |
+
+Every event snapshot is saved to tmp first, then copied to the persistent dir. The persistent path is included in the event message (`[snapshot: /var/log/lumi/snapshots/...]`) so the agent can reference it later — even after a device reboot.
+
+Configuration constants are in `lelamp/config.py`:
+- `SNAPSHOT_TMP_MAX_COUNT` — max files in tmp (default 50)
+- `SNAPSHOT_PERSIST_TTL_S` — persistent file TTL in seconds (default 72h)
+- `SNAPSHOT_PERSIST_MAX_BYTES` — max total size of persistent dir (default 50 MB)
+
+---
+
 ## General Rules (all event types)
 
 - **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn.

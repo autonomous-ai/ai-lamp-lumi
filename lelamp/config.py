@@ -51,6 +51,16 @@ FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 WELLBEING_HYDRATION_S = 30 * 60   # 30 min
 WELLBEING_BREAK_S = 45 * 60      # 45 min
 
+# --- Sensing: Snapshot storage ---
+# Temporary buffer (fast rotation, lost on reboot)
+SNAPSHOT_TMP_DIR = "/tmp/lumi-sensing-snapshots"
+SNAPSHOT_TMP_MAX_COUNT = 50
+
+# Persistent storage (survives reboot, agent can look back)
+SNAPSHOT_PERSIST_DIR = "/var/log/lumi/snapshots"
+SNAPSHOT_PERSIST_TTL_S = 72 * 3600   # 72 hours
+SNAPSHOT_PERSIST_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = 5 * 60   # 5 min → dim
 AWAY_TIMEOUT_S = 15 * 60  # 15 min → off
