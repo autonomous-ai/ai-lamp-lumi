@@ -168,7 +168,7 @@ Lumi proactively cares for the user's health and mood by sending periodic camera
 - The LLM looks at the image and decides: remind to stand up and stretch, or reply NO_REPLY if the user seems fine.
 - **If no user is visible in the frame** → NO_REPLY.
 
-### Music (`wellbeing.music`)
+### Music (`music.mood`)
 
 - **Triggers** after 60 minutes of continuous presence, repeats every 60 minutes.
 - Sends a camera snapshot with context: "User has been here for X minutes — assess mood for music suggestion."
@@ -195,7 +195,7 @@ WELLBEING_MUSIC_S     = 60 * 60   # 60 min between music mood checks
 |---|---|---|
 | `wellbeing.hydration` | `curious` (0.5) | YES (remind water) or NO_REPLY |
 | `wellbeing.break` | `curious` (0.6) | YES (remind stretch/walk) or NO_REPLY |
-| `wellbeing.music` | `caring` (0.6) | YES (suggest music) or NO_REPLY |
+| `music.mood` | `caring` (0.6) | YES (suggest music) or NO_REPLY |
 
 The LLM uses the attached image to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
 

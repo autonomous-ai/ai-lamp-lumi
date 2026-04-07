@@ -14,7 +14,7 @@ const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
   cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
   telegram: ["telegram"],
-  system: ["system", "schedule"],
+  system: ["system", "schedule", "music.mood"],
 };
 const TYPE_ICON: Record<string, string> = {
   ...SOURCE_ICON,
@@ -25,7 +25,7 @@ const TYPE_LABEL: Record<string, string> = {
   motion: "motion", "motion.activity": "activity", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
-  telegram: "TG", schedule: "sched",
+  "music.mood": "mood", telegram: "TG", schedule: "sched",
 };
 
 // Preset sensing events for manual testing
