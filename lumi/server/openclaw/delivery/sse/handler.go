@@ -783,13 +783,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						}(text)
 					}
 					// Guard mode: broadcast agent's natural response to all Telegram chats.
-					if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
-						go func(t, s string) {
-							slog.Info("guard broadcast via Telegram Bot API", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
-							if err := h.agentGateway.BroadcastTelegram(t, s); err != nil {
-								slog.Error("guard telegram broadcast failed", "component", "agent", "err", err)
-							}
-						}(text, snap)
+					// Skip heartbeat/system responses — only broadcast real guard alerts.
+					if !strings.Contains(text, "HEARTBEAT") && len(text) > 10 {
+						if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
+							go func(t, s string) {
+								slog.Info("guard broadcast via Telegram Bot API", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
+								if err := h.agentGateway.BroadcastTelegram(t, s); err != nil {
+									slog.Error("guard telegram broadcast failed", "component", "agent", "err", err)
+								}
+							}(text, snap)
+						}
 					}
 				}
 			}
