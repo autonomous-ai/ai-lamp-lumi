@@ -67,7 +67,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|wellbeing.hydration|wellbeing.break|wellbeing.music",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -86,6 +86,8 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | `presence.away` | PresenceService (15 phút không chuyển động) | Không | Không ai xung quanh 15+ phút — Lumi đi ngủ |
 | `wellbeing.hydration` | WellbeingPerception (timer 30 phút) | Có | User ngồi 30+ phút chưa uống nước |
 | `wellbeing.break` | WellbeingPerception (timer 45 phút) | Có | User ngồi 45+ phút liên tục |
+| `wellbeing.music` | WellbeingPerception (timer 60 phút) | Có | User có mặt 60+ phút — gợi ý nhạc theo tâm trạng |
+| `motion.activity` | MotionPerception (khi PRESENT) | Có | Phát hiện chuyển động khi user đang có mặt — phân tích hoạt động |
 
 **Flow xử lý:**
 1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms)
@@ -170,6 +172,12 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | GET | `/presence` | State hiện tại (present/idle/away) |
 | POST | `/presence/enable` | Bật auto presence control |
 | POST | `/presence/disable` | Tắt auto presence (manual mode) |
+
+### Wellbeing
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/sensing/wellbeing/reset` | Reset timer wellbeing. Body: `{"type": "break" \| "hydration"}`. Được gọi qua `[HW:/sensing/wellbeing/reset:...]` marker khi agent nhìn thấy user vươn vai hoặc uống nước. |
 
 ### Face (đăng ký chủ / owner)
 
