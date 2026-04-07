@@ -47,7 +47,7 @@ AIM_PRESETS = {
     "wall":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -40.0, "elbow_pitch.pos": 65.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -5.0},
     "left":    {"base_yaw.pos": -90.0, "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
     "right":   {"base_yaw.pos": 90.0,  "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
-    "up":      {"base_yaw.pos": 3.0,   "base_pitch.pos": -5.0,  "elbow_pitch.pos": 15.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
-    "down":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -70.0, "elbow_pitch.pos": 80.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -20.0},
+    "up":      {"base_yaw.pos": 3.0,   "base_pitch.pos": 10.0,  "elbow_pitch.pos": 5.0,  "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
+    "down":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -50.0, "elbow_pitch.pos": 60.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -10.0},
     "user":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -28.0, "elbow_pitch.pos": 55.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 22.0},
 }
