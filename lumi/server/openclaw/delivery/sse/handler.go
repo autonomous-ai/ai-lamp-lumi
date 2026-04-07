@@ -24,6 +24,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -87,6 +88,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	// are broadcast to SSE. Lumi is a single-user device so the global trace ID is sufficient;
 	// concurrent turn interleaving is not a concern in normal operation.
 	flow.Init(bus, config.LumiVersion)
+	mood.Init()
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
@@ -1074,6 +1076,29 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 	events := recentFlowFromJSONL(day, last)
 	if events == nil {
 		events = []domain.MonitorEvent{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// MoodHistory returns mood-relevant sensing events for music suggestion context.
+// Query params: date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
+func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 100
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 500 {
+		last = 500
+	}
+	events := mood.Query(day, last)
+	if events == nil {
+		events = []mood.Event{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"date":   day,
