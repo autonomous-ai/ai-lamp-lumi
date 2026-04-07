@@ -183,6 +183,24 @@ LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng 
 
 ---
 
+## Lưu trữ Snapshot (hai tầng)
+
+Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, wellbeing) lưu snapshot ở hai nơi:
+
+| Tầng | Đường dẫn | Rotation | Giữ qua reboot |
+|------|-----------|----------|-----------------|
+| **Tmp buffer** | `/tmp/lumi-sensing-snapshots/` | Theo số lượng (tối đa 50 file) | Không |
+| **Persistent** | `/var/log/lumi/snapshots/` | TTL (72h) + dung lượng (tối đa 50 MB) | Có |
+
+Mỗi snapshot được lưu vào tmp trước, sau đó copy sang persistent dir. Đường dẫn persistent được ghi trong event message (`[snapshot: /var/log/lumi/snapshots/...]`) để agent có thể xem lại — kể cả sau khi thiết bị reboot.
+
+Các hằng số cấu hình nằm trong `lelamp/config.py`:
+- `SNAPSHOT_TMP_MAX_COUNT` — số file tối đa trong tmp (mặc định 50)
+- `SNAPSHOT_PERSIST_TTL_S` — TTL file persistent tính bằng giây (mặc định 72h)
+- `SNAPSHOT_PERSIST_MAX_BYTES` — dung lượng tối đa thư mục persistent (mặc định 50 MB)
+
+---
+
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.

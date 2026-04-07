@@ -18,7 +18,7 @@ Events are POST-ed to http://localhost:5000/api/sensing/event as:
 
 import logging
 import os
-import tempfile
+import shutil
 import threading
 import time
 from typing import Optional
@@ -178,20 +178,20 @@ class SensingService:
             return None
         return frame
 
-    # Directory and ordered list of saved snapshot paths (oldest first)
-    _snapshot_dir: str = os.path.join(tempfile.gettempdir(), "lumi-sensing-snapshots")
-    _snapshot_paths: list = []
-    _MAX_SNAPSHOTS: int = 20
+    # --- Snapshot storage (two-tier) ---
+    # Tmp: fast rotation buffer, lost on reboot
+    _snapshot_tmp_paths: list = []
+    # Persist: survives reboot, agent can look back (TTL + size rotation)
 
     def _save_frame(self, frame) -> Optional[str]:
-        """Resize and save a camera frame as a JPEG in the snapshot tmp dir.
+        """Resize and save a camera frame as a JPEG to the tmp snapshot dir.
 
-        Keeps at most _MAX_SNAPSHOTS files; deletes the oldest when exceeded.
+        Keeps at most SNAPSHOT_TMP_MAX_COUNT files; deletes the oldest when exceeded.
         Returns the saved file path, or None on failure.
         """
         cv2 = self._cv2
         try:
-            os.makedirs(self._snapshot_dir, exist_ok=True)
+            os.makedirs(config.SNAPSHOT_TMP_DIR, exist_ok=True)
 
             h, w = frame.shape[:2]
             scale = 320 / w
@@ -199,15 +199,15 @@ class SensingService:
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
 
             filename = f"sensing_{int(time.time() * 1000)}.jpg"
-            filepath = os.path.join(self._snapshot_dir, filename)
+            filepath = os.path.join(config.SNAPSHOT_TMP_DIR, filename)
             with open(filepath, "wb") as f:
                 f.write(buf.tobytes())
 
-            self._snapshot_paths.append(filepath)
+            self._snapshot_tmp_paths.append(filepath)
 
             # Evict oldest files if over the limit
-            while len(self._snapshot_paths) > self._MAX_SNAPSHOTS:
-                oldest = self._snapshot_paths.pop(0)
+            while len(self._snapshot_tmp_paths) > config.SNAPSHOT_TMP_MAX_COUNT:
+                oldest = self._snapshot_tmp_paths.pop(0)
                 try:
                     os.remove(oldest)
                 except OSError:
@@ -216,6 +216,51 @@ class SensingService:
             return filepath
         except Exception as e:
             logger.debug("Frame save failed: %s", e)
+            return None
+
+    def _persist_snapshot(self, tmp_path: str) -> Optional[str]:
+        """Copy a tmp snapshot to the persistent dir with TTL + size rotation.
+
+        Returns the persistent file path, or None on failure.
+        """
+        try:
+            persist_dir = config.SNAPSHOT_PERSIST_DIR
+            os.makedirs(persist_dir, exist_ok=True)
+
+            # Rotate: remove files older than TTL
+            now = time.time()
+            for f in os.listdir(persist_dir):
+                fp = os.path.join(persist_dir, f)
+                try:
+                    if now - os.path.getmtime(fp) > config.SNAPSHOT_PERSIST_TTL_S:
+                        os.remove(fp)
+                except OSError:
+                    pass
+
+            # Rotate: if total size exceeds max, remove oldest files
+            files = []
+            for f in os.listdir(persist_dir):
+                fp = os.path.join(persist_dir, f)
+                try:
+                    files.append((fp, os.path.getmtime(fp), os.path.getsize(fp)))
+                except OSError:
+                    pass
+            files.sort(key=lambda x: x[1])  # oldest first
+            total = sum(s for _, _, s in files)
+            while total > config.SNAPSHOT_PERSIST_MAX_BYTES and files:
+                oldest_path, _, oldest_size = files.pop(0)
+                try:
+                    os.remove(oldest_path)
+                    total -= oldest_size
+                except OSError:
+                    pass
+
+            # Copy snapshot to persistent dir
+            dest = os.path.join(persist_dir, os.path.basename(tmp_path))
+            shutil.copy2(tmp_path, dest)
+            return dest
+        except Exception as e:
+            logger.debug("Persist snapshot failed: %s", e)
             return None
 
     # --- Event sending ---
@@ -244,11 +289,14 @@ class SensingService:
         if now - last < cd:
             return
 
-        # If a raw frame is provided, save it to disk and append the path to the message.
+        # If a raw frame is provided, save to tmp and persist a copy.
+        # The persistent path is used in the message so the agent can look back.
         if image is not None:
-            path = self._save_frame(image)
-            if path:
-                message = f"{message}\n[snapshot: {path}]"
+            tmp_path = self._save_frame(image)
+            if tmp_path:
+                persist_path = self._persist_snapshot(tmp_path)
+                ref = persist_path or tmp_path
+                message = f"{message}\n[snapshot: {ref}]"
 
         logger.info("[sensing] %s: %s", event_type, message)
 
