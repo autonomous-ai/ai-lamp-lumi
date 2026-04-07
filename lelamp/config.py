@@ -52,7 +52,7 @@ FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 # --- Sensing: Wellbeing check ---
 WELLBEING_HYDRATION_S = 30 * 60   # 30 min
 WELLBEING_BREAK_S = 45 * 60      # 45 min
-WELLBEING_MUSIC_S = 60 * 60      # 60 min — proactive music suggestion based on mood
+WELLBEING_MUSIC_S = 5 * 60       # 5 min — proactive music suggestion based on mood (testing, production: 60 min)
 
 # --- Sensing: Snapshot storage ---
 # Temporary buffer (fast rotation, lost on reboot)
