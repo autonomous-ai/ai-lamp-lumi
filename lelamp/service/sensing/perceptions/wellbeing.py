@@ -136,7 +136,7 @@ class WellbeingPerception(Perception):
             stable = captured if captured is not None else frame
             logger.info("Wellbeing: music suggestion check after %d min", minutes)
             self._send_event(
-                "wellbeing.music",
+                "music.mood",
                 f"User has been here for {minutes} minute(s). "
                 f"Look at the attached image — assess their mood and whether "
                 f"this is a good moment to suggest music. "
