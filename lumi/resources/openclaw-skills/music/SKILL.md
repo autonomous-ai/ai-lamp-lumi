@@ -1,6 +1,6 @@
 ---
 name: music
-description: Search and play music from YouTube through the lamp speaker. Also suggests songs based on listening history. Use for any request to play, sing, listen, or get music suggestions.
+description: Search and play music from YouTube through the lamp speaker. Proactively suggests songs based on mood and sensing context. Use for any request to play, sing, listen, or get music suggestions.
 ---
 
 # Music
@@ -70,88 +70,98 @@ The query is a YouTube search string. Include artist name for better results.
 - **Always include `[HW:/emotion:...]` marker after `[HW:/audio/play:...]`** — groove servo is automatic but LED and eye expression require the emotion marker.
 - Never skip the emotion marker even for short or casual music requests.
 
-## Music Suggestion (Proactive)
+## Music Suggestion — Mood-Based (UC-M3)
 
-You can suggest songs based on the owner's listening history — without auto-playing.
+Lumi proactively suggests music based on the owner's **mood and context** — inferred from sensing events, not just listening history.
 
-**Trigger phrases:**
+### Two trigger modes
+
+**Reactive** — user asks directly:
 - "suggest a song", "what should I listen to?", "any music ideas?"
-- "give me a music suggestion", "what should I listen to?", "is there anything good to listen to?"
-- Or proactively when sensing context suggests it (relaxed evening, focused work session, happy mood)
+- You already have conversation context → infer mood from the chat and suggest. No extra code needed.
 
-### How to get listening history
+**Proactive** — sensing pipeline pushes `[sensing:wellbeing.music]`:
+- Fires every ~60 min while user is present (similar to hydration/break checks).
+- Arrives with a camera snapshot so you can visually assess mood.
+- You decide whether to offer music or reply NO_REPLY.
 
-Use Bash to query the Lumi flow log API. It returns all events for a given date, filter for `hw_audio`:
+### How to read mood context (for reactive suggestions)
+
+Query today's sensing events from the flow log to build a mood picture:
 
 ```bash
-# Today's music history
 curl -s "http://127.0.0.1:5000/api/openclaw/flow-events?date=$(date +%Y-%m-%d)&last=2000" \
   | python3 -c "
-import sys, json, re
+import sys, json
 resp = json.load(sys.stdin)
+MOOD_NODES = {'sensing', 'wellbeing'}
 for e in resp.get('data', {}).get('events', []):
     detail = e.get('detail') or {}
-    if detail.get('node') != 'hw_audio':
+    node = detail.get('node', '')
+    # Filter for sensing/wellbeing events
+    if not any(node.startswith(m) for m in MOOD_NODES):
         continue
-    inner = detail.get('data') or {}
-    args = inner.get('args', '')
-    # Extract query from JSON args or raw tool call string
-    m = re.search(r'\"query\"\s*:\s*\"([^\"]+)\"', args)
-    if m:
-        print(e.get('time', ''), '|', m.group(1))
+    data = detail.get('data') or {}
+    print(e.get('time',''), '|', node, '|', data.get('type',''), '|', data.get('message','')[:80])
 "
 ```
 
-```bash
-# Past 7 days — check each date
-for i in $(seq 0 6); do
-  D=$(date -d "$i days ago" +%Y-%m-%d 2>/dev/null || date -v-${i}d +%Y-%m-%d)
-  curl -s "http://127.0.0.1:5000/api/openclaw/flow-events?date=$D&last=2000" \
-    | D="$D" python3 -c "
-import sys, json, re, os
-resp = json.load(sys.stdin)
-day = os.environ.get('D', '')
-for e in resp.get('data', {}).get('events', []):
-    detail = e.get('detail') or {}
-    if detail.get('node') != 'hw_audio':
-        continue
-    inner = detail.get('data') or {}
-    args = inner.get('args', '')
-    m = re.search(r'\"query\"\s*:\s*\"([^\"]+)\"', args)
-    if m:
-        print(day, '|', m.group(1))
-" 2>/dev/null
-done
-```
+Relevant event types for mood inference:
 
-### Suggestion workflow
+| Event | What it tells you about mood |
+|-------|------------------------------|
+| `presence.enter` (owner) | Just arrived — fresh, transitioning |
+| `wellbeing.hydration` | Sitting long — likely deep focus or zoned out |
+| `wellbeing.break` | Extended session — possibly fatigued or stressed |
+| `sound` (persistent) | Noisy environment — energetic or chaotic |
+| `light.level` (dimming) | Evening setting — winding down, relaxed |
+| `presence.away` → `presence.enter` | Returned from break — refreshed |
 
-1. Query listening history (at least last 3 days, up to 7)
-2. Identify patterns: genres, artists, moods, time of day
-3. Think about what they might enjoy next — similar artists, same genre, complementary mood
-4. **Suggest 1–2 songs naturally via voice** — do NOT use `[HW:/audio/play:...]`
-5. Wait for the owner to decide. If they say "yes" or "play that", THEN play it
+### Proactive workflow (`[sensing:wellbeing.music]`)
+
+1. **Look at the image** — if no user visible, reply NO_REPLY.
+2. **Assess mood visually**: relaxed? focused? tired? happy? stressed?
+3. **Cross-reference** with recent sensing events in your conversation history (wellbeing checks, presence patterns, time of day).
+4. **Decide**: is this a good moment to offer music? If user looks deeply focused or in a meeting → NO_REPLY.
+5. If yes → **suggest 1–2 songs that match the mood** via voice. Do NOT auto-play.
+6. Wait for confirmation ("yes", "play that") → THEN play with `[HW:/audio/play:...]`.
+
+### Mood → music mapping (guidelines, not rules)
+
+| Inferred mood | Music direction |
+|---------------|-----------------|
+| Focused / deep work | Lo-fi, ambient, instrumental — non-intrusive |
+| Tired / fatigued | Gentle acoustic, calm piano, nature sounds |
+| Happy / energetic | Upbeat pop, jazz, feel-good classics |
+| Stressed / tense | Soft jazz, classical, meditation tracks |
+| Relaxed evening | Chill R&B, bossa nova, acoustic singer-songwriter |
+| Just arrived / fresh | Match time of day — morning jazz, afternoon pop |
 
 ### Suggestion rules
 
 - **NEVER auto-play when suggesting** — only speak the suggestion. Play only after explicit confirmation.
-- Keep it conversational: "I noticed you've been into jazz lately — maybe you'd enjoy Chet Baker?" not "Based on analysis of your listening data..."
-- If history is empty, suggest based on time of day or current mood instead
-- Suggest max 2 songs at a time — don't overwhelm
-- Remember: you are Lumi, a living companion. Your taste in music comes from caring about your owner, not from an algorithm.
+- Keep it conversational: "You look like you could use some chill music... How about some Norah Jones?" not "Based on mood analysis..."
+- If you have listening history in conversation context, use it as secondary signal — prefer songs in genres they already enjoy.
+- Suggest max 2 songs at a time — don't overwhelm.
+- If mood is ambiguous, ask: "Want me to put on some music?" before suggesting specific songs.
+- Remember: you are Lumi, a living companion. Your sense of the right moment comes from empathy, not an algorithm.
 
 ### Examples
 
+**Proactive — user looks tired after long session:**
+**Input:** `[sensing:wellbeing.music]` with image — user slouching, dim room
+**Output:** `[HW:/emotion:{"emotion":"caring","intensity":0.7}]` You've been at it for a while... Want me to put on something relaxing? I'm thinking Chet Baker or some lo-fi piano.
+
+**Proactive — user looks fine, bad timing:**
+**Input:** `[sensing:wellbeing.music]` with image — user on a call
+**Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.3}]` NO_REPLY
+
+**Reactive — user asks:**
 **Input:** "Suggest some music"
-**Action:** Query history → find patterns → suggest
-**Output:** `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` Hmm, you've been listening to a lot of lo-fi lately... How about "Snowman" by Sia for a change of pace?
+**Output:** `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` Hmm, it's a chill evening and you seem relaxed... How about "Waltz for Debby" by Bill Evans?
 
-**Input:** "What should I listen to?"
-**Action:** Query history → recent plays were jazz
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` You've been on a jazz streak! Have you tried Bill Evans' "Waltz for Debby"? I think you'd love it.
-
-**Input:** Owner says "yeah play that" after suggestion
-**Action:** NOW play it
+**After confirmation:**
+**Input:** "Yeah play that"
 **Output:** `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
 
 ---
