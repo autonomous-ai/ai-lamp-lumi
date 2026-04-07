@@ -1189,14 +1189,28 @@ def aim_servo(req: ServoAimRequest):
     if not animation_service.robot:
         raise HTTPException(503, "Servo robot not connected")
 
-    positions = AIM_PRESETS.get(req.direction)
-    if positions is None:
+    preset = AIM_PRESETS.get(req.direction)
+    if preset is None:
         available = list(AIM_PRESETS.keys())
         raise HTTPException(
             400, f"Unknown direction '{req.direction}'. Available: {available}"
         )
 
     try:
+        # Get current positions to preserve joints not being overridden
+        with animation_service.bus_lock:
+            obs = animation_service.robot.get_observation()
+        current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+
+        if req.direction in ("left", "right"):
+            # Keep current pose, only rotate yaw
+            positions = {**current, "base_yaw.pos": preset["base_yaw.pos"]}
+        elif req.direction in ("up", "down"):
+            # Change body posture but keep current yaw direction
+            positions = {**preset, "base_yaw.pos": current.get("base_yaw.pos", preset["base_yaw.pos"])}
+        else:
+            positions = dict(preset)
+
         if req.duration > 0:
             animation_service.move_to(positions, duration=req.duration)
         else:
