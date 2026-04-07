@@ -122,17 +122,16 @@ Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sen
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
-2. Go handler lưu snapshot camera và gắn tag `[guard-active]` trước khi chuyển cho agent.
+2. Go handler gắn tag `[guard-active]` trước khi chuyển cho agent (cùng event, cùng WebSocket call — không tạo thêm mechanism).
 3. Agent thấy `[guard-active]`, nhìn ảnh, kiểm tra stranger stats, rồi viết cảnh báo tiếng Việt có cảm xúc (tính cách đèn canh gác dũng cảm).
-4. Agent gọi `POST /api/guard/alert` với message đã viết — hệ thống tự đính kèm snapshot.
-5. `BroadcastAlert` gửi message + ảnh đến tất cả Telegram session đang hoạt động.
-6. Agent trả lời NO_REPLY (guard mode im lặng — cảnh báo chỉ lên Telegram) nhưng vẫn gửi `[HW:/emotion:...]`.
+4. Agent dùng `message` tool gửi alert trực tiếp đến **tất cả** Telegram chat (mọi DM + mọi group), kèm ảnh camera.
+5. Agent vẫn phản ứng bình thường — `[HW:/emotion:...]` VÀ nói (TTS). Guard mode KHÔNG im lặng; agent vừa nói vừa broadcast lên Telegram.
 
 ### Tại sao để agent viết?
-Broadcast thô kiểu `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` quá máy móc. Để agent viết, cảnh báo có tính cách và nhận biết ngữ cảnh — ví dụ: "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?"
+Broadcast thô kiểu `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` quá máy móc. Để agent viết và gửi trực tiếp qua `message` tool, cảnh báo có tính cách và nhận biết ngữ cảnh — ví dụ: "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?" Agent gửi trực tiếp đến từng Telegram chat, tránh đường `chat.send` RPC không đáng tin (agent trung gian có thể NO_REPLY).
 
 ### Cảnh báo thủ công
-Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn.
+Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn (dùng `BroadcastAlert` qua `chat.send` — chỉ cho API/programmatic use).
 
 Trường hợp sử dụng: Lumi hoạt động như trợ lý an ninh nhà. Khi chủ nhà rời đi và bật guard mode, mọi sự hiện diện hoặc chuyển động được báo cáo đến Telegram với message có cảm xúc và nhận biết ngữ cảnh.
 
@@ -204,22 +203,15 @@ LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng 
 
 ## Phân tích Motion Activity (khi đang có mặt)
 
-Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển động foreground, hệ thống gửi event `motion.activity` mỗi 5 phút (cooldown). Thay vì thông báo chung "ai đó vào/ra", hệ thống chụp ảnh và yêu cầu LLM phân tích user đang làm gì.
+Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển động foreground, hệ thống gửi event `motion.activity` thay vì `motion`. Cùng cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 phút) — không có timer riêng. Hệ thống chụp ảnh và yêu cầu LLM phân tích user đang làm gì.
 
 ### Cách hoạt động
 
-`MotionPerception` kiểm tra trạng thái `PresenceService`. Khi `PRESENT` và phát hiện foreground motion:
-- Chụp stable frame và gửi event `motion.activity` với prompt: "mô tả user đang làm gì"
-- Cooldown: `MOTION_ACTIVITY_COOLDOWN_S` (5 phút) — tránh spam khi user cử động liên tục
-- LLM trả lời nhận xét ngắn hoặc NO_REPLY nếu không có gì đáng chú ý
+`MotionPerception` kiểm tra `PresenceService.state` sau khi qua cooldown gate:
+- **PRESENT** → gửi `motion.activity` với prompt: "mô tả user đang làm gì"
+- **NOT PRESENT** (AWAY/IDLE) → gửi `motion` (phát hiện enter/leave)
 
-Khi KHÔNG có mặt (AWAY/IDLE), motion event vẫn fire bình thường dưới dạng `motion` (phát hiện enter/leave) với cooldown 3 phút.
-
-### Hằng số (`config.py`)
-
-```python
-MOTION_ACTIVITY_COOLDOWN_S = 5 * 60  # 5 phút giữa các lần phân tích activity
-```
+Cả hai dùng chung cooldown `MOTION_EVENT_COOLDOWN_S` (3 phút).
 
 ### Hành vi Agent
 
