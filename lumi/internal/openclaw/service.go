@@ -62,14 +62,26 @@ type Service struct {
 	// pendingRPC tracks in-flight RPC requests waiting for a response.
 	pendingRPCMu sync.Mutex
 	pendingRPC   map[string]chan json.RawMessage // reqID → response channel
+
+	// pendingEvents buffers sensing events received while agent is busy.
+	// Last-write-wins per event type. Drained on SetBusy(false).
+	pendingEventsMu sync.Mutex
+	pendingEvents   map[string]pendingEvent // eventType → last event
+}
+
+// pendingEvent is a sensing event buffered while the agent was busy.
+type pendingEvent struct {
+	msg   string
+	image string
 }
 
 // ProvideService constructs the openclaw service.
 func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 	return &Service{
-		config:     cfg,
-		monitorBus: bus,
-		pendingRPC: make(map[string]chan json.RawMessage),
+		config:        cfg,
+		monitorBus:    bus,
+		pendingRPC:    make(map[string]chan json.RawMessage),
+		pendingEvents: make(map[string]pendingEvent),
 	}
 }
 
@@ -125,8 +137,49 @@ func (s *Service) IsBusy() bool {
 }
 
 // SetBusy marks the agent as busy or idle. Called by the SSE handler on lifecycle start/end.
+// When transitioning to idle, any buffered sensing events are replayed.
 func (s *Service) SetBusy(busy bool) {
 	s.activeTurn.Store(busy)
+	if !busy {
+		s.drainPendingEvents()
+	}
+}
+
+// QueuePendingEvent buffers a sensing event to replay when the agent becomes idle.
+// Last-write-wins per event type — only the most recent event of each type is kept.
+func (s *Service) QueuePendingEvent(eventType, msg, image string) {
+	s.pendingEventsMu.Lock()
+	s.pendingEvents[eventType] = pendingEvent{msg: msg, image: image}
+	s.pendingEventsMu.Unlock()
+	slog.Info("sensing event queued — agent busy", "component", "sensing", "type", eventType)
+}
+
+// drainPendingEvents replays all buffered sensing events and clears the buffer.
+func (s *Service) drainPendingEvents() {
+	s.pendingEventsMu.Lock()
+	events := s.pendingEvents
+	s.pendingEvents = make(map[string]pendingEvent)
+	s.pendingEventsMu.Unlock()
+
+	if len(events) == 0 {
+		return
+	}
+
+	slog.Info("draining pending sensing events", "component", "sensing", "count", len(events))
+	for evType, ev := range events {
+		msg := "[sensing:" + evType + "] " + ev.msg
+		var err error
+		if ev.image != "" {
+			_, err = s.SendChatMessageWithImage(msg, ev.image)
+		} else {
+			_, err = s.SendChatMessage(msg)
+		}
+		if err != nil {
+			slog.Error("failed to replay pending event", "component", "sensing", "type", evType, "error", err)
+		} else {
+			slog.Info("pending event replayed", "component", "sensing", "type", evType)
+		}
+	}
 }
 
 // SetupAgent writes openclaw.json from the setup request and restarts the gateway.
