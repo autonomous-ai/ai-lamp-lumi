@@ -46,7 +46,7 @@ var moodEvents = map[string]bool{
 	"presence.away":        true,
 	"wellbeing.hydration":  true,
 	"wellbeing.break":      true,
-	"wellbeing.music":      true,
+	"music.mood":           true,
 	"light.level":          true,
 	"sound":                true,
 	"motion.activity":      true,

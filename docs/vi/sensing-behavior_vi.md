@@ -172,7 +172,7 @@ Lumi chủ động chăm sóc sức khỏe và tâm trạng người dùng bằn
 - LLM nhìn ảnh và quyết định: nhắc đứng lên stretch, hoặc NO_REPLY nếu user trông ổn.
 - **Nếu không thấy user trong ảnh** → NO_REPLY.
 
-### Gợi ý nhạc theo mood (`wellbeing.music`)
+### Gợi ý nhạc theo mood (`music.mood`)
 
 - **Kích hoạt** sau 60 phút hiện diện liên tục, lặp lại mỗi 60 phút.
 - Gửi ảnh camera kèm context: "User ở đây X phút — đánh giá mood để gợi ý nhạc."
@@ -199,7 +199,7 @@ WELLBEING_MUSIC_S     = 60 * 60   # 60 phút giữa các lần check mood nhạc
 |---|---|---|
 | `wellbeing.hydration` | `curious` (0.5) | CÓ (nhắc uống nước) hoặc NO_REPLY |
 | `wellbeing.break` | `curious` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc NO_REPLY |
-| `wellbeing.music` | `caring` (0.6) | CÓ (gợi ý nhạc) hoặc NO_REPLY |
+| `music.mood` | `caring` (0.6) | CÓ (gợi ý nhạc) hoặc NO_REPLY |
 
 LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
 
