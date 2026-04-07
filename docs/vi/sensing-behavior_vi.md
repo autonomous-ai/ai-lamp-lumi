@@ -118,20 +118,24 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 
 ## Chế độ canh gác (Guard Mode)
 
-Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sensing được gắn tag `[guard-active]` và **agent tự viết message cảm xúc** thay vì hệ thống broadcast dữ liệu thô.
+Khi guard mode được bật (`guard_mode: true` trong config), Go handler tự viết message cảnh báo tiếng Việt có cảm xúc và broadcast đến tất cả Telegram sessions.
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
-2. Go handler gắn tag `[guard-active]` trước khi chuyển cho agent (cùng event, cùng WebSocket call — không tạo thêm mechanism).
-3. Agent thấy `[guard-active]`, nhìn ảnh, kiểm tra stranger stats, rồi viết cảnh báo tiếng Việt có cảm xúc (tính cách đèn canh gác dũng cảm).
-4. Agent dùng `message` tool gửi alert trực tiếp đến **tất cả** Telegram chat (mọi DM + mọi group), kèm ảnh camera.
-5. Agent vẫn phản ứng bình thường — `[HW:/emotion:...]` VÀ nói (TTS). Guard mode KHÔNG im lặng; agent vừa nói vừa broadcast lên Telegram.
+2. Go handler viết message cảm xúc (template + số lần gặp stranger từ LeLamp API).
+3. `BroadcastAlert` gửi message + ảnh camera qua `chat.send` đến tất cả Telegram session đang hoạt động.
+4. Agent trong mỗi session nhận alert như tin nhắn tự nhiên (không có prefix hệ thống) — được hướng dẫn phải luôn reply, không NO_REPLY.
+5. Sensing flow bình thường chạy song song — agent chính vẫn xử lý emotion, servo, TTS. Guard mode KHÔNG im lặng.
 
-### Tại sao để agent viết?
-Broadcast thô kiểu `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` quá máy móc. Để agent viết và gửi trực tiếp qua `message` tool, cảnh báo có tính cách và nhận biết ngữ cảnh — ví dụ: "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?" Agent gửi trực tiếp đến từng Telegram chat, tránh đường `chat.send` RPC không đáng tin (agent trung gian có thể NO_REPLY).
+### Message cảnh báo
+Thay vì broadcast thô `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)`, hệ thống gửi message tiếng Việt có cảm xúc:
+- Người lạ lần đầu: "⚠️ Có người lạ vừa xuất hiện trước camera! Chưa gặp bao giờ..."
+- Người lạ quen mặt: "🤔 Lại người này nữa rồi, gặp 3 lần rồi đó. Ai vậy ta?"
+- Chỉ chuyển động: "👀 Có gì đó vừa di chuyển trước camera! Để tôi canh chừng..."
+- Phát hiện owner: không broadcast (tránh cảnh báo sai).
 
 ### Cảnh báo thủ công
-Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn (dùng `BroadcastAlert` qua `chat.send` — chỉ cho API/programmatic use).
+Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn.
 
 Trường hợp sử dụng: Lumi hoạt động như trợ lý an ninh nhà. Khi chủ nhà rời đi và bật guard mode, mọi sự hiện diện hoặc chuyển động được báo cáo đến Telegram với message có cảm xúc và nhận biết ngữ cảnh.
 
