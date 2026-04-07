@@ -594,7 +594,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         info.agent_response.push(`"${text}"`);
       }
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "guard_broadcast") {
+    if (ev.type === "flow_event" && ev.detail?.node === "telegram_alert_broadcast") {
       const d = ev.detail as Record<string, any> | undefined;
       const sessions = Number(d?.data?.sessions ?? 0);
       const msg = d?.data?.message ?? "";

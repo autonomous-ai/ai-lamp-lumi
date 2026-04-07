@@ -1609,7 +1609,7 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 			"channel", params["channel"])
 	}
 
-	flow.Log("guard_broadcast", map[string]any{
+	flow.Log("telegram_alert_broadcast", map[string]any{
 		"sessions": len(sessions),
 		"message":  msg,
 	})

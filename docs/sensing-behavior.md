@@ -118,20 +118,24 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 
 ## Guard Mode
 
-When guard mode is enabled (`guard_mode: true` in config), sensing events are tagged `[guard-active]` and the **agent crafts emotional broadcast messages** instead of the system broadcasting raw data.
+When guard mode is enabled (`guard_mode: true` in config), the Go handler builds emotional Vietnamese alert messages and broadcasts them to all Telegram sessions.
 
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
-2. Go handler tags the event `[guard-active]` before forwarding to the agent (same event, same WebSocket call — no extra mechanism).
-3. The agent sees `[guard-active]`, looks at the image, checks stranger stats for context, and crafts a natural Vietnamese alert with personality (brave guard lamp).
-4. The agent uses its `message` tool to send the alert directly to **every** connected Telegram chat (all DMs + all groups), with the camera snapshot attached.
-5. The agent still reacts normally — `[HW:/emotion:...]` markers AND voice (TTS). Guard mode is NOT silent; the agent speaks AND broadcasts to Telegram.
+2. Go handler builds an emotional alert message (template + stranger visit count from LeLamp API).
+3. `BroadcastAlert` sends the message + camera snapshot via `chat.send` to all active Telegram sessions.
+4. Each session's agent receives the alert as a natural message (no system prefix) — instructed to always reply, never NO_REPLY.
+5. Normal sensing flow continues in parallel — the main agent still does emotion, servo, TTS as usual. Guard mode is NOT silent.
 
-### Why agent-driven?
-Raw system broadcasts like `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` feel robotic. By letting the agent craft the message and send it directly via its `message` tool, alerts have personality and context awareness — e.g. "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?" The agent also sends directly to each Telegram chat, avoiding the unreliable `chat.send` RPC path where intermediate agents may NO_REPLY.
+### Alert messages
+Instead of raw `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)`, the system sends emotional Vietnamese messages:
+- First-time stranger: "⚠️ Có người lạ vừa xuất hiện trước camera! Chưa gặp bao giờ..."
+- Recurring stranger: "🤔 Lại người này nữa rồi, gặp 3 lần rồi đó. Ai vậy ta?"
+- Motion only: "👀 Có gì đó vừa di chuyển trước camera! Để tôi canh chừng..."
+- Owner detected: no broadcast (prevents false alerts).
 
 ### Manual alerts
-Manual alerts can still be sent via `POST /api/guard/alert` with a message and optional image (uses `BroadcastAlert` via `chat.send` — for API/programmatic use only).
+Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
 
 Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels with emotional, context-aware messages.
 
