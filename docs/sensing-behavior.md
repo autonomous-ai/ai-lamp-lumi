@@ -143,9 +143,9 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 
 ---
 
-## Wellbeing (Hydration + Break Reminders)
+## Wellbeing (Hydration + Break + Music Reminders)
 
-Lumi proactively cares for the user's health by sending periodic camera snapshots to the LLM while someone is present. Two independent timers run:
+Lumi proactively cares for the user's health and mood by sending periodic camera snapshots to the LLM while someone is present. Three independent timers run:
 
 ### Hydration (`wellbeing.hydration`)
 
@@ -161,15 +161,25 @@ Lumi proactively cares for the user's health by sending periodic camera snapshot
 - The LLM looks at the image and decides: remind to stand up and stretch, or reply NO_REPLY if the user seems fine.
 - **If no user is visible in the frame** → NO_REPLY.
 
+### Music (`wellbeing.music`)
+
+- **Triggers** after 60 minutes of continuous presence, repeats every 60 minutes.
+- Sends a camera snapshot with context: "User has been here for X minutes — assess mood for music suggestion."
+- The LLM visually assesses mood (relaxed, tired, focused, happy, stressed) and cross-references with recent sensing events (time of day, wellbeing patterns).
+- If it's a good moment → suggest 1–2 songs matching the mood via voice. **Never auto-play** — wait for user confirmation.
+- If user is busy, in a meeting, or deeply focused → NO_REPLY.
+- See the Music skill for mood→music mapping and full suggestion rules.
+
 ### How it works
 
-The `WellbeingPerception` class (`lelamp/service/sensing/perceptions/wellbeing.py`) tracks presence state from `PresenceService`. When the user arrives (`presence.enter`), two independent timers start. Each timer captures a stable frame (servo frozen briefly) and sends an event to the Go handler, which forwards it to the agent like any other sensing event. When the user leaves (`presence.leave` or state transitions to IDLE/AWAY), both timers reset.
+The `WellbeingPerception` class (`lelamp/service/sensing/perceptions/wellbeing.py`) tracks presence state from `PresenceService`. When the user arrives (`presence.enter`), three independent timers start. Each timer captures a stable frame (servo frozen briefly) and sends an event to the Go handler, which forwards it to the agent like any other sensing event. When the user leaves (`presence.leave` or state transitions to IDLE/AWAY), all timers reset.
 
 ### Constants (`config.py`)
 
 ```python
 WELLBEING_HYDRATION_S = 30 * 60   # 30 min between hydration reminders
 WELLBEING_BREAK_S     = 45 * 60   # 45 min between break reminders
+WELLBEING_MUSIC_S     = 60 * 60   # 60 min between music mood checks
 ```
 
 ### Agent behavior
@@ -178,6 +188,7 @@ WELLBEING_BREAK_S     = 45 * 60   # 45 min between break reminders
 |---|---|---|
 | `wellbeing.hydration` | `curious` (0.5) | YES (remind water) or NO_REPLY |
 | `wellbeing.break` | `curious` (0.6) | YES (remind stretch/walk) or NO_REPLY |
+| `wellbeing.music` | `caring` (0.6) | YES (suggest music) or NO_REPLY |
 
 The LLM uses the attached image to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
 
