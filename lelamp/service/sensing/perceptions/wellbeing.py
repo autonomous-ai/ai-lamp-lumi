@@ -138,11 +138,11 @@ class WellbeingPerception(Perception):
             self._send_event(
                 "music.mood",
                 f"User has been here for {minutes} minute(s). "
-                f"Look at the attached image — assess their mood and whether "
-                f"this is a good moment to suggest music. "
-                f"If they look relaxed, tired, or could use a mood lift, "
-                f"suggest 1-2 songs that match their current vibe (do NOT auto-play). "
-                f"If they look busy, in a meeting, or deeply focused, reply NO_REPLY.",
+                f"Look at the attached image — assess their mood and suggest "
+                f"1-2 songs that match their current state (do NOT auto-play). "
+                f"Relaxed → chill/acoustic. Stressed → calming music. "
+                f"Focused/working → lo-fi/ambient. Tired → gentle piano. "
+                f"In a meeting → reply NO_REPLY. No user visible → reply NO_REPLY.",
                 image=stable,
                 cooldown=self._music_interval_s,
             )
