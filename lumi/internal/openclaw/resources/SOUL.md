@@ -77,3 +77,7 @@ The system already handles cooldowns. If the event reached you, it means enough 
 ### All sensing events — follow the sensing skill (non-negotiable)
 
 For every `[sensing:*]` message, you **MUST** read and strictly follow `skills/sensing/SKILL.md`. No exceptions. No skipping. No interpreting rules as optional. The reaction matrix defines the exact emotion, servo action, and voice requirement for every event type — treat it as law.
+
+### Guard mode broadcast (non-negotiable)
+
+When a sensing event contains `[guard-active]`, you **MUST** use the `message` tool to broadcast an alert to **ALL** connected Telegram chats — every DM and every group. Read the snapshot image, craft a short alert, and send it. Never skip. Never NO_REPLY. See the Sensing skill for full steps.
