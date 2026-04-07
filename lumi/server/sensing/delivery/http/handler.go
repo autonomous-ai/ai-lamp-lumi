@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,11 +39,6 @@ type SensingHandler struct {
 	monitorBus   *monitor.Bus
 	config       *config.Config
 	statusLED    *statusled.Service
-
-	// guardSnapshotMu protects guardSnapshot — the latest base64 JPEG from a
-	// guard-mode sensing event, auto-attached when agent calls POST /api/guard/alert.
-	guardSnapshotMu sync.Mutex
-	guardSnapshot   string
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
@@ -158,16 +152,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Guard mode: save snapshot so agent can broadcast with image via POST /api/guard/alert.
-	// The agent receives the event tagged [guard-active] and crafts an emotional alert message.
+	// Guard mode: tag the event so agent knows to broadcast via its own message tool.
 	guardActive := isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion")
 	if guardActive {
-		slog.Info("guard mode active — agent will craft broadcast", "component", "sensing", "type", req.Type)
-		if req.Image != "" {
-			h.guardSnapshotMu.Lock()
-			h.guardSnapshot = req.Image
-			h.guardSnapshotMu.Unlock()
-		}
+		slog.Info("guard mode active — agent will broadcast via message tool", "component", "sensing", "type", req.Type)
 	}
 
 	// No local match — forward to OpenClaw agent
@@ -292,8 +280,7 @@ type GuardAlertRequest struct {
 	Image   string `json:"image,omitempty"`
 }
 
-// PostGuardAlert broadcasts an alert message to all chat sessions.
-// If no image is provided, auto-attaches the latest guard snapshot from sensing.
+// PostGuardAlert broadcasts an alert message to all chat sessions (manual alerts only).
 func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 	var req GuardAlertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -304,17 +291,7 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
 		return
 	}
-
-	image := req.Image
-	if image == "" {
-		// Auto-attach the latest guard snapshot (saved when sensing event arrived).
-		h.guardSnapshotMu.Lock()
-		image = h.guardSnapshot
-		h.guardSnapshot = "" // consume once
-		h.guardSnapshotMu.Unlock()
-	}
-
-	if err := h.agentGateway.BroadcastAlert(req.Message, image); err != nil {
+	if err := h.agentGateway.BroadcastAlert(req.Message, req.Image); err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}

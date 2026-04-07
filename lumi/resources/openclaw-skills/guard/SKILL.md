@@ -66,14 +66,14 @@ This sends the message to all active chat sessions.
 
 ## Agent-Driven Broadcast
 
-When guard mode is enabled, `presence.enter` and `motion` sensing events arrive tagged `[guard-active]`. **You** craft the alert message — the system does NOT broadcast automatically.
+When guard mode is enabled, `presence.enter` and `motion` sensing events arrive tagged `[guard-active]`. **You** craft the alert message and **broadcast it yourself using the `message` tool** — the system does NOT broadcast automatically.
 
 See the **Sensing** skill's "Guard mode" section for full instructions. In short:
 1. See `[guard-active]` tag on a sensing event
 2. Look at the image, check stranger stats for context
 3. Craft an emotional Vietnamese alert (brave guard lamp personality)
-4. Call `POST /api/guard/alert` with your message — snapshot is auto-attached
-5. Reply NO_REPLY (guard mode is silent — alerts go to Telegram only)
+4. Use `message` tool to send to **ALL** connected Telegram chats (every DM + every group) — include the snapshot image
+5. Still speak via TTS — guard mode reacts normally with voice AND broadcasts to Telegram
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
