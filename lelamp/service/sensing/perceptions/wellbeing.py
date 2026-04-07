@@ -147,6 +147,18 @@ class WellbeingPerception(Perception):
                 cooldown=self._music_interval_s,
             )
 
+    def reset_break(self) -> None:
+        """Reset break timer — agent saw user stretching/standing."""
+        if self._present_since is not None:
+            self._last_break_time = time.time()
+            logger.info("Wellbeing: break timer reset")
+
+    def reset_hydration(self) -> None:
+        """Reset hydration timer — agent saw user drinking water."""
+        if self._present_since is not None:
+            self._last_hydration_time = time.time()
+            logger.info("Wellbeing: hydration timer reset")
+
     def to_dict(self) -> dict:
         return {
             "type": "wellbeing",

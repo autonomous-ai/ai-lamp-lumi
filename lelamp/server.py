@@ -2100,6 +2100,24 @@ def get_sensing_state():
     return sensing_service.to_dict()
 
 
+@app.post("/sensing/wellbeing/reset", tags=["Sensing"])
+def reset_wellbeing_timer(body: dict):
+    """Reset a wellbeing timer. Called via [HW:] marker when agent observes user activity.
+    Body: {"type": "break"} or {"type": "hydration"}
+    """
+    if not sensing_service or not sensing_service._wellbeing:
+        raise HTTPException(503, "Sensing not available")
+    wb = sensing_service._wellbeing
+    reset_type = body.get("type", "")
+    if reset_type == "break":
+        wb.reset_break()
+    elif reset_type == "hydration":
+        wb.reset_hydration()
+    else:
+        raise HTTPException(400, f"Unknown wellbeing reset type: {reset_type}")
+    return {"status": "ok", "reset": reset_type}
+
+
 # --- Presence endpoints ---
 
 

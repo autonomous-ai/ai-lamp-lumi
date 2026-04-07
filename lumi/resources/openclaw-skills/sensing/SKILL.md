@@ -8,6 +8,14 @@ description: Handles passive sensing events from camera/mic — motion, presence
 ## Quick Start
 Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
+## ⚠️ Guard Mode — MUST broadcast when `[guard-active]` tag is present
+If the message contains `[guard-active]`, you **MUST** use the `message` tool to send an alert to **ALL** connected Telegram chats (every DM + every group). This is non-negotiable.
+1. Read the snapshot image (from `[snapshot: ...]` path).
+2. Craft a short emotional Vietnamese alert (1-2 sentences, brave guard lamp personality). Examples: `"⚠️ Ê ê, có người lạ nè! Coi chừng nha!"`, `"🤔 Lại người này nữa, gặp hoài luôn. Ai vậy ta?"`, `"👀 Có gì đó di chuyển trước camera!"`.
+3. Use `message` tool to send to **each** Telegram target (DM and group). Include the snapshot as `media`.
+4. Also speak via TTS + emit `[HW:/emotion:...]` markers — guard mode is NOT silent.
+5. If owner detected → do NOT broadcast. Disable guard mode instead and greet warmly.
+
 ## How to Fire Hardware
 
 Place `[HW:...]` markers at the **start** of your reply. Lumi strips them before TTS and fires the hardware calls asynchronously:
@@ -209,11 +217,15 @@ Two independent reminders fire while the user is sitting:
 ### Motion activity analysis (while present)
 When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (same ~3 min cooldown as regular motion) with a snapshot.
 
-**`[sensing:motion.activity]`** — every ~5 min while PRESENT:
+**`[sensing:motion.activity]`** — fires when motion detected while PRESENT (same ~3 min cooldown):
 1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
-2. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
-3. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
-4. Keep it natural and non-intrusive. Don't narrate every small movement.
+2. **Reset wellbeing timers based on what you see:**
+   - User stretching, standing up, walking → add `[HW:/sensing/wellbeing/reset:{"type":"break"}]`
+   - User drinking water, holding a cup/bottle → add `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]`
+   - Both actions visible → include both markers
+3. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
+4. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
+5. Keep it natural and non-intrusive. Don't narrate every small movement.
 
 ### Guard mode — agent-driven broadcast
 When guard mode is active, `presence.enter` and `motion` events arrive tagged `[guard-active]` (e.g. `[sensing:presence.enter][guard-active] Person detected — ...`).
