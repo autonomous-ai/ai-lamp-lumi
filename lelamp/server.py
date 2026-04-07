@@ -13,6 +13,7 @@ import logging.handlers
 import math
 import os
 import random
+import re
 import subprocess
 import threading
 import time
@@ -228,6 +229,41 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                 if "usb" in name and d["max_input_channels"] > 0:
                     logger.info("Audio last-resort: using %d '%s' for input", i, d["name"])
                     return i
+        # Pass 4: probe ALSA (arecord -l / aplay -l) and match card description to sounddevice
+        alsa_cmd = ["aplay", "-l"] if output else ["arecord", "-l"]
+        try:
+            result = subprocess.run(alsa_cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if not line.startswith("card "):
+                        continue
+                    m = re.search(r"card \d+: \S+ \[(.+?)\]", line)
+                    if not m:
+                        continue
+                    label_words = [w.lower() for w in m.group(1).split() if len(w) > 2]
+                    for i, d in enumerate(devices):
+                        dname = d["name"].lower()
+                        if any(w in dname for w in label_words):
+                            if output and d["max_output_channels"] > 0:
+                                logger.info("ALSA probe: device %d '%s' for output", i, d["name"])
+                                return i
+                            if not output and d["max_input_channels"] > 0:
+                                logger.info("ALSA probe: device %d '%s' for input", i, d["name"])
+                                return i
+        except Exception:
+            pass
+        # Pass 5: absolute last resort — first non-HDMI device with right channel type
+        skip = ["hdmi", "spdif", "iec958"]
+        for i, d in enumerate(devices):
+            dname = d["name"].lower()
+            if any(s in dname for s in skip):
+                continue
+            if output and d["max_output_channels"] > 0:
+                logger.info("Audio fallback (any): device %d '%s' for output", i, d["name"])
+                return i
+            if not output and d["max_input_channels"] > 0:
+                logger.info("Audio fallback (any): device %d '%s' for input", i, d["name"])
+                return i
     except Exception:
         pass
     return None
