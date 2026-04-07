@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -157,9 +158,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	// Guard mode: tag the event so agent broadcasts via its own message tool.
+	// Also mark the run so SSE handler broadcasts the response via Telegram Bot API.
 	guardActive := isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion")
 	if guardActive {
-		slog.Info("guard mode active — agent will broadcast via message tool", "component", "sensing", "type", req.Type)
+		slog.Info("guard mode active", "component", "sensing", "type", req.Type)
 	}
 
 	// No local match — forward to OpenClaw agent
@@ -174,6 +176,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	reqID, runID := h.agentGateway.NextChatRunID()
 	mood.TrackRun(runID, req.Type)
 	flow.SetTrace(runID)
+
+	// Mark this run as guard-active so SSE handler broadcasts the agent response via Telegram.
+	if guardActive {
+		snap := extractSnapshotPath(req.Message)
+		h.agentGateway.MarkGuardRun(runID, snap)
+	}
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
@@ -321,5 +329,15 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	c.File(tmpPath)
 }
 
-// --- Guard alert message building ---
+// --- Guard helpers ---
 
+var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
+
+// extractSnapshotPath extracts the snapshot file path from a sensing message.
+func extractSnapshotPath(message string) string {
+	m := reSnapshotPath.FindStringSubmatch(message)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
