@@ -207,6 +207,7 @@ export const SOURCE_ICON: Record<string, string> = {
   telegram: "💬", schedule: "⏰",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
+  "music.mood": "🎵",
 };
 
 export const TELEGRAM_FALLBACK_MESSAGE = "Message from telegram";
