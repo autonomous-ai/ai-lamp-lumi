@@ -663,13 +663,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// The built-in tts generates audio server-side but never reaches the physical speaker.
 				if toolName == "tts" {
 					if ttsText := extractTTSText(toolArgs); ttsText != "" {
-						slog.Info("intercepted built-in tts tool, routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)])
+						isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+						slog.Info("intercepted built-in tts tool, routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)], "channel_run", isChannelRun)
 						flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
-						go func(t string) {
-							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-								slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
-							}
-						}(ttsText)
+						if !isChannelRun {
+							go func(t string) {
+								if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+									slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
+								}
+							}(ttsText)
+						}
 						// Mark this turn as already spoken so lifecycle_end won't double-speak.
 						h.suppressTTS(payload.RunID, "already_spoken")
 					}
@@ -755,13 +758,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					slog.Info("assistant turn done, TTS suppressed", "component", "agent", "reason", suppressReason, "text", text[:min(len(text), 100)])
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)])
+					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
-					go func(t string) {
-						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-							slog.Error("TTS delivery failed", "component", "agent", "error", err)
-						}
-					}(text)
+					if !isChannelRun {
+						go func(t string) {
+							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+								slog.Error("TTS delivery failed", "component", "agent", "error", err)
+							}
+						}(text)
+					}
 				}
 			}
 		}
@@ -825,13 +831,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// Intercept OpenClaw built-in tts tool (session.tool path).
 			if toolName == "tts" {
 				if ttsText := extractTTSText(toolArgs); ttsText != "" {
-					slog.Info("intercepted built-in tts tool (session.tool), routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)])
+					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+					slog.Info("intercepted built-in tts tool (session.tool), routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)], "channel_run", isChannelRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
-					go func(t string) {
-						if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-							slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
-						}
-					}(ttsText)
+					if !isChannelRun {
+						go func(t string) {
+							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+								slog.Error("TTS intercept delivery failed", "component", "agent", "error", err)
+							}
+						}(ttsText)
+					}
 					h.suppressTTS(payload.RunID, "already_spoken")
 				}
 			}

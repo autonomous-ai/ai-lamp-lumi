@@ -25,7 +25,7 @@ import {
 import { S } from "./styles";
 import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV, isNavGroup, isNavLink } from "./types";
 import type { Section, SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo, MonitorEvent, DisplayEvent, NavEntry } from "./types";
-import { StatusDot, ForceUpdateButton } from "./components";
+import { StatusDot, SoftwareUpdateButtons } from "./components";
 import { OverviewSection } from "./OverviewSection";
 import { SystemSection } from "./SystemSection";
 import { FlowSection } from "./FlowSection";
@@ -344,7 +344,7 @@ export default function Monitor() {
             <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span>{" "}<span style={{ opacity: 0.65 }}>{fmtDur(webTick)}</span></div>
             <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.serviceUptime != null ? fmtDur(sys.serviceUptime) : "—"}</span></div>
             <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.lelampUptime != null ? fmtDur(sys.lelampUptime) : "—"}</span></div>
-            <ForceUpdateButton />
+            <SoftwareUpdateButtons />
           </div>
         </div>
       </aside>

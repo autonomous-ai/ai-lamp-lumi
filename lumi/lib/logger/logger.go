@@ -155,11 +155,11 @@ func Init(level slog.Level, logFilePath string) func() {
 		return func() {}
 	}
 
-	// Rotating log file: 1 MB per file, keep 3 most recent backups
+	// Rotating log file: 2 MB per file, keep 10 most recent backups
 	rotatingWriter := &lumberjack.Logger{
 		Filename:   logFilePath,
-		MaxSize:    1, // MB
-		MaxBackups: 3,
+		MaxSize:    2, // MB
+		MaxBackups: 10,
 		MaxAge:     0, // no age-based removal
 		Compress:   false,
 	}
