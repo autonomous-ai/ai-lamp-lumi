@@ -742,6 +742,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if text, hwCalls := h.flushAssistantText(payload.RunID); text != "" || len(hwCalls) > 0 {
 				// Fire HW calls with full tracking (flow.Log + lastEmotion + monitorBus).
 				h.fireHWCalls(hwCalls, flowRunID)
+
+				// Log LLM mood assessment if this was a mood-relevant sensing turn.
+				var turnEmotion string
+				for _, c := range hwCalls {
+					if strings.Contains(c.path, "/emotion") {
+						if e := parseEmotion(c.body); e != "" {
+							turnEmotion = e
+						}
+					}
+				}
+				mood.CompleteRun(flowRunID, turnEmotion, text)
+
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
