@@ -42,9 +42,9 @@ SCENE_PRESETS = {
 # Servo aim presets — named lamp-head directions mapped to joint positions (normalized -100..100).
 # Neutral: base_yaw=3, base_pitch=-30, elbow_pitch=57, wrist_roll=0, wrist_pitch=18
 AIM_PRESETS = {
-    "center":  {"base_yaw.pos": 3.0,   "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},  # neutral — same baseline as left/right
-    "desk":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -38.0, "elbow_pitch.pos": 58.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 1.0},   # 40% toward down
-    "wall":    {"base_yaw.pos": 3.0,   "base_pitch.pos": -16.0, "elbow_pitch.pos": 39.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 20.0},  # 35% toward up
+    "center":  {"base_yaw.pos": 3.0,   "base_pitch.pos": -20.0, "elbow_pitch.pos": 32.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
+    "desk":    {"base_yaw.pos": 3.0,   "base_pitch.pos": 5.0,   "elbow_pitch.pos": 20.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": -40.0},
+    "wall":    {"base_yaw.pos": 3.0,   "base_pitch.pos": 5.0,   "elbow_pitch.pos": 20.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 0.0},
     "left":    {"base_yaw.pos": -90.0, "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
     "right":   {"base_yaw.pos": 90.0,  "base_pitch.pos": -30.0, "elbow_pitch.pos": 57.0, "wrist_roll.pos": 0.0, "wrist_pitch.pos": 18.0},
     "up":      {"base_yaw.pos": 3.0,   "base_pitch.pos": 10.0,  "elbow_pitch.pos": 5.0,  "wrist_roll.pos": 0.0, "wrist_pitch.pos": 25.0},
