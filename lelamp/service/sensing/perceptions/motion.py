@@ -102,17 +102,14 @@ class MotionPerception(Perception):
         capture_stable_frame: Callable,
         presence_service,
         motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,
-        activity_cooldown_s: float = config.MOTION_ACTIVITY_COOLDOWN_S,
     ):
         super().__init__(send_event)
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
         self._motion_update_ts: float = motion_update_ts
-        self._activity_cooldown_s: float = activity_cooldown_s
         self._last_motion_time: Optional[float] = None
         self._last_motion_event_ts: float = 0.0
-        self._last_activity_event_ts: float = 0.0
         self._checker = MotionChecker(cv2)
 
     @override
@@ -129,33 +126,26 @@ class MotionPerception(Perception):
         self._last_motion_time = cur_ts
         self._on_motion()
 
+        if (cur_ts - self._last_motion_event_ts) < self._motion_update_ts:
+            return
+        self._last_motion_event_ts = cur_ts
+
+        stable = self._capture_stable_frame()
+        image = stable if stable is not None else frame
+
         from ..presence_service import PresenceState
 
-        is_present = self._presence.state == PresenceState.PRESENT
-
-        if is_present:
-            # User is present — analyze their activity/movement
-            if (cur_ts - self._last_activity_event_ts) >= self._activity_cooldown_s:
-                self._last_activity_event_ts = cur_ts
-                stable = self._capture_stable_frame()
-                image = stable if stable is not None else frame
-                logger.info("Motion: activity analysis while PRESENT")
-                self._send_event(
-                    "motion.activity",
-                    "Movement detected while user is present. "
-                    "Look at the attached image — describe what the user appears to be doing "
-                    "(e.g. working, stretching, eating, talking, fidgeting, getting up). "
-                    "If nothing noteworthy, reply NO_REPLY.",
-                    image=image,
-                    cooldown=self._activity_cooldown_s,
-                )
+        if self._presence.state == PresenceState.PRESENT:
+            logger.info("Motion: activity analysis while PRESENT")
+            self._send_event(
+                "motion.activity",
+                "Movement detected while user is present. "
+                "Look at the attached image — describe what the user appears to be doing "
+                "(e.g. working, stretching, eating, talking, fidgeting, getting up). "
+                "If nothing noteworthy, reply NO_REPLY.",
+                image=image,
+            )
         else:
-            # No one present yet — enter/leave detection
-            if (cur_ts - self._last_motion_event_ts) < self._motion_update_ts:
-                return
-            self._last_motion_event_ts = cur_ts
-            stable = self._capture_stable_frame()
-            image = stable if stable is not None else frame
             self._send_event(
                 "motion",
                 "Large movement detected in camera view — someone may have entered or left the room",
@@ -168,15 +158,9 @@ class MotionPerception(Perception):
             if self._last_motion_time is not None
             else None
         )
-        seconds_since_activity = (
-            int(time.time() - self._last_activity_event_ts)
-            if self._last_activity_event_ts > 0
-            else None
-        )
         return {
             "type": "motion",
             "has_baseline": self._checker._last_frame is not None,
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,
-            "seconds_since_activity_event": seconds_since_activity,
         }

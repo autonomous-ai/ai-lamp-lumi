@@ -31,7 +31,6 @@ MOTION_FLOW_THRESHOLD = (
 MOTION_EVENT_COOLDOWN_S = (
     180.0  # minimum seconds between motion events forwarded to the agent
 )
-MOTION_ACTIVITY_COOLDOWN_S = 5 * 60  # 5 min — cooldown for motion activity analysis while PRESENT
 
 # --- Sensing: Event cooldown ---
 EVENT_COOLDOWN_S = 60.0  # minimum seconds between events of the same type
