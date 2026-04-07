@@ -1488,6 +1488,24 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 		}
 	}
 
+	// Skip webchat session — guard alerts only need to go to messaging channels (Telegram, etc.)
+	filtered := sessions[:0]
+	for _, sess := range sessions {
+		ch := sess.LastChannel
+		if dc := sess.DeliveryContext; dc != nil && dc.Channel != "" {
+			ch = dc.Channel
+		}
+		if ch != "" && ch != "webchat" {
+			filtered = append(filtered, sess)
+		}
+	}
+	sessions = filtered
+
+	if len(sessions) == 0 {
+		slog.Info("guard broadcast: no messaging sessions (webchat-only skipped)", "component", "openclaw")
+		return nil
+	}
+
 	slog.Info("guard broadcast", "component", "openclaw",
 		"sessions", len(sessions), "hasImage", imageBase64 != "",
 		"message", msg)
