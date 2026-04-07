@@ -111,6 +111,7 @@ export function FlowDiagram({
     ["agent_response",    "lumi_gate"],
     ["agent_response",    "tts_speak"],
     ["agent_response",    "tg_out"],
+    ["agent_call",        "tg_out"],
     ["lumi_gate",         "tts_speak"],
   ];
 
