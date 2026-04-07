@@ -1656,6 +1656,7 @@ func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
 	if botToken == "" {
 		return fmt.Errorf("telegram bot token not configured")
 	}
+	slog.Info("telegram broadcast token", "component", "openclaw", "tokenPrefix", botToken[:min(len(botToken), 15)]+"...")
 
 	// Get Telegram chat IDs from sessions.list
 	chatIDs := s.getTelegramChatIDs()
