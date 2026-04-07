@@ -15,6 +15,8 @@ OWNER_PHOTOS_DIR = os.environ.get(
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # --- Sensing: Motion detection (optical flow) ---
+MOTION_ENABLED = False  # feature flag — set True to enable motion events
+
 # MotionChecker thresholds
 MOTION_PIXEL_THRESHOLD = (
     1.0  # minimum flow magnitude (px/frame) to count a pixel as moving
