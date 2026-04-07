@@ -213,6 +213,15 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 
 Cả hai dùng chung cooldown `MOTION_EVENT_COOLDOWN_S` (3 phút).
 
+### Reset wellbeing timer (LLM-driven)
+
+Khi agent trả lời `motion.activity`, nó nhìn ảnh và đánh giá user đang làm gì, rồi reset timer tương ứng qua `[HW:...]` markers:
+
+- User vươn vai/đứng dậy → `[HW:/sensing/wellbeing/reset:{"type":"break"}]` — reset timer break 45 phút
+- User uống nước → `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]` — reset timer hydration 30 phút
+
+Cơ chế `fireHWCalls()` sẵn có sẽ POST về endpoint `/sensing/wellbeing/reset` của LeLamp, gọi `WellbeingPerception.reset_break()` hoặc `reset_hydration()`. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
+
 ### Hành vi Agent
 
 | Event | Emotion | Voice |

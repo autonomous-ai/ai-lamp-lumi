@@ -984,7 +984,7 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
       // Extract snapshot path → convert to API URL
-      const snap = raw.match(/\[snapshot:\s*\/tmp\/lumi-sensing-snapshots\/(sensing_[^\]]+\.jpg)\]/);
+      const snap = raw.match(/\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/);
       if (snap && !snapshotUrl) {
         snapshotUrl = `/api/sensing/snapshot/${snap[1]}`;
       }
