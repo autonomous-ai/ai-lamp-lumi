@@ -236,7 +236,7 @@ func (s *Server) Serve(closeFn func()) error {
 	system.GET("info", s.healthHandler.SystemInfo)
 	system.GET("network", s.healthHandler.NetworkInfo)
 	system.GET("dashboard", s.healthHandler.Dashboard)
-	system.POST("force-update", s.forceUpdate)
+	system.POST("software-update/:target", s.softwareUpdate)
 	system.POST("exec", s.execCommand)
 
 	device := api.Group("device")
@@ -553,10 +553,18 @@ func (s *Server) logStream(c *gin.Context) {
 	})
 }
 
-// forceUpdate proxies a force-check request to the bootstrap OTA worker.
-// POST /api/system/force-update
-func (s *Server) forceUpdate(c *gin.Context) {
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, "http://127.0.0.1:8080/force-check", nil)
+
+// softwareUpdate triggers an OTA update for a single named component via the bootstrap worker.
+// POST /api/system/software-update/:target  (target: lumi | web | lelamp)
+func (s *Server) softwareUpdate(c *gin.Context) {
+	target := c.Param("target")
+	allowed := map[string]bool{"lumi": true, "web": true, "lelamp": true}
+	if !allowed[target] {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown target: "+target))
+		return
+	}
+	url := "http://127.0.0.1:8080/force-check/" + target
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, url, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError("build request: "+err.Error()))
 		return
@@ -567,7 +575,7 @@ func (s *Server) forceUpdate(c *gin.Context) {
 		return
 	}
 	defer resp.Body.Close()
-	c.JSON(http.StatusOK, serializers.ResponseSuccess("update check triggered"))
+	c.JSON(http.StatusOK, serializers.ResponseSuccess("software update triggered: "+target))
 }
 
 // execCommand runs a shell command (sh -c) and returns stdout, stderr, and exit code.

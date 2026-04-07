@@ -80,6 +80,20 @@ func (b *Bootstrap) Serve() error {
 		}()
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "update check triggered"})
 	})
+	r.POST("/force-check/:target", func(c *gin.Context) {
+		target := c.Param("target")
+		allowed := map[string]bool{domain.OTAKeyLumi: true, domain.OTAKeyWeb: true, domain.OTAKeyLeLamp: true}
+		if !allowed[target] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown target: " + target})
+			return
+		}
+		go func() {
+			if err := b.checkComponent(context.Background(), target); err != nil {
+				slog.Error("force check failed", "component", "bootstrap", "target", target, "error", err)
+			}
+		}()
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "update check triggered", "target": target})
+	})
 
 	port := b.cfg.HttpPort
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: r}
@@ -114,6 +128,28 @@ func (b *Bootstrap) checkLoop(ctx context.Context, pollInterval time.Duration) {
 			}
 		}
 	}
+}
+
+// checkComponent fetches metadata and reconciles a single named component.
+func (b *Bootstrap) checkComponent(ctx context.Context, key string) error {
+	meta, err := b.fetchMetadata(ctx)
+	if err != nil {
+		return err
+	}
+	component, ok := meta[key]
+	if !ok {
+		return fmt.Errorf("component %q not found in metadata", key)
+	}
+	updated, err := b.reconcile(ctx, key, component)
+	if err != nil {
+		return err
+	}
+	if updated {
+		if err := state.Save(b.cfg.StateFile, b.state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
+	}
+	return nil
 }
 
 // checkOnce fetches metadata and reconciles all components.
