@@ -118,15 +118,22 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 
 ## Guard Mode
 
-When guard mode is enabled (`guard_mode: true` in config), sensing gains an additional broadcast layer on top of normal behavior:
+When guard mode is enabled (`guard_mode: true` in config), sensing events are tagged `[guard-active]` and the **agent crafts emotional broadcast messages** instead of the system broadcasting raw data.
 
-- **`presence.enter`** and **`motion`** events are broadcast to ALL OpenClaw chat sessions (every connected Telegram DM and group) via `chat.send` RPC.
-- The broadcast includes the event message and image (if present).
-- Normal sensing reactions (emotion, servo, TTS) still happen as usual — guard mode is purely additive.
-- The agent can toggle guard mode via the `guard` skill (voice or text command).
-- Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
+### Flow
+1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
+2. Go handler tags the event `[guard-active]` before forwarding to the agent (same event, same WebSocket call — no extra mechanism).
+3. The agent sees `[guard-active]`, looks at the image, checks stranger stats for context, and crafts a natural Vietnamese alert with personality (brave guard lamp).
+4. The agent uses its `message` tool to send the alert directly to **every** connected Telegram chat (all DMs + all groups), with the camera snapshot attached.
+5. The agent still reacts normally — `[HW:/emotion:...]` markers AND voice (TTS). Guard mode is NOT silent; the agent speaks AND broadcasts to Telegram.
 
-Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels immediately.
+### Why agent-driven?
+Raw system broadcasts like `[guard:presence.enter] Person detected — 1 face(s) visible (stranger_5)` feel robotic. By letting the agent craft the message and send it directly via its `message` tool, alerts have personality and context awareness — e.g. "Lại gặp người này nữa rồi, đã thấy 3 lần. Ai vậy ta?" The agent also sends directly to each Telegram chat, avoiding the unreliable `chat.send` RPC path where intermediate agents may NO_REPLY.
+
+### Manual alerts
+Manual alerts can still be sent via `POST /api/guard/alert` with a message and optional image (uses `BroadcastAlert` via `chat.send` — for API/programmatic use only).
+
+Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels with emotional, context-aware messages.
 
 ---
 
@@ -194,9 +201,29 @@ The LLM uses the attached image to make a judgment call — it does NOT always s
 
 ---
 
+## Motion Activity Analysis (while present)
+
+When the user is already present (PRESENT state), foreground motion triggers a `motion.activity` event instead of `motion`. Same cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 min) — no separate timer. The system sends a camera snapshot asking the LLM to analyze what the user is doing.
+
+### How it works
+
+`MotionPerception` checks `PresenceService.state` after the cooldown gate:
+- **PRESENT** → sends `motion.activity` with prompt: "describe what the user appears to be doing", and **resets the wellbeing break timer** (user is moving = already taking a break)
+- **NOT PRESENT** (AWAY/IDLE) → sends `motion` (enter/leave detection)
+
+Both share the same `MOTION_EVENT_COOLDOWN_S` (3 min) cooldown.
+
+### Agent behavior
+
+| Event | Emotion | Voice |
+|---|---|---|
+| `motion.activity` | `curious` (0.4) | YES (brief comment on activity) or NO_REPLY |
+
+---
+
 ## Snapshot Storage (two-tier)
 
-Sensing events that include a camera frame (motion, presence.enter, presence.leave, wellbeing) save snapshots in two locations:
+Sensing events that include a camera frame (motion, presence.enter, presence.leave, wellbeing, motion.activity) save snapshots in two locations:
 
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
