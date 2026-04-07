@@ -17,15 +17,15 @@ export function StatusDot({ ok }: { ok: boolean }) {
   );
 }
 
-export function ForceUpdateButton() {
+function SoftwareUpdateButton({ target, label }: { target: "lumi" | "web" | "lelamp"; label: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const trigger = async () => {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await fetch(`${API}/system/force-update`, { method: "POST" });
-      if (r.ok) setMsg("Triggered");
+      const r = await fetch(`${API}/system/software-update/${target}`, { method: "POST" });
+      if (r.ok) setMsg("OK");
       else setMsg("Failed");
     } catch {
       setMsg("Unreachable");
@@ -39,7 +39,6 @@ export function ForceUpdateButton() {
       onClick={trigger}
       disabled={busy}
       style={{
-        marginTop: 4,
         padding: "3px 8px",
         fontSize: 9,
         fontWeight: 600,
@@ -51,9 +50,19 @@ export function ForceUpdateButton() {
         opacity: busy ? 0.6 : 1,
       }}
     >
-      {busy ? "Checking…" : "Force Update"}
-      {msg && <span style={{ marginLeft: 4, color: msg === "Triggered" ? "var(--lm-green)" : "var(--lm-red)" }}>{msg}</span>}
+      {busy ? "…" : label}
+      {msg && <span style={{ marginLeft: 4, color: msg === "OK" ? "var(--lm-green)" : "var(--lm-red)" }}>{msg}</span>}
     </button>
+  );
+}
+
+export function SoftwareUpdateButtons() {
+  return (
+    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+      <SoftwareUpdateButton target="web" label="software-update web" />
+      <SoftwareUpdateButton target="lumi" label="software-update lumi" />
+      <SoftwareUpdateButton target="lelamp" label="software-update lelamp" />
+    </div>
   );
 }
 
