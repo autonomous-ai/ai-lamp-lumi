@@ -1275,14 +1275,23 @@ def aim_servo(req: ServoAimRequest):
     except Exception as e:
         raise HTTPException(500, f"Servo aim failed: {e}")
     finally:
-        # Restart animation loop with idle so the lamp doesn't freeze after aim.
+        # Restart animation loop. Hold aim position for 5s then smoothly return to idle.
         if was_running and not animation_service._running.is_set():
+            hold_pos = animation_service._current_state
+            if hold_pos:
+                # Use existing hold mechanism: single-frame non-idle recording + _hold_until
+                animation_service._current_recording = "__aim_hold__"
+                animation_service._current_actions = [hold_pos]
+                animation_service._current_frame_index = 0
+                animation_service._hold_until = time.time() + 5.0
             animation_service._running.set()
             animation_service._event_thread = threading.Thread(
                 target=animation_service._event_loop, daemon=True
             )
             animation_service._event_thread.start()
-            animation_service.dispatch("play", animation_service.idle_recording)
+            if not hold_pos:
+                # No state available — fall back to immediate idle
+                animation_service.dispatch("play", animation_service.idle_recording)
 
 
 # --- LED endpoints ---
