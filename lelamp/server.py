@@ -1196,6 +1196,15 @@ def aim_servo(req: ServoAimRequest):
             400, f"Unknown direction '{req.direction}'. Available: {available}"
         )
 
+    # Stop the animation event loop so move_to has exclusive bus access.
+    # Without this, _continue_playback() fights move_to() every frame via bus_lock,
+    # causing the servo to oscillate between aim target and animation frames.
+    was_running = animation_service._running.is_set()
+    if was_running:
+        animation_service._running.clear()
+        if animation_service._event_thread and animation_service._event_thread.is_alive():
+            animation_service._event_thread.join(timeout=2.0)
+
     try:
         # Get current positions to preserve joints not being overridden
         with animation_service.bus_lock:
@@ -1217,6 +1226,15 @@ def aim_servo(req: ServoAimRequest):
         return {"status": "ok", "direction": req.direction, "positions": positions}
     except Exception as e:
         raise HTTPException(500, f"Servo aim failed: {e}")
+    finally:
+        # Restart animation loop with idle so the lamp doesn't freeze after aim.
+        if was_running and not animation_service._running.is_set():
+            animation_service._running.set()
+            animation_service._event_thread = threading.Thread(
+                target=animation_service._event_loop, daemon=True
+            )
+            animation_service._event_thread.start()
+            animation_service.dispatch("play", animation_service.idle_recording)
 
 
 # --- LED endpoints ---
