@@ -1,6 +1,7 @@
 package openclaw
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -67,6 +69,11 @@ type Service struct {
 	// All events are kept (no dedup) — motion/presence must not be missed. Drained on SetBusy(false).
 	pendingEventsMu sync.Mutex
 	pendingEvents   []pendingEvent
+
+	// guardRuns tracks runIDs that are guard-active sensing turns.
+	// When the agent responds, the SSE handler broadcasts the response via Telegram Bot API.
+	guardRunsMu sync.Mutex
+	guardRuns   map[string]string // runID → snapshot path
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -79,9 +86,10 @@ type pendingEvent struct {
 // ProvideService constructs the openclaw service.
 func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 	return &Service{
-		config:        cfg,
-		monitorBus:    bus,
+		config:     cfg,
+		monitorBus: bus,
 		pendingRPC: make(map[string]chan json.RawMessage),
+		guardRuns:  make(map[string]string),
 	}
 }
 
@@ -1615,6 +1623,193 @@ func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
 	})
 
 	return nil
+}
+
+// MarkGuardRun marks a runID as guard-active so the SSE handler broadcasts the response.
+func (s *Service) MarkGuardRun(runID string, snapshotPath string) {
+	s.guardRunsMu.Lock()
+	s.guardRuns[runID] = snapshotPath
+	s.guardRunsMu.Unlock()
+	slog.Info("guard run marked", "component", "openclaw", "runID", runID, "snapshot", snapshotPath)
+}
+
+// ConsumeGuardRun checks and removes a guard-active runID. Returns snapshot path and true if found.
+func (s *Service) ConsumeGuardRun(runID string) (string, bool) {
+	s.guardRunsMu.Lock()
+	snap, ok := s.guardRuns[runID]
+	if ok {
+		delete(s.guardRuns, runID)
+	}
+	s.guardRunsMu.Unlock()
+	return snap, ok
+}
+
+// BroadcastTelegram sends a message directly via Telegram Bot API to all connected
+// Telegram chats. Fetches chat IDs from sessions.list, then calls sendMessage/sendPhoto.
+func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
+	botToken := s.config.TelegramBotToken
+	if botToken == "" {
+		return fmt.Errorf("telegram bot token not configured")
+	}
+
+	// Get Telegram chat IDs from sessions.list
+	chatIDs := s.getTelegramChatIDs()
+	if len(chatIDs) == 0 {
+		slog.Warn("telegram broadcast: no Telegram chats found", "component", "openclaw")
+		return nil
+	}
+
+	slog.Info("telegram broadcast", "component", "openclaw", "chats", len(chatIDs), "hasSnapshot", snapshotPath != "")
+
+	var photoBytes []byte
+	if snapshotPath != "" {
+		if data, err := os.ReadFile(snapshotPath); err == nil {
+			photoBytes = data
+		} else {
+			slog.Warn("telegram broadcast: failed to read snapshot", "component", "openclaw", "path", snapshotPath, "err", err)
+		}
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	for _, chatID := range chatIDs {
+		if photoBytes != nil {
+			s.sendTelegramPhoto(client, botToken, chatID, msg, photoBytes)
+		} else {
+			s.sendTelegramMessage(client, botToken, chatID, msg)
+		}
+	}
+
+	flow.Log("telegram_alert_broadcast", map[string]any{
+		"method":   "bot_api",
+		"chats":    len(chatIDs),
+		"message":  msg,
+		"snapshot":  snapshotPath != "",
+	})
+
+	return nil
+}
+
+// getTelegramChatIDs fetches active sessions and extracts Telegram chat IDs.
+func (s *Service) getTelegramChatIDs() []string {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return nil
+	}
+
+	listReqID := fmt.Sprintf("tg-list-%d", time.Now().UnixMilli())
+	ch := make(chan json.RawMessage, 1)
+	s.pendingRPCMu.Lock()
+	s.pendingRPC[listReqID] = ch
+	s.pendingRPCMu.Unlock()
+
+	listReq := map[string]interface{}{
+		"type": "req", "id": listReqID, "method": "sessions.list",
+	}
+	body, _ := json.Marshal(listReq)
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	if conn == nil {
+		s.wsMu.Unlock()
+		return nil
+	}
+	_ = conn.WriteMessage(websocket.TextMessage, body)
+	s.wsMu.Unlock()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var listResp json.RawMessage
+	select {
+	case listResp = <-ch:
+	case <-timer.C:
+		s.pendingRPCMu.Lock()
+		delete(s.pendingRPC, listReqID)
+		s.pendingRPCMu.Unlock()
+		return nil
+	}
+
+	type deliveryCtx struct {
+		Channel string `json:"channel"`
+		To      string `json:"to,omitempty"`
+	}
+	type sessionEntry struct {
+		DeliveryContext *deliveryCtx `json:"deliveryContext,omitempty"`
+		LastChannel     string       `json:"lastChannel,omitempty"`
+		LastTo          string       `json:"lastTo,omitempty"`
+	}
+	var result struct {
+		Sessions []sessionEntry `json:"sessions"`
+	}
+	if err := json.Unmarshal(listResp, &result); err != nil {
+		return nil
+	}
+	sessions := result.Sessions
+	if len(sessions) == 0 {
+		var arr []sessionEntry
+		if json.Unmarshal(listResp, &arr) == nil {
+			sessions = arr
+		}
+	}
+
+	seen := make(map[string]bool)
+	var chatIDs []string
+	for _, sess := range sessions {
+		ch := sess.LastChannel
+		to := sess.LastTo
+		if dc := sess.DeliveryContext; dc != nil {
+			if dc.Channel != "" {
+				ch = dc.Channel
+			}
+			if dc.To != "" {
+				to = dc.To
+			}
+		}
+		if ch != "telegram" || to == "" {
+			continue
+		}
+		// to format: "telegram:158406741" or "-5179782244"
+		chatID := strings.TrimPrefix(to, "telegram:")
+		if chatID != "" && !seen[chatID] {
+			seen[chatID] = true
+			chatIDs = append(chatIDs, chatID)
+		}
+	}
+	return chatIDs
+}
+
+func (s *Service) sendTelegramMessage(client *http.Client, token, chatID, text string) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q,"parse_mode":"Markdown"}`, chatID, text)
+	resp, err := client.Post(url, "application/json", strings.NewReader(payload))
+	if err != nil {
+		slog.Error("telegram sendMessage failed", "component", "openclaw", "chatID", chatID, "err", err)
+		return
+	}
+	resp.Body.Close()
+	slog.Info("telegram sendMessage sent", "component", "openclaw", "chatID", chatID)
+}
+
+func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption string, photo []byte) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	w.WriteField("chat_id", chatID)
+	w.WriteField("caption", caption)
+	w.WriteField("parse_mode", "Markdown")
+	part, _ := w.CreateFormFile("photo", "snapshot.jpg")
+	part.Write(photo)
+	w.Close()
+
+	resp, err := client.Post(url, w.FormDataContentType(), &buf)
+	if err != nil {
+		slog.Error("telegram sendPhoto failed", "component", "openclaw", "chatID", chatID, "err", err)
+		return
+	}
+	resp.Body.Close()
+	slog.Info("telegram sendPhoto sent", "component", "openclaw", "chatID", chatID)
 }
 
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.

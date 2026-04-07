@@ -122,13 +122,16 @@ Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sen
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
-2. Go handler gắn tag `[guard-active]` trước khi chuyển cho agent.
-3. Agent thấy `[guard-active]`, đọc ảnh snapshot, kiểm tra stranger stats, viết cảnh báo có cảm xúc.
-4. Agent dùng `message` tool gửi alert đến **tất cả** Telegram chat (mọi DM + mọi group).
-5. Agent vẫn nói qua TTS + gửi `[HW:/emotion:...]` — guard mode KHÔNG im lặng.
+2. Go handler gắn tag `[guard-active]` và đánh dấu runID là guard run (kèm snapshot path).
+3. Agent xử lý event bình thường — emotion, servo, TTS response.
+4. Khi agent response trả về (SSE lifecycle end), Go SSE handler kiểm tra runID có phải guard run không.
+5. Nếu có: text tự nhiên của agent + ảnh camera được gửi thẳng qua **Telegram Bot API** (`sendPhoto`) đến tất cả Telegram chat.
+6. Delivery 100% đáng tin — bypass hoàn toàn agent processing ở các session khác.
 
-### Tại sao để agent broadcast?
-Agent viết message có ngữ cảnh và tính cách. Instruction broadcast được ép buộc trong cả `SOUL.md` (non-negotiable rule) và sensing `SKILL.md` (chi tiết các bước) để đảm bảo compliance.
+### Tại sao approach này?
+- **Agent viết message** → tự nhiên, có ngữ cảnh, có tính cách
+- **Go side delivery** → trực tiếp Telegram Bot API, không rủi ro agent NO_REPLY
+- **SOUL.md + SKILL.md** vẫn hướng dẫn agent broadcast qua `message` tool (double delivery không sao)
 
 ### Cảnh báo thủ công
 Vẫn có thể gửi cảnh báo thủ công qua `POST /api/guard/alert` với message và ảnh tùy chọn.
