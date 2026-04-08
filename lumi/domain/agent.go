@@ -11,6 +11,18 @@ type TelegramTarget struct {
 	Type   string // "private", "group", "supergroup", "channel"
 }
 
+// ChannelSender delivers messages to a specific messaging channel (Telegram, Discord, Slack, etc.).
+type ChannelSender interface {
+	// Name returns the channel name (e.g. "telegram", "discord", "slack").
+	Name() string
+
+	// IsConfigured returns true if this channel has valid credentials/config.
+	IsConfigured() bool
+
+	// Send delivers a message with an optional image to all targets in this channel.
+	Send(msg string, imagePath string) error
+}
+
 // AgentEventHandler processes events from an agent gateway connection.
 type AgentEventHandler func(ctx context.Context, evt WSEvent) error
 
@@ -85,10 +97,6 @@ type AgentGateway interface {
 	// StartWS connects to the agent runtime and runs the event read loop.
 	StartWS(ctx context.Context, handler AgentEventHandler)
 
-	// BroadcastAlert sends a message (with optional image) to ALL active
-	// chat sessions via the agent runtime RPC. Used for manual guard alerts.
-	BroadcastAlert(msg string, imageBase64 string) error
-
 	// MarkGuardRun marks a runID as a guard-active turn. When the agent responds,
 	// the SSE handler will broadcast the response to all Telegram chats via Bot API.
 	MarkGuardRun(runID string, snapshotPath string)
@@ -105,9 +113,9 @@ type AgentGateway interface {
 	// GetTelegramTargets returns all Telegram chats (DMs + groups) the bot is connected to.
 	GetTelegramTargets() ([]TelegramTarget, error)
 
-	// BroadcastTelegram sends a message directly via Telegram Bot API to all
-	// connected Telegram chats. snapshotPath is an optional local image file.
-	BroadcastTelegram(msg string, snapshotPath string) error
+	// Broadcast sends a message to all connected messaging channels.
+	// Currently supports Telegram via Bot API. imagePath is an optional local image file.
+	Broadcast(msg string, imagePath string) error
 
 	// SendToLeLampTTS posts response text to LeLamp for TTS playback.
 	SendToLeLampTTS(text string) error
