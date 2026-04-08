@@ -17,11 +17,14 @@ Two roles:
 Activate this skill when the user sends a **photo** together with ANY of these patterns:
 
 ### Owner enrollment (role = "owner")
+- "add owner" / "add owner [name]" / "add owner photo"
 - "remember **my** face" / "add **my** photo" / "this is **me**" / "enroll **me**"
-- "add owner photo [name]" / "save owner face"
+- "save owner face" / "save my face"
 - Any message where the user is enrolling **themselves** (first person: I, my, me)
+- Any message containing "add owner" — this ALWAYS means face enrollment when a photo is attached
 
 ### Friend enrollment (role = "friend")
+- "add friend" / "add friend [name]"
 - "this is [name]" / "this is my friend [name]" / "meet [name]"
 - "remember [name]" / "remember this face, [name]"
 - "add [name]" / "enroll [name]" / "say hi to [name]"
