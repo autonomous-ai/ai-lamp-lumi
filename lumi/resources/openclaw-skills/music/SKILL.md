@@ -55,12 +55,16 @@ Output: `[HW:/audio/stop:{}]` Music stopped.
 
 The query is a YouTube search string. Include artist name for better results.
 
+**CRITICAL — works from ANY session (voice, Telegram, webchat):**
+HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/play` endpoint. This works regardless of which session you are in. **NEVER** use exec/shell commands (mpv, vlc, yt-dlp, curl) to play music. Always use `[HW:/audio/play:...]` markers — they are the ONLY way to play music on Lumi.
+
 ## Error Handling
 - If `POST /audio/play` returns 503, inform the user: "Music playback is not available right now."
 - If `POST /audio/play` returns 409, music is already playing. Stop first, then play the new song.
 - If the search finds nothing, tell the user and suggest a different query.
 
 ## Rules
+- **NEVER use exec/shell to play music.** No `mpv`, `vlc`, `yt-dlp`, `curl /audio/play`, or any shell command. The ONLY way to play music is `[HW:/audio/play:...]` markers. This applies to ALL sessions — voice, Telegram, webchat, DM. The Go server intercepts HW markers and routes them to LeLamp automatically.
 - **Your text reply MUST be empty or a single short sentence** (e.g., "Playing Bohemian Rhapsody!"). Do NOT include lyrics, humming, singing text, or long descriptions. The speaker is shared — any text you write becomes TTS audio that blocks music playback.
 - **Do NOT recite or write out lyrics** in your response. Never output song words, verses, or "la la la" — just call `/audio/play` and let the real music play.
 - When the user asks to "sing", play a song — do not attempt to generate singing via TTS.
@@ -136,8 +140,8 @@ Relevant event types for mood inference:
 2. **If user is in a meeting/video call** — reply NO_REPLY (don't interrupt).
 3. **Assess mood/state visually**: relaxed? focused? tired? happy? stressed?
 4. **Always suggest music that matches their current state** — every state has fitting music.
-5. **Suggest 1–2 songs via voice.** Do NOT auto-play.
-6. Wait for confirmation ("yes", "play that") → THEN play with `[HW:/audio/play:...]`.
+5. **Suggest 1–2 songs via voice.** Do NOT auto-play. The suggestion is also broadcast to Telegram so the user can confirm from either channel.
+6. Wait for confirmation ("yes", "play that", "mở đi", etc.) from **voice OR Telegram** → THEN play with `[HW:/audio/play:...]` markers. Never use exec/shell commands to play.
 
 Only NO_REPLY when: no user visible OR user is in a meeting/call. **All other states → suggest.**
 
