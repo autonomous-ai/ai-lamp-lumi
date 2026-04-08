@@ -190,6 +190,7 @@ Lumi chủ động chăm sóc sức khỏe và tâm trạng người dùng bằn
 - Gửi ảnh camera kèm context: "User ở đây X phút — đánh giá mood để gợi ý nhạc."
 - LLM nhìn ảnh đánh giá tâm trạng (thư giãn, mệt, tập trung, vui, stress) và kết hợp sensing events gần đây (thời gian trong ngày, pattern wellbeing).
 - Nếu thời điểm phù hợp → gợi ý 1–2 bài nhạc phù hợp mood qua giọng nói. **Không bao giờ tự động play** — chờ user xác nhận.
+- **Xác nhận đa kênh:** Gợi ý nhạc được gửi qua TTS (loa) VÀ broadcast lên tất cả Telegram chats qua `Broadcast()`. User có thể xác nhận bằng giọng nói hoặc qua Telegram.
 - Nếu user đang bận, đang họp, hoặc tập trung sâu → NO_REPLY.
 - Xem skill Music để biết bảng mood→nhạc và rules đầy đủ.
 
