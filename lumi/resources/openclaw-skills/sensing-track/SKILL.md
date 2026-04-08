@@ -142,7 +142,7 @@ Storage: `/root/local/mood_YYYY-MM-DD.jsonl` (30-day retention).
 - **Mention dropped events when relevant** — check `exit` records with `data.error` for events the agent missed. Mention it: "There was motion at 10:45 PM but I was mid-conversation and missed it."
 - **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete Unix timestamps using `date -d` before filtering.
 - **Span multiple days** — for questions covering more than today, `cat` multiple JSONL files together.
-- **Parse the message field** for who/what details — `owner (gray)`, `stranger (stranger_1)`, `Large movement detected`, etc.
+- **Parse the message field** for who/what details — `owner (gray)`, `friend (chloe)`, `stranger (stranger_1)`, `Large movement detected`, etc.
 - **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message and mention it. The snapshot is viewable at `/var/log/lumi/snapshots/`.
 
 ---
