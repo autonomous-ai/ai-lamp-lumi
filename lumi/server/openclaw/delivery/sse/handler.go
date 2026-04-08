@@ -757,6 +757,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
 				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
 
+				// Guard mode: broadcast even on NO_REPLY / empty / suppressed paths.
+				// The agent may choose not to speak, but we still want to alert the owner via Telegram.
+				if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
+					guardText := text
+					if guardText == "" || isAgentNoReply(guardText) {
+						guardText = "Motion or presence detected while guard mode is active."
+					}
+					go func(t, s string) {
+						slog.Info("guard broadcast via Telegram Bot API", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
+						if err := h.agentGateway.Broadcast(t, s); err != nil {
+							slog.Error("guard broadcast failed", "component", "agent", "err", err)
+						}
+					}(guardText, snap)
+				}
+
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
@@ -785,18 +800,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							}
 						}(text)
 					}
-					// Guard mode: broadcast agent's natural response to all Telegram chats.
-					// Skip heartbeat/system responses — only broadcast real guard alerts.
-					if !strings.Contains(text, "HEARTBEAT") && len(text) > 10 {
-						if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
-							go func(t, s string) {
-								slog.Info("guard broadcast via Telegram Bot API", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
-								if err := h.agentGateway.Broadcast(t, s); err != nil {
-									slog.Error("guard broadcast failed", "component", "agent", "err", err)
-								}
-							}(text, snap)
-						}
-					}
+					// Guard broadcast is handled above (before the if/else) to ensure
+					// it fires even on NO_REPLY / empty / suppressed paths.
 					// Broadcast run (e.g. music.mood): send agent response to all channels
 					// so user can confirm via Telegram instead of only voice.
 					if isBroadcastRun && len(text) > 10 {
