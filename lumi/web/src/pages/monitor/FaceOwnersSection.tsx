@@ -15,7 +15,7 @@ export function FaceOwnersSection() {
     try {
       const r = await fetch(`${HW}/face/owners`, { signal: ctrl.signal }).then((x) => x.json());
       if (ctrl.signal.aborted) return;
-      setData({ owner_count: r.owner_count ?? 0, owners: r.owners ?? [] });
+      setData({ owner_count: r.enrolled_count ?? r.owner_count ?? 0, owners: r.persons ?? r.owners ?? [] });
       setError(false);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -66,7 +66,7 @@ export function FaceOwnersSection() {
               {data.owner_count}
             </span>
             <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
-              enrolled owner{data.owner_count !== 1 ? "s" : ""}
+              enrolled face{data.owner_count !== 1 ? "s" : ""}
             </span>
           </div>
         )}
@@ -90,16 +90,28 @@ export function FaceOwnersSection() {
                 }}>
                   {owner.label}
                 </div>
-                <span style={{
-                  fontSize: 10,
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  background: "var(--lm-amber-dim)",
-                  color: "var(--lm-amber)",
-                  fontWeight: 600,
-                }}>
-                  {owner.photo_count} photo{owner.photo_count !== 1 ? "s" : ""}
-                </span>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    background: owner.role === "friend" ? "rgba(96,165,250,0.15)" : "var(--lm-amber-dim)",
+                    color: owner.role === "friend" ? "rgb(96,165,250)" : "var(--lm-amber)",
+                    fontWeight: 600,
+                  }}>
+                    {owner.role === "friend" ? "friend" : "owner"}
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    background: "var(--lm-amber-dim)",
+                    color: "var(--lm-amber)",
+                    fontWeight: 600,
+                  }}>
+                    {owner.photo_count} photo{owner.photo_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
               </div>
               <div style={{
                 display: "grid",
@@ -133,7 +145,7 @@ export function FaceOwnersSection() {
       {data && data.owners.length === 0 && (
         <div style={{ ...S.card, textAlign: "center" as const, padding: 32 }}>
           <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
-            No owners enrolled yet. Send a photo via Telegram with "add owner [name]" to enroll.
+            No faces enrolled yet. Send a photo via Telegram with "this is [name]" or "remember my face" to enroll.
           </div>
         </div>
       )}
