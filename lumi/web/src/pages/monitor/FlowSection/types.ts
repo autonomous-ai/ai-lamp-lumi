@@ -33,7 +33,7 @@ export interface Turn {
   sessionBreak?: boolean;
   endTime?: string;
   type: string;
-  path: "local" | "agent" | "unknown";
+  path: "local" | "agent" | "dropped" | "unknown";
   status: "active" | "done" | "error";
   events: DisplayEvent[];
 }
