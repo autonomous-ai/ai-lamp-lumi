@@ -15,6 +15,7 @@ import numpy.typing as npt
 from .base import Perception
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 _NO_MATCH = -2.0  # sentinel score used when an embedding bank is empty
 
@@ -109,7 +110,10 @@ class FaceRecognizer(Perception):
         logger.info("Watching owner photos dir: %s", OWNER_PHOTOS_DIR)
 
     def train(
-        self, images: list[npt.NDArray[np.uint8]], labels: list[int | str], role: str = "owner"
+        self,
+        images: list[npt.NDArray[np.uint8]],
+        labels: list[int | str],
+        role: str = "owner",
     ) -> None:
         prefix = self.FRIEND_PREFIX if role == "friend" else self.OWNER_PREFIX
         prefixed_labels = [prefix + str(lbl) for lbl in labels]
@@ -234,7 +238,9 @@ class FaceRecognizer(Perception):
         )
         return n_enrolled
 
-    def enroll_from_bytes(self, image_bytes: bytes, label: str, role: str = "owner") -> str:
+    def enroll_from_bytes(
+        self, image_bytes: bytes, label: str, role: str = "owner"
+    ) -> str:
         """Decode image, save as JPEG on disk, and append embeddings."""
         norm = self.normalize_label(label)
         if role not in self.KNOWN_ROLES:
@@ -323,6 +329,10 @@ class FaceRecognizer(Perception):
             try:
                 np.save(STRANGER_STATE_DIR / "embeds.npy", self._stranger_embeddings)
                 np.save(STRANGER_STATE_DIR / "labels.npy", self._stranger_labels)
+                np.save(
+                    STRANGER_STATE_DIR / "counter.npy", np.array(self._stranger_counter)
+                )
+                logger.debug("Saved strangers' state")
             except Exception as e:
                 logger.error(f"Failed to save strangers' state due to {e}")
 
@@ -334,14 +344,20 @@ class FaceRecognizer(Perception):
             stranger_labels = np.load(
                 STRANGER_STATE_DIR / "labels.npy", allow_pickle=True
             )
+            stranger_counter = int(
+                np.load(STRANGER_STATE_DIR / "counter.npy", allow_pickle=True)
+            )
         except Exception as e:
+            logger.debug("Loaded strangers' state")
             logger.error(f"Failed to load strangers' state due to {e}")
             stranger_embeddings = None
             stranger_labels = None
+            stranger_counter = 0
 
         if stranger_embeddings is not None and stranger_labels is not None:
             self._stranger_embeddings = stranger_embeddings
             self._stranger_labels = stranger_labels
+            self._stranger_counter = stranger_counter
 
     def _score(self, embeds: np.ndarray, bank: np.ndarray, labels: np.ndarray):
         sim = embeds @ bank.T
@@ -447,6 +463,7 @@ class FaceRecognizer(Perception):
                 or max(o_score, s_score) <= self.negative_threshold
             ):
                 self._stranger_counter += 1
+                self._stranger_counter %= int(1e6)
                 stranger_id = (
                     self.STRANGER_PREFIX + f"stranger_{self._stranger_counter}"
                 )
@@ -488,8 +505,12 @@ class FaceRecognizer(Perception):
             self._on_motion()
 
             unsure_count = sum(1 for _, kind, _ in face_annotations if kind == "unsure")
-            owners_in_frame = {name for _, kind, name in face_annotations if kind == "owner"}
-            friends_in_frame = {name for _, kind, name in face_annotations if kind == "friend"}
+            owners_in_frame = {
+                name for _, kind, name in face_annotations if kind == "owner"
+            }
+            friends_in_frame = {
+                name for _, kind, name in face_annotations if kind == "friend"
+            }
             parts = []
             if owners_in_frame:
                 parts.append(f"owner ({', '.join(owners_in_frame)})")
