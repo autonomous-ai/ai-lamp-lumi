@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 import type { ServoState } from "./types";
@@ -16,6 +16,8 @@ export function ServoSection() {
   const [servos, setServos] = useState<Record<string, ServoDetail> | null>(null);
   const [aims, setAims] = useState<string[]>([]);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +71,46 @@ export function ServoSection() {
       headers: { accept: "application/json" },
     }).catch(() => {});
     setTimeout(refresh, 500);
+  };
+
+  const uploadCsv = async (file: File | null) => {
+    if (!file) return;
+    if (uploading) return;
+
+    const rawName = file.name || "recording";
+    const recordingName = rawName.replace(/\.csv$/i, "").trim();
+    if (!recordingName) {
+      flash("Upload failed: missing recording name");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      flash(`Uploading ${recordingName}...`);
+
+      const form = new FormData();
+      form.append("file", file);
+      form.append("recording_name", recordingName);
+
+      const resp = await fetch(`${HW}/servo/upload`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!resp.ok) {
+        const msg = await resp.text().catch(() => "");
+        throw new Error(msg || `HTTP ${resp.status}`);
+      }
+
+      flash(`Uploaded ${recordingName}`);
+      setTimeout(refresh, 1000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      flash(`Upload failed: ${msg.slice(0, 120)}`);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const zeroServos = async () => {
@@ -173,15 +215,52 @@ export function ServoSection() {
       {/* Animations */}
       <div style={S.card}>
         <div style={S.cardLabel}>Animations</div>
-        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const, marginTop: 8 }}>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: "none" }}
+            ref={fileInputRef}
+            onChange={(e) => uploadCsv(e.target.files?.[0] ?? null)}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            style={{
+              fontSize: 11,
+              padding: "5px 14px",
+              borderRadius: 5,
+              background: "var(--lm-surface)",
+              border: `1px solid ${uploading ? "var(--lm-border)" : "var(--lm-border)"}`,
+              color: uploading ? "var(--lm-text-muted)" : "var(--lm-text-dim)",
+              cursor: uploading ? "not-allowed" : "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {uploading ? "Uploading..." : "Upload CSV"}
+          </button>
+          <div style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+            Uses file name as recording name.
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginTop: 10 }}>
           {(servo?.available_recordings ?? []).map((anim) => (
-            <button key={anim} onClick={() => playAnim(anim)} style={{
-              fontSize: 11, padding: "5px 14px", borderRadius: 5,
-              background: anim === servo?.current ? "var(--lm-amber-dim, rgba(245,158,11,0.1))" : "var(--lm-surface)",
-              border: `1px solid ${anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-border)"}`,
-              color: anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-text-dim)",
-              cursor: "pointer", fontWeight: anim === servo?.current ? 600 : 400,
-            }}>{anim}</button>
+            <button
+              key={anim}
+              onClick={() => playAnim(anim)}
+              style={{
+                fontSize: 11,
+                padding: "5px 14px",
+                borderRadius: 5,
+                background: anim === servo?.current ? "var(--lm-amber-dim, rgba(245,158,11,0.1))" : "var(--lm-surface)",
+                border: `1px solid ${anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-border)"}`,
+                color: anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-text-dim)",
+                cursor: "pointer",
+                fontWeight: anim === servo?.current ? 600 : 400,
+              }}
+            >
+              {anim}
+            </button>
           ))}
         </div>
       </div>

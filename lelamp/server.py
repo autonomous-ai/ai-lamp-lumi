@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lelamp.presets import (
     AIM_PRESETS,
@@ -863,14 +863,16 @@ class PresenceResponse(BaseModel):
 
 class FaceEnrollRequest(BaseModel):
     image_base64: str = Field(..., description="Base64-encoded image (JPEG or PNG)")
-    label: str = Field(..., min_length=1, max_length=64, description="Owner label")
+    label: str = Field(..., min_length=1, max_length=64, description="Person name")
+    role: str = Field("owner", description="Role: 'owner' or 'friend'")
 
 
 class FaceEnrollResponse(BaseModel):
     status: str
     label: str
+    role: str
     photo_path: str
-    owner_count: int
+    enrolled_count: int
 
 
 class FaceStatusResponse(BaseModel):
@@ -878,15 +880,16 @@ class FaceStatusResponse(BaseModel):
     owner_names: list[str]
 
 
-class FaceOwnerDetail(BaseModel):
+class FacePersonDetail(BaseModel):
     label: str
+    role: str
     photo_count: int
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
 
 
 class FaceOwnersDetailResponse(BaseModel):
-    owner_count: int
-    owners: list[FaceOwnerDetail]
+    enrolled_count: int
+    persons: list[FacePersonDetail]
 
 
 class FaceRemoveRequest(BaseModel):
@@ -951,6 +954,141 @@ def get_servo_state():
         "available_recordings": animation_service.get_available_recordings(),
         "current": animation_service._current_recording,
     }
+
+
+# --- Servo recording upload (CSV) ---
+# LeLamp servo recordings are CSV files under ./recordings.
+# Each row is a frame; header must include "timestamp" and one or more "<joint>.pos" columns.
+_SERVO_JOINT_FIELD_RE = re.compile(r"^[A-Za-z0-9_]+\.pos$")
+_MAX_SERVO_RECORDING_UPLOAD_BYTES = 2 * 1024 * 1024  # 2MB
+_MAX_SERVO_RECORDING_ROWS = 20000
+
+
+def _sanitize_recording_name(name: str) -> str:
+    name = (name or "").strip()
+    # Prevent path traversal and keep names readable.
+    name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
+    name = name.strip("_- ")
+    if not name:
+        raise ValueError("empty recording name")
+    return name[:64]
+
+
+@app.post("/servo/upload", response_model=StatusResponse, tags=["Servo"])
+async def upload_servo_recording(
+    file: UploadFile = File(...),
+    recording_name: Optional[str] = Form(None),
+):
+    """Upload a servo recording CSV and make it available in GET /servo.
+
+    Expected CSV format:
+    - Header contains "timestamp" plus one or more joint columns ending with ".pos"
+      (e.g. "base_pitch.pos", "elbow_pitch.pos", ...).
+    - All non-timestamp columns must be numeric floats.
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+
+    orig_filename = file.filename or "recording.csv"
+    if orig_filename.lower().endswith(".csv") is False:
+        raise HTTPException(400, "upload must be a .csv file")
+
+    rec_name = recording_name or Path(orig_filename).stem
+    try:
+        rec_name = _sanitize_recording_name(rec_name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(400, "empty csv")
+    if len(content) > _MAX_SERVO_RECORDING_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"csv too large (max {_MAX_SERVO_RECORDING_UPLOAD_BYTES} bytes)"
+        )
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "csv must be utf-8 text")
+
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+
+    if "timestamp" not in fieldnames:
+        raise HTTPException(400, 'missing required column "timestamp"')
+
+    joint_fields = [f for f in fieldnames if f != "timestamp"]
+    if not joint_fields:
+        raise HTTPException(400, "missing joint columns (expected *.pos fields)")
+
+    invalid_joint_fields = [f for f in joint_fields if not _SERVO_JOINT_FIELD_RE.match(f)]
+    if invalid_joint_fields:
+        raise HTTPException(
+            400, f"invalid joint columns: {invalid_joint_fields}. Expected <name>.pos"
+        )
+
+    # If we have robot/joint metadata, reject unknown columns to prevent unsafe dispatch.
+    valid_joints = None
+    try:
+        if (
+            animation_service.robot
+            and animation_service.robot.bus
+            and animation_service.robot.bus.motors
+        ):
+            valid_joints = {f"{m}.pos" for m in animation_service.robot.bus.motors}
+    except Exception:
+        valid_joints = None
+
+    if valid_joints is not None:
+        unknown = [j for j in joint_fields if j not in valid_joints]
+        if unknown:
+            raise HTTPException(
+                400,
+                f"unknown joint columns: {unknown}. Valid: {sorted(valid_joints)}",
+            )
+
+    # Parse frames to validate numeric conversion before saving.
+    actions: list[dict[str, float]] = []
+    for row_idx, row in enumerate(reader):
+        if len(actions) >= _MAX_SERVO_RECORDING_ROWS:
+            raise HTTPException(
+                400, f"too many rows (max {_MAX_SERVO_RECORDING_ROWS})"
+            )
+
+        ts_val = row.get("timestamp")
+        try:
+            _ = float(ts_val)  # validated, but not stored in actions
+        except Exception:
+            raise HTTPException(400, f"invalid timestamp at row {row_idx + 2}")
+
+        action: dict[str, float] = {}
+        for joint in joint_fields:
+            v = row.get(joint)
+            if v is None or v == "":
+                raise HTTPException(400, f"missing value for {joint} at row {row_idx + 2}")
+            try:
+                action[joint] = float(v)
+            except Exception:
+                raise HTTPException(400, f"invalid float for {joint} at row {row_idx + 2}")
+
+        actions.append(action)
+
+    recordings_dir = os.path.join(os.path.dirname(__file__), "recordings")
+    Path(recordings_dir).mkdir(parents=True, exist_ok=True)
+    csv_path = os.path.join(recordings_dir, f"{rec_name}.csv")
+
+    # Save decoded text (preserves original formatting). Ensure trailing newline for consistency.
+    with open(csv_path, "w", newline="") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+
+    # Update cache so the new recording can be played immediately.
+    try:
+        animation_service._recording_cache[rec_name] = actions
+    except Exception:
+        pass
+
+    return {"status": "ok"}
 
 
 @app.post("/servo/play", response_model=StatusResponse, tags=["Servo"])
@@ -1825,13 +1963,45 @@ def camera_stream():
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
+    # MJPEG is CPU/bandwidth heavy: encode in this endpoint at a controlled rate
+    # and downscale frames for smoother live viewing.
+    # These defaults can be tuned via env vars.
+    stream_fps = float(os.environ.get("LELAMP_CAMERA_STREAM_FPS", "10"))
+    stream_width = int(os.environ.get("LELAMP_CAMERA_STREAM_WIDTH", "320"))
+    stream_quality = int(os.environ.get("LELAMP_CAMERA_STREAM_JPEG_QUALITY", "65"))
+    min_interval_s = 1.0 / stream_fps if stream_fps > 0 else 0.0
+
     def generate():
+        last_sent_s = 0.0
         while True:
+            # Throttle encoding to avoid pegging CPU and causing buffering on the browser side.
+            if min_interval_s > 0:
+                now_s = time.time()
+                elapsed_s = now_s - last_sent_s
+                if elapsed_s < min_interval_s:
+                    time.sleep(min(0.01, min_interval_s - elapsed_s))
+                    continue
+
             frame = camera_capture.last_frame
             if frame is None:
                 time.sleep(0.05)
                 continue
-            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+            # Downscale for streaming bandwidth while preserving aspect ratio.
+            if stream_width and frame.shape[1] > stream_width:
+                scale = stream_width / float(frame.shape[1])
+                frame = cv2.resize(
+                    frame,
+                    None,
+                    fx=scale,
+                    fy=scale,
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            _, buf = cv2.imencode(
+                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, int(stream_quality)]
+            )
+            last_sent_s = time.time()
             yield (
                 b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
             )
@@ -2199,8 +2369,9 @@ def _require_face_recognizer():
 
 @app.post("/face/enroll", response_model=FaceEnrollResponse, tags=["Face"])
 def face_enroll(req: FaceEnrollRequest):
-    """Save a JPEG owner photo, train embeddings, and persist under owner_photos/."""
+    """Save a JPEG photo, train embeddings, and persist under owner_photos/."""
     fr = _require_face_recognizer()
+    role = req.role if req.role in ("owner", "friend") else "owner"
     try:
         raw = base64.b64decode(req.image_base64)
     except Exception as exc:
@@ -2208,15 +2379,16 @@ def face_enroll(req: FaceEnrollRequest):
     if not raw:
         raise HTTPException(400, "empty image")
     try:
-        path = fr.enroll_from_bytes(raw, req.label)
+        path = fr.enroll_from_bytes(raw, req.label, role=role)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     norm = FaceRecognizer.normalize_label(req.label)
     return FaceEnrollResponse(
         status="ok",
         label=norm,
+        role=role,
         photo_path=path,
-        owner_count=fr.owner_count(),
+        enrolled_count=fr.owner_count(),
     )
 
 
@@ -2232,11 +2404,11 @@ def face_status():
 
 @app.get("/face/owners", response_model=FaceOwnersDetailResponse, tags=["Face"])
 def face_owners_detail():
-    """List enrolled owners with photo filenames."""
+    """List enrolled persons (owners and friends) with photo filenames."""
     fr = _require_face_recognizer()
-    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR, FaceRecognizer as FR
 
-    owners: list[FaceOwnerDetail] = []
+    persons: list[FacePersonDetail] = []
     if OWNER_PHOTOS_DIR.is_dir():
         img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
         for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
@@ -2244,14 +2416,16 @@ def face_owners_detail():
                 continue
             photos = sorted(f.name for f in d.iterdir() if f.suffix.lower() in img_exts)
             if photos:
-                owners.append(
-                    FaceOwnerDetail(
+                role = FR._read_role(d)
+                persons.append(
+                    FacePersonDetail(
                         label=d.name,
+                        role=role,
                         photo_count=len(photos),
                         photos=photos,
                     )
                 )
-    return FaceOwnersDetailResponse(owner_count=len(owners), owners=owners)
+    return FaceOwnersDetailResponse(enrolled_count=len(persons), persons=persons)
 
 
 @app.get("/face/photo/{label}/{filename}", tags=["Face"])
