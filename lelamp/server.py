@@ -863,14 +863,16 @@ class PresenceResponse(BaseModel):
 
 class FaceEnrollRequest(BaseModel):
     image_base64: str = Field(..., description="Base64-encoded image (JPEG or PNG)")
-    label: str = Field(..., min_length=1, max_length=64, description="Owner label")
+    label: str = Field(..., min_length=1, max_length=64, description="Person name")
+    role: str = Field("owner", description="Role: 'owner' or 'friend'")
 
 
 class FaceEnrollResponse(BaseModel):
     status: str
     label: str
+    role: str
     photo_path: str
-    owner_count: int
+    enrolled_count: int
 
 
 class FaceStatusResponse(BaseModel):
@@ -878,15 +880,16 @@ class FaceStatusResponse(BaseModel):
     owner_names: list[str]
 
 
-class FaceOwnerDetail(BaseModel):
+class FacePersonDetail(BaseModel):
     label: str
+    role: str
     photo_count: int
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
 
 
 class FaceOwnersDetailResponse(BaseModel):
-    owner_count: int
-    owners: list[FaceOwnerDetail]
+    enrolled_count: int
+    persons: list[FacePersonDetail]
 
 
 class FaceRemoveRequest(BaseModel):
@@ -2366,8 +2369,9 @@ def _require_face_recognizer():
 
 @app.post("/face/enroll", response_model=FaceEnrollResponse, tags=["Face"])
 def face_enroll(req: FaceEnrollRequest):
-    """Save a JPEG owner photo, train embeddings, and persist under owner_photos/."""
+    """Save a JPEG photo, train embeddings, and persist under owner_photos/."""
     fr = _require_face_recognizer()
+    role = req.role if req.role in ("owner", "friend") else "owner"
     try:
         raw = base64.b64decode(req.image_base64)
     except Exception as exc:
@@ -2375,15 +2379,16 @@ def face_enroll(req: FaceEnrollRequest):
     if not raw:
         raise HTTPException(400, "empty image")
     try:
-        path = fr.enroll_from_bytes(raw, req.label)
+        path = fr.enroll_from_bytes(raw, req.label, role=role)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     norm = FaceRecognizer.normalize_label(req.label)
     return FaceEnrollResponse(
         status="ok",
         label=norm,
+        role=role,
         photo_path=path,
-        owner_count=fr.owner_count(),
+        enrolled_count=fr.owner_count(),
     )
 
 
@@ -2399,11 +2404,11 @@ def face_status():
 
 @app.get("/face/owners", response_model=FaceOwnersDetailResponse, tags=["Face"])
 def face_owners_detail():
-    """List enrolled owners with photo filenames."""
+    """List enrolled persons (owners and friends) with photo filenames."""
     fr = _require_face_recognizer()
-    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR, FaceRecognizer as FR
 
-    owners: list[FaceOwnerDetail] = []
+    persons: list[FacePersonDetail] = []
     if OWNER_PHOTOS_DIR.is_dir():
         img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
         for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
@@ -2411,14 +2416,16 @@ def face_owners_detail():
                 continue
             photos = sorted(f.name for f in d.iterdir() if f.suffix.lower() in img_exts)
             if photos:
-                owners.append(
-                    FaceOwnerDetail(
+                role = FR._read_role(d)
+                persons.append(
+                    FacePersonDetail(
                         label=d.name,
+                        role=role,
                         photo_count=len(photos),
                         photos=photos,
                     )
                 )
-    return FaceOwnersDetailResponse(owner_count=len(owners), owners=owners)
+    return FaceOwnersDetailResponse(enrolled_count=len(persons), persons=persons)
 
 
 @app.get("/face/photo/{label}/{filename}", tags=["Face"])
