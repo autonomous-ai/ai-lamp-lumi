@@ -190,6 +190,7 @@ Lumi proactively cares for the user's health and mood by sending periodic camera
 - Sends a camera snapshot with context: "User has been here for X minutes — assess mood for music suggestion."
 - The LLM visually assesses mood (relaxed, tired, focused, happy, stressed) and cross-references with recent sensing events (time of day, wellbeing patterns).
 - If it's a good moment → suggest 1–2 songs matching the mood via voice. **Never auto-play** — wait for user confirmation.
+- **Dual-channel confirmation:** The music suggestion is sent via TTS (speaker) AND broadcast to all Telegram chats via `Broadcast()`. The user can confirm by replying with voice or via Telegram.
 - If user is busy, in a meeting, or deeply focused → NO_REPLY.
 - See the Music skill for mood→music mapping and full suggestion rules.
 
