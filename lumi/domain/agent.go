@@ -112,6 +112,9 @@ type AgentGateway interface {
 	// SendToLeLampTTS posts response text to LeLamp for TTS playback.
 	SendToLeLampTTS(text string) error
 
+	// StopTTS interrupts active TTS playback on LeLamp.
+	StopTTS() error
+
 	// StartLeLampVoice starts the voice pipeline on LeLamp.
 	StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 

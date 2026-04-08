@@ -264,6 +264,7 @@ func (s *Server) Serve(closeFn func()) error {
 	monitor.POST("event", s.sensingHandler.PostMonitorEvent)
 
 	oc := api.Group("openclaw")
+	oc.POST("tts/stop", s.openclawHandler.StopTTS)
 	oc.POST("busy", s.openclawHandler.SetBusy)
 	oc.GET("status", s.openclawHandler.Status)
 	oc.GET("events", s.openclawHandler.Events)

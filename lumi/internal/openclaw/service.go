@@ -1392,6 +1392,20 @@ func stripForTTS(text string) string {
 }
 
 
+// StopTTS interrupts active TTS playback on LeLamp immediately.
+func (s *Service) StopTTS() error {
+	resp, err := http.Post("http://127.0.0.1:5001/tts/stop", "application/json", nil)
+	if err != nil {
+		return fmt.Errorf("POST /tts/stop: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST /tts/stop returned %d", resp.StatusCode)
+	}
+	slog.Info("TTS stopped", "component", "openclaw")
+	return nil
+}
+
 // SendToLeLampTTS posts response text to LeLamp for TTS playback.
 // Text must already be stripped of HW markers by the caller (SSE handler).
 func (s *Service) SendToLeLampTTS(text string) error {
