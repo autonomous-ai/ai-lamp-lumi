@@ -1,7 +1,6 @@
 package openclaw
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -10,9 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -75,6 +72,9 @@ type Service struct {
 	// When the agent responds, the SSE handler broadcasts the response via Telegram Bot API.
 	guardRunsMu sync.Mutex
 	guardRuns   map[string]string // runID → snapshot path
+
+	// channels is the list of registered messaging channel senders (Telegram, Discord, Slack, etc.).
+	channels []domain.ChannelSender
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -86,12 +86,17 @@ type pendingEvent struct {
 
 // ProvideService constructs the openclaw service.
 func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
-	return &Service{
+	s := &Service{
 		config:     cfg,
 		monitorBus: bus,
 		pendingRPC: make(map[string]chan json.RawMessage),
 		guardRuns:  make(map[string]string),
 	}
+	// Register channel senders.
+	s.channels = []domain.ChannelSender{
+		&TelegramSender{svc: s},
+	}
+	return s
 }
 
 // defaultModels is the hardcoded list of supported models.
@@ -1456,190 +1461,6 @@ func (s *Service) GetConfigJSON() (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
-// BroadcastAlert sends a message (with optional image) to ALL active OpenClaw sessions.
-// It fetches the current session list via sessions.list RPC, then calls chat.send for each.
-// Used by guard mode to notify all Telegram chats/groups about stranger detection.
-func (s *Service) BroadcastAlert(msg string, imageBase64 string) error {
-	s.wsMu.Lock()
-	conn := s.wsConn
-	s.wsMu.Unlock()
-	if conn == nil {
-		return fmt.Errorf("websocket not connected")
-	}
-
-	// Fetch all active sessions via pendingRPC dispatch (same pattern as FetchChatHistory).
-	listReqID := fmt.Sprintf("guard-list-%d", time.Now().UnixMilli())
-	ch := make(chan json.RawMessage, 1)
-
-	s.pendingRPCMu.Lock()
-	s.pendingRPC[listReqID] = ch
-	s.pendingRPCMu.Unlock()
-
-	listReq := map[string]interface{}{
-		"type":   "req",
-		"id":     listReqID,
-		"method": "sessions.list",
-	}
-	listBody, err := json.Marshal(listReq)
-	if err != nil {
-		s.pendingRPCMu.Lock()
-		delete(s.pendingRPC, listReqID)
-		s.pendingRPCMu.Unlock()
-		return fmt.Errorf("marshal sessions.list: %w", err)
-	}
-
-	s.wsMu.Lock()
-	conn = s.wsConn
-	if conn == nil {
-		s.wsMu.Unlock()
-		s.pendingRPCMu.Lock()
-		delete(s.pendingRPC, listReqID)
-		s.pendingRPCMu.Unlock()
-		return fmt.Errorf("websocket disconnected before send")
-	}
-	err = conn.WriteMessage(websocket.TextMessage, listBody)
-	s.wsMu.Unlock()
-	if err != nil {
-		s.pendingRPCMu.Lock()
-		delete(s.pendingRPC, listReqID)
-		s.pendingRPCMu.Unlock()
-		return fmt.Errorf("write sessions.list: %w", err)
-	}
-
-	// Wait for response via main read loop dispatch.
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	var listResp json.RawMessage
-	select {
-	case listResp = <-ch:
-	case <-timer.C:
-		s.pendingRPCMu.Lock()
-		delete(s.pendingRPC, listReqID)
-		s.pendingRPCMu.Unlock()
-		return fmt.Errorf("sessions.list timeout")
-	}
-
-	slog.Info("guard sessions.list raw response", "component", "openclaw", "payload", string(listResp))
-
-	// The payload may be {"sessions":[...]} or the sessions array directly.
-	// Try both: first as object with sessions field, then as direct array.
-	type deliveryCtx struct {
-		Channel   string `json:"channel"`
-		To        string `json:"to,omitempty"`
-		AccountID string `json:"accountId,omitempty"`
-	}
-	type sessionEntry struct {
-		SessionKey      string       `json:"sessionKey"`
-		Key             string       `json:"key"`
-		DeliveryContext *deliveryCtx `json:"deliveryContext,omitempty"`
-		LastChannel     string       `json:"lastChannel,omitempty"`
-		LastTo          string       `json:"lastTo,omitempty"`
-		LastAccountID   string       `json:"lastAccountId,omitempty"`
-	}
-	var listResult struct {
-		Sessions []sessionEntry `json:"sessions"`
-	}
-	if err := json.Unmarshal(listResp, &listResult); err != nil {
-		return fmt.Errorf("parse sessions.list: %w", err)
-	}
-
-	sessions := listResult.Sessions
-	if len(sessions) == 0 {
-		// Maybe payload is directly an array
-		var arr []sessionEntry
-		if json.Unmarshal(listResp, &arr) == nil && len(arr) > 0 {
-			sessions = arr
-		}
-	}
-
-	if len(sessions) == 0 {
-		slog.Warn("guard broadcast: no active sessions", "component", "openclaw")
-		return nil
-	}
-
-	// Normalize: some responses use "key" instead of "sessionKey"
-	for i, sess := range sessions {
-		if sess.SessionKey == "" && sess.Key != "" {
-			sessions[i].SessionKey = sess.Key
-		}
-	}
-
-	// Skip webchat session — guard alerts only need to go to messaging channels (Telegram, etc.)
-	filtered := sessions[:0]
-	for _, sess := range sessions {
-		ch := sess.LastChannel
-		if dc := sess.DeliveryContext; dc != nil && dc.Channel != "" {
-			ch = dc.Channel
-		}
-		if ch != "" && ch != "webchat" {
-			filtered = append(filtered, sess)
-		}
-	}
-	sessions = filtered
-
-	if len(sessions) == 0 {
-		slog.Info("guard broadcast: no messaging sessions (webchat-only skipped)", "component", "openclaw")
-		return nil
-	}
-
-	slog.Info("guard broadcast", "component", "openclaw",
-		"sessions", len(sessions), "hasImage", imageBase64 != "",
-		"message", msg)
-
-	// Send to each session.
-	for _, sess := range sessions {
-		reqID := fmt.Sprintf("guard-%d", s.reqCounter.Add(1))
-		idempotencyKey := fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
-
-		params := map[string]interface{}{
-			"idempotencyKey": idempotencyKey,
-			"sessionKey":     sess.SessionKey,
-			"message":        msg,
-		}
-
-		if imageBase64 != "" {
-			params["attachments"] = []map[string]interface{}{
-				{
-					"type":     "image",
-					"mimeType": "image/jpeg",
-					"content":  imageBase64,
-				},
-			}
-		}
-
-		req := map[string]interface{}{
-			"type":   "req",
-			"id":     reqID,
-			"method": "chat.send",
-			"params": params,
-		}
-		body, err := json.Marshal(req)
-		if err != nil {
-			slog.Error("guard broadcast marshal failed", "component", "openclaw", "session", sess.SessionKey, "err", err)
-			continue
-		}
-
-		s.wsMu.Lock()
-		err = conn.WriteMessage(websocket.TextMessage, body)
-		s.wsMu.Unlock()
-		if err != nil {
-			slog.Error("guard broadcast send failed", "component", "openclaw", "session", sess.SessionKey, "err", err)
-			continue
-		}
-
-		slog.Info("guard broadcast sent", "component", "openclaw",
-			"session", sess.SessionKey, "reqId", reqID,
-			"channel", params["channel"])
-	}
-
-	flow.Log("telegram_alert_broadcast", map[string]any{
-		"sessions": len(sessions),
-		"message":  msg,
-	})
-
-	return nil
-}
-
 // MarkGuardRun marks a runID as guard-active so the SSE handler broadcasts the response.
 func (s *Service) MarkGuardRun(runID string, snapshotPath string) {
 	s.guardRunsMu.Lock()
@@ -1716,92 +1537,29 @@ func (s *Service) GetTelegramTargets() ([]domain.TelegramTarget, error) {
 	return targets, nil
 }
 
-// BroadcastTelegram sends a message directly via Telegram Bot API to all connected
-// Telegram chats. Uses GetTelegramBotToken() and GetTelegramTargets() for backend abstraction.
-func (s *Service) BroadcastTelegram(msg string, snapshotPath string) error {
-	botToken := s.GetTelegramBotToken()
-	if botToken == "" {
-		return fmt.Errorf("telegram bot token not configured")
-	}
-
-	targets, err := s.GetTelegramTargets()
-	if err != nil {
-		return fmt.Errorf("get telegram targets: %w", err)
-	}
-	if len(targets) == 0 {
-		slog.Warn("telegram broadcast: no Telegram chats found", "component", "openclaw")
-		return nil
-	}
-
-	slog.Info("telegram broadcast", "component", "openclaw", "chats", len(targets), "hasSnapshot", snapshotPath != "")
-
-	var photoBytes []byte
-	if snapshotPath != "" {
-		if data, err := os.ReadFile(snapshotPath); err == nil {
-			photoBytes = data
-		} else {
-			slog.Warn("telegram broadcast: failed to read snapshot", "component", "openclaw", "path", snapshotPath, "err", err)
+// Broadcast sends a message to all connected messaging channels.
+// It iterates over registered ChannelSenders, skipping any that are not configured.
+func (s *Service) Broadcast(msg string, imagePath string) error {
+	var sent int
+	var lastErr error
+	for _, ch := range s.channels {
+		if !ch.IsConfigured() {
+			continue
 		}
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	for _, t := range targets {
-		if photoBytes != nil {
-			s.sendTelegramPhoto(client, botToken, t.ChatID, msg, photoBytes)
-		} else {
-			s.sendTelegramMessage(client, botToken, t.ChatID, msg)
+		if err := ch.Send(msg, imagePath); err != nil {
+			slog.Error("broadcast failed", "component", "openclaw", "channel", ch.Name(), "err", err)
+			lastErr = err
+			continue
 		}
+		sent++
 	}
-
-	flow.Log("telegram_alert_broadcast", map[string]any{
-		"method":  "bot_api",
-		"chats":   len(targets),
-		"message": msg,
-	})
-
+	if sent == 0 && lastErr != nil {
+		return lastErr
+	}
+	if sent == 0 {
+		slog.Warn("broadcast: no channels configured", "component", "openclaw")
+	}
 	return nil
-}
-
-func (s *Service) sendTelegramMessage(client *http.Client, token, chatID, text string) {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q}`, chatID, text)
-	resp, err := client.Post(apiURL, "application/json", strings.NewReader(payload))
-	if err != nil {
-		slog.Error("telegram sendMessage failed", "component", "openclaw", "chatID", chatID, "err", err)
-		return
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		slog.Error("telegram sendMessage error", "component", "openclaw", "chatID", chatID, "status", resp.StatusCode, "body", string(body))
-		return
-	}
-	slog.Info("telegram sendMessage sent", "component", "openclaw", "chatID", chatID)
-}
-
-func (s *Service) sendTelegramPhoto(client *http.Client, token, chatID, caption string, photo []byte) {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
-
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	w.WriteField("chat_id", chatID)
-	w.WriteField("caption", caption)
-	part, _ := w.CreateFormFile("photo", "snapshot.jpg")
-	part.Write(photo)
-	w.Close()
-
-	resp, err := client.Post(apiURL, w.FormDataContentType(), &buf)
-	if err != nil {
-		slog.Error("telegram sendPhoto failed", "component", "openclaw", "chatID", chatID, "err", err)
-		return
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		slog.Error("telegram sendPhoto error", "component", "openclaw", "chatID", chatID, "status", resp.StatusCode, "body", string(body))
-		return
-	}
-	slog.Info("telegram sendPhoto sent", "component", "openclaw", "chatID", chatID)
 }
 
 // readOpenClawTelegramToken reads the Telegram bot token from OpenClaw's config file.
