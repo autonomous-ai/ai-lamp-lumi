@@ -90,6 +90,7 @@ export interface FaceStatus {
 }
 export interface FaceOwnerDetail {
   label: string;
+  role?: string;
   photo_count: number;
   photos: string[];
 }
