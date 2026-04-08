@@ -28,7 +28,7 @@ import requests
 from lelamp.service.sensing.perceptions import (
     FaceRecognizer,
     LightLevelPerception,
-    MotionPerception,
+    PoseMotionPerception,
     SoundPerception,
     WellbeingPerception,
 )
@@ -87,7 +87,7 @@ class SensingService:
                 capture_stable_frame=self._capture_stable_frame,
             )
             self._perceptions += [
-                MotionPerception(
+                PoseMotionPerception(
                     cv2=cv2_module,
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
