@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -304,7 +305,17 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
 		return
 	}
-	if err := h.agentGateway.BroadcastAlert(req.Message, req.Image); err != nil {
+	var imagePath string
+	if req.Image != "" {
+		if data, err := base64.StdEncoding.DecodeString(req.Image); err == nil {
+			tmp := filepath.Join(os.TempDir(), fmt.Sprintf("guard-alert-%d.jpg", time.Now().UnixMilli()))
+			if err := os.WriteFile(tmp, data, 0644); err == nil {
+				imagePath = tmp
+				defer os.Remove(tmp)
+			}
+		}
+	}
+	if err := h.agentGateway.Broadcast(req.Message, imagePath); err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}

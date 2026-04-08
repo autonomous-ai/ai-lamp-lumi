@@ -137,15 +137,17 @@ After trying 6 different approaches (see below), this hybrid proved the most rel
 ### Solution evolution (2026-04-07)
 | # | Approach | Why it failed |
 |---|----------|---------------|
-| 1 | `BroadcastAlert` with `[guard:type]` prefix | `chat.send` goes through agent → 2/3 NO_REPLY |
+| 1 | `BroadcastAlert` via WS `chat.send` RPC | `chat.send` goes through agent → 2/3 NO_REPLY |
 | 2 | Agent-driven via `[guard-active]` tag | Haiku ignored SKILL instruction (buried at line 222) |
 | 3 | Move instruction to top of SKILL.md | Haiku still ignored |
 | 4 | Go-side emotional templates + `BroadcastAlert` | Agents recognize `sender: node-host` → ignore. No image attached |
 | 5 | Agent-driven + SOUL.md enforcement | Better compliance but not 100%. Token mismatch issues |
 | 6 | **Hook agent response + Telegram Bot API** | ✅ Agent crafts message naturally, Go delivers 100% |
 
+> **Note:** `BroadcastAlert` (WS RPC approach) has been removed. All broadcasting now uses `Broadcast()` which sends directly via Telegram Bot API.
+
 ### Manual alerts
-Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image.
+Manual alerts can be sent via `POST /api/guard/alert` with a message and optional image. This now uses `Broadcast()` (direct Bot API) instead of the old WS-based `BroadcastAlert`.
 
 Use case: Lumi acts as a home security assistant. When the owner leaves and enables guard mode, any detected presence or motion is reported to all chat channels with emotional, context-aware messages.
 
