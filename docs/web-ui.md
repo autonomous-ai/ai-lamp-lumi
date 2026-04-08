@@ -228,7 +228,7 @@ Turn Pipeline grouping behavior:
 
 ### 5.4 Camera Section
 
-- **Camera Stream**: MJPEG live stream from `GET /hw/camera/stream`
+- **Camera Stream**: MJPEG live stream from `GET /hw/camera/stream` (downscaled + throttled; default ~10fps, ~320px width)
 - **Display Eyes (GC9A01)**: Round 1.28" screen snapshot from `GET /hw/display/snapshot`, displayed as circle with amber glow. Has Refresh button.
 - **Camera Snapshot**: Static image from `GET /hw/camera/snapshot`, with Capture button to take new shot.
 

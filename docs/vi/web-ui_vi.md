@@ -228,7 +228,7 @@ Hành vi gom nhóm Turn Pipeline:
 
 ### 5.4 Camera Section
 
-- **Camera Stream**: MJPEG live stream từ `GET /hw/camera/stream`
+- **Camera Stream**: MJPEG live stream từ `GET /hw/camera/stream` (downscaled + throttled; mặc định ~10fps, ~320px chiều ngang)
 - **Display Eyes (GC9A01)**: Snapshot màn hình tròn 1.28" từ `GET /hw/display/snapshot`, hiển thị dạng hình tròn với amber glow. Có nút Refresh.
 - **Camera Snapshot**: Ảnh tĩnh từ `GET /hw/camera/snapshot`, có nút Capture để chụp mới.
 
