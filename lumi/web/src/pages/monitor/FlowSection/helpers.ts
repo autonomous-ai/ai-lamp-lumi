@@ -140,6 +140,11 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
   let current: Turn | null = null;
 
   function isTurnStart(ev: DisplayEvent): { type: string; path: Turn["path"]; forceNewTurn?: boolean; boundary?: Turn["boundary"] } | null {
+    if (ev.type === "sensing_drop") {
+      const m = ev.summary.match(/^\[([^\]]+)\]/);
+      const t = m ? m[1] : "unknown";
+      return { type: t, path: "dropped", forceNewTurn: true };
+    }
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
       const t = m ? m[1] : "unknown";
@@ -208,11 +213,12 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
         id: turnId,
         runId: evRunId,
         startTime: ev.time,
+        endTime: start.path === "dropped" ? ev.time : undefined,
         type: start.type,
         path: start.path,
         boundary: start.boundary,
         boundaryInstanceSeq: start.boundary ? ev._seq : undefined,
-        status: "active",
+        status: start.path === "dropped" ? "done" : "active",
         events: [ev],
       };
       continue;
