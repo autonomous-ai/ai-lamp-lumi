@@ -217,7 +217,8 @@ export function FlowSection({
 
   const filteredTurns = useMemo(() => {
     const filtered = turns.filter((t) => {
-      if (excludedTypes.has(t.type)) return false;
+      if (t.path === "dropped" && excludedTypes.has("__dropped")) return false;
+      if (t.path !== "dropped" && excludedTypes.has(t.type)) return false;
       if (fromTime || toTime) {
         const m = t.startTime.match(/T(\d{2}:\d{2})/);
         const tt = m?.[1] ?? "";
@@ -521,6 +522,21 @@ export function FlowSection({
                   </button>
                 );
               })}
+              {/* Dropped filter — only show if there are dropped turns */}
+              {turns.some((t) => t.path === "dropped") && (() => {
+                const on = !excludedTypes.has("__dropped");
+                return (
+                  <button onClick={() => toggleType("__dropped")} style={{
+                    padding: "2px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer",
+                    border: `1px solid ${on ? "var(--lm-red)" : "var(--lm-border)"}`,
+                    background: on ? "rgba(239,68,68,0.15)" : "transparent",
+                    color: on ? "var(--lm-red)" : "var(--lm-text-muted)",
+                    fontWeight: on ? 600 : 400,
+                  }}>
+                    ⏸ Dropped
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Sub-type chips — only for types that actually appear */}
