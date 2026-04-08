@@ -1656,96 +1656,48 @@ func (s *Service) GetTelegramBotToken() string {
 	return s.config.TelegramBotToken
 }
 
-// GetTelegramTargets returns all Telegram chats the bot is connected to.
-// Fetches from the agent runtime's session list.
+// GetTelegramTargets returns all Telegram chats by reading sessions.json directly
+// from the OpenClaw agent's session store (no RPC round-trip required).
 func (s *Service) GetTelegramTargets() ([]domain.TelegramTarget, error) {
-	s.wsMu.Lock()
-	conn := s.wsConn
-	s.wsMu.Unlock()
-	if conn == nil {
-		return nil, fmt.Errorf("agent gateway not connected")
-	}
-
-	listReqID := fmt.Sprintf("tg-list-%d", time.Now().UnixMilli())
-	ch := make(chan json.RawMessage, 1)
-	s.pendingRPCMu.Lock()
-	s.pendingRPC[listReqID] = ch
-	s.pendingRPCMu.Unlock()
-
-	listReq := map[string]interface{}{
-		"type": "req", "id": listReqID, "method": "sessions.list",
-	}
-	body, _ := json.Marshal(listReq)
-
-	s.wsMu.Lock()
-	conn = s.wsConn
-	if conn == nil {
-		s.wsMu.Unlock()
-		return nil, fmt.Errorf("agent gateway disconnected")
-	}
-	_ = conn.WriteMessage(websocket.TextMessage, body)
-	s.wsMu.Unlock()
-
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	var listResp json.RawMessage
-	select {
-	case listResp = <-ch:
-	case <-timer.C:
-		s.pendingRPCMu.Lock()
-		delete(s.pendingRPC, listReqID)
-		s.pendingRPCMu.Unlock()
-		return nil, fmt.Errorf("sessions.list timeout")
+	sessionsPath := filepath.Join(s.config.OpenclawConfigDir, "agents", "main", "sessions", "sessions.json")
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return nil, fmt.Errorf("read sessions.json: %w", err)
 	}
 
 	type deliveryCtx struct {
-		Channel string `json:"channel"`
-		To      string `json:"to,omitempty"`
+		To string `json:"to,omitempty"`
 	}
 	type sessionEntry struct {
 		DeliveryContext *deliveryCtx `json:"deliveryContext,omitempty"`
-		LastChannel     string       `json:"lastChannel,omitempty"`
 		LastTo          string       `json:"lastTo,omitempty"`
 	}
-	var result struct {
-		Sessions []sessionEntry `json:"sessions"`
-	}
-	if err := json.Unmarshal(listResp, &result); err != nil {
-		return nil, fmt.Errorf("parse sessions: %w", err)
-	}
-	sessions := result.Sessions
-	if len(sessions) == 0 {
-		var arr []sessionEntry
-		if json.Unmarshal(listResp, &arr) == nil {
-			sessions = arr
-		}
+	// sessions.json is a map[sessionID]sessionEntry
+	var raw map[string]sessionEntry
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse sessions.json: %w", err)
 	}
 
 	seen := make(map[string]bool)
 	var targets []domain.TelegramTarget
-	for _, sess := range sessions {
-		ch := sess.LastChannel
+	for _, sess := range raw {
 		to := sess.LastTo
-		if dc := sess.DeliveryContext; dc != nil {
-			if dc.Channel != "" {
-				ch = dc.Channel
-			}
-			if dc.To != "" {
-				to = dc.To
-			}
+		if dc := sess.DeliveryContext; dc != nil && dc.To != "" {
+			to = dc.To
 		}
-		if ch != "telegram" || to == "" {
+		if !strings.HasPrefix(to, "telegram:") {
 			continue
 		}
 		chatID := strings.TrimPrefix(to, "telegram:")
-		if chatID != "" && !seen[chatID] {
-			seen[chatID] = true
-			chatType := "private"
-			if strings.HasPrefix(chatID, "-") {
-				chatType = "group"
-			}
-			targets = append(targets, domain.TelegramTarget{ChatID: chatID, Type: chatType})
+		if chatID == "" || seen[chatID] {
+			continue
 		}
+		seen[chatID] = true
+		chatType := "private"
+		if strings.HasPrefix(chatID, "-") {
+			chatType = "group"
+		}
+		targets = append(targets, domain.TelegramTarget{ChatID: chatID, Type: chatType})
 	}
 	return targets, nil
 }
