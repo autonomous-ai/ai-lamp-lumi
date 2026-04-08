@@ -34,3 +34,5 @@ lelamp/.venv/
 lelamp/__pycache__/
 lelamp/**/__pycache__/
 lelamp/*.egg-info/
+
+imager/output/*.img
