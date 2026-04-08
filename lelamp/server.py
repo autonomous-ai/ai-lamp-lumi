@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lelamp.presets import (
     AIM_PRESETS,
@@ -951,6 +951,141 @@ def get_servo_state():
         "available_recordings": animation_service.get_available_recordings(),
         "current": animation_service._current_recording,
     }
+
+
+# --- Servo recording upload (CSV) ---
+# LeLamp servo recordings are CSV files under ./recordings.
+# Each row is a frame; header must include "timestamp" and one or more "<joint>.pos" columns.
+_SERVO_JOINT_FIELD_RE = re.compile(r"^[A-Za-z0-9_]+\.pos$")
+_MAX_SERVO_RECORDING_UPLOAD_BYTES = 2 * 1024 * 1024  # 2MB
+_MAX_SERVO_RECORDING_ROWS = 20000
+
+
+def _sanitize_recording_name(name: str) -> str:
+    name = (name or "").strip()
+    # Prevent path traversal and keep names readable.
+    name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
+    name = name.strip("_- ")
+    if not name:
+        raise ValueError("empty recording name")
+    return name[:64]
+
+
+@app.post("/servo/upload", response_model=StatusResponse, tags=["Servo"])
+async def upload_servo_recording(
+    file: UploadFile = File(...),
+    recording_name: Optional[str] = Form(None),
+):
+    """Upload a servo recording CSV and make it available in GET /servo.
+
+    Expected CSV format:
+    - Header contains "timestamp" plus one or more joint columns ending with ".pos"
+      (e.g. "base_pitch.pos", "elbow_pitch.pos", ...).
+    - All non-timestamp columns must be numeric floats.
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+
+    orig_filename = file.filename or "recording.csv"
+    if orig_filename.lower().endswith(".csv") is False:
+        raise HTTPException(400, "upload must be a .csv file")
+
+    rec_name = recording_name or Path(orig_filename).stem
+    try:
+        rec_name = _sanitize_recording_name(rec_name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(400, "empty csv")
+    if len(content) > _MAX_SERVO_RECORDING_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"csv too large (max {_MAX_SERVO_RECORDING_UPLOAD_BYTES} bytes)"
+        )
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "csv must be utf-8 text")
+
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+
+    if "timestamp" not in fieldnames:
+        raise HTTPException(400, 'missing required column "timestamp"')
+
+    joint_fields = [f for f in fieldnames if f != "timestamp"]
+    if not joint_fields:
+        raise HTTPException(400, "missing joint columns (expected *.pos fields)")
+
+    invalid_joint_fields = [f for f in joint_fields if not _SERVO_JOINT_FIELD_RE.match(f)]
+    if invalid_joint_fields:
+        raise HTTPException(
+            400, f"invalid joint columns: {invalid_joint_fields}. Expected <name>.pos"
+        )
+
+    # If we have robot/joint metadata, reject unknown columns to prevent unsafe dispatch.
+    valid_joints = None
+    try:
+        if (
+            animation_service.robot
+            and animation_service.robot.bus
+            and animation_service.robot.bus.motors
+        ):
+            valid_joints = {f"{m}.pos" for m in animation_service.robot.bus.motors}
+    except Exception:
+        valid_joints = None
+
+    if valid_joints is not None:
+        unknown = [j for j in joint_fields if j not in valid_joints]
+        if unknown:
+            raise HTTPException(
+                400,
+                f"unknown joint columns: {unknown}. Valid: {sorted(valid_joints)}",
+            )
+
+    # Parse frames to validate numeric conversion before saving.
+    actions: list[dict[str, float]] = []
+    for row_idx, row in enumerate(reader):
+        if len(actions) >= _MAX_SERVO_RECORDING_ROWS:
+            raise HTTPException(
+                400, f"too many rows (max {_MAX_SERVO_RECORDING_ROWS})"
+            )
+
+        ts_val = row.get("timestamp")
+        try:
+            _ = float(ts_val)  # validated, but not stored in actions
+        except Exception:
+            raise HTTPException(400, f"invalid timestamp at row {row_idx + 2}")
+
+        action: dict[str, float] = {}
+        for joint in joint_fields:
+            v = row.get(joint)
+            if v is None or v == "":
+                raise HTTPException(400, f"missing value for {joint} at row {row_idx + 2}")
+            try:
+                action[joint] = float(v)
+            except Exception:
+                raise HTTPException(400, f"invalid float for {joint} at row {row_idx + 2}")
+
+        actions.append(action)
+
+    recordings_dir = os.path.join(os.path.dirname(__file__), "recordings")
+    Path(recordings_dir).mkdir(parents=True, exist_ok=True)
+    csv_path = os.path.join(recordings_dir, f"{rec_name}.csv")
+
+    # Save decoded text (preserves original formatting). Ensure trailing newline for consistency.
+    with open(csv_path, "w", newline="") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+
+    # Update cache so the new recording can be played immediately.
+    try:
+        animation_service._recording_cache[rec_name] = actions
+    except Exception:
+        pass
+
+    return {"status": "ok"}
 
 
 @app.post("/servo/play", response_model=StatusResponse, tags=["Servo"])

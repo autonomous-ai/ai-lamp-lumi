@@ -108,6 +108,7 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 | `GET /hw/presence` | state, enabled, seconds_since_motion |
 | `GET /hw/voice/status` | voice_available, voice_listening, tts_available, tts_speaking |
 | `GET /hw/servo` | available_recordings, current, bus_connected, robot_connected |
+| `POST /hw/servo/upload` | Upload a new servo recording CSV (`timestamp` + `<joint>.pos` columns) |
 | `GET /hw/display` | mode, hardware, available_expressions |
 | `GET /hw/audio/volume` | control, volume (0-100) |
 | `GET /hw/led/color` | led_count, color [R,G,B], hex (#rrggbb) |
@@ -151,7 +152,9 @@ Cards included:
 
 **Servo Pose**
 - Currently running pose (current)
-- List of available poses (up to 8)
+- List of available servo recordings/animations (from `GET /hw/servo`)
+- Each can be played via `POST /hw/servo/play` (recording name)
+- UI also provides an `Upload CSV` button to add/replace recordings via `POST /hw/servo/upload` (multipart: `file`, `recording_name`)
 
 **Display Eyes**
 - Currently displayed expression (mode)
