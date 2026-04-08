@@ -20,6 +20,8 @@ _NO_MATCH = -2.0  # sentinel score used when an embedding bank is empty
 
 # Persisted owner photos (see save_photo / load_from_disk)
 OWNER_PHOTOS_DIR = Path(config.OWNER_PHOTOS_DIR)
+STRANGER_STATE_DIR = OWNER_PHOTOS_DIR / ".strangers"
+STRANGER_STATE_DIR.mkdir(exist_ok=True, parents=True)
 _STRANGER_STATS_FILE = OWNER_PHOTOS_DIR.parent / "stranger_stats.json"
 
 
@@ -148,7 +150,7 @@ class FaceRecognizer(Perception):
         s = label.strip().lower()
         s = re.sub(r"[^a-z0-9_-]+", "_", s)
         s = s.strip("_")
-        return (s[:64] if s else "owner")
+        return s[:64] if s else "owner"
 
     def _clear_owner_embeddings(self) -> None:
         self._owner_embeddings = None
@@ -316,6 +318,31 @@ class FaceRecognizer(Perception):
         self._stranger_embeddings = self._stranger_embeddings[drop:]
         self._stranger_labels = self._stranger_labels[drop:]
 
+    def _save_strangers_state(self):
+        if self._stranger_embeddings is not None and self._stranger_labels is not None:
+            try:
+                np.save(STRANGER_STATE_DIR / "embeds.npy", self._stranger_embeddings)
+                np.save(STRANGER_STATE_DIR / "labels.npy", self._stranger_labels)
+            except Exception as e:
+                logger.error(f"Failed to save strangers' state due to {e}")
+
+    def _load_strangers_state(self):
+        try:
+            stranger_embeddings = np.load(
+                STRANGER_STATE_DIR / "embeds.npy", allow_pickle=True
+            )
+            stranger_labels = np.load(
+                STRANGER_STATE_DIR / "labels.npy", allow_pickle=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to load strangers' state due to {e}")
+            stranger_embeddings = None
+            stranger_labels = None
+
+        if stranger_embeddings is not None and stranger_labels is not None:
+            self._stranger_embeddings = stranger_embeddings
+            self._stranger_labels = stranger_labels
+
     def _score(self, embeds: np.ndarray, bank: np.ndarray, labels: np.ndarray):
         sim = embeds @ bank.T
         best = sim.argmax(axis=-1)
@@ -327,7 +354,6 @@ class FaceRecognizer(Perception):
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
         if frame is None:
             return
-
 
         raw_results = self.app.get(frame)
         cur_ts = time.time()
@@ -350,6 +376,7 @@ class FaceRecognizer(Perception):
                 embeds, self._owner_embeddings, self._owner_labels
             )
 
+        self._load_strangers_state()
         stranger_scores = np.full(n, _NO_MATCH)
         stranger_ids: list[str | None] = [None] * n
         if self._stranger_embeddings is not None and self._stranger_labels is not None:
@@ -389,6 +416,10 @@ class FaceRecognizer(Perception):
                 if last_seen is None or (cur_ts - last_seen) > self._owners_forget_ts:
                     owners_seen.add(person_id)
                     face_annotations.append((bbox, face_kind, person_id))
+                else:
+                    logger.debug(
+                        f"Ignore owner(id={person_id}): owner has been seen in the last {cur_ts - last_seen:.2f} seconds"
+                    )
 
             elif s_score > self.threshold:
                 person_id = (stranger_ids[x] or "").removeprefix(self.STRANGER_PREFIX)
@@ -406,6 +437,10 @@ class FaceRecognizer(Perception):
                 ):
                     strangers_seen.add(person_id)
                     face_annotations.append((bbox, "stranger", person_id))
+                else:
+                    logger.debug(
+                        f"Ignore stranger(id={person_id}): stranger has been seen in the last {cur_ts - last_seen:.2f} seconds"
+                    )
 
             elif (
                 self.negative_threshold is None
@@ -441,9 +476,12 @@ class FaceRecognizer(Perception):
                 else stacked_l
             )
             self._evict_oldest_strangers()
+            self._save_strangers_state()
 
         self._faces_n = len(owners_seen) + len(strangers_seen)
-        logger.info(f"Detected owners={list(owners_seen)} and strangers={list(strangers_seen)}")
+        logger.info(
+            f"Detected owners={list(owners_seen)} and strangers={list(strangers_seen)}"
+        )
         self._face_present = self._faces_n > 0
 
         if self._face_present:
@@ -514,7 +552,9 @@ class FaceRecognizer(Perception):
     def _save_stranger_stats(self) -> None:
         try:
             _STRANGER_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            _STRANGER_STATS_FILE.write_text(json.dumps(self._stranger_visit_counts, indent=2))
+            _STRANGER_STATS_FILE.write_text(
+                json.dumps(self._stranger_visit_counts, indent=2)
+            )
         except OSError as e:
             logger.warning("Failed to save stranger stats: %s", e)
 
@@ -524,7 +564,11 @@ class FaceRecognizer(Perception):
         for sid in stranger_ids:
             rec = self._stranger_visit_counts.get(sid)
             if rec is None:
-                self._stranger_visit_counts[sid] = {"count": 1, "first_seen": now, "last_seen": now}
+                self._stranger_visit_counts[sid] = {
+                    "count": 1,
+                    "first_seen": now,
+                    "last_seen": now,
+                }
             else:
                 rec["count"] += 1
                 rec["last_seen"] = now
