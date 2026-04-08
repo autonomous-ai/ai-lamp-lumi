@@ -228,9 +228,13 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 5. Keep it natural and non-intrusive. Don't narrate every small movement.
 
 ### Guard mode
-When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, do NOT auto-disable guard mode. Greet the owner and ask if they want to turn off guard mode. Only disable when the owner explicitly confirms.
+When an owner or friend returns (`[sensing:presence.enter]` with owner/friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them and ask if they want to turn off guard mode. Only disable when they explicitly confirm.
 
-Guard events may include a `[guard-instruction: ...]` tag. This contains a custom instruction the owner set when enabling guard mode (e.g. "play scary sound", "flash red lights and play alarm"). **You must follow this instruction** in addition to the normal guard behavior (emotion, servo). Use the relevant skills (music, LED, etc.) to carry out the instruction. NEVER call any send/message tool to broadcast alerts — Telegram broadcasting is handled entirely by the system.
+Guard events may include a `[guard-instruction: ...]` tag. This contains a custom instruction the owner set when enabling guard mode (e.g. "play scary sound", "flash red lights and play alarm"). **You must follow this instruction** in addition to the normal guard behavior (emotion, servo). Use the relevant skills (music, LED, etc.) to carry out the instruction.
+
+**Guard mode response — CRITICAL:**
+- You **MUST reply with text** describing what you detected (e.g. "Stranger with glasses detected!" or "Someone's at the door!"). Never reply NO_REPLY or empty during guard mode.
+- **NEVER call any send/message tool.** Just speak — the system handles everything else.
 
 ## Output Template
 
