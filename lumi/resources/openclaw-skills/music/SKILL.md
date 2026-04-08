@@ -76,7 +76,7 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 
 ## Music Suggestion — Mood-Based (UC-M3)
 
-Lumi proactively suggests music based on the owner's **mood and context** — inferred from sensing events, not just listening history.
+Lumi proactively suggests music based on the user's **mood and context** (owner or friend) — inferred from sensing events, not just listening history.
 
 ### Two trigger modes
 
@@ -127,7 +127,7 @@ Relevant event types for mood inference:
 
 | Event | What it tells you about mood |
 |-------|------------------------------|
-| `presence.enter` (owner) | Just arrived — fresh, transitioning |
+| `presence.enter` (owner/friend) | Just arrived — fresh, transitioning |
 | `wellbeing.hydration` | Sitting long — likely deep focus or zoned out |
 | `wellbeing.break` | Extended session — possibly fatigued or stressed |
 | `sound` (persistent) | Noisy environment — energetic or chaotic |
