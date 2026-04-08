@@ -115,6 +115,21 @@ func isAgentNoReply(text string) bool {
 	return false
 }
 
+// sanitizeAgentText strips internal sentinels the LLM sometimes appends to real replies.
+// e.g. "Hello! NO_REPLY" → "Hello!", "...done! HEARTBEAT_OK" → "...done!"
+func sanitizeAgentText(text string) string {
+	for _, sentinel := range []string{"NO_REPLY", "HEARTBEAT_OK"} {
+		if idx := strings.LastIndex(strings.ToUpper(text), sentinel); idx >= 0 {
+			cleaned := strings.TrimRight(text[:idx], " \t\n!.,—–-")
+			if cleaned != "" {
+				slog.Warn("stripped trailing sentinel from agent text", "component", "agent", "sentinel", sentinel, "before", text[:min(len(text), 100)], "after", cleaned)
+				text = cleaned
+			}
+		}
+	}
+	return text
+}
+
 // isLumiOutboundChatRunID is true when runID matches Lumi's chat.send idempotency key
 // (lumi-chat-* current; lumi-sensing-* legacy). Used so traceless lifecycle_start is not
 // mis-tagged as Telegram-only when the turn was initiated from Lumi.
@@ -772,6 +787,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}(guardText, snap)
 				}
 
+				text = sanitizeAgentText(text)
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
