@@ -754,6 +754,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				}
 				mood.CompleteRun(flowRunID, turnEmotion, text)
 
+				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
+				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
+
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
 					slog.Info("agent replied NO_REPLY, skipping TTS", "component", "agent", "run_id", flowRunID)
@@ -793,6 +796,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 								}
 							}(text, snap)
 						}
+					}
+					// Broadcast run (e.g. music.mood): send agent response to all channels
+					// so user can confirm via Telegram instead of only voice.
+					if isBroadcastRun && len(text) > 10 {
+						go func(t string) {
+							slog.Info("broadcast run response to channels", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
+							if err := h.agentGateway.Broadcast(t, ""); err != nil {
+								slog.Error("broadcast run failed", "component", "agent", "err", err)
+							}
+						}(text)
 					}
 				}
 			}

@@ -105,6 +105,14 @@ type AgentGateway interface {
 	// snapshot path. Returns ("", false) if not a guard run.
 	ConsumeGuardRun(runID string) (snapshotPath string, ok bool)
 
+	// MarkBroadcastRun marks a runID so the agent's response is broadcast
+	// to all messaging channels alongside TTS. Used for music.mood confirmations
+	// and other events where the user should be able to respond via voice or channel.
+	MarkBroadcastRun(runID string)
+
+	// ConsumeBroadcastRun checks if a runID is marked for broadcast. One-shot.
+	ConsumeBroadcastRun(runID string) bool
+
 	// --- Channel abstraction (backend-agnostic) ---
 
 	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.
