@@ -512,7 +512,7 @@ class VoiceService:
                 elif resp.status_code != 200:
                     logger.warning("Lumi returned %d: %s", resp.status_code, resp.text)
                 else:
-                    logger.info("Sent to Lumi: '%s'", transcript[:80])
+                    logger.info("Sent to Lumi: '%s'", transcript)
                 return
             except requests.ConnectionError as e:
                 if attempt < max_retries:
