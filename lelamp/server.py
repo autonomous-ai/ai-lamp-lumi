@@ -2587,7 +2587,11 @@ def audio_play(req: MusicPlayRequest):
             503, "Music service not available — missing sounddevice or numpy"
         )
     logger.info("POST /audio/play: query='%s'", req.query[:80])
-    started = music_service.play(req.query)
+    import os as _os
+    if req.query.startswith("/") and _os.path.isfile(req.query):
+        started = music_service.play_file(req.query)
+    else:
+        started = music_service.play(req.query)
     if not started:
         raise HTTPException(409, "Music is busy playing")
     # Detect genre → start matching groove servo + apply LED + display

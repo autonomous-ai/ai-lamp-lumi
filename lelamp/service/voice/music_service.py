@@ -105,6 +105,26 @@ class MusicService:
         thread.start()
         return True
 
+    def play_file(self, path: str, title: Optional[str] = None) -> bool:
+        """Play a local audio file directly via ffmpeg. Returns True if started."""
+        if self._playing:
+            self.stop()
+            time.sleep(0.3)
+
+        if not self._lock.acquire(blocking=False):
+            logger.info("Music busy, skipping file: %s", path)
+            return False
+
+        self._stop_event.clear()
+        thread = threading.Thread(
+            target=self._play_file_sync,
+            args=(path, title),
+            daemon=True,
+            name="music-play-file",
+        )
+        thread.start()
+        return True
+
     def stop(self):
         """Stop current playback."""
         self._stop_event.set()
@@ -114,6 +134,65 @@ class MusicService:
                     proc.terminate()
                 except Exception:
                     pass
+
+    def _play_file_sync(self, path: str, title: Optional[str] = None):
+        """Play a local audio file via ffmpeg directly to ALSA."""
+        try:
+            self._playing = True
+            self._current_title = title or path.split("/")[-1]
+
+            # Wait if TTS is speaking
+            if self._tts_service and self._tts_service.speaking:
+                logger.info("Waiting for TTS to finish before playing file")
+                for _ in range(100):  # max 10s
+                    if not self._tts_service.speaking or self._stop_event.is_set():
+                        break
+                    time.sleep(0.1)
+                time.sleep(0.5)
+
+            if self._stop_event.is_set():
+                return
+
+            logger.info("Playing local file: '%s'", path)
+            self._ffmpeg_proc = subprocess.Popen(
+                [
+                    "ffmpeg",
+                    "-i", path,
+                    "-ar", "44100",
+                    "-f", "alsa",
+                    self._alsa_device,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+
+            while not self._stop_event.is_set():
+                ret = self._ffmpeg_proc.poll()
+                if ret is not None:
+                    if ret != 0:
+                        stderr = self._ffmpeg_proc.stderr.read().decode(errors="replace")
+                        logger.error("ffmpeg exited with code %d: %s", ret, stderr[-500:])
+                    break
+                if self._tts_service and self._tts_service.speaking:
+                    logger.debug("Pausing file playback for TTS")
+                    self._ffmpeg_proc.terminate()
+                    break
+                time.sleep(0.2)
+
+            logger.info("File playback ended")
+
+        except Exception as e:
+            logger.error("File play failed: %s (type=%s)", e, type(e).__name__)
+        finally:
+            if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
+                try:
+                    self._ffmpeg_proc.terminate()
+                except Exception:
+                    pass
+            self._ffmpeg_proc = None
+            self._playing = False
+            self._current_title = None
+            self._lock.release()
 
     def _play_sync(self, query: str):
         """Search, resolve audio URL, play via ffmpeg directly to ALSA."""
