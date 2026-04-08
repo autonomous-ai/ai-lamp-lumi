@@ -114,6 +114,8 @@ Use this when the user asks to "take a photo", "send me a photo", or "show me wh
 
 ## Rules
 - **Always follow the Capture Protocol** (aim center → wait 2s → snapshot) — skipping this causes blurry images.
+- **Always use `?save=true`** and read the `path` from the JSON response — never invent filenames.
+- **To send an image to the user, use `mediaUrl` in the message tool** — the platform handles delivery to the correct chat.
 - **Never use the camera proactively without the user's request** — respect privacy.
 - **Don't repeatedly snapshot without reason.**
 - **Don't call the camera API when a sensing event already included an image.**
