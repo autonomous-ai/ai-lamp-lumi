@@ -16,7 +16,8 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     return (m?.[1] ?? iso).trim();
   };
 
-  const pathColor = turn.path === "local" ? "var(--lm-green)"
+  const pathColor = turn.path === "dropped" ? "var(--lm-red)"
+    : turn.path === "local" ? "var(--lm-green)"
     : turn.path === "agent" ? "var(--lm-blue)"
     : "var(--lm-text-muted)";
   const statusColor = turn.status === "done" ? "var(--lm-green)"
@@ -31,7 +32,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : turn.status === "error"
       ? "ERROR"
       : "ACTIVE";
-  const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path;
+  const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path === "dropped" ? "dropped" : turn.path;
 
   return (
     <div style={{
@@ -121,6 +122,13 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         }}>
           <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
           {output}
+        </div>
+      ) : turn.path === "dropped" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-red)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          ⏸ dropped — agent was busy
         </div>
       ) : turn.status === "done" ? (
         <div style={{
