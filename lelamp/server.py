@@ -134,6 +134,9 @@ CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or None
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
 
+# TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
+TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.5"))
+
 # --- Lazy import for sensing ---
 
 SensingService = None
