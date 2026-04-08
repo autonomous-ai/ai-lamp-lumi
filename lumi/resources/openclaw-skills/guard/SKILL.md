@@ -55,6 +55,7 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
 - **Guard mode does NOT affect direct messages.** If the owner sends a message while guard mode is on, respond normally.
+- **Do NOT broadcast alerts yourself.** Telegram alerts are sent automatically by the system when guard mode is active. Do not use the message tool to send guard alerts.
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
