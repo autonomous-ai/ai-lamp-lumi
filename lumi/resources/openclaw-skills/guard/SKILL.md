@@ -12,7 +12,7 @@ Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physicall
 1. Owner requests guard mode (explicit or implied departure).
 2. Call `/emotion` (acknowledge, 0.7) and confirm verbally.
 3. Enable guard mode via the API.
-4. When owner returns (`[sensing:presence.enter]` with owner detected), disable guard mode and report.
+4. When owner returns (`[sensing:presence.enter]` with owner detected), greet the owner and ask if they want to turn off guard mode. Only disable when the owner explicitly confirms.
 
 ## Enable Guard Mode
 
@@ -55,7 +55,7 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Owner return while guarding:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, do NOT auto-disable guard mode. Instead, greet the owner and ask if they want to turn off guard mode. Only disable if the owner confirms.
 - **Guard mode does NOT affect direct messages.** If the owner sends a message while guard mode is on, respond normally.
-- **Do NOT broadcast alerts yourself.** Telegram alerts are sent automatically by the system when guard mode is active. Do not use the message tool to send guard alerts.
+- **NEVER broadcast alerts yourself.** Telegram alerts are sent automatically by the system when guard mode is active. You must NOT call any send/message tool for guard alerts — the system handles it entirely.
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
