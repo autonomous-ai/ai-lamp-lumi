@@ -137,7 +137,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/camera` | Availability + resolution |
-| GET | `/camera/snapshot` | Capture 1 JPEG frame |
+| GET | `/camera/snapshot` | Capture 1 JPEG frame. `?save=true` saves to timestamped file, returns JSON `{"path":"..."}` |
 | GET | `/camera/stream` | MJPEG live stream |
 
 ### Audio

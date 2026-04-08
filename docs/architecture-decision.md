@@ -169,7 +169,7 @@ All hardware endpoints run on LeLamp. OpenClaw skills call `127.0.0.1:5001` dire
 | `/servo/play` | POST | Play animation (20 recordings: curious, nod, happy_wiggle, idle, sad, excited, shy, shock, headshake, scanning, wake_up, music_groove, listening, thinking_deep, laugh, confused, sleepy, greeting, acknowledge, stretching) |
 | `/servo/move` | POST | Send joint positions with smooth interpolation |
 | `/servo/aim` | POST | Aim lamp head (center, desk, wall, left, right, up, down, user) |
-| `/camera/snapshot` | GET | Capture single JPEG frame |
+| `/camera/snapshot` | GET | Capture single JPEG frame. `?save=true` saves to timestamped file, returns JSON path |
 | `/camera/stream` | GET | MJPEG live stream |
 | `/audio/volume` | GET/POST | Get/set speaker volume (0-100%) |
 | `/audio/play-tone` | POST | Play test tone |
