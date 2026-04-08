@@ -144,17 +144,22 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// When agent is busy:
 	// - voice_command (wake word confirmed) always passes through immediately.
-	// - light.level is dropped (frequent, low value when stale).
-	// - All other passive events (motion, presence, voice) are queued and replayed when agent becomes idle.
+	// - presence.enter / presence.leave are queued and replayed when agent becomes idle.
+	// - All other passive events (motion, voice, light.level) are dropped.
 	isPassive := req.Type != "voice_command"
 	if isPassive && h.agentGateway.IsBusy() {
-		if req.Type == "light.level" {
-			slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
-			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
+		if req.Type == "presence.enter" || req.Type == "presence.leave" {
+			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
+			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
 			return
 		}
-		h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
-		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
+		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
+		h.monitorBus.Push(domain.MonitorEvent{
+			Type:    "sensing_drop",
+			Summary: "[" + req.Type + "] " + req.Message,
+			Detail:  map[string]any{"type": req.Type, "reason": "agent_busy"},
+		})
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped"}))
 		return
 	}
 
