@@ -788,8 +788,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
 							go func(t, s string) {
 								slog.Info("guard broadcast via Telegram Bot API", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
-								if err := h.agentGateway.BroadcastTelegram(t, s); err != nil {
-									slog.Error("guard telegram broadcast failed", "component", "agent", "err", err)
+								if err := h.agentGateway.Broadcast(t, s); err != nil {
+									slog.Error("guard broadcast failed", "component", "agent", "err", err)
 								}
 							}(text, snap)
 						}
