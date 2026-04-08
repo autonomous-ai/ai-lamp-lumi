@@ -204,7 +204,7 @@ workspace/skills/
 | Endpoint | Method | Mô tả |
 |---|---|---|
 | `/camera` | GET | Camera availability + resolution |
-| `/camera/snapshot` | GET | Chụp 1 frame JPEG |
+| `/camera/snapshot` | GET | Chụp 1 frame JPEG. `?save=true` lưu file timestamp, trả JSON path |
 | `/camera/stream` | GET | MJPEG live stream (multipart/x-mixed-replace) |
 
 #### Audio
