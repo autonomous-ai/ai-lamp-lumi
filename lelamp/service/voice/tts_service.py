@@ -8,6 +8,8 @@ Runs synthesis in a background thread to avoid blocking FastAPI.
 
 import logging
 import math
+import queue
+import re
 import threading
 import time
 from typing import Optional
@@ -167,109 +169,246 @@ class TTSService:
         x_new = np.linspace(0, 1, n_out)
         return np.interp(x_new, x_old, audio).astype(np.float32)
 
-    def _speak_sync(self, text: str):
-        """Stream TTS response directly to audio output — no full-buffer wait."""
-        np = self._np
-        sd = self._sd
+    def _split_text_into_growing_sentence_chunks(
+        self,
+        text: str,
+        base_chars: int = 120,
+        growth_factor: float = 2.0,
+        max_chunk_chars: int = 520,
+        max_chunks: int = 12,
+    ) -> list[str]:
+        """Split text into sentence-aligned chunks with growing size."""
+        normalized = re.sub(r"\s+", " ", (text or "").strip())
+        if not normalized:
+            return []
 
+        parts = re.findall(r"[^.!?;:]+[.!?;:]*", normalized)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        if not parts:
+            return [normalized]
+
+        chunks: list[str] = []
+        idx = 0
+        chunk_i = 0
+        while idx < len(parts) and len(chunks) < max_chunks:
+            target = int(base_chars * (growth_factor ** chunk_i))
+            target = min(max(target, base_chars), max_chunk_chars)
+            current: list[str] = []
+            while idx < len(parts):
+                s = parts[idx]
+                candidate = " ".join(current + [s]).strip() if current else s
+                if current and len(candidate) > target:
+                    break
+                current.append(s)
+                idx += 1
+                if len(" ".join(current)) >= target:
+                    break
+            if current:
+                chunks.append(" ".join(current).strip())
+                chunk_i += 1
+            else:
+                chunks.append(parts[idx])
+                idx += 1
+
+        if idx < len(parts) and chunks:
+            remainder = " ".join(parts[idx:]).strip()
+            if remainder:
+                chunks[-1] = f"{chunks[-1]} {remainder}".strip()
+        return [c for c in chunks if c]
+
+    def _iter_tts_samples(self, text: str, dst_rate: int, ttfb_tag: Optional[str] = None):
+        """Yield float32 samples chunks from OpenAI-compatible streaming response."""
+        np = self._np
+        remainder = b""
+        first_audio_logged = False
+        t0 = time.perf_counter()
+        with self._client.audio.speech.with_streaming_response.create(
+            model=self._model,
+            voice=self._voice,
+            input=text,
+            response_format="pcm",
+            speed=self._speed,
+        ) as response:
+            for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
+                if self._stop_event.is_set():
+                    return
+                raw = remainder + chunk
+                usable = len(raw) - (len(raw) % 2)
+                remainder = raw[usable:]
+                if usable == 0:
+                    continue
+                samples = (
+                    np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32)
+                    / 32768.0
+                )
+                if dst_rate != TTS_SAMPLE_RATE:
+                    samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                if ttfb_tag and not first_audio_logged:
+                    first_audio_logged = True
+                    logger.info(
+                        "TTS %s first audio frame: %.0fms",
+                        ttfb_tag,
+                        (time.perf_counter() - t0) * 1000.0,
+                    )
+                yield samples.reshape(-1, 1)
+
+            if not self._stop_event.is_set() and len(remainder) >= 2:
+                usable = len(remainder) - (len(remainder) % 2)
+                samples = (
+                    np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32)
+                    / 32768.0
+                )
+                if dst_rate != TTS_SAMPLE_RATE:
+                    samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
+                yield samples.reshape(-1, 1)
+
+    def _stream_chunk_with_retry(self, stream, text: str, dst_rate: int, idx: int, total: int, ttfb_tag: Optional[str] = None) -> int:
+        """Stream one text chunk with retry; return written sample count."""
+        total_samples = 0
         attempt = 0
         while attempt <= self._max_retries:
-            dst_rate = self._device_rate or TTS_SAMPLE_RATE
             try:
                 logger.info(
-                    "TTS synthesizing: text='%s' (attempt=%d, speed=%.2f)", text[:80], attempt + 1, self._speed
+                    "TTS chunk %d/%d: len=%d (attempt=%d, speed=%.2f)",
+                    idx,
+                    total,
+                    len(text),
+                    attempt + 1,
+                    self._speed,
                 )
-
-                with self._client.audio.speech.with_streaming_response.create(
-                    model=self._model,
-                    voice=self._voice,
-                    input=text,
-                    response_format="pcm",
-                    speed=self._speed,
-                ) as response:
-                    # Remainder bytes from previous chunk (PCM frames must be 2-byte aligned)
-                    remainder = b""
-                    total_samples = 0
-
-                    with sd.OutputStream(
-                        samplerate=dst_rate,
-                        channels=TTS_CHANNELS,
-                        dtype="float32",
-                        device=self._output_device,
-                    ) as stream:
-                        for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
-                            if self._stop_event.is_set():
-                                logger.info("TTS playback interrupted by stop()")
-                                break
-                            raw = remainder + chunk
-                            # Ensure 2-byte alignment for int16
-                            usable = len(raw) - (len(raw) % 2)
-                            remainder = raw[usable:]
-
-                            if usable == 0:
-                                continue
-
-                            samples = (
-                                np.frombuffer(raw[:usable], dtype=np.int16).astype(
-                                    np.float32
-                                )
-                                / 32768.0
-                            )
-
-                            if dst_rate != TTS_SAMPLE_RATE:
-                                samples = self._resample(
-                                    samples, TTS_SAMPLE_RATE, dst_rate
-                                )
-
-                            stream.write(samples.reshape(-1, 1))
-                            total_samples += len(samples)
-
-                        # Flush remainder
-                        if len(remainder) >= 2:
-                            usable = len(remainder) - (len(remainder) % 2)
-                            samples = (
-                                np.frombuffer(
-                                    remainder[:usable], dtype=np.int16
-                                ).astype(np.float32)
-                                / 32768.0
-                            )
-                            if dst_rate != TTS_SAMPLE_RATE:
-                                samples = self._resample(
-                                    samples, TTS_SAMPLE_RATE, dst_rate
-                                )
-                            stream.write(samples.reshape(-1, 1))
-                            total_samples += len(samples)
-
-                    logger.info(
-                        "TTS playback complete (%d samples @ %d Hz)",
-                        total_samples,
-                        dst_rate,
-                    )
-                    break  # success
-
+                for frame in self._iter_tts_samples(text, dst_rate, ttfb_tag=ttfb_tag):
+                    if self._stop_event.is_set():
+                        return total_samples
+                    stream.write(frame)
+                    total_samples += len(frame)
+                return total_samples
             except Exception as e:
                 logger.error(
-                    "TTS speak failed: %s (type=%s, attempt=%d/%d)",
+                    "TTS chunk failed: %s (type=%s, chunk=%d/%d, attempt=%d/%d)",
                     e,
                     type(e).__name__,
+                    idx,
+                    total,
                     attempt + 1,
                     self._max_retries + 1,
                 )
                 if attempt < self._max_retries:
-                    logger.info(
-                        "Re-probing output device sample rate (attempt=%d/%d)",
-                        attempt + 1,
-                        self._max_retries,
-                    )
                     self._probe_device_rate()
                 attempt += 1
+        logger.error("TTS give up for chunk %d/%d: text='%s'", idx, total, text[:80])
+        return total_samples
 
-        else:
-            logger.error(
-                "TTS give up after %d attempts: text='%s'",
-                self._max_retries + 1,
-                text[:80],
-            )
+    def _tail_producer(
+        self,
+        tail_chunks: list[str],
+        dst_rate: int,
+        out_q: "queue.Queue[Optional[np.ndarray]]",
+    ) -> None:
+        """Produce tail frames sequentially into one shared queue."""
+        total = len(tail_chunks) + 1
+        try:
+            for i, chunk_text in enumerate(tail_chunks, start=2):
+                if self._stop_event.is_set():
+                    break
+                attempt = 0
+                while attempt <= self._max_retries:
+                    try:
+                        logger.info("Tail producer start c%d/%d len=%d", i, total, len(chunk_text))
+                        for frame in self._iter_tts_samples(chunk_text, dst_rate):
+                            if self._stop_event.is_set():
+                                return
+                            out_q.put(frame)
+                        logger.info("Tail producer done  c%d/%d", i, total)
+                        break
+                    except Exception as e:
+                        logger.error(
+                            "Tail producer failed: %s (type=%s, chunk=%d/%d, attempt=%d/%d)",
+                            e,
+                            type(e).__name__,
+                            i,
+                            total,
+                            attempt + 1,
+                            self._max_retries + 1,
+                        )
+                        if attempt < self._max_retries:
+                            self._probe_device_rate()
+                        attempt += 1
+                    if attempt > self._max_retries:
+                        break
+        finally:
+            try:
+                out_q.put_nowait(None)
+            except Exception:
+                pass
+
+    def _speak_sync(self, text: str):
+        """Head chunk direct playback + parallel tail producer queue."""
+        sd = self._sd
+        dst_rate = self._device_rate or TTS_SAMPLE_RATE
+        chunks = self._split_text_into_growing_sentence_chunks(text)
+        for i, c in enumerate(chunks):
+            preview = c[:140] + ("..." if len(c) > 140 else "")
+            logger.info("[chunk-split] c%d/%d len=%d text='%s'", i, len(chunks) - 1, len(c), preview)
+
+        if not chunks:
+            self._speaking = False
+            self._last_spoken_time = time.time()
+            self._lock.release()
+            return
+
+        head_text = chunks[0]
+        tail_chunks = chunks[1:]
+        total_samples = 0
+
+        try:
+            with sd.OutputStream(
+                samplerate=dst_rate,
+                channels=TTS_CHANNELS,
+                dtype="float32",
+                device=self._output_device,
+            ) as stream:
+                # Short text: one request stream then done.
+                if not tail_chunks:
+                    total_samples += self._stream_chunk_with_retry(
+                        stream, head_text, dst_rate, 1, 1, ttfb_tag="c0"
+                    )
+                else:
+                    # Start one tail producer (c1..cN) in parallel while c0 is playing.
+                    tail_q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue(maxsize=128)
+                    producer = threading.Thread(
+                        target=self._tail_producer,
+                        args=(tail_chunks, dst_rate, tail_q),
+                        daemon=True,
+                        name="tts-tail-producer",
+                    )
+                    producer.start()
+
+                    # Head path: play c0 directly as soon as first bytes arrive.
+                    total_samples += self._stream_chunk_with_retry(
+                        stream, head_text, dst_rate, 1, len(chunks), ttfb_tag="c0"
+                    )
+
+                    # Tail path: consume queue until sentinel or producer done + queue empty.
+                    while not self._stop_event.is_set():
+                        if (not producer.is_alive()) and tail_q.empty():
+                            break
+                        try:
+                            item = tail_q.get(timeout=0.3)
+                        except queue.Empty:
+                            continue
+                        if item is None:
+                            break
+                        stream.write(item)
+                        total_samples += len(item)
+        except Exception as e:
+            logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
+
+        logger.info(
+            "TTS playback complete (%d samples @ %d Hz, chunks=%d)",
+            total_samples,
+            dst_rate,
+            len(chunks),
+        )
 
         self._speaking = False
         self._last_spoken_time = time.time()
