@@ -41,12 +41,14 @@ class TTSService:
         voice: str = DEFAULT_VOICE,
         model: str = DEFAULT_MODEL,
         max_retries: int = 3,
+        speed: float = 1.0,
     ):
         self._sd = sound_device_module
         self._np = numpy_module
         self._output_device = output_device
         self._voice = voice
         self._model = model
+        self._speed = max(0.25, min(4.0, speed))
         self._lock = threading.Lock()
         self._speaking = False
         self._max_retries = max_retries
@@ -175,7 +177,7 @@ class TTSService:
             dst_rate = self._device_rate or TTS_SAMPLE_RATE
             try:
                 logger.info(
-                    "TTS synthesizing: text='%s' (attempt=%d)", text[:80], attempt + 1
+                    "TTS synthesizing: text='%s' (attempt=%d, speed=%.2f)", text[:80], attempt + 1, self._speed
                 )
 
                 with self._client.audio.speech.with_streaming_response.create(
@@ -183,6 +185,7 @@ class TTSService:
                     voice=self._voice,
                     input=text,
                     response_format="pcm",
+                    speed=self._speed,
                 ) as response:
                     # Remainder bytes from previous chunk (PCM frames must be 2-byte aligned)
                     remainder = b""
