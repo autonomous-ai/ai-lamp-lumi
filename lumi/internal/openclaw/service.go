@@ -75,6 +75,11 @@ type Service struct {
 
 	// channels is the list of registered messaging channel senders (Telegram, Discord, Slack, etc.).
 	channels []domain.ChannelSender
+
+	// broadcastRuns tracks runIDs whose agent response should be broadcast
+	// to all messaging channels alongside TTS (e.g. music.mood confirmations).
+	broadcastRunsMu sync.Mutex
+	broadcastRuns   map[string]bool
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -87,10 +92,11 @@ type pendingEvent struct {
 // ProvideService constructs the openclaw service.
 func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 	s := &Service{
-		config:     cfg,
-		monitorBus: bus,
-		pendingRPC: make(map[string]chan json.RawMessage),
-		guardRuns:  make(map[string]string),
+		config:        cfg,
+		monitorBus:    bus,
+		pendingRPC:    make(map[string]chan json.RawMessage),
+		guardRuns:     make(map[string]string),
+		broadcastRuns: make(map[string]bool),
 	}
 	// Register channel senders.
 	s.channels = []domain.ChannelSender{
@@ -1478,6 +1484,25 @@ func (s *Service) ConsumeGuardRun(runID string) (string, bool) {
 	}
 	s.guardRunsMu.Unlock()
 	return snap, ok
+}
+
+// MarkBroadcastRun marks a runID so the agent's response is broadcast to all channels.
+func (s *Service) MarkBroadcastRun(runID string) {
+	s.broadcastRunsMu.Lock()
+	s.broadcastRuns[runID] = true
+	s.broadcastRunsMu.Unlock()
+	slog.Info("broadcast run marked", "component", "openclaw", "runID", runID)
+}
+
+// ConsumeBroadcastRun checks and removes a broadcast-marked runID. One-shot.
+func (s *Service) ConsumeBroadcastRun(runID string) bool {
+	s.broadcastRunsMu.Lock()
+	ok := s.broadcastRuns[runID]
+	if ok {
+		delete(s.broadcastRuns, runID)
+	}
+	s.broadcastRunsMu.Unlock()
+	return ok
 }
 
 // --- Channel abstraction (backend-agnostic) ---
