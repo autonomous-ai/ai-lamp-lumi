@@ -23,7 +23,7 @@ from typing import Optional, Union
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lelamp.presets import (
     AIM_PRESETS,
     EMOTION_PRESETS,
@@ -1763,9 +1763,19 @@ def get_camera_info():
     }
 
 
+_SNAPSHOT_DIR = "/tmp/lumi-snapshots"
+_SNAPSHOT_MAX = 20
+_snapshot_paths: list = []
+
+
 @app.get("/camera/snapshot", tags=["Camera"])
-def camera_snapshot():
-    """Capture a single JPEG frame from the camera (freezes servos for stability)."""
+def camera_snapshot(save: bool = False):
+    """Capture a single JPEG frame from the camera (freezes servos for stability).
+
+    When save=true, writes the frame to a timestamped file and returns
+    JSON ``{"path": "/tmp/lumi-snapshots/snap_<ms>.jpg"}`` instead of raw bytes.
+    Old files are evicted when the count exceeds _SNAPSHOT_MAX.
+    """
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
@@ -1782,7 +1792,27 @@ def camera_snapshot():
     if frame is None:
         raise HTTPException(500, "Failed to capture frame")
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return Response(content=buf.tobytes(), media_type="image/jpeg")
+
+    if not save:
+        return Response(content=buf.tobytes(), media_type="image/jpeg")
+
+    # save=true: write to timestamped file, return path
+    os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+    filename = f"snap_{int(time.time() * 1000)}.jpg"
+    filepath = os.path.join(_SNAPSHOT_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(buf.tobytes())
+    _snapshot_paths.append(filepath)
+
+    # Evict oldest files
+    while len(_snapshot_paths) > _SNAPSHOT_MAX:
+        oldest = _snapshot_paths.pop(0)
+        try:
+            os.remove(oldest)
+        except OSError:
+            pass
+
+    return JSONResponse({"path": filepath})
 
 
 @app.get("/camera/stream", tags=["Camera"])

@@ -24,8 +24,10 @@ The camera is mounted on a servo arm. If the arm is moving when you capture, the
    ```
 3. **Capture** — Only now take the snapshot:
    ```bash
-   curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/snapshot.jpg
+   curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
    ```
+   Returns JSON: `{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}`.
+   Use the `path` value for `mediaUrl` — **never hardcode a filename**.
 
 Skipping steps 1–2 will produce a blurry, unusable image.
 
@@ -46,7 +48,7 @@ You also receive camera snapshots **automatically** as part of sensing events (`
 **Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot` → analyze image. Say: "I can see one person sitting at the desk."
 
 **Input:** "Take a photo" or "Send me a photo"
-**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot --output /tmp/snapshot.jpg` → send image with `mediaUrl: "/tmp/snapshot.jpg"` and describe what you see.
+**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot?save=true` → read `path` from JSON → send image with `mediaUrl: "<path>"` and describe what you see.
 
 **Input:** (sensing event with image already attached)
 **Output:** Do NOT call the camera API. Just look at the attached image and react.
@@ -73,10 +75,15 @@ Response:
 ### Take a snapshot
 
 ```bash
-curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/snapshot.jpg
+curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
 ```
 
-Returns a JPEG image.
+Returns JSON with the saved file path:
+```json
+{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}
+```
+
+Without `?save=true`, returns raw JPEG bytes (used by web UI).
 
 ### Live stream
 
@@ -93,7 +100,7 @@ After saving the snapshot, send it back via the message tool:
 ```json
 {
   "action": "send",
-  "mediaUrl": "/tmp/snapshot.jpg",
+  "mediaUrl": "/tmp/lumi-snapshots/snap_1712567890123.jpg",
   "content": "Here's what I see!"
 }
 ```
