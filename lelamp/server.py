@@ -1960,13 +1960,45 @@ def camera_stream():
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
+    # MJPEG is CPU/bandwidth heavy: encode in this endpoint at a controlled rate
+    # and downscale frames for smoother live viewing.
+    # These defaults can be tuned via env vars.
+    stream_fps = float(os.environ.get("LELAMP_CAMERA_STREAM_FPS", "10"))
+    stream_width = int(os.environ.get("LELAMP_CAMERA_STREAM_WIDTH", "320"))
+    stream_quality = int(os.environ.get("LELAMP_CAMERA_STREAM_JPEG_QUALITY", "65"))
+    min_interval_s = 1.0 / stream_fps if stream_fps > 0 else 0.0
+
     def generate():
+        last_sent_s = 0.0
         while True:
+            # Throttle encoding to avoid pegging CPU and causing buffering on the browser side.
+            if min_interval_s > 0:
+                now_s = time.time()
+                elapsed_s = now_s - last_sent_s
+                if elapsed_s < min_interval_s:
+                    time.sleep(min(0.01, min_interval_s - elapsed_s))
+                    continue
+
             frame = camera_capture.last_frame
             if frame is None:
                 time.sleep(0.05)
                 continue
-            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+            # Downscale for streaming bandwidth while preserving aspect ratio.
+            if stream_width and frame.shape[1] > stream_width:
+                scale = stream_width / float(frame.shape[1])
+                frame = cv2.resize(
+                    frame,
+                    None,
+                    fx=scale,
+                    fy=scale,
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            _, buf = cv2.imencode(
+                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, int(stream_quality)]
+            )
+            last_sent_s = time.time()
             yield (
                 b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
             )

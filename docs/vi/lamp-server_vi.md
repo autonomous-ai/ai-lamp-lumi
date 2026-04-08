@@ -138,7 +138,7 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 |--------|----------|-------|
 | GET | `/camera` | Availability + resolution |
 | GET | `/camera/snapshot` | Chụp 1 frame JPEG. `?save=true` lưu file timestamp, trả JSON `{"path":"..."}` |
-| GET | `/camera/stream` | MJPEG live stream |
+| GET | `/camera/stream` | MJPEG live stream (downscaled + throttled) |
 
 ### Audio
 
