@@ -135,7 +135,7 @@ AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or N
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
 
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
-TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.5"))
+TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
 
 # --- Lazy import for sensing ---
 
@@ -429,6 +429,7 @@ async def lifespan(app: FastAPI):
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
+                speed=TTS_SPEED,
             )
             logger.info(
                 "TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
@@ -2409,6 +2410,7 @@ def start_voice(req: VoiceStartRequest):
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
+                speed=TTS_SPEED,
             )
             logger.info("TTSService started")
             # Wire TTS to MusicService so music pauses during speech
