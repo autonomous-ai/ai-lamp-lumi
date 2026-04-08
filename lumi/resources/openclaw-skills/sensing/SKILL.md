@@ -221,8 +221,6 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 5. Keep it natural and non-intrusive. Don't narrate every small movement.
 
 ### Guard mode
-When guard mode is active, the system automatically broadcasts your response (with camera snapshot) to all Telegram chats via Telegram Bot API. You just react normally — HW markers, voice, TTS. The broadcast is handled by the system, not by you.
-
 When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
 
 ## Output Template

@@ -1,12 +1,12 @@
 ---
 name: guard
-description: Toggle guard mode for security monitoring. Activates when the owner leaves — broadcasts stranger/motion alerts with camera snapshots to all chat sessions (Telegram DMs, groups). Use when the owner says "guard mode", "watch the house", "I'm going out", or similar.
+description: Toggle guard mode for security monitoring. Activates when the owner leaves. Use when the owner says "guard mode", "watch the house", "I'm going out", or similar.
 ---
 
 # Guard Mode
 
 ## Quick Start
-Guard mode turns Lumi into a silent watchdog. When enabled, stranger detections and motion events are broadcast as alert messages to ALL connected chats (Telegram, groups) instead of being spoken via TTS. Lumi stays physically quiet so intruders don't know they're being watched.
+Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physically quiet so intruders don't know they're being watched.
 
 ## Workflow
 1. Owner requests guard mode (explicit or implied departure).
@@ -38,16 +38,6 @@ curl -s http://127.0.0.1:5000/api/guard
 
 Response: `{"status": 1, "data": {"guard_mode": true}}`
 
-## Manually Broadcast an Alert
-
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/guard/alert \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Something suspicious happening"}'
-```
-
-This sends the message to all active chat sessions.
-
 ## Trigger Phrases
 
 | User says | Action |
@@ -62,17 +52,7 @@ This sends the message to all active chat sessions.
 - **Enable:** `/emotion` (acknowledge, 0.7) + enable API + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
-- **Guard mode does NOT affect direct messages.** If the owner sends a Telegram message while guard mode is on, respond normally.
-
-## Automatic Broadcast
-
-When guard mode is enabled, the system automatically:
-- Intercepts `presence.enter` and `motion` sensing events tagged `[guard-active]`
-- Waits for the agent's natural response (emotion + TTS text)
-- Broadcasts the response text + camera snapshot to all Telegram chats via Telegram Bot API
-- Delivery is 100% reliable — handled by Go server, not by the agent
-
-You do NOT need to broadcast manually. Just react normally to sensing events — emotion, servo, speak. The system captures your response and sends it to Telegram for you.
+- **Guard mode does NOT affect direct messages.** If the owner sends a message while guard mode is on, respond normally.
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
