@@ -200,7 +200,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		msg = "[ambient] " + req.Message
 	} else if guardActive {
 		// Guard mode: tag so agent broadcasts via message tool.
-		msg = "[sensing:" + req.Type + "][guard-active] " + req.Message
+		// Include custom instruction if the owner provided one when enabling guard mode.
+		guardTag := "[sensing:" + req.Type + "][guard-active]"
+		if inst := h.config.GuardInstruction; inst != "" {
+			guardTag += "[guard-instruction: " + inst + "]"
+		}
+		msg = guardTag + " " + req.Message
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
@@ -261,22 +266,36 @@ func (h *SensingHandler) PostMonitorEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 }
 
-// EnableGuard activates guard mode.
+// EnableGuardRequest is the optional payload for enabling guard mode.
+type EnableGuardRequest struct {
+	Instruction string `json:"instruction,omitempty"`
+}
+
+// EnableGuard activates guard mode with an optional custom instruction.
 func (h *SensingHandler) EnableGuard(c *gin.Context) {
+	var req EnableGuardRequest
+	// Body is optional — ignore bind errors (empty body is fine).
+	_ = c.ShouldBindJSON(&req)
+
 	t := true
 	h.config.GuardMode = &t
+	h.config.GuardInstruction = req.Instruction
 	if err := h.config.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
 	}
-	slog.Info("guard mode enabled", "component", "sensing")
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]bool{"guard_mode": true}))
+	slog.Info("guard mode enabled", "component", "sensing", "instruction", req.Instruction)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"guard_mode":  true,
+		"instruction": req.Instruction,
+	}))
 }
 
-// DisableGuard deactivates guard mode.
+// DisableGuard deactivates guard mode and clears any custom instruction.
 func (h *SensingHandler) DisableGuard(c *gin.Context) {
 	f := false
 	h.config.GuardMode = &f
+	h.config.GuardInstruction = ""
 	if err := h.config.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return

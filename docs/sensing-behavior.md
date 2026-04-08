@@ -122,17 +122,20 @@ When guard mode is enabled (`guard_mode: true` in config), sensing events are ta
 
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
-2. Go handler tags the event `[guard-active]` and marks the runID as a guard run (with snapshot path).
-3. The agent processes the event normally — emotion, servo, TTS response. No special guard instructions needed.
+2. Go handler tags the event `[guard-active]` and marks the runID as a guard run (with snapshot path). If `guard_instruction` is set in config, it is appended as `[guard-instruction: ...]`.
+3. The agent processes the event — emotion, servo, TTS response, plus any custom guard instruction (e.g. play music, flash LEDs).
 4. When the agent's response arrives (SSE lifecycle end), the Go SSE handler detects the guard run.
 5. The agent's natural response text + camera snapshot are sent directly via **Telegram Bot API** (`sendPhoto`) to all connected Telegram chats.
 6. Delivery is 100% reliable — bypasses OpenClaw agent processing entirely.
+
+### Custom guard instructions
+The owner can provide a custom instruction when enabling guard mode (e.g. "play scary sound when stranger appears"). The instruction is saved in `guard_instruction` in config and injected into every guard sensing event as `[guard-instruction: ...]`. The agent follows this instruction using available skills (music, LED, etc.).
 
 ### Why this approach?
 After trying 6 different approaches (see below), this hybrid proved the most reliable:
 - **Agent crafts the message** → natural, context-aware, with personality
 - **Go side delivers** → direct Telegram Bot API, guaranteed delivery, no agent NO_REPLY risk
-- **Agent doesn't need special instructions** → no SOUL.md/SKILL.md guard rules, agent just reacts normally
+- **Agent follows custom guard instructions** → owner can combine guard mode with any skill (music, LED, etc.)
 
 ### Solution evolution (2026-04-07)
 | # | Approach | Why it failed |

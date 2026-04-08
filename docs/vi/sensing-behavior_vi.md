@@ -122,17 +122,20 @@ Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sen
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
-2. Go handler gắn tag `[guard-active]` và đánh dấu runID là guard run (kèm snapshot path).
-3. Agent xử lý event bình thường — emotion, servo, TTS. Không cần instruction đặc biệt.
+2. Go handler gắn tag `[guard-active]` và đánh dấu runID là guard run (kèm snapshot path). Nếu `guard_instruction` có trong config, nó được thêm vào dưới dạng `[guard-instruction: ...]`.
+3. Agent xử lý event — emotion, servo, TTS, cộng thêm custom instruction nếu có (vd: play nhạc, flash LED).
 4. Khi agent response trả về (SSE lifecycle end), Go SSE handler phát hiện guard run.
 5. Text tự nhiên của agent + ảnh camera được gửi thẳng qua **Telegram Bot API** (`sendPhoto`) đến tất cả Telegram chat.
 6. Delivery 100% đáng tin — bypass hoàn toàn OpenClaw agent.
+
+### Custom guard instruction
+Chủ nhà có thể đưa instruction tùy chỉnh khi bật guard mode (vd: "play tiếng rùn rợn khi có người lạ"). Instruction được lưu trong `guard_instruction` trong config và inject vào mỗi guard sensing event dưới dạng `[guard-instruction: ...]`. Agent sẽ thực hiện instruction này bằng các skill có sẵn (music, LED, v.v.).
 
 ### Tại sao approach này?
 Sau khi thử 6 approaches khác nhau, hybrid này đáng tin nhất:
 - **Agent viết message** → tự nhiên, có ngữ cảnh, có tính cách
 - **Go side delivery** → Telegram Bot API trực tiếp, đảm bảo gửi, không rủi ro NO_REPLY
-- **Agent không cần instruction đặc biệt** → không cần SOUL.md/SKILL.md guard rules
+- **Agent thực hiện custom guard instruction** → chủ nhà có thể kết hợp guard mode với skill bất kỳ (music, LED, v.v.)
 
 ### Quá trình thử nghiệm (2026-04-07)
 | # | Approach | Tại sao fail |
