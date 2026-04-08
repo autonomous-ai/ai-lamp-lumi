@@ -26,7 +26,8 @@
       "Bash(npm run:*)",
       "Bash(go build:*)",
       "Bash(go vet:*)",
-      "WebFetch(domain:docs.openclaw.ai)"
+      "WebFetch(domain:docs.openclaw.ai)",
+      "Bash(bash -n imager/build.sh)"
     ]
   }
 }
