@@ -187,17 +187,32 @@ func (s *Service) drainPendingEvents() {
 
 	slog.Info("draining pending sensing events", "component", "sensing", "count", len(events))
 	for _, ev := range events {
-		msg := "[sensing:" + ev.eventType + "] " + ev.msg
+		// Allocate a dedicated run ID so each replayed event gets its own
+		// sensing_input flow entry — required for the UI to render the turn.
+		reqID, runID := s.NextChatRunID()
+		flow.SetTrace(runID)
+		startPayload := map[string]any{"type": ev.eventType, "message": ev.msg}
+		turnStart := flow.Start("sensing_input", startPayload, runID)
+
+		var msg string
+		if ev.eventType == "voice" {
+			msg = "[ambient] " + ev.msg
+		} else {
+			msg = "[sensing:" + ev.eventType + "] " + ev.msg
+		}
 		var err error
 		if ev.image != "" {
-			_, err = s.SendChatMessageWithImage(msg, ev.image)
+			_, err = s.SendChatMessageWithImageAndRun(msg, ev.image, reqID, runID)
 		} else {
-			_, err = s.SendChatMessage(msg)
+			_, err = s.SendChatMessageWithRun(msg, reqID, runID)
 		}
 		if err != nil {
 			slog.Error("failed to replay pending event", "component", "sensing", "type", ev.eventType, "error", err)
+			flow.End("sensing_input", turnStart, map[string]any{"error": err.Error()}, runID)
 		} else {
-			slog.Info("pending event replayed", "component", "sensing", "type", ev.eventType)
+			flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
+			flow.Log("agent_call", map[string]any{"type": ev.eventType, "run_id": runID}, runID)
+			slog.Info("pending event replayed", "component", "sensing", "type", ev.eventType, "runId", runID)
 		}
 	}
 }
