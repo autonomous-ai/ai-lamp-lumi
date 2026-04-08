@@ -50,6 +50,7 @@ class TTSService:
         self._lock = threading.Lock()
         self._speaking = False
         self._max_retries = max_retries
+        self._stop_event = threading.Event()
 
         # Echo cancellation: store last spoken text for transcript self-filtering
         self._last_spoken_text: str = ""
@@ -120,6 +121,12 @@ class TTSService:
         """Timestamp when last TTS playback finished."""
         return self._last_spoken_time
 
+    def stop(self):
+        """Interrupt active TTS playback. No-op if not speaking."""
+        if self._speaking:
+            logger.info("TTS stop requested — setting stop event")
+            self._stop_event.set()
+
     def speak(self, text: str) -> bool:
         """Synthesize and play text. Returns True if started, False if busy or unavailable."""
         if not self.available:
@@ -129,6 +136,9 @@ class TTSService:
         if not self._lock.acquire(blocking=False):
             logger.info("TTS busy, skipping: %s", text[:50])
             return False
+
+        # Clear any leftover stop signal from a previous stop() call
+        self._stop_event.clear()
 
         # Mark speaking IMMEDIATELY so VoiceService stops streaming to Deepgram
         # before TTS API call (which can take 3-5s)
@@ -185,6 +195,9 @@ class TTSService:
                         device=self._output_device,
                     ) as stream:
                         for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
+                            if self._stop_event.is_set():
+                                logger.info("TTS playback interrupted by stop()")
+                                break
                             raw = remainder + chunk
                             # Ensure 2-byte alignment for int16
                             usable = len(raw) - (len(raw) % 2)

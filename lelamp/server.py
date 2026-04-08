@@ -2471,6 +2471,14 @@ def speak_text(req: SpeakRequest):
     return {"status": "ok"}
 
 
+@app.post("/tts/stop", response_model=StatusResponse, tags=["Voice"])
+def stop_tts():
+    """Interrupt active TTS playback immediately. No-op if not speaking."""
+    if tts_service:
+        tts_service.stop()
+    return {"status": "ok"}
+
+
 @app.get("/voice/status", response_model=VoiceStatusResponse, tags=["Voice"])
 def voice_status():
     """Get voice pipeline status."""
