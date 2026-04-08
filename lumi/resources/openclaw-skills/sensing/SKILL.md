@@ -223,6 +223,8 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 ### Guard mode
 When the owner returns (`[sensing:presence.enter]` with owner detected) while guard mode is on, automatically disable guard mode via the Guard skill and greet the owner warmly.
 
+Guard events may include a `[guard-instruction: ...]` tag. This contains a custom instruction the owner set when enabling guard mode (e.g. "play scary sound", "flash red lights and play alarm"). **You must follow this instruction** in addition to the normal guard behavior (emotion, broadcast). Use the relevant skills (music, LED, etc.) to carry out the instruction.
+
 ## Output Template
 
 ```

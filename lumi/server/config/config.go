@@ -87,6 +87,10 @@ type Config struct {
 	// instead of being spoken via TTS.
 	GuardMode *bool `json:"guard_mode,omitempty" yaml:"guardMode"`
 
+	// GuardInstruction is a custom instruction the owner provides when enabling guard mode.
+	// Injected into sensing events so the agent follows it (e.g. "play scary sound when stranger detected").
+	GuardInstruction string `json:"guard_instruction,omitempty" yaml:"guardInstruction"`
+
 	notify chan bool
 }
 
