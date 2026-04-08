@@ -27,7 +27,7 @@ The camera is mounted on a servo arm. If the arm is moving when you capture, the
    curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
    ```
    Returns JSON: `{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}`.
-   Use the `path` value for `mediaUrl` — **never hardcode a filename**.
+   **Never hardcode a filename** — always read `path` from the response.
 
 Skipping steps 1–2 will produce a blurry, unusable image.
 
@@ -48,7 +48,7 @@ You also receive camera snapshots **automatically** as part of sensing events (`
 **Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot` → analyze image. Say: "I can see one person sitting at the desk."
 
 **Input:** "Take a photo" or "Send me a photo"
-**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot?save=true` → read `path` from JSON → send image with `mediaUrl: "<path>"` and describe what you see.
+**Output:** `POST /servo/aim center` → `sleep 2` → `GET /camera/snapshot?save=true` → read `path` from JSON → describe what you see.
 
 **Input:** (sensing event with image already attached)
 **Output:** Do NOT call the camera API. Just look at the attached image and react.
@@ -93,20 +93,6 @@ curl -s http://127.0.0.1:5001/camera/stream
 
 Returns an MJPEG stream (`multipart/x-mixed-replace`). Only use when continuous video is needed. Prefer snapshot for one-time checks.
 
-### Send image to user
-
-After saving the snapshot, send it back via the message tool:
-
-```json
-{
-  "action": "send",
-  "mediaUrl": "/tmp/lumi-snapshots/snap_1712567890123.jpg",
-  "content": "Here's what I see!"
-}
-```
-
-Use this when the user asks to "take a photo", "send me a photo", or "show me what you see".
-
 ## Error Handling
 - If `GET /camera` returns `{"available": false}`, tell the user: "The camera is not connected right now."
 - If the API is unreachable, inform the user that the camera is temporarily unavailable.
@@ -115,7 +101,7 @@ Use this when the user asks to "take a photo", "send me a photo", or "show me wh
 ## Rules
 - **Always follow the Capture Protocol** (aim center → wait 2s → snapshot) — skipping this causes blurry images.
 - **Always use `?save=true`** and read the `path` from the JSON response — never invent filenames.
-- **To send an image to the user, use `mediaUrl` in the message tool** — the platform handles delivery to the correct chat.
+- **Image delivery is handled automatically by the system** — do not manually send images via tools.
 - **Never use the camera proactively without the user's request** — respect privacy.
 - **Don't repeatedly snapshot without reason.**
 - **Don't call the camera API when a sensing event already included an image.**
