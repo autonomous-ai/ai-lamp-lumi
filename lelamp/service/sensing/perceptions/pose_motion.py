@@ -91,7 +91,9 @@ class PoseEstimator:
         frame = ((frame - self.INPUT_MEAN) / self.INPUT_STD).astype(np.float32)
         return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
 
-    def _prepare_session(self, model_path: Path, n_threads: int = 4) -> ort.InferenceSession:
+    def _prepare_session(
+        self, model_path: Path, n_threads: int = 4
+    ) -> ort.InferenceSession:
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = n_threads
         opts.inter_op_num_threads = 1
@@ -108,44 +110,52 @@ class PoseMotionChecker:
     # Keypoint indices along the arm chain: left/right wrist → elbow → shoulder → shoulder → elbow → wrist
     HAND_CHAINS: list[int] = [9, 7, 5, 6, 8, 10]
 
-    def __init__(self, threshold: float = config.POSE_MOTION_ANGLE_THRESHOLD):
+    def __init__(self, conf_threshold: float = 0.4, threshold: float = 30):
         self._last_angles: npt.NDArray[np.float32] | None = None
+        self._last_mask: npt.NDArray[np.bool_] | None = None
+        self._conf_threshold: float = conf_threshold
         self._threshold: float = threshold
 
     def update(
         self,
         keypoints_list: npt.NDArray[np.float32],
         scores_list: npt.NDArray[np.float32],
-    ) -> MoveEnum:
-        """Return MoveEnum.FOREGROUND if arm joint angles changed beyond threshold."""
-        max_score = -1.0
+    ):
+        max_score = -1
         move_type = MoveEnum.NONE
-
         for keypoints, scores in zip(keypoints_list, scores_list):
             if scores.max() <= max_score:
                 continue
 
             angles = np.zeros(4, dtype=np.float32)
+            mask = np.zeros(4, dtype=np.bool_)
             for i in range(1, len(self.HAND_CHAINS) - 1):
+                last_score = scores[self.HAND_CHAINS[i - 1]]
+                cur_score = scores[self.HAND_CHAINS[i]]
+                next_score = scores[self.HAND_CHAINS[i + 1]]
+                if min(last_score, cur_score, next_score) < self._conf_threshold:
+                    continue
                 last = keypoints[self.HAND_CHAINS[i - 1]]
                 cur = keypoints[self.HAND_CHAINS[i]]
-                nxt = keypoints[self.HAND_CHAINS[i + 1]]
+                next = keypoints[self.HAND_CHAINS[i + 1]]
 
                 v1 = last - cur
-                v2 = nxt - cur
-                norm1, norm2 = np.linalg.norm(v1), np.linalg.norm(v2)
-                if norm1 < 1e-6 or norm2 < 1e-6:
-                    continue
-                cos = np.clip(np.dot(v1 / norm1, v2 / norm2), -1.0, 1.0)
-                angles[i - 1] = np.rad2deg(np.arccos(cos))
+                v2 = next - cur
 
-            if self._last_angles is not None:
-                max_movement = np.abs(self._last_angles - angles).max()
-                if max_movement > self._threshold:
-                    move_type = MoveEnum.FOREGROUND
+                cos = np.dot(v1 / np.linalg.norm(v1), v2 / np.linalg.norm(v2))
+                angles[i - 1] = np.rad2deg(np.arccos(cos))
+                mask[i - 1] = True
+
+            if self._last_angles is not None and self._last_mask is not None:
+                joint_mask = mask * self._last_mask
+                if joint_mask.sum() > 0:
+                    max_movement = np.abs(self._last_angles - angles)[joint_mask].max()
+                    if max_movement > self._threshold:
+                        move_type = MoveEnum.FOREGROUND
 
             self._last_angles = angles
-            max_score = float(scores.max())
+            self._last_mask = mask
+            max_score = scores.max()
 
         return move_type
 

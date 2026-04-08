@@ -108,6 +108,7 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 | `GET /hw/presence` | state, enabled, seconds_since_motion |
 | `GET /hw/voice/status` | voice_available, voice_listening, tts_available, tts_speaking |
 | `GET /hw/servo` | available_recordings, current, bus_connected, robot_connected |
+| `POST /hw/servo/upload` | Upload recording CSV (`timestamp` + cột `<joint>.pos`) để thêm/replace animation |
 | `GET /hw/display` | mode, hardware, available_expressions |
 | `GET /hw/audio/volume` | control, volume (0–100) |
 | `GET /hw/led/color` | led_count, color [R,G,B], hex (#rrggbb) |
@@ -151,7 +152,9 @@ Gồm các card:
 
 **Servo Pose**
 - Pose đang chạy (current)
-- Danh sách poses available (tối đa 8)
+- Danh sách servo recordings/animations (từ `GET /hw/servo`)
+- Mỗi recording có thể phát qua `POST /hw/servo/play` (tên recording)
+- UI có nút `Upload CSV` để thêm/replace recording qua `POST /hw/servo/upload` (multipart: `file`, `recording_name`)
 
 **Display Eyes**
 - Expression đang hiển thị (mode)
@@ -225,7 +228,7 @@ Hành vi gom nhóm Turn Pipeline:
 
 ### 5.4 Camera Section
 
-- **Camera Stream**: MJPEG live stream từ `GET /hw/camera/stream`
+- **Camera Stream**: MJPEG live stream từ `GET /hw/camera/stream` (downscaled + throttled; mặc định ~10fps, ~320px chiều ngang)
 - **Display Eyes (GC9A01)**: Snapshot màn hình tròn 1.28" từ `GET /hw/display/snapshot`, hiển thị dạng hình tròn với amber glow. Có nút Refresh.
 - **Camera Snapshot**: Ảnh tĩnh từ `GET /hw/camera/snapshot`, có nút Capture để chụp mới.
 
