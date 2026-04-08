@@ -9,7 +9,7 @@ Track which features have been manually tested on the Raspberry Pi 4.
 ## Infrastructure — Test trước, mọi thứ đều phụ thuộc vào đây
 
 | # | Component | How to test | Status | Notes |
-|---|---|---|---|---|
+|---|---|---|---|--|
 | INF-01 | LeLamp startup | SSH vào Pi, chạy `sudo systemctl status lelamp` hoặc `python server.py` trực tiếp. Expect: không có exception, log "Application startup complete" | ✅ | |
 | INF-02 | Lumi startup | `sudo systemctl status lumi` hoặc chạy binary trực tiếp. Expect: log "connected to OpenClaw WebSocket" | ✅ | |
 | INF-03 | LED driver | `curl -X POST http://pi:5001/led/solid -d '{"r":255,"g":100,"b":0,"brightness":80}'` → LED sáng màu cam | ✅ | |
@@ -17,7 +17,7 @@ Track which features have been manually tested on the Raspberry Pi 4.
 | INF-05 | Audio playback | `curl -X POST http://pi:5001/voice/speak -d '{"text":"hello","language":"en"}'` → nghe thấy giọng nói qua speaker | ✅ | |
 | INF-06 | Mic capture | `curl -X POST http://pi:5001/voice/start` → nói thử → `curl http://pi:5001/voice/status` xem có transcript không | ✅ | |
 | INF-07 | Camera | `curl http://pi:5001/camera` → `{"available":true}`. Rồi `curl http://pi:5001/camera/snapshot -o test.jpg` → mở file xem ảnh có rõ không | ✅ | |
-| INF-08 | Sensing loop | Đứng trước camera → xem log Lumi có nhận `POST /api/sensing/event` với `type:"presence.enter"` không | ⚠️ | Code có (`facerecognizer.py` → `handler.go`), chưa test thực tế trên Pi |
+| INF-08 | Sensing loop | Đứng trước camera → xem log Lumi có nhận `POST /api/sensing/event` với `type:"presence.enter"` không | ✅ | |
 | INF-09 | OpenClaw WS | Xem log Lumi khi start. Expect: `[openclaw] websocket connected`. Gửi thử 1 message từ Telegram/Web UI → có response không | ✅ | |
 
 ---
