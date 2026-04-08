@@ -17,10 +17,12 @@ Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physicall
 ## Enable Guard Mode
 
 ```bash
-curl -s -X POST http://127.0.0.1:5000/api/guard/enable
+curl -s -X POST http://127.0.0.1:5000/api/guard/enable -H 'Content-Type: application/json' -d '{"instruction":"custom instruction here"}'
 ```
 
-Response: `{"status": 1, "data": {"guard_mode": true}}`
+The `instruction` field is **optional**. Use it when the owner adds extra instructions on what to do during guard mode (e.g. "play scary sound when stranger detected", "flash red lights", "play alarm music"). Extract the relevant part from the owner's message and pass it as the instruction. If the owner just says "guard mode" with no extra requests, omit the field or send an empty body.
+
+Response: `{"status": 1, "data": {"guard_mode": true, "instruction": "..."}}`
 
 ## Disable Guard Mode
 
@@ -49,7 +51,7 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 
 ## Rules
 
-- **Enable:** `/emotion` (acknowledge, 0.7) + enable API + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
+- **Enable:** `/emotion` (acknowledge, 0.7) + enable API (with `instruction` if provided) + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Auto-disable on owner return:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, automatically disable guard mode. Greet the owner warmly and summarize any alerts that occurred.
 - **Guard mode does NOT affect direct messages.** If the owner sends a message while guard mode is on, respond normally.
