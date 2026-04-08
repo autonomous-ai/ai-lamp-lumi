@@ -1009,6 +1009,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 }
 
 // Status returns the current agent connection status.
+// StopTTS interrupts active TTS playback on LeLamp.
+func (h *OpenClawHandler) StopTTS(c *gin.Context) {
+	if err := h.agentGateway.StopTTS(); err != nil {
+		slog.Warn("StopTTS failed", "component", "openclaw", "error", err)
+		c.JSON(http.StatusBadGateway, serializers.ResponseError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+}
+
 // SetBusy marks the agent as busy from an external signal (e.g. turn-gate hook firing at
 // message:preprocessed before lifecycle_start SSE arrives). Closes the timing gap for
 // channel-initiated turns (Telegram, Slack, Discord) that bypass Lumi server entirely.

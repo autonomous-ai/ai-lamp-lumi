@@ -145,7 +145,19 @@ export function OverviewSection({
                 <StatusDot ok={voice.tts_available} />
                 <span style={{ fontSize: 11.5, fontWeight: 600 }}>TTS</span>
                 {voice.tts_speaking && (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                  <>
+                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                    <span role="button" title="Stop TTS" onClick={() => {
+                      fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
+                    }} style={{
+                      fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                      background: "rgba(239,68,68,0.12)", color: "#f87171",
+                      border: "1px solid rgba(239,68,68,0.3)",
+                      cursor: "pointer", fontWeight: 600,
+                    }}>
+                      Stop
+                    </span>
+                  </>
                 )}
               </div>
               <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
