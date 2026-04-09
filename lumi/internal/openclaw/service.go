@@ -17,6 +17,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -186,6 +187,12 @@ func (s *Service) drainPendingEvents() {
 		return
 	}
 
+	// Prioritize voice events so user replies are processed before queued sensing events.
+	sort.SliceStable(events, func(i, j int) bool {
+		iv := events[i].eventType == "voice" || events[i].eventType == "voice_command"
+		jv := events[j].eventType == "voice" || events[j].eventType == "voice_command"
+		return iv && !jv
+	})
 	slog.Info("draining pending sensing events", "component", "sensing", "count", len(events))
 	for _, ev := range events {
 		// Allocate a dedicated run ID so each replayed event gets its own
