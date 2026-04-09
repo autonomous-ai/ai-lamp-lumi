@@ -55,6 +55,11 @@ Activate this skill when the user sends a **photo** together with ANY of these p
 2. Call `POST /face/remove` with the label.
 3. Confirm removal.
 
+### Change a person's role
+1. User says "set Leo as owner" or "change Chloe to friend" or "make all friends".
+2. Call `POST /face/set-role` with the label and new role.
+3. Confirm the role change.
+
 ### Reset all faces
 1. User says "forget all faces" or "reset faces".
 2. Call `POST /face/reset`.
@@ -98,6 +103,16 @@ curl -s -X POST http://127.0.0.1:5001/face/remove \
   -d '{"label": "alice"}'
 ```
 
+### Change role
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/face/set-role \
+  -H "Content-Type: application/json" \
+  -d '{"label": "leo", "role": "owner"}'
+```
+
+Response: `{"status": "ok", "label": "leo", "role": "owner"}`
+
 ### Reset all faces
 
 ```bash
@@ -126,5 +141,6 @@ curl -s -X POST http://127.0.0.1:5001/face/enroll \
 - **Ask for a name if missing** — don't enroll without a label.
 - **Use lowercase labels** — normalize names to lowercase for consistency.
 - **One photo per enroll call** — if user sends multiple photos, enroll each separately.
+- **Never write files directly** — always use the HTTP API endpoints. Do NOT write to `/root/local/users/` or `metadata.json` directly. Use `/face/set-role` to change roles, `/face/enroll` to add photos.
 - **Always include role** — determine owner vs friend from context and pass the correct role.
 - **Don't expose technical details** — say "I'll remember your face" (owner) or "I'll remember [name]!" (friend), not "base64 encoding the JPEG".
