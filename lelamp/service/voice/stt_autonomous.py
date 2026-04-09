@@ -117,6 +117,7 @@ class AutonomousSTTSession(STTSession):
         self._logged_first_send = False
 
     def start(self, on_transcript: Callable[[str, bool], None]) -> bool:
+        self._on_transcript_cb = on_transcript
         try:
             from websockets.sync.client import connect
         except ImportError:
@@ -165,7 +166,7 @@ class AutonomousSTTSession(STTSession):
                         transcript = alts[0].get("transcript", "").strip()
                         if not transcript:
                             continue
-                        on_transcript(transcript, msg.get("is_final", False))
+                        self._on_transcript_cb(transcript, msg.get("is_final", False))
 
                     elif msg_type == "TurnInfo":
                         transcript = msg.get("transcript", "").strip()
@@ -173,7 +174,7 @@ class AutonomousSTTSession(STTSession):
                         if not transcript:
                             logger.debug("Autonomous STT: TurnInfo — empty transcript (event=%r)", ev)
                             continue
-                        on_transcript(transcript, ev == "EndOfTurn")
+                        self._on_transcript_cb(transcript, ev == "EndOfTurn")
             except Exception as e:
                 if not self._closed.is_set():
                     code = getattr(e, "code", None)
