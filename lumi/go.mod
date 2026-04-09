@@ -10,6 +10,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/warthog618/go-gpiocdev v0.9.1
 	golang.org/x/sys v0.40.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
@@ -42,5 +43,4 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )

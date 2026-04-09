@@ -32,6 +32,7 @@ export function OverviewSection({
   servo,
   displayState,
   audio,
+  musicPlaying,
   ledColor,
   sceneInfo,
   onSceneActivate,
@@ -45,6 +46,7 @@ export function OverviewSection({
   servo: ServoState | null;
   displayState: DisplayState | null;
   audio: AudioVolume | null;
+  musicPlaying: boolean;
   ledColor: LEDColor | null;
   sceneInfo: SceneInfo | null;
   onSceneActivate: (scene: string) => void;
@@ -145,23 +147,62 @@ export function OverviewSection({
                 <StatusDot ok={voice.tts_available} />
                 <span style={{ fontSize: 11.5, fontWeight: 600 }}>TTS</span>
                 {voice.tts_speaking && (
-                  <>
-                    <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
-                    <span role="button" title="Stop TTS" onClick={() => {
-                      fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
-                    }} style={{
-                      fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                      background: "rgba(239,68,68,0.12)", color: "#f87171",
-                      border: "1px solid rgba(239,68,68,0.3)",
-                      cursor: "pointer", fontWeight: 600,
-                    }}>
-                      Stop
-                    </span>
-                  </>
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                )}
+                {musicPlaying && !voice.tts_speaking && (
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
+                )}
+                {(voice.tts_speaking || musicPlaying) && (
+                  <span role="button" title="Stop speaker" onClick={() => {
+                    fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
+                  }} style={{
+                    fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                    background: "rgba(239,68,68,0.12)", color: "#f87171",
+                    border: "1px solid rgba(239,68,68,0.3)",
+                    cursor: "pointer", fontWeight: 600,
+                  }}>
+                    Stop
+                  </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Vol: <span style={{ color: "var(--lm-amber)" }}>{audio?.volume ?? "—"}%</span>
+              <div style={{ marginTop: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>Vol</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--lm-amber)", fontFamily: "monospace" }}>
+                    {audio?.volume ?? "—"}%
+                  </span>
+                </div>
+                <div
+                  title="Click to set volume"
+                  onClick={(e) => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                    fetch("/hw/audio/volume", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ volume: Math.max(0, Math.min(100, pct)) }),
+                    }).catch(() => {});
+                  }}
+                  style={{
+                    height: 5, borderRadius: 3,
+                    background: "var(--lm-surface)",
+                    border: "1px solid var(--lm-border)",
+                    cursor: "pointer", overflow: "hidden",
+                    position: "relative",
+                  }}
+                >
+                  <div style={{
+                    height: "100%",
+                    width: `${audio?.volume ?? 0}%`,
+                    background: (audio?.volume ?? 0) > 80
+                      ? "var(--lm-red)"
+                      : (audio?.volume ?? 0) > 50
+                        ? "var(--lm-amber)"
+                        : "var(--lm-green)",
+                    borderRadius: 3,
+                    transition: "width 0.4s ease",
+                  }} />
+                </div>
               </div>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
