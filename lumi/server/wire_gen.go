@@ -14,8 +14,8 @@ import (
 	"go-lamp.autonomous.ai/internal/healthwatch"
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/internal/statusled"
+	"go-lamp.autonomous.ai/lib/devicebutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/server/config"
 	http4 "go-lamp.autonomous.ai/server/device/delivery/gpio"
@@ -49,9 +49,9 @@ func InitializeServer() (*Server, error) {
 	statusledService := statusled.ProvideService()
 	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus, statusledService)
 	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig, statusledService)
-	resetbuttonService := resetbutton.ProvideServiceOptional()
+	deviceButton := devicebutton.ProvideDeviceButtonOptional()
 	ambientService := ambient.ProvideService(bus)
 	healthwatchService := healthwatch.ProvideService(bus, configConfig)
-	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, resetbuttonService, factory, ambientService, healthwatchService, statusledService)
+	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, deviceButton, factory, ambientService, healthwatchService, statusledService)
 	return server, nil
 }

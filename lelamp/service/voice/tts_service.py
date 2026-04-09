@@ -87,7 +87,7 @@ class TTSService:
             self._output_device if self._output_device is not None else "default"
         )
         self._device_rate = None
-        for rate in [48000, 16000, 32000, 44100, 24000, 22050, 8000]:
+        for rate in [44100, 48000, 16000, 32000, 24000, 22050, 8000]:
             try:
                 with self._sd.OutputStream(
                     device=self._output_device,
@@ -360,48 +360,54 @@ class TTSService:
         tail_chunks = chunks[1:]
         total_samples = 0
 
-        try:
-            with sd.OutputStream(
-                samplerate=dst_rate,
-                channels=TTS_CHANNELS,
-                dtype="float32",
-                device=self._output_device,
-            ) as stream:
-                # Short text: one request stream then done.
-                if not tail_chunks:
-                    total_samples += self._stream_chunk_with_retry(
-                        stream, head_text, dst_rate, 1, 1, ttfb_tag="c0"
-                    )
-                else:
-                    # Start one tail producer (c1..cN) in parallel while c0 is playing.
-                    tail_q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue(maxsize=128)
-                    producer = threading.Thread(
-                        target=self._tail_producer,
-                        args=(tail_chunks, dst_rate, tail_q),
-                        daemon=True,
-                        name="tts-tail-producer",
-                    )
-                    producer.start()
+        for _play_attempt in range(2):
+            try:
+                with sd.OutputStream(
+                    samplerate=dst_rate,
+                    channels=TTS_CHANNELS,
+                    dtype="float32",
+                    device=self._output_device,
+                ) as stream:
+                    # Short text: one request stream then done.
+                    if not tail_chunks:
+                        total_samples += self._stream_chunk_with_retry(
+                            stream, head_text, dst_rate, 1, 1, ttfb_tag="c0"
+                        )
+                    else:
+                        # Start one tail producer (c1..cN) in parallel while c0 is playing.
+                        tail_q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue(maxsize=128)
+                        producer = threading.Thread(
+                            target=self._tail_producer,
+                            args=(tail_chunks, dst_rate, tail_q),
+                            daemon=True,
+                            name="tts-tail-producer",
+                        )
+                        producer.start()
 
-                    # Head path: play c0 directly as soon as first bytes arrive.
-                    total_samples += self._stream_chunk_with_retry(
-                        stream, head_text, dst_rate, 1, len(chunks), ttfb_tag="c0"
-                    )
+                        # Head path: play c0 directly as soon as first bytes arrive.
+                        total_samples += self._stream_chunk_with_retry(
+                            stream, head_text, dst_rate, 1, len(chunks), ttfb_tag="c0"
+                        )
 
-                    # Tail path: consume queue until sentinel or producer done + queue empty.
-                    while not self._stop_event.is_set():
-                        if (not producer.is_alive()) and tail_q.empty():
-                            break
-                        try:
-                            item = tail_q.get(timeout=0.3)
-                        except queue.Empty:
-                            continue
-                        if item is None:
-                            break
-                        stream.write(item)
-                        total_samples += len(item)
-        except Exception as e:
-            logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
+                        # Tail path: consume queue until sentinel or producer done + queue empty.
+                        while not self._stop_event.is_set():
+                            if (not producer.is_alive()) and tail_q.empty():
+                                break
+                            try:
+                                item = tail_q.get(timeout=0.3)
+                            except queue.Empty:
+                                continue
+                            if item is None:
+                                break
+                            stream.write(item)
+                            total_samples += len(item)
+                break  # playback succeeded, exit retry loop
+            except Exception as e:
+                logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
+                if _play_attempt == 0:
+                    logger.warning("Re-probing output device rate and retrying...")
+                    self._probe_device_rate()
+                    dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
         logger.info(
             "TTS playback complete (%d samples @ %d Hz, chunks=%d)",

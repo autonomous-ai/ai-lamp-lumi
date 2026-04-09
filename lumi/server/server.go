@@ -28,12 +28,11 @@ import (
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/healthwatch"
 	"go-lamp.autonomous.ai/internal/network"
-	"go-lamp.autonomous.ai/internal/resetbutton"
 	"go-lamp.autonomous.ai/internal/statusled"
+	devicebutton "go-lamp.autonomous.ai/lib/devicebutton"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/lib/safego"
 	"go-lamp.autonomous.ai/server/config"
-	"go-lamp.autonomous.ai/server/serializers"
 	_deviceGPIODeliver "go-lamp.autonomous.ai/server/device/delivery/gpio"
 	_deviceHttpDeliver "go-lamp.autonomous.ai/server/device/delivery/http"
 	_deviceMQTTDeliver "go-lamp.autonomous.ai/server/device/delivery/mqtt"
@@ -41,6 +40,7 @@ import (
 	_networkHttpDeliver "go-lamp.autonomous.ai/server/network/delivery/http"
 	_openclawSseDeliver "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 	_sensingHttpDeliver "go-lamp.autonomous.ai/server/sensing/delivery/http"
+	"go-lamp.autonomous.ai/server/serializers"
 )
 
 type Server struct {
@@ -64,7 +64,7 @@ type Server struct {
 	statusLED      *statusled.Service
 
 	// resetButton watches GPIO 23 for press-and-hold >= 10s to trigger factory reset. Nil when GPIO unavailable.
-	resetButton *resetbutton.Service
+	deviceButton *devicebutton.DeviceButton
 	// mqttFactory is the optional MQTT factory (nil when broker not configured).
 	mqttFactory *mqtt.Factory
 	// mqttClient is the active MQTT client when setup is complete; guarded by mqttMu.
@@ -109,7 +109,7 @@ func ProvideServer(
 	ds *device.Service,
 	agentGW domain.AgentGateway,
 	ns *network.Service,
-	resetBtn *resetbutton.Service,
+	deviceBtn *devicebutton.DeviceButton,
 	mqttFactory *mqtt.Factory,
 	ambientSvc *ambient.Service,
 	hw *healthwatch.Service,
@@ -127,7 +127,7 @@ func ProvideServer(
 		agentGateway:      agentGW,
 		networkService:    ns,
 		deviceService:     ds,
-		resetButton:       resetBtn,
+		deviceButton:      deviceBtn,
 		mqttFactory:       mqttFactory,
 		ambientService:    ambientSvc,
 		healthWatch:       hw,
@@ -203,11 +203,12 @@ func (s *Server) Serve(closeFn func()) error {
 	// Signal booting state so the LED shows a slow blue pulse while initializing.
 	s.statusLED.Set(statusled.StateBooting)
 
-	if s.resetButton != nil {
-		resetCtx, cancelReset := context.WithCancel(context.Background())
-		defer cancelReset()
-		s.resetButton.Start(resetCtx, s.deviceGPIOHandler.HandleResetButtonPress, s.deviceGPIOHandler.HandleResetButtonPowerOff, s.deviceGPIOHandler.HandleResetButtonFactoryReset, s.deviceGPIOHandler.HandleResetButtonPowerOffThreshold, s.deviceGPIOHandler.HandleResetButtonFactoryResetThreshold)
-		defer s.resetButton.Close()
+	// device button
+	if err := s.deviceButton.Init(); err == nil {
+		s.deviceButton.Start(context.Background(), s.deviceGPIOHandler.HandlePress, s.deviceGPIOHandler.HandlePressAndHold)
+		defer s.deviceButton.Close()
+	} else {
+		slog.Info("[device button] can not init")
 	}
 
 	s.handleSetUpCompleteChange(s.config.SetUpCompleted)
@@ -392,6 +393,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				}
 			}
 
+			// Init speaker volume — WM8960 boots at 0%, must be set explicitly.
+			if err := s.agentGateway.SetVolume(95); err != nil {
+				slog.Warn("init volume failed", "component", "server", "error", err)
+			}
+
 			// Greet user now that agent + voice pipeline are ready
 			if _, err := s.agentGateway.SendChatMessage("You just woke up. Greet the user briefly."); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
@@ -554,7 +560,6 @@ func (s *Server) logStream(c *gin.Context) {
 		}
 	})
 }
-
 
 // softwareUpdate triggers an OTA update for a single named component via the bootstrap worker.
 // POST /api/system/software-update/:target  (target: lumi | web | lelamp)
