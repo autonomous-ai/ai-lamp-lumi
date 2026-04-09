@@ -44,6 +44,7 @@ ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
 ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
+NO_TRANSCRIPT_TIMEOUT_S = 20.0   # Close STT if no transcript received within this time (noise zombie fix)
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
@@ -391,7 +392,11 @@ class VoiceService:
         session = self._stt.create_session()
 
         def on_transcript(text: str, is_final: bool):
+            nonlocal first_transcript_time
+            if first_transcript_time is None:
+                first_transcript_time = time.time()
             if not is_final:
+                logger.debug("STT partial: '%s'", text)
                 return
             lower = text.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
@@ -411,6 +416,8 @@ class VoiceService:
             else:
                 logger.info("STT ambient: '%s'", text)
                 self._send_to_lumi(text, event_type="voice")
+
+        first_transcript_time: Optional[float] = None
 
         try:
             if not session.start(on_transcript):
@@ -436,6 +443,11 @@ class VoiceService:
                 # Guard against zombie sessions
                 if (time.time() - session_start) > MAX_SESSION_DURATION_S:
                     logger.warning("STT session exceeded %ds, force-closing", MAX_SESSION_DURATION_S)
+                    break
+
+                # Close session if no transcript received within timeout (noise triggered VAD)
+                if first_transcript_time is None and (time.time() - session_start) > NO_TRANSCRIPT_TIMEOUT_S:
+                    logger.warning("STT session got no transcript in %.0fs, closing (noise zombie)", NO_TRANSCRIPT_TIMEOUT_S)
                     break
 
                 data, overflowed = mic.read(frame_size)

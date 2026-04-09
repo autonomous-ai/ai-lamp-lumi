@@ -1,6 +1,7 @@
 package openclaw
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -1424,17 +1425,36 @@ func stripForTTS(text string) string {
 }
 
 
-// StopTTS interrupts active TTS playback on LeLamp immediately.
+// SetVolume sets speaker volume on LeLamp (0-100).
+func (s *Service) SetVolume(pct int) error {
+	body, _ := json.Marshal(map[string]int{"volume": pct})
+	resp, err := http.Post("http://127.0.0.1:5001/audio/volume", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("POST /audio/volume: %w", err)
+	}
+	defer resp.Body.Close()
+	slog.Info("speaker volume set", "component", "openclaw", "pct", pct)
+	return nil
+}
+
+// StopTTS interrupts active TTS playback and music on LeLamp immediately,
+// freeing the speaker so the voice mic can receive new commands.
 func (s *Service) StopTTS() error {
-	resp, err := http.Post("http://127.0.0.1:5001/tts/stop", "application/json", nil)
+	ttsResp, err := http.Post("http://127.0.0.1:5001/tts/stop", "application/json", nil)
 	if err != nil {
 		return fmt.Errorf("POST /tts/stop: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("POST /tts/stop returned %d", resp.StatusCode)
+	defer ttsResp.Body.Close()
+
+	// Also stop any music playing — speaker is shared, mic is locked while either runs.
+	musicResp, err := http.Post("http://127.0.0.1:5001/audio/stop", "application/json", nil)
+	if err != nil {
+		slog.Warn("POST /audio/stop failed", "component", "openclaw", "error", err)
+	} else {
+		defer musicResp.Body.Close()
 	}
-	slog.Info("TTS stopped", "component", "openclaw")
+
+	slog.Info("speaker stopped (TTS + music)", "component", "openclaw")
 	return nil
 }
 
