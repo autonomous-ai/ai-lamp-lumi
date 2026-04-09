@@ -117,6 +117,7 @@ class AutonomousSTTSession(STTSession):
         self._logged_first_send = False
 
     def start(self, on_transcript: Callable[[str, bool], None]) -> bool:
+        self._on_transcript_cb = on_transcript
         try:
             from websockets.sync.client import connect
         except ImportError:
@@ -165,7 +166,7 @@ class AutonomousSTTSession(STTSession):
                         transcript = alts[0].get("transcript", "").strip()
                         if not transcript:
                             continue
-                        on_transcript(transcript, msg.get("is_final", False))
+                        self._on_transcript_cb(transcript, msg.get("is_final", False))
 
                     elif msg_type == "TurnInfo":
                         transcript = msg.get("transcript", "").strip()
@@ -173,7 +174,7 @@ class AutonomousSTTSession(STTSession):
                         if not transcript:
                             logger.debug("Autonomous STT: TurnInfo — empty transcript (event=%r)", ev)
                             continue
-                        on_transcript(transcript, ev == "EndOfTurn")
+                        self._on_transcript_cb(transcript, ev == "EndOfTurn")
             except Exception as e:
                 if not self._closed.is_set():
                     code = getattr(e, "code", None)
@@ -214,19 +215,28 @@ class AutonomousSTTSession(STTSession):
     def close(self):
         if self._closed.is_set():
             return
-        # Close WebSocket first so the server can flush the final transcript,
-        # then wait for recv_loop to process it before marking as closed.
-        # Setting _closed BEFORE ws.close() causes recv_loop to break on the
-        # `if self._closed.is_set()` guard and miss the final transcript.
+        # Send CloseStream so server flushes final transcript before closing.
+        # ws.close() terminates immediately (close_timeout=5s handshake) and
+        # recv_loop exits before the transcript arrives (~10s for flux batch).
+        # CloseStream lets the server close the WS naturally after flushing.
         if self._ws:
             try:
-                self._ws.close()
+                self._ws.send(json.dumps({"type": "CloseStream"}))
+                logger.info("Autonomous STT: sent CloseStream — waiting for final transcript")
             except Exception:
-                pass
+                try:
+                    self._ws.close()
+                except Exception:
+                    pass
         if self._recv_thread:
             self._recv_thread.join(timeout=15)
             if self._recv_thread.is_alive():
                 logger.warning("Autonomous STT recv thread did not exit in 15s")
+                if self._ws:
+                    try:
+                        self._ws.close()
+                    except Exception:
+                        pass
         self._closed.set()
         logger.info("Autonomous STT connection closed")
 
