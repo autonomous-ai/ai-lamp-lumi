@@ -365,6 +365,7 @@ class VoiceService:
         """Monitor mic with local VAD, connect STT when speech detected.
         Breaks out when TTS starts speaking so _loop can close mic and reopen after."""
         speech_start = None
+        speech_pre_buffer = []  # frames buffered during holdoff period
 
         # Keepalive: pre-connect STT WS so it's ready before speech is detected.
         keepalive_session = None
@@ -392,13 +393,18 @@ class VoiceService:
             if rms >= RMS_THRESHOLD:
                 if speech_start is None:
                     speech_start = time.time()
+                    speech_pre_buffer = [self._resample_to_stt(data, device_rate)]
+                else:
+                    speech_pre_buffer.append(self._resample_to_stt(data, device_rate))
                 # Wait for holdoff before connecting STT (avoid short noises)
-                elif (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
+                if (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
                     logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
                     self._stream_session(mic, frame_size, device_rate,
-                                        preconnected_session=keepalive_session)
+                                        preconnected_session=keepalive_session,
+                                        speech_pre_buffer=speech_pre_buffer)
                     keepalive_session = None
                     speech_start = None
+                    speech_pre_buffer = []
                     logger.info("VAD resumed — mic active, waiting for next speech")
                     # Cooldown after session to let resources clean up
                     time.sleep(SESSION_COOLDOWN_S)
@@ -411,8 +417,9 @@ class VoiceService:
                             logger.info("STT keepalive: pre-connected, waiting for speech...")
             else:
                 speech_start = None
+                speech_pre_buffer = []
 
-    def _stream_session(self, mic, frame_size: int, device_rate: int, preconnected_session=None):
+    def _stream_session(self, mic, frame_size: int, device_rate: int, preconnected_session=None, speech_pre_buffer=None):
         """Stream audio to STT provider until silence or TTS interrupts."""
         session = preconnected_session or self._stt.create_session()
 
@@ -441,8 +448,8 @@ class VoiceService:
 
         try:
             if preconnected_session:
-                # Already connected — just register the real transcript callback.
-                session._on_transcript = on_transcript
+                # Already connected — swap in the real transcript callback.
+                session._on_transcript_cb = on_transcript
                 logger.info("STT keepalive: reusing pre-connected session")
             else:
                 # Connect WS in background while buffering mic audio so speech start isn't lost.
@@ -473,10 +480,12 @@ class VoiceService:
             if not connect_ok[0]:
                 return
 
-            if pre_buffer:
+            # Flush holdoff audio (frames captured before STT connect, both paths)
+            all_pre = (speech_pre_buffer or []) + pre_buffer
+            if all_pre:
                 logger.debug("STT pre-buffer: flushing %d frames (%.0fms)",
-                             len(pre_buffer), len(pre_buffer) * FRAME_DURATION_MS)
-                for frame in pre_buffer:
+                             len(all_pre), len(all_pre) * FRAME_DURATION_MS)
+                for frame in all_pre:
                     session.send_audio(frame)
 
             self._listening = True

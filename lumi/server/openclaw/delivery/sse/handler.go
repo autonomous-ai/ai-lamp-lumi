@@ -56,6 +56,13 @@ type OpenClawHandler struct {
 	lastEmotionMu sync.Mutex
 	lastEmotion   string
 
+	// lumiCronRuns tracks runIDs for cron-triggered turns on the lumi session.
+	// Cron turns have OpenClaw UUIDs (not lumi-chat-* prefix) so lifecycle_end
+	// mis-classifies them as channel (Telegram) turns, skipping TTS. This map
+	// lets lifecycle_end route them correctly.
+	lumiCronRunsMu sync.Mutex
+	lumiCronRuns   map[string]bool
+
 	debugMu sync.Mutex
 }
 
@@ -93,9 +100,10 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		agentGateway: gw,
 		monitorBus:   bus,
 		statusLED:    sled,
-		assistantBuf: make(map[string]*strings.Builder),
+		assistantBuf:       make(map[string]*strings.Builder),
 		ttsSuppressReasons: make(map[string]string),
-		runIDMap:     make(map[string]string),
+		runIDMap:           make(map[string]string),
+		lumiCronRuns:       make(map[string]bool),
 	}
 }
 
@@ -446,6 +454,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						}
 					}
 					if userMsg != "" {
+						// Detect music-proactive cron turns so mood.assessed gets logged
+						// and the suggestion is broadcast to Telegram for remote confirmation.
+						// Use resolveRunID so the key matches flowRunID at lifecycle_end
+						// (in case the UUID was mapped to a device trace at lifecycle_start).
+						if strings.Contains(userMsg, "[music-proactive]") {
+							resolved := h.resolveRunID(capturedRunID)
+							mood.TrackRun(resolved, "music.proactive")
+							h.agentGateway.MarkBroadcastRun(resolved)
+						}
+
 						displayMsg := userMsg
 						if len(displayMsg) > 200 {
 							displayMsg = displayMsg[:200] + "…"
@@ -468,6 +486,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						})
 					}
 				}()
+			}
+
+			// Track lumi-session cron turns so lifecycle_end routes TTS and
+			// broadcast correctly (cron UUIDs look like channel turns otherwise).
+			if isLumiSession {
+				h.lumiCronRunsMu.Lock()
+				h.lumiCronRuns[payload.RunID] = true
+				h.lumiCronRunsMu.Unlock()
 			}
 
 			// Track busy state so passive sensing events can be suppressed during active turns.
@@ -791,6 +817,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}
 				}
 
+				// Consume lumi cron marker early (same reason — prevent leak on NO_REPLY paths).
+				h.lumiCronRunsMu.Lock()
+				isLumiCron := h.lumiCronRuns[payload.RunID] || h.lumiCronRuns[flowRunID]
+				delete(h.lumiCronRuns, payload.RunID)
+				delete(h.lumiCronRuns, flowRunID)
+				h.lumiCronRunsMu.Unlock()
+
 				// Guard mode: broadcast even on NO_REPLY / empty / suppressed paths.
 				// The agent may choose not to speak, but we still want to alert the owner via Telegram.
 				if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
@@ -827,10 +860,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				} else {
 					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
 					// [HW:/broadcast] forces TTS even for channel/cron runs (like guard mode).
-					if isBroadcastRun {
+					// Lumi-session cron turns also need TTS (they have OpenClaw UUIDs
+					// that look like channel runs but fire on the local speaker).
+					if isBroadcastRun || isLumiCron {
 						isChannelRun = false
 					}
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun)
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "lumi_cron", isLumiCron)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
 						go func(t string) {
