@@ -414,8 +414,33 @@ class VoiceService:
                 self._send_to_lumi(text, event_type="voice")
 
         try:
-            if not session.start(on_transcript):
+            # Connect WS in background while buffering mic audio so speech start isn't lost.
+            connect_ok = [False]
+            connect_done = threading.Event()
+
+            def _do_connect():
+                connect_ok[0] = session.start(on_transcript)
+                connect_done.set()
+
+            threading.Thread(target=_do_connect, daemon=True, name="stt-connect").start()
+
+            pre_buffer = []
+            while not connect_done.wait(timeout=0.005):
+                if self._tts_is_speaking():
+                    connect_done.wait(timeout=2)
+                    break
+                data, overflowed = mic.read(frame_size)
+                if not overflowed:
+                    pre_buffer.append(self._resample_to_stt(data, device_rate))
+
+            if not connect_ok[0]:
                 return
+
+            if pre_buffer:
+                logger.debug("STT pre-buffer: flushing %d frames (%.0fms)",
+                             len(pre_buffer), len(pre_buffer) * FRAME_DURATION_MS)
+                for frame in pre_buffer:
+                    session.send_audio(frame)
 
             self._listening = True
             last_speech_time = time.time()
