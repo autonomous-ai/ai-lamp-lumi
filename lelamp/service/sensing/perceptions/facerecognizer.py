@@ -19,11 +19,12 @@ logger.setLevel(logging.DEBUG)
 
 _NO_MATCH = -2.0  # sentinel score used when an embedding bank is empty
 
-# Persisted owner photos (see save_photo / load_from_disk)
-OWNER_PHOTOS_DIR = Path(config.OWNER_PHOTOS_DIR)
-STRANGER_STATE_DIR = OWNER_PHOTOS_DIR / ".strangers"
+# Per-user data directory (face photos, wellbeing notes, mood history)
+USERS_DIR = Path(config.USERS_DIR)
+USERS_DIR.mkdir(parents=True, exist_ok=True)
+STRANGER_STATE_DIR = USERS_DIR / ".strangers"
 STRANGER_STATE_DIR.mkdir(exist_ok=True, parents=True)
-_STRANGER_STATS_FILE = OWNER_PHOTOS_DIR.parent / "stranger_stats.json"
+_STRANGER_STATS_FILE = USERS_DIR / ".stranger_stats.json"
 
 
 class FaceRecognizer(Perception):
@@ -83,13 +84,13 @@ class FaceRecognizer(Perception):
         self._start_watcher()
 
     def _start_watcher(self) -> None:
-        """Poll OWNER_PHOTOS_DIR every 2s and reload embeddings when files change."""
-        OWNER_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+        """Poll USERS_DIR every 2s and reload embeddings when files change."""
+        USERS_DIR.mkdir(parents=True, exist_ok=True)
 
         def _latest_mtime() -> float:
             try:
                 return max(
-                    (e.stat().st_mtime for e in OWNER_PHOTOS_DIR.rglob("*")),
+                    (e.stat().st_mtime for e in USERS_DIR.rglob("*")),
                     default=0.0,
                 )
             except OSError:
@@ -107,7 +108,7 @@ class FaceRecognizer(Perception):
 
         t = threading.Thread(target=_poll, daemon=True, name="owner-photos-watcher")
         t.start()
-        logger.info("Watching owner photos dir: %s", OWNER_PHOTOS_DIR)
+        logger.info("Watching owner photos dir: %s", USERS_DIR)
 
     def train(
         self,
@@ -181,11 +182,11 @@ class FaceRecognizer(Perception):
         meta_path.write_text(json.dumps({"role": role}))
 
     def save_photo(self, image_bytes: bytes, label: str, role: str = "owner") -> str:
-        """Write JPEG bytes under OWNER_PHOTOS_DIR/{label}/ with a timestamp name."""
+        """Write JPEG bytes under USERS_DIR/{label}/ with a timestamp name."""
         norm = self.normalize_label(label)
         if role not in self.KNOWN_ROLES:
             role = "owner"
-        dest_dir = OWNER_PHOTOS_DIR / norm
+        dest_dir = USERS_DIR / norm
         dest_dir.mkdir(parents=True, exist_ok=True)
         # Persist role metadata
         self._write_role(dest_dir, role)
@@ -195,16 +196,16 @@ class FaceRecognizer(Perception):
         return str(path)
 
     def load_from_disk(self) -> int:
-        """Clear owner/friend embeddings and re-train from all JPEG/PNG images under OWNER_PHOTOS_DIR."""
+        """Clear owner/friend embeddings and re-train from all JPEG/PNG images under USERS_DIR."""
         self._clear_owner_embeddings()
-        if not OWNER_PHOTOS_DIR.is_dir():
-            logger.info("No owner photos dir at %s — skipping", OWNER_PHOTOS_DIR)
+        if not USERS_DIR.is_dir():
+            logger.info("No owner photos dir at %s — skipping", USERS_DIR)
             return 0
 
         _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
         loaded_total = 0
 
-        for person_dir in sorted(OWNER_PHOTOS_DIR.iterdir()):
+        for person_dir in sorted(USERS_DIR.iterdir()):
             if not person_dir.is_dir():
                 continue
             role = self._read_role(person_dir)
@@ -261,7 +262,7 @@ class FaceRecognizer(Perception):
     def remove_owner(self, label: str) -> bool:
         """Remove one owner's directory and re-load remaining owners from disk."""
         norm = self.normalize_label(label)
-        owner_dir = OWNER_PHOTOS_DIR / norm
+        owner_dir = USERS_DIR / norm
         if not owner_dir.is_dir():
             return False
         shutil.rmtree(owner_dir)
@@ -294,10 +295,10 @@ class FaceRecognizer(Perception):
 
     def enrolled_persons(self) -> list[dict]:
         """Return list of enrolled persons with name and role."""
-        if not OWNER_PHOTOS_DIR.is_dir():
+        if not USERS_DIR.is_dir():
             return []
         persons = []
-        for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
+        for d in sorted(USERS_DIR.iterdir()):
             if not d.is_dir():
                 continue
             role = self._read_role(d)
@@ -307,8 +308,8 @@ class FaceRecognizer(Perception):
     def reset_owners(self) -> None:
         """Clear owner embeddings and delete all saved owner photos. Stranger bank is unchanged."""
         self._clear_owner_embeddings()
-        if OWNER_PHOTOS_DIR.is_dir():
-            for child in OWNER_PHOTOS_DIR.iterdir():
+        if USERS_DIR.is_dir():
+            for child in USERS_DIR.iterdir():
                 if child.is_dir():
                     shutil.rmtree(child)
         logger.info("Owner embeddings cleared and owner photos removed")
