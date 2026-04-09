@@ -17,17 +17,26 @@ import (
 //go:embed resources/SOUL.md
 var soulFS embed.FS
 
+//go:embed resources/KNOWLEDGE.md
+var knowledgeFS embed.FS
+
 const (
 	skillsBaseURL = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/skills"
 	hooksBaseURL  = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/hooks"
 
-	agentsMDMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
-	agentsMDBlock           = `<!-- LUMI DO NOT REMOVE -->
+	lumiMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
+
+	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
 
 **Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`curl -s http://127.0.0.1:5001/version`" + ` (LeLamp).
 
 **Memory:** After each turn on any channel (voice, Telegram, or others) that contains something worth remembering (decisions, bugs, insights, new preferences), write it immediately to ` + "`memory/YYYY-MM-DD.md`" + `. Do not wait for heartbeat — context may be dropped before then.
+
+---`
+
+	heartbeatMDBlock = `<!-- LUMI DO NOT REMOVE -->
+**Knowledge synthesis:** Each heartbeat, read today's ` + "`memory/YYYY-MM-DD.md`" + `, extract important insights, and append them to ` + "`KNOWLEDGE.md`" + `. Only write new learnings — do not repeat what is already there.
 
 ---`
 )
@@ -125,9 +134,19 @@ func (s *Service) EnsureOnboarding() error {
 		slog.Info("seeded hook", "component", "onboarding", "hook", name)
 	}
 
+	// Seed KNOWLEDGE.md template only if the file does not already exist (living doc)
+	seedFileIfAbsent(knowledgeFS, "resources/KNOWLEDGE.md", filepath.Join(workspace, "KNOWLEDGE.md"))
+
 	// Ensure AGENTS.md has mandatory block
 	if modified, err := s.ensureAgentsMDBlock(); err != nil {
 		slog.Error("ensure AGENTS.md block failed", "component", "onboarding", "error", err)
+	} else if modified {
+		needRestart = true
+	}
+
+	// Ensure HEARTBEAT.md has knowledge-synthesis block
+	if modified, err := s.ensureHeartbeatMDBlock(); err != nil {
+		slog.Error("ensure HEARTBEAT.md block failed", "component", "onboarding", "error", err)
 	} else if modified {
 		needRestart = true
 	}
@@ -229,7 +248,7 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 	}
 
 	// Remove old block (with or without marker) before injecting current version
-	if strings.Contains(text, agentsMDMandatoryMarker) {
+	if strings.Contains(text, lumiMandatoryMarker) {
 		text = stripMarkedBlock(text)
 	} else {
 		text = stripLegacyMandatoryBlock(text)
@@ -263,6 +282,39 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 	return true, nil
 }
 
+// ensureHeartbeatMDBlock injects the knowledge-synthesis block into HEARTBEAT.md.
+// Returns true if the file was modified.
+func (s *Service) ensureHeartbeatMDBlock() (bool, error) {
+	heartbeatFile := filepath.Join(s.config.OpenclawConfigDir, "workspace", "HEARTBEAT.md")
+
+	content, err := os.ReadFile(heartbeatFile)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read HEARTBEAT.md: %w", err)
+	}
+
+	text := string(content)
+
+	// Already has the exact current block → skip
+	if strings.Contains(text, heartbeatMDBlock) {
+		slog.Debug("HEARTBEAT.md already has current mandatory block, skipping", "component", "onboarding")
+		return false, nil
+	}
+
+	// Remove old block if marker exists, then inject current version
+	if strings.Contains(text, lumiMandatoryMarker) {
+		text = stripMarkedBlock(text)
+	}
+
+	// Prepend block at the top of the file
+	output := heartbeatMDBlock + "\n\n" + text
+	if err := os.WriteFile(heartbeatFile, []byte(output), 0644); err != nil {
+		return false, fmt.Errorf("write HEARTBEAT.md: %w", err)
+	}
+
+	slog.Info("injected mandatory block into HEARTBEAT.md", "component", "onboarding", "path", heartbeatFile)
+	return true, nil
+}
+
 // stripMarkedBlock removes the block between <!-- LUMI DO NOT REMOVE --> and the next --- separator.
 func stripMarkedBlock(text string) string {
 	lines := strings.Split(text, "\n")
@@ -270,7 +322,7 @@ func stripMarkedBlock(text string) string {
 	skip := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == agentsMDMandatoryMarker {
+		if trimmed == lumiMandatoryMarker {
 			skip = true
 			continue
 		}
@@ -376,6 +428,24 @@ func downloadFile(url, dst string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// seedFileIfAbsent writes the embedded file to dst only if dst does not already exist.
+// Used for living documents (e.g. KNOWLEDGE.md) that accumulate data over time.
+func seedFileIfAbsent(efs embed.FS, src, dst string) {
+	if _, err := os.Stat(dst); err == nil {
+		return // already exists, never overwrite
+	}
+	data, err := efs.ReadFile(src)
+	if err != nil {
+		slog.Error("read embedded file failed", "component", "onboarding", "src", src, "error", err)
+		return
+	}
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		slog.Error("write file failed", "component", "onboarding", "dst", dst, "error", err)
+		return
+	}
+	slog.Info("seeded file (initial)", "component", "onboarding", "file", filepath.Base(dst))
 }
 
 // seedFile writes the embedded file to dst. Returns true if the file content changed.
