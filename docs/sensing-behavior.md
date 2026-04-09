@@ -169,55 +169,46 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 
 ---
 
-## Wellbeing (Hydration + Break + Music Reminders)
+## Wellbeing (AI-Driven Hydration + Break Reminders)
 
-Lumi proactively cares for the user's health and mood by sending periodic camera snapshots to the LLM while someone is present. Three independent timers run:
-
-### Hydration (`wellbeing.hydration`)
-
-- **Triggers** after 30 minutes of continuous presence, repeats every 30 minutes.
-- Sends a camera snapshot with context: "User has been sitting for X minutes without a water break."
-- The LLM looks at the image and decides: remind to drink water, or reply NO_REPLY if unnecessary.
-- **If no user is visible in the frame** → NO_REPLY (they may have stepped away).
-
-### Break (`wellbeing.break`)
-
-- **Triggers** after 45 minutes of continuous presence, repeats every 45 minutes.
-- Sends a camera snapshot with context: "User has been sitting continuously for X minutes."
-- The LLM looks at the image and decides: remind to stand up and stretch, or reply NO_REPLY if the user seems fine.
-- **If no user is visible in the frame** → NO_REPLY.
-
-### Music (`music.mood`)
-
-- **Triggers** after 60 minutes of continuous presence, repeats every 60 minutes.
-- Sends a camera snapshot with context: "User has been here for X minutes — assess mood for music suggestion."
-- The LLM visually assesses mood (relaxed, tired, focused, happy, stressed) and cross-references with recent sensing events (time of day, wellbeing patterns).
-- If it's a good moment → suggest 1–2 songs matching the mood via voice. **Never auto-play** — wait for user confirmation.
-- **Dual-channel confirmation:** The music suggestion is sent via TTS (speaker) AND broadcast to all Telegram chats via `Broadcast()`. The user can confirm by replying with voice or via Telegram.
-- If user is busy, in a meeting, or deeply focused → NO_REPLY.
-- See the Music skill for mood→music mapping and full suggestion rules.
+Lumi proactively cares for the user's health using AI-driven cron jobs managed by the OpenClaw agent. Instead of hardcoded timers, the agent decides reminder intervals based on scientific recommendations and the user's historical patterns (mood history).
 
 ### How it works
 
-The `WellbeingPerception` class (`lelamp/service/sensing/perceptions/wellbeing.py`) tracks presence state from `PresenceService`. When the user arrives (`presence.enter`), three independent timers start. Each timer captures a stable frame (servo frozen briefly) and sends an event to the Go handler, which forwards it to the agent like any other sensing event. When the user leaves (`presence.leave` or state transitions to IDLE/AWAY), all timers reset.
+The agent maintains a personal notebook **per owner** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`) where it writes observations about each owner's habits over time (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00", "prefers gentle phrasing"). This notebook is the agent's own — it creates, updates, and learns from it.
 
-### Constants (`config.py`)
+When the owner arrives (`presence.enter`), the agent:
 
-```python
-WELLBEING_HYDRATION_S = 30 * 60   # 30 min between hydration reminders
-WELLBEING_BREAK_S     = 45 * 60   # 45 min between break reminders
-WELLBEING_MUSIC_S     = 60 * 60   # 60 min between music mood checks
-```
+1. **Reads its notebook** to recall what it has learned about this owner's patterns.
+2. **Decides intervals and approach** based on its observations, time of day, and how the owner looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
+3. **Schedules two cron jobs** via `cron.add` (kind: `every`):
+   - `"Wellbeing: hydration check"` — takes a camera snapshot, checks presence, reminds if appropriate
+   - `"Wellbeing: break check"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
+
+When the owner leaves (`presence.leave`), the agent cancels both cron jobs and updates its notebook with observations from the session (which reminders landed, which were ignored, timing insights).
+
+### Cron-fired behavior
+
+Each cron fires an agent turn. The agent:
+1. Takes a camera snapshot (`GET http://127.0.0.1:5001/camera/snapshot`)
+2. Checks presence (`GET http://127.0.0.1:5001/presence`)
+3. If user is present and the reminder is warranted → one short sentence, varied phrasing
+4. If user is absent, already has a drink, or looks fine → no response
+5. Always emits `[HW:/emotion:{...}]` marker
+
+### Music (`music.mood`)
+
+Music mood suggestion remains as a LeLamp hardware timer (separate from AI-driven wellbeing). See the Music skill for details.
 
 ### Agent behavior
 
-| Event | Emotion | Voice |
+| Reminder | Emotion | Voice |
 |---|---|---|
-| `wellbeing.hydration` | `curious` (0.5) | YES (remind water) or NO_REPLY |
-| `wellbeing.break` | `curious` (0.6) | YES (remind stretch/walk) or NO_REPLY |
+| Hydration cron | `caring` (0.5) | YES (remind water) or silent |
+| Break cron | `caring` (0.6) | YES (remind stretch/walk) or silent |
 | `music.mood` | `caring` (0.6) | YES (suggest music) or NO_REPLY |
 
-The LLM uses the attached image to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
+The agent uses the camera snapshot to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
 
 ---
 
@@ -233,14 +224,14 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 
 Both share the same `MOTION_EVENT_COOLDOWN_S` (3 min) cooldown.
 
-### Wellbeing timer reset (LLM-driven)
+### Wellbeing cron reset (LLM-driven)
 
-When the agent responds to `motion.activity`, it visually assesses what the user is doing and resets the appropriate wellbeing timer via `[HW:...]` markers:
+When the agent responds to `motion.activity`, it visually assesses what the user is doing and resets the appropriate wellbeing cron job:
 
-- User stretching/standing → `[HW:/sensing/wellbeing/reset:{"type":"break"}]` — resets the 45-min break timer
-- User drinking water → `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]` — resets the 30-min hydration timer
+- User stretching/standing → `cron.remove` the break check job, then `cron.add` it again with the same interval (resets the timer to zero)
+- User drinking water → `cron.remove` the hydration check job, then `cron.add` it again with the same interval
 
-The existing `fireHWCalls()` mechanism POSTs to LeLamp's `/sensing/wellbeing/reset` endpoint, which calls `WellbeingPerception.reset_break()` or `reset_hydration()`. This way the LLM decides *which* timer to reset based on what it actually sees — stretching ≠ drinking water.
+The agent uses consistent job names (`"Wellbeing: hydration check"`, `"Wellbeing: break check"`) to find and reset them. This way the LLM decides *which* cron to reset based on what it actually sees — stretching ≠ drinking water.
 
 ### Agent behavior
 
@@ -252,7 +243,7 @@ The existing `fireHWCalls()` mechanism POSTs to LeLamp's `/sensing/wellbeing/res
 
 ## Snapshot Storage (two-tier)
 
-Sensing events that include a camera frame (motion, presence.enter, presence.leave, wellbeing, motion.activity) save snapshots in two locations:
+Sensing events that include a camera frame (motion, presence.enter, presence.leave, music.mood, motion.activity) save snapshots in two locations:
 
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
