@@ -196,10 +196,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		snap := extractSnapshotPath(req.Message)
 		h.agentGateway.MarkGuardRun(runID, snap)
 	}
-	// Mark music.mood runs for broadcast so the user can confirm via Telegram or voice.
-	if req.Type == "music.mood" {
-		h.agentGateway.MarkBroadcastRun(runID)
-	}
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
