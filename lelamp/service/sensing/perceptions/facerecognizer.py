@@ -108,7 +108,7 @@ class FaceRecognizer(Perception):
 
         t = threading.Thread(target=_poll, daemon=True, name="owner-photos-watcher")
         t.start()
-        logger.info("Watching owner photos dir: %s", USERS_DIR)
+        logger.info("Watching users dir: %s", USERS_DIR)
 
     def train(
         self,
@@ -199,7 +199,7 @@ class FaceRecognizer(Perception):
         """Clear owner/friend embeddings and re-train from all JPEG/PNG images under USERS_DIR."""
         self._clear_owner_embeddings()
         if not USERS_DIR.is_dir():
-            logger.info("No owner photos dir at %s — skipping", USERS_DIR)
+            logger.info("No users dir at %s — skipping", USERS_DIR)
             return 0
 
         _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
