@@ -173,7 +173,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 
 ### Face (owner enrollment)
 
-Requires sensing with camera (InsightFace). Owner JPEGs persist under `LELAMP_DATA_DIR/owner_photos/{label}/` by default, or under `LELAMP_OWNER_PHOTOS_DIR` if set (use this to keep a legacy tree such as `/opt/lumi/owners`).
+Requires sensing with camera (InsightFace). Owner JPEGs persist under `/root/local/users/{label}/` by default, or under `LELAMP_USERS_DIR` if set.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
