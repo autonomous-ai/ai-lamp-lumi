@@ -186,9 +186,10 @@ Khi người quen đến (`presence.enter`), agent:
 
 1. **Đọc notebook** để nhớ lại những gì đã học.
 2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
-3. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`):
-   - `"Wellbeing: hydration check"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
-   - `"Wellbeing: break check"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
+3. **Dọn cron cũ** — xóa wellbeing crons còn sót từ session trước (phục hồi sau crash).
+4. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
+   - `"Wellbeing: {name} hydration"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
+   - `"Wellbeing: {name} break"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
 
 Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs, ghi daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
 
@@ -200,6 +201,7 @@ Mỗi lần cron fire, agent:
 3. Nếu user đang ngồi và cần nhắc → một câu ngắn, đổi cách nói mỗi lần
 4. Nếu user vắng mặt, đang uống nước, hoặc trông ổn → không nói
 5. Luôn emit `[HW:/emotion:{...}]` marker
+6. Nếu nói, thêm `[HW:/broadcast:{}]` — force TTS + gửi text lên Telegram để user thấy trên điện thoại
 
 ### Hành vi của agent
 
@@ -235,6 +237,28 @@ Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay v
 
 Xem skill Music (`resources/openclaw-skills/music/SKILL.md`) để biết chi tiết implementation.
 
+### Chăm sóc chủ động (piggyback trên sensing events)
+
+Ngoài nhắc nhở theo lịch, agent được khuyến khích **chú ý** khi nhận bất kỳ event nào có user visible (presence.enter, motion.activity). Dựa vào giờ, thời gian ngồi, và hình ảnh → agent có thể chủ động nhắc ăn, nghỉ, hoặc hỏi thăm. Một câu ngắn, chỉ khi tự nhiên. Không bắt buộc nhưng khuyến khích.
+
+Ví dụ: "Ăn sáng chưa?" khi presence.enter sáng sớm, "Trưa rồi, ăn gì chưa?" khi motion.activity lúc 12:20, "Khuya rồi đó..." khi motion.activity khuya.
+
+### Broadcast marker (`[HW:/broadcast:{}]`)
+
+HW marker đặc biệt — force text agent nói cũng được gửi lên tất cả Telegram channels. Dùng cho wellbeing crons, music suggestions, và bất kỳ cron turn nào cần user thấy trên điện thoại. Cũng force TTS cho non-voice turns. Hoạt động giống guard mode alerts.
+
+### Mood history per-user
+
+Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó. API mood history hỗ trợ `?user=` parameter (mặc định: user hiện tại):
+
+```bash
+GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
+```
+
+### Nhận diện cross-channel
+
+Agent liên kết tên face recognition với Telegram username bằng cách quan sát timing và context (ví dụ: "gray" đang ngồi và "@GrayDev" nhắn Telegram cùng lúc). Mapping được lưu vào USER.md (cho owner) hoặc notes trong folder user. Agent hỏi xác nhận nếu chưa chắc.
+
 ---
 
 ## Phân tích Motion Activity (khi đang có mặt)
@@ -256,7 +280,7 @@ Khi agent trả lời `motion.activity`, nó nhìn ảnh và đánh giá user đ
 - User vươn vai/đứng dậy → `cron.remove` job break check, rồi `cron.add` lại cùng interval (reset timer về 0)
 - User uống nước → `cron.remove` job hydration check, rồi `cron.add` lại cùng interval
 
-Agent dùng tên job cố định (`"Wellbeing: hydration check"`, `"Wellbeing: break check"`) để tìm và reset. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
+Agent dùng tên job per-user (`"Wellbeing: {name} hydration"`, `"Wellbeing: {name} break"`) để tìm và reset. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
 
 ### Hành vi Agent
 
