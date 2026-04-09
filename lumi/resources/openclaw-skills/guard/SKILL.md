@@ -1,18 +1,18 @@
 ---
 name: guard
-description: Toggle guard mode for security monitoring. Activates when the owner leaves. Use when the owner says "guard mode", "watch the house", "I'm going out", or similar.
+description: Toggle guard mode for security monitoring. Activates when the owner or a friend leaves. Use when they say "guard mode", "watch the house", "I'm going out", or similar.
 ---
 
 # Guard Mode
 
 ## Quick Start
-Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physically quiet so intruders don't know they're being watched.
+Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physically quiet so intruders don't know they're being watched. Both **owners** and **friends** (enrolled faces) can toggle guard mode.
 
 ## Workflow
-1. Owner requests guard mode (explicit or implied departure).
+1. Owner or friend requests guard mode (explicit or implied departure).
 2. Call `/emotion` (acknowledge, 0.7) and confirm verbally.
 3. Enable guard mode via the API.
-4. When owner returns (`[sensing:presence.enter]` with owner detected), disable guard mode and report.
+4. When an owner or friend returns (`[sensing:presence.enter]` with owner/friend detected), greet them and ask if they want to turn off guard mode. Only disable when they explicitly confirm.
 
 ## Enable Guard Mode
 
@@ -51,11 +51,10 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 
 ## Rules
 
+- **Who can toggle:** Both owners and friends (enrolled faces) can enable/disable guard mode. Strangers cannot.
 - **Enable:** `/emotion` (acknowledge, 0.7) + enable API (with `instruction` if provided) + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
 - **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
-- **Owner return while guarding:** When you receive `[sensing:presence.enter]` with owner detected while guard mode is on, do NOT auto-disable guard mode. Instead, greet the owner and ask if they want to turn off guard mode. Only disable if the owner confirms.
-- **Guard mode does NOT affect direct messages.** If the owner sends a message while guard mode is on, respond normally.
-- **Do NOT broadcast alerts yourself.** Telegram alerts are sent automatically by the system when guard mode is active. Do not use the message tool to send guard alerts.
+- **Guard mode does NOT affect direct messages.** If an owner or friend sends a message while guard mode is on, respond normally.
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.

@@ -163,8 +163,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
-	// Guard mode: tag the event so agent broadcasts via its own message tool.
-	// Also mark the run so SSE handler broadcasts the response via Telegram Bot API.
+	// Guard mode: mark the run so SSE handler broadcasts the response via Telegram Bot API.
 	guardActive := isPassive && h.config.GuardModeEnabled() && (req.Type == "presence.enter" || req.Type == "motion")
 	if guardActive {
 		slog.Info("guard mode active", "component", "sensing", "type", req.Type)
@@ -204,7 +203,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = "[ambient] " + req.Message
 	} else if guardActive {
-		// Guard mode: tag so agent broadcasts via message tool.
+		// Guard mode: tag so the system broadcasts the response via Telegram.
 		// Include custom instruction if the owner provided one when enabling guard mode.
 		guardTag := "[sensing:" + req.Type + "][guard-active]"
 		if inst := h.config.GuardInstruction; inst != "" {

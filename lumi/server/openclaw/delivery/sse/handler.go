@@ -1138,8 +1138,8 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 			last = n
 		}
 	}
-	if last > 2000 {
-		last = 2000
+	if last > 10000 {
+		last = 10000
 	}
 	events := recentFlowFromJSONL(day, last)
 	if events == nil {
@@ -1436,8 +1436,8 @@ func (h *OpenClawHandler) DebugLogLines(c *gin.Context) {
 			last = n
 		}
 	}
-	if last > 2000 {
-		last = 2000
+	if last > 10000 {
+		last = 10000
 	}
 	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
 	f, err := os.Open(path)
