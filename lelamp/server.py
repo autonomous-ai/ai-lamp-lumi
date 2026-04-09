@@ -891,11 +891,24 @@ class FacePersonDetail(BaseModel):
     role: str
     photo_count: int
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
+    mood_days: list[str] = []  # e.g. ["2026-04-09"]
+    files: list[str] = []  # all non-photo files, e.g. ["metadata.json"]
 
 
 class FaceOwnersDetailResponse(BaseModel):
     enrolled_count: int
     persons: list[FacePersonDetail]
+
+
+class FaceSetRoleRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=64)
+    role: str = Field(..., description="Role: 'owner' or 'friend'")
+
+
+class FaceSetRoleResponse(BaseModel):
+    status: str
+    label: str
+    role: str
 
 
 class FaceRemoveRequest(BaseModel):
@@ -2400,19 +2413,23 @@ def face_owners_detail():
     if USERS_DIR.is_dir():
         img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
         for d in sorted(USERS_DIR.iterdir()):
-            if not d.is_dir():
+            if not d.is_dir() or d.name.startswith("."):
                 continue
-            photos = sorted(f.name for f in d.iterdir() if f.suffix.lower() in img_exts)
-            if photos:
-                role = FR._read_role(d)
-                persons.append(
-                    FacePersonDetail(
-                        label=d.name,
-                        role=role,
-                        photo_count=len(photos),
-                        photos=photos,
-                    )
+            photos = sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() in img_exts)
+            other_files = sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() not in img_exts)
+            mood_dir = d / "mood"
+            mood_days = sorted(f.stem for f in mood_dir.iterdir() if f.suffix == ".jsonl") if mood_dir.is_dir() else []
+            role = FR._read_role(d)
+            persons.append(
+                FacePersonDetail(
+                    label=d.name,
+                    role=role,
+                    photo_count=len(photos),
+                    photos=photos,
+                    mood_days=mood_days,
+                    files=other_files,
                 )
+            )
     return FaceOwnersDetailResponse(enrolled_count=len(persons), persons=persons)
 
 
@@ -2429,6 +2446,21 @@ def face_photo(label: str, filename: str):
     if not path.is_file():
         raise HTTPException(404, "photo not found")
     return Response(content=path.read_bytes(), media_type="image/jpeg")
+
+
+@app.post("/face/set-role", response_model=FaceSetRoleResponse, tags=["Face"])
+def face_set_role(req: FaceSetRoleRequest):
+    """Change a person's role without re-enrolling."""
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer
+    fr = _require_face_recognizer()
+    norm = FaceRecognizer.normalize_label(req.label)
+    person_dir = USERS_DIR / norm
+    if not person_dir.is_dir():
+        raise HTTPException(404, f"person '{norm}' not found")
+    if req.role not in FaceRecognizer.KNOWN_ROLES:
+        raise HTTPException(400, f"role must be one of {FaceRecognizer.KNOWN_ROLES}")
+    FaceRecognizer._write_role(person_dir, req.role)
+    return FaceSetRoleResponse(status="ok", label=norm, role=req.role)
 
 
 @app.post("/face/remove", response_model=FaceRemoveResponse, tags=["Face"])
