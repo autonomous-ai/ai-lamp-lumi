@@ -62,7 +62,8 @@ class _ColorFormatter(logging.Formatter):
 
 
 _root = logging.getLogger()
-_root.setLevel(logging.INFO)
+_log_level = os.environ.get("LELAMP_LOG_LEVEL", "INFO").upper()
+_root.setLevel(getattr(logging, _log_level, logging.INFO))
 
 # Console handler (colored)
 _console = logging.StreamHandler()
