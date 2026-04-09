@@ -360,6 +360,10 @@ class TTSService:
         tail_chunks = chunks[1:]
         total_samples = 0
 
+        # Re-probe before opening stream — device can reset between TTS calls (WM8960/PA).
+        self._probe_device_rate()
+        dst_rate = self._device_rate or TTS_SAMPLE_RATE
+
         for _play_attempt in range(2):
             try:
                 with sd.OutputStream(
