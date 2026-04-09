@@ -61,6 +61,7 @@ var moodEvents = map[string]bool{
 	"wellbeing.break":     true,
 	"music.mood":          true,
 	"music.play":          true,
+	"music.proactive":     true,
 	"light.level":         true,
 	"sound":               true,
 	"motion.activity":     true,
