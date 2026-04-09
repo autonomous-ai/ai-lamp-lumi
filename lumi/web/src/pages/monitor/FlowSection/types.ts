@@ -140,20 +140,30 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "lumi_gate",
-    label: "Lumi Gate", short: "GATE", icon: "🚦", color: "var(--lm-teal)", path: "agent",
+    label: "Lumi Hook", short: "HOOK", icon: "🚦", color: "var(--lm-teal)", path: "agent",
     shape: "square",
-    desc: "WS listener · suppress TTS if music · pause ambient if LED",
+    desc: "Lumi middleware · parse [HW:] markers · dispatch HW calls\n→ emotion / LED / servo / audio\n→ TTS (suppress if music)\n→ Telegram broadcast\n→ pause ambient if LED changed",
     triggers: [
       "led_set", "led_off", "ambient_pause", "ambient_resume",
       "flow_event:led_set", "flow_event:led_off",
       "flow_event:tts_suppressed",
+      "hw_emotion", "flow_event:hw_emotion",
+      "hw_led", "flow_event:hw_led",
+      "hw_servo", "flow_event:hw_servo",
+      "hw_audio", "flow_event:hw_audio",
+      "flow_event:tts_send",
+      "flow_event:no_reply",
+      "flow_event:hw_only_reply",
+      "flow_event:telegram_alert_broadcast",
     ] },
 
   { id: "tg_out",
     label: "Telegram Out", short: "TG OUT", icon: "💬", color: "#229ed9", path: "agent",
     shape: "diamond",
     desc: "OpenClaw delivers response to Telegram / Slack / Discord",
-    triggers: [] },
+    triggers: [
+      "flow_event:telegram_alert_broadcast",
+    ] },
 
   { id: "tg_alert",
     label: "Guard Alert", short: "ALERT", icon: "🚨", color: "#e53935", path: "agent",

@@ -676,23 +676,49 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     };
     if (ev.type === "hw_emotion" || (ev.type === "flow_event" && ev.detail?.node === "hw_emotion")) {
       const { path, body } = parseHWEvent(ev, "/emotion");
-      if (body && body.startsWith("{"))
+      if (body && body.startsWith("{")) {
         pushUnique(info.hw_emotion, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -H "Content-Type: application/json" -d '${body}'`);
+        const m = body.match(/"emotion"\s*:\s*"([^"]+)"/);
+        pushUnique(info.lumi_gate, `🎭 → ${m ? m[1] : "emotion"}`);
+      }
     }
     if (ev.type === "hw_led" || (ev.type === "flow_event" && ev.detail?.node === "hw_led")) {
       const { path, body } = parseHWEvent(ev, "/led/solid");
-      if (body && body.startsWith("{"))
+      if (body && body.startsWith("{")) {
         pushUnique(info.hw_led, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
+        pushUnique(info.lumi_gate, `💡 → LED ${path}`);
+      }
     }
     if (ev.type === "hw_servo" || (ev.type === "flow_event" && ev.detail?.node === "hw_servo")) {
       const { path, body } = parseHWEvent(ev, "/servo/play");
-      if (body && body.startsWith("{"))
+      if (body && body.startsWith("{")) {
         pushUnique(info.hw_servo, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
+        pushUnique(info.lumi_gate, `🤖 → servo ${path}`);
+      }
     }
     if (ev.type === "hw_audio" || (ev.type === "flow_event" && ev.detail?.node === "hw_audio")) {
       const { path, body } = parseHWEvent(ev, "/audio/play");
-      if (body && body.startsWith("{"))
+      if (body && body.startsWith("{")) {
         pushUnique(info.hw_audio, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
+        pushUnique(info.lumi_gate, `🎵 → audio ${path}`);
+      }
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "tts_send") {
+      pushUnique(info.lumi_gate, "🔊 → TTS");
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "tts_suppressed") {
+      const d = ev.detail as Record<string, any> | undefined;
+      const reason = d?.data?.reason ?? "suppressed";
+      pushUnique(info.lumi_gate, `🔇 → TTS suppressed (${reason})`);
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "no_reply") {
+      pushUnique(info.lumi_gate, "🚫 → no reply");
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "hw_only_reply") {
+      pushUnique(info.lumi_gate, "⚙ → HW only (no speech)");
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "telegram_alert_broadcast") {
+      pushUnique(info.lumi_gate, "🚨 → guard broadcast");
     }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
