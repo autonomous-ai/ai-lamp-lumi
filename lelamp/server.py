@@ -2352,7 +2352,7 @@ def _require_face_recognizer():
 
 @app.post("/face/enroll", response_model=FaceEnrollResponse, tags=["Face"])
 def face_enroll(req: FaceEnrollRequest):
-    """Save a JPEG photo, train embeddings, and persist under owner_photos/."""
+    """Save a JPEG photo, train embeddings, and persist under users/{label}/."""
     fr = _require_face_recognizer()
     role = req.role if req.role in ("owner", "friend") else "owner"
     try:
@@ -2389,12 +2389,12 @@ def face_status():
 def face_owners_detail():
     """List enrolled persons (owners and friends) with photo filenames."""
     fr = _require_face_recognizer()
-    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR, FaceRecognizer as FR
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer as FR
 
     persons: list[FacePersonDetail] = []
-    if OWNER_PHOTOS_DIR.is_dir():
+    if USERS_DIR.is_dir():
         img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
-        for d in sorted(OWNER_PHOTOS_DIR.iterdir()):
+        for d in sorted(USERS_DIR.iterdir()):
             if not d.is_dir():
                 continue
             photos = sorted(f.name for f in d.iterdir() if f.suffix.lower() in img_exts)
@@ -2414,12 +2414,12 @@ def face_owners_detail():
 @app.get("/face/photo/{label}/{filename}", tags=["Face"])
 def face_photo(label: str, filename: str):
     """Serve an owner photo as JPEG."""
-    from lelamp.service.sensing.perceptions.facerecognizer import OWNER_PHOTOS_DIR
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
 
     norm = FaceRecognizer.normalize_label(label)
-    path = (OWNER_PHOTOS_DIR / norm / filename).resolve()
+    path = (USERS_DIR / norm / filename).resolve()
     # Prevent path traversal
-    if not str(path).startswith(str(OWNER_PHOTOS_DIR.resolve())):
+    if not str(path).startswith(str(USERS_DIR.resolve())):
         raise HTTPException(400, "invalid path")
     if not path.is_file():
         raise HTTPException(404, "photo not found")
