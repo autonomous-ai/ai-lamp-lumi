@@ -416,8 +416,6 @@ export function FlowDiagram({
         {snapshotUrl && (() => {
           const snapX = 515;
           const snapY = 145;
-          const agentX = 950;
-          const agentY = 240;
           const imgW = 100;
           const imgH = 75;
           return (
