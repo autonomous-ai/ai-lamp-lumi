@@ -21,6 +21,37 @@ export function FaceOwnersSection() {
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Folder toggle state: "label:mood" => expanded
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // File preview state: { label, path, content, loading }
+  const [preview, setPreview] = useState<{ label: string; path: string; content: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const toggleDir = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const openFile = async (label: string, filepath: string) => {
+    const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(filepath);
+    if (isImg) {
+      window.open(`${HW}/face/photo/${label}/${filepath}`, "_blank");
+      return;
+    }
+    // Already showing this file? close it
+    if (preview?.label === label && preview?.path === filepath) {
+      setPreview(null);
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`${HW}/face/file/${label}/${filepath}`);
+      const text = await res.text();
+      setPreview({ label, path: filepath, content: text });
+    } catch {
+      setPreview({ label, path: filepath, content: "(failed to load)" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const refresh = useCallback(async () => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -311,30 +342,46 @@ export function FaceOwnersSection() {
                 color: "var(--lm-text-muted)",
               }}>
                 {(() => {
-                  const items: { name: string; isDir?: boolean; children?: string[] }[] = [];
-                  // photos
-                  owner.photos.forEach((f) => items.push({ name: f }));
-                  // other files
-                  owner.files?.filter((f) => !owner.photos.includes(f)).forEach((f) => items.push({ name: f }));
-                  // mood dir
+                  const items: { name: string; isDir?: boolean; dirKey?: string; children?: string[]; filePath?: string }[] = [];
+                  owner.photos.forEach((f) => items.push({ name: f, filePath: f }));
+                  owner.files?.filter((f) => !owner.photos.includes(f)).forEach((f) => items.push({ name: f, filePath: f }));
                   if (owner.mood_days && owner.mood_days.length > 0) {
-                    items.push({ name: "mood/", isDir: true, children: owner.mood_days.map((d) => `${d}.jsonl`) });
+                    items.push({ name: "mood", isDir: true, dirKey: `${owner.label}:mood`, children: owner.mood_days.map((d) => `${d}.jsonl`) });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
                     const prefix = isLastTop ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
-                    if (item.isDir) {
+                    if (item.isDir && item.dirKey) {
+                      const isOpen = expanded[item.dirKey] ?? false;
                       return (
                         <div key={item.name}>
-                          <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
-                          <span style={{ color: "rgb(74,222,128)", fontWeight: 600 }}>{item.name}</span>
-                          {item.children?.map((child, ci) => {
+                          <span
+                            style={{ cursor: "pointer" }}
+                            onClick={() => toggleDir(item.dirKey!)}
+                          >
+                            <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
+                            <span style={{ color: "rgb(74,222,128)" }}>{isOpen ? "\u25BE" : "\u25B8"}</span>
+                            <span style={{ color: "rgb(74,222,128)", fontWeight: 600 }}> {item.name}/</span>
+                          </span>
+                          {isOpen && item.children?.map((child, ci) => {
                             const childPrefix = isLastTop ? "    " : "\u2502   ";
                             const childBranch = ci === (item.children?.length ?? 0) - 1 ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+                            const childPath = `${item.name}/${child}`;
+                            const isActive = preview?.label === owner.label && preview?.path === childPath;
                             return (
                               <div key={child}>
-                                <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
-                                <span>{child}</span>
+                                <span
+                                  style={{ cursor: "pointer" }}
+                                  onClick={() => openFile(owner.label, childPath)}
+                                >
+                                  <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
+                                  <span style={{
+                                    color: isActive ? "var(--lm-amber)" : "inherit",
+                                    textDecoration: "underline",
+                                    textDecorationStyle: "dotted" as const,
+                                    textUnderlineOffset: 3,
+                                  }}>{child}</span>
+                                </span>
                               </div>
                             );
                           })}
@@ -342,18 +389,20 @@ export function FaceOwnersSection() {
                       );
                     }
                     const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(item.name);
+                    const isActive = preview?.label === owner.label && preview?.path === item.filePath;
                     return (
                       <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span>
+                        <span
+                          style={{ cursor: "pointer" }}
+                          onClick={() => openFile(owner.label, item.filePath!)}
+                        >
                           <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
-                          {isImg ? (
-                            <span
-                              style={{ color: "var(--lm-amber)", cursor: "pointer" }}
-                              onClick={() => window.open(`${HW}/face/photo/${owner.label}/${item.name}`, "_blank")}
-                            >{item.name}</span>
-                          ) : (
-                            <span>{item.name}</span>
-                          )}
+                          <span style={{
+                            color: isImg ? "var(--lm-amber)" : (isActive ? "var(--lm-amber)" : "inherit"),
+                            textDecoration: "underline",
+                            textDecorationStyle: "dotted" as const,
+                            textUnderlineOffset: 3,
+                          }}>{item.name}</span>
                         </span>
                         {isImg && (
                           <img
@@ -373,6 +422,41 @@ export function FaceOwnersSection() {
                   });
                 })()}
               </div>
+
+              {/* File preview */}
+              {preview && preview.label === owner.label && (
+                <div style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  background: "var(--lm-surface)",
+                  border: "1px solid var(--lm-border)",
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  maxHeight: 200,
+                  overflowY: "auto",
+                  color: "var(--lm-text)",
+                  position: "relative",
+                }}>
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
+                    paddingBottom: 4,
+                    borderBottom: "1px solid var(--lm-border)",
+                  }}>
+                    <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{preview.path}</span>
+                    <span
+                      style={{ cursor: "pointer", color: "var(--lm-text-muted)", fontSize: 12 }}
+                      onClick={() => setPreview(null)}
+                    >x</span>
+                  </div>
+                  {previewLoading ? "Loading..." : preview.content}
+                </div>
+              )}
             </div>
           ))}
         </div>
