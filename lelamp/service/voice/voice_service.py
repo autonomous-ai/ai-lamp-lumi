@@ -399,6 +399,7 @@ class VoiceService:
                                         preconnected_session=keepalive_session)
                     keepalive_session = None
                     speech_start = None
+                    logger.info("VAD resumed — mic active, waiting for next speech")
                     # Cooldown after session to let resources clean up
                     time.sleep(SESSION_COOLDOWN_S)
                     # Pre-connect next session immediately
@@ -417,7 +418,7 @@ class VoiceService:
 
         def on_transcript(text: str, is_final: bool):
             if not is_final:
-                logger.debug("STT partial: '%s'", text)
+                logger.info("STT partial: '%s'", text)
                 return
             lower = text.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
