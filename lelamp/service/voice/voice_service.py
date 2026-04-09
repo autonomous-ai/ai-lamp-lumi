@@ -34,7 +34,7 @@ FRAME_DURATION_MS = 64  # Frame duration in ms (device-rate-independent)
 # Local VAD config — can be overridden via .env on the device
 RMS_THRESHOLD = int(os.environ.get("LELAMP_VAD_THRESHOLD", "3500"))      # RMS above this = speech
 SILENCE_TIMEOUT_S = float(os.environ.get("LELAMP_SILENCE_TIMEOUT", "2.5"))  # Silence before STT disconnect
-SPEECH_HOLDOFF_S = 0.2    # Minimum speech duration before connecting STT
+SPEECH_HOLDOFF_S = float(os.environ.get("LELAMP_SPEECH_HOLDOFF", "0.2"))  # Minimum speech duration before connecting STT
 SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
 
 # Echo cancellation config
