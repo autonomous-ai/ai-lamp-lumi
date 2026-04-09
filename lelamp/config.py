@@ -5,10 +5,10 @@ from pathlib import Path
 
 # --- Data layout ---
 LELAMP_DATA_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data"))
-# Per-owner JPEGs for face enrollment; subdir name = normalized label.
-# Override to keep using a pre-existing tree (e.g. legacy /opt/lumi/owners).
-OWNER_PHOTOS_DIR = os.environ.get(
-    "LELAMP_OWNER_PHOTOS_DIR", str(LELAMP_DATA_DIR / "owner_photos")
+# Per-user data directory; each subdir = normalized user name.
+# Contains face photos, wellbeing notes, mood history, etc.
+USERS_DIR = os.environ.get(
+    "LELAMP_USERS_DIR", "/root/local/users"
 )
 
 # --- Sensing: Lumi integration ---
