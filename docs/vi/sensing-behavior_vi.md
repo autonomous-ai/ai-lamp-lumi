@@ -171,21 +171,21 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 
 ## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi, AI-Driven)
 
-Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI agent tự quản lý qua OpenClaw. Thay vì timer cứng, agent tự quyết interval dựa trên khoa học và thói quen user (mood history).
+Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI agent tự quản lý qua OpenClaw. Thay vì timer cứng, agent tự quyết interval dựa trên khoa học và thói quen user.
 
 ### Cơ chế hoạt động
 
-Agent duy trì một notebook cá nhân **cho từng owner** tại `/root/local/wellbeing-notes-{name}.md` (ví dụ: `wellbeing-notes-alice.md`) để ghi lại quan sát về thói quen sức khỏe riêng của từng người (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00", "thích cách nhắc nhẹ nhàng"). Notebook này là của agent — tự tạo, tự cập nhật, tự học.
+Agent duy trì một notebook cá nhân **cho từng người** tại `/root/local/wellbeing-notes-{name}.md` (ví dụ: `wellbeing-notes-alice.md`) để ghi lại quan sát về thói quen sức khỏe riêng của từng người (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00", "thích cách nhắc nhẹ nhàng"). Notebook này là của agent — tự tạo, tự cập nhật, tự học.
 
-Khi owner đến (`presence.enter`), agent:
+Khi người quen đến (`presence.enter`), agent:
 
-1. **Đọc notebook** để nhớ lại những gì đã học về owner.
-2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái owner khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
+1. **Đọc notebook** để nhớ lại những gì đã học.
+2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
 3. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`):
    - `"Wellbeing: hydration check"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
    - `"Wellbeing: break check"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
 
-Khi owner rời đi (`presence.leave`), agent cancel cả 2 cron jobs và cập nhật notebook với quan sát từ session (nhắc nào hiệu quả, cái nào bị bỏ qua, insights về timing).
+Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs và cập nhật notebook với quan sát từ session.
 
 ### Hành vi khi cron fire
 
@@ -196,19 +196,39 @@ Mỗi lần cron fire, agent:
 4. Nếu user vắng mặt, đang uống nước, hoặc trông ổn → không nói
 5. Luôn emit `[HW:/emotion:{...}]` marker
 
-### Gợi ý nhạc theo mood (`music.mood`)
-
-Gợi ý nhạc vẫn chạy bằng timer LeLamp hardware (tách biệt khỏi wellbeing AI-driven). Xem skill Music để biết chi tiết.
-
 ### Hành vi của agent
 
 | Nhắc nhở | Emotion | Nói |
 |---|---|---|
 | Hydration cron | `caring` (0.5) | CÓ (nhắc uống nước) hoặc im lặng |
 | Break cron | `caring` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc im lặng |
-| `music.mood` | `caring` (0.6) | CÓ (gợi ý nhạc) hoặc NO_REPLY |
 
 Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
+
+### Gợi ý nhạc (AI-Driven)
+
+Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay vào đó, AI agent **tự schedule** music check qua OpenClaw cron jobs và **tự học** thói quen user theo thời gian:
+
+- **Tự schedule:** Khi nhận `presence.enter` đầu tiên trong ngày, AI tạo cron job (mặc định: mỗi 60 phút). AI tự điều chỉnh interval dựa trên phản hồi của user.
+- **Quyết định dựa trên dữ liệu:** Trước khi gợi ý, AI query:
+  - `GET /presence` — user có đang ở đó không?
+  - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
+  - `GET /api/openclaw/mood-history` — pattern hiện diện, kết quả gợi ý trước đó
+  - `GET /audio/history` — lịch sử nghe nhạc (genre ưa thích, thời lượng, mức độ hài lòng)
+- **Vòng lặp học:** AI so sánh thời điểm gợi ý với `music.play` events trong mood history. Gợi ý được chấp nhận → củng cố timing/genre; bị từ chối → điều chỉnh schedule.
+- **Cá nhân hóa:** Theo thời gian, AI học được khi nào user thích nghe nhạc, thể loại nào, nghe bao lâu — và điều chỉnh gợi ý cho phù hợp.
+
+**Dữ liệu AI sử dụng để học thói quen:**
+
+| Câu hỏi | Nguồn dữ liệu |
+|----------|----------------|
+| User ngồi vào bàn mấy giờ? | `presence.enter` events → field `hour` |
+| Ngồi bao lâu thì muốn nghe nhạc? | Khoảng cách giữa `presence.enter` và `music.play` |
+| Nghe thể loại gì? | `audio/history` → fields `query`, `title` |
+| Nghe bao lâu thì tắt? | `audio/history` → field `duration_s` |
+| Thời điểm nào thích nghe nhạc nhất? | `music.play` events → field `hour` |
+
+Xem skill Music (`resources/openclaw-skills/music/SKILL.md`) để biết chi tiết implementation.
 
 ---
 
