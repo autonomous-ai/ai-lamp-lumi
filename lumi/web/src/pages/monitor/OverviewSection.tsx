@@ -160,8 +160,44 @@ export function OverviewSection({
                   </>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Vol: <span style={{ color: "var(--lm-amber)" }}>{audio?.volume ?? "—"}%</span>
+              <div style={{ marginTop: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>Vol</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--lm-amber)", fontFamily: "monospace" }}>
+                    {audio?.volume ?? "—"}%
+                  </span>
+                </div>
+                <div
+                  title="Click to set volume"
+                  onClick={(e) => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                    fetch("/hw/audio/volume", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ volume: Math.max(0, Math.min(100, pct)) }),
+                    }).catch(() => {});
+                  }}
+                  style={{
+                    height: 5, borderRadius: 3,
+                    background: "var(--lm-surface)",
+                    border: "1px solid var(--lm-border)",
+                    cursor: "pointer", overflow: "hidden",
+                    position: "relative",
+                  }}
+                >
+                  <div style={{
+                    height: "100%",
+                    width: `${audio?.volume ?? 0}%`,
+                    background: (audio?.volume ?? 0) > 80
+                      ? "var(--lm-red)"
+                      : (audio?.volume ?? 0) > 50
+                        ? "var(--lm-amber)"
+                        : "var(--lm-green)",
+                    borderRadius: 3,
+                    transition: "width 0.4s ease",
+                  }} />
+                </div>
               </div>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
