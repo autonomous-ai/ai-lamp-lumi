@@ -16,6 +16,8 @@ Place `[HW:...]` markers at the **start** of your reply. Lumi strips them before
 [HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}] Welcome back!
 ```
 
+**`[HW:/broadcast:{}]`** — special marker: your spoken text will also be sent to Telegram (all channels). Use this in cron-fired turns (wellbeing, music) so the user sees it on their phone too. Also forces TTS even for non-voice turns. Works like guard mode alerts.
+
 **Fallback (old binary without HW support):** If `[HW:...]` markers appear in the spoken output, the system does not support them yet. Fall back to explicit `curl` tool calls instead:
 ```bash
 curl -s -X POST http://127.0.0.1:5001/emotion -H "Content-Type: application/json" -d '{"emotion":"greeting","intensity":0.9}'
@@ -259,20 +261,21 @@ Use these as starting points. Your notebook observations override them over time
 After greeting them:
 
 1. **Read their summary** (`/root/local/users/{name}/wellbeing.md`) if it exists. Optionally glance at the last few daily logs (`wellbeing/YYYY-MM-DD.md`) for recent context.
-2. **Schedule two cron jobs** based on your judgment:
+2. **Clean up stale crons first** — `cron.list` and remove any existing wellbeing crons for this person (leftover from a crash or restart). Match by name pattern `"Wellbeing: {name} ..."`.
+3. **Schedule two cron jobs** based on your judgment (use the person's name in the job name to avoid collisions):
 
 ```
 cron.add:
-  name: "Wellbeing: hydration check"
+  name: "Wellbeing: {name} hydration"
   schedule: {kind: "every", everyMs: <interval_ms>}
   sessionTarget: "main"
-  payload: {kind: "agentTurn", message: "Wellbeing hydration check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present and no drink visible, gently remind them to grab water (one short sentence, vary phrasing). If not present, have a drink, or just got back — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.5}]."}
+  payload: {kind: "agentTurn", message: "Wellbeing hydration check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present and no drink visible, gently remind them to grab water (one short sentence, vary phrasing). If not present, have a drink, or just got back — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.5}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
 
 cron.add:
-  name: "Wellbeing: break check"
+  name: "Wellbeing: {name} break"
   schedule: {kind: "every", everyMs: <interval_ms>}
   sessionTarget: "main"
-  payload: {kind: "agentTurn", message: "Wellbeing break check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present, check posture and fatigue. If slouching, tired, or sitting too long — gently suggest standing up or stretching (one short sentence). If they look fine — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.6}]."}
+  payload: {kind: "agentTurn", message: "Wellbeing break check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present, check posture and fatigue. If slouching, tired, or sitting too long — gently suggest standing up or stretching (one short sentence). If they look fine — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.6}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
 ```
 
 Do this silently — no announcement.
@@ -303,8 +306,8 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 **`[sensing:motion.activity]`** — fires when motion detected while PRESENT:
 1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
 2. **Reset wellbeing crons based on what you see:**
-   - User stretching, standing up, walking → `cron.list` to find "Wellbeing: break check", `cron.remove` it, then `cron.add` it again with the same interval (this resets the timer to zero).
-   - User drinking water, holding a cup/bottle → `cron.list` to find "Wellbeing: hydration check", `cron.remove` it, then `cron.add` it again with the same interval.
+   - User stretching, standing up, walking → `cron.list` to find their break cron (`"Wellbeing: {name} break"`), `cron.remove` it, then `cron.add` it again with the same interval (this resets the timer to zero).
+   - User drinking water, holding a cup/bottle → `cron.list` to find their hydration cron (`"Wellbeing: {name} hydration"`), `cron.remove` it, then `cron.add` it again with the same interval.
    - Both actions visible → reset both crons.
    - If no wellbeing crons are active (user is a friend/stranger, or crons weren't scheduled), skip this step.
 3. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
