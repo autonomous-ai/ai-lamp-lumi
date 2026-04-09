@@ -292,6 +292,11 @@ class TTSService:
                     attempt + 1,
                     self._max_retries + 1,
                 )
+                # Server-side errors (404, 503) — no point retrying or probing device
+                status = getattr(e, "status_code", None)
+                if status in (404, 503):
+                    logger.warning("TTS server error %s — skipping retries", status)
+                    break
                 if attempt < self._max_retries:
                     self._probe_device_rate()
                 attempt += 1
@@ -330,6 +335,10 @@ class TTSService:
                             attempt + 1,
                             self._max_retries + 1,
                         )
+                        status = getattr(e, "status_code", None)
+                        if status in (404, 503):
+                            logger.warning("TTS server error %s — skipping retries", status)
+                            return
                         if attempt < self._max_retries:
                             self._probe_device_rate()
                         attempt += 1
