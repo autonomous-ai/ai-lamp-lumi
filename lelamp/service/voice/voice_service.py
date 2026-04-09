@@ -43,7 +43,7 @@ ECHO_GATE_MAX_WAIT_S = 1.5   # Max time to wait for reverb decay after TTS
 ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
 ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
-MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
+MAX_SESSION_DURATION_S = 30       # Force-close STT session after this (prevent zombie sessions)
 
 # Keep-alive mode: pre-connect STT WS before speech is detected so there's no connect delay.
 # Useful for clean-mic devices where VAD only triggers on real speech (no ambient pre-warm).
