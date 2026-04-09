@@ -169,9 +169,9 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 
 ---
 
-## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi + Gợi ý nhạc)
+## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi)
 
-Lumi chủ động chăm sóc sức khỏe và tâm trạng người dùng bằng cách gửi ảnh camera định kỳ cho LLM khi có người hiện diện. Ba timer độc lập chạy song song:
+Lumi chủ động chăm sóc sức khỏe người dùng bằng cách gửi ảnh camera định kỳ cho LLM khi có người hiện diện. Hai timer độc lập chạy song song:
 
 ### Nhắc uống nước (`wellbeing.hydration`)
 
@@ -187,26 +187,15 @@ Lumi chủ động chăm sóc sức khỏe và tâm trạng người dùng bằn
 - LLM nhìn ảnh và quyết định: nhắc đứng lên stretch, hoặc NO_REPLY nếu user trông ổn.
 - **Nếu không thấy user trong ảnh** → NO_REPLY.
 
-### Gợi ý nhạc theo mood (`music.mood`)
-
-- **Kích hoạt** sau 60 phút hiện diện liên tục, lặp lại mỗi 60 phút.
-- Gửi ảnh camera kèm context: "User ở đây X phút — đánh giá mood để gợi ý nhạc."
-- LLM nhìn ảnh đánh giá tâm trạng (thư giãn, mệt, tập trung, vui, stress) và kết hợp sensing events gần đây (thời gian trong ngày, pattern wellbeing).
-- Nếu thời điểm phù hợp → gợi ý 1–2 bài nhạc phù hợp mood qua giọng nói. **Không bao giờ tự động play** — chờ user xác nhận.
-- **Xác nhận đa kênh:** Gợi ý nhạc được gửi qua TTS (loa) VÀ broadcast lên tất cả Telegram chats qua `Broadcast()`. User có thể xác nhận bằng giọng nói hoặc qua Telegram.
-- Nếu user đang bận, đang họp, hoặc tập trung sâu → NO_REPLY.
-- Xem skill Music để biết bảng mood→nhạc và rules đầy đủ.
-
 ### Cơ chế hoạt động
 
-Class `WellbeingPerception` (`lelamp/service/sensing/perceptions/wellbeing.py`) theo dõi trạng thái presence từ `PresenceService`. Khi user đến (`presence.enter`), ba timer độc lập bắt đầu. Mỗi timer chụp ảnh ổn định (freeze servo tạm thời) và gửi event lên Go handler, được forward lên agent như mọi sensing event khác. Khi user rời đi (`presence.leave` hoặc state chuyển sang IDLE/AWAY), tất cả timer reset.
+Class `WellbeingPerception` (`lelamp/service/sensing/perceptions/wellbeing.py`) theo dõi trạng thái presence từ `PresenceService`. Khi user đến (`presence.enter`), hai timer độc lập bắt đầu. Mỗi timer chụp ảnh ổn định (freeze servo tạm thời) và gửi event lên Go handler, được forward lên agent như mọi sensing event khác. Khi user rời đi (`presence.leave` hoặc state chuyển sang IDLE/AWAY), tất cả timer reset.
 
 ### Hằng số (`config.py`)
 
 ```python
 WELLBEING_HYDRATION_S = 30 * 60   # 30 phút giữa các lần nhắc uống nước
 WELLBEING_BREAK_S     = 45 * 60   # 45 phút giữa các lần nhắc nghỉ
-WELLBEING_MUSIC_S     = 60 * 60   # 60 phút giữa các lần check mood nhạc
 ```
 
 ### Hành vi của agent
@@ -215,9 +204,33 @@ WELLBEING_MUSIC_S     = 60 * 60   # 60 phút giữa các lần check mood nhạc
 |---|---|---|
 | `wellbeing.hydration` | `curious` (0.5) | CÓ (nhắc uống nước) hoặc NO_REPLY |
 | `wellbeing.break` | `curious` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc NO_REPLY |
-| `music.mood` | `caring` (0.6) | CÓ (gợi ý nhạc) hoặc NO_REPLY |
 
 LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
+
+### Gợi ý nhạc (AI-Driven)
+
+Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay vào đó, AI agent **tự schedule** music check qua OpenClaw cron jobs và **tự học** thói quen user theo thời gian:
+
+- **Tự schedule:** Khi nhận `presence.enter` đầu tiên trong ngày, AI tạo cron job (mặc định: mỗi 60 phút). AI tự điều chỉnh interval dựa trên phản hồi của user.
+- **Quyết định dựa trên dữ liệu:** Trước khi gợi ý, AI query:
+  - `GET /presence` — user có đang ở đó không?
+  - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
+  - `GET /api/openclaw/mood-history` — pattern hiện diện, kết quả gợi ý trước đó
+  - `GET /audio/history` — lịch sử nghe nhạc (genre ưa thích, thời lượng, mức độ hài lòng)
+- **Vòng lặp học:** AI so sánh thời điểm gợi ý với `music.play` events trong mood history. Gợi ý được chấp nhận → củng cố timing/genre; bị từ chối → điều chỉnh schedule.
+- **Cá nhân hóa:** Theo thời gian, AI học được khi nào user thích nghe nhạc, thể loại nào, nghe bao lâu — và điều chỉnh gợi ý cho phù hợp.
+
+**Dữ liệu AI sử dụng để học thói quen:**
+
+| Câu hỏi | Nguồn dữ liệu |
+|----------|----------------|
+| User ngồi vào bàn mấy giờ? | `presence.enter` events → field `hour` |
+| Ngồi bao lâu thì muốn nghe nhạc? | Khoảng cách giữa `presence.enter` và `music.play` |
+| Nghe thể loại gì? | `audio/history` → fields `query`, `title` |
+| Nghe bao lâu thì tắt? | `audio/history` → field `duration_s` |
+| Thời điểm nào thích nghe nhạc nhất? | `music.play` events → field `hour` |
+
+Xem skill Music (`resources/openclaw-skills/music/SKILL.md`) để biết chi tiết implementation.
 
 ---
 
