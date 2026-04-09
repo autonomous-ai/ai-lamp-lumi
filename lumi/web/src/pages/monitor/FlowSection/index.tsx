@@ -228,7 +228,7 @@ export function FlowSection({
       if (searchText.trim()) {
         const q = searchText.toLowerCase().trim();
         const { input, output } = turnIO(t);
-        if (!`${input} ${output} ${t.type}`.toLowerCase().includes(q)) return false;
+        if (!`${input} ${output} ${t.type} ${t.runId ?? ""} ${t.id}`.toLowerCase().includes(q)) return false;
       }
       return true;
     });
