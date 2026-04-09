@@ -169,9 +169,10 @@ class AutonomousSTTSession(STTSession):
 
                     elif msg_type == "TurnInfo":
                         transcript = msg.get("transcript", "").strip()
-                        if not transcript:
-                            continue
                         ev = msg.get("event", "")
+                        if not transcript:
+                            logger.debug("Autonomous STT: TurnInfo — empty transcript (event=%r)", ev)
+                            continue
                         on_transcript(transcript, ev == "EndOfTurn")
             except Exception as e:
                 if not self._closed.is_set():
