@@ -393,6 +393,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				}
 			}
 
+			// Init speaker volume — WM8960 boots at 0%, must be set explicitly.
+			if err := s.agentGateway.SetVolume(95); err != nil {
+				slog.Warn("init volume failed", "component", "server", "error", err)
+			}
+
 			// Greet user now that agent + voice pipeline are ready
 			if _, err := s.agentGateway.SendChatMessage("You just woke up. Greet the user briefly."); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
