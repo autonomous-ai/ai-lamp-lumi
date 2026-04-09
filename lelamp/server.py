@@ -2448,6 +2448,21 @@ def face_photo(label: str, filename: str):
     return Response(content=path.read_bytes(), media_type="image/jpeg")
 
 
+@app.get("/face/file/{label}/{filepath:path}", tags=["Face"])
+def face_file(label: str, filepath: str):
+    """Serve any text file from a user's directory (metadata, mood logs, etc.)."""
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
+
+    norm = FaceRecognizer.normalize_label(label)
+    path = (USERS_DIR / norm / filepath).resolve()
+    if not str(path).startswith(str(USERS_DIR.resolve())):
+        raise HTTPException(400, "invalid path")
+    if not path.is_file():
+        raise HTTPException(404, "file not found")
+    mime = "application/json" if path.suffix in (".json", ".jsonl") else "text/plain"
+    return Response(content=path.read_bytes(), media_type=mime)
+
+
 @app.post("/face/set-role", response_model=FaceSetRoleResponse, tags=["Face"])
 def face_set_role(req: FaceSetRoleRequest):
     """Change a person's role without re-enrolling."""
