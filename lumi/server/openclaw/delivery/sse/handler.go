@@ -188,6 +188,10 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 	}
 	go func() {
 		for _, c := range calls {
+			// /broadcast is handled internally (not a LeLamp hardware call).
+			if c.path == "/broadcast" {
+				continue
+			}
 			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
 			if err != nil {
 				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
@@ -778,6 +782,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
 				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
 
+				// [HW:/broadcast] marker: agent requests broadcast to Telegram.
+				// Used by wellbeing crons, music suggestions, and proactive care.
+				for _, c := range hwCalls {
+					if c.path == "/broadcast" {
+						isBroadcastRun = true
+						break
+					}
+				}
+
 				// Guard mode: broadcast even on NO_REPLY / empty / suppressed paths.
 				// The agent may choose not to speak, but we still want to alert the owner via Telegram.
 				if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
@@ -813,7 +826,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
 					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun)
+					// [HW:/broadcast] forces TTS even for channel/cron runs (like guard mode).
+					if isBroadcastRun {
+						isChannelRun = false
+					}
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
 						go func(t string) {
