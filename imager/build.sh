@@ -1602,6 +1602,7 @@ DEBIAN_FRONTEND=noninteractive TERM=xterm chroot ${MNT} bash -c \
 
 chroot ${MNT} /bin/bash <<OVERLAY_STAGES
 set -euo pipefail
+trap 'echo "OVERLAY ERROR: command failed at line \$LINENO (exit code \$?): \$BASH_COMMAND"' ERR
 export DEBIAN_FRONTEND=noninteractive
 export OTA_METADATA_URL="${OTA_METADATA_URL}"
 
@@ -1655,15 +1656,61 @@ echo "[overlay] Install LeLamp"
 LELAMP_DIR="/opt/lelamp"
 mkdir -p "\$LELAMP_DIR"
 if [ -n "\$LELAMP_URL" ]; then
+  echo "[overlay] LeLamp: downloading from \$LELAMP_URL"
   retry "curl -fsSL -H 'Cache-Control: no-cache' -o /tmp/lelamp.zip '\$LELAMP_URL'" 5
+  echo "[overlay] LeLamp: extracting zip to \$LELAMP_DIR"
   unzip -o -q /tmp/lelamp.zip -d "\$LELAMP_DIR"
   rm -f /tmp/lelamp.zip
-  # Clean stale lerobot distutils egg-info that blocks uv uninstall
-  find /root/.cache/uv -name 'lerobot.egg-info' -type d 2>/dev/null | xargs rm -rf
-  rm -rf "\$LELAMP_DIR/.venv"
+  echo "[overlay] LeLamp: zip contents:"
+  find "\$LELAMP_DIR" -maxdepth 2 -type f | head -30
+
+  # Ensure uv is available (may be missing if base image was cached before uv stage)
   export PATH="/root/.local/bin:\$PATH"
+  if ! command -v uv &>/dev/null; then
+    echo "[overlay] LeLamp: uv not found, installing..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    echo "[overlay] LeLamp: uv installed at \$(command -v uv || echo /root/.local/bin/uv)"
+  else
+    echo "[overlay] LeLamp: uv found at \$(command -v uv)"
+  fi
+
+  # If zip extracted into a subdirectory, move contents up to LELAMP_DIR
+  if [ ! -f "\$LELAMP_DIR/pyproject.toml" ]; then
+    echo "[overlay] LeLamp: pyproject.toml not at root, searching subdirectories..."
+    SUBDIR=\$(find "\$LELAMP_DIR" -maxdepth 2 -name pyproject.toml 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+    if [ -n "\$SUBDIR" ] && [ "\$SUBDIR" != "\$LELAMP_DIR" ]; then
+      echo "[overlay] LeLamp: moving from \$SUBDIR to \$LELAMP_DIR"
+      shopt -s dotglob 2>/dev/null || true
+      mv "\$SUBDIR"/* "\$LELAMP_DIR"/ 2>/dev/null || cp -a "\$SUBDIR"/. "\$LELAMP_DIR"/
+      shopt -u dotglob 2>/dev/null || true
+    else
+      echo "[overlay] LeLamp: no pyproject.toml found anywhere under \$LELAMP_DIR"
+    fi
+  fi
+
+  echo "[overlay] LeLamp: checking pyproject.toml..."
+  if [ ! -f "\$LELAMP_DIR/pyproject.toml" ]; then
+    echo "ERROR: pyproject.toml not found in \$LELAMP_DIR after extraction"
+    echo "Directory listing:"
+    ls -laR "\$LELAMP_DIR"/ | head -50
+    exit 1
+  fi
+  echo "[overlay] LeLamp: pyproject.toml found OK"
+
+  # Clean stale lerobot distutils egg-info that blocks uv uninstall
+  find /root/.cache/uv -name 'lerobot.egg-info' -type d 2>/dev/null | xargs -r rm -rf || true
+  rm -rf "\$LELAMP_DIR/.venv"
   cd "\$LELAMP_DIR"
-  uv sync --python 3.12 --extra hardware
+  echo "[overlay] LeLamp: running uv sync --python 3.12 --extra hardware"
+  uv sync --python 3.12 --extra hardware 2>&1 || {
+    echo "ERROR: uv sync failed (exit code \$?)"
+    echo "[overlay] LeLamp: uv version: \$(uv --version 2>&1 || echo unknown)"
+    echo "[overlay] LeLamp: python check: \$(python3 --version 2>&1 || echo not found)"
+    echo "[overlay] LeLamp: pyproject.toml head:"
+    head -30 "\$LELAMP_DIR/pyproject.toml" 2>/dev/null || true
+    exit 1
+  }
+  echo "[overlay] LeLamp: uv sync complete"
   cd /
 else
   echo "[overlay] WARN: No lelamp URL in OTA metadata, skipping LeLamp download"
