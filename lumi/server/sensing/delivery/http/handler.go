@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -38,10 +39,11 @@ type SensingEventRequest struct {
 
 // SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
 type SensingHandler struct {
-	agentGateway domain.AgentGateway
-	monitorBus   *monitor.Bus
-	config       *config.Config
-	statusLED    *statusled.Service
+	agentGateway     domain.AgentGateway
+	monitorBus       *monitor.Bus
+	config           *config.Config
+	statusLED        *statusled.Service
+	voiceActiveUntil atomic.Int64 // unix ms; set on voice_listening, extended on voice_listening_end
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
@@ -72,7 +74,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		h.statusLED.Set(statusled.StateListening)
 	}
 	// voice_listening / voice_listening_end are internal LED signals — don't forward to agent.
+	// Also gate sensing events: suppress passive sensing during the voice conversation window
+	// so motion/presence can't steal the agent turn while the user is speaking or waiting for reply.
 	if req.Type == "voice_listening" {
+		// Extend window: user is speaking, keep sensing suppressed for 10s from now.
+		h.voiceActiveUntil.Store(time.Now().Add(10 * time.Second).UnixMilli())
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 		return
 	}
@@ -81,6 +87,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// hasn't made any tool calls yet, so StopEffect won't race with LED changes.
 		slog.Info("listening LED cleared", "component", "statusled", "reason", "voice_listening_end")
 		h.statusLED.Clear(statusled.StateListening)
+		// Extend window 5s to cover STT → Lumi → LLM → TTS pipeline.
+		h.voiceActiveUntil.Store(time.Now().Add(5 * time.Second).UnixMilli())
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 		return
 	}
@@ -153,11 +161,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// When agent is busy:
 	// - voice_command (wake word confirmed) always passes through immediately.
-	// - presence.enter / presence.leave are queued and replayed when agent becomes idle.
-	// - All other passive events (motion, voice, light.level) are dropped.
+	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
+	// - During voice window: all passive sensing is queued (not dropped) so events aren't lost.
+	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
 	isPassive := req.Type != "voice_command"
+	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
-		if req.Type == "presence.enter" || req.Type == "presence.leave" {
+		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||
+			req.Type == "voice" || inVoiceWindow
+		if shouldQueue {
 			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
 			return
