@@ -396,6 +396,7 @@ class VoiceService:
             if first_transcript_time is None:
                 first_transcript_time = time.time()
             if not is_final:
+                logger.debug("STT partial: '%s'", text)
                 return
             lower = text.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
