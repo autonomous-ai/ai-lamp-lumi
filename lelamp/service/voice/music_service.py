@@ -288,6 +288,7 @@ class MusicService:
             audio_url, title = self._resolve_audio_url(query)
             if not audio_url:
                 logger.error("No audio URL found for: '%s'", query[:80])
+                _stopped_by = "error"
                 return
 
             self._current_title = title
