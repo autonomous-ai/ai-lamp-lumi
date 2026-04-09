@@ -47,8 +47,8 @@ SOUND_RMS_THRESHOLD = 8000  # RMS threshold for "loud noise"
 SOUND_SAMPLE_DURATION_S = 0.5  # sample window for sound level check
 
 # --- Sensing: Light level detection ---
-LIGHT_LEVEL_INTERVAL_S = 30.0  # check every 30 seconds
-LIGHT_CHANGE_THRESHOLD = 30  # minimum brightness change (0-255) to trigger event
+LIGHT_LEVEL_INTERVAL_S = 300.0  # check every 5 minutes
+LIGHT_CHANGE_THRESHOLD = 50  # minimum brightness change (0-255) to trigger event
 
 # --- Sensing: Face detection ---
 FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
