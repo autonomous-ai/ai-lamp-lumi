@@ -93,6 +93,8 @@ export interface FaceOwnerDetail {
   role?: string;
   photo_count: number;
   photos: string[];
+  mood_days?: string[];
+  files?: string[];
 }
 export interface FaceOwnersDetail {
   owner_count: number;
@@ -132,15 +134,8 @@ export function isNavLink(c: NavChild): c is NavLink {
 export const NAV: NavEntry[] = [
   { id: "overview",  label: "Overview",  icon: "◈" },
   { id: "flow",      label: "Flow",      icon: "⇉" },
-  {
-    group: "vision",
-    label: "Vision",
-    icon: "⊙",
-    children: [
-      { id: "camera",      label: "Camera", icon: "◫" },
-      { id: "face-owners", label: "Faces",  icon: "◎" },
-    ],
-  },
+  { id: "face-owners", label: "Users",   icon: "◎" },
+  { id: "camera",      label: "Camera",  icon: "◫" },
   { id: "analytics", label: "Analytics", icon: "▦" },
   { id: "chat",      label: "Chat",      icon: "✉" },
   {
