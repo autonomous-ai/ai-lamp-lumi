@@ -113,24 +113,27 @@ The system log uses lumberjack rotation (1 MB cap, 3 backups) — it may miss da
 
 ## Mood history
 
-A dedicated mood history log tracks mood-relevant sensing events and LLM mood assessments separately from the flow log. Use it for mood/music context queries.
+A dedicated mood history log tracks mood-relevant sensing events and LLM mood assessments per user. Each user's mood data lives in their own directory.
 
 **API:**
 ```bash
-# Today's mood history
+# Current user's mood history (auto-detects who's present)
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
+
+# Specific user's mood history
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=gray&date=$(date +%Y-%m-%d)&last=100"
 ```
 
 Returns two types of entries:
-- **Sensing input** — raw events: `presence.enter`, `wellbeing.break`, `light.level`, `music.mood`, etc.
+- **Sensing input** — raw events: `presence.enter`, `presence.leave`, `light.level`, `sound`, `motion.activity`, etc.
 - **`mood.assessed`** — LLM's assessment result with `emotion`, `source` (which event triggered it), `response` (what LLM said), and `no_reply` flag.
 
 ```json
-{"event":"music.mood","hour":15,"message":"User here 60 min..."}
-{"event":"mood.assessed","hour":15,"emotion":"caring","source":"music.mood","response":"How about some lo-fi?","no_reply":false}
+{"event":"presence.enter","hour":9,"user":"gray","message":"Person detected..."}
+{"event":"mood.assessed","hour":15,"user":"gray","emotion":"caring","source":"music.mood","response":"How about some lo-fi?","no_reply":false}
 ```
 
-Storage: `/root/local/mood_YYYY-MM-DD.jsonl` (30-day retention).
+Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).
 
 ---
 
