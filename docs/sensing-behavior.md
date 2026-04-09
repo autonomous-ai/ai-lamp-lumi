@@ -186,9 +186,10 @@ When a known person arrives (`presence.enter`), the agent:
 
 1. **Reads their notebook** to recall what it has learned about their patterns.
 2. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
-3. **Schedules two cron jobs** via `cron.add` (kind: `every`):
-   - `"Wellbeing: hydration check"` — takes a camera snapshot, checks presence, reminds if appropriate
-   - `"Wellbeing: break check"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
+3. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
+4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+   - `"Wellbeing: {name} hydration"` — takes a camera snapshot, checks presence, reminds if appropriate
+   - `"Wellbeing: {name} break"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
 
 When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
@@ -200,6 +201,7 @@ Each cron fires an agent turn. The agent:
 3. If user is present and the reminder is warranted → one short sentence, varied phrasing
 4. If user is absent, already has a drink, or looks fine → no response
 5. Always emits `[HW:/emotion:{...}]` marker
+6. If speaking, adds `[HW:/broadcast:{}]` — forces TTS + sends text to Telegram so the user sees it on their phone too
 
 ### Agent behavior
 
@@ -225,6 +227,28 @@ Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the
 
 See the Music skill (`resources/openclaw-skills/music/SKILL.md`) for full implementation details.
 
+### Proactive care (piggyback on sensing events)
+
+Beyond scheduled reminders, the agent is encouraged to **notice things** when receiving any event where the user is visible (presence.enter, motion.activity). Based on time of day, how long the user has been sitting, and what it sees, the agent may proactively mention meals, fatigue, or late nights — one short sentence, only when it feels natural. This is not mandatory but encouraged.
+
+Examples: "Morning! Had breakfast?" on early `presence.enter`, "It's past noon — grab some lunch?" on `motion.activity` at 12:20, "It's almost 11 PM..." on late-night `motion.activity`.
+
+### Broadcast marker (`[HW:/broadcast:{}]`)
+
+A special HW marker that forces the agent's spoken text to also be sent to all Telegram channels. Used by wellbeing crons, music suggestions, and any cron-fired turn where the user should see the message on their phone. Also forces TTS for non-voice turns (e.g., cron-triggered agent turns that would otherwise be silent). Works like guard mode alerts.
+
+### Per-user mood history
+
+Mood history is stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention). The system tracks who is present via `presence.enter` (face recognition) and logs mood events to that user's directory. The mood history API supports a `?user=` parameter (defaults to current user):
+
+```bash
+GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
+```
+
+### Cross-channel identity
+
+The agent links face recognition names to Telegram usernames by observing timing and context (e.g., "gray" is at the desk and "@GrayDev" messages on Telegram simultaneously). Confirmed mappings are stored in `USER.md` (for the owner) or the user's folder notes. The agent asks for confirmation if unsure.
+
 ---
 
 ## Motion Activity Analysis (while present)
@@ -246,7 +270,7 @@ When the agent responds to `motion.activity`, it visually assesses what the user
 - User stretching/standing → `cron.remove` the break check job, then `cron.add` it again with the same interval (resets the timer to zero)
 - User drinking water → `cron.remove` the hydration check job, then `cron.add` it again with the same interval
 
-The agent uses consistent job names (`"Wellbeing: hydration check"`, `"Wellbeing: break check"`) to find and reset them. This way the LLM decides *which* cron to reset based on what it actually sees — stretching ≠ drinking water.
+The agent uses per-user job names (`"Wellbeing: {name} hydration"`, `"Wellbeing: {name} break"`) to find and reset them. This way the LLM decides *which* cron to reset based on what it actually sees — stretching ≠ drinking water.
 
 ### Agent behavior
 
