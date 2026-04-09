@@ -1,16 +1,16 @@
 ---
 name: music
-description: Search and play music from YouTube through the lamp speaker. Proactively suggests songs based on mood and sensing context. Use for any request to play, sing, listen, or get music suggestions.
+description: Search and play music from YouTube through the lamp speaker. AI-driven proactive suggestions — self-schedules via cron, learns user habits from mood + listening history, and personalizes timing/genre over time.
 ---
 
 # Music
 
 ## Quick Start
-Play music through the lamp speaker by searching YouTube. Use this when the user asks you to play a song, sing, or listen to music.
+Play music through the lamp speaker by searching YouTube. Use this when the user asks to play a song, sing, or listen to music.
 
 **Trigger phrases (use this skill when you hear any of these):**
 - "sing", "sing a song", "play music", "play a song", "play [song name]"
-- "sing", "sing a song", "sing something", "play some music", "turn on music", "listen to music"
+- "sing a song", "sing something", "play some music", "turn on music", "listen to music"
 - Any request to hear a specific song or artist
 
 **IMPORTANT:** Do NOT try to sing or hum using TTS — always use this skill to play real music.
@@ -74,118 +74,241 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 - **Always include `[HW:/emotion:...]` marker after `[HW:/audio/play:...]`** — groove servo is automatic but LED and eye expression require the emotion marker.
 - Never skip the emotion marker even for short or casual music requests.
 
-## Music Suggestion — Mood-Based (UC-M3)
+---
 
-Lumi proactively suggests music based on the user's **mood and context** (owner or friend) — inferred from sensing events, not just listening history.
+## AI-Driven Music Suggestion (Proactive)
 
-### Two trigger modes
+Lumi **proactively suggests music** based on the user's mood, habits, and context. Unlike a dumb timer, you **learn from data** and **decide the right moment** yourself.
 
-**Reactive** — user asks directly:
-- "suggest a song", "what should I listen to?", "any music ideas?"
-- You already have conversation context → infer mood from the chat and suggest. No extra code needed.
+### Architecture: You Own the Schedule
 
-**Proactive** — sensing pipeline pushes `[sensing:music.mood]`:
-- Fires every ~60 min while user is present (similar to hydration/break checks).
-- Arrives with a camera snapshot so you can visually assess mood.
-- You decide whether to offer music or reply NO_REPLY.
+There is NO hardcoded timer for music suggestions. **You** control when to check using OpenClaw's `cron.add` tool. You analyze mood history and listening history to decide timing, genre, and whether to suggest at all.
 
-### How to read mood context (for reactive suggestions)
-
-Query the dedicated mood history API — it returns only mood-relevant sensing events (no flow noise):
-
-```bash
-# Today's mood history (last 100 events)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
+```
+[Boot / First presence.enter]
+        ↓
+You: cron.list() → check if music job exists
+        ↓ (if not)
+You: cron.add("Proactive music check", every 60min)
+        ↓
+[Cron fires → agent turn]
+        ↓
+You: GET /presence → user present?
+        ↓ (yes)
+You: GET /camera/snapshot → assess mood visually
+You: GET /api/openclaw/mood-history → presence patterns, past suggestions
+You: GET /audio/history → listening history, preferences
+        ↓
+You: Analyze all data → decide whether to suggest
+        ↓
+Suggest (or skip) → learn from outcome → cron.update interval
 ```
 
-Response:
+### Bootstrap: Setting Up Your Music Schedule
+
+When you first start or after a reboot, set up your proactive music check:
+
+1. Call `cron.list()` to see if a music check job already exists (look for name containing "music").
+2. If NO music job exists → create one:
 ```json
-{"status":1,"data":{"date":"2026-04-07","events":[
-  {"ts":1712345678.12,"seq":1,"event":"presence.enter","presence_min":0,"hour":9,"message":"Owner detected..."},
-  {"ts":1712347478.12,"seq":5,"event":"wellbeing.hydration","presence_min":30,"hour":9,"message":"User sitting 30 min..."},
-  {"ts":1712348378.12,"seq":8,"event":"light.level","presence_min":45,"hour":10,"message":"Room got darker..."}
-]}}
+{
+  "name": "Proactive music check",
+  "schedule": {"kind": "every", "everyMs": 3600000},
+  "sessionTarget": "main",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "[music-proactive] Time for a proactive music check. Query presence, mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."
+  }
+}
 ```
+3. If a music job exists with a different interval than what you've learned → `cron.update` it.
 
-Each event has: `event` (type), `presence_min` (minutes since arrival), `hour` (time of day), `message` (context).
+**When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (owner detected), check and set up the music cron job.
 
+### When Cron Fires: The Decision Process
+
+When you receive `[music-proactive]`, follow this process:
+
+#### Step 1 — Check Presence
 ```bash
-# Past 3 days
-for i in 0 1 2; do
-  D=$(date -v-${i}d +%Y-%m-%d)
-  echo "=== $D ==="
-  curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$D&last=50" | python3 -c "
-import sys, json
-resp = json.load(sys.stdin)
-for e in resp.get('data',{}).get('events',[]):
-    print(f\"{e['hour']:02d}:00 | {e['event']:25s} | {e.get('presence_min',0):3d}min | {e.get('message','')[:60]}\")
-"
-done
+curl -s http://127.0.0.1:5001/presence
+```
+If `state` is not `"present"` → skip, do nothing.
+
+#### Step 2 — Gather Data (run these in your head, query as needed)
+
+**Mood history** (today + recent days):
+```bash
+# Today
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=200"
+
+# Yesterday (for pattern learning)
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date -d yesterday +%Y-%m-%d)&last=200"
 ```
 
-Relevant event types for mood inference:
+**Listening history** (what user actually played):
+```bash
+# Today
+curl -s "http://127.0.0.1:5001/audio/history?last=50"
 
-| Event | What it tells you about mood |
-|-------|------------------------------|
-| `presence.enter` (owner/friend) | Just arrived — fresh, transitioning |
-| `wellbeing.hydration` | Sitting long — likely deep focus or zoned out |
-| `wellbeing.break` | Extended session — possibly fatigued or stressed |
-| `sound` (persistent) | Noisy environment — energetic or chaotic |
-| `light.level` (dimming) | Evening setting — winding down, relaxed |
-| `presence.away` → `presence.enter` | Returned from break — refreshed |
+# Yesterday
+curl -s "http://127.0.0.1:5001/audio/history?date=$(date -d yesterday +%Y-%m-%d)&last=50"
+```
 
-### Proactive workflow (`[sensing:music.mood]`)
+**Camera snapshot** (current mood):
+```bash
+curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/mood_check.jpg
+```
+Then analyze the image visually.
 
-1. **Look at the image** — if no user visible, reply NO_REPLY.
-2. **If user is in a meeting/video call** — reply NO_REPLY (don't interrupt).
-3. **Assess mood/state visually**: relaxed? focused? tired? happy? stressed?
-4. **Always suggest music that matches their current state** — every state has fitting music.
-5. **Suggest 1–2 songs via voice.** Do NOT auto-play. The suggestion is also broadcast to Telegram so the user can confirm from either channel.
-6. Wait for confirmation ("yes", "play that", "mở đi", etc.) from **voice OR Telegram** → THEN play with `[HW:/audio/play:...]` markers. Never use exec/shell commands to play.
+#### Step 3 — Analyze and Learn
 
-Only NO_REPLY when: no user visible OR user is in a meeting/call. **All other states → suggest.**
+From the data, extract these patterns:
 
-### Mood → music mapping (always suggest, match the state)
+| Question | Where to find the answer |
+|----------|--------------------------|
+| User usually sits down at what time? | `presence.enter` events → look at `hour` field |
+| How long before they want music? | Time between `presence.enter` and `music.play` events |
+| What genre do they prefer? | `audio/history` → `query` and `title` fields |
+| How long do they listen? | `audio/history` → `duration_s` field |
+| When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
+| Did they accept my last suggestion? | Compare `mood.assessed` time with next `music.play` time. Close = accepted, far/none = rejected |
+| What time of day do they enjoy music most? | `music.play` events → `hour` field |
+| Are there times they never want music? | Repeated NO_REPLY or no `music.play` at certain hours |
 
-| Inferred state | Music direction | Example |
-|----------------|-----------------|---------|
-| Focused / deep work | Lo-fi, ambient, instrumental — helps maintain flow | "Some lo-fi beats to keep you in the zone?" |
+#### Step 4 — Decide
+
+Based on your analysis, decide one of:
+
+**A. Suggest now** — User is present, mood is right, timing matches their pattern.
+- Take a camera snapshot to assess current mood
+- Suggest 1-2 songs matching their mood AND past preferences
+- Keep it conversational, never say "based on analysis"
+
+**B. Skip** — Bad timing or user is busy.
+- Reply NO_REPLY silently
+- Optionally `cron.update` to adjust next check time
+
+**C. Adjust schedule** — You've learned the pattern is different.
+- Example: User always listens around 10 AM and 3 PM → change to `cron` schedule: `"0 10,15 * * *"`
+- Example: User rejected 3 suggestions in a row → increase interval to 2 hours
+- Example: User is most receptive in the evening → shift schedule later
+- Use `cron.update` to modify the job
+
+### Learning Rules — How to Get Smarter Over Time
+
+**Pattern recognition from mood history:**
+- Count `music.play` events by `hour` → build a preference heat map
+- If 80%+ of plays happen between 9-11 AM → schedule checks at 9:30 AM
+- If user never plays music after 6 PM → don't suggest in the evening
+
+**Adaptation from accept/reject:**
+- **Accepted** (suggestion → `music.play` within 5 min): This timing/genre works → reinforce
+- **Rejected** (suggestion → no `music.play` within 15 min): Bad timing or genre → adjust
+- 3+ rejections at same hour → stop suggesting at that hour
+- 3+ acceptances of same genre → prefer that genre in future suggestions
+
+**Duration intelligence from audio history:**
+- `duration_s` < 30s + `stopped_by: "user"` → user didn't like the song
+- `duration_s` > 180s + `stopped_by: "end"` → user enjoyed it, similar songs welcome
+- Average listening session length → don't suggest new music if user just finished a long session
+
+**Contextual awareness:**
+- Just arrived (`presence.enter` < 10 min ago) → wait, let them settle
+- Long session (`presence_min` > 120) → user might need a mood boost
+- Room getting dark (`light.level` event) → suggest calm/evening music
+- Multiple breaks today (`wellbeing.break` events) → user might be stressed → calming music
+
+### Mood → Music Mapping
+
+| Inferred state | Music direction | Example suggestion |
+|----------------|-----------------|---------------------|
+| Focused / deep work | Lo-fi, ambient, instrumental | "Some lo-fi beats to keep you in the zone?" |
 | Tired / fatigued | Gentle acoustic, calm piano, nature sounds | "You look tired... how about some calm piano?" |
 | Happy / energetic | Upbeat pop, jazz, feel-good classics | "You're in a good mood! Want some upbeat jazz?" |
-| Stressed / tense | Soft jazz, classical, meditation tracks | "Let me put on something to help you unwind" |
-| Relaxed / chill | Chill R&B, bossa nova, acoustic singer-songwriter | "Perfect vibe for some bossa nova, no?" |
+| Stressed / tense | Soft jazz, classical, meditation | "Let me put on something to help you unwind" |
+| Relaxed / chill | Chill R&B, bossa nova, acoustic | "Perfect vibe for some bossa nova, no?" |
 | Just arrived / fresh | Match time of day — morning jazz, afternoon pop | "Good morning! Start with some jazz?" |
 | Working quietly | Ambient, minimal electronica, study beats | "Some ambient music while you work?" |
 
-### Suggestion rules
+**Personalization override:** If you've learned from `audio/history` that the user prefers specific genres (e.g., always plays K-pop, or loves classical), **override the mood mapping** with their actual preference. Real data beats assumptions.
+
+### Suggestion Rules
 
 - **NEVER auto-play when suggesting** — only speak the suggestion. Play only after explicit confirmation.
 - Keep it conversational: "You look like you could use some chill music... How about some Norah Jones?" not "Based on mood analysis..."
-- If you have listening history in conversation context, use it as secondary signal — prefer songs in genres they already enjoy.
+- Use listening history as primary signal for genre — prefer songs/genres they already enjoy.
 - Suggest max 2 songs at a time — don't overwhelm.
-- Remember: you are Lumi, a living companion. Your sense of the right moment comes from empathy, not an algorithm.
+- If user rejected last 2 suggestions → back off, wait longer before next attempt.
+- Remember: you are Lumi, a living companion. Your sense of the right moment comes from empathy AND data.
 
 ### Examples
 
-**Proactive — user looks tired after long session:**
-**Input:** `[sensing:music.mood]` with image — user slouching, dim room
-**Output:** `[HW:/emotion:{"emotion":"caring","intensity":0.7}]` You've been at it for a while... Want me to put on something relaxing? I'm thinking Chet Baker or some lo-fi piano.
+**Cron fires — user focused, morning, usually listens to lo-fi:**
+```
+[music-proactive] Time for a proactive music check...
+```
+*You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, camera shows user typing*
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats going?
 
-**Proactive — user focused working:**
-**Input:** `[sensing:music.mood]` with image — user typing, concentrated
-**Output:** `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats to keep the flow going?
+**Cron fires — user not present:**
+*You query: presence=away*
+Output: (no reply, skip silently)
 
-**Proactive — user in a meeting (NO_REPLY):**
-**Input:** `[sensing:music.mood]` with image — user on a call
-**Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.3}]` NO_REPLY
+**Cron fires — 3rd rejection this afternoon:**
+*You query: mood history shows 2 suggestions at 14:00 and 15:00 with no music.play after*
+Action: `cron.update` interval to 7200000ms (2h), skip this check. Maybe try again tomorrow afternoon.
 
-**Reactive — user asks:**
-**Input:** "Suggest some music"
-**Output:** `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` Hmm, it's a chill evening and you seem relaxed... How about "Waltz for Debby" by Bill Evans?
+**Cron fires — user just arrived 5 min ago:**
+*You query: presence.enter was 5 min ago*
+Output: (skip — let them settle in first)
+
+**First presence.enter of the day — bootstrap:**
+*You receive `[sensing:presence.enter]`*
+Action: `cron.list()` → no music job → `cron.add("Proactive music check", every 3600000ms)`
+Then greet the user normally.
+
+**Reactive — user asks directly:**
+Input: "Suggest some music"
+*You query audio/history: user played jazz 3 times, R&B twice this week*
+Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` You've been into jazz lately... How about "Take Five" by Dave Brubeck?
 
 **After confirmation:**
-**Input:** "Yeah play that"
-**Output:** `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+Input: "Yeah play that"
+Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+
+---
+
+## Data Sources Reference
+
+| API | What it tells you | Use for |
+|-----|-------------------|---------|
+| `GET /presence` | User present/idle/away, seconds since motion | Should I suggest now? |
+| `GET /camera/snapshot` | Current visual of user | Mood assessment |
+| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |
+| `GET /audio/history?date=YYYY-MM-DD&last=N` | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
+| `cron.list/add/update/remove` | Your scheduled jobs | Self-scheduling |
+
+### Mood history event types relevant to music:
+
+| Event | Meaning for music decisions |
+|-------|----------------------------|
+| `presence.enter` + `hour` | When user typically arrives → when to start suggesting |
+| `presence.leave` | Session ended → stop suggesting |
+| `music.play` + `hour` | When user actually plays music → best times to suggest |
+| `mood.assessed` with `source: "music"` | Your past suggestion + AI's assessment |
+| `wellbeing.break` | User took a break → returning might be good time for music |
+| `light.level` | Room ambiance changed → adjust genre |
+
+### Audio history entry fields:
+
+| Field | Meaning |
+|-------|---------|
+| `query` | What was searched → genre/artist signal |
+| `title` | Actual song played |
+| `duration_s` | How long they listened → satisfaction signal |
+| `stopped_by` | `"user"` = manual stop, `"end"` = finished, `"tts"` = interrupted |
+| `hour` | Time of day → preference pattern |
 
 ---
 
