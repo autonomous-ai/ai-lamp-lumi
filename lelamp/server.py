@@ -378,7 +378,7 @@ async def lifespan(app: FastAPI):
     # Start music service (uses ffmpeg + ALSA directly, no sounddevice needed)
     if MusicService:
         try:
-            music_service = MusicService()
+            music_service = MusicService(on_complete=_on_music_complete)
             logger.info("MusicService started")
         except Exception as e:
             logger.warning(f"MusicService failed to start: {e}")
@@ -2818,12 +2818,8 @@ def audio_play(req: MusicPlayRequest):
     return {"status": "ok"}
 
 
-@app.post("/audio/stop", response_model=StatusResponse, tags=["Audio"])
-def audio_stop():
-    """Stop current music playback."""
-    if music_service and music_service.playing:
-        music_service.stop()
-    # Stop groove servo + restore idle LED + display
+def _on_music_complete():
+    """Restore idle state after music ends (servo, LED, display)."""
     if animation_service:
         animation_service.dispatch("music_stop", None)
     idle_preset = EMOTION_PRESETS["idle"]
@@ -2854,6 +2850,14 @@ def audio_stop():
             display_service.set_expression("neutral")
         except Exception as e:
             logger.warning("Music stop display failed: %s", e)
+
+
+@app.post("/audio/stop", response_model=StatusResponse, tags=["Audio"])
+def audio_stop():
+    """Stop current music playback."""
+    if music_service and music_service.playing:
+        music_service.stop()
+    _on_music_complete()
     return {"status": "ok"}
 
 

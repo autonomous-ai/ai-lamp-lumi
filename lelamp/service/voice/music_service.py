@@ -133,9 +133,11 @@ class MusicService:
         self,
         tts_service=None,
         alsa_device: str = ALSA_DEVICE,
+        on_complete=None,
     ):
         self._tts_service = tts_service
         self._alsa_device = alsa_device
+        self._on_complete = on_complete
 
         self._lock = threading.Lock()
         self._playing = False
@@ -275,6 +277,11 @@ class MusicService:
             self._playing = False
             self._current_title = None
             self._lock.release()
+            if self._on_complete:
+                try:
+                    self._on_complete()
+                except Exception as e:
+                    logger.warning("on_complete callback failed: %s", e)
 
     def _play_sync(self, query: str):
         """Search, resolve audio URL, play via ffmpeg directly to ALSA."""
@@ -372,6 +379,11 @@ class MusicService:
             self._playing = False
             self._current_title = None
             self._lock.release()
+            if self._on_complete:
+                try:
+                    self._on_complete()
+                except Exception as e:
+                    logger.warning("on_complete callback failed: %s", e)
 
     def _resolve_audio_url(self, query: str) -> tuple[Optional[str], Optional[str]]:
         """Use yt-dlp to search YouTube and return (watch_url, title)."""
