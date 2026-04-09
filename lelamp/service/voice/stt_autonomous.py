@@ -224,9 +224,9 @@ class AutonomousSTTSession(STTSession):
             except Exception:
                 pass
         if self._recv_thread:
-            self._recv_thread.join(timeout=5)
+            self._recv_thread.join(timeout=15)
             if self._recv_thread.is_alive():
-                logger.warning("Autonomous STT recv thread did not exit in 5s")
+                logger.warning("Autonomous STT recv thread did not exit in 15s")
         self._closed.set()
         logger.info("Autonomous STT connection closed")
 
