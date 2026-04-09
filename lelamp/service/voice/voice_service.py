@@ -441,8 +441,8 @@ class VoiceService:
 
         try:
             if preconnected_session:
-                # Already connected — just register the real transcript callback.
-                session._on_transcript = on_transcript
+                # Already connected — swap in the real transcript callback.
+                session._on_transcript_cb = on_transcript
                 logger.info("STT keepalive: reusing pre-connected session")
             else:
                 # Connect WS in background while buffering mic audio so speech start isn't lost.
