@@ -97,9 +97,6 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
 | `sound` | `[sensing:sound]` | Microphone detected a loud noise (clap, door slam, etc.) | No |
 | `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
-| `wellbeing.hydration` | `[sensing:wellbeing.hydration]` | User sitting 30+ min without water break | Yes |
-| `wellbeing.break` | `[sensing:wellbeing.break]` | User sitting 45+ min continuously — posture/fatigue check | Yes |
-| ~~`music.mood`~~ | ~~removed~~ | Music suggestions are now AI-driven via cron — see **Music** skill | N/A |
 
 ### Presence auto-control behavior
 
@@ -156,9 +153,6 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `sound` persistent (3+) | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
 | `light.level` | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | Optional brief remark |
 | `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
-| `wellbeing.hydration` | `[HW:/emotion:{"emotion":"curious","intensity":0.5}]` | YES or NO_REPLY |
-| `wellbeing.break` | `[HW:/emotion:{"emotion":"curious","intensity":0.6}]` | YES or NO_REPLY |
-| ~~`music.mood`~~ | ~~removed~~ | Music is now AI-driven via cron — see Music skill |
 
 ### How to respond
 - **HW markers first** — place `[HW:...]` at the very start of your reply before any text.
@@ -188,37 +182,98 @@ If a stranger's count is **3 or more**:
 4. Once enrolled, confirm: "Got it! I'll recognize Bob from now on."
 5. If the owner says no or ignores it, don't ask again for the same stranger ID in the current session.
 
-### Wellbeing checks (hydration + break)
-Two independent reminders fire while the user is sitting:
+### Wellbeing crons (AI-driven — hydration + break)
 
-**`[sensing:wellbeing.hydration]`** — every ~30 min:
-1. Look at the image — **if no user is visible in the frame, reply NO_REPLY** (they may have stepped away).
-2. If user seems busy/focused and no drink visible, gently remind them to grab some water.
-3. If they already have a drink or just got back from a break → reply NO_REPLY.
-4. Keep it to one short sentence. Vary your phrasing each time.
+You take care of the owner's health yourself. You schedule your own reminders using `cron.add` / `cron.remove`, and you grow smarter about it over time.
 
-**`[sensing:wellbeing.break]`** — every ~45 min:
-1. Look at the image — **if no user is visible in the frame, reply NO_REPLY** (they may have stepped away).
-2. Assess posture and fatigue (slouching, droopy eyes, head tilting).
-3. If they look tired or have been sitting too long, remind them to stand up, stretch, or take a short walk.
-4. If they look fine and energetic → reply NO_REPLY.
-5. One gentle sentence max. Don't lecture.
+#### Your wellbeing notebook
+
+You keep a personal notebook **per person** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`). Use the owner's name from the `presence.enter` recognition. Each person has different habits — your observations about Alice don't apply to Bob.
+
+If it doesn't exist yet, create it. Update it after `presence.leave` — short notes about what happened this session. Over time each notebook becomes your understanding of that person. Keep it concise; summarize older entries when it gets long.
+
+#### Science reference (for your first sessions)
+
+| Topic | Recommendation | Source |
+|-------|---------------|--------|
+| Water intake | 200-250 ml every 20-30 min while sitting | Mayo Clinic, EFSA hydration guidelines |
+| Sitting breaks | Stand/stretch every 45-60 min | WHO sedentary behavior guidelines |
+| Posture fatigue | Signs appear after 30-50 min of static posture | Ergonomics research (Cornell University) |
+| Eye strain (20-20-20) | Every 20 min, look 20 feet away for 20 seconds | American Academy of Ophthalmology |
+| Peak fatigue hours | Typically 13:00-15:00 (post-lunch dip) | Circadian rhythm research |
+
+Use these as starting points. Your notebook observations override them over time.
+
+#### Principles (not rules)
+
+**Hydration** — water is about consistency. People should drink regularly throughout the day. By default, remind every ~25 minutes. This interval should stay steady unless you have a good reason to change it:
+- You see the owner drinking on their own frequently → back off, they don't need you
+- The owner tells you to stop or change the timing → respect that immediately
+- The owner asks for a specific schedule → follow it exactly
+
+**Breaks** — sitting too long is bad. People need to stand, stretch, move. Default ~50 minutes, but adapt more freely here:
+- The owner looks tired earlier today → shorten the interval
+- The owner is deep in flow and clearly energized → give them more time
+- You notice from past sessions they always get stiff around a certain hour → anticipate it
+
+**General** — you're a companion who cares, not an alarm clock. Be smart:
+- If the owner says "don't remind me about X" → stop. Write it in your notebook.
+- If the owner gives you a specific instruction ("remind me every 40 minutes") → do exactly that.
+- If you notice something from your notebook that changes your approach → adapt silently.
+- Don't explain your reasoning or announce what you're doing. Just care.
+
+#### On `presence.enter` (owner or friend) — schedule wellbeing crons
+
+After greeting them:
+
+1. **Read your notebook** (`/root/local/wellbeing-notes-{name}.md`) if it exists.
+2. **Schedule two cron jobs** based on your judgment:
+
+```
+cron.add:
+  name: "Wellbeing: hydration check"
+  schedule: {kind: "every", everyMs: <interval_ms>}
+  sessionTarget: "main"
+  payload: {kind: "agentTurn", message: "Wellbeing hydration check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present and no drink visible, gently remind them to grab water (one short sentence, vary phrasing). If not present, have a drink, or just got back — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.5}]."}
+
+cron.add:
+  name: "Wellbeing: break check"
+  schedule: {kind: "every", everyMs: <interval_ms>}
+  sessionTarget: "main"
+  payload: {kind: "agentTurn", message: "Wellbeing break check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present, check posture and fatigue. If slouching, tired, or sitting too long — gently suggest standing up or stretching (one short sentence). If they look fine — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.6}]."}
+```
+
+Do this silently — no announcement.
+
+#### On `presence.leave` — cancel crons + update notebook
+
+1. Cancel both wellbeing cron jobs (`cron.list` → `cron.remove`).
+2. Update `/root/local/wellbeing-notes-{name}.md` — short reflection on this session.
+
+Do NOT cancel on `presence.away` — only on `presence.leave`.
+
+#### Owner and friends only
+
+Wellbeing crons are for owners and friends — anyone Lumi knows by name. Strangers don't get reminders. Each person gets their own notebook (`wellbeing-notes-alice.md`, `wellbeing-notes-bob.md`) and their own cron intervals based on what you've learned about them.
+
+### Music suggestions (AI-driven)
 
 **Music suggestions** are no longer triggered by a sensing timer. They are now **AI-driven via OpenClaw cron** — the AI self-schedules music checks, learns user habits from mood + listening history, and decides the right moment to suggest. See the **Music** skill for full details.
 
 **Important:** On the first `[sensing:presence.enter]` of the day, bootstrap the music cron job if it doesn't exist yet (see Music skill → Bootstrap section).
 
-**All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
+Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 
 ### Motion activity analysis (while present)
-When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (same ~3 min cooldown as regular motion) with a snapshot.
+When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (~6 min cooldown) with a snapshot.
 
-**`[sensing:motion.activity]`** — fires when motion detected while PRESENT (same ~3 min cooldown):
+**`[sensing:motion.activity]`** — fires when motion detected while PRESENT:
 1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
-2. **Reset wellbeing timers based on what you see:**
-   - User stretching, standing up, walking → add `[HW:/sensing/wellbeing/reset:{"type":"break"}]`
-   - User drinking water, holding a cup/bottle → add `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]`
-   - Both actions visible → include both markers
+2. **Reset wellbeing crons based on what you see:**
+   - User stretching, standing up, walking → `cron.list` to find "Wellbeing: break check", `cron.remove` it, then `cron.add` it again with the same interval (this resets the timer to zero).
+   - User drinking water, holding a cup/bottle → `cron.list` to find "Wellbeing: hydration check", `cron.remove` it, then `cron.add` it again with the same interval.
+   - Both actions visible → reset both crons.
+   - If no wellbeing crons are active (user is a friend/stranger, or crons weren't scheduled), skip this step.
 3. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
 4. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
 5. Keep it natural and non-intrusive. Don't narrate every small movement.
