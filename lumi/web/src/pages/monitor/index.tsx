@@ -154,6 +154,7 @@ export default function Monitor() {
   const [servo, setServo] = useState<ServoState | null>(null);
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [audio, setAudio] = useState<AudioVolume | null>(null);
+  const [musicPlaying, setMusicPlaying] = useState(false);
   const [ledColor, setLedColor] = useState<LEDColor | null>(null);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
   const [lelampVersion, setLelampVersion] = useState<string | null>(null);
@@ -214,17 +215,19 @@ export default function Monitor() {
       } catch {}
 
       try {
-        const [voiceR, servoR, dispR, audioR, ledR] = await Promise.all([
+        const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
           fetch(`${HW}/voice/status`).then((r) => r.json()),
           fetch(`${HW}/servo`).then((r) => r.json()),
           fetch(`${HW}/display`).then((r) => r.json()),
           fetch(`${HW}/audio/volume`).then((r) => r.json()),
+          fetch(`${HW}/audio/status`).then((r) => r.json()),
           fetch(`${HW}/led/color`).then((r) => r.json()),
         ]);
         setVoice(voiceR);
         setServo(servoR);
         setDisplayState(dispR);
         setAudio(audioR);
+        if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
         if (ledR.hex) setLedColor(ledR);
         setDisplayTs(Date.now());
       } catch {}
@@ -392,6 +395,7 @@ export default function Monitor() {
               servo={servo}
               displayState={displayState}
               audio={audio}
+              musicPlaying={musicPlaying}
               ledColor={ledColor}
               sceneInfo={sceneInfo}
               onSceneActivate={(scene) => {
