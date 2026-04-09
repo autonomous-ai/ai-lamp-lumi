@@ -7,15 +7,87 @@ and output directly to ALSA device (bypassing sounddevice/PortAudio).
 
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("lelamp.voice.music")
 logger.setLevel(logging.DEBUG)
+
+# Audio play history — JSONL log for AI to learn user preferences
+_HISTORY_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data")) / "audio_history"
+_HISTORY_MAX_DAYS = 30
+
+
+def _history_path(date_str: str | None = None) -> Path:
+    """Return path to daily history JSONL file."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    return _HISTORY_DIR / f"music_{date_str}.jsonl"
+
+
+def _log_play_event(
+    query: str,
+    title: str | None,
+    started_at: float,
+    ended_at: float,
+    stopped_by: str,
+) -> None:
+    """Append a play event to today's history file."""
+    try:
+        _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": started_at,
+            "date": datetime.fromtimestamp(started_at).strftime("%Y-%m-%d"),
+            "hour": datetime.fromtimestamp(started_at).hour,
+            "query": query,
+            "title": title or "",
+            "duration_s": round(ended_at - started_at, 1),
+            "stopped_by": stopped_by,  # "user" | "end" | "tts" | "error" | "next"
+        }
+        path = _history_path(entry["date"])
+        with open(path, "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        logger.debug("Audio history logged: %s (%s)", title, stopped_by)
+    except Exception as e:
+        logger.warning("Failed to log audio history: %s", e)
+
+
+def _cleanup_old_history() -> None:
+    """Remove history files older than _HISTORY_MAX_DAYS."""
+    try:
+        if not _HISTORY_DIR.exists():
+            return
+        cutoff = time.time() - (_HISTORY_MAX_DAYS * 86400)
+        for f in _HISTORY_DIR.glob("music_*.jsonl"):
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                logger.debug("Cleaned up old history: %s", f.name)
+    except Exception as e:
+        logger.warning("History cleanup failed: %s", e)
+
+
+def query_play_history(date_str: str | None = None, last: int = 50) -> list[dict]:
+    """Read play history for a given date. Returns most recent `last` entries."""
+    path = _history_path(date_str)
+    if not path.exists():
+        return []
+    entries = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+    except Exception as e:
+        logger.warning("Failed to read history %s: %s", path, e)
+    return entries[-last:]
 
 
 def _detect_alsa_output_device() -> str:
@@ -71,6 +143,7 @@ class MusicService:
         self._ytdlp_proc: Optional[subprocess.Popen] = None
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._current_title: Optional[str] = None
+        _cleanup_old_history()
 
     @property
     def available(self) -> bool:
@@ -140,6 +213,8 @@ class MusicService:
         try:
             self._playing = True
             self._current_title = title or path.split("/")[-1]
+            _started_at = time.time()
+            _stopped_by = "end"
 
             # Wait if TTS is speaking
             if self._tts_service and self._tts_service.speaking:
@@ -172,23 +247,30 @@ class MusicService:
                     if ret != 0:
                         stderr = self._ffmpeg_proc.stderr.read().decode(errors="replace")
                         logger.error("ffmpeg exited with code %d: %s", ret, stderr[-500:])
+                        _stopped_by = "error"
                     break
                 if self._tts_service and self._tts_service.speaking:
                     logger.debug("Pausing file playback for TTS")
                     self._ffmpeg_proc.terminate()
+                    _stopped_by = "tts"
                     break
                 time.sleep(0.2)
+
+            if self._stop_event.is_set():
+                _stopped_by = "user"
 
             logger.info("File playback ended")
 
         except Exception as e:
             logger.error("File play failed: %s (type=%s)", e, type(e).__name__)
+            _stopped_by = "error"
         finally:
             if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
                 try:
                     self._ffmpeg_proc.terminate()
                 except Exception:
                     pass
+            _log_play_event(path, self._current_title, _started_at, time.time(), _stopped_by)
             self._ffmpeg_proc = None
             self._playing = False
             self._current_title = None
@@ -196,6 +278,8 @@ class MusicService:
 
     def _play_sync(self, query: str):
         """Search, resolve audio URL, play via ffmpeg directly to ALSA."""
+        _started_at = time.time()
+        _stopped_by = "end"
         try:
             self._playing = True
 
@@ -256,18 +340,24 @@ class MusicService:
                     if ret != 0:
                         stderr = self._ffmpeg_proc.stderr.read().decode(errors="replace")
                         logger.error("ffmpeg exited with code %d: %s", ret, stderr[-500:])
+                        _stopped_by = "error"
                     break
                 # Pause playback while TTS is speaking
                 if self._tts_service and self._tts_service.speaking:
                     logger.debug("Pausing music for TTS")
                     self._ffmpeg_proc.terminate()
+                    _stopped_by = "tts"
                     break
                 time.sleep(0.2)
+
+            if self._stop_event.is_set():
+                _stopped_by = "user"
 
             logger.info("Music playback ended")
 
         except Exception as e:
             logger.error("Music play failed: %s (type=%s)", e, type(e).__name__)
+            _stopped_by = "error"
         finally:
             for proc in [self._ffmpeg_proc, self._ytdlp_proc]:
                 if proc and proc.poll() is None:
@@ -275,6 +365,7 @@ class MusicService:
                         proc.terminate()
                     except Exception:
                         pass
+            _log_play_event(query, self._current_title, _started_at, time.time(), _stopped_by)
             self._ffmpeg_proc = None
             self._ytdlp_proc = None
             self._playing = False
