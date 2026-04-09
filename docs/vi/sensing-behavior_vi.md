@@ -169,43 +169,41 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 
 ---
 
-## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi)
+## Chăm sóc sức khỏe (Wellbeing — Nhắc uống nước + Nghỉ ngơi, AI-Driven)
 
-Lumi chủ động chăm sóc sức khỏe người dùng bằng cách gửi ảnh camera định kỳ cho LLM khi có người hiện diện. Hai timer độc lập chạy song song:
-
-### Nhắc uống nước (`wellbeing.hydration`)
-
-- **Kích hoạt** sau 30 phút hiện diện liên tục, lặp lại mỗi 30 phút.
-- Gửi ảnh camera kèm context: "User ngồi X phút chưa uống nước."
-- LLM nhìn ảnh và quyết định: nhắc uống nước, hoặc NO_REPLY nếu không cần.
-- **Nếu không thấy user trong ảnh** → NO_REPLY (có thể họ đã đi ra ngoài).
-
-### Nhắc nghỉ ngơi (`wellbeing.break`)
-
-- **Kích hoạt** sau 45 phút hiện diện liên tục, lặp lại mỗi 45 phút.
-- Gửi ảnh camera kèm context: "User ngồi liên tục X phút."
-- LLM nhìn ảnh và quyết định: nhắc đứng lên stretch, hoặc NO_REPLY nếu user trông ổn.
-- **Nếu không thấy user trong ảnh** → NO_REPLY.
+Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI agent tự quản lý qua OpenClaw. Thay vì timer cứng, agent tự quyết interval dựa trên khoa học và thói quen user.
 
 ### Cơ chế hoạt động
 
-Class `WellbeingPerception` (`lelamp/service/sensing/perceptions/wellbeing.py`) theo dõi trạng thái presence từ `PresenceService`. Khi user đến (`presence.enter`), hai timer độc lập bắt đầu. Mỗi timer chụp ảnh ổn định (freeze servo tạm thời) và gửi event lên Go handler, được forward lên agent như mọi sensing event khác. Khi user rời đi (`presence.leave` hoặc state chuyển sang IDLE/AWAY), tất cả timer reset.
+Agent duy trì một notebook cá nhân **cho từng người** tại `/root/local/wellbeing-notes-{name}.md` (ví dụ: `wellbeing-notes-alice.md`) để ghi lại quan sát về thói quen sức khỏe riêng của từng người (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00", "thích cách nhắc nhẹ nhàng"). Notebook này là của agent — tự tạo, tự cập nhật, tự học.
 
-### Hằng số (`config.py`)
+Khi người quen đến (`presence.enter`), agent:
 
-```python
-WELLBEING_HYDRATION_S = 30 * 60   # 30 phút giữa các lần nhắc uống nước
-WELLBEING_BREAK_S     = 45 * 60   # 45 phút giữa các lần nhắc nghỉ
-```
+1. **Đọc notebook** để nhớ lại những gì đã học.
+2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
+3. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`):
+   - `"Wellbeing: hydration check"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
+   - `"Wellbeing: break check"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
+
+Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs và cập nhật notebook với quan sát từ session.
+
+### Hành vi khi cron fire
+
+Mỗi lần cron fire, agent:
+1. Chụp ảnh camera (`GET http://127.0.0.1:5001/camera/snapshot`)
+2. Check presence (`GET http://127.0.0.1:5001/presence`)
+3. Nếu user đang ngồi và cần nhắc → một câu ngắn, đổi cách nói mỗi lần
+4. Nếu user vắng mặt, đang uống nước, hoặc trông ổn → không nói
+5. Luôn emit `[HW:/emotion:{...}]` marker
 
 ### Hành vi của agent
 
-| Event | Emotion | Nói |
+| Nhắc nhở | Emotion | Nói |
 |---|---|---|
-| `wellbeing.hydration` | `curious` (0.5) | CÓ (nhắc uống nước) hoặc NO_REPLY |
-| `wellbeing.break` | `curious` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc NO_REPLY |
+| Hydration cron | `caring` (0.5) | CÓ (nhắc uống nước) hoặc im lặng |
+| Break cron | `caring` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc im lặng |
 
-LLM dùng ảnh đính kèm để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
+Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
 
 ### Gợi ý nhạc (AI-Driven)
 
@@ -246,14 +244,14 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 
 Cả hai dùng chung cooldown `MOTION_EVENT_COOLDOWN_S` (3 phút).
 
-### Reset wellbeing timer (LLM-driven)
+### Reset wellbeing cron (LLM-driven)
 
-Khi agent trả lời `motion.activity`, nó nhìn ảnh và đánh giá user đang làm gì, rồi reset timer tương ứng qua `[HW:...]` markers:
+Khi agent trả lời `motion.activity`, nó nhìn ảnh và đánh giá user đang làm gì, rồi reset cron job tương ứng:
 
-- User vươn vai/đứng dậy → `[HW:/sensing/wellbeing/reset:{"type":"break"}]` — reset timer break 45 phút
-- User uống nước → `[HW:/sensing/wellbeing/reset:{"type":"hydration"}]` — reset timer hydration 30 phút
+- User vươn vai/đứng dậy → `cron.remove` job break check, rồi `cron.add` lại cùng interval (reset timer về 0)
+- User uống nước → `cron.remove` job hydration check, rồi `cron.add` lại cùng interval
 
-Cơ chế `fireHWCalls()` sẵn có sẽ POST về endpoint `/sensing/wellbeing/reset` của LeLamp, gọi `WellbeingPerception.reset_break()` hoặc `reset_hydration()`. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
+Agent dùng tên job cố định (`"Wellbeing: hydration check"`, `"Wellbeing: break check"`) để tìm và reset. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
 
 ### Hành vi Agent
 
@@ -265,7 +263,7 @@ Cơ chế `fireHWCalls()` sẵn có sẽ POST về endpoint `/sensing/wellbeing/
 
 ## Lưu trữ Snapshot (hai tầng)
 
-Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, wellbeing, motion.activity) lưu snapshot ở hai nơi:
+Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, music.mood, motion.activity) lưu snapshot ở hai nơi:
 
 | Tầng | Đường dẫn | Rotation | Giữ qua reboot |
 |------|-----------|----------|-----------------|
