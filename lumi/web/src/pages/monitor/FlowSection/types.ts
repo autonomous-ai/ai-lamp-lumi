@@ -106,6 +106,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "tool_call",
       "flow_event:tool_call", "flow_enter:tool_call", "flow_exit:tool_call",
+      "hw_call", "flow_event:hw_call",
     ] },
 
   { id: "agent_response",
@@ -115,6 +116,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
       "chat_response",
       "flow_event:lifecycle_end",
       "flow_event:no_reply",
+      "hw_only_reply", "flow_event:hw_only_reply",
     ] },
 
   { id: "tts_speak",
