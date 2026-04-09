@@ -127,7 +127,7 @@ export function FaceOwnersSection() {
       {/* Summary */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Face Recognition</div>
+          <div style={S.cardLabel}>Users</div>
           <div style={{ display: "flex", gap: 6 }}>
             <button
               onClick={() => setShowEnroll(!showEnroll)}
@@ -154,7 +154,7 @@ export function FaceOwnersSection() {
 
         {error && (
           <div style={{ fontSize: 12, color: "var(--lm-red)" }}>
-            Face recognizer unavailable (sensing not started?)
+            User recognizer unavailable (sensing not started?)
           </div>
         )}
 
@@ -164,7 +164,7 @@ export function FaceOwnersSection() {
               {data.owner_count}
             </span>
             <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
-              enrolled face{data.owner_count !== 1 ? "s" : ""}
+              enrolled user{data.owner_count !== 1 ? "s" : ""}
             </span>
           </div>
         )}
@@ -177,7 +177,7 @@ export function FaceOwnersSection() {
       {/* Enroll form */}
       {showEnroll && (
         <div style={S.card}>
-          <div style={{ ...S.cardLabel, marginBottom: 14 }}>Enroll New Face</div>
+          <div style={{ ...S.cardLabel, marginBottom: 14 }}>Add New User</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input
               type="text"
@@ -232,7 +232,7 @@ export function FaceOwnersSection() {
                 cursor: enrolling || !enrollFile || !enrollName.trim() ? "not-allowed" : "pointer",
               }}
             >
-              {enrolling ? "Enrolling..." : "Enroll Face"}
+              {enrolling ? "Adding..." : "Add User"}
             </button>
           </div>
         </div>
@@ -252,7 +252,7 @@ export function FaceOwnersSection() {
                 }}>
                   {owner.label}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{
                     fontSize: 10,
                     padding: "2px 7px",
@@ -261,7 +261,7 @@ export function FaceOwnersSection() {
                     color: owner.role === "friend" ? "rgb(96,165,250)" : "var(--lm-amber)",
                     fontWeight: 600,
                   }}>
-                    {owner.role === "friend" ? "friend" : "owner"}
+                    {owner.role || "owner"}
                   </span>
                   <span style={{
                     fontSize: 10,
@@ -273,6 +273,18 @@ export function FaceOwnersSection() {
                   }}>
                     {owner.photo_count} photo{owner.photo_count !== 1 ? "s" : ""}
                   </span>
+                  {owner.mood_days && owner.mood_days.length > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 4,
+                      background: "rgba(74,222,128,0.15)",
+                      color: "rgb(74,222,128)",
+                      fontWeight: 600,
+                    }}>
+                      {owner.mood_days.length} mood day{owner.mood_days.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
                   <button
                     onClick={() => handleRemove(owner.label)}
                     disabled={deleting === owner.label}
@@ -290,29 +302,76 @@ export function FaceOwnersSection() {
                   </button>
                 </div>
               </div>
+
+              {/* Folder tree */}
               <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))",
-                gap: 8,
+                fontFamily: "monospace",
+                fontSize: 11,
+                lineHeight: 1.7,
+                color: "var(--lm-text-muted)",
               }}>
-                {owner.photos.map((filename) => (
-                  <img
-                    key={filename}
-                    src={`${HW}/face/photo/${owner.label}/${filename}`}
-                    alt={`${owner.label} - ${filename}`}
-                    style={{
-                      width: "100%",
-                      aspectRatio: "1",
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      border: "1px solid var(--lm-border)",
-                      background: "var(--lm-surface)",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => window.open(`${HW}/face/photo/${owner.label}/${filename}`, "_blank")}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                ))}
+                {(() => {
+                  const items: { name: string; isDir?: boolean; children?: string[] }[] = [];
+                  // photos
+                  owner.photos.forEach((f) => items.push({ name: f }));
+                  // other files
+                  owner.files?.filter((f) => !owner.photos.includes(f)).forEach((f) => items.push({ name: f }));
+                  // mood dir
+                  if (owner.mood_days && owner.mood_days.length > 0) {
+                    items.push({ name: "mood/", isDir: true, children: owner.mood_days.map((d) => `${d}.jsonl`) });
+                  }
+                  return items.map((item, i) => {
+                    const isLastTop = i === items.length - 1;
+                    const prefix = isLastTop ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+                    if (item.isDir) {
+                      return (
+                        <div key={item.name}>
+                          <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
+                          <span style={{ color: "rgb(74,222,128)", fontWeight: 600 }}>{item.name}</span>
+                          {item.children?.map((child, ci) => {
+                            const childPrefix = isLastTop ? "    " : "\u2502   ";
+                            const childBranch = ci === (item.children?.length ?? 0) - 1 ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+                            return (
+                              <div key={child}>
+                                <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
+                                <span>{child}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(item.name);
+                    return (
+                      <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>
+                          <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
+                          {isImg ? (
+                            <span
+                              style={{ color: "var(--lm-amber)", cursor: "pointer" }}
+                              onClick={() => window.open(`${HW}/face/photo/${owner.label}/${item.name}`, "_blank")}
+                            >{item.name}</span>
+                          ) : (
+                            <span>{item.name}</span>
+                          )}
+                        </span>
+                        {isImg && (
+                          <img
+                            src={`${HW}/face/photo/${owner.label}/${item.name}`}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              objectFit: "cover",
+                              borderRadius: 4,
+                              border: "1px solid var(--lm-border)",
+                            }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           ))}
@@ -322,7 +381,7 @@ export function FaceOwnersSection() {
       {data && data.owners.length === 0 && !showEnroll && (
         <div style={{ ...S.card, textAlign: "center" as const, padding: 32 }}>
           <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
-            No faces enrolled yet. Click "+ Enroll" above or send a photo via Telegram.
+            No users enrolled yet. Click "+ Enroll" above or send a photo via Telegram.
           </div>
         </div>
       )}
