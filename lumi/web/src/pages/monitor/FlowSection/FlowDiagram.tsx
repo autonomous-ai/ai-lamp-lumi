@@ -17,6 +17,7 @@ export function FlowDiagram({
 }) {
   const VW = 1200;
   const VH = 1080;
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -65,8 +66,8 @@ export function FlowDiagram({
     // Lumi — top row
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
-    schedule_trigger:  { x: 800, y: 50 },
-    lumi_gate:         { x: 467, y: 570 },
+    schedule_trigger:  { x: 950, y: 50 },
+    lumi_gate:         { x: 467, y: 795 },
     // LeLamp — input row (MIC/CAM)
     mic_input:         { x: -40, y: 240 },
     cam_input:         { x: 80, y: 240 },
@@ -76,14 +77,15 @@ export function FlowDiagram({
     hw_servo:          { x: 200, y: 660 },
     hw_audio:          { x: 200, y: 795 },
     tts_speak:         { x: 200, y: 930 },
-    // OpenClaw — right (spread out)
-    agent_call:        { x: 800, y: 240 },
-    telegram_input:    { x: 1000, y: 240 },
-    tool_exec:         { x: 600, y: 390 },
-    agent_thinking:    { x: 800, y: 390 },
-    agent_response:    { x: 600, y: 570 },
-    tg_out:            { x: 1000, y: 570 },
-    tg_alert:          { x: 1000, y: 700 },
+    // OpenClaw — agent core
+    agent_call:        { x: 950, y: 240 },
+    tool_exec:         { x: 750, y: 390 },
+    agent_thinking:    { x: 950, y: 390 },
+    agent_response:    { x: 750, y: 795 },
+    // External channels — outside OpenClaw
+    telegram_input:    { x: 1300, y: 240 },
+    tg_out:            { x: 1300, y: 795 },
+    tg_alert:          { x: 467, y: 930 },
   };
 
   const edges: [FlowStage, FlowStage][] = [
@@ -105,15 +107,15 @@ export function FlowDiagram({
     ["tool_exec",         "hw_emotion"],
     ["tool_exec",         "hw_audio"],
     ["tool_exec",         "lumi_gate"],
-    ["agent_response",    "hw_emotion"],
-    ["agent_response",    "hw_led"],
-    ["agent_response",    "hw_servo"],
-    ["agent_response",    "hw_audio"],
     ["agent_response",    "lumi_gate"],
-    ["agent_response",    "tts_speak"],
-    ["agent_response",    "tg_out"],
-    ["agent_call",        "tg_out"],
+    ["lumi_gate",         "hw_emotion"],
+    ["lumi_gate",         "hw_led"],
+    ["lumi_gate",         "hw_servo"],
+    ["lumi_gate",         "hw_audio"],
     ["lumi_gate",         "tts_speak"],
+    ["lumi_gate",         "tg_out"],
+    ["lumi_gate",         "tg_alert"],
+    ["tg_alert",          "tg_out"],
   ];
 
   const nodeR = compact ? 28 : 38;
@@ -185,13 +187,13 @@ export function FlowDiagram({
 
         {/* Cluster group backgrounds */}
         <g>
-          <rect x={-100} y={0} width={1200} height={110} rx={14}
-            fill="var(--lm-teal)" fillOpacity={0.04} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.25}
+          <rect x={-100} y={0} width={1500} height={110} rx={14}
+            fill="var(--lm-teal)" fillOpacity={0.12} stroke="var(--lm-teal)" strokeWidth={2} opacity={0.6}
             strokeDasharray="4 4"
           />
-          <rect x={417} y={100} width={110} height={520} rx={10}
-            fill="var(--lm-teal)" fillOpacity={0.03} stroke="var(--lm-teal)" strokeWidth={1} opacity={0.2}
-            strokeDasharray="3 3"
+          <rect x={417} y={100} width={110} height={890} rx={10}
+            fill="var(--lm-teal)" fillOpacity={0.12} stroke="var(--lm-teal)" strokeWidth={2} opacity={0.6}
+            strokeDasharray="4 4"
           />
           <text x={467} y={-8} textAnchor="middle"
             fill="var(--lm-teal)" fontSize={11} fontWeight={700}
@@ -213,11 +215,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={540} y={185} width={520} height={445} rx={14}
+          <rect x={695} y={185} width={310} height={665} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={800} y={175} textAnchor="middle"
+          <text x={850} y={175} textAnchor="middle"
             fill="var(--lm-blue)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -246,6 +248,23 @@ export function FlowDiagram({
                 d={`M ${f.x - nodeR * 0.7} ${f.y + nodeR * 0.7} L ${elbowX} ${startY + 20} L ${elbowX} ${endY} L ${endX} ${endY}`}
                 stroke={color} strokeWidth={sw} fill="none"
                 markerEnd={marker} opacity={op}
+              />
+            );
+          }
+
+          // Elbow L edge: tg_alert → tg_out (go right then up)
+          if (from === "tg_alert" && to === "tg_out") {
+            const startX = f.x + nodeR + 4;
+            const startY = f.y;
+            const endX = t.x;
+            const endY = t.y + nodeR + 4;
+            const active = (visitedStages.has(from) || from === activeStage) && (visitedStages.has(to) || to === activeStage);
+            return (
+              <path key={`${from}-${to}`}
+                d={`M ${startX} ${startY} L ${endX} ${startY} L ${endX} ${endY}`}
+                stroke={color} strokeWidth={sw} fill="none"
+                markerEnd={marker} opacity={op}
+                strokeDasharray={active ? undefined : "6 4"}
               />
             );
           }
@@ -393,30 +412,16 @@ export function FlowDiagram({
           );
         })}
 
-        {/* Snapshot image — same column as TG IN, same row as THINK */}
+        {/* Snapshot image — on the intent_check → agent_call line */}
         {snapshotUrl && (() => {
-          const snapX = 1000;
-          const snapY = 390;
-          const agentX = 800;
+          const snapX = 515;
+          const snapY = 145;
+          const agentX = 950;
           const agentY = 240;
           const imgW = 100;
           const imgH = 75;
           return (
             <g>
-              {/* Dashed arrow from snapshot to AGENT */}
-              <line
-                x1={snapX} y1={snapY - imgH / 2 - 4}
-                x2={agentX + nodeR + 2} y2={agentY + nodeR / 2}
-                stroke="#fbbf24" strokeWidth={1.2} strokeDasharray="4 3"
-                opacity={0.7}
-                markerEnd="url(#snap-arrow)"
-              />
-              <defs>
-                <marker id="snap-arrow" viewBox="0 0 10 10" refX="9" refY="5"
-                  markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" opacity={0.7} />
-                </marker>
-              </defs>
               {/* Image border */}
               <rect
                 x={snapX - imgW / 2} y={snapY - imgH / 2}
@@ -425,13 +430,15 @@ export function FlowDiagram({
                 fill="var(--lm-card)" stroke="#fbbf24" strokeWidth={1}
                 opacity={0.9}
               />
-              {/* The image */}
+              {/* The image — click to enlarge */}
               <image
                 href={snapshotUrl}
                 x={snapX - imgW / 2 + 2} y={snapY - imgH / 2 + 2}
                 width={imgW - 4} height={imgH - 4}
                 preserveAspectRatio="xMidYMid meet"
                 clipPath={`inset(0 round 4px)`}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); setLightboxUrl(snapshotUrl); }}
               />
               <text
                 x={snapX} y={snapY + imgH / 2 + 10}
@@ -444,6 +451,37 @@ export function FlowDiagram({
           );
         })()}
       </svg>
+
+      {/* Snapshot lightbox */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: "absolute", top: 16, right: 16,
+              background: "rgba(255,255,255,0.15)", border: "none",
+              color: "#fff", fontSize: 20, width: 36, height: 36,
+              borderRadius: "50%", cursor: "pointer",
+            }}
+          >
+            ✕
+          </button>
+          <img
+            src={lightboxUrl}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "85vw", height: "85vh", objectFit: "contain", borderRadius: 8, cursor: "default" }}
+          />
+        </div>
+      )}
 
       {/* Shape legend */}
       <div style={{

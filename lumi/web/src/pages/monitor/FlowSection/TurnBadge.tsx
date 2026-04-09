@@ -1,8 +1,10 @@
+import { useState } from "react";
 import type { Turn } from "./types";
 import { SOURCE_ICON, TURN_INPUT_FALLBACK } from "./types";
 import { turnIO, turnTokenStats } from "./helpers";
 
 export function TurnBadge({ turn }: { turn: Turn }) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const formatTurnTime = (iso: string): string => {
     const date = new Date(iso);
     const diffMs = Date.now() - date.getTime();
@@ -26,6 +28,9 @@ export function TurnBadge({ turn }: { turn: Turn }) {
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output, hwOutput, snapshotUrl } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
+  const hasGuardAlert = turn.events.some((ev) =>
+    ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "telegram_alert_broadcast"
+  );
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
   const statusLabel = turn.status === "done"
     ? "DONE"
@@ -59,6 +64,12 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           background: `${statusColor}18`, color: statusColor, fontWeight: 700,
           textTransform: "uppercase" as const,
         }}>{statusLabel}</span>
+        {hasGuardAlert && (
+          <span style={{
+            fontSize: 8, padding: "1px 5px", borderRadius: 3,
+            background: "#e5393518", color: "#e53935", fontWeight: 700,
+          }}>🚨 GUARD</span>
+        )}
         {turn.endTime && (() => {
           const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
           if (!Number.isFinite(ms) || ms < 0) return null;
@@ -100,10 +111,41 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           <img
             src={snapshotUrl}
             alt="sensing snapshot"
+            onClick={() => setLightboxUrl(snapshotUrl)}
             style={{
               width: "100%", maxWidth: 180, borderRadius: 6,
               border: "1px solid var(--lm-border)", opacity: 0.9,
+              cursor: "pointer",
             }}
+          />
+        </div>
+      )}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: "absolute", top: 16, right: 16,
+              background: "rgba(255,255,255,0.15)", border: "none",
+              color: "#fff", fontSize: 20, width: 36, height: 36,
+              borderRadius: "50%", cursor: "pointer",
+            }}
+          >
+            ✕
+          </button>
+          <img
+            src={lightboxUrl}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "85vw", height: "85vh", objectFit: "contain", borderRadius: 8, cursor: "default" }}
           />
         </div>
       )}
