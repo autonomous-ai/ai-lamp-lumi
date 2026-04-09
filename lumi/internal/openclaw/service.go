@@ -1,6 +1,7 @@
 package openclaw
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -1423,6 +1424,18 @@ func stripForTTS(text string) string {
 	return strings.TrimSpace(text)
 }
 
+
+// SetVolume sets speaker volume on LeLamp (0-100).
+func (s *Service) SetVolume(pct int) error {
+	body, _ := json.Marshal(map[string]int{"volume": pct})
+	resp, err := http.Post("http://127.0.0.1:5001/audio/volume", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("POST /audio/volume: %w", err)
+	}
+	defer resp.Body.Close()
+	slog.Info("speaker volume set", "component", "openclaw", "pct", pct)
+	return nil
+}
 
 // StopTTS interrupts active TTS playback and music on LeLamp immediately,
 // freeing the speaker so the voice mic can receive new commands.
