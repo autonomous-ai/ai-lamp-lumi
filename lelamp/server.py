@@ -134,6 +134,11 @@ CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 # e.g. LELAMP_AUDIO_INPUT_ALSA=plughw:1,0  LELAMP_AUDIO_OUTPUT_ALSA=plughw:2,0
 AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or None
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
+# Separate mic device index for SoundPerception (noise sensing).
+# Set to sounddevice card index (see: python3 -c "import sounddevice; print(sounddevice.query_devices())")
+# Useful when using a dedicated mic for ambient noise detection separate from the STT mic.
+_sensing_device_env = os.environ.get("LELAMP_AUDIO_SENSING_DEVICE")
+AUDIO_SENSING_DEVICE: Optional[int] = int(_sensing_device_env) if _sensing_device_env else None
 
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
@@ -391,7 +396,7 @@ async def lifespan(app: FastAPI):
                 sound_device_module=sd,
                 numpy_module=np,
                 cv2_module=cv2,
-                input_device=audio_input_device,
+                input_device=AUDIO_SENSING_DEVICE if AUDIO_SENSING_DEVICE is not None else audio_input_device,
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=rgb_service,
                 tts_service=tts_service,
