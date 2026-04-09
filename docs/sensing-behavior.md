@@ -175,7 +175,12 @@ Lumi proactively cares for the user's health using AI-driven cron jobs managed b
 
 ### How it works
 
-The agent maintains a personal notebook **per person** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`) where it writes observations about each person's habits over time (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00", "prefers gentle phrasing"). This notebook is the agent's own — it creates, updates, and learns from it.
+The agent maintains **per-person wellbeing data** under `/root/local/users/{name}/`:
+
+- **`wellbeing.md`** — summary of accumulated habits and patterns (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00")
+- **`wellbeing/YYYY-MM-DD.md`** — daily log of each session (reminders sent, responses, observations)
+
+The agent reads the summary on `presence.enter` to quickly recall the person, writes the daily log on `presence.leave`, and periodically distills daily logs back into the summary.
 
 When a known person arrives (`presence.enter`), the agent:
 
@@ -185,7 +190,7 @@ When a known person arrives (`presence.enter`), the agent:
    - `"Wellbeing: hydration check"` — takes a camera snapshot, checks presence, reminds if appropriate
    - `"Wellbeing: break check"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
 
-When they leave (`presence.leave`), the agent cancels both cron jobs and updates their notebook with observations from the session (which reminders landed, which were ignored, timing insights).
+When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
 ### Cron-fired behavior
 
