@@ -2831,6 +2831,19 @@ def audio_status():
     }
 
 
+@app.get("/audio/history", tags=["Audio"])
+def audio_history(date: str | None = None, last: int = 50):
+    """Return music playback history for AI to learn user preferences.
+
+    Each entry: {ts, date, hour, query, title, duration_s, stopped_by}.
+    stopped_by is one of: "user", "end", "tts", "error", "next".
+    """
+    from lelamp.service.voice.music_service import query_play_history
+
+    entries = query_play_history(date_str=date, last=min(last, 500))
+    return {"date": date or "today", "entries": entries, "count": len(entries)}
+
+
 # --- Version ---
 
 

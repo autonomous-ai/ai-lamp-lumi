@@ -99,7 +99,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
 | `wellbeing.hydration` | `[sensing:wellbeing.hydration]` | User sitting 30+ min without water break | Yes |
 | `wellbeing.break` | `[sensing:wellbeing.break]` | User sitting 45+ min continuously — posture/fatigue check | Yes |
-| `music.mood` | `[sensing:music.mood]` | User present 60+ min — assess mood and consider suggesting music | Yes |
+| ~~`music.mood`~~ | ~~removed~~ | Music suggestions are now AI-driven via cron — see **Music** skill | N/A |
 
 ### Presence auto-control behavior
 
@@ -158,7 +158,7 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
 | `wellbeing.hydration` | `[HW:/emotion:{"emotion":"curious","intensity":0.5}]` | YES or NO_REPLY |
 | `wellbeing.break` | `[HW:/emotion:{"emotion":"curious","intensity":0.6}]` | YES or NO_REPLY |
-| `music.mood` | `[HW:/emotion:{"emotion":"caring","intensity":0.6}]` | YES or NO_REPLY — see Music skill |
+| ~~`music.mood`~~ | ~~removed~~ | Music is now AI-driven via cron — see Music skill |
 
 ### How to respond
 - **HW markers first** — place `[HW:...]` at the very start of your reply before any text.
@@ -204,13 +204,9 @@ Two independent reminders fire while the user is sitting:
 4. If they look fine and energetic → reply NO_REPLY.
 5. One gentle sentence max. Don't lecture.
 
-**`[sensing:music.mood]`** — every ~60 min:
-1. Look at the image — **if no user is visible in the frame, reply NO_REPLY**.
-2. **If user is in a meeting/video call → reply NO_REPLY** (don't interrupt).
-3. For all other states — **always suggest music that matches their current mood/state**:
-   - Focused → lo-fi/ambient. Tired → calm piano. Stressed → soft jazz. Relaxed → chill acoustic. Happy → upbeat.
-4. **Do NOT auto-play** — speak the suggestion and wait for confirmation.
-5. See the **Music** skill for full mood→music mapping and rules.
+**Music suggestions** are no longer triggered by a sensing timer. They are now **AI-driven via OpenClaw cron** — the AI self-schedules music checks, learns user habits from mood + listening history, and decides the right moment to suggest. See the **Music** skill for full details.
+
+**Important:** On the first `[sensing:presence.enter]` of the day, bootstrap the music cron job if it doesn't exist yet (see Music skill → Bootstrap section).
 
 **All wellbeing types:** Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 

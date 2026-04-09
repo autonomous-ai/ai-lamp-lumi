@@ -648,6 +648,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 					flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
+					// Log music.play to mood history so AI can correlate
+					// suggestions with actual playback for learning.
+					mood.Log("music.play", 0, toolArgs)
 				}
 				// Emit specific hardware events for flow monitor visualization.
 				// Both flow.Log (for JSONL persistence + UI flow_event triggers) and monitorBus (for SSE).
@@ -860,6 +863,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 				flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
+				mood.Log("music.play", 0, toolArgs)
 			}
 			// Emit specific hardware events for flow monitor visualization.
 			// Both flow.Log (for JSONL persistence + UI flow_event triggers) and monitorBus (for SSE).
