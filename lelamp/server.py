@@ -62,7 +62,8 @@ class _ColorFormatter(logging.Formatter):
 
 
 _root = logging.getLogger()
-_root.setLevel(logging.INFO)
+_log_level = os.environ.get("LELAMP_LOG_LEVEL", "INFO").upper()
+_root.setLevel(getattr(logging, _log_level, logging.INFO))
 
 # Console handler (colored)
 _console = logging.StreamHandler()
@@ -2811,6 +2812,19 @@ def audio_status():
         "available": music_service is not None and music_service.available,
         "playing": music_service.playing if music_service else False,
     }
+
+
+@app.get("/audio/history", tags=["Audio"])
+def audio_history(date: str | None = None, last: int = 50):
+    """Return music playback history for AI to learn user preferences.
+
+    Each entry: {ts, date, hour, query, title, duration_s, stopped_by}.
+    stopped_by is one of: "user", "end", "tts", "error", "next".
+    """
+    from lelamp.service.voice.music_service import query_play_history
+
+    entries = query_play_history(date_str=date, last=min(last, 500))
+    return {"date": date or "today", "entries": entries, "count": len(entries)}
 
 
 # --- Version ---

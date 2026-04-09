@@ -97,7 +97,6 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
 | `sound` | `[sensing:sound]` | Microphone detected a loud noise (clap, door slam, etc.) | No |
 | `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
-| `music.mood` | `[sensing:music.mood]` | User present 60+ min — assess mood and consider suggesting music | Yes |
 
 ### Presence auto-control behavior
 
@@ -154,7 +153,6 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `sound` persistent (3+) | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
 | `light.level` | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | Optional brief remark |
 | `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
-| `music.mood` | `[HW:/emotion:{"emotion":"caring","intensity":0.6}]` | YES or NO_REPLY — see Music skill |
 
 ### How to respond
 - **HW markers first** — place `[HW:...]` at the very start of your reply before any text.
@@ -190,7 +188,7 @@ You take care of the owner's health yourself. You schedule your own reminders us
 
 #### Your wellbeing notebook
 
-You keep a personal notebook **per owner** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`). Use the owner's name from the `presence.enter` recognition. Each person has different habits — your observations about Alice don't apply to Bob.
+You keep a personal notebook **per person** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`). Use the owner's name from the `presence.enter` recognition. Each person has different habits — your observations about Alice don't apply to Bob.
 
 If it doesn't exist yet, create it. Update it after `presence.leave` — short notes about what happened this session. Over time each notebook becomes your understanding of that person. Keep it concise; summarize older entries when it gets long.
 
@@ -258,15 +256,11 @@ Do NOT cancel on `presence.away` — only on `presence.leave`.
 
 Wellbeing crons are for owners and friends — anyone Lumi knows by name. Strangers don't get reminders. Each person gets their own notebook (`wellbeing-notes-alice.md`, `wellbeing-notes-bob.md`) and their own cron intervals based on what you've learned about them.
 
-### Music mood check (`[sensing:music.mood]`)
+### Music suggestions (AI-driven)
 
-**`[sensing:music.mood]`** — every ~60 min (fired by the sensing system):
-1. Look at the image — **if no user is visible in the frame, reply NO_REPLY**.
-2. **If user is in a meeting/video call → reply NO_REPLY** (don't interrupt).
-3. For all other states — **always suggest music that matches their current mood/state**:
-   - Focused → lo-fi/ambient. Tired → calm piano. Stressed → soft jazz. Relaxed → chill acoustic. Happy → upbeat.
-4. **Do NOT auto-play** — speak the suggestion and wait for confirmation.
-5. See the **Music** skill for full mood→music mapping and rules.
+**Music suggestions** are no longer triggered by a sensing timer. They are now **AI-driven via OpenClaw cron** — the AI self-schedules music checks, learns user habits from mood + listening history, and decides the right moment to suggest. See the **Music** skill for full details.
+
+**Important:** On the first `[sensing:presence.enter]` of the day, bootstrap the music cron job if it doesn't exist yet (see Music skill → Bootstrap section).
 
 Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 

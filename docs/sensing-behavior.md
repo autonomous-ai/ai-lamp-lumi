@@ -171,21 +171,21 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 
 ## Wellbeing (AI-Driven Hydration + Break Reminders)
 
-Lumi proactively cares for the user's health using AI-driven cron jobs managed by the OpenClaw agent. Instead of hardcoded timers, the agent decides reminder intervals based on scientific recommendations and the user's historical patterns (mood history).
+Lumi proactively cares for the user's health using AI-driven cron jobs managed by the OpenClaw agent. Instead of hardcoded timers, the agent decides reminder intervals based on scientific recommendations and the user's historical patterns.
 
 ### How it works
 
-The agent maintains a personal notebook **per owner** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`) where it writes observations about each owner's habits over time (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00", "prefers gentle phrasing"). This notebook is the agent's own — it creates, updates, and learns from it.
+The agent maintains a personal notebook **per person** at `/root/local/wellbeing-notes-{name}.md` (e.g., `wellbeing-notes-alice.md`) where it writes observations about each person's habits over time (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00", "prefers gentle phrasing"). This notebook is the agent's own — it creates, updates, and learns from it.
 
-When the owner arrives (`presence.enter`), the agent:
+When a known person arrives (`presence.enter`), the agent:
 
-1. **Reads its notebook** to recall what it has learned about this owner's patterns.
-2. **Decides intervals and approach** based on its observations, time of day, and how the owner looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
+1. **Reads their notebook** to recall what it has learned about their patterns.
+2. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
 3. **Schedules two cron jobs** via `cron.add` (kind: `every`):
    - `"Wellbeing: hydration check"` — takes a camera snapshot, checks presence, reminds if appropriate
    - `"Wellbeing: break check"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
 
-When the owner leaves (`presence.leave`), the agent cancels both cron jobs and updates its notebook with observations from the session (which reminders landed, which were ignored, timing insights).
+When they leave (`presence.leave`), the agent cancels both cron jobs and updates their notebook with observations from the session (which reminders landed, which were ignored, timing insights).
 
 ### Cron-fired behavior
 
@@ -196,19 +196,29 @@ Each cron fires an agent turn. The agent:
 4. If user is absent, already has a drink, or looks fine → no response
 5. Always emits `[HW:/emotion:{...}]` marker
 
-### Music (`music.mood`)
-
-Music mood suggestion remains as a LeLamp hardware timer (separate from AI-driven wellbeing). See the Music skill for details.
-
 ### Agent behavior
 
 | Reminder | Emotion | Voice |
 |---|---|---|
 | Hydration cron | `caring` (0.5) | YES (remind water) or silent |
 | Break cron | `caring` (0.6) | YES (remind stretch/walk) or silent |
-| `music.mood` | `caring` (0.6) | YES (suggest music) or NO_REPLY |
 
 The agent uses the camera snapshot to make a judgment call — it does NOT always speak. This prevents spamming the user when they seem fine.
+
+### Music Suggestions (AI-Driven)
+
+Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the AI agent **self-schedules** music checks via OpenClaw cron jobs and **learns** the user's habits over time:
+
+- **Self-scheduling:** On first `presence.enter` of the day, the AI creates a cron job (default: every 60 min). It adjusts the interval based on user response patterns.
+- **Data-driven decisions:** Before suggesting, the AI queries:
+  - `GET /presence` — is user present?
+  - `GET /camera/snapshot` — visual mood assessment
+  - `GET /api/openclaw/mood-history` — presence patterns, past suggestion outcomes
+  - `GET /audio/history` — listening history (genre preference, duration, satisfaction)
+- **Learning loop:** The AI correlates suggestions with `music.play` events in mood history. Accepted suggestions reinforce timing/genre; rejected suggestions trigger schedule adjustments.
+- **Personalization:** Over time, the AI learns when the user prefers music, what genres they enjoy, and how long they typically listen — adapting its suggestions accordingly.
+
+See the Music skill (`resources/openclaw-skills/music/SKILL.md`) for full implementation details.
 
 ---
 

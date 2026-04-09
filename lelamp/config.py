@@ -59,7 +59,6 @@ FACE_STRANGER_FORGET_S = 3 * 60.0   # same for strangers
 # --- Sensing: Wellbeing check (override via .env) ---
 WELLBEING_HYDRATION_S = int(os.environ.get("LELAMP_WELLBEING_HYDRATION_S", 5 * 60))    # default 5 min
 WELLBEING_BREAK_S = int(os.environ.get("LELAMP_WELLBEING_BREAK_S", 6 * 60))            # default 6 min
-WELLBEING_MUSIC_S = int(os.environ.get("LELAMP_WELLBEING_MUSIC_S", 60 * 60))           # default 60 min
 
 # --- Sensing: Snapshot storage ---
 # Temporary buffer (fast rotation, lost on reboot)
