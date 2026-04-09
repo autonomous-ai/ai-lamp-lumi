@@ -175,7 +175,12 @@ Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI
 
 ### Cơ chế hoạt động
 
-Agent duy trì một notebook cá nhân **cho từng người** tại `/root/local/wellbeing-notes-{name}.md` (ví dụ: `wellbeing-notes-alice.md`) để ghi lại quan sát về thói quen sức khỏe riêng của từng người (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00", "thích cách nhắc nhẹ nhàng"). Notebook này là của agent — tự tạo, tự cập nhật, tự học.
+Agent duy trì **dữ liệu wellbeing cho từng người** tại `/root/local/users/{name}/`:
+
+- **`wellbeing.md`** — tóm tắt thói quen tích lũy (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00")
+- **`wellbeing/YYYY-MM-DD.md`** — log chi tiết từng ngày (nhắc gì, phản hồi ra sao, quan sát)
+
+Agent đọc summary khi `presence.enter` để nhớ nhanh, ghi daily log khi `presence.leave`, và định kỳ tóm tắt daily logs vào summary.
 
 Khi người quen đến (`presence.enter`), agent:
 
@@ -185,7 +190,7 @@ Khi người quen đến (`presence.enter`), agent:
    - `"Wellbeing: hydration check"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
    - `"Wellbeing: break check"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
 
-Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs và cập nhật notebook với quan sát từ session.
+Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs, ghi daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
 
 ### Hành vi khi cron fire
 

@@ -173,7 +173,7 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 
 ### Face (đăng ký chủ / owner)
 
-Cần sensing có camera (InsightFace). Mặc định ảnh owner lưu tại `LELAMP_DATA_DIR/owner_photos/{label}/`; có thể ghi đè bằng `LELAMP_OWNER_PHOTOS_DIR` (ví dụ giữ thư mục cũ `/opt/lumi/owners`).
+Cần sensing có camera (InsightFace). Mặc định ảnh owner lưu tại `/root/local/users/{label}/`; có thể ghi đè bằng `LELAMP_USERS_DIR`.
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
