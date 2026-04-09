@@ -44,7 +44,11 @@ ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
 ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
 ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
 MAX_SESSION_DURATION_S = 120      # Force-close STT session after this (prevent zombie sessions)
-NO_TRANSCRIPT_TIMEOUT_S = 20.0   # Close STT if no transcript received within this time (noise zombie fix)
+
+# Keep-alive mode: pre-connect STT WS before speech is detected so there's no connect delay.
+# Useful for clean-mic devices where VAD only triggers on real speech (no ambient pre-warm).
+# Set LELAMP_STT_KEEPALIVE=true in .env to enable. Default: false.
+STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true"
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
@@ -362,10 +366,21 @@ class VoiceService:
         Breaks out when TTS starts speaking so _loop can close mic and reopen after."""
         speech_start = None
 
+        # Keepalive: pre-connect STT WS so it's ready before speech is detected.
+        keepalive_session = None
+        if STT_KEEPALIVE:
+            keepalive_session = self._stt.create_session()
+            if not keepalive_session.start(lambda text, is_final: None):
+                keepalive_session = None
+            else:
+                logger.info("STT keepalive: pre-connected, waiting for speech...")
+
         while self._running:
             # Yield mic to TTS — break so _loop closes InputStream first
             if self._tts_is_speaking():
                 logger.info("TTS started, releasing mic...")
+                if keepalive_session:
+                    keepalive_session.close()
                 return
 
             data, overflowed = mic.read(frame_size)
@@ -380,21 +395,27 @@ class VoiceService:
                 # Wait for holdoff before connecting STT (avoid short noises)
                 elif (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
                     logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
-                    self._stream_session(mic, frame_size, device_rate)
+                    self._stream_session(mic, frame_size, device_rate,
+                                        preconnected_session=keepalive_session)
+                    keepalive_session = None
                     speech_start = None
                     # Cooldown after session to let resources clean up
                     time.sleep(SESSION_COOLDOWN_S)
+                    # Pre-connect next session immediately
+                    if STT_KEEPALIVE and self._running and not self._tts_is_speaking():
+                        keepalive_session = self._stt.create_session()
+                        if not keepalive_session.start(lambda text, is_final: None):
+                            keepalive_session = None
+                        else:
+                            logger.info("STT keepalive: pre-connected, waiting for speech...")
             else:
                 speech_start = None
 
-    def _stream_session(self, mic, frame_size: int, device_rate: int):
+    def _stream_session(self, mic, frame_size: int, device_rate: int, preconnected_session=None):
         """Stream audio to STT provider until silence or TTS interrupts."""
-        session = self._stt.create_session()
+        session = preconnected_session or self._stt.create_session()
 
         def on_transcript(text: str, is_final: bool):
-            nonlocal first_transcript_time
-            if first_transcript_time is None:
-                first_transcript_time = time.time()
             if not is_final:
                 logger.debug("STT partial: '%s'", text)
                 return
@@ -417,11 +438,45 @@ class VoiceService:
                 logger.info("STT ambient: '%s'", text)
                 self._send_to_lumi(text, event_type="voice")
 
-        first_transcript_time: Optional[float] = None
-
         try:
-            if not session.start(on_transcript):
+            if preconnected_session:
+                # Already connected — just register the real transcript callback.
+                session._on_transcript = on_transcript
+                logger.info("STT keepalive: reusing pre-connected session")
+            else:
+                # Connect WS in background while buffering mic audio so speech start isn't lost.
+                pass
+
+            connect_ok = [False]
+            connect_done = threading.Event()
+
+            def _do_connect():
+                connect_ok[0] = session.start(on_transcript)
+                connect_done.set()
+
+            if preconnected_session:
+                connect_ok[0] = True
+                connect_done.set()
+            else:
+                threading.Thread(target=_do_connect, daemon=True, name="stt-connect").start()
+
+            pre_buffer = []
+            while not connect_done.wait(timeout=0.005):
+                if self._tts_is_speaking():
+                    connect_done.wait(timeout=2)
+                    break
+                data, overflowed = mic.read(frame_size)
+                if not overflowed:
+                    pre_buffer.append(self._resample_to_stt(data, device_rate))
+
+            if not connect_ok[0]:
                 return
+
+            if pre_buffer:
+                logger.debug("STT pre-buffer: flushing %d frames (%.0fms)",
+                             len(pre_buffer), len(pre_buffer) * FRAME_DURATION_MS)
+                for frame in pre_buffer:
+                    session.send_audio(frame)
 
             self._listening = True
             last_speech_time = time.time()
@@ -445,10 +500,6 @@ class VoiceService:
                     logger.warning("STT session exceeded %ds, force-closing", MAX_SESSION_DURATION_S)
                     break
 
-                # Close session if no transcript received within timeout (noise triggered VAD)
-                if first_transcript_time is None and (time.time() - session_start) > NO_TRANSCRIPT_TIMEOUT_S:
-                    logger.warning("STT session got no transcript in %.0fs, closing (noise zombie)", NO_TRANSCRIPT_TIMEOUT_S)
-                    break
 
                 data, overflowed = mic.read(frame_size)
                 if overflowed:
