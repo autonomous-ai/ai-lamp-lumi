@@ -195,12 +195,6 @@ func (s *Service) drainPendingEvents() {
 		startPayload := map[string]any{"type": ev.eventType, "message": ev.msg}
 		turnStart := flow.Start("sensing_input", startPayload, runID)
 
-		// Mark broadcast-worthy replayed events (e.g. music.mood) so the agent
-		// response is sent to Telegram alongside TTS.
-		if ev.eventType == "music.mood" {
-			s.MarkBroadcastRun(runID)
-		}
-
 		var msg string
 		if ev.eventType == "voice" {
 			msg = "[ambient] " + ev.msg
