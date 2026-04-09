@@ -1,32 +1,24 @@
 """
-Wellbeing Perception — periodic hydration and posture/break reminders via LLM vision.
+Wellbeing Perception — stub.
 
-Two independent timers run while someone is present:
-  - Hydration:  every WELLBEING_HYDRATION_S (default 30 min) — remind to drink water
-  - Break:      every WELLBEING_BREAK_S (default 45 min) — remind to stand up and stretch
-
-Music suggestion is handled by the AI agent via OpenClaw cron scheduling
-(see music/SKILL.md) — no hardcoded timer here.
-
-Each timer sends a camera snapshot so the LLM can visually assess the user
-and decide whether to speak or reply NO_REPLY.
+All proactive reminders (hydration, break, music) are now handled by the
+AI agent via OpenClaw cron jobs. This class remains as a no-op placeholder
+in the sensing pipeline so that SensingService instantiation doesn't break.
 """
 
 import logging
-import time
 from typing import Callable, Optional, override
 
 import numpy as np
 import numpy.typing as npt
 
-import lelamp.config as config
 from .base import Perception
 
 logger = logging.getLogger(__name__)
 
 
 class WellbeingPerception(Perception):
-    """Sends periodic wellbeing events with a camera snapshot while someone is present."""
+    """No-op placeholder — all wellbeing logic moved to AI agent cron jobs."""
 
     def __init__(
         self,
@@ -34,112 +26,16 @@ class WellbeingPerception(Perception):
         send_event: Callable,
         presence_service,
         capture_stable_frame: Callable,
-        hydration_interval_s: float = config.WELLBEING_HYDRATION_S,
-        break_interval_s: float = config.WELLBEING_BREAK_S,
+        # Accept old params for backwards compat (all ignored)
+        hydration_interval_s: float = 0,
+        break_interval_s: float = 0,
+        music_interval_s: float = 0,
     ):
         super().__init__(send_event)
-        self._cv2 = cv2
-        self._presence = presence_service
-        self._capture_stable_frame = capture_stable_frame
-        self._hydration_interval_s = hydration_interval_s
-        self._break_interval_s = break_interval_s
-
-        self._present_since: Optional[float] = None
-        self._last_hydration_time: float = 0.0
-        self._last_break_time: float = 0.0
-        self._was_present: bool = False
 
     @override
-    def check(self, frame: npt.NDArray[np.uint8]) -> None:
-        if frame is None:
-            return
-
-        from ..presence_service import PresenceState
-
-        is_present = self._presence.state == PresenceState.PRESENT
-
-        # Track when presence started
-        if is_present and not self._was_present:
-            now = time.time()
-            self._present_since = now
-            self._last_hydration_time = now
-            self._last_break_time = now
-            logger.debug("Wellbeing: presence started, timers begin")
-
-        if not is_present:
-            if self._was_present:
-                logger.debug("Wellbeing: presence ended, timers reset")
-            self._present_since = None
-            self._last_hydration_time = 0.0
-            self._last_break_time = 0.0
-
-        self._was_present = is_present
-
-        if not is_present or self._present_since is None:
-            return
-
-        now = time.time()
-        elapsed_since_arrive = now - self._present_since
-
-        # --- Hydration check ---
-        if (
-            elapsed_since_arrive >= self._hydration_interval_s
-            and (now - self._last_hydration_time) >= self._hydration_interval_s
-        ):
-            self._last_hydration_time = now
-            minutes = int(elapsed_since_arrive / 60)
-            captured = self._capture_stable_frame()
-            stable = captured if captured is not None else frame
-            logger.info("Wellbeing: hydration check after %d min", minutes)
-            self._send_event(
-                "wellbeing.hydration",
-                f"User has been sitting for {minutes} minute(s) without a water break. "
-                f"Look at the attached image — if they seem busy or focused, "
-                f"gently remind them to drink some water. "
-                f"If they already have a drink or seem fine, reply NO_REPLY.",
-                image=stable,
-                cooldown=self._hydration_interval_s,
-            )
-
-        # --- Break / posture check ---
-        if (
-            elapsed_since_arrive >= self._break_interval_s
-            and (now - self._last_break_time) >= self._break_interval_s
-        ):
-            self._last_break_time = now
-            minutes = int(elapsed_since_arrive / 60)
-            captured = self._capture_stable_frame()
-            stable = captured if captured is not None else frame
-            logger.info("Wellbeing: break check after %d min", minutes)
-            self._send_event(
-                "wellbeing.break",
-                f"User has been sitting continuously for {minutes} minute(s). "
-                f"Look at the attached image — check their posture and whether they look tired. "
-                f"If they seem fatigued, slouching, or have been sitting too long, "
-                f"gently remind them to stand up, stretch, and take a short break. "
-                f"If they look fine and energetic, reply NO_REPLY.",
-                image=stable,
-                cooldown=self._break_interval_s,
-            )
-
-    def reset_break(self) -> None:
-        """Reset break timer — agent saw user stretching/standing."""
-        if self._present_since is not None:
-            self._last_break_time = time.time()
-            logger.info("Wellbeing: break timer reset")
-
-    def reset_hydration(self) -> None:
-        """Reset hydration timer — agent saw user drinking water."""
-        if self._present_since is not None:
-            self._last_hydration_time = time.time()
-            logger.info("Wellbeing: hydration timer reset")
+    def check(self, frame) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        return {
-            "type": "wellbeing",
-            "present_since": self._present_since,
-            "last_hydration_time": self._last_hydration_time,
-            "last_break_time": self._last_break_time,
-            "hydration_interval_s": self._hydration_interval_s,
-            "break_interval_s": self._break_interval_s,
-        }
+        return {"type": "wellbeing", "status": "ai-driven"}
