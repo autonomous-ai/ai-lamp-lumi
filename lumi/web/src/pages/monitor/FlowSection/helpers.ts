@@ -652,6 +652,15 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const err = d?.data?.error;
       if (err) info.agent_response.push(`❌ ${err}`);
     }
+    if (ev.type === "hw_call" || (ev.type === "flow_event" && ev.detail?.node === "hw_call")) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const path = d?.data?.path ?? d?.path ?? "";
+      const args = d?.data?.args ?? d?.args ?? "";
+      if (path) pushUnique(info.tool_exec, `⚙ HW ${path} ${args}`);
+    }
+    if (ev.type === "hw_only_reply" || (ev.type === "flow_event" && ev.detail?.node === "hw_only_reply")) {
+      pushAgentResponse("⚙ HW-only reply (no spoken text)");
+    }
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       const d = ev.detail as Record<string, any> | undefined;
       const tts = d?.data?.tts ?? d?.tts ?? "";
