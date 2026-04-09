@@ -95,6 +95,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		Detail:  monitorDetail,
 	})
 
+	// Track current user for per-user mood logging.
+	if req.Type == "presence.enter" {
+		if name := extractUserName(req.Message); name != "" {
+			mood.SetCurrentUser(name)
+		}
+	} else if req.Type == "presence.leave" || req.Type == "presence.away" {
+		mood.ClearCurrentUser()
+	}
+
 	// Log mood-relevant events to dedicated mood history.
 	mood.Log(req.Type, 0, req.Message)
 
@@ -372,6 +381,18 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
 
 // extractSnapshotPath extracts the snapshot file path from a sensing message.
+// reUserName matches "owner (gray)" or "friend (chloe)" in presence.enter messages.
+var reUserName = regexp.MustCompile(`(?:owner|friend)\s*\(([^)]+)\)`)
+
+// extractUserName returns the first recognized owner/friend name from a presence.enter message.
+func extractUserName(message string) string {
+	m := reUserName.FindStringSubmatch(message)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(m[1]))
+}
+
 func extractSnapshotPath(message string) string {
 	m := reSnapshotPath.FindStringSubmatch(message)
 	if m == nil {
