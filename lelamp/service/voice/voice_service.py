@@ -40,7 +40,7 @@ SPEECH_HOLDOFF_S = float(os.environ.get("LELAMP_SPEECH_HOLDOFF", "0.2"))  # Mini
 SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
 
 # Silero VAD config
-SILERO_VAD_ENABLED = os.environ.get("LELAMP_SILERO_ENABLED", "true").lower() != "false"
+SILERO_VAD_ENABLED = os.environ.get("LELAMP_SILERO_ENABLED", "false").lower() != "true"
 SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.3"))  # Speech confidence (0-1), lower = more sensitive
 SILERO_CHUNK_SIZE = 512  # Samples per silero inference call (32ms @ 16kHz)
 _SILERO_MODEL_PATH = Path(__file__).parent / "resources" / "silero_vad.onnx"
