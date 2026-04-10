@@ -78,6 +78,8 @@ Available animations:
 | `scanning` | Looking around, searching |
 | `wake_up` | Waking up, starting a new session |
 | `music_groove` | Grooving to music (auto-triggered during playback) |
+| `music_chill` | Chill/lo-fi vibe (auto-triggered during calm music) |
+| `music_hype` | High-energy hype (auto-triggered during EDM/party music) |
 | `listening` | Attentive lean forward, user is speaking |
 | `thinking_deep` | Slow deliberate look side-to-side, processing |
 | `laugh` | Quick body shake, something funny |

@@ -209,7 +209,8 @@ class AnimationService:
         """Start grooving to music -- loops recording until music stops.
 
         recording_name: one of music_groove, music_jazz, music_classical,
-                        music_hiphop, music_rock, music_waltz.
+                        music_hiphop, music_rock, music_waltz,
+                        music_chill, music_hype.
                         Falls back to music_groove when None or unknown.
         """
         self._music_recording = recording_name if recording_name else "music_groove"
