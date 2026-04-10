@@ -533,10 +533,18 @@ async def lifespan(app: FastAPI):
         display_service.stop()
     if music_service and music_service.playing:
         music_service.stop()
+
+    # Stop voice and sensing concurrently — each joins a thread with up to 5s timeout.
+    _shutdown_threads = []
     if voice_service:
-        voice_service.stop()
+        _shutdown_threads.append(threading.Thread(target=voice_service.stop, daemon=True))
     if sensing_service:
-        sensing_service.stop()
+        _shutdown_threads.append(threading.Thread(target=sensing_service.stop, daemon=True))
+    for t in _shutdown_threads:
+        t.start()
+    for t in _shutdown_threads:
+        t.join(timeout=6)
+
     # Servo shutdown: only stop the animation event loop, do NOT disconnect/release
     # torque so servos hold their current position and prevent gravity drop.
     if animation_service:
