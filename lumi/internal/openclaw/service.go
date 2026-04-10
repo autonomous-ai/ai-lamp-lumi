@@ -207,6 +207,14 @@ func (s *Service) drainPendingEvents() {
 			msg = "[ambient] " + ev.msg
 		} else {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
+			switch ev.eventType {
+			case "presence.enter":
+				msg += "\n[MANDATORY for owner/friend: (1) ALWAYS call cron.list FIRST to see what actually exists — do NOT assume from memory. (2) cron.remove ALL jobs with \"hydration\"/\"break\"/\"Wellbeing\"/\"music\" in name. (3) Create fresh crons per Wellbeing skill and Music skill. You MUST call cron.list + cron.remove + cron.add every time — do not skip.]"
+			case "presence.leave":
+				msg += "\n[Follow Wellbeing skill: cancel crons + write daily log.]"
+			case "motion.activity":
+				msg += "\n[Follow Wellbeing skill: reset cron timers if user is drinking/stretching.]"
+			}
 		}
 		var err error
 		if ev.image != "" {
