@@ -5,7 +5,7 @@ All pure data, no runtime dependencies. Import from server.py.
 """
 
 # Valid LED effect names
-VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse"]
+VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse", "blink"]
 
 # Emotion presets: maps emotion name to servo recording + LED color + optional LED effect.
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
