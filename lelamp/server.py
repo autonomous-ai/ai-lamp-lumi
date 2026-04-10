@@ -325,30 +325,40 @@ async def lifespan(app: FastAPI):
     global voice_service, tts_service, display_service
     global audio_output_device, audio_input_device
 
-    # Start servo/animation service
-    if AnimationService:
+    # --- Phase 1: Fire slow hardware init in background threads ---
+    # Servo, LED, and camera can take 1-5s each. Run them concurrently so they
+    # don't delay the voice pipeline which has no hardware dependencies.
+
+    def _init_servo():
+        global animation_service
+        if not AnimationService:
+            return
         try:
-            animation_service = AnimationService(
+            svc = AnimationService(
                 port=SERVO_PORT, lamp_id=LAMP_ID, fps=SERVO_FPS, hold_s=SERVO_HOLD_S
             )
-            animation_service.start()
+            svc.start()
+            animation_service = svc
             logger.info("AnimationService started")
         except Exception as e:
             logger.warning(f"AnimationService failed to start: {e}")
-            animation_service = None
 
-    # Start RGB LED service
-    if RGBService:
+    def _init_led():
+        global rgb_service
+        if not RGBService:
+            return
         try:
-            rgb_service = RGBService(led_count=64)
-            rgb_service.start()
+            svc = RGBService(led_count=64)
+            svc.start()
+            rgb_service = svc
             logger.info("RGBService started")
         except Exception as e:
             logger.warning(f"RGBService failed to start: {e}")
-            rgb_service = None
 
-    # Open camera
-    if LocalVideoCaptureDevice and VideoCaptureDeviceInfo and cv2:
+    def _init_camera():
+        global camera_capture
+        if not (LocalVideoCaptureDevice and VideoCaptureDeviceInfo and cv2):
+            return
         try:
             cap = LocalVideoCaptureDevice(
                 VideoCaptureDeviceInfo(
@@ -365,6 +375,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Camera failed to start: {e}")
 
+    hw_threads = []
+    for fn in (_init_servo, _init_led, _init_camera):
+        t = threading.Thread(target=fn, daemon=True, name=fn.__name__)
+        t.start()
+        hw_threads.append(t)
+
+    # --- Phase 2: Audio detect + TTS + VoiceService (runs while hardware inits above) ---
+
     # Detect audio devices
     global music_service
     if sd:
@@ -374,49 +392,6 @@ async def lifespan(app: FastAPI):
             logger.info(f"Audio output device: {audio_output_device}")
         if audio_input_device is not None:
             logger.info(f"Audio input device: {audio_input_device}")
-
-    # Start music service (uses ffmpeg + ALSA directly, no sounddevice needed)
-    if MusicService:
-        try:
-            music_service = MusicService(on_complete=_on_music_complete)
-            logger.info("MusicService started")
-        except Exception as e:
-            logger.warning(f"MusicService failed to start: {e}")
-
-    # Start sensing loop (motion + sound detection → push events to Lumi → OpenClaw)
-    sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
-    if SensingService and sensing_enabled:
-        try:
-            sensing_service = SensingService(
-                camera_capture=camera_capture,
-                sound_device_module=sd,
-                numpy_module=np,
-                cv2_module=cv2,
-                input_device=AUDIO_SENSING_DEVICE if AUDIO_SENSING_DEVICE is not None else audio_input_device,
-                poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
-                rgb_service=rgb_service,
-                tts_service=tts_service,
-                animation_service=animation_service,
-            )
-            sensing_service.start()
-            logger.info("SensingService started")
-        except Exception as e:
-            logger.warning(f"SensingService failed to start: {e}")
-            sensing_service = None
-
-    # Start display (GC9A01 eyes)
-    if DisplayService:
-        try:
-            display_service = DisplayService()
-            display_service.start()
-            logger.info("DisplayService started")
-        except Exception as e:
-            logger.warning(f"DisplayService failed to start: {e}")
-            display_service = None
 
     # Auto-start voice pipeline from Lumi config if keys are available
     lumi_config_path = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")
@@ -443,12 +418,6 @@ async def lifespan(app: FastAPI):
                 audio_output_device,
                 tts_service.available,
             )
-            # Wire TTS to SensingService for echo suppression
-            if sensing_service:
-                sensing_service.set_tts_service(tts_service)
-            # Wire TTS to MusicService so music pauses during speech
-            if music_service:
-                music_service._tts_service = tts_service
         if VoiceService and not voice_service:
             # Read agent name from IDENTITY.md for wake words / Deepgram keyword hints
             agent_name = _read_agent_name(lumi_cfg)
@@ -489,6 +458,57 @@ async def lifespan(app: FastAPI):
         )
     except Exception as e:
         logger.warning(f"Auto-start voice from lumi config failed: {e}")
+
+    # Start music service (uses ffmpeg + ALSA directly, no sounddevice needed)
+    if MusicService:
+        try:
+            music_service = MusicService(on_complete=_on_music_complete)
+            # Wire TTS so music pauses during speech
+            if tts_service:
+                music_service._tts_service = tts_service
+            logger.info("MusicService started")
+        except Exception as e:
+            logger.warning(f"MusicService failed to start: {e}")
+
+    # --- Phase 3: Wait for hardware threads, then start hardware-dependent services ---
+    for t in hw_threads:
+        t.join(timeout=10)
+
+    # Start sensing loop (motion + sound detection → push events to Lumi → OpenClaw)
+    # Needs camera_capture + animation_service from hardware threads (now joined above).
+    sensing_enabled = os.environ.get("LELAMP_SENSING_ENABLED", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    if SensingService and sensing_enabled:
+        try:
+            sensing_service = SensingService(
+                camera_capture=camera_capture,
+                sound_device_module=sd,
+                numpy_module=np,
+                cv2_module=cv2,
+                input_device=AUDIO_SENSING_DEVICE if AUDIO_SENSING_DEVICE is not None else audio_input_device,
+                poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
+                rgb_service=rgb_service,
+                tts_service=tts_service,
+                animation_service=animation_service,
+            )
+            sensing_service.start()
+            logger.info("SensingService started")
+        except Exception as e:
+            logger.warning(f"SensingService failed to start: {e}")
+            sensing_service = None
+
+    # Start display (GC9A01 eyes)
+    if DisplayService:
+        try:
+            display_service = DisplayService()
+            display_service.start()
+            logger.info("DisplayService started")
+        except Exception as e:
+            logger.warning(f"DisplayService failed to start: {e}")
+            display_service = None
 
     yield
 

@@ -308,7 +308,7 @@ class VoiceService:
 
     def _loop(self):
         """Main loop: local VAD → STT on speech → disconnect on silence."""
-        time.sleep(3)  # Wait for hardware init
+        time.sleep(0.5)  # Brief pause for audio subsystem to settle
 
         # Use arecord only when explicitly configured via LELAMP_AUDIO_INPUT_ALSA.
         # Auto-detection is disabled because arecord uses exclusive ALSA access,
