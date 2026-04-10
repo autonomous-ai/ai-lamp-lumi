@@ -37,11 +37,13 @@ RMS_THRESHOLD = int(os.environ.get("LELAMP_VAD_THRESHOLD", "3500"))      # RMS a
 SILENCE_TIMEOUT_S = float(os.environ.get("LELAMP_SILENCE_TIMEOUT", "2.5"))  # Silence before STT disconnect
 SPEECH_HOLDOFF_S = float(os.environ.get("LELAMP_SPEECH_HOLDOFF", "0.2"))  # Minimum speech duration before connecting STT
 
+SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
+
 # Silero VAD config
-SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.5"))  # Speech confidence threshold (0-1)
+SILERO_VAD_ENABLED = os.environ.get("LELAMP_SILERO_ENABLED", "true").lower() != "false"
+SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.3"))  # Speech confidence (0-1), lower = more sensitive
 SILERO_CHUNK_SIZE = 512  # Samples per silero inference call (32ms @ 16kHz)
 _SILERO_MODEL_PATH = Path(__file__).parent / "resources" / "silero_vad.onnx"
-SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
 
 # Echo cancellation config
 ECHO_RMS_FLOOR = 200          # RMS must drop below this before re-enabling VAD
@@ -146,19 +148,25 @@ class VoiceService:
             logger.warning("sounddevice not available")
 
         # Silero VAD (ONNX) — secondary speech filter to reject non-speech audio (TV, music, noise)
+        # Auto-enabled if model file exists. Disable via LELAMP_SILERO_ENABLED=false in .env.
         self._silero: Optional[object] = None
         self._silero_state: Optional[object] = None
         self._silero_lock = threading.Lock()
-        try:
-            import onnxruntime as ort
-            self._silero = ort.InferenceSession(
-                str(_SILERO_MODEL_PATH),
-                providers=["CPUExecutionProvider"],
-            )
-            self._silero_reset_state()
-            logger.info("Silero VAD loaded (threshold=%.2f)", SILERO_VAD_THRESHOLD)
-        except Exception as e:
-            logger.warning("Silero VAD not available — falling back to RMS only: %s", e)
+        if SILERO_VAD_ENABLED and _SILERO_MODEL_PATH.exists():
+            try:
+                import onnxruntime as ort
+                self._silero = ort.InferenceSession(
+                    str(_SILERO_MODEL_PATH),
+                    providers=["CPUExecutionProvider"],
+                )
+                self._silero_reset_state()
+                logger.info("Silero VAD loaded (threshold=%.2f)", SILERO_VAD_THRESHOLD)
+            except Exception as e:
+                logger.warning("Silero VAD not available — falling back to RMS only: %s", e)
+        elif not _SILERO_MODEL_PATH.exists():
+            logger.info("Silero VAD model not found — using RMS only")
+        else:
+            logger.info("Silero VAD disabled via LELAMP_SILERO_ENABLED=false")
 
     def set_music_service(self, music_service) -> None:
         self._music = music_service
