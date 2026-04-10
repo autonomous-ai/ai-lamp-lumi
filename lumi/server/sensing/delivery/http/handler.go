@@ -230,6 +230,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
+		// Remind agent to set up wellbeing + music crons on presence.enter.
+		// Agent decides whether to act based on face type (owner/friend only).
+		if req.Type == "presence.enter" {
+			msg += "\n[After greeting, set up wellbeing crons (hydration + break) and music cron for this person. Use cron.list to clean stale jobs first.]"
+		}
 	}
 
 	var err error
