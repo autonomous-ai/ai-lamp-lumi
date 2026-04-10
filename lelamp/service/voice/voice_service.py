@@ -139,6 +139,9 @@ class VoiceService:
         except ImportError:
             logger.warning("sounddevice not available")
 
+    def set_music_service(self, music_service) -> None:
+        self._music = music_service
+
     def set_wake_words(self, words: list) -> None:
         """Update wake word list at runtime (called when agent is renamed)."""
         with self._wake_words_lock:
