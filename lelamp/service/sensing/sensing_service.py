@@ -292,6 +292,7 @@ class SensingService:
         event_type: str,
         message: str,
         image=None,
+        images: list | None = None,
         cooldown: Optional[float] = None,
     ):
         now = time.time()
@@ -300,10 +301,16 @@ class SensingService:
         if now - last < cd:
             return
 
-        # If a raw frame is provided, save to tmp and persist a copy.
-        # The persistent path is used in the message so the agent can look back.
-        if image is not None:
-            tmp_path = self._save_frame(image)
+        # Collect all images to save (single image or list)
+        frames = []
+        if images:
+            frames = list(images)
+        elif image is not None:
+            frames = [image]
+
+        # Save each frame and append snapshot paths to the message.
+        for frame in frames:
+            tmp_path = self._save_frame(frame)
             if tmp_path:
                 persist_path = self._persist_snapshot(tmp_path)
                 ref = persist_path or tmp_path

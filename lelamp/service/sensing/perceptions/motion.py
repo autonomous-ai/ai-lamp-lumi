@@ -131,7 +131,11 @@ class MotionChecker:
 
 
 class MotionPerception(Perception):
-    """Detects motion via X3D video action recognition (400 Kinect action classes)."""
+    """Detects motion via X3D video action recognition (400 Kinect action classes).
+
+    Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
+    sending all accumulated snapshots together in one event.
+    """
 
     def __init__(
         self,
@@ -140,16 +144,19 @@ class MotionPerception(Perception):
         capture_stable_frame: Callable,
         presence_service,
         model_path: Path | None = None,
-        motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,
     ):
         super().__init__(send_event)
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
-        self._motion_update_ts: float = motion_update_ts
         self._last_motion_time: Optional[float] = None
-        self._last_motion_event_ts: float = 0.0
         self._checker = MotionChecker(model_path=model_path)
+
+        # Snapshot buffer — flushed every MOTION_FLUSH_S
+        self._flush_interval: float = config.MOTION_FLUSH_S
+        self._snapshot_buffer: list[npt.NDArray[np.uint8]] = []
+        self._actions_buffer: list[str] = []
+        self._last_flush_ts: float = 0.0
 
     @override
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
@@ -162,36 +169,50 @@ class MotionPerception(Perception):
             logger.exception("[motion] X3D inference error")
             return
 
-        if action is None:
+        if action is not None:
+            self._last_motion_time = time.time()
+            self._on_motion()
+
+            stable = self._capture_stable_frame()
+            image = stable if stable is not None else frame
+            self._snapshot_buffer.append(image)
+            self._actions_buffer.append(action)
+
+        self._flush_buffer()
+
+    def _flush_buffer(self) -> None:
+        if not self._snapshot_buffer:
             return
 
         cur_ts = time.time()
-        self._last_motion_time = cur_ts
-        self._on_motion()
-
-        if (cur_ts - self._last_motion_event_ts) < self._motion_update_ts:
+        if (cur_ts - self._last_flush_ts) < self._flush_interval:
             return
-        self._last_motion_event_ts = cur_ts
 
-        stable = self._capture_stable_frame()
-        image = stable if stable is not None else frame
+        snapshots = list(self._snapshot_buffer)
+        actions = list(self._actions_buffer)
+        self._snapshot_buffer.clear()
+        self._actions_buffer.clear()
+        self._last_flush_ts = cur_ts
+
+        unique_actions = sorted(set(actions))
+        actions_str = ", ".join(f"'{a}'" for a in unique_actions)
+        logger.info("[motion] flushing %d snapshot(s), actions: %s", len(snapshots), actions_str)
 
         from ..presence_service import PresenceState
 
         if self._presence.state == PresenceState.PRESENT:
-            logger.info("[motion] activity: %s (PRESENT)", action)
             self._send_event(
                 "motion.activity",
-                f"Action detected via video recognition: '{action}'. "
-                "Look at the attached image — describe what the user appears to be doing. "
+                f"Actions detected via video recognition: {actions_str}. "
+                "Look at the attached images — describe what the user appears to be doing. "
                 "If nothing noteworthy, reply NO_REPLY.",
-                image=image,
+                images=snapshots,
             )
         else:
             self._send_event(
                 "motion",
-                f"Action detected via video recognition: '{action}' — someone may have entered or left the room",
-                image=image,
+                f"Actions detected via video recognition: {actions_str} — someone may have entered or left the room",
+                images=snapshots,
             )
 
     def to_dict(self) -> dict:
@@ -203,6 +224,7 @@ class MotionPerception(Perception):
         return {
             "type": "motion",
             "last_action": self._checker.last_action,
+            "buffered_snapshots": len(self._snapshot_buffer),
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,
         }
