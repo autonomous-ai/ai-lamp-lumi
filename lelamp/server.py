@@ -197,6 +197,7 @@ voice_service = None
 display_service = None
 tts_service = None
 music_service = None
+_gpio_stop_button = None  # GPIO17 stop-speaker button (kept alive to prevent GC)
 
 
 def _find_audio_device(output: bool = True) -> Optional[int]:
@@ -543,6 +544,22 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"DisplayService failed to start: {e}")
             display_service = None
+
+    # GPIO17 stop-speaker button — press stops TTS + music immediately
+    global _gpio_stop_button
+    try:
+        from gpiozero import Button as _GpioButton
+
+        def _on_stop_button():
+            logger.info("GPIO17 stop button pressed — stopping speaker")
+            stop_tts()
+            audio_stop()
+
+        _gpio_stop_button = _GpioButton(pin=17, pull_up=True, bounce_time=0.1)
+        _gpio_stop_button.when_pressed = _on_stop_button
+        logger.info("GPIO stop button ready on pin 17")
+    except Exception:
+        pass  # GPIO not available on this hardware, skip silently
 
     yield
 
@@ -1668,14 +1685,16 @@ def _restore_user_led():
 
     state = _user_led_state
     if state is None or state.get("type") == "off":
-        # No active user preference — keep the emotion LED as-is.
+        logger.info("LED restore: no active user state (state=%s) — keeping emotion color", state)
         return
 
     stype = state.get("type")
+    logger.info("LED restore: restoring user state type=%s", stype)
     try:
         if stype == "solid":
             _stop_current_effect()
             rgb_service.dispatch("solid", tuple(state["color"]))
+            logger.info("LED restore: solid color=%s", state["color"])
         elif stype == "effect":
             _stop_current_effect()
             global _effect_thread, _effect_name, _effect_base_color
@@ -1692,6 +1711,7 @@ def _restore_user_led():
                 name=f"led-restore-{effect}",
             )
             _effect_thread.start()
+            logger.info("LED restore: effect=%s color=%s speed=%s", effect, color, speed)
         elif stype == "scene":
             preset = SCENE_PRESETS.get(state["scene"])
             if preset:
@@ -1699,6 +1719,7 @@ def _restore_user_led():
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
                 rgb_service.dispatch("solid", scaled)
                 aim_dir = preset.get("aim")
+                logger.info("LED restore: scene=%s color=%s aim=%s", state["scene"], scaled, aim_dir)
                 if aim_dir and animation_service:
                     threading.Thread(
                         target=aim_servo,
@@ -1706,6 +1727,8 @@ def _restore_user_led():
                         daemon=True,
                         name=f"restore-aim-{aim_dir}",
                     ).start()
+            else:
+                logger.warning("LED restore: scene=%s not found in SCENE_PRESETS", state["scene"])
     except Exception as e:
         logger.warning("LED restore failed: %s", e)
 
@@ -2928,9 +2951,11 @@ def _on_music_complete():
         animation_service.dispatch("music_stop", None)
 
     state = _user_led_state
+    logger.info("Music stop: restoring state type=%s", state.get("type") if state else None)
     if state is not None and state.get("type") != "off":
         _restore_user_led()
     elif rgb_service:
+        logger.info("Music stop: no active user state — falling back to idle breathing")
         # No active user preference — gentle idle breathing
         idle_preset = EMOTION_PRESETS["idle"]
         try:
