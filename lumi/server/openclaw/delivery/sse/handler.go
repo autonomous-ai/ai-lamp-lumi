@@ -56,18 +56,6 @@ type OpenClawHandler struct {
 	lastEmotionMu sync.Mutex
 	lastEmotion   string
 
-	// lumiCronRuns tracks runIDs for cron-triggered turns on the lumi session.
-	// Cron turns have OpenClaw UUIDs (not lumi-chat-* prefix) so lifecycle_end
-	// mis-classifies them as channel (Telegram) turns, skipping TTS. This map
-	// lets lifecycle_end route them correctly.
-	lumiCronRunsMu sync.Mutex
-	lumiCronRuns   map[string]bool
-
-	// channelRuns tracks runs confirmed to be from a real channel user (Telegram/etc.)
-	// via senderLabel. Used at TTS decision to suppress TTS regardless of lumiCronRuns.
-	channelRunsMu sync.Mutex
-	channelRuns   map[string]bool
-
 	debugMu sync.Mutex
 }
 
@@ -108,8 +96,6 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		assistantBuf:       make(map[string]*strings.Builder),
 		ttsSuppressReasons: make(map[string]string),
 		runIDMap:           make(map[string]string),
-		lumiCronRuns:       make(map[string]bool),
-		channelRuns:        make(map[string]bool),
 	}
 }
 
@@ -348,17 +334,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// sessions have independent runs that must NOT be merged into sensing traces.
 		lumiSession := h.agentGateway.GetSessionKey()
 		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
-		if payload.Stream == "lifecycle" {
-			slog.Info("[TTS-DEBUG] session classification",
-				"component", "agent",
-				"phase", payload.Data.Phase,
-				"run_id", payload.RunID,
-				"payload_session", payload.SessionKey,
-				"lumi_session", lumiSession,
-				"is_lumi_session", isLumiSession,
-				"is_lumi_outbound_run_id", isLumiOutboundChatRunID(payload.RunID),
-			)
-		}
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
 			if deviceTrace := flow.GetTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
 				h.mapRunID(payload.RunID, deviceTrace)
@@ -470,19 +445,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							}
 						}
 					}
-					// Mark as confirmed channel run if a real sender is present.
-					// Cron turns have no senderLabel; Telegram/channel turns always do.
-					// Checked at TTS decision to suppress TTS regardless of lumiCronRuns.
-					if senderLabel != "" {
-						h.channelRunsMu.Lock()
-						h.channelRuns[capturedRunID] = true
-						h.channelRunsMu.Unlock()
-						slog.Info("[TTS-DEBUG] marked as channel-run (senderLabel present)",
-							"component", "agent",
-							"run_id", capturedRunID,
-							"sender", senderLabel,
-						)
-					}
 					if userMsg != "" {
 						// Detect music-proactive cron turns so mood.assessed gets logged
 						// and the suggestion is broadcast to Telegram for remote confirmation.
@@ -516,20 +478,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						})
 					}
 				}()
-			}
-
-			// Track lumi-session cron turns so lifecycle_end routes TTS and
-			// broadcast correctly (cron UUIDs look like channel turns otherwise).
-			if isLumiSession {
-				h.lumiCronRunsMu.Lock()
-				h.lumiCronRuns[payload.RunID] = true
-				h.lumiCronRunsMu.Unlock()
-				slog.Info("[TTS-DEBUG] marked as lumi-cron-run",
-					"component", "agent",
-					"run_id", payload.RunID,
-					"payload_session", payload.SessionKey,
-					"is_lumi_outbound", isLumiOutboundChatRunID(payload.RunID),
-				)
 			}
 
 			// Track busy state so passive sensing events can be suppressed during active turns.
@@ -853,13 +801,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}
 				}
 
-				// Consume lumi cron marker early (same reason — prevent leak on NO_REPLY paths).
-				h.lumiCronRunsMu.Lock()
-				isLumiCron := h.lumiCronRuns[payload.RunID] || h.lumiCronRuns[flowRunID]
-				delete(h.lumiCronRuns, payload.RunID)
-				delete(h.lumiCronRuns, flowRunID)
-				h.lumiCronRunsMu.Unlock()
-
 				// Guard mode: broadcast even on NO_REPLY / empty / suppressed paths.
 				// The agent may choose not to speak, but we still want to alert the owner via Telegram.
 				if snap, ok := h.agentGateway.ConsumeGuardRun(flowRunID); ok {
@@ -895,34 +836,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
 					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
-					// [HW:/broadcast] forces TTS even for channel/cron runs (like guard mode).
-					// Lumi-session cron turns also need TTS (they have OpenClaw UUIDs
-					// that look like channel runs but fire on the local speaker).
-					if isBroadcastRun || isLumiCron {
+					// [HW:/broadcast] forces TTS even for channel runs (like guard mode).
+					if isBroadcastRun {
 						isChannelRun = false
 					}
-					// Override: if confirmed channel turn via senderLabel, always suppress TTS.
-					h.channelRunsMu.Lock()
-					isConfirmedChannelRun := h.channelRuns[payload.RunID] || h.channelRuns[flowRunID]
-					delete(h.channelRuns, payload.RunID)
-					delete(h.channelRuns, flowRunID)
-					h.channelRunsMu.Unlock()
-					if isConfirmedChannelRun {
-						isChannelRun = true
-					}
-					slog.Info("[TTS-DEBUG] TTS decision",
-						"component", "agent",
-						"run_id", payload.RunID,
-						"flow_run_id", flowRunID,
-						"payload_session", payload.SessionKey,
-						"lumi_session", h.agentGateway.GetSessionKey(),
-						"is_channel_run", isChannelRun,
-						"is_lumi_cron", isLumiCron,
-						"is_broadcast", isBroadcastRun,
-						"will_tts", !isChannelRun,
-						"text", text[:min(len(text), 60)],
-					)
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "lumi_cron", isLumiCron)
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
 						go func(t string) {
