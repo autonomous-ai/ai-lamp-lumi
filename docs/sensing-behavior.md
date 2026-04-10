@@ -83,10 +83,7 @@ The system handles cooldowns on the LeLamp side. If the event reached the agent,
 
 ### Leave (`presence.leave`)
 
-Agent calls `/emotion idle` (0.4) and **speaks a farewell**. The voice content depends on who was last seen:
-- **Owner left** → warm farewell by name (e.g. "Bye Alice, have a nice day!", "See you later!"). If multiple owners were seen, name them all.
-- **Stranger left** → watchful remark (e.g. "Kept my eyes on you.", "Good, they're gone.")
-- **Unknown** (no prior presence.enter in history) → default owner farewell without a name.
+Agent calls `/emotion idle` (0.4) and replies **NO_REPLY** (silent — no TTS). This avoids noisy loops when people come and go frequently. The agent still processes the event internally to cancel wellbeing crons and update daily logs.
 
 ### Away (`presence.away`)
 
