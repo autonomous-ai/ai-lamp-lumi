@@ -816,6 +816,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}(guardText, snap)
 				}
 
+				// Detect heartbeat before sanitizing strips the sentinel.
+				isHeartbeatRun := strings.Contains(strings.ToUpper(text), "HEARTBEAT_OK")
 				text = sanitizeAgentText(text)
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
@@ -840,7 +842,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					if isBroadcastRun {
 						isChannelRun = false
 					}
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun)
+					// Heartbeat cron responses must never reach the speaker.
+					// Race: if a sensing trace is active when heartbeat fires, mapRunID maps the
+					// heartbeat UUID → "lumi-sensing-..." causing isChannelRun=false. Override it.
+					if isHeartbeatRun {
+						isChannelRun = true
+						slog.Info("heartbeat run detected, TTS suppressed", "component", "agent", "run_id", flowRunID)
+					}
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "heartbeat", isHeartbeatRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
 						go func(t string) {
