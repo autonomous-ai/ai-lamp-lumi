@@ -502,6 +502,20 @@ async def lifespan(app: FastAPI):
     )
     if SensingService and sensing_enabled:
         try:
+            def _presence_restore_aim():
+                """Re-aim lamp to active scene direction when presence restores light."""
+                if not _active_scene or not animation_service:
+                    return
+                preset = SCENE_PRESETS.get(_active_scene)
+                aim_dir = preset.get("aim") if preset else None
+                if aim_dir:
+                    threading.Thread(
+                        target=aim_servo,
+                        args=(ServoAimRequest(direction=aim_dir),),
+                        daemon=True,
+                        name=f"presence-aim-{aim_dir}",
+                    ).start()
+
             sensing_service = SensingService(
                 camera_capture=camera_capture,
                 sound_device_module=sd,
@@ -512,6 +526,7 @@ async def lifespan(app: FastAPI):
                 rgb_service=rgb_service,
                 tts_service=tts_service,
                 animation_service=animation_service,
+                on_restore_aim=_presence_restore_aim,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -1683,6 +1698,14 @@ def _restore_user_led():
                 _stop_current_effect()
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
                 rgb_service.dispatch("solid", scaled)
+                aim_dir = preset.get("aim")
+                if aim_dir and animation_service:
+                    threading.Thread(
+                        target=aim_servo,
+                        args=(ServoAimRequest(direction=aim_dir),),
+                        daemon=True,
+                        name=f"restore-aim-{aim_dir}",
+                    ).start()
     except Exception as e:
         logger.warning("LED restore failed: %s", e)
 
@@ -2896,11 +2919,20 @@ def audio_play(req: MusicPlayRequest):
 
 
 def _on_music_complete():
-    """Restore idle state after music ends (servo, LED, display)."""
+    """Restore state after music ends (servo, LED, display).
+
+    If user had an active scene/color: restore it (LED + aim).
+    Otherwise fall back to idle breathing so lamp doesn't go dark.
+    """
     if animation_service:
         animation_service.dispatch("music_stop", None)
-    idle_preset = EMOTION_PRESETS["idle"]
-    if rgb_service:
+
+    state = _user_led_state
+    if state is not None and state.get("type") != "off":
+        _restore_user_led()
+    elif rgb_service:
+        # No active user preference — gentle idle breathing
+        idle_preset = EMOTION_PRESETS["idle"]
         try:
             _stop_current_effect()
             global _effect_thread, _effect_name
@@ -2922,6 +2954,7 @@ def _on_music_complete():
             _effect_thread.start()
         except Exception as e:
             logger.warning("Music stop LED failed: %s", e)
+
     if display_service:
         try:
             display_service.set_expression("neutral")
