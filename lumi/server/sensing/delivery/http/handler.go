@@ -235,7 +235,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.enter":
-			msg += "\n[MANDATORY for owner/friend: After greeting, call cron.list, remove ALL crons related to hydration/break/wellbeing (any name containing \"hydration\", \"break\", or \"Wellbeing\"), then create fresh ones per Wellbeing skill. Also remove and recreate music cron per Music skill. You MUST call cron.list + cron.remove + cron.add — do not skip even if you think crons already exist.]"
+			msg += "\n[MANDATORY for owner/friend: (1) ALWAYS call cron.list FIRST to see what actually exists — do NOT assume from memory. (2) cron.remove ALL jobs with \"hydration\"/\"break\"/\"Wellbeing\"/\"music\" in name. (3) Create fresh crons per Wellbeing skill and Music skill. You MUST call cron.list + cron.remove + cron.add every time — do not skip.]"
 		case "presence.leave":
 			msg += "\n[Follow Wellbeing skill: cancel crons + write daily log.]"
 		case "motion.activity":

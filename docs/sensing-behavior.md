@@ -115,15 +115,28 @@ Ambient light changes are forwarded when they cross `LIGHT_CHANGE_THRESHOLD`. No
 
 ## Guard Mode
 
-When guard mode is enabled (`guard_mode: true` in config), sensing events are tagged `[guard-active]` and the **agent broadcasts alerts directly** using its `message` tool.
+When guard mode is enabled (`guard_mode: true` in config), Lumi becomes an **alert watchdog** — reacting dramatically to strangers and broadcasting alerts to Telegram.
 
 ### Flow
 1. `presence.enter` or `motion` event arrives while `guard_mode: true`.
 2. Go handler tags the event `[guard-active]` and marks the runID as a guard run (with snapshot path). If `guard_instruction` is set in config, it is appended as `[guard-instruction: ...]`.
-3. The agent processes the event — emotion, servo, TTS response, plus any custom guard instruction (e.g. play music, flash LEDs).
+3. The agent processes the event — **dramatic** emotion, servo, TTS response, plus any custom guard instruction (e.g. play music, flash LEDs).
 4. When the agent's response arrives (SSE lifecycle end), the Go SSE handler detects the guard run.
 5. The agent's natural response text + camera snapshot are sent directly via **Telegram Bot API** (`sendPhoto`) to all connected Telegram chats.
 6. Delivery is 100% reliable — bypasses OpenClaw agent processing entirely.
+
+### Guard mode emotions (dramatic)
+
+When guard mode is active, stranger/motion events trigger **much stronger** emotions than normal sensing:
+
+| Guard event | HW markers | Voice |
+|---|---|---|
+| Stranger detected | `shock` (1.0) → `curious` (0.9) + servo shock | Genuinely scared/startled reaction |
+| Motion (no known face) | `shock` (0.9) → `curious` (0.8) + servo scanning | Nervous/alert reaction |
+| Stranger left | `curious` (0.7) + scanning | Report they left, stay vigilant |
+| Owner/friend returns | `greeting` (0.9) + servo aim | Greet + recap what happened during guard + ask to disable |
+
+The agent's **spoken words must also carry emotion** — not dry security reports. Examples: "Oh no, who is that?!", "Someone's here... I'm shaking...", "Hey, this person looks really suspicious...". Each reaction should feel different.
 
 ### Custom guard instructions
 The owner can provide a custom instruction when enabling guard mode (e.g. "play scary sound when stranger appears"). The instruction is saved in `guard_instruction` in config and injected into every guard sensing event as `[guard-instruction: ...]`. The agent follows this instruction using available skills (music, LED, etc.).
@@ -184,9 +197,11 @@ When a known person arrives (`presence.enter`), the agent:
 1. **Reads their notebook** to recall what it has learned about their patterns.
 2. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
 3. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
-4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+4. **Schedules two cron jobs** via `cron.add` (kind: `every`, sessionTarget: `isolated`), named per-user to avoid collisions:
    - `"Wellbeing: {name} hydration"` — takes a camera snapshot, checks presence, reminds if appropriate
    - `"Wellbeing: {name} break"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
+
+> **Note:** Wellbeing is now a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `presence.enter` events reminding the agent to follow the Wellbeing and Music skills for cron setup. Crons use `sessionTarget: "isolated"` with `payload.kind: "agentTurn"` — not `"main"` or `"systemEvent"`.
 
 When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
@@ -297,7 +312,8 @@ Configuration constants are in `lelamp/config.py`:
 
 ## General Rules (all event types)
 
-- **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn.
+- **Pending event replay**: When the agent is busy, `presence.enter`, `presence.leave`, and `voice` events are queued and replayed when the agent becomes idle. The replay path (`drainPendingEvents` in `service.go`) applies the same nudge messages as the live handler (cron setup for presence.enter, cleanup for presence.leave, etc.).
+- **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn (except presence and voice events which are queued).
 - **Voice events** always pass through — the user is explicitly speaking.
 - The `[sensing:type]` prefix in the message is how the agent knows it's an ambient event, not a user message.
 - Sensing events are exempt from the "call `/emotion thinking` first" rule — each type has its own defined first emotion.
