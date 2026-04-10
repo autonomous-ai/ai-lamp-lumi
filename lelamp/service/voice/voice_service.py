@@ -147,8 +147,7 @@ class VoiceService:
 
         # Silero VAD (ONNX) — secondary speech filter to reject non-speech audio (TV, music, noise)
         self._silero: Optional[object] = None
-        self._silero_h: Optional[object] = None
-        self._silero_c: Optional[object] = None
+        self._silero_state: Optional[object] = None
         self._silero_lock = threading.Lock()
         try:
             import onnxruntime as ort
@@ -289,8 +288,7 @@ class VoiceService:
     def _silero_reset_state(self):
         """Reset Silero LSTM state between speech segments."""
         import numpy as np
-        self._silero_h = np.zeros((2, 1, 64), dtype=np.float32)
-        self._silero_c = np.zeros((2, 1, 64), dtype=np.float32)
+        self._silero_state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def _silero_is_speech(self, data: "np.ndarray", device_rate: int) -> bool:
         """Run Silero VAD on audio frame. Returns True if speech detected.
@@ -324,14 +322,12 @@ class VoiceService:
                         None,
                         {
                             "input": chunk.reshape(1, -1),
-                            "h": self._silero_h,
-                            "c": self._silero_c,
+                            "state": self._silero_state,
                             "sr": np.array(STT_RATE, dtype=np.int64),
                         },
                     )
                     max_conf = max(max_conf, float(out[0]))
-                    self._silero_h = out[1]
-                    self._silero_c = out[2]
+                    self._silero_state = out[1]
 
             return max_conf >= SILERO_VAD_THRESHOLD
         except Exception as e:
