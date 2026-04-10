@@ -232,8 +232,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		msg = "[sensing:" + req.Type + "] " + req.Message
 		// Remind agent to set up wellbeing + music crons on presence.enter.
 		// Agent decides whether to act based on face type (owner/friend only).
-		if req.Type == "presence.enter" {
-			msg += "\n[After greeting, set up wellbeing crons (hydration + break) and music cron for this person. Use cron.list to clean stale jobs first.]"
+		// Nudge agent to follow wellbeing/music skills on relevant events.
+		switch req.Type {
+		case "presence.enter":
+			msg += "\n[MANDATORY for owner/friend: After greeting, call cron.list, remove ALL crons related to hydration/break/wellbeing (any name containing \"hydration\", \"break\", or \"Wellbeing\"), then create fresh ones per Wellbeing skill. Also remove and recreate music cron per Music skill. You MUST call cron.list + cron.remove + cron.add — do not skip even if you think crons already exist.]"
+		case "presence.leave":
+			msg += "\n[Follow Wellbeing skill: cancel crons + write daily log.]"
+		case "motion.activity":
+			msg += "\n[Follow Wellbeing skill: reset cron timers if user is drinking/stretching.]"
 		}
 	}
 
