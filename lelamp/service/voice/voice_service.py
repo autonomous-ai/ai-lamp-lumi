@@ -107,6 +107,7 @@ class VoiceService:
             stt_provider: STTProvider,
             input_device: Optional[int] = None,
             tts_service=None,
+            music_service=None,
             wake_words: Optional[list] = None,
             alsa_device: Optional[str] = None,
     ):
@@ -116,6 +117,7 @@ class VoiceService:
         self._thread: Optional[threading.Thread] = None
         self._listening = False
         self._tts = tts_service
+        self._music = music_service
         self._wake_words: list = list(wake_words) if wake_words else list(DEFAULT_WAKE_WORDS)
         self._wake_words_lock = threading.Lock()
         self._device_rate: Optional[int] = None  # detected once at first use
@@ -136,6 +138,9 @@ class VoiceService:
             self._sd = sd
         except ImportError:
             logger.warning("sounddevice not available")
+
+    def set_music_service(self, music_service) -> None:
+        self._music = music_service
 
     def set_wake_words(self, words: list) -> None:
         """Update wake word list at runtime (called when agent is renamed)."""
@@ -263,6 +268,10 @@ class VoiceService:
         """Check if TTS is currently using the audio device."""
         return self._tts is not None and self._tts.speaking
 
+    def _music_is_playing(self) -> bool:
+        """Check if music is currently playing."""
+        return self._music is not None and self._music.playing
+
     def _wait_for_tts(self):
         """Block until TTS finishes speaking, then wait for reverb to decay (adaptive RMS gate)."""
         if not self._tts_is_speaking():
@@ -329,8 +338,13 @@ class VoiceService:
         self._device_rate = device_rate  # store for _wait_for_tts
 
         while self._running:
-            # Wait for TTS to finish before opening mic
+            # Wait for TTS or music to finish before opening mic
             self._wait_for_tts()
+            if self._music_is_playing():
+                logger.info("Music playing, pausing mic...")
+                while self._running and self._music_is_playing():
+                    time.sleep(0.5)
+                logger.info("Music stopped, resuming mic")
 
             try:
                 if self._alsa_device is not None:
@@ -377,9 +391,9 @@ class VoiceService:
                 logger.info("STT keepalive: pre-connected, waiting for speech...")
 
         while self._running:
-            # Yield mic to TTS — break so _loop closes InputStream first
-            if self._tts_is_speaking():
-                logger.info("TTS started, releasing mic...")
+            # Yield mic to TTS or music — break so _loop closes InputStream first
+            if self._tts_is_speaking() or self._music_is_playing():
+                logger.info("TTS/music started, releasing mic...")
                 if keepalive_session:
                     keepalive_session.close()
                 return
