@@ -71,6 +71,7 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 | `confused` | Dog-like head tilt side-to-side | Light purple pulse | Did not understand, ambiguous input |
 | `sleepy` | Slow droop with head catches | Dim purple breathing | Before sleep mode, winding down |
 | `greeting` | Wave gesture, arm extends | Warm orange pulse | Detecting person, saying hello |
+| `goodbye` | Farewell wave gesture | Soft warm fade | Seeing someone off, end of conversation |
 | `acknowledge` | Quick micro-nod (1.5s) | Green pulse | "Got it", confirming command |
 | `stretching` | Big extension + settle | Warm white breathing | After waking up, starting new session |
 
@@ -84,6 +85,7 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 - Use `thinking` when you need time to process a complex query.
 - Use `acknowledge` for quick confirmations ("OK", "got it", "done").
 - Use `greeting` when a new person is detected or at the start of a conversation.
+- Use `goodbye` when a person leaves or at the end of a conversation.
 - Use `sleepy` before transitioning to sleep/night mode.
 - Use `stretching` after waking up or starting a new session.
 - Do **NOT** call `idle` explicitly — the lamp returns to idle automatically after any animation finishes. Calling idle interrupts smooth transitions.

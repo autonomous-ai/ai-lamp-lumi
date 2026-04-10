@@ -108,8 +108,10 @@ Suggest (or skip) → learn from outcome → cron.update interval
 
 When you first start or after a reboot, set up your proactive music check:
 
+**Default interval: 420000 ms (7 minutes).** Always use this interval when creating the music cron job unless you have learned a better interval from mood + listening history.
+
 1. Call `cron.list()` to see if a music check job already exists (look for name containing "music").
-2. If NO music job exists → create one:
+2. If NO music job exists → create one with the default interval (420000 ms):
 ```json
 {
   "name": "Proactive music check",
@@ -121,7 +123,7 @@ When you first start or after a reboot, set up your proactive music check:
   }
 }
 ```
-3. If a music job exists with a different interval than what you've learned → `cron.update` it.
+3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
 **When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (owner detected), check and set up the music cron job.
 
