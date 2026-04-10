@@ -383,11 +383,26 @@ async def lifespan(app: FastAPI):
 
     # --- Phase 2: Audio detect + TTS + VoiceService (runs while hardware inits above) ---
 
-    # Detect audio devices
+    # Detect audio devices — run output and input detection in parallel (each may
+    # invoke subprocess aplay/arecord with up to 5s timeout, so do them concurrently).
     global music_service
     if sd:
-        audio_output_device = _find_audio_device(output=True)
-        audio_input_device = _find_audio_device(output=False)
+        _audio_results = [None, None]
+
+        def _detect_output():
+            _audio_results[0] = _find_audio_device(output=True)
+
+        def _detect_input():
+            _audio_results[1] = _find_audio_device(output=False)
+
+        _t_out = threading.Thread(target=_detect_output, daemon=True)
+        _t_in = threading.Thread(target=_detect_input, daemon=True)
+        _t_out.start()
+        _t_in.start()
+        _t_out.join()
+        _t_in.join()
+
+        audio_output_device, audio_input_device = _audio_results
         if audio_output_device is not None:
             logger.info(f"Audio output device: {audio_output_device}")
         if audio_input_device is not None:
