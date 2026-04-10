@@ -555,18 +555,20 @@ async def lifespan(app: FastAPI):
     # GPIO17 stop-speaker button — press stops TTS + music immediately
     global _gpio_stop_button
     try:
-        from gpiozero import Button as _GpioButton
+        import lgpio as _lgpio
 
-        def _on_stop_button():
+        _h = _lgpio.gpiochip_open(0)
+        _lgpio.gpio_claim_alert(_h, 17, _lgpio.FALLING_EDGE, _lgpio.SET_PULL_UP)
+
+        def _on_stop_button(chip, gpio, level, tick):
             logger.info("GPIO17 stop button pressed — stopping speaker")
             stop_tts()
             audio_stop()
 
-        _gpio_stop_button = _GpioButton(pin=17, pull_up=True, bounce_time=0.1)
-        _gpio_stop_button.when_pressed = _on_stop_button
+        _gpio_stop_button = _lgpio.callback(_h, 17, _lgpio.FALLING_EDGE, _on_stop_button)
         logger.info("GPIO stop button ready on pin 17")
-    except Exception:
-        pass  # GPIO not available on this hardware, skip silently
+    except Exception as e:
+        logger.warning(f"GPIO stop button init failed: {e}")
 
     yield
 
