@@ -462,6 +462,7 @@ async def lifespan(app: FastAPI):
                     stt_provider=stt_provider,
                     input_device=audio_input_device,
                     tts_service=tts_service,
+                    music_service=music_service,
                     wake_words=wake_words,
                     alsa_device=AUDIO_INPUT_ALSA,
                 )
@@ -481,6 +482,9 @@ async def lifespan(app: FastAPI):
             # Wire TTS so music pauses during speech
             if tts_service:
                 music_service._tts_service = tts_service
+            # Wire music to VoiceService so STT pauses during playback
+            if voice_service:
+                voice_service.set_music_service(music_service)
             logger.info("MusicService started")
         except Exception as e:
             logger.warning(f"MusicService failed to start: {e}")
@@ -2708,6 +2712,7 @@ def start_voice(req: VoiceStartRequest):
             stt_provider=stt_provider,
             input_device=audio_input_device,
             tts_service=tts_service,
+            music_service=music_service,
             wake_words=wake_words,
             alsa_device=AUDIO_INPUT_ALSA,
         )
