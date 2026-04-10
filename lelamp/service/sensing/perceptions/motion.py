@@ -1,15 +1,20 @@
 import logging
 import time
+from collections import deque
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional, cast, override
 
 import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
+import onnxruntime as ort
 
 from .base import Perception
 
 logger = logging.getLogger(__name__)
+
+RESOURCES_DIR = Path(__file__).parent / "resources"
 
 
 class MoveEnum(Enum):
@@ -19,88 +24,115 @@ class MoveEnum(Enum):
 
 
 class MotionChecker:
-    """Optical flow-based motion classifier using Farneback dense flow."""
+    """X3D video action recognition-based motion detector.
+
+    Buffers frames at a configurable interval and runs them through an
+    X3D ONNX model to classify the action from 400 Kinect action classes.
+    """
+
+    MEAN: npt.NDArray[np.float32] = np.array([114.75, 114.75, 114.75], dtype=np.float32)
+    STD: npt.NDArray[np.float32] = np.array([57.38, 57.38, 57.38], dtype=np.float32)
 
     def __init__(
         self,
-        cv2,
-        pixel_threshold: float = config.MOTION_PIXEL_THRESHOLD,
-        moving_pixel_ratio: float = config.MOTION_BG_RATIO,
-        move_threshold: float = config.MOTION_FLOW_THRESHOLD,
+        model_path: Path | None = None,
+        threshold: float = config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+        max_frames: int = 16,
+        frame_interval: float = 1.0,
+        frame_size: tuple[int, int] = (256, 256),
     ):
-        self._cv2 = cv2
-        self._last_frame: npt.NDArray[np.uint8] | None = None
-        self._flow: npt.NDArray[np.float32] | None = None
-        self._pixel_threshold = pixel_threshold
-        self._moving_pixel_ratio = moving_pixel_ratio
-        self._move_threshold = move_threshold
+        if model_path is None:
+            model_path = RESOURCES_DIR / "x3d_m_16x5x1.onnx"
+        self._session: ort.InferenceSession = self._prepare_session(model_path)
 
-    def _classify_move(self, flow: npt.NDArray[np.float32]) -> MoveEnum:
-        H, W = flow.shape[:2]
-        flow_mag = np.linalg.norm(flow, axis=-1)
-        mask = flow_mag > self._pixel_threshold
+        self._threshold: float = threshold
+        self._max_frames: int = max_frames
+        self._frame_interval: float = frame_interval
 
-        if mask.sum() == 0:
-            return MoveEnum.NONE
+        self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
+        self._last_ts: float = 0
+        self._last_action: str | None = None
+        self._classes_names: list[str] = self._load_classes_names()
+        self._frame_size = frame_size
 
-        if mask.sum() / (H * W) > self._moving_pixel_ratio:
-            return MoveEnum.BACKGROUND
+    def _load_classes_names(self):
+        file_path = RESOURCES_DIR / "kinect_classes.txt"
+        return file_path.read_text().strip().split("\n")
 
-        mean_flow = flow_mag[mask].mean()
-        if mean_flow > self._move_threshold:
-            return MoveEnum.FOREGROUND
-
-        return MoveEnum.NONE
-
-    def update(self, rgb_frame: npt.NDArray[np.uint8]) -> MoveEnum:
-        cv2 = self._cv2
-        H, W = rgb_frame.shape[:2]
-        frame = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2GRAY)
-        frame = cv2.resize(frame, (320, 180))
-        frame = cast(npt.NDArray[np.uint8], frame)
-
-        if self._last_frame is None:
-            self._last_frame = frame.copy()
-            return MoveEnum.NONE
-
-        flow = np.zeros_like(frame)
-        flow = np.repeat(np.expand_dims(flow, axis=-1), repeats=2, axis=-1)
-        flow = cv2.calcOpticalFlowFarneback(
-            self._last_frame,
-            frame,
-            flow,
-            pyr_scale=0.5,
-            levels=3,
-            winsize=15,
-            iterations=3,
-            poly_n=5,
-            poly_sigma=1.2,
-            flags=0,
+    def _prepare_session(self, model_path: Path, n_threads: int = 4):
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = n_threads
+        opts.inter_op_num_threads = 1
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.add_session_config_entry("session.dynamic_block_base", "4")
+        return ort.InferenceSession(
+            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
-        flow = cv2.resize(flow, (W, H))
-        flow = cv2.GaussianBlur(flow, (21, 21), -1)
-        flow = cast(npt.NDArray[np.float32], flow)
 
-        self._flow = flow
-        self._last_frame = frame
+    def _get_action(self, frame_buffer: deque[npt.NDArray[np.uint8]]) -> tuple[str, float]:
+        frames = np.stack(list(frame_buffer), axis=0)
+        T, H, W, C = frames.shape
+        norm_frames = (frames - self.MEAN) / self.STD
 
-        return self._classify_move(flow)
+        if T < self._max_frames:
+            input = np.concatenate(
+                [
+                    norm_frames,
+                    np.zeros((self._max_frames - T, H, W, C), dtype=np.float32),
+                ],
+                axis=0,
+            )
+            input = input.transpose(3, 0, 1, 2)[None, None, ...]
+        else:
+            input = norm_frames.transpose(3, 0, 1, 2)[None, None, ...]
+
+        (pred,) = self._session.run(["pred"], {"input": input})
+        pred = cast(npt.NDArray[np.float32], pred)
+        pred = np.exp(pred)
+        pred = pred / np.sum(pred, axis=-1, keepdims=True)
+        idx = pred[0].argmax()
+        return self._classes_names[idx], float(pred[0][idx])
+
+    def update(self, frame: npt.NDArray[np.uint8]) -> str | None:
+        """Buffer a frame and run X3D inference when the interval elapses.
+
+        Returns the predicted action name, or None if not enough time has passed.
+        """
+        import cv2
+
+        cur_ts = time.time()
+        if cur_ts - self._last_ts > self._frame_interval:
+            H, W = frame.shape[:2]
+            frame = cast(npt.NDArray[np.uint8], cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            r = max(256 / W, 256 / H)
+            frame = cast(npt.NDArray[np.uint8], cv2.resize(frame, None, fx=r, fy=r))
+            NH, NW = frame.shape[:2]
+            frame = frame[NH // 2 - 128 : NH // 2 + 128, NW // 2 - 128 : NW // 2 + 128]
+            self._frame_buffer.append(frame)
+            while len(self._frame_buffer) > self._max_frames:
+                _ = self._frame_buffer.popleft()
+
+            action, confidence = self._get_action(self._frame_buffer)
+            self._last_action = action if confidence >= self._threshold else None
+            self._last_ts = cur_ts
+
+        return self._last_action
 
     @property
-    def flow(self) -> npt.NDArray[np.float32] | None:
-        return self._flow
+    def last_action(self) -> str | None:
+        return self._last_action
 
 
 class MotionPerception(Perception):
-    """Detects foreground motion via optical flow (Farneback). Ignores background/camera shake."""
+    """Detects motion via X3D video action recognition (400 Kinect action classes)."""
 
     def __init__(
         self,
-        cv2,
         send_event: Callable,
         on_motion: Callable,
         capture_stable_frame: Callable,
         presence_service,
+        model_path: Path | None = None,
         motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,
     ):
         super().__init__(send_event)
@@ -110,16 +142,20 @@ class MotionPerception(Perception):
         self._motion_update_ts: float = motion_update_ts
         self._last_motion_time: Optional[float] = None
         self._last_motion_event_ts: float = 0.0
-        self._checker = MotionChecker(cv2)
+        self._checker = MotionChecker(model_path=model_path)
 
     @override
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
         if not config.MOTION_ENABLED or frame is None:
             return
 
-        result = self._checker.update(frame)
+        try:
+            action = self._checker.update(frame)
+        except Exception:
+            logger.exception("[motion] X3D inference error")
+            return
 
-        if result != MoveEnum.FOREGROUND:
+        if action is None:
             return
 
         cur_ts = time.time()
@@ -136,19 +172,18 @@ class MotionPerception(Perception):
         from ..presence_service import PresenceState
 
         if self._presence.state == PresenceState.PRESENT:
-            logger.info("Motion: activity analysis while PRESENT")
+            logger.info("[motion] activity: %s (PRESENT)", action)
             self._send_event(
                 "motion.activity",
-                "Movement detected while user is present. "
-                "Look at the attached image — describe what the user appears to be doing "
-                "(e.g. working, stretching, eating, talking, fidgeting, getting up). "
+                f"Action detected via video recognition: '{action}'. "
+                "Look at the attached image — describe what the user appears to be doing. "
                 "If nothing noteworthy, reply NO_REPLY.",
                 image=image,
             )
         else:
             self._send_event(
                 "motion",
-                "Large movement detected in camera view — someone may have entered or left the room",
+                f"Action detected via video recognition: '{action}' — someone may have entered or left the room",
                 image=image,
             )
 
@@ -160,7 +195,7 @@ class MotionPerception(Perception):
         )
         return {
             "type": "motion",
-            "has_baseline": self._checker._last_frame is not None,
+            "last_action": self._checker.last_action,
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,
         }
