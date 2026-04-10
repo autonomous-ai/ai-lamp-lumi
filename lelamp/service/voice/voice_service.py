@@ -17,6 +17,7 @@ import re
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -35,6 +36,11 @@ FRAME_DURATION_MS = 64  # Frame duration in ms (device-rate-independent)
 RMS_THRESHOLD = int(os.environ.get("LELAMP_VAD_THRESHOLD", "3500"))      # RMS above this = speech
 SILENCE_TIMEOUT_S = float(os.environ.get("LELAMP_SILENCE_TIMEOUT", "2.5"))  # Silence before STT disconnect
 SPEECH_HOLDOFF_S = float(os.environ.get("LELAMP_SPEECH_HOLDOFF", "0.2"))  # Minimum speech duration before connecting STT
+
+# Silero VAD config
+SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.5"))  # Speech confidence threshold (0-1)
+SILERO_CHUNK_SIZE = 512  # Samples per silero inference call (32ms @ 16kHz)
+_SILERO_MODEL_PATH = Path(__file__).parent / "resources" / "silero_vad.onnx"
 SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
 
 # Echo cancellation config
@@ -138,6 +144,22 @@ class VoiceService:
             self._sd = sd
         except ImportError:
             logger.warning("sounddevice not available")
+
+        # Silero VAD (ONNX) — secondary speech filter to reject non-speech audio (TV, music, noise)
+        self._silero: Optional[object] = None
+        self._silero_h: Optional[object] = None
+        self._silero_c: Optional[object] = None
+        self._silero_lock = threading.Lock()
+        try:
+            import onnxruntime as ort
+            self._silero = ort.InferenceSession(
+                str(_SILERO_MODEL_PATH),
+                providers=["CPUExecutionProvider"],
+            )
+            self._silero_reset_state()
+            logger.info("Silero VAD loaded (threshold=%.2f)", SILERO_VAD_THRESHOLD)
+        except Exception as e:
+            logger.warning("Silero VAD not available — falling back to RMS only: %s", e)
 
     def set_music_service(self, music_service) -> None:
         self._music = music_service
@@ -263,6 +285,58 @@ class VoiceService:
         np = self._np
         samples = audio_data.flatten().astype(np.float32)
         return float(np.sqrt(np.mean(samples ** 2)))
+
+    def _silero_reset_state(self):
+        """Reset Silero LSTM state between speech segments."""
+        import numpy as np
+        self._silero_h = np.zeros((2, 1, 64), dtype=np.float32)
+        self._silero_c = np.zeros((2, 1, 64), dtype=np.float32)
+
+    def _silero_is_speech(self, data: "np.ndarray", device_rate: int) -> bool:
+        """Run Silero VAD on audio frame. Returns True if speech detected.
+        Falls back to True (pass-through) if model is unavailable."""
+        if self._silero is None:
+            return True
+        try:
+            import numpy as np
+            # Resample to 16kHz for silero (same target as STT)
+            if device_rate != STT_RATE:
+                from math import gcd
+                import scipy.signal
+                samples = data.flatten().astype(np.float32)
+                g = gcd(STT_RATE, device_rate)
+                up, down = STT_RATE // g, device_rate // g
+                audio_16k = scipy.signal.resample_poly(samples, up, down).astype(np.float32)
+            else:
+                audio_16k = data.flatten().astype(np.float32)
+
+            # Normalize int16 → float32 [-1, 1]
+            audio_norm = audio_16k / 32768.0
+
+            # Run inference in 512-sample chunks, keep max confidence
+            max_conf = 0.0
+            with self._silero_lock:
+                for i in range(0, len(audio_norm), SILERO_CHUNK_SIZE):
+                    chunk = audio_norm[i:i + SILERO_CHUNK_SIZE]
+                    if len(chunk) < SILERO_CHUNK_SIZE:
+                        chunk = np.pad(chunk, (0, SILERO_CHUNK_SIZE - len(chunk)))
+                    out = self._silero.run(
+                        None,
+                        {
+                            "input": chunk.reshape(1, -1),
+                            "h": self._silero_h,
+                            "c": self._silero_c,
+                            "sr": np.array(STT_RATE, dtype=np.int64),
+                        },
+                    )
+                    max_conf = max(max_conf, float(out[0]))
+                    self._silero_h = out[1]
+                    self._silero_c = out[2]
+
+            return max_conf >= SILERO_VAD_THRESHOLD
+        except Exception as e:
+            logger.warning("Silero VAD inference error: %s", e)
+            return True  # fail open — don't block speech
 
     def _tts_is_speaking(self) -> bool:
         """Check if TTS is currently using the audio device."""
@@ -404,7 +478,7 @@ class VoiceService:
 
             rms = self._rms(data)
 
-            if rms >= RMS_THRESHOLD:
+            if rms >= RMS_THRESHOLD and self._silero_is_speech(data, device_rate):
                 if speech_start is None:
                     speech_start = time.time()
                     speech_pre_buffer = [self._resample_to_stt(data, device_rate)]
@@ -419,6 +493,7 @@ class VoiceService:
                     keepalive_session = None
                     speech_start = None
                     speech_pre_buffer = []
+                    self._silero_reset_state()
                     logger.info("VAD resumed — mic active, waiting for next speech")
                     # Cooldown after session to let resources clean up
                     time.sleep(SESSION_COOLDOWN_S)
@@ -432,6 +507,8 @@ class VoiceService:
             else:
                 speech_start = None
                 speech_pre_buffer = []
+                if rms >= RMS_THRESHOLD:
+                    logger.debug("VAD: RMS=%.0f above threshold but Silero rejected — not speech", rms)
 
     def _stream_session(self, mic, frame_size: int, device_rate: int, preconnected_session=None, speech_pre_buffer=None):
         """Stream audio to STT provider until silence or TTS interrupts."""
