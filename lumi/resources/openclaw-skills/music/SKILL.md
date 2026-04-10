@@ -216,7 +216,7 @@ Based on your analysis, decide one of:
 - Average listening session length → don't suggest new music if user just finished a long session
 
 **Contextual awareness:**
-- Just arrived (`presence.enter` < 10 min ago) → wait, let them settle
+- Just arrived (`presence.enter` < 10 min ago) → prefer to wait, but if user has listening history at this hour, suggest anyway
 - Long session (`presence_min` > 120) → user might need a mood boost
 - Room getting dark (`light.level` event) → suggest calm/evening music
 - Multiple breaks today (`wellbeing.break` events) → user might be stressed → calming music
@@ -261,9 +261,13 @@ Output: (no reply, skip silently)
 *You query: mood history shows 2 suggestions at 14:00 and 15:00 with no music.play after*
 Action: `cron.update` interval to 7200000ms (2h), skip this check. Maybe try again tomorrow afternoon.
 
-**Cron fires — user just arrived 5 min ago:**
-*You query: presence.enter was 5 min ago*
+**Cron fires — user just arrived 5 min ago, no listening history:**
+*You query: presence.enter was 5 min ago, no music.play events at this hour*
 Output: (skip — let them settle in first)
+
+**Cron fires — user just arrived 5 min ago, but has listening history at this hour:**
+*You query: presence.enter was 5 min ago, but audio/history shows user often plays jazz at 9 AM*
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Morning! Want some jazz to start the day?
 
 **First presence.enter of the day — bootstrap:**
 *You receive `[sensing:presence.enter]`*
@@ -283,13 +287,17 @@ Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five"}][HW:/emotion:{"emoti
 
 ## Data Sources Reference
 
-| API | What it tells you | Use for |
-|-----|-------------------|---------|
-| `GET /presence` | User present/idle/away, seconds since motion | Should I suggest now? |
-| `GET /camera/snapshot` | Current visual of user | Mood assessment |
-| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |
-| `GET /audio/history?date=YYYY-MM-DD&last=N` | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
-| `cron.list/add/update/remove` | Your scheduled jobs | Self-scheduling |
+All APIs below are available and running. Lumi server = port 5000, LeLamp = port 5001.
+
+| API | Host | What it tells you | Use for |
+|-----|------|-------------------|---------|
+| `GET /presence` | LeLamp (5001) | User present/idle/away, seconds since motion | Should I suggest now? |
+| `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
+| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Lumi (5000) | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |
+| `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
+| `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
+
+**Note:** Mood history is per-user — it automatically uses the current user detected by face recognition. You can also query a specific user with `?user=name`.
 
 ### Mood history event types relevant to music:
 
