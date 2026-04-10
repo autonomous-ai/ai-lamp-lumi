@@ -67,6 +67,7 @@ var skills = []string{
 	"sensing-track",
 	"servo-control",
 	"voice",
+	"wellbeing",
 }
 
 // EnsureOnboarding seeds SOUL.md, downloads skills, and injects the mandatory
