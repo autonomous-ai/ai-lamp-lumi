@@ -41,7 +41,7 @@ class FaceRecognizer(Perception):
         send_event: Callable,
         on_motion: Callable,
         threshold: float = 0.4,
-        negative_threshold: float | None = 0.1,
+        negative_threshold: float | None = 0.2,
         model_name: str = "buffalo_sc",
         max_strangers: int = 50,
         strangers_forget_ts: float = config.FACE_STRANGER_FORGET_S,
