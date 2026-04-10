@@ -14,29 +14,18 @@ USERS_DIR = os.environ.get(
 # --- Sensing: Lumi integration ---
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
-# --- Sensing: Motion detection (optical flow) ---
+# --- Sensing: Motion detection (X3D video action recognition) ---
 MOTION_ENABLED = False  # feature flag — set True to enable motion events
+MOTION_X3D_CONFIDENCE_THRESHOLD = 0.5  # minimum softmax confidence to accept an action prediction
+MOTION_EVENT_COOLDOWN_S = (
+    360.0  # minimum seconds between motion events forwarded to the agent
+)
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
 POSE_MOTION_ENABLED = True  # feature flag — set True to enable pose motion events
 POSE_MOTION_MODEL_PATH = LELAMP_DATA_DIR / "models" / "rtmpose-m.onnx"
 POSE_MOTION_ANGLE_THRESHOLD = (
     30.0  # minimum arm joint angle change (degrees) to classify as FOREGROUND
-)
-
-# MotionChecker thresholds
-MOTION_PIXEL_THRESHOLD = (
-    1.0  # minimum flow magnitude (px/frame) to count a pixel as moving
-)
-MOTION_BG_RATIO = (
-    0.7  # if more than this fraction of pixels are moving → background (camera shake)
-)
-MOTION_FLOW_THRESHOLD = (
-    3.0  # minimum mean flow magnitude of moving pixels → foreground (person/object)
-)
-# MotionPerception event cooldown
-MOTION_EVENT_COOLDOWN_S = (
-    360.0  # minimum seconds between motion events forwarded to the agent
 )
 
 # --- Sensing: Event cooldown ---
