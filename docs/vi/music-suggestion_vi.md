@@ -51,7 +51,7 @@ T+7 min ─────┤  Cron fire lần đầu → [music-proactive]
 | Yếu tố | Giá trị | Enforce |
 |---------|---------|---------|
 | Cron interval mặc định | **420000ms** (7 phút) | SKILL.md — AI gọi `cron.add` |
-| "Just arrived" skip | < 10 phút sau enter | SKILL.md — AI tự judge |
+| "Just arrived" | < 10 phút → prefer chờ, nhưng nếu có listening history ở giờ này → suggest luôn | SKILL.md — AI tự judge |
 | "Long session" boost | > 120 phút ngồi liên tục | SKILL.md — AI tự judge |
 | Reject backoff | 2+ lần reject liên tiếp | SKILL.md — AI tự judge |
 
