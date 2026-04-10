@@ -89,7 +89,7 @@ There is NO hardcoded timer for music suggestions. **You** control when to check
         ↓
 You: cron.list() → check if music job exists
         ↓ (if not)
-You: cron.add("Proactive music check", every 60min)
+You: cron.add("Proactive music check", every 7min)
         ↓
 [Cron fires → agent turn]
         ↓
@@ -113,7 +113,7 @@ When you first start or after a reboot, set up your proactive music check:
 ```json
 {
   "name": "Proactive music check",
-  "schedule": {"kind": "every", "everyMs": 3600000},
+  "schedule": {"kind": "every", "everyMs": 420000},
   "sessionTarget": "main",
   "payload": {
     "kind": "agentTurn",
@@ -265,7 +265,7 @@ Output: (skip — let them settle in first)
 
 **First presence.enter of the day — bootstrap:**
 *You receive `[sensing:presence.enter]`*
-Action: `cron.list()` → no music job → `cron.add("Proactive music check", every 3600000ms)`
+Action: `cron.list()` → no music job → `cron.add("Proactive music check", every 420000ms)`
 Then greet the user normally.
 
 **Reactive — user asks directly:**
