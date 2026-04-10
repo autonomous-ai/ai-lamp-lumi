@@ -437,11 +437,19 @@ class VoiceService:
         """Stream audio to STT provider until silence or TTS interrupts."""
         session = preconnected_session or self._stt.create_session()
 
+        longest_partial = [""]
+
         def on_transcript(text: str, is_final: bool):
             if not is_final:
                 logger.info("STT partial: '%s'", text)
+                if len(text) > len(longest_partial[0]):
+                    longest_partial[0] = text
                 return
-            lower = text.lower()
+            # Use longest partial if final was revised shorter (hypothesis revision artifact)
+            best = text if len(text) >= len(longest_partial[0]) else longest_partial[0]
+            if best != text:
+                logger.info("STT final revised shorter — using longest partial: '%s'", best)
+            lower = best.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
             normalized = re.sub(r"[^\w\s]", "", lower)
             # Check for wake word
@@ -452,13 +460,13 @@ class VoiceService:
                 cmd = normalized
                 for w in wake_words:
                     if cmd.startswith(w):
-                        cmd = text[len(w):].strip().lstrip(",. ").strip()
+                        cmd = best[len(w):].strip().lstrip(",. ").strip()
                         break
-                logger.info("STT COMMAND: '%s' (wake word detected)", cmd or text)
-                self._send_to_lumi(cmd or text, event_type="voice_command")
+                logger.info("STT COMMAND: '%s' (wake word detected)", cmd or best)
+                self._send_to_lumi(cmd or best, event_type="voice_command")
             else:
-                logger.info("STT ambient: '%s'", text)
-                self._send_to_lumi(text, event_type="voice")
+                logger.info("STT ambient: '%s'", best)
+                self._send_to_lumi(best, event_type="voice")
 
         try:
             if preconnected_session:
