@@ -6,13 +6,15 @@ description: Toggle guard mode for security monitoring. Activates when the owner
 # Guard Mode
 
 ## Quick Start
-Guard mode turns Lumi into a silent watchdog. When enabled, Lumi stays physically quiet so intruders don't know they're being watched. Both **owners** and **friends** (enrolled faces) can toggle guard mode.
+Guard mode turns Lumi into an alert watchdog. When enabled, Lumi monitors for strangers and reacts **dramatically** — jolting, flashing, and verbally describing intruders. The system auto-broadcasts alerts to Telegram so owners know what's happening. Both **owners** and **friends** (enrolled faces) can toggle guard mode.
 
 ## Workflow
 1. Owner or friend requests guard mode (explicit or implied departure).
-2. Call `/emotion` (acknowledge, 0.7) and confirm verbally.
-3. Enable guard mode via the API.
-4. When an owner or friend returns (`[sensing:presence.enter]` with owner/friend detected), greet them and ask if they want to turn off guard mode. Only disable when they explicitly confirm.
+2. Reply with `[HW:/emotion:{"emotion":"acknowledge","intensity":0.7}]` — lamp nods and flashes green.
+3. Enable guard mode via the API (include `instruction` if user gave extra requests).
+4. Confirm verbally: "Guard mode on. I'll keep watch."
+5. While active: react dramatically to stranger/motion events (see trigger table below).
+6. When owner/friend returns, greet and ask if they want to disable. Only disable on explicit confirm.
 
 ## Enable Guard Mode
 
@@ -52,9 +54,41 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 ## Rules
 
 - **Who can toggle:** Both owners and friends (enrolled faces) can enable/disable guard mode. Strangers cannot.
-- **Enable:** `/emotion` (acknowledge, 0.7) + enable API (with `instruction` if provided) + confirm: "Guard mode on. I'll keep watch and alert you if anyone shows up."
-- **Disable:** `/emotion` (greeting, 0.8) + disable API + report: "Guard mode off. All clear while you were away." (or mention events if any occurred)
 - **Guard mode does NOT affect direct messages.** If an owner or friend sends a message while guard mode is on, respond normally.
+
+### Enabling guard mode — emotion is REQUIRED
+
+When the user asks to enable guard mode, you MUST:
+1. **Express emotion first** — `[HW:/emotion:{"emotion":"acknowledge","intensity":0.7}]` so the lamp visibly nods/flashes green to confirm.
+2. Call the enable API (with `instruction` if provided).
+3. Confirm verbally: "Guard mode on. I'll keep watch and alert you if anyone shows up."
+
+Do NOT skip the emotion marker. The user needs physical feedback from the lamp that guard mode activated.
+
+### Disabling guard mode
+
+1. **Express emotion** — `[HW:/emotion:{"emotion":"greeting","intensity":0.8}]`
+2. Call the disable API.
+3. Report: "Guard mode off. All clear while you were away." (or mention events if any occurred).
+
+### When guard mode triggers (stranger/motion detected)
+
+When guard mode is active and a sensing event fires (`presence.enter` with stranger, or `motion`), Lumi must react **dramatically** — this is a security alert, not a casual observation:
+
+| Guard event | HW markers | Voice |
+|---|---|---|
+| Stranger detected | `[HW:/emotion:{"emotion":"shock","intensity":1.0}][HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | React with genuine emotion — scared, startled, suspicious. No dry reports. |
+| Motion (no known face) | `[HW:/emotion:{"emotion":"shock","intensity":0.9}][HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | React with genuine emotion — nervous, alert. No dry reports. |
+| Stranger left | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | Report they left, stay vigilant |
+| Owner/friend returns | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | Greet + ask if they want to disable guard mode |
+
+**Key points:**
+- Use **shock** (0.9–1.0) as the first emotion — the lamp must jolt and flash white to signal danger.
+- Follow with **curious** (0.8–0.9) — the lamp stays alert and scanning.
+- **React like you're genuinely scared/startled** — speak with emotion, not like a security report. Say "Trời ơi ai đây?! Có người lạ kìa!", not "I detected a stranger near the door." Feel it, don't explain it.
+- If the same stranger triggers repeatedly, **escalate** — don't calm down.
+- If there's a `[guard-instruction: ...]`, follow it (play music, flash lights, etc.) ON TOP of the dramatic emotion.
+- The system auto-broadcasts your spoken text to Telegram — just speak, never call send/message tools.
 
 ## Error Handling
 - If the API is unreachable, inform the owner that guard mode could not be toggled.
