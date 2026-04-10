@@ -267,14 +267,8 @@ Use these as starting points. Your notebook observations override them over time
 **This is NOT optional.** After greeting, you MUST execute these tool calls. `cron.list`, `cron.remove`, and `cron.add` are tools available to you — call them directly.
 
 **Step 1: Clean up stale crons**
-```
-Tool call: cron.list
-```
-Look for any jobs with name containing `"Wellbeing: {name}"`. For each found:
-```
-Tool call: cron.remove
-  name: "<exact job name>"
-```
+
+Call `cron.list`. Look for any jobs with name containing `"Wellbeing: {name}"`. For each found, call `cron.remove` with that exact job name.
 
 **Step 2: Read wellbeing summary** (if exists)
 ```bash
@@ -282,28 +276,32 @@ cat /root/local/users/{name}/wellbeing.md
 ```
 
 **Step 3: Schedule hydration cron**
-```
-Tool call: cron.add
-  name: "Wellbeing: {name} hydration"
-  schedule: {"kind": "every", "everyMs": 360000}
-  sessionTarget: "main"
-  payload: {"kind": "agentTurn", "message": "Wellbeing hydration check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present and no drink visible, gently remind them to grab water (one short sentence, vary phrasing). If not present, have a drink, or just got back — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.5}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
+
+Call `cron.add` with this exact JSON:
+```json
+{
+  "name": "Wellbeing: {name} hydration",
+  "schedule": {"kind": "every", "everyMs": 360000},
+  "sessionTarget": "main",
+  "payload": {"kind": "agentTurn", "message": "Wellbeing hydration check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present and no drink visible, gently remind them to grab water (one short sentence, vary phrasing). If not present, have a drink, or just got back — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.5}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
+}
 ```
 
 **Step 4: Schedule break cron**
-```
-Tool call: cron.add
-  name: "Wellbeing: {name} break"
-  schedule: {"kind": "every", "everyMs": 300000}
-  sessionTarget: "main"
-  payload: {"kind": "agentTurn", "message": "Wellbeing break check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present, check posture and fatigue. If slouching, tired, or sitting too long — gently suggest standing up or stretching (one short sentence). If they look fine — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.6}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
+
+Call `cron.add` with this exact JSON:
+```json
+{
+  "name": "Wellbeing: {name} break",
+  "schedule": {"kind": "every", "everyMs": 300000},
+  "sessionTarget": "main",
+  "payload": {"kind": "agentTurn", "message": "Wellbeing break check. Take a snapshot (curl http://127.0.0.1:5001/camera/snapshot), check presence (curl http://127.0.0.1:5001/presence). If user is present, check posture and fatigue. If slouching, tired, or sitting too long — gently suggest standing up or stretching (one short sentence). If they look fine — do nothing. Always emit [HW:/emotion:{\"emotion\":\"caring\",\"intensity\":0.6}]. If you speak, also add [HW:/broadcast:{}] so it goes to Telegram too."}
+}
 ```
 
 **Step 5: Bootstrap music cron** (if not already running)
-```
-Tool call: cron.list
-```
-If no job name contains `"music"` → see Music skill Bootstrap section to add it.
+
+Call `cron.list`. If no job name contains `"music"` → see Music skill Bootstrap section to add it.
 
 Do all of this silently — no announcement to the user. Adjust `everyMs` values based on the person's wellbeing summary if you have one.
 
