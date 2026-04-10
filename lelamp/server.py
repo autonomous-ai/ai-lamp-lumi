@@ -565,8 +565,8 @@ async def lifespan(app: FastAPI):
         _gpio_stop_button = _GpioButton(pin=17, pull_up=True, bounce_time=0.1)
         _gpio_stop_button.when_pressed = _on_stop_button
         logger.info("GPIO stop button ready on pin 17")
-    except Exception:
-        pass  # GPIO not available on this hardware, skip silently
+    except Exception as e:
+        logger.warning(f"GPIO stop button init failed: {e}")
 
     yield
 
