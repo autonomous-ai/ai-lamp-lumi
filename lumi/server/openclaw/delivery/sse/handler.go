@@ -56,6 +56,12 @@ type OpenClawHandler struct {
 	lastEmotionMu sync.Mutex
 	lastEmotion   string
 
+	// channelRuns tracks runs confirmed from a real channel user (Telegram/etc.)
+	// via senderLabel. Prevents TTS when a Telegram UUID gets mapped to a
+	// sensing trace (race: flowRunID becomes lumi-sensing-* → isChannelRun false).
+	channelRunsMu sync.Mutex
+	channelRuns   map[string]bool
+
 	debugMu sync.Mutex
 }
 
@@ -96,6 +102,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		assistantBuf:       make(map[string]*strings.Builder),
 		ttsSuppressReasons: make(map[string]string),
 		runIDMap:           make(map[string]string),
+		channelRuns:        make(map[string]bool),
 	}
 }
 
@@ -444,6 +451,14 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 								break
 							}
 						}
+					}
+					// Mark as confirmed channel run if a real sender is present.
+					// Guards against race: Telegram UUID mapped to sensing trace
+					// makes flowRunID = lumi-sensing-* → isChannelRun wrongly false.
+					if senderLabel != "" {
+						h.channelRunsMu.Lock()
+						h.channelRuns[capturedRunID] = true
+						h.channelRunsMu.Unlock()
 					}
 					if userMsg != "" {
 						// Detect music-proactive cron turns so mood.assessed gets logged
@@ -843,12 +858,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						isChannelRun = false
 					}
 					// Heartbeat cron responses must never reach the speaker.
-					// Race: if a sensing trace is active when heartbeat fires, mapRunID maps the
-					// heartbeat UUID → "lumi-sensing-..." causing isChannelRun=false. Override it.
 					if isHeartbeatRun {
 						isChannelRun = true
-						slog.Info("heartbeat run detected, TTS suppressed", "component", "agent", "run_id", flowRunID)
 					}
+					// Override: confirmed channel turn via senderLabel always suppresses TTS.
+					// Covers race where Telegram UUID mapped to sensing trace (lumi-sensing-*).
+					h.channelRunsMu.Lock()
+					if h.channelRuns[payload.RunID] || h.channelRuns[flowRunID] {
+						isChannelRun = true
+					}
+					delete(h.channelRuns, payload.RunID)
+					delete(h.channelRuns, flowRunID)
+					h.channelRunsMu.Unlock()
 					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "heartbeat", isHeartbeatRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
