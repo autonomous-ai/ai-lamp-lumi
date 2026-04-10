@@ -145,6 +145,9 @@ class MusicService:
         self._ytdlp_proc: Optional[subprocess.Popen] = None
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._current_title: Optional[str] = None
+        # Per-play callback fired when ffmpeg actually starts (after yt-dlp resolves URL).
+        # Set by play() each call; cleared after firing.
+        self._on_started = None
         _cleanup_old_history()
 
     @property
@@ -159,8 +162,13 @@ class MusicService:
     def current_title(self) -> Optional[str]:
         return self._current_title
 
-    def play(self, query: str) -> bool:
-        """Search YouTube and play first result. Returns True if started."""
+    def play(self, query: str, on_started=None) -> bool:
+        """Search YouTube and play first result. Returns True if started.
+
+        on_started: optional callable fired once ffmpeg begins streaming
+        (i.e. after yt-dlp resolves the URL). Use this to synchronize
+        visual effects (e.g. groove animation) with actual audio start.
+        """
         # Stop current playback if any
         if self._playing:
             self.stop()
@@ -170,6 +178,7 @@ class MusicService:
             logger.info("Music busy, skipping: %s", query[:80])
             return False
 
+        self._on_started = on_started
         self._stop_event.clear()
         thread = threading.Thread(
             target=self._play_sync,
@@ -340,6 +349,14 @@ class MusicService:
                 stderr=subprocess.PIPE,
             )
             self._ytdlp_proc.stdout.close()
+
+            # Notify caller that audio is actually starting (yt-dlp resolved, ffmpeg running).
+            if self._on_started:
+                try:
+                    self._on_started()
+                except Exception as e:
+                    logger.warning("on_started callback failed: %s", e)
+                self._on_started = None
 
             # Wait for ffmpeg to finish or stop signal
             while not self._stop_event.is_set():
