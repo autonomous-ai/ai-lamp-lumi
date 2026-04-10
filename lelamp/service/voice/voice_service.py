@@ -106,6 +106,9 @@ class _ArecordStream:
     def read(self, frames):
         n_bytes = frames * self._bytes_per_frame
         raw = self._proc.stdout.read(n_bytes)
+        if not raw:
+            # arecord process died — raise so _loop can restart it
+            raise IOError("arecord process exited (stdout EOF)")
         if len(raw) < n_bytes:
             raw = raw + b"\x00" * (n_bytes - len(raw))
         data = self._np.frombuffer(raw, dtype=self._np.int16).reshape(frames, self._channels)
@@ -591,7 +594,10 @@ class VoiceService:
                 cmd = normalized
                 for w in wake_words:
                     if cmd.startswith(w):
-                        cmd = best[len(w):].strip().lstrip(",. ").strip()
+                        # Strip wake word from normalized, then use that as the command.
+                        # Cannot slice `best` by len(w) because best has punctuation that
+                        # normalized doesn't (e.g. "Hey, Lumi!" vs "hey lumi").
+                        cmd = cmd[len(w):].strip()
                         break
                 logger.info("STT COMMAND: '%s' (wake word detected)", cmd or best)
                 self._send_to_lumi(cmd or best, event_type="voice_command")
