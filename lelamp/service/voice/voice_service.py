@@ -438,17 +438,9 @@ class VoiceService:
         session = preconnected_session or self._stt.create_session()
 
         longest_partial = [""]
+        final_sent = [False]
 
-        def on_transcript(text: str, is_final: bool):
-            if not is_final:
-                logger.info("STT partial: '%s'", text)
-                if len(text) > len(longest_partial[0]):
-                    longest_partial[0] = text
-                return
-            # Use longest partial if final was revised shorter (hypothesis revision artifact)
-            best = text if len(text) >= len(longest_partial[0]) else longest_partial[0]
-            if best != text:
-                logger.info("STT final revised shorter — using longest partial: '%s'", best)
+        def _send_best(best: str):
             lower = best.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
             normalized = re.sub(r"[^\w\s]", "", lower)
@@ -467,6 +459,19 @@ class VoiceService:
             else:
                 logger.info("STT ambient: '%s'", best)
                 self._send_to_lumi(best, event_type="voice")
+
+        def on_transcript(text: str, is_final: bool):
+            if not is_final:
+                logger.info("STT partial: '%s'", text)
+                if len(text) > len(longest_partial[0]):
+                    longest_partial[0] = text
+                return
+            # Always prefer longest partial — final may be over-revised or shorter than what was heard
+            best = longest_partial[0] if longest_partial[0] else text
+            if best != text:
+                logger.info("STT final='%s' — overriding with longest partial: '%s'", text, best)
+            final_sent[0] = True
+            _send_best(best)
 
         try:
             if preconnected_session:
@@ -554,6 +559,10 @@ class VoiceService:
         finally:
             self._listening = False
             session.close()
+            # If Deepgram closed without emitting is_final, fall back to longest partial seen
+            if not final_sent[0] and longest_partial[0]:
+                logger.info("STT no final received — using longest partial: '%s'", longest_partial[0])
+                _send_best(longest_partial[0])
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
                 requests.post("http://127.0.0.1:5000/api/sensing/event",
