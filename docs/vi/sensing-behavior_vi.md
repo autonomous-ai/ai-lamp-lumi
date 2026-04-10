@@ -83,10 +83,7 @@ LeLamp xử lý cooldown. Nếu event đã đến agent thì đủ thời gian r
 
 ### Ra khỏi phòng (`presence.leave`)
 
-Agent gọi `/emotion idle` (0.4) và **nói lời tạm biệt**. Nội dung phụ thuộc vào người đã nhìn thấy trước đó:
-- **Chủ nhà rời đi** → lời chào ấm áp kèm tên (ví dụ "Bye Alice, have a nice day!", "See you later!"). Nhiều chủ nhà thì gọi hết tên.
-- **Người lạ rời đi** → nhận xét cảnh giác (ví dụ "Kept my eyes on you.", "Good, they're gone.")
-- **Không rõ** (không có presence.enter trước đó trong lịch sử) → lời chào chủ nhà mặc định không tên.
+Agent gọi `/emotion idle` (0.4) và trả lời **NO_REPLY** (im lặng — không TTS). Tránh vòng lặp ồn ào khi người ra vào liên tục. Agent vẫn xử lý event nội bộ để cancel wellbeing crons và ghi daily log.
 
 ### Vắng mặt lâu (`presence.away`)
 
