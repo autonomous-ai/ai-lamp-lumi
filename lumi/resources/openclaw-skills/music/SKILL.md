@@ -116,7 +116,7 @@ When you first start or after a reboot, set up your proactive music check:
 {
   "name": "Proactive music check",
   "schedule": {"kind": "every", "everyMs": 420000},
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
     "message": "[music-proactive] Time for a proactive music check. Query presence, mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."
