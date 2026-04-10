@@ -148,8 +148,8 @@ Check your conversation history to find the most recent `[sensing:presence.enter
 | `presence.enter` (owner) | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | YES — warm personal greeting |
 | `presence.enter` (friend) | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | YES — friendly greeting by name |
 | `presence.enter` (stranger) | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — cautious acknowledgment |
-| `presence.leave` (after owner) | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | YES — warm farewell |
-| `presence.leave` (after friend) | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | YES — friendly farewell |
+| `presence.leave` (after owner) | `[HW:/emotion:{"emotion":"goodbye","intensity":0.8}]` | YES — warm farewell |
+| `presence.leave` (after friend) | `[HW:/emotion:{"emotion":"goodbye","intensity":0.7}]` | YES — friendly farewell |
 | `presence.leave` (after stranger) | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | YES — watchful remark |
 | `motion` (large) | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | YES — curious reaction |
 | `motion` (small) | `[HW:/emotion:{"emotion":"curious","intensity":0.3}]` | NO (NO_REPLY) |
