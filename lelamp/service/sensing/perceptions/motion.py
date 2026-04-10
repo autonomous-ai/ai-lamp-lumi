@@ -18,7 +18,9 @@ RESOURCES_DIR = Path(__file__).parent / "resources"
 
 
 class MoveEnum(Enum):
-    BACKGROUND = "background"  # whole scene shifting — camera shake or very close object
+    BACKGROUND = (
+        "background"  # whole scene shifting — camera shake or very close object
+    )
     FOREGROUND = "foreground"  # localized movement — person walking, object moving
     NONE = "none"
 
@@ -69,7 +71,9 @@ class MotionChecker:
             str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
 
-    def _get_action(self, frame_buffer: deque[npt.NDArray[np.uint8]]) -> tuple[str, float]:
+    def _get_action(
+        self, frame_buffer: deque[npt.NDArray[np.uint8]]
+    ) -> tuple[str, float]:
         frames = np.stack(list(frame_buffer), axis=0)
         T, H, W, C = frames.shape
         norm_frames = (frames - self.MEAN) / self.STD
@@ -91,6 +95,9 @@ class MotionChecker:
         pred = np.exp(pred)
         pred = pred / np.sum(pred, axis=-1, keepdims=True)
         idx = pred[0].argmax()
+        logger.debug(
+            f"Detected {self._classes_names[idx]} with confidence {float(pred[0][idx])}"
+        )
         return self._classes_names[idx], float(pred[0][idx])
 
     def update(self, frame: npt.NDArray[np.uint8]) -> str | None:
