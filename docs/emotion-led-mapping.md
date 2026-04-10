@@ -19,6 +19,8 @@ Source: `lelamp/presets.py` — `EMOTION_PRESETS`
 | `greeting` | 255, 180, 100 | `#FFB464` cam nhạt | pulse | 1.5 | greeting |
 | `acknowledge` | 100, 255, 150 | `#64FF96` xanh lá | pulse | 1.0 | acknowledge |
 | `stretching` | 255, 230, 180 | `#FFE6B4` vàng kem | candle | 0.6 | stretching |
+| `goodbye` | 255, 180, 100 | `#FFB464` cam nhạt | breathing | 0.5 | goodbye |
+| `caring` | 255, 160, 120 | `#FFA078` hồng cam | breathing | 0.4 | sad |
 
 ## LED Restore Behavior
 
