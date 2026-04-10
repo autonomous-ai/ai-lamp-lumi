@@ -23,7 +23,7 @@ Creates timers, alarms, and recurring schedules using OpenClaw's built-in cron s
 {
   "name": "Turn off light",
   "schedule": {"kind": "at", "at": "<ISO 8601 timestamp 30 min from now>"},
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
     "message": "The user asked to turn off the light after 30 minutes. Time is up — turn off the LEDs now."
@@ -39,7 +39,7 @@ Confirm: "OK, I'll turn off the light in 30 minutes."
 {
   "name": "Weekday sunrise alarm",
   "schedule": {"kind": "cron", "expr": "30 6 * * 1-5", "tz": "Asia/Ho_Chi_Minh"},
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
     "message": "It's 6:30 AM weekday morning. The user wants a warm wake-up light. Activate the energize scene, then greet them warmly."
@@ -54,7 +54,7 @@ Confirm: "Set! I'll wake you with warm light at 6:30 AM on weekdays."
 {
   "name": "Pomodoro timer",
   "schedule": {"kind": "every", "everyMs": 1500000},
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
     "message": "Pomodoro: 25 minutes have passed. Flash the LEDs briefly to signal a break, then tell the user to take a 5-minute break."
@@ -92,7 +92,7 @@ Confirm: "Pomodoro started! I'll remind you every 25 minutes."
 {
   "name": "Human-readable job name",
   "schedule": {"kind": "at|cron|every", ...},
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
     "message": "Descriptive message of what to do when this fires"
@@ -101,7 +101,7 @@ Confirm: "Pomodoro started! I'll remind you every 25 minutes."
 }
 ```
 
-- `sessionTarget`: always `"main"`
+- `sessionTarget`: always `"isolated"`
 - `payload.kind`: always `"agentTurn"`
 - `payload.message`: describe the user's intent so the agent knows what to do when fired
 - `deleteAfterRun`: set `true` for one-shot timers
@@ -117,7 +117,7 @@ Confirm: "Pomodoro started! I'll remind you every 25 minutes."
 - **Be descriptive in the payload message** — when the job fires, you read this message to know what to do. Include the user's original intent.
 - **Always confirm with the user** — after creating a schedule, tell them what you set up.
 - **Combine with other skills** — scheduled jobs can trigger any skill: LED, scene, emotion, audio, servo.
-- **`sessionTarget` is always `"main"`**.
+- **`sessionTarget` is always `"isolated"`**.
 - **`payload.kind` is always `"agentTurn"`**.
 
 ## Output Template
