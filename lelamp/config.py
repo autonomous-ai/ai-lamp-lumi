@@ -53,8 +53,8 @@ LIGHT_CHANGE_THRESHOLD = 50  # minimum brightness change (0-255) to trigger even
 # --- Sensing: Face detection ---
 FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
 YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
-FACE_OWNER_FORGET_S = 5 * 60.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
-FACE_STRANGER_FORGET_S = 1 * 60.0   # same for strangers
+FACE_OWNER_FORGET_S = 30 * 60.0     # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 5 * 60.0   # same for strangers
 
 # --- Sensing: Wellbeing check (override via .env) ---
 WELLBEING_HYDRATION_S = int(os.environ.get("LELAMP_WELLBEING_HYDRATION_S", 5 * 60))    # default 5 min
