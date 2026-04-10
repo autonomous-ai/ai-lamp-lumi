@@ -694,6 +694,8 @@ class ServoStateResponse(BaseModel):
                         "wake_up",
                         "headshake",
                         "music_groove",
+                        "music_chill",
+                        "music_hype",
                     ],
                     "current": "idle",
                 }
@@ -1583,7 +1585,6 @@ def turn_off_leds():
     _active_scene = None
     if sensing_service:
         sensing_service.presence.set_last_color((0, 0, 0))
-    # User explicitly turned off — save as user state so emotion restore respects it
     _save_user_led_state({"type": "off"})
     return {"status": "ok"}
 
@@ -2833,6 +2834,8 @@ _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
     ("music_hiphop", ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
     ("music_rock", ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
     ("music_waltz", ["waltz", "tango", "ballroom", "foxtrot"]),
+    ("music_chill", ["chill", "lofi", "lo-fi", "lo fi", "ambient", "relax", "mellow", "study", "calm", "sleep"]),
+    ("music_hype", ["hype", "edm", "electronic", "dance", "rave", "party", "upbeat", "electro", "techno", "house", "festival"]),
 ]
 
 _MUSIC_STYLE_EMOTION: dict[str, str] = {
@@ -2842,6 +2845,8 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
     "music_hiphop": "excited",
     "music_rock": "excited",
     "music_waltz": "happy",
+    "music_chill": "sleepy",
+    "music_hype": "excited",
 }
 
 
