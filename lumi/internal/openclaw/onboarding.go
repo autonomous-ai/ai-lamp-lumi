@@ -390,6 +390,7 @@ func (s *Service) ensureLoggingConfig() (bool, error) {
 		"consoleStyle": "pretty",
 		"file":         "/var/log/openclaw/lumi.log",
 		"level":        "debug",
+		"consoleLevel": "debug",
 	}
 
 	outBytes, err := json.MarshalIndent(configData, "", "  ")
