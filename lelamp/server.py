@@ -2043,35 +2043,48 @@ def get_audio_info():
     }
 
 
-def _detect_playback_controls() -> list[str]:
-    """Auto-detect available playback mixer controls from amixer."""
-    try:
-        result = subprocess.run(
-            ["amixer", "scontrols"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            import re
+def _audio_output_card() -> Optional[int]:
+    """Derive ALSA card index from LELAMP_AUDIO_OUTPUT_ALSA (e.g. 'plughw:3,0' → 3)."""
+    if AUDIO_OUTPUT_ALSA:
+        import re
+        m = re.search(r":(\d+)", AUDIO_OUTPUT_ALSA)
+        if m:
+            return int(m.group(1))
+    return None
 
-            # Parse lines like: Simple mixer control 'Speaker',0
-            return re.findall(r"Simple mixer control '([^']+)'", result.stdout)
+
+def _detect_playback_controls() -> tuple[list[str], Optional[int]]:
+    """Return (playback_control_names, card_index) from amixer.
+
+    Uses LELAMP_AUDIO_OUTPUT_ALSA card if set, otherwise tries default.
+    Filters out capture-only controls (Capture, Mic, AGC).
+    """
+    import re
+    card = _audio_output_card()
+    cmd = ["amixer", "-c", str(card), "scontrols"] if card is not None else ["amixer", "scontrols"]
+    _CAPTURE_KEYWORDS = {"capture", "mic", "gain control", "agc", "auto gain"}
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            all_controls = re.findall(r"Simple mixer control '([^']+)'", result.stdout)
+            playback = [c for c in all_controls if not any(k in c.lower() for k in _CAPTURE_KEYWORDS)]
+            return playback, card
     except Exception:
         pass
-    return []
+    return [], card
 
 
 @app.post("/audio/volume", response_model=StatusResponse, tags=["Audio"])
 def set_volume(req: VolumeRequest):
     """Set system speaker volume (0-100%). Uses amixer on the Pi."""
-    controls = _detect_playback_controls()
+    controls, card = _detect_playback_controls()
     if not controls:
         raise HTTPException(503, "No audio mixer controls found")
+    cmd_prefix = ["amixer", "-c", str(card)] if card is not None else ["amixer"]
     for ctrl in controls:
         try:
             subprocess.run(
-                ["amixer", "sset", ctrl, f"{req.volume}%"],
+                [*cmd_prefix, "sset", ctrl, f"{req.volume}%"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -2086,10 +2099,12 @@ def get_volume():
     """Get current speaker volume from amixer."""
     import re
 
-    for ctrl in _detect_playback_controls():
+    controls, card = _detect_playback_controls()
+    cmd_prefix = ["amixer", "-c", str(card)] if card is not None else ["amixer"]
+    for ctrl in controls:
         try:
             result = subprocess.run(
-                ["amixer", "sget", ctrl],
+                [*cmd_prefix, "sget", ctrl],
                 capture_output=True,
                 text=True,
                 timeout=5,
