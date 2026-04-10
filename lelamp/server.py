@@ -1670,6 +1670,7 @@ def _get_recording_duration(recording_name: str) -> float:
 def _save_user_led_state(state: dict):
     """Save the user-set LED state and cancel any pending emotion restore."""
     global _user_led_state, _restore_timer
+    logger.info("User LED state saved: %s", state)
     _user_led_state = state
     if _restore_timer is not None and _restore_timer.is_alive():
         _restore_timer.cancel()
@@ -2342,6 +2343,10 @@ def express_emotion(req: EmotionRequest):
             400, f"Unknown emotion '{req.emotion}'. Available: {available}"
         )
 
+    logger.info("POST /emotion: emotion=%s intensity=%s user_state=%s",
+                req.emotion, req.intensity,
+                _user_led_state.get("type") if _user_led_state else None)
+
     servo_played = None
 
     # Play servo animation
@@ -2368,9 +2373,11 @@ def express_emotion(req: EmotionRequest):
         pass  # no restore — idle is ambient resting state
     elif req.emotion == "shock":
         _schedule_led_restore(2.0)
+        logger.info("Emotion: shock — LED restore scheduled in 2.0s")
     else:
         servo_name = preset.get("servo", "")
         restore_delay = _get_recording_duration(servo_name) + 0.5 if servo_name else 3.5
+        logger.info("Emotion: %s — LED restore scheduled in %.1fs (servo=%s)", req.emotion, restore_delay, servo_name)
         _schedule_led_restore(restore_delay)
 
     return {
