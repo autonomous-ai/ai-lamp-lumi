@@ -154,9 +154,17 @@ class VoiceService:
         self._silero_lock = threading.Lock()
         if SILERO_VAD_ENABLED and _SILERO_MODEL_PATH.exists():
             try:
+                import os as _os
+                _os.environ.setdefault("OMP_NUM_THREADS", "1")
+                _os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
                 import onnxruntime as ort
+                _sess_opts = ort.SessionOptions()
+                _sess_opts.intra_op_num_threads = 1
+                _sess_opts.inter_op_num_threads = 1
+                _sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
                 self._silero = ort.InferenceSession(
                     str(_SILERO_MODEL_PATH),
+                    sess_options=_sess_opts,
                     providers=["CPUExecutionProvider"],
                 )
                 self._silero_reset_state()
@@ -480,6 +488,10 @@ class VoiceService:
             if overflowed:
                 continue
 
+            # Re-check after blocking read — music/TTS may have started during mic.read
+            if self._tts_is_speaking() or self._music_is_playing():
+                return
+
             rms = self._rms(data)
 
             if rms >= RMS_THRESHOLD and self._silero_is_speech(data, device_rate):
@@ -608,9 +620,12 @@ class VoiceService:
                 pass
 
             while self._running and not session.is_closed():
-                # If TTS starts speaking mid-session, stop streaming immediately
+                # If TTS or music starts mid-session, stop streaming immediately
                 if self._tts_is_speaking():
                     logger.info("TTS started mid-session, closing STT to avoid echo")
+                    break
+                if self._music_is_playing():
+                    logger.info("Music started mid-session, closing STT")
                     break
 
                 # Guard against zombie sessions
