@@ -462,6 +462,7 @@ async def lifespan(app: FastAPI):
                     stt_provider=stt_provider,
                     input_device=audio_input_device,
                     tts_service=tts_service,
+                    music_service=music_service,
                     wake_words=wake_words,
                     alsa_device=AUDIO_INPUT_ALSA,
                 )
@@ -2708,6 +2709,7 @@ def start_voice(req: VoiceStartRequest):
             stt_provider=stt_provider,
             input_device=audio_input_device,
             tts_service=tts_service,
+            music_service=music_service,
             wake_words=wake_words,
             alsa_device=AUDIO_INPUT_ALSA,
         )
