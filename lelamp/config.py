@@ -5,6 +5,7 @@ Import: from lelamp.config import LAMP_ID, SERVO_PORT, ...
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 
 SERVO_PORT = os.environ.get("LELAMP_SERVO_PORT", "/dev/ttyACM0")
@@ -36,9 +37,24 @@ YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face dete
 # --- Sensing: Motion detection (X3D video action recognition) ---
 MOTION_ENABLED = False  # feature flag — set True to enable motion events
 MOTION_X3D_CONFIDENCE_THRESHOLD = 0.3  # minimum softmax confidence to accept an action prediction
+MOTION_FLUSH_S = 10.0  # flush motion snapshots every 10 seconds — batch snapshots into one event
 MOTION_EVENT_COOLDOWN_S = (
-    360.0  # minimum seconds between motion events forwarded to the agent
+    360.0  # minimum seconds between pose-motion events forwarded to the agent
 )
+
+# --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
+POSE_MOTION_ENABLED = True  # feature flag — set True to enable pose motion events
+POSE_MOTION_MODEL_PATH = Path("/root/lelamp/data/models/rtmpose-m.onnx")
+POSE_MOTION_ANGLE_THRESHOLD = (
+    30.0  # minimum arm joint angle change (degrees) to classify as FOREGROUND
+)
+
+# --- Sensing: Face detection ---
+USERS_DIR = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
+FACE_COOLDOWN_S = 10.0  # minimum seconds between face presence events
+FACE_OWNER_FORGET_S = 30 * 60.0  # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 5 * 60.0  # re-fire presence.enter / fire presence.leave after this many seconds without seeing a stranger
+FACE_STRANGER_FLUSH_S = 10.0  # flush stranger snapshots every 10 seconds — batch snapshots into one event
 
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))

@@ -67,6 +67,13 @@ class FaceRecognizer(Perception):
         self._face_present = False
         self._faces_n = 0
 
+        # Stranger snapshot buffer — flushed every FACE_STRANGER_FLUSH_S
+        # Each entry: (raw_frame, annotations[(bbox, kind, label), ...])
+        self._stranger_flush_interval: float = config.FACE_STRANGER_FLUSH_S
+        self._stranger_buffer: list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]] = []
+        self._stranger_ids_buffer: set[str] = set()
+        self._last_stranger_flush_ts: float = 0.0
+
         # Owner embeddings — populated by train(), cleared by reset_owners()
         self._owner_embeddings: np.ndarray | None = None
         self._owner_labels: np.ndarray | None = None
@@ -505,27 +512,53 @@ class FaceRecognizer(Perception):
         if self._face_present:
             self._on_motion()
 
-            unsure_count = sum(1 for _, kind, _ in face_annotations if kind == "unsure")
+        # Strangers: always buffer snapshots; flush decides when to send
+        if strangers_seen:
+            stranger_annotations = [
+                (bbox, kind, label)
+                for bbox, kind, label in face_annotations
+                if kind == "stranger"
+            ]
+            self._stranger_buffer.append((frame.copy(), stranger_annotations))
+            self._stranger_ids_buffer.update(strangers_seen)
+            self._track_stranger_visits(strangers_seen)
+
+        flushed_snapshots, flushed_ids = self._flush_stranger_buffer(cur_ts)
+
+        # Build annotations to send: owners/friends always, strangers only on flush
+        owner_annotations = [
+            (bbox, kind, label)
+            for bbox, kind, label in face_annotations
+            if kind in ("owner", "friend")
+        ]
+        annotations_to_send = list(owner_annotations)
+        if flushed_ids:
+            annotations_to_send += [
+                (bbox, kind, label)
+                for bbox, kind, label in face_annotations
+                if kind == "stranger"
+            ]
+
+        if annotations_to_send:
             owners_in_frame = {
-                name for _, kind, name in face_annotations if kind == "owner"
+                name for _, kind, name in annotations_to_send if kind == "owner"
             }
             friends_in_frame = {
-                name for _, kind, name in face_annotations if kind == "friend"
+                name for _, kind, name in annotations_to_send if kind == "friend"
             }
+            strangers_in_frame = flushed_ids
             parts = []
             if owners_in_frame:
                 parts.append(f"owner ({', '.join(owners_in_frame)})")
             if friends_in_frame:
                 parts.append(f"friend ({', '.join(friends_in_frame)})")
-            if strangers_seen:
-                parts.append(f"stranger ({', '.join(strangers_seen)})")
-            if unsure_count:
-                parts.append(f"{unsure_count} unsure")
-            summary = ", ".join(parts) if parts else "unknown person"
-
-            self._send_enter_event(frame, face_annotations, summary=summary)
-            if strangers_seen:
-                self._track_stranger_visits(strangers_seen)
+            if strangers_in_frame:
+                parts.append(f"stranger ({', '.join(strangers_in_frame)})")
+            summary = ", ".join(parts)
+            self._send_enter_event(
+                frames=[(frame, annotations_to_send)] + flushed_snapshots,
+                summary=summary,
+            )
 
         self._check_leaves(cur_ts)
 
@@ -645,12 +678,12 @@ class FaceRecognizer(Perception):
 
     # -- Events -----------------------------------------------------------------
 
-    def _send_enter_event(
+    def _annotate_frame(
         self,
         frame: npt.NDArray[np.uint8],
         face_annotations: list[tuple[list[int], str, str]],
-        summary: str,
-    ) -> None:
+    ) -> npt.NDArray[np.uint8]:
+        """Draw bounding boxes and labels on a frame copy."""
         annotated = frame.copy()
         cv2 = self._cv2
         _COLOR = {
@@ -674,9 +707,48 @@ class FaceRecognizer(Perception):
                 1,
                 cv2.LINE_AA,
             )
+        return annotated
+
+    def _flush_stranger_buffer(
+        self, cur_ts: float
+    ) -> tuple[list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]], set[str]]:
+        """Flush buffered stranger snapshots if the interval has elapsed.
+
+        Returns ([(frame, annotations), ...], flushed_ids). Empty if not yet time to flush.
+        """
+        if not self._stranger_buffer:
+            return [], set()
+
+        if (cur_ts - self._last_stranger_flush_ts) < self._stranger_flush_interval:
+            return [], set()
+
+        entries = list(self._stranger_buffer)
+        ids = set(self._stranger_ids_buffer)
+        self._stranger_buffer.clear()
+        self._stranger_ids_buffer.clear()
+        self._last_stranger_flush_ts = cur_ts
+        logger.info("[face] flushing %d stranger snapshot(s) for %s", len(entries), ids)
+        return entries, ids
+
+    def _send_enter_event(
+        self,
+        frames: list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]],
+        summary: str,
+    ) -> None:
+        """Send a presence.enter event with annotated snapshots.
+
+        Args:
+            frames: List of (raw_frame, annotations) tuples. Each frame is annotated
+                with bounding boxes and labels before sending. Includes the current
+                frame plus any buffered stranger snapshots from the flush window.
+            summary: Human-readable description of who was detected
+                (e.g. "owner (alice), stranger (stranger_3)").
+        """
+        images = [self._annotate_frame(frame, annotations) for frame, annotations in frames]
+        total_faces = sum(len(annotations) for _, annotations in frames)
         self._send_event(
             "presence.enter",
-            f"Person detected — {len(face_annotations)} face(s) visible ({summary})",
-            image=annotated,
+            f"Person detected — {total_faces} face(s) visible ({summary})",
+            images=images,
             cooldown=config.FACE_COOLDOWN_S,
         )
