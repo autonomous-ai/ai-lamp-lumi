@@ -688,6 +688,7 @@ class ServoStateResponse(BaseModel):
                         "confused",
                         "sleepy",
                         "greeting",
+                        "goodbye",
                         "acknowledge",
                         "stretching",
                         "scanning",
