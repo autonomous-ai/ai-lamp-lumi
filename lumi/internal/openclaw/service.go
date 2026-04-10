@@ -434,6 +434,7 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	loggingMap["consoleStyle"] = "pretty"
 	loggingMap["file"] = "/var/log/openclaw/lumi.log"
 	loggingMap["level"] = "debug"
+	loggingMap["consoleLevel"] = "debug"
 	configData["logging"] = loggingMap
 
 	slog.Debug("ensuring commands defaults", "component", "openclaw")
@@ -772,7 +773,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 				"mode":     "node",
 			},
 			"role":   "operator",
-			"scopes": []string{"operator.read", "operator.write", "events.read"},
+			"scopes": []string{"operator.read", "operator.write", "operator.admin"},
 			"caps":   []string{"thinking-events", "tool-events"},
 			"auth":   map[string]interface{}{"token": token},
 			"device": map[string]interface{}{
@@ -797,6 +798,30 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	}
 	conn.SetReadDeadline(time.Time{})
 	slog.Debug("connect response", "component", "openclaw", "response", string(connectResp))
+
+	// Check for pairing errors — if scope-upgrade, reset device identity and retry
+	var connectErr struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(connectResp, &connectErr) == nil && !connectErr.OK && connectErr.Error.Code == "NOT_PAIRED" {
+		reason := connectErr.Error.Details.Reason
+		if reason == "scope-upgrade" || reason == "not-paired" {
+			slog.Warn("pairing rejected, resetting device identity to re-pair",
+				"component", "openclaw", "reason", reason)
+			keyPath := filepath.Join(s.config.OpenclawConfigDir, deviceKeyFile)
+			if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+				slog.Error("failed to remove device key", "component", "openclaw", "error", err)
+			}
+			return fmt.Errorf("pairing rejected (%s): identity reset, will re-pair on next connect", reason)
+		}
+		return fmt.Errorf("pairing rejected: %s", connectErr.Error.Code)
+	}
 
 	var connectResult struct {
 		Type   string `json:"type"`
@@ -1313,7 +1338,7 @@ func (di *deviceIdentity) signConnectPayload(token, nonce string, signedAt int64
 		"node-host",  // clientId
 		"node",       // clientMode
 		"operator",   // role
-		"operator.read,operator.write,events.read", // scopes
+		"operator.read,operator.write,operator.admin", // scopes
 		signedAt,
 		token,
 		nonce,
