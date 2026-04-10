@@ -45,6 +45,11 @@ SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.3"))  
 SILERO_CHUNK_SIZE = 512  # Samples per silero inference call (32ms @ 16kHz)
 _SILERO_MODEL_PATH = Path(__file__).parent / "resources" / "silero_vad.onnx"
 
+# WebRTC VAD config — fast C-based pre-filter before Silero (runs in ~0.1ms vs ~20ms)
+WEBRTCVAD_ENABLED = os.environ.get("LELAMP_WEBRTCVAD_ENABLED", "false").lower() == "true"
+WEBRTCVAD_AGGRESSIVENESS = int(os.environ.get("LELAMP_WEBRTCVAD_AGGRESSIVENESS", "2"))  # 0 (lenient) to 3 (strict)
+WEBRTCVAD_FRAME_MS = 30  # ms per frame — webrtcvad only accepts 10, 20, or 30ms
+
 # Echo cancellation config
 ECHO_RMS_FLOOR = 200          # RMS must drop below this before re-enabling VAD
 ECHO_GATE_MAX_WAIT_S = 1.5   # Max time to wait for reverb decay after TTS
@@ -146,6 +151,21 @@ class VoiceService:
             self._sd = sd
         except ImportError:
             logger.warning("sounddevice not available")
+
+        # WebRTC VAD — fast C-based pre-filter (runs before Silero to save CPU)
+        # Enable via LELAMP_WEBRTCVAD_ENABLED=true in .env.
+        self._webrtcvad: Optional[object] = None
+        if WEBRTCVAD_ENABLED:
+            try:
+                import webrtcvad as _webrtcvad
+                self._webrtcvad = _webrtcvad.Vad(WEBRTCVAD_AGGRESSIVENESS)
+                logger.info("WebRTC VAD loaded (aggressiveness=%d)", WEBRTCVAD_AGGRESSIVENESS)
+            except ImportError:
+                logger.warning("webrtcvad not installed — pip install webrtcvad")
+            except Exception as e:
+                logger.warning("WebRTC VAD not available: %s", e)
+        else:
+            logger.info("WebRTC VAD disabled (LELAMP_WEBRTCVAD_ENABLED=false)")
 
         # Silero VAD (ONNX) — secondary speech filter to reject non-speech audio (TV, music, noise)
         # Auto-enabled if model file exists. Disable via LELAMP_SILERO_ENABLED=false in .env.
@@ -300,6 +320,32 @@ class VoiceService:
         np = self._np
         samples = audio_data.flatten().astype(np.float32)
         return float(np.sqrt(np.mean(samples ** 2)))
+
+    def _webrtcvad_is_speech(self, data, device_rate: int) -> bool:
+        """Run WebRTC VAD on audio frame. Returns True if any 30ms chunk contains speech.
+        Falls back to True (pass-through) if webrtcvad is unavailable."""
+        if self._webrtcvad is None:
+            return True
+        try:
+            np = self._np
+            if device_rate != STT_RATE:
+                from math import gcd
+                import scipy.signal
+                samples = data.flatten().astype(np.float32)
+                g = gcd(STT_RATE, device_rate)
+                audio_16k = scipy.signal.resample_poly(samples, STT_RATE // g, device_rate // g).astype(np.int16)
+            else:
+                audio_16k = data.flatten().astype(np.int16)
+            frame_samples = int(STT_RATE * WEBRTCVAD_FRAME_MS / 1000)  # 480 @ 16kHz/30ms
+            raw = audio_16k.tobytes()
+            frame_bytes = frame_samples * 2  # int16 = 2 bytes
+            for i in range(0, len(raw) - frame_bytes + 1, frame_bytes):
+                if self._webrtcvad.is_speech(raw[i:i + frame_bytes], STT_RATE):
+                    return True
+            return False
+        except Exception as e:
+            logger.warning("WebRTC VAD error: %s", e)
+            return True
 
     def _silero_reset_state(self):
         """Reset Silero LSTM state between speech segments."""
@@ -494,7 +540,7 @@ class VoiceService:
 
             rms = self._rms(data)
 
-            if rms >= RMS_THRESHOLD and self._silero_is_speech(data, device_rate):
+            if rms >= RMS_THRESHOLD and self._webrtcvad_is_speech(data, device_rate) and self._silero_is_speech(data, device_rate):
                 if speech_start is None:
                     speech_start = time.time()
                     speech_pre_buffer = [self._resample_to_stt(data, device_rate)]
