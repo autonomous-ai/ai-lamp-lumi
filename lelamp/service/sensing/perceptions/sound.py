@@ -92,7 +92,9 @@ class SoundPerception(Perception):
         if self._input_device is None:
             return
 
-        if self._tts is not None and self._tts.speaking:
+        if self._tts is not None and (
+            self._tts.speaking or time.time() - self._tts.last_spoken_time < 5.0
+        ):
             return
 
         try:
