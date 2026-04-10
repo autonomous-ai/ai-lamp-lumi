@@ -553,7 +553,7 @@ class FaceRecognizer(Perception):
         for person_id, last_seen in list(self._strangers_last_seen.items()):
             if (cur_ts - last_seen) > self._strangers_forget_ts:
                 del self._strangers_last_seen[person_id]
-                self._send_leave_event(person_id, kind="stranger")
+                # self._send_leave_event(person_id, kind="stranger")
 
     def _send_leave_event(self, person_id: str, kind: str) -> None:
         self._send_event(
