@@ -55,6 +55,7 @@ class SensingService:
         rgb_service=None,
         tts_service=None,
         animation_service=None,
+        on_restore_aim=None,
     ):
         self._camera = camera_capture
         self._cv2 = cv2_module
@@ -68,7 +69,7 @@ class SensingService:
         self._wellbeing: WellbeingPerception | None = None
 
         # Presence auto on/off state machine
-        self.presence = PresenceService(rgb_service=rgb_service, send_event=self._send_event)
+        self.presence = PresenceService(rgb_service=rgb_service, send_event=self._send_event, on_restore_aim=on_restore_aim)
 
         # Perception detectors
         self._perceptions = []
