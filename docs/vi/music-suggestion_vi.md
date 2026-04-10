@@ -16,7 +16,46 @@ Toàn bộ logic quyết định nằm trong LLM (OpenClaw agent). Go server ch�
 
 ---
 
-## Luồng hoạt động
+## Timeline
+
+```
+         User ngồi vào bàn
+              │
+T+0 min ─────┤  LeLamp detect face → [sensing:presence.enter]
+              │  Agent greet user
+              │  Agent bootstrap cron:
+              │    cron.add("Proactive music check", everyMs: 420000)
+              │
+              │          ⏳ 7 phút chờ...
+              │
+T+7 min ─────┤  Cron fire lần đầu → [music-proactive]
+              │  AI gather data:
+              │    ├── GET /presence        → user có đang ngồi?
+              │    ├── GET /mood-history    → pattern trước đó
+              │    ├── GET /audio/history   → genre hay nghe
+              │    └── GET /camera/snapshot → mood hiện tại
+              │
+              ├── ✅ Suggest → TTS nói + broadcast Telegram
+              │       User confirm → play music
+              │
+              └── ⏭️  Skip → NO_REPLY, chờ lần sau
+```
+
+> Tối thiểu **~7 phút** sau khi ngồi, music suggestion mới có thể fire lần đầu.
+> Tất cả đều là **LLM-decided** — Go server không enforce thời gian.
+
+### Timing rules
+
+| Yếu tố | Giá trị | Enforce |
+|---------|---------|---------|
+| Cron interval mặc định | **420000ms** (7 phút) | SKILL.md — AI gọi `cron.add` |
+| "Just arrived" skip | < 10 phút sau enter | SKILL.md — AI tự judge |
+| "Long session" boost | > 120 phút ngồi liên tục | SKILL.md — AI tự judge |
+| Reject backoff | 2+ lần reject liên tiếp | SKILL.md — AI tự judge |
+
+---
+
+## Luồng hoạt động chi tiết
 
 ### 1. Bootstrap — Khi user ngồi vào bàn
 
