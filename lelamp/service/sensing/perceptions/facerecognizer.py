@@ -601,6 +601,48 @@ class FaceRecognizer(Perception):
         """Return visit counts for all tracked stranger IDs."""
         return dict(self._stranger_visit_counts)
 
+    # -- Cooldown state / reset -------------------------------------------------
+
+    def cooldown_state(self) -> dict:
+        """Return current cooldown state for all tracked persons."""
+        now = time.time()
+        owners = []
+        for person_id, last_seen in self._owners_last_seen.items():
+            elapsed = now - last_seen
+            remaining = max(0.0, self._owners_forget_ts - elapsed)
+            kind = self._known_face_kinds.get(person_id, "owner")
+            owners.append({
+                "person_id": person_id,
+                "kind": kind,
+                "last_seen_ago": round(elapsed, 1),
+                "cooldown_remaining": round(remaining, 1),
+                "cooldown_total": self._owners_forget_ts,
+            })
+        strangers = []
+        for person_id, last_seen in self._strangers_last_seen.items():
+            elapsed = now - last_seen
+            remaining = max(0.0, self._strangers_forget_ts - elapsed)
+            strangers.append({
+                "person_id": person_id,
+                "kind": "stranger",
+                "last_seen_ago": round(elapsed, 1),
+                "cooldown_remaining": round(remaining, 1),
+                "cooldown_total": self._strangers_forget_ts,
+            })
+        return {
+            "owners": owners,
+            "strangers": strangers,
+            "owners_forget_s": self._owners_forget_ts,
+            "strangers_forget_s": self._strangers_forget_ts,
+        }
+
+    def reset_cooldowns(self) -> None:
+        """Clear all last-seen timestamps so next detection fires events immediately."""
+        self._owners_last_seen.clear()
+        self._known_face_kinds.clear()
+        self._strangers_last_seen.clear()
+        logger.info("Face recognition cooldowns reset")
+
     # -- Events -----------------------------------------------------------------
 
     def _send_enter_event(

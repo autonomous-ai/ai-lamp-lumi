@@ -3,10 +3,37 @@ import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
 
+interface CooldownEntry {
+  person_id: string;
+  kind: string;
+  last_seen_ago: number;
+  cooldown_remaining: number;
+  cooldown_total: number;
+}
+interface CooldownState {
+  owners: CooldownEntry[];
+  strangers: CooldownEntry[];
+  owners_forget_s: number;
+  strangers_forget_s: number;
+}
+
+function fmtCountdown(s: number): string {
+  if (s <= 0) return "ready";
+  if (s < 60) return `${Math.ceil(s)}s`;
+  const m = Math.floor(s / 60);
+  const sec = Math.ceil(s % 60);
+  return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+}
+
 export function FaceOwnersSection() {
   const [data, setData] = useState<FaceOwnersDetail | null>(null);
   const [error, setError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Cooldown state
+  const [cooldowns, setCooldowns] = useState<CooldownState | null>(null);
+  const [cdError, setCdError] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // Enroll form state
   const [showEnroll, setShowEnroll] = useState(false);
@@ -75,6 +102,36 @@ export function FaceOwnersSection() {
       abortRef.current?.abort();
     };
   }, [refresh]);
+
+  // Cooldown polling — every 2s for live countdown
+  const refreshCooldowns = useCallback(async () => {
+    try {
+      const r = await fetch(`${HW}/face/cooldowns`);
+      if (!r.ok) throw new Error();
+      setCooldowns(await r.json());
+      setCdError(false);
+    } catch {
+      setCdError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCooldowns();
+    const t = setInterval(refreshCooldowns, 2000);
+    return () => clearInterval(t);
+  }, [refreshCooldowns]);
+
+  const handleResetCooldowns = async () => {
+    setResetting(true);
+    try {
+      await fetch(`${HW}/face/cooldowns/reset`, { method: "POST" });
+      await refreshCooldowns();
+    } catch {
+      // ignore
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleEnroll = async () => {
     if (!enrollFile || !enrollName.trim()) return;
@@ -153,8 +210,121 @@ export function FaceOwnersSection() {
     fontWeight: 600,
   };
 
+  const allCooldownEntries = [
+    ...(cooldowns?.owners ?? []),
+    ...(cooldowns?.strangers ?? []),
+  ];
+  const hasActiveCooldowns = allCooldownEntries.some((e) => e.cooldown_remaining > 0);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Face Recognition Cooldowns */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.cardLabel}>Face Recognition</div>
+          <button
+            onClick={handleResetCooldowns}
+            disabled={resetting || !hasActiveCooldowns}
+            style={{
+              fontSize: 10,
+              padding: "4px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--lm-border)",
+              cursor: resetting || !hasActiveCooldowns ? "not-allowed" : "pointer",
+              fontWeight: 600,
+              background: hasActiveCooldowns ? "var(--lm-amber-dim)" : "var(--lm-surface)",
+              color: hasActiveCooldowns ? "var(--lm-amber)" : "var(--lm-text-muted)",
+              opacity: resetting ? 0.5 : 1,
+            }}
+          >
+            {resetting ? "Resetting..." : "Reset Cooldowns"}
+          </button>
+        </div>
+
+        {cdError && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            Cooldown info unavailable
+          </div>
+        )}
+
+        {!cdError && allCooldownEntries.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            No faces currently tracked
+          </div>
+        )}
+
+        {!cdError && allCooldownEntries.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allCooldownEntries.map((entry) => {
+              const pct = entry.cooldown_total > 0
+                ? (entry.cooldown_remaining / entry.cooldown_total) * 100
+                : 0;
+              const kindColor =
+                entry.kind === "stranger" ? "rgb(239,68,68)"
+                : entry.kind === "friend" ? "rgb(96,165,250)"
+                : "var(--lm-amber)";
+              return (
+                <div key={`${entry.kind}-${entry.person_id}`} style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: "var(--lm-surface)",
+                  border: "1px solid var(--lm-border)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: kindColor,
+                        textTransform: "capitalize",
+                      }}>
+                        {entry.person_id}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        background: entry.kind === "stranger" ? "rgba(239,68,68,0.1)" : entry.kind === "friend" ? "rgba(96,165,250,0.15)" : "var(--lm-amber-dim)",
+                        color: kindColor,
+                        fontWeight: 600,
+                      }}>
+                        {entry.kind}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      fontFamily: "monospace",
+                      color: entry.cooldown_remaining > 0 ? "var(--lm-text)" : "rgb(74,222,128)",
+                    }}>
+                      {fmtCountdown(entry.cooldown_remaining)}
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{
+                    height: 4,
+                    borderRadius: 2,
+                    background: "var(--lm-border)",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${pct}%`,
+                      borderRadius: 2,
+                      background: kindColor,
+                      transition: "width 1.5s linear",
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4 }}>
+                    seen {Math.round(entry.last_seen_ago)}s ago · next event in {fmtCountdown(entry.cooldown_remaining)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Summary */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

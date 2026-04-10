@@ -2639,6 +2639,21 @@ def face_stranger_stats():
     return fr.stranger_stats()
 
 
+@app.get("/face/cooldowns", tags=["Face"])
+def face_cooldowns():
+    """Return current cooldown state for all tracked persons (owners + strangers)."""
+    fr = _require_face_recognizer()
+    return fr.cooldown_state()
+
+
+@app.post("/face/cooldowns/reset", tags=["Face"])
+def face_cooldowns_reset():
+    """Reset all face recognition cooldown timers so next detection fires events immediately."""
+    fr = _require_face_recognizer()
+    fr.reset_cooldowns()
+    return {"status": "ok"}
+
+
 # --- Display endpoints ---
 
 
