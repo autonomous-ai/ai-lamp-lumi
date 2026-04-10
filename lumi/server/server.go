@@ -393,7 +393,12 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				}
 			}
 
-			// Greet user now that agent + voice pipeline are ready
+			// Init speaker volume — set to max so hardware/alsactl level is the effective control.
+				if err := s.agentGateway.SetVolume(100); err != nil {
+					slog.Warn("init volume failed", "component", "server", "error", err)
+				}
+
+				// Greet user now that agent + voice pipeline are ready
 			if _, err := s.agentGateway.SendChatMessage("You just woke up. Greet the user briefly."); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
 			}
