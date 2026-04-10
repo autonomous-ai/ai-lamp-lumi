@@ -1640,9 +1640,10 @@ def _save_user_led_state(state: dict):
 def _restore_user_led():
     """Restore LED to user state after emotion animation completes.
 
-    Called by a Timer after the servo recording finishes. If the user never
-    set an explicit state, falls back to a calm idle breathing so the lamp
-    looks alive rather than frozen on the emotion color.
+    Called by a Timer after the servo recording finishes.
+    - If user had explicitly set a color/effect/scene: restore it.
+    - If LED was off or never set: leave emotion color in place (it's better
+      than going dark when the lamp wakes up from sleep/off).
     """
     global _restore_timer
     _restore_timer = None
@@ -1651,9 +1652,8 @@ def _restore_user_led():
         return
 
     state = _user_led_state
-    if state is None:
-        # No user state — return to gentle idle breathing
-        _apply_emotion_led_display("idle", 0.4)
+    if state is None or state.get("type") == "off":
+        # No active user preference — keep the emotion LED as-is.
         return
 
     stype = state.get("type")
@@ -1683,9 +1683,6 @@ def _restore_user_led():
                 _stop_current_effect()
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
                 rgb_service.dispatch("solid", scaled)
-        elif stype == "off":
-            _stop_current_effect()
-            rgb_service.clear()
     except Exception as e:
         logger.warning("LED restore failed: %s", e)
 
