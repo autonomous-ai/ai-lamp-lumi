@@ -334,7 +334,7 @@ class VoiceService:
                             "sr": np.array(STT_RATE, dtype=np.int64),
                         },
                     )
-                    max_conf = max(max_conf, float(out[0]))
+                    max_conf = max(max_conf, float(out[0][0][0]))
                     self._silero_state = out[1]
 
             return max_conf >= SILERO_VAD_THRESHOLD
