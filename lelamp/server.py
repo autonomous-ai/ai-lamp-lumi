@@ -2955,19 +2955,27 @@ def audio_play(req: MusicPlayRequest):
             503, "Music service not available — missing sounddevice or numpy"
         )
     logger.info("POST /audio/play: query='%s'", req.query[:80])
+    # Detect genre up front so the callback captures the right style.
+    style = _detect_music_style(req.query)
+    logger.info("music style detected: %s", style)
+    emotion = _MUSIC_STYLE_EMOTION.get(style, "happy")
+
+    def _on_audio_started():
+        # Fired by MusicService once ffmpeg is actually streaming (after yt-dlp resolves URL).
+        # Starting groove here ensures servo and music are in sync.
+        if animation_service:
+            animation_service.dispatch("music_start", style)
+
     import os as _os
     if req.query.startswith("/") and _os.path.isfile(req.query):
         started = music_service.play_file(req.query)
+        # play_file resolves instantly (local file) — start groove right away.
+        if started and animation_service:
+            animation_service.dispatch("music_start", style)
     else:
-        started = music_service.play(req.query)
+        started = music_service.play(req.query, on_started=_on_audio_started)
     if not started:
         raise HTTPException(409, "Music is busy playing")
-    # Detect genre → start matching groove servo + apply LED + display
-    style = _detect_music_style(req.query)
-    logger.info("music style detected: %s", style)
-    if animation_service:
-        animation_service.dispatch("music_start", style)
-    emotion = _MUSIC_STYLE_EMOTION.get(style, "happy")
     _apply_emotion_led_display(emotion)
     return {"status": "ok"}
 
