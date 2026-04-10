@@ -339,6 +339,7 @@ class MusicService:
             self._ffmpeg_proc = subprocess.Popen(
                 [
                     "ffmpeg",
+                    "-threads", "1",
                     "-i", "pipe:0",
                     "-ar", "44100",
                     "-f", "alsa",
