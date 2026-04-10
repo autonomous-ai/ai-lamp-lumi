@@ -103,16 +103,21 @@ class PresenceService:
     def _restore_light(self):
         """Restore last known color at full brightness, and re-aim lamp to active scene direction."""
         if not self._rgb_service:
+            logger.warning("Presence: cannot restore light — rgb_service not available")
             return
         try:
+            logger.info("Presence: restoring light color=%s", self._last_color)
             self._rgb_service.dispatch("solid", self._last_color)
         except Exception as e:
             logger.warning("Presence: failed to restore light: %s", e)
         if self._on_restore_aim:
+            logger.info("Presence: triggering scene aim restore")
             try:
                 self._on_restore_aim()
             except Exception as e:
                 logger.warning("Presence: failed to restore aim: %s", e)
+        else:
+            logger.debug("Presence: no aim restore callback — skipping aim")
 
     def _dim_light(self):
         """Dim to config.IDLE_BRIGHTNESS of last color."""
