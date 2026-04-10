@@ -2339,7 +2339,7 @@ def list_scenes():
 
 @app.post("/scene", response_model=SceneResponse, tags=["Scene"])
 def activate_scene(req: SceneRequest):
-    """Activate a lighting scene preset. Sets LED color scaled by scene brightness."""
+    """Activate a lighting scene preset. Sets LED color + aims lamp head for the scene."""
     preset = SCENE_PRESETS.get(req.scene)
     if not preset:
         available = list(SCENE_PRESETS.keys())
@@ -2365,11 +2365,22 @@ def activate_scene(req: SceneRequest):
     # Save as user LED state so emotion calls can restore it afterward
     _save_user_led_state({"type": "scene", "scene": req.scene})
 
+    # Aim lamp head for the scene (non-blocking — runs in background thread)
+    aim_dir = preset.get("aim")
+    if aim_dir and animation_service:
+        threading.Thread(
+            target=aim_servo,
+            args=(ServoAimRequest(direction=aim_dir),),
+            daemon=True,
+            name=f"scene-aim-{aim_dir}",
+        ).start()
+
     return {
         "status": "ok",
         "scene": req.scene,
         "brightness": brightness,
         "color": scaled,
+        "aim": aim_dir,
     }
 
 
