@@ -688,12 +688,15 @@ class ServoStateResponse(BaseModel):
                         "confused",
                         "sleepy",
                         "greeting",
+                        "goodbye",
                         "acknowledge",
                         "stretching",
                         "scanning",
                         "wake_up",
                         "headshake",
                         "music_groove",
+                        "music_chill",
+                        "music_hype",
                     ],
                     "current": "idle",
                 }
@@ -1583,7 +1586,6 @@ def turn_off_leds():
     _active_scene = None
     if sensing_service:
         sensing_service.presence.set_last_color((0, 0, 0))
-    # User explicitly turned off — save as user state so emotion restore respects it
     _save_user_led_state({"type": "off"})
     return {"status": "ok"}
 
@@ -1638,9 +1640,10 @@ def _save_user_led_state(state: dict):
 def _restore_user_led():
     """Restore LED to user state after emotion animation completes.
 
-    Called by a Timer after the servo recording finishes. If the user never
-    set an explicit state, falls back to a calm idle breathing so the lamp
-    looks alive rather than frozen on the emotion color.
+    Called by a Timer after the servo recording finishes.
+    - If user had explicitly set a color/effect/scene: restore it.
+    - If LED was off or never set: leave emotion color in place (it's better
+      than going dark when the lamp wakes up from sleep/off).
     """
     global _restore_timer
     _restore_timer = None
@@ -1649,9 +1652,8 @@ def _restore_user_led():
         return
 
     state = _user_led_state
-    if state is None:
-        # No user state — return to gentle idle breathing
-        _apply_emotion_led_display("idle", 0.4)
+    if state is None or state.get("type") == "off":
+        # No active user preference — keep the emotion LED as-is.
         return
 
     stype = state.get("type")
@@ -1681,9 +1683,6 @@ def _restore_user_led():
                 _stop_current_effect()
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
                 rgb_service.dispatch("solid", scaled)
-        elif stype == "off":
-            _stop_current_effect()
-            rgb_service.clear()
     except Exception as e:
         logger.warning("LED restore failed: %s", e)
 
@@ -2833,6 +2832,8 @@ _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
     ("music_hiphop", ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
     ("music_rock", ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
     ("music_waltz", ["waltz", "tango", "ballroom", "foxtrot"]),
+    ("music_chill", ["chill", "lofi", "lo-fi", "lo fi", "ambient", "relax", "mellow", "study", "calm", "sleep"]),
+    ("music_hype", ["hype", "edm", "electronic", "dance", "rave", "party", "upbeat", "electro", "techno", "house", "festival"]),
 ]
 
 _MUSIC_STYLE_EMOTION: dict[str, str] = {
@@ -2842,6 +2843,8 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
     "music_hiphop": "excited",
     "music_rock": "excited",
     "music_waltz": "happy",
+    "music_chill": "sleepy",
+    "music_hype": "excited",
 }
 
 
