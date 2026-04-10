@@ -13,6 +13,7 @@ import onnxruntime as ort
 from .base import Perception
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 RESOURCES_DIR = Path(__file__).parent / "resources"
 
