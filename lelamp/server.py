@@ -10,9 +10,7 @@ import csv
 import io
 import logging
 import logging.handlers
-import math
 import os
-import random
 import re
 import subprocess
 import threading
@@ -30,6 +28,7 @@ from lelamp.presets import (
     SCENE_PRESETS,
     VALID_LED_EFFECTS,
 )
+from lelamp.service.rgb.effects import run_effect as _run_effect
 from pydantic import BaseModel, Field
 
 # Load .env from the install dir (/opt/lelamp/.env) — no-op if missing
@@ -1767,175 +1766,6 @@ def _stop_current_effect():
     _effect_thread = None
     _effect_name = None
     _effect_base_color = None
-
-
-def _run_effect(
-    effect: str,
-    color: tuple,
-    speed: float,
-    duration_ms: Optional[int],
-    stop_event: threading.Event,
-    svc,
-):
-    """Dispatch to the appropriate effect loop. Runs in a background thread."""
-    deadline = None
-    if duration_ms is not None:
-        deadline = time.monotonic() + duration_ms / 1000.0
-
-    try:
-        if effect == "breathing":
-            _effect_breathing(color, speed, deadline, stop_event, svc)
-        elif effect == "candle":
-            _effect_candle(color, speed, deadline, stop_event, svc)
-        elif effect == "rainbow":
-            _effect_rainbow(speed, deadline, stop_event, svc)
-        elif effect == "notification_flash":
-            _effect_notification_flash(color, speed, stop_event, svc)
-        elif effect == "pulse":
-            _effect_pulse(color, speed, deadline, stop_event, svc)
-    except Exception as e:
-        logger.warning(f"LED effect '{effect}' error: {e}")
-
-
-def _is_done(deadline: Optional[float], stop_event: threading.Event) -> bool:
-    """Check if the effect should stop."""
-    if stop_event.is_set():
-        return True
-    if deadline is not None and time.monotonic() >= deadline:
-        return True
-    return False
-
-
-def _effect_breathing(
-    color: tuple,
-    speed: float,
-    deadline: Optional[float],
-    stop_event: threading.Event,
-    svc,
-):
-    """Fade in/out with the given color."""
-    step_delay = 0.03 / speed
-    while not _is_done(deadline, stop_event):
-        # Full cycle: 0 -> 1 -> 0 over ~3s at speed=1
-        for i in range(100):
-            if _is_done(deadline, stop_event):
-                return
-            brightness = math.sin(math.pi * i / 100.0)
-            scaled = tuple(int(c * brightness) for c in color)
-            svc.dispatch("solid", scaled)
-            time.sleep(step_delay)
-
-
-def _effect_candle(
-    color: tuple,
-    speed: float,
-    deadline: Optional[float],
-    stop_event: threading.Event,
-    svc,
-):
-    """Warm flicker effect with randomized warm tones."""
-    step_delay = 0.05 / speed
-    led_count = getattr(svc, "led_count", 64)
-    while not _is_done(deadline, stop_event):
-        pixels = []
-        for _ in range(led_count):
-            flicker = random.uniform(0.4, 1.0)
-            # Warm tone bias: keep red high, vary green, minimal blue
-            r = int(min(255, color[0] * flicker + random.randint(0, 20)))
-            g = int(min(255, color[1] * flicker * random.uniform(0.6, 0.9)))
-            b = int(min(255, color[2] * flicker * 0.3))
-            pixels.append((r, g, b))
-        svc.dispatch("paint", pixels)
-        time.sleep(step_delay)
-
-
-def _effect_rainbow(
-    speed: float, deadline: Optional[float], stop_event: threading.Event, svc
-):
-    """Cycle through hue spectrum across all pixels."""
-    step_delay = 0.03 / speed
-    led_count = getattr(svc, "led_count", 64)
-    offset = 0.0
-    while not _is_done(deadline, stop_event):
-        pixels = []
-        for i in range(led_count):
-            hue = (offset + i / led_count) % 1.0
-            r, g, b = _hsv_to_rgb(hue, 1.0, 1.0)
-            pixels.append((r, g, b))
-        svc.dispatch("paint", pixels)
-        offset += 0.01
-        time.sleep(step_delay)
-
-
-def _effect_notification_flash(
-    color: tuple, speed: float, stop_event: threading.Event, svc
-):
-    """3 quick flashes then stop."""
-    flash_on = 0.15 / speed
-    flash_off = 0.1 / speed
-    for _ in range(3):
-        if stop_event.is_set():
-            return
-        svc.dispatch("solid", color)
-        time.sleep(flash_on)
-        if stop_event.is_set():
-            return
-        svc.dispatch("solid", (0, 0, 0))
-        time.sleep(flash_off)
-
-
-def _effect_pulse(
-    color: tuple,
-    speed: float,
-    deadline: Optional[float],
-    stop_event: threading.Event,
-    svc,
-):
-    """Single color pulse outward from center."""
-    step_delay = 0.04 / speed
-    led_count = getattr(svc, "led_count", 64)
-    center = led_count // 2
-    max_radius = center + 1
-    while not _is_done(deadline, stop_event):
-        for radius in range(max_radius + 1):
-            if _is_done(deadline, stop_event):
-                return
-            pixels = [(0, 0, 0)] * led_count
-            for i in range(led_count):
-                dist = abs(i - center)
-                if dist <= radius:
-                    # Brightness falls off with distance from the wavefront
-                    falloff = max(
-                        0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1)
-                    )
-                    pixels[i] = tuple(int(c * falloff) for c in color)
-            svc.dispatch("paint", pixels)
-            time.sleep(step_delay)
-
-
-def _hsv_to_rgb(h: float, s: float, v: float) -> tuple:
-    """Convert HSV (0-1 range) to RGB (0-255 ints)."""
-    if s == 0.0:
-        val = int(v * 255)
-        return (val, val, val)
-    i = int(h * 6.0)
-    f = (h * 6.0) - i
-    p = int(255 * v * (1.0 - s))
-    q = int(255 * v * (1.0 - s * f))
-    t = int(255 * v * (1.0 - s * (1.0 - f)))
-    v_int = int(255 * v)
-    i %= 6
-    if i == 0:
-        return (v_int, t, p)
-    if i == 1:
-        return (q, v_int, p)
-    if i == 2:
-        return (p, v_int, t)
-    if i == 3:
-        return (p, q, v_int)
-    if i == 4:
-        return (t, p, v_int)
-    return (v_int, p, q)
 
 
 # --- LED effect endpoints ---
