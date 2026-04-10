@@ -26,6 +26,13 @@ AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or
 # Useful when using a dedicated mic for ambient noise detection separate from the STT mic.
 _sensing_device_env = os.environ.get("LELAMP_AUDIO_SENSING_DEVICE")
 AUDIO_SENSING_DEVICE: Optional[int] = int(_sensing_device_env) if _sensing_device_env else None
+# --- Sensing: Face detection ---
+USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
+FACE_COOLDOWN_S = 10.0           # minimum seconds between face presence events
+FACE_OWNER_FORGET_S = 30 * 60.0  # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
+FACE_STRANGER_FORGET_S = 5 * 60.0  # same for strangers
+YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
+
 # --- Sensing: Motion detection (X3D video action recognition) ---
 MOTION_ENABLED = False  # feature flag — set True to enable motion events
 MOTION_X3D_CONFIDENCE_THRESHOLD = 0.3  # minimum softmax confidence to accept an action prediction
