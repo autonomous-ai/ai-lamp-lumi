@@ -72,6 +72,7 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 | `sleepy` | Slow droop with head catches | Dim purple breathing | Before sleep mode, winding down |
 | `greeting` | Wave gesture, arm extends | Warm orange pulse | Detecting person, saying hello |
 | `goodbye` | Farewell wave gesture | Soft warm fade | Seeing someone off, end of conversation |
+| `caring` | Gentle droop (empathetic) | Warm pink-orange breathing | Wellbeing checks, gentle reminders, proactive empathy |
 | `acknowledge` | Quick micro-nod (1.5s) | Green pulse | "Got it", confirming command |
 | `stretching` | Big extension + settle | Warm white breathing | After waking up, starting new session |
 
