@@ -428,6 +428,21 @@ var allowedLogs = map[string]string{
 	"openclaw": "/var/log/openclaw/lumi.log",
 }
 
+// resolveOpenclawLog returns the openclaw log path, falling back to the newest
+// file in /tmp/openclaw/ when the configured path does not exist.
+func resolveOpenclawLog() string {
+	primary := allowedLogs["openclaw"]
+	if info, err := os.Stat(primary); err == nil && info.Size() > 0 {
+		return primary
+	}
+	matches, _ := filepath.Glob("/tmp/openclaw/openclaw-*.log")
+	if len(matches) == 0 {
+		return primary
+	}
+	sort.Strings(matches)
+	return matches[len(matches)-1] // newest date-stamped file
+}
+
 // resolveLogPaths expands a pattern (plain path or glob) to matching files.
 func resolveLogPaths(pattern string) ([]string, error) {
 	if !strings.ContainsAny(pattern, "*?[") {
@@ -449,6 +464,9 @@ func (s *Server) logTail(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
 		return
+	}
+	if source == "openclaw" {
+		pattern = resolveOpenclawLog()
 	}
 
 	n, _ := strconv.Atoi(c.DefaultQuery("lines", "200"))
@@ -496,6 +514,9 @@ func (s *Server) logStream(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
 		return
+	}
+	if source == "openclaw" {
+		pattern = resolveOpenclawLog()
 	}
 
 	c.Header("Content-Type", "text/event-stream")
