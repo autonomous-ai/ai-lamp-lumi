@@ -33,9 +33,10 @@ class PresenceState(str, Enum):
 class PresenceService:
     """Tracks presence state based on motion events. Controls LED via rgb_service."""
 
-    def __init__(self, rgb_service=None, send_event=None):
+    def __init__(self, rgb_service=None, send_event=None, on_restore_aim=None):
         self._rgb_service = rgb_service
         self._send_event = send_event
+        self._on_restore_aim = on_restore_aim
         self._state = PresenceState.PRESENT
         self._last_motion_time: float = time.time()
         self._enabled = True
@@ -100,13 +101,18 @@ class PresenceService:
             self._notify_away(int(elapsed))
 
     def _restore_light(self):
-        """Restore last known color at full brightness."""
+        """Restore last known color at full brightness, and re-aim lamp to active scene direction."""
         if not self._rgb_service:
             return
         try:
             self._rgb_service.dispatch("solid", self._last_color)
         except Exception as e:
             logger.warning("Presence: failed to restore light: %s", e)
+        if self._on_restore_aim:
+            try:
+                self._on_restore_aim()
+            except Exception as e:
+                logger.warning("Presence: failed to restore aim: %s", e)
 
     def _dim_light(self):
         """Dim to config.IDLE_BRIGHTNESS of last color."""
