@@ -86,6 +86,7 @@ Available animations:
 | `confused` | Dog-like head tilt, did not understand |
 | `sleepy` | Slow droop with catches, winding down |
 | `greeting` | Wave gesture, saying hello |
+| `goodbye` | Farewell wave, seeing someone off |
 | `acknowledge` | Quick micro-nod (1.5s), confirming |
 | `stretching` | Big extension + settle, after waking up |
 
