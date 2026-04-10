@@ -505,17 +505,24 @@ async def lifespan(app: FastAPI):
         try:
             def _presence_restore_aim():
                 """Re-aim lamp to active scene direction when presence restores light."""
-                if not _active_scene or not animation_service:
+                if not _active_scene:
+                    logger.info("Presence aim restore: no active scene — skipping aim")
+                    return
+                if not animation_service:
+                    logger.warning("Presence aim restore: animation_service not available")
                     return
                 preset = SCENE_PRESETS.get(_active_scene)
                 aim_dir = preset.get("aim") if preset else None
                 if aim_dir:
+                    logger.info("Presence aim restore: scene=%s aim=%s", _active_scene, aim_dir)
                     threading.Thread(
                         target=aim_servo,
                         args=(ServoAimRequest(direction=aim_dir),),
                         daemon=True,
                         name=f"presence-aim-{aim_dir}",
                     ).start()
+                else:
+                    logger.debug("Presence aim restore: scene=%s has no aim — skipping", _active_scene)
 
             sensing_service = SensingService(
                 camera_capture=camera_capture,
