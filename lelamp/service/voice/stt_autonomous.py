@@ -53,13 +53,18 @@ def _build_flux_query_params(
     model: str,
     encoding: str,
     sample_rate: int,
+    keywords: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Flux (`flux-*`): model + PCM + channels only (Listen v2 style)."""
-    return dict(
+    """Flux (`flux-*`): model + PCM + channels only (Listen v2 style).
+    Keywords are passed through for proxies that support them."""
+    params = dict(
         model=model,
         encoding=encoding,
         sample_rate=sample_rate,
     )
+    if keywords:
+        params["keywords"] = ",".join(keywords)
+    return params
 
 
 def _build_nova_query_params(
@@ -263,6 +268,7 @@ class AutonomousSTT(STTProvider):
                 model=model,
                 sample_rate=sample_rate,
                 encoding=DEFAULT_ENCODING,
+                keywords=self._keywords,
             )
         else:
             params = _build_nova_query_params(
