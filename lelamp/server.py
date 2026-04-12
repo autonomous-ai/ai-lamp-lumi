@@ -491,8 +491,12 @@ async def lifespan(app: FastAPI):
                     stt_kwargs["model"] = stt_model
                 if stt_language:
                     stt_kwargs["language"] = stt_language
+                stt_keywords = [f"{agent_name}:3"]
+                if " " in agent_name:
+                    stt_keywords.append(" ".join(agent_name) + ":2")
                 stt_provider = AutonomousSTT(
-                    api_key=llm_key, base_url=llm_url, **stt_kwargs
+                    api_key=llm_key, base_url=llm_url,
+                    keywords=stt_keywords, **stt_kwargs
                 )
             if stt_provider:
                 voice_service = VoiceService(
@@ -1556,39 +1560,44 @@ def camera_stream():
     min_interval_s = 1.0 / stream_fps if stream_fps > 0 else 0.0
 
     def generate():
-        last_sent_s = 0.0
-        while True:
-            # Throttle encoding to avoid pegging CPU and causing buffering on the browser side.
-            if min_interval_s > 0:
-                now_s = time.time()
-                elapsed_s = now_s - last_sent_s
-                if elapsed_s < min_interval_s:
-                    time.sleep(min(0.01, min_interval_s - elapsed_s))
+        # Signal camera to capture at full FPS while streaming
+        camera_capture.acquire_consumer()
+        try:
+            last_sent_s = 0.0
+            while True:
+                # Throttle encoding to avoid pegging CPU and causing buffering on the browser side.
+                if min_interval_s > 0:
+                    now_s = time.time()
+                    elapsed_s = now_s - last_sent_s
+                    if elapsed_s < min_interval_s:
+                        time.sleep(min(0.01, min_interval_s - elapsed_s))
+                        continue
+
+                frame = camera_capture.last_frame
+                if frame is None:
+                    time.sleep(0.05)
                     continue
 
-            frame = camera_capture.last_frame
-            if frame is None:
-                time.sleep(0.05)
-                continue
+                # Downscale for streaming bandwidth while preserving aspect ratio.
+                if stream_width and frame.shape[1] > stream_width:
+                    scale = stream_width / float(frame.shape[1])
+                    frame = cv2.resize(
+                        frame,
+                        None,
+                        fx=scale,
+                        fy=scale,
+                        interpolation=cv2.INTER_AREA,
+                    )
 
-            # Downscale for streaming bandwidth while preserving aspect ratio.
-            if stream_width and frame.shape[1] > stream_width:
-                scale = stream_width / float(frame.shape[1])
-                frame = cv2.resize(
-                    frame,
-                    None,
-                    fx=scale,
-                    fy=scale,
-                    interpolation=cv2.INTER_AREA,
+                _, buf = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, int(stream_quality)]
                 )
-
-            _, buf = cv2.imencode(
-                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, int(stream_quality)]
-            )
-            last_sent_s = time.time()
-            yield (
-                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
-            )
+                last_sent_s = time.time()
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                )
+        finally:
+            camera_capture.release_consumer()
 
     return StreamingResponse(
         generate(), media_type="multipart/x-mixed-replace; boundary=frame"
