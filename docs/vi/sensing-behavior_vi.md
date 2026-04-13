@@ -214,6 +214,14 @@ OpenClaw cron có 2 combo hợp lệ — KHÔNG được trộn:
 
 `main` + `agentTurn` **bị reject** bởi OpenClaw. KHÔNG thêm field `delivery` — gây lỗi.
 
+**Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Please relay this reminder" — agent chỉ echo text thay vì thực thi tools. Để có behavior dynamic (check presence, chụp ảnh, quyết định nhắc hay không) cần `agentTurn` trong `isolated`, nhưng isolated không có TTS/HW markers. Hiện tại chấp nhận trade-off: dùng `systemEvent` trong `main` với text hướng dẫn.
+
+### Ưu tiên: Skills > Knowledge > History
+
+AGENTS.md quy định thứ tự ưu tiên: **SKILL.md luôn override KNOWLEDGE.md và conversation history**. Điều này rất quan trọng vì agent tự tích lũy "kinh nghiệm" vào KNOWLEDGE.md qua heartbeat, và những ghi chú này có thể chứa rules sai xung đột với skills do developer duy trì. Nếu agent phát hiện xung đột, nó phải cập nhật KNOWLEDGE.md cho khớp với skill, không phải ngược lại.
+
+Rule này được thêm sau khi phát hiện agent đã ghi sai rules về cron format vào KNOWLEDGE.md ("NEVER use systemEvent") và override hướng dẫn đúng trong Scheduling SKILL.
+
 Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs, ghi daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
 
 ### Hành vi khi cron fire

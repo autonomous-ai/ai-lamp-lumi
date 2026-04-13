@@ -124,13 +124,7 @@ When you first start or after a reboot, set up your proactive music check:
 
 When you receive `[music-proactive]`, follow this process:
 
-#### Step 1 — Check Presence
-```bash
-curl -s http://127.0.0.1:5001/presence
-```
-If `state` is not `"present"` → skip, do nothing.
-
-#### Step 2 — Gather Data (run these in your head, query as needed)
+#### Step 1 — Gather Data (run these in your head, query as needed)
 
 **Mood history** (today + recent days):
 ```bash
@@ -156,7 +150,7 @@ curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/mood_check.jpg
 ```
 Then analyze the image visually.
 
-#### Step 3 — Analyze and Learn
+#### Step 2 — Analyze and Learn
 
 From the data, extract these patterns:
 
@@ -171,7 +165,7 @@ From the data, extract these patterns:
 | What time of day do they enjoy music most? | `music.play` events → `hour` field |
 | Are there times they never want music? | Repeated NO_REPLY or no `music.play` at certain hours |
 
-#### Step 4 — Decide
+#### Step 3 — Decide
 
 Based on your analysis, decide one of:
 
@@ -245,10 +239,6 @@ Based on your analysis, decide one of:
 ```
 *You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, camera shows user typing*
 Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats going?
-
-**Cron fires — user not present:**
-*You query: presence=away*
-Output: (no reply, skip silently)
 
 **Cron fires — 3rd rejection this afternoon:**
 *You query: mood history shows 2 suggestions at 14:00 and 15:00 with no music.play after*
