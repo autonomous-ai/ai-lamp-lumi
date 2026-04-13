@@ -83,8 +83,14 @@ class FaceRecognizer(Perception):
         self._stranger_embeddings: np.ndarray | None = None
         self._stranger_labels: np.ndarray | None = None
 
+        import onnxruntime as ort
+        ort.set_default_logger_severity(3)
+        sess_opts = ort.SessionOptions()
+        sess_opts.intra_op_num_threads = 2
+        sess_opts.inter_op_num_threads = 1
+
         self.app: insightface.app.FaceAnalysis = insightface.app.FaceAnalysis(
-            name=model_name
+            name=model_name, session_options=sess_opts
         )
         self.app.prepare(ctx_id=-1)
 

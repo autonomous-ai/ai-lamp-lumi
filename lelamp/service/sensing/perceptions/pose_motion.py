@@ -92,7 +92,7 @@ class PoseEstimator:
         return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
 
     def _prepare_session(
-        self, model_path: Path, n_threads: int = 4
+        self, model_path: Path, n_threads: int = 2
     ) -> ort.InferenceSession:
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = n_threads
