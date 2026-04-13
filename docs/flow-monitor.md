@@ -304,10 +304,10 @@ Observed on multiple Telegram turns: user asks for a device action (e.g. LED col
 | Source | Scope |
 |--------|--------|
 | **Turns list** (Monitor) | Built from the **last 500** `flow_events_*.jsonl` lines (`GET /openclaw/flow-events?last=500`), then `groupIntoTurns` keeps at most **100** turns. |
-| **↓ Bundle** button | One click downloads **three**: (1) `GET /openclaw/flow-logs?last=500` via `fetch` + blob save (`lumi_flow_YYYY-MM-DD_last500.jsonl`) — **same tail** as the UI feed; (2) client JSON of `events[]` + grouped `turns[]` (`lumi_flow_ui_snapshot_*.json`); (3) OpenClaw debug payload JSONL (`GET /openclaw/debug-logs`, file: `openclaw_debug_payloads_*.jsonl`). A short delay between saves avoids browsers only allowing one download per gesture. |
+| **↓ Bundle** button | One click downloads **two**: (1) `GET /openclaw/flow-logs?last=500` via `fetch` + blob save (`lumi_flow_YYYY-MM-DD_last500.jsonl`) — **same tail** as the UI feed; (2) client JSON of `events[]` + grouped `turns[]` (`lumi_flow_ui_snapshot_*.json`). |
 | **full day** link | `GET /openclaw/flow-logs` — entire day file; can be **longer** than the UI window, so Turns are **not** a reconstruction of the full file. |
 
-Turns limits are explicit: comparing server to what you see should use **↓ Bundle** (or the same three artifacts manually: `flow-logs?last=500` + UI snapshot JSON + `debug-logs`).
+Turns limits are explicit: comparing server to what you see should use **↓ Bundle** (or the same two artifacts manually: `flow-logs?last=500` + UI snapshot JSON).
 
 ## Files
 
