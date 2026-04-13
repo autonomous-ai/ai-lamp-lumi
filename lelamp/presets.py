@@ -11,16 +11,16 @@ VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pu
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
 # When no "effect" is set, LED is a simple solid fill.
 EMOTION_PRESETS = {
-    "curious":       {"servo": "curious",       "color": [255, 200, 80],  "effect": "breathing",          "speed": 1.0},
+    "curious":       {"servo": "curious",       "color": [255, 191, 0],   "effect": "breathing",          "speed": 1.0},
     "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "candle",             "speed": 1.0},
     "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.8},
     "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "pulse",              "speed": 0.5},
-    "idle":          {"servo": "idle",          "color": [100, 200, 220], "effect": "breathing",          "speed": 0.8},
-    "excited":       {"servo": "excited",       "color": [255, 100, 0],   "effect": "blink",              "speed": 2.5},
+    "idle":          {"servo": "idle",          "color": [183, 235, 234], "effect": "breathing",          "speed": 0.8},
+    "excited":       {"servo": "excited",       "color": [230, 51, 230],  "effect": "blink",              "speed": 2.5},
     "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "blink",              "speed": 0.5},
     "shock":         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 2.0},
-    "listening":     {"servo": "listening",     "color": [100, 180, 255], "effect": "pulse",              "speed": 0.6},
-    "laugh":         {"servo": "laugh",         "color": [255, 200, 50],  "effect": "blink",              "speed": 1.2},
+    "listening":     {"servo": "listening",     "color": [51, 121, 230],  "effect": "pulse",              "speed": 0.6},
+    "laugh":         {"servo": "laugh",         "color": [230, 191, 51],  "effect": "blink",              "speed": 1.2},
     "confused":      {"servo": "confused",      "color": [200, 150, 255], "effect": "candle",             "speed": 0.6},
     "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.5},
     "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "blink",              "speed": 0.8},
