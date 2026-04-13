@@ -584,6 +584,7 @@ async def lifespan(app: FastAPI):
                 tts_service=tts_service,
                 animation_service=animation_service,
                 on_restore_aim=_presence_restore_aim,
+                is_sleeping=lambda: _sleeping,
             )
             sensing_service.start()
             logger.info("SensingService started")
@@ -1290,6 +1291,7 @@ _active_scene: Optional[str] = None
 # None means user has never set anything; restore falls back to idle breathing.
 _user_led_state: Optional[dict] = None
 _restore_timer: Optional[threading.Timer] = None
+_sleeping: bool = False  # True when sleepy emotion is active; suppresses sensing events
 
 
 def _get_recording_duration(recording_name: str) -> float:
@@ -1826,9 +1828,12 @@ def express_emotion(req: EmotionRequest):
             400, f"Unknown emotion '{req.emotion}'. Available: {available}"
         )
 
+    global _sleeping
     logger.info("POST /emotion: emotion=%s intensity=%s user_state=%s",
                 req.emotion, req.intensity,
                 _user_led_state.get("type") if _user_led_state else None)
+
+    _sleeping = req.emotion == "sleepy"
 
     servo_played = None
 

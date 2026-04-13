@@ -57,8 +57,10 @@ class SensingService:
         tts_service=None,
         animation_service=None,
         on_restore_aim=None,
+        is_sleeping=None,
     ):
         self._camera = camera_capture
+        self._is_sleeping = is_sleeping  # callable → bool; suppresses non-wake events
         self._cv2 = cv2_module
         self._poll_interval = poll_interval
         self._animation = animation_service
@@ -301,6 +303,11 @@ class SensingService:
         images: list | None = None,
         cooldown: Optional[float] = None,
     ):
+        # Suppress sensing events while sleeping — only allow presence.enter to wake up
+        if self._is_sleeping and self._is_sleeping() and event_type != "presence.enter":
+            logger.debug("[sensing] sleeping — suppressed %s", event_type)
+            return
+
         now = time.time()
         cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
         last = self._last_event_time.get(event_type, 0)
