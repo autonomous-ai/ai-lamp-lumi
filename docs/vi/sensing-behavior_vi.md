@@ -215,7 +215,7 @@ OpenClaw cron có 2 combo hợp lệ — KHÔNG được trộn:
 
 `main` + `agentTurn` **bị reject** bởi OpenClaw. KHÔNG thêm field `delivery` — gây lỗi.
 
-**Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Please relay this reminder" — agent chỉ echo text thay vì thực thi tools. Để có behavior dynamic (check presence, chụp ảnh, quyết định nhắc hay không) cần `agentTurn` trong `isolated`, nhưng isolated không có TTS/HW markers. Hiện tại chấp nhận trade-off: dùng `systemEvent` trong `main` với text hướng dẫn.
+**Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — khiến agent NO_REPLY. **Workaround:** Prefix payload text với `[MUST-SPEAK]` để force agent phải reply dù có wrapper. Tất cả wellbeing và music cron payload phải bắt đầu bằng `[MUST-SPEAK]`.
 
 ### Ưu tiên: Skills > Knowledge > History
 

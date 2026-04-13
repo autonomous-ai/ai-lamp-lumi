@@ -9,6 +9,9 @@ Chỉ những action classes dưới đây được forward lên OpenClaw dạng
 - drinking — uống nước
 - drinking beer — uống bia
 - drinking shots — uống shot
+- tasting beer — nếm bia
+- tasting food — nếm đồ ăn
+- opening bottle — mở chai
 - making tea — pha trà
 
 ## Break — reset break cron / Reset cron nhắc nghỉ
