@@ -166,9 +166,9 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "tg_alert",
-    label: "Guard Alert", short: "ALERT", icon: "🚨", color: "#e53935", path: "agent",
+    label: "Broadcast", short: "BCAST", icon: "📢", color: "#e53935", path: "agent",
     shape: "diamond",
-    desc: "Guard mode broadcast — emotional alert sent to all Telegram sessions",
+    desc: "Broadcast to all Telegram sessions (guard alerts, wellbeing reminders, music suggestions)",
     triggers: [
       "flow_event:telegram_alert_broadcast",
     ] },

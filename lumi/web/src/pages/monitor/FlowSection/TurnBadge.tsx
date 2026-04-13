@@ -28,7 +28,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output, hwOutput, snapshotUrls } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
-  const hasGuardAlert = turn.events.some((ev) =>
+  const hasBroadcast = turn.events.some((ev) =>
     ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "telegram_alert_broadcast"
   );
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -64,11 +64,11 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           background: `${statusColor}18`, color: statusColor, fontWeight: 700,
           textTransform: "uppercase" as const,
         }}>{statusLabel}</span>
-        {hasGuardAlert && (
+        {hasBroadcast && (
           <span style={{
             fontSize: 8, padding: "1px 5px", borderRadius: 3,
             background: "#e5393518", color: "#e53935", fontWeight: 700,
-          }}>🚨 GUARD</span>
+          }}>📢 BROADCAST</span>
         )}
         {turn.endTime && (() => {
           const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
