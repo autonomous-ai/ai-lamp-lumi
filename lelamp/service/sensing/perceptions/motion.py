@@ -108,7 +108,7 @@ class MotionChecker:
         (pred,) = self._session.run(["pred"], {"input": input})
         pred = cast(npt.NDArray[np.float32], pred)
         pred = np.exp(pred - pred.max())
-        pred[~self._class_mask] = 0
+        pred[:, ~self._class_mask] = 0
         pred = pred / np.sum(pred, axis=-1, keepdims=True)
         idx = pred[0].argmax()
         logger.debug(
