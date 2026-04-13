@@ -392,7 +392,10 @@ class VoiceService:
                     max_conf = max(max_conf, float(out[0][0][0]))
                     self._silero_state = out[1]
 
-            return max_conf >= SILERO_VAD_THRESHOLD
+            is_speech = max_conf >= SILERO_VAD_THRESHOLD
+            if not is_speech:
+                logger.info("Silero: conf=%.3f < threshold=%.2f — rejected", max_conf, SILERO_VAD_THRESHOLD)
+            return is_speech
         except Exception as e:
             logger.warning("Silero VAD inference error: %s", e)
             return True  # fail open — don't block speech
