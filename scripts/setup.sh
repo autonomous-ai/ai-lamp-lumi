@@ -397,6 +397,38 @@ PULSE_EOF
   uv sync --python 3.12 --extra hardware
   cd /
 
+  # Patch webrtcvad: replace pkg_resources import (removed in Python 3.12+)
+  WEBRTCVAD_PY=$(find "$LELAMP_DIR/.venv" -name "webrtcvad.py" -path "*/site-packages/*" 2>/dev/null | head -1)
+  if [ -n "$WEBRTCVAD_PY" ] && grep -q "import pkg_resources" "$WEBRTCVAD_PY" 2>/dev/null; then
+    echo "[stage] Patching webrtcvad for Python 3.12+ (pkg_resources removal)"
+    cat > "$WEBRTCVAD_PY" <<'WEBRTCVAD_EOF'
+try:
+    import pkg_resources
+    __version__ = pkg_resources.get_distribution('webrtcvad').version
+except Exception:
+    __version__ = '2.0.10'
+
+import _webrtcvad
+
+class Vad(object):
+    def __init__(self, mode=None):
+        self._vad = _webrtcvad.create()
+        _webrtcvad.init(self._vad)
+        if mode is not None:
+            self.set_mode(mode)
+    def set_mode(self, mode):
+        _webrtcvad.set_mode(self._vad, mode)
+    def is_speech(self, buf, sample_rate, length=None):
+        length = length or int(len(buf) / 2)
+        if length * 2 > len(buf):
+            raise IndexError('buffer has %s frames, but length argument was %s' % (int(len(buf) / 2.0), length))
+        return _webrtcvad.process(self._vad, sample_rate, buf, length)
+
+def valid_rate_and_frame_length(rate, frame_length):
+    return _webrtcvad.valid_rate_and_frame_length(rate, frame_length)
+WEBRTCVAD_EOF
+  fi
+
   cat >/etc/systemd/system/lumi-lelamp.service <<EOF
 [Unit]
 Description=Lumi LeLamp Hardware Runtime
