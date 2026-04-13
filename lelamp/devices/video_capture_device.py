@@ -49,6 +49,10 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         self._lock: threading.Lock = threading.Lock()
         self._stopped: threading.Event = threading.Event()
 
+        # When > 0, capture runs at full FPS; otherwise throttles to save CPU
+        self._active_consumers: int = 0
+        self._consumers_lock: threading.Lock = threading.Lock()
+
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
     @property
@@ -136,9 +140,25 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
             1 / self._fps if self._fps is not None and self._fps < device_fps else 0
         )
 
+        # Idle capture interval — only grab a frame every 2s when no streaming clients
+        idle_interval = 2.0
+
         self._logger.info("Starting video capture device loop")
         try:
             while not self._stopped.is_set():
+                # Throttle when no active consumers — sleep BEFORE read to avoid
+                # burning CPU on blocking video_capture.read() at device FPS
+                with self._consumers_lock:
+                    has_consumers = self._active_consumers > 0
+                if not has_consumers:
+                    elapsed = time.time() - last_time_frame
+                    if elapsed < idle_interval:
+                        self._stopped.wait(min(idle_interval - elapsed, 0.5))
+                        continue
+                    # Flush stale frames from device buffer after idle sleep
+                    video_capture.grab()
+                    video_capture.grab()
+
                 ret, frame = video_capture.read()
 
                 if not ret:
@@ -176,6 +196,16 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
                 self.last_response = response
         finally:
             video_capture.release()
+
+    def acquire_consumer(self):
+        """Register an active consumer (e.g. MJPEG stream) for full-FPS capture."""
+        with self._consumers_lock:
+            self._active_consumers += 1
+
+    def release_consumer(self):
+        """Unregister an active consumer — throttles capture when none remain."""
+        with self._consumers_lock:
+            self._active_consumers = max(0, self._active_consumers - 1)
 
     @override
     def stop(self):

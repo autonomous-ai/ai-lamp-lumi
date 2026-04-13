@@ -74,6 +74,9 @@ class AnimationService:
         # Freeze flag — when set, _continue_playback() skips servo writes so camera can capture a stable frame
         self._frozen = threading.Event()
 
+        # When True, idle recording finished and pose is held — loop sleeps longer to save CPU
+        self._idle_settled = False
+
     # P gain — match upstream default (16 for all). Higher values cause jerky motion.
     _SERVO_PGAIN = {1: 16, 2: 16, 3: 16, 4: 16, 5: 16}
 
@@ -175,7 +178,11 @@ class AnimationService:
             self._event_queue.append((event_type, payload))
     
     def _event_loop(self):
-        """Custom event loop that supports interruption"""
+        """Custom event loop that supports interruption.
+
+        Runs at full FPS only when actively playing an animation or music.
+        When idle recording has finished, sleeps longer to save CPU.
+        """
         while self._running.is_set():
             # Check for events
             with self._event_lock:
@@ -183,17 +190,22 @@ class AnimationService:
                     event_type, payload = self._event_queue.pop(0)
                 else:
                     event_type, payload = None, None
-            
+
             if event_type:
+                self._idle_settled = False
                 try:
                     self.handle_event(event_type, payload)
                 except Exception as e:
                     print(f"Error handling event {event_type}: {e}")
-            
+
             # Continue current playback
             self._continue_playback()
-            
-            time.sleep(1.0 / self.fps)  # Frame rate timing
+
+            # Idle breathing runs at reduced FPS to save CPU
+            if self._idle_settled:
+                time.sleep(1.0 / 5)  # ~5 FPS for idle breathing
+            else:
+                time.sleep(1.0 / self.fps)  # full FPS for active animations
     
     def handle_event(self, event_type: str, payload: Any):
         if event_type == "play":
@@ -225,6 +237,7 @@ class AnimationService:
     
     def _handle_play(self, recording_name: str):
         """Start playing a recording with interpolation from current state"""
+        self._idle_settled = False
         if not self.robot:
             print("Robot not connected")
             return
@@ -331,7 +344,8 @@ class AnimationService:
                             self._interpolation_frames = int(self.duration * self.fps)
                             self._interpolation_target = next_actions[0]
                 else:
-                    # Loop idle recording
+                    # Loop idle recording at reduced FPS to save CPU
+                    self._idle_settled = True
                     self._current_frame_index = 0
                     
         except Exception as e:
