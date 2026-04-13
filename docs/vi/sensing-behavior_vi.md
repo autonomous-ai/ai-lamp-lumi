@@ -188,16 +188,17 @@ Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI
 Agent duy trì **dữ liệu wellbeing cho từng người** tại `/root/local/users/{name}/`:
 
 - **`wellbeing.md`** — tóm tắt thói quen tích lũy (ví dụ: "hay bỏ qua nhắc uống nước trước bữa trưa", "phản hồi tốt với nhắc nghỉ sau 15:00")
-- **`wellbeing/YYYY-MM-DD.md`** — log chi tiết từng ngày (nhắc gì, phản hồi ra sao, quan sát)
+- **`wellbeing/YYYY-MM-DD.md`** — daily log, được ghi liên tục trong ngày khi `motion.activity` reset cron (ví dụ: `14:30 — drinking beer (hydration reset)`) và tóm tắt khi `presence.leave`
 
-Agent đọc summary khi `presence.enter` để nhớ nhanh, ghi daily log khi `presence.leave`, và định kỳ tóm tắt daily logs vào summary.
+Agent đọc summary + daily log hôm nay khi `presence.enter` để nhớ nhanh và biết chuyện gì đã xảy ra trước đó (ví dụ user đi ra rồi quay lại). Daily log được cập nhật liên tục trong `motion.activity` và hoàn tất khi `presence.leave`.
 
 Khi người quen đến (`presence.enter`), agent:
 
-1. **Đọc notebook** để nhớ lại những gì đã học.
-2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
-3. **Dọn cron cũ** — xóa wellbeing crons còn sót từ session trước (phục hồi sau crash).
-4. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
+1. **Đọc notebook** (`wellbeing.md`) để nhớ lại những gì đã học.
+2. **Đọc daily log hôm nay** (`wellbeing/YYYY-MM-DD.md`) để biết chuyện gì đã xảy ra — uống bao nhiêu lần, nghỉ mấy lần, v.v. Dùng để điều chỉnh interval.
+3. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
+4. **Dọn cron cũ** — xóa wellbeing crons còn sót từ session trước (phục hồi sau crash).
+5. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
    - `"Wellbeing: {name} hydration"` — mỗi 6 phút (360000ms), chụp ảnh camera, check presence, nhắc nếu phù hợp
    - `"Wellbeing: {name} break"` — mỗi 5 phút (300000ms), chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
 
@@ -222,7 +223,7 @@ AGENTS.md quy định thứ tự ưu tiên: **SKILL.md luôn override KNOWLEDGE.
 
 Rule này được thêm sau khi phát hiện agent đã ghi sai rules về cron format vào KNOWLEDGE.md ("NEVER use systemEvent") và override hướng dẫn đúng trong Scheduling SKILL.
 
-Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs, ghi daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
+Khi rời đi (`presence.leave`), agent im lặng cancel cả 2 cron jobs, append tóm tắt vào daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
 
 ### Hành vi khi cron fire
 
@@ -294,36 +295,38 @@ Agent liên kết tên face recognition với Telegram username bằng cách qua
 
 ## Phân tích Motion Activity (khi đang có mặt)
 
-Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển động foreground, hệ thống gửi event `motion.activity` thay vì `motion`. Cùng cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 phút) — không có timer riêng. Hệ thống chụp ảnh và yêu cầu LLM phân tích user đang làm gì.
+Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển động, hệ thống gửi event `motion.activity` thay vì `motion`. Hệ thống gửi tên action đã detect (không kèm ảnh — tên action đủ để agent suy luận).
 
 ### Cách hoạt động
 
-`MotionPerception` kiểm tra `PresenceService.state` sau khi qua cooldown gate:
-- **PRESENT** → gửi `motion.activity` với prompt: "mô tả user đang làm gì"
-- **NOT PRESENT** (AWAY/IDLE) → gửi `motion` (phát hiện enter/leave)
-
-Cả hai dùng chung cooldown `MOTION_EVENT_COOLDOWN_S` (3 phút).
+`MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state`:
+- **PRESENT** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
+- **NOT PRESENT** (AWAY/IDLE) → gửi `motion` có kèm ảnh (cần xác nhận bằng mắt cho enter/leave)
 
 ### Reset wellbeing cron (LLM-driven)
 
-Khi agent trả lời `motion.activity`, nó nhìn ảnh và đánh giá user đang làm gì, rồi reset cron job tương ứng:
+Agent suy luận từ **tên action** (không cần ảnh) để quyết định reset cron nào:
 
-- User vươn vai/đứng dậy → `cron.remove` job break check, rồi `cron.add` lại cùng interval (reset timer về 0)
-- User uống nước → `cron.remove` job hydration check, rồi `cron.add` lại cùng interval
-
-Agent dùng tên job per-user (`"Wellbeing: {name} hydration"`, `"Wellbeing: {name} break"`) để tìm và reset. LLM quyết định reset cái nào dựa trên những gì nó thực sự nhìn thấy — vươn vai ≠ uống nước.
+1. **Đọc daily log hôm nay** để có context — uống bao nhiêu lần, nghỉ mấy lần
+2. **Suy luận từ tên action:**
+   - User đang uống gì (nước, bia, cà phê, v.v.) → reset hydration cron
+   - User KHÔNG ngồi yên (đứng dậy, vươn vai, đi lại, v.v.) → reset break cron
+   - Cả hai → reset cả hai
+   - Ngồi yên (gõ phím, v.v.) → NO_REPLY
+3. **Ghi vào daily log:** `HH:MM — [action] (hydration reset / break reset / both reset)`
+4. **Phản hồi caring** dựa trên context từ log (ví dụ: "ly thứ 3 hôm nay rồi á, tốt lắm!"). Quan sát, không chỉ dẫn. KHÔNG BAO GIỜ nhắc cron/timer/reminder.
 
 ### Hành vi Agent
 
 | Event | Emotion | Voice |
 |---|---|---|
-| `motion.activity` | `curious` (0.4) | CÓ (nhận xét ngắn về activity) hoặc NO_REPLY |
+| `motion.activity` | `curious` (0.4) | CÓ (nhận xét caring có context) hoặc NO_REPLY (ngồi yên) |
 
 ---
 
 ## Lưu trữ Snapshot (hai tầng)
 
-Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, music.mood, motion.activity) lưu snapshot ở hai nơi:
+Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, music.mood) lưu snapshot ở hai nơi. Lưu ý: `motion.activity` không còn gửi ảnh — chỉ gửi tên action.
 
 | Tầng | Đường dẫn | Rotation | Giữ qua reboot |
 |------|-----------|----------|-----------------|
