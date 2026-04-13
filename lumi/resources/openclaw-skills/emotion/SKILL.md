@@ -58,23 +58,28 @@ Output: Do NOT use this skill. Use **LED Control** skill instead.
 
 | Emotion | Servo | LED Effect | When to use |
 |---|---|---|---|
-| `curious` | Tilts head, looks around | Warm yellow pulse | Questions, interest, "tell me more" |
-| `happy` | Happy wiggle sway | Bright yellow pulse | Good news, jokes, compliments |
-| `sad` | Droops down slowly | Soft blue slow breathing | Bad news, empathy, apologies |
-| `thinking` | Slow deliberate look side-to-side | Purple breathing | Processing, considering, "let me think" |
-| `idle` | Gentle sway | Cyan slow breathing | Waiting, neutral state |
-| `excited` | Energetic vertical bounce | Orange fast pulse | Celebrations, big news, enthusiasm |
-| `shy` | Turns away, hides | Pink soft breathing | Receiving compliments, bashful moments |
+| `curious` | Tilts head, looks around | Warm yellow breathing | Questions, interest, "tell me more" |
+| `happy` | Happy wiggle sway | Bright yellow candle | Good news, jokes, compliments |
+| `sad` | Droops down slowly | Soft blue breathing | Bad news, empathy, apologies |
+| `thinking` | Slow deliberate look side-to-side | Purple pulse | Processing, considering, "let me think" |
+| `idle` | Gentle sway | Cyan breathing | Waiting, neutral state |
+| `excited` | Energetic vertical bounce | Orange blink | Celebrations, big news, enthusiasm |
+| `shy` | Turns away, hides | Pink blink | Receiving compliments, bashful moments |
 | `shock` | Quick jolt backward | White flash (3x) | Surprises, unexpected information |
-| `listening` | Leans forward, head cock | Soft blue breathing | User is speaking, attentive mode |
-| `laugh` | Quick body shake (3Hz) | Warm yellow pulse | User said something funny |
-| `confused` | Dog-like head tilt side-to-side | Light purple pulse | Did not understand, ambiguous input |
+| `listening` | Leans forward, head cock | Soft blue pulse | User is speaking, attentive mode |
+| `laugh` | Quick body shake (3Hz) | Warm yellow blink | User said something funny |
+| `confused` | Dog-like head tilt side-to-side | Light purple candle | Did not understand, ambiguous input |
 | `sleepy` | Slow droop with head catches | Dim purple breathing | Before sleep mode, winding down |
-| `greeting` | Wave gesture, arm extends | Warm orange pulse | Detecting person, saying hello |
-| `goodbye` | Farewell wave gesture | Soft warm fade | Seeing someone off, end of conversation |
+| `greeting` | Wave gesture, arm extends | Warm orange blink | Detecting person, saying hello |
+| `goodbye` | Farewell wave gesture | Soft warm breathing | Seeing someone off, end of conversation |
 | `caring` | Gentle droop (empathetic) | Warm pink-orange breathing | Wellbeing checks, gentle reminders, proactive empathy |
-| `acknowledge` | Quick micro-nod (1.5s) | Green pulse | "Got it", confirming command |
+| `acknowledge` | Quick micro-nod (1.5s) | Green blink | "Got it", confirming command |
 | `stretching` | Big extension + settle | Warm white breathing | After waking up, starting new session |
+| `music_strong` | Rock head bang | Green rainbow | Energetic music, high-tempo beats |
+| `music_chill` | Groove sway | Orange breathing | Chill music, lo-fi, jazz |
+| `scan` | Scanning sweep | Green pulse | Looking around, surveying environment |
+| `nod` | Nod gesture | Green blink | Agreement, "yes", positive confirmation |
+| `headshake` | Head shake | Red blink | Disagreement, "no", negative response |
 
 ## Error Handling
 - If the API returns an error or is unreachable, continue with the conversational reply anyway. Emotion is non-blocking.
