@@ -55,12 +55,26 @@ class MotionChecker:
         self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
         self._last_ts: float = 0
         self._last_action: str | None = None
-        self._classes_names: list[str] = self._load_classes_names()
-        self._frame_size = frame_size
+        classes_names, class_mask = self._load_classes_names()
+        self._classes_names: list[tuple[str]] = classes_names
+        self._class_mask: npt.NDArray[np.bool_] = class_mask
+        self._frame_size: tuple[int, int] = frame_size
 
     def _load_classes_names(self):
         file_path = RESOURCES_DIR / "kinect_classes.txt"
-        return file_path.read_text().strip().split("\n")
+        white_list_path = RESOURCES_DIR / "white_list.txt"
+
+        white_list = white_list_path.read_text().strip().split("\n")
+        classes = [
+            (c, True) if c in white_list else (c, False)
+            for c in file_path.read_text().strip().split("\n")
+        ]
+        mask = np.zeros(len(classes), dtype=np.bool_)
+        for i, (_, enabled) in enumerate(classes):
+            if enabled:
+                mask[i] = True
+
+        return classes, mask
 
     def _prepare_session(self, model_path: Path, n_threads: int = 4):
         opts = ort.SessionOptions()
@@ -93,7 +107,8 @@ class MotionChecker:
 
         (pred,) = self._session.run(["pred"], {"input": input})
         pred = cast(npt.NDArray[np.float32], pred)
-        pred = np.exp(pred)
+        pred = np.exp(pred - pred.max())
+        pred[~self._class_mask] = 0
         pred = pred / np.sum(pred, axis=-1, keepdims=True)
         idx = pred[0].argmax()
         logger.debug(
@@ -197,7 +212,9 @@ class MotionPerception(Perception):
 
         unique_actions = sorted(set(actions))
         actions_str = ", ".join(f"'{a}'" for a in unique_actions)
-        logger.info("[motion] flushing %d snapshot(s), actions: %s", len(snapshots), actions_str)
+        logger.info(
+            "[motion] flushing %d snapshot(s), actions: %s", len(snapshots), actions_str
+        )
 
         from ..presence_service import PresenceState
 
