@@ -14,6 +14,7 @@ const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
   cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
   telegram: ["telegram"],
+  cron: ["cron", "cron:hydration", "cron:break", "cron:music"],
   system: ["system", "schedule", "music.mood"],
 };
 const TYPE_ICON: Record<string, string> = {
@@ -26,6 +27,7 @@ const TYPE_LABEL: Record<string, string> = {
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", telegram: "TG", schedule: "sched",
+  cron: "cron", "cron:hydration": "💧hydration", "cron:break": "🧘break", "cron:music": "🎵music",
 };
 
 // Preset sensing events for manual testing
@@ -476,6 +478,7 @@ export function FlowSection({
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
                 { key: "telegram", icon: "💬", label: "TG" },
+                { key: "cron", icon: "⏰", label: "Cron" },
                 { key: "system", icon: "⚙", label: "Sys" },
               ] as const).map((f) => {
                 const catTypes = CAT_TYPES[f.key] ?? [];
