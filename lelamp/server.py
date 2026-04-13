@@ -1854,6 +1854,8 @@ def express_emotion(req: EmotionRequest):
     #             the servo finishes its 4.8s recovery animation.
     if req.emotion == "idle":
         pass  # no restore — idle is ambient resting state
+    elif req.emotion == "sleepy":
+        pass  # no restore — sleepy is a resting state (wake via presence/wake-word)
     elif req.emotion == "shock":
         _schedule_led_restore(2.0)
         logger.info("Emotion: shock — LED restore scheduled in 2.0s")
