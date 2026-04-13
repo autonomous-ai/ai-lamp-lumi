@@ -70,8 +70,9 @@ class MotionChecker:
             for c in file_path.read_text().strip().split("\n")
         ]
         mask = np.zeros(len(classes), dtype=np.bool_)
-        for i, (_, enabled) in enumerate(classes):
+        for i, (c, enabled) in enumerate(classes):
             if enabled:
+                logger.debug(f"Enabling action #{i} {c}")
                 mask[i] = True
 
         return classes, mask
@@ -111,7 +112,10 @@ class MotionChecker:
         pred[:, ~self._class_mask] = 0
         pred = pred / np.sum(pred, axis=-1, keepdims=True)
         idx = pred[0].argmax()
-        logger.debug(
+        for i in range(len(self._classes_names)):
+            if self._class_mask[i]:
+                logger.debug(f"{self._classes_names[i]}: conf={pred[0][i]}")
+        logger.info(
             f"Detected {self._classes_names[idx]} with confidence {float(pred[0][idx])}"
         )
         return self._classes_names[idx], float(pred[0][idx])
@@ -175,7 +179,7 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
     @override
-    def check(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
         if not config.MOTION_ENABLED or frame is None:
             return
 
