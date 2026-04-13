@@ -29,6 +29,9 @@ const levelColor: Record<LogLevel, string> = {
   ERROR: "#f87171",
 };
 
+// Strip ANSI escape codes (color codes like [32m, [0m, etc.)
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m|\[(?:\d+;)*\d*m/g, "");
+
 function LogPanel({ source, label, color }: { source: LogSource; label: string; color: string }) {
   const [lines, setLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,7 +58,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
       const data = r?.data;
       if (data?.error) setError(data.error);
       else setError(null);
-      setLines(Array.isArray(data?.lines) ? data.lines : []);
+      setLines(Array.isArray(data?.lines) ? data.lines.map(stripAnsi) : []);
     } catch (e) {
       setError(`Fetch error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -71,7 +74,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
     const es = new EventSource(`${API}/logs/stream?source=${source}`);
     sseRef.current = es;
     es.addEventListener("log", (e) => {
-      const line = (e as MessageEvent).data;
+      const line = stripAnsi((e as MessageEvent).data);
       if (line) setLines((prev) => [...prev.slice(-4999), line]);
     });
     es.addEventListener("error", () => {
@@ -127,17 +130,36 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
     }
   };
 
-  // Dim timestamp + bold level for readability
+  // Format log line: dim timestamp, bold level, dim %key=value metadata
   const formatLine = (line: string) => {
-    const m = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.\d]*)\s+(DEBUG|INFO|WARN(?:ING)?|ERROR|ERR|DBG|INF)\s+([\s\S]*)$/i);
-    if (!m) return line;
+    // LeLamp: 2026-04-13 17:47:52,944 INFO lelamp.voice: message
+    const pyMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.\d]*)\s+(DEBUG|INFO|WARN(?:ING)?|ERROR|ERR|DBG|INF)\s+([\s\S]*)$/i);
+    // Lumi: [0be]2026-04-13 17:55:13 [0beDEBUG] message %key=value
+    const goMatch = line.match(/^(\[\w+\]\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+(\[\w+(?:DEBUG|INFO|WARN|ERROR)\])\s+([\s\S]*)$/i);
+
+    if (!pyMatch && !goMatch) return line;
+
+    const ts = pyMatch ? pyMatch[1] : goMatch![1];
+    const lvl = pyMatch ? pyMatch[2] : goMatch![2];
+    let rest = pyMatch ? pyMatch[3] : goMatch![3];
+
+    // Split message from %key=value metadata
+    const metaIdx = rest.search(/\s%\w+=/);
+    let msg = rest;
+    let meta = "";
+    if (metaIdx >= 0) {
+      msg = rest.slice(0, metaIdx);
+      meta = rest.slice(metaIdx);
+    }
+
     return (
       <>
-        <span style={{ opacity: 0.45 }}>{m[1]}</span>
+        <span style={{ opacity: 0.35 }}>{ts}</span>
         {" "}
-        <span style={{ fontWeight: 700 }}>{m[2]}</span>
+        <span style={{ fontWeight: 700 }}>{lvl}</span>
         {" "}
-        {m[3]}
+        {msg}
+        {meta && <span style={{ opacity: 0.3 }}>{meta}</span>}
       </>
     );
   };
@@ -234,9 +256,10 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
             const ll = detectLevel(line);
             return (
               <div key={i} style={{
-                padding: "1px 12px",
+                padding: "3px 12px",
                 color: levelColor[ll],
                 borderLeft: `2px solid ${ll === "ERROR" ? "#f87171" : ll === "WARN" ? "#fbbf24" : "transparent"}`,
+                background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
               }}>
                 {highlightLine(line)}
               </div>
