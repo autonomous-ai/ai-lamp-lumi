@@ -381,7 +381,7 @@ class FaceRecognizer(Perception):
         return scores, ids
 
     @override
-    def check(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
         if frame is None:
             return
 
