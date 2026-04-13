@@ -612,7 +612,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const d = ev.detail as Record<string, any> | undefined;
       const sessions = Number(d?.data?.sessions ?? 0);
       const msg = d?.data?.message ?? "";
-      if (sessions) info.tg_alert.push(`🚨 guard → ${sessions} session${sessions > 1 ? "s" : ""}`);
+      if (sessions) info.tg_alert.push(`📢 broadcast → ${sessions} session${sessions > 1 ? "s" : ""}`);
       if (msg) {
         const short = msg.length > 80 ? msg.slice(0, 80) + "…" : msg;
         info.tg_alert.push(`💬 ${short}`);
@@ -719,7 +719,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       pushUnique(info.lumi_gate, "⚙ → HW only (no speech)");
     }
     if (ev.type === "flow_event" && ev.detail?.node === "telegram_alert_broadcast") {
-      pushUnique(info.lumi_gate, "🚨 → guard broadcast");
+      pushUnique(info.lumi_gate, "📢 → broadcast");
     }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
