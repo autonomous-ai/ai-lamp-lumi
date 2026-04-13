@@ -2,16 +2,6 @@ drinking
 drinking beer
 drinking shots
 making tea
-stretching arm
-stretching leg
-yoga
-tai chi
-exercising arm
-push up
-situp
-squat
-jogging
-running on treadmill
 dining
 eating burger
 eating cake
@@ -31,8 +21,3 @@ laughing
 crying
 yawning
 singing
-playing piano
-playing guitar
-playing drums
-playing keyboard
-playing violin
