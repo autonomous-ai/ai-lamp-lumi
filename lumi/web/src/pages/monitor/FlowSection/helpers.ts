@@ -110,6 +110,24 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     }
     if (hasRealUser) return; // keep as telegram
     if (sensingType) { turn.type = sensingType; return; }
+    // Cron-fired turns: sender is empty + message contains "scheduled reminder" from OpenClaw systemEvent wrapper
+    let isCron = false;
+    let cronLabel = "cron";
+    for (const ev of turn.events) {
+      if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+        const d = ev.detail as Record<string, any> | undefined;
+        const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+        const sender = d?.sender ?? d?.data?.sender ?? "";
+        if ((!sender || sender === "") && /scheduled reminder/i.test(msg)) {
+          isCron = true;
+          if (/hydration/i.test(msg)) cronLabel = "cron:hydration";
+          else if (/break|stretch/i.test(msg)) cronLabel = "cron:break";
+          else if (/music/i.test(msg)) cronLabel = "cron:music";
+          break;
+        }
+      }
+    }
+    if (isCron) { turn.type = cronLabel; return; }
     if (hasSystemMsg) { turn.type = "system"; return; }
     // node-host but normal message (e.g. voice command relayed via chat.send) — keep as telegram
     return;
@@ -514,10 +532,11 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const chatMsg = d?.data?.message ?? d?.message ?? "";
       if (hasImage) info.agent_call.push(`📷 image attached (~${Math.round(imgBytes * 3 / 4 / 1024)}KB)`);
       if (chatMsg) {
-        // Extract [snapshot: /path] if present
-        const snapMatch = chatMsg.match(/\[snapshot:\s*([^\]]+)\]/);
-        if (snapMatch) {
-          info.agent_call.push(`🖼 snapshot: ${snapMatch[1].trim()}`);
+        // Extract all [snapshot: /path] entries
+        const snapAllRe = /\[snapshot:\s*([^\]]+)\]/g;
+        let snapM;
+        while ((snapM = snapAllRe.exec(chatMsg)) !== null) {
+          info.agent_call.push(`🖼 snapshot: ${snapM[1].trim()}`);
         }
         // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
         const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
@@ -611,7 +630,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const d = ev.detail as Record<string, any> | undefined;
       const sessions = Number(d?.data?.sessions ?? 0);
       const msg = d?.data?.message ?? "";
-      if (sessions) info.tg_alert.push(`🚨 guard → ${sessions} session${sessions > 1 ? "s" : ""}`);
+      if (sessions) info.tg_alert.push(`📢 broadcast → ${sessions} session${sessions > 1 ? "s" : ""}`);
       if (msg) {
         const short = msg.length > 80 ? msg.slice(0, 80) + "…" : msg;
         info.tg_alert.push(`💬 ${short}`);
@@ -718,7 +737,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       pushUnique(info.lumi_gate, "⚙ → HW only (no speech)");
     }
     if (ev.type === "flow_event" && ev.detail?.node === "telegram_alert_broadcast") {
-      pushUnique(info.lumi_gate, "🚨 → guard broadcast");
+      pushUnique(info.lumi_gate, "📢 → broadcast");
     }
   }
   // After processing all events: if lifecycle_end was seen but no response/no_reply, mark silent
@@ -993,12 +1012,12 @@ export function turnBilledTokens(turn: Turn): number {
 }
 
 // Extract input/output summary from a turn
-export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string; snapshotUrl: string } {
+export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string; snapshotUrls: string[] } {
   let input = "";
   let output = "";
   let outputFromIntent = false;
   let hwOutput = "";
-  let snapshotUrl = "";
+  const snapshotUrls: string[] = [];
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
@@ -1031,14 +1050,16 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       const d = ev.detail as Record<string, any> | undefined;
       const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
-      // Extract snapshot path → convert to API URL
-      const snap = raw.match(/\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/);
-      if (snap && !snapshotUrl) {
-        snapshotUrl = `/api/sensing/snapshot/${snap[1]}`;
+      // Extract all snapshot paths → convert to API URLs
+      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/g;
+      let snapMatch;
+      while ((snapMatch = snapRe.exec(raw)) !== null) {
+        const url = `/api/sensing/snapshot/${snapMatch[1]}`;
+        if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
       }
       if (!input) {
         const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/is);
-        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/, "").trim();
+        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
         if (extracted) input = extracted;
       }
     }
@@ -1084,7 +1105,7 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       }
     }
   }
-  return { input, output, hwOutput, snapshotUrl };
+  return { input, output, hwOutput, snapshotUrls };
 }
 
 export function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {

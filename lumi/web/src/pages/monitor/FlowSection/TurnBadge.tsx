@@ -26,9 +26,9 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : turn.status === "error" ? "var(--lm-red)"
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
-  const { input, output, hwOutput, snapshotUrl } = turnIO(turn);
+  const { input, output, hwOutput, snapshotUrls } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
-  const hasGuardAlert = turn.events.some((ev) =>
+  const hasBroadcast = turn.events.some((ev) =>
     ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "telegram_alert_broadcast"
   );
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -64,11 +64,11 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           background: `${statusColor}18`, color: statusColor, fontWeight: 700,
           textTransform: "uppercase" as const,
         }}>{statusLabel}</span>
-        {hasGuardAlert && (
+        {hasBroadcast && (
           <span style={{
             fontSize: 8, padding: "1px 5px", borderRadius: 3,
             background: "#e5393518", color: "#e53935", fontWeight: 700,
-          }}>🚨 GUARD</span>
+          }}>📢 BROADCAST</span>
         )}
         {turn.endTime && (() => {
           const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
@@ -106,18 +106,22 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         <span style={{ color: "var(--lm-teal)", fontWeight: 600, marginRight: 4 }}>IN</span>
         {input || TURN_INPUT_FALLBACK}
       </div>
-      {snapshotUrl && (
-        <div style={{ marginBottom: 4 }}>
-          <img
-            src={snapshotUrl}
-            alt="sensing snapshot"
-            onClick={() => setLightboxUrl(snapshotUrl)}
-            style={{
-              width: "100%", maxWidth: 180, borderRadius: 6,
-              border: "1px solid var(--lm-border)", opacity: 0.9,
-              cursor: "pointer",
-            }}
-          />
+      {snapshotUrls.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+          {snapshotUrls.map((url, i) => (
+            <img
+              key={i}
+              src={url}
+              alt={`snapshot ${i + 1}`}
+              onClick={() => setLightboxUrl(url)}
+              style={{
+                width: snapshotUrls.length === 1 ? "100%" : "48%",
+                maxWidth: 180, borderRadius: 6,
+                border: "1px solid var(--lm-border)", opacity: 0.9,
+                cursor: "pointer",
+              }}
+            />
+          ))}
         </div>
       )}
       {lightboxUrl && (
