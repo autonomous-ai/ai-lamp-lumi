@@ -197,11 +197,22 @@ When a known person arrives (`presence.enter`), the agent:
 1. **Reads their notebook** to recall what it has learned about their patterns.
 2. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
 3. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
-4. **Schedules two cron jobs** via `cron.add` (kind: `every`, sessionTarget: `isolated`), named per-user to avoid collisions:
-   - `"Wellbeing: {name} hydration"` — takes a camera snapshot, checks presence, reminds if appropriate
-   - `"Wellbeing: {name} break"` — takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
+4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+   - `"Wellbeing: {name} hydration"` — every 6 min (360000ms), takes a camera snapshot, checks presence, reminds if appropriate
+   - `"Wellbeing: {name} break"` — every 5 min (300000ms), takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
 
-> **Note:** Wellbeing is now a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `presence.enter` events reminding the agent to follow the Wellbeing and Music skills for cron setup. Crons use `sessionTarget: "isolated"` with `payload.kind: "agentTurn"` — not `"main"` or `"systemEvent"`.
+> **Note:** Wellbeing is now a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `presence.enter` events reminding the agent to follow the Wellbeing and Music skills for cron setup.
+
+### Cron sessionTarget rules
+
+OpenClaw cron has two valid combos — do NOT mix:
+
+| sessionTarget | payload.kind | payload field | Use case |
+|---|---|---|---|
+| `main` | `systemEvent` | `text` | Needs conversation context (music, wellbeing) |
+| `isolated` | `agentTurn` | `message` | Fresh session each fire |
+
+`main` + `agentTurn` is **rejected** by OpenClaw. Do NOT add a `delivery` field — it causes errors.
 
 When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
@@ -228,7 +239,7 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the AI agent **self-schedules** music checks via OpenClaw cron jobs and **learns** the user's habits over time:
 
-- **Self-scheduling:** On first `presence.enter` of the day, the AI creates a cron job (default: every 60 min). It adjusts the interval based on user response patterns.
+- **Self-scheduling:** On first `presence.enter` of the day, the AI creates a cron job (default: every 7 min / 420000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
 - **Data-driven decisions:** Before suggesting, the AI queries:
   - `GET /presence` — is user present?
   - `GET /camera/snapshot` — visual mood assessment

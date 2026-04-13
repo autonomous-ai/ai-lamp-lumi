@@ -94,7 +94,6 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 | `GET /api/openclaw/recent` | Latest flow events from today's JSONL file (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | File-backed flow events API used for Flow seed/history |
 | `GET /api/openclaw/flow-stream` | File-backed live stream (SSE) for Flow updates when JSONL changes |
-| `GET /api/openclaw/debug-lines?last=300` | Parsed tail rows from `openclaw_debug_payloads.jsonl` for Logs tab |
 | `GET /api/openclaw/events` | Monitor bus SSE endpoint (kept for compatibility) |
 | `POST /api/system/force-update` | Triggers OTA check via bootstrap worker (proxies to `localhost:8080/force-check`) |
 
@@ -219,9 +218,9 @@ Turn Pipeline grouping behavior:
 - Temporary fallback: when Telegram text is unavailable, UI displays `Message content from telegram`.
 - Turn badges always render the `IN` row; if input is missing, UI shows `Input not captured`.
 - Flow Panel header actions include **`↓ Bundle`**, **`full day`**, **`🗑 Log`**.
-- **`↓ Bundle`** — one click saves **three files**: (1) server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`), (2) UI snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`), and (3) OpenClaw debug payload JSONL (`GET /api/openclaw/debug-logs`), with short delays between saves so the browser allows all downloads.
+- **`↓ Bundle`** — one click saves **two files**: (1) server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`), (2) UI snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`).
 - **`full day`** — `GET /api/openclaw/flow-logs` without `last` (whole day JSONL).
-- `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` AND `DELETE /api/openclaw/debug-logs` to truncate both server flow logs and OpenClaw debug payloads, then clears current Flow UI events.
+- `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate the server flow log, then clears current Flow UI events.
 - Turn history list shows the latest **100 turns** (newest first), derived from the **last 500** flow events only — older events are not in memory, so Turns can omit early-day activity even if the full JSONL file is larger.
 - Flow event memory is capped at 500 events.
 - Telegram stitching heuristic: if a Telegram fallback input turn (without real input text) is immediately followed by an agent-output turn within 30s, Monitor stitches them into one turn so the reply stays with the original Telegram input.
@@ -234,12 +233,9 @@ Turn Pipeline grouping behavior:
 
 ### 5.5 Logs Section
 
-- Dedicated runtime log panel for debugging Telegram/OpenClaw inputs.
-- Polls `GET /api/openclaw/debug-lines` every 2 seconds and renders newest rows first.
-- Shows `source`, `role`, `run_id`, `at`, and parsed `message` if available.
-- Raw dump is now full-stream: every OpenClaw WS payload (`agent` + `chat`) is appended with `source: "openclaw_raw"` and `raw_payload`, so debugging no longer depends on selective sampling.
-- Logs tab now includes an **OpenClaw Raw** panel (alongside LeLamp/Lumi/OpenClaw) that reads from `GET /api/openclaw/debug-lines` for in-page filtering of `openclaw_raw` rows.
-- Includes direct file download via `GET /api/openclaw/debug-logs`.
+- Dedicated runtime log panels for LeLamp, Lumi, and OpenClaw service logs.
+- Each panel streams via SSE (`GET /api/logs/stream?source=<source>`) with fallback polling.
+- Supports level filtering (ALL/DEBUG/INFO/WARN/ERROR) and text/regex search.
 
 > **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
 
