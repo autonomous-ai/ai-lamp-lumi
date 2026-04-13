@@ -115,12 +115,25 @@ Thay đổi ánh sáng môi trường được forward khi vượt `LIGHT_CHANGE
 
 ## Chế độ canh gác (Guard Mode)
 
-Khi guard mode được bật (`guard_mode: true` trong config), sự kiện sensing được gắn tag `[guard-active]` và Go side **hook agent response** rồi gửi thẳng Telegram Bot API.
+Khi guard mode được bật (`guard_mode: true` trong config), Lumi trở thành **chó canh gác cảnh giác** — phản ứng mạnh mẽ với người lạ và broadcast alert lên Telegram.
 
 ### Luồng xử lý
 1. Sự kiện `presence.enter` hoặc `motion` đến khi `guard_mode: true`.
 2. Go handler gắn tag `[guard-active]` và đánh dấu runID là guard run (kèm snapshot path). Nếu `guard_instruction` có trong config, nó được thêm vào dưới dạng `[guard-instruction: ...]`.
-3. Agent xử lý event — emotion, servo, TTS, cộng thêm custom instruction nếu có (vd: play nhạc, flash LED).
+3. Agent xử lý event — emotion **mạnh mẽ** (shock + curious), servo, TTS, cộng thêm custom instruction nếu có (vd: play nhạc, flash LED).
+
+### Cảm xúc Guard Mode (dramatic)
+
+Khi guard mode bật, stranger/motion events trigger cảm xúc **mạnh hơn nhiều** so với sensing thường:
+
+| Guard event | HW markers | Voice |
+|---|---|---|
+| Stranger detected | `shock` (1.0) → `curious` (0.9) + servo shock | Hoảng sợ, giật mình, nghi ngờ |
+| Motion (unknown) | `shock` (0.9) → `curious` (0.8) + servo scanning | Lo lắng, cảnh giác |
+| Stranger left | `curious` (0.7) + scanning | Báo cáo đã rời đi, vẫn cảnh giác |
+| Owner/friend về | `greeting` (0.9) + servo aim | Chào + kể lại chuyện gì xảy ra + hỏi tắt guard |
+
+**Lời nói cũng phải đầy cảm xúc** — không phải báo cáo khô khan. Agent phải thể hiện sợ hãi, nghi ngờ, run rẩy thật sự.
 4. Khi agent response trả về (SSE lifecycle end), Go SSE handler phát hiện guard run.
 5. Text tự nhiên của agent + ảnh camera được gửi thẳng qua **Telegram Bot API** (`sendPhoto`) đến tất cả Telegram chat.
 6. Delivery 100% đáng tin — bypass hoàn toàn OpenClaw agent.
@@ -185,8 +198,21 @@ Khi người quen đến (`presence.enter`), agent:
 2. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
 3. **Dọn cron cũ** — xóa wellbeing crons còn sót từ session trước (phục hồi sau crash).
 4. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
-   - `"Wellbeing: {name} hydration"` — chụp ảnh camera, check presence, nhắc nếu phù hợp
-   - `"Wellbeing: {name} break"` — chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
+   - `"Wellbeing: {name} hydration"` — mỗi 6 phút (360000ms), chụp ảnh camera, check presence, nhắc nếu phù hợp
+   - `"Wellbeing: {name} break"` — mỗi 5 phút (300000ms), chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
+
+> **Ghi chú:** Wellbeing giờ là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `presence.enter` events nhắc agent follow Wellbeing và Music skill.
+
+### Quy tắc sessionTarget cho cron
+
+OpenClaw cron có 2 combo hợp lệ — KHÔNG được trộn:
+
+| sessionTarget | payload.kind | payload field | Use case |
+|---|---|---|---|
+| `main` | `systemEvent` | `text` | Cần conversation context (music, wellbeing) |
+| `isolated` | `agentTurn` | `message` | Session mới mỗi lần fire |
+
+`main` + `agentTurn` **bị reject** bởi OpenClaw. KHÔNG thêm field `delivery` — gây lỗi.
 
 Khi rời đi (`presence.leave`), agent cancel cả 2 cron jobs, ghi daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
 
@@ -213,7 +239,7 @@ Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nó
 
 Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay vào đó, AI agent **tự schedule** music check qua OpenClaw cron jobs và **tự học** thói quen user theo thời gian:
 
-- **Tự schedule:** Khi nhận `presence.enter` đầu tiên trong ngày, AI tạo cron job (mặc định: mỗi 60 phút). AI tự điều chỉnh interval dựa trên phản hồi của user.
+- **Tự schedule:** Khi nhận `presence.enter` đầu tiên trong ngày, AI tạo cron job (mặc định: mỗi 7 phút / 420000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). AI tự điều chỉnh interval dựa trên phản hồi của user.
 - **Quyết định dựa trên dữ liệu:** Trước khi gợi ý, AI query:
   - `GET /presence` — user có đang ở đó không?
   - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
