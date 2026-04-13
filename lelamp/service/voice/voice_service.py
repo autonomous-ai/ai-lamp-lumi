@@ -349,9 +349,11 @@ class VoiceService:
             return True
 
     def _silero_reset_state(self):
-        """Reset Silero LSTM state between speech segments."""
+        """Reset Silero LSTM state and context between speech segments."""
         import numpy as np
         self._silero_state = np.zeros((2, 1, 128), dtype=np.float32)
+        # Silero v5+ requires 64 context samples (16kHz) prepended to each chunk
+        self._silero_context = np.zeros((1, 64), dtype=np.float32)
 
     def _silero_is_speech(self, data: "np.ndarray", device_rate: int) -> bool:
         """Run Silero VAD on audio frame. Returns True if speech detected.
@@ -381,16 +383,19 @@ class VoiceService:
                     chunk = audio_norm[i:i + SILERO_CHUNK_SIZE]
                     if len(chunk) < SILERO_CHUNK_SIZE:
                         chunk = np.pad(chunk, (0, SILERO_CHUNK_SIZE - len(chunk)))
+                    # Silero v5+: prepend 64-sample context from previous chunk
+                    x = np.concatenate([self._silero_context, chunk.reshape(1, -1)], axis=1)
                     out = self._silero.run(
                         None,
                         {
-                            "input": chunk.reshape(1, -1),
+                            "input": x,
                             "state": self._silero_state,
                             "sr": np.array(STT_RATE, dtype=np.int64),
                         },
                     )
                     max_conf = max(max_conf, float(out[0][0][0]))
                     self._silero_state = out[1]
+                    self._silero_context = x[:, -64:]
 
             is_speech = max_conf >= SILERO_VAD_THRESHOLD
             if not is_speech:
@@ -544,14 +549,23 @@ class VoiceService:
 
             rms = self._rms(data)
 
-            if rms >= RMS_THRESHOLD and self._webrtcvad_is_speech(data, device_rate) and self._silero_is_speech(data, device_rate):
+            if rms >= RMS_THRESHOLD and self._webrtcvad_is_speech(data, device_rate):
                 if speech_start is None:
                     speech_start = time.time()
-                    speech_pre_buffer = [self._resample_to_stt(data, device_rate)]
+                    speech_pre_buffer = [data]
                 else:
-                    speech_pre_buffer.append(self._resample_to_stt(data, device_rate))
+                    speech_pre_buffer.append(data)
                 # Wait for holdoff before connecting STT (avoid short noises)
                 if (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
+                    # Run Silero on accumulated buffer (needs multiple chunks for LSTM)
+                    if self._silero is not None:
+                        combined = self._np.concatenate(speech_pre_buffer)
+                        if not self._silero_is_speech(combined, device_rate):
+                            speech_start = None
+                            speech_pre_buffer = []
+                            continue
+                    # Convert pre-buffer to STT format
+                    speech_pre_buffer = [self._resample_to_stt(f, device_rate) for f in speech_pre_buffer]
                     logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
                     self._stream_session(mic, frame_size, device_rate,
                                         preconnected_session=keepalive_session,
