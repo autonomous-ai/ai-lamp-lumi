@@ -39,7 +39,7 @@ LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 EVENT_COOLDOWN_S = 60.0  # minimum seconds between events of the same type
 
 # --- Sensing: Sound detection ---
-SOUND_RMS_THRESHOLD = 8000       # RMS threshold for "loud noise"
+SOUND_RMS_THRESHOLD = int(os.environ.get("LELAMP_SOUND_RMS_THRESHOLD", "8000"))  # RMS threshold for "loud noise"
 SOUND_SAMPLE_DURATION_S = 0.5    # sample window for sound level check
 
 # --- Sensing: Light level detection ---
