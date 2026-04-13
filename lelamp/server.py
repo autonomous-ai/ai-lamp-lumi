@@ -441,7 +441,12 @@ async def lifespan(app: FastAPI):
         _t_in.join()
 
         audio_output_device, audio_input_device = _audio_results
-        if audio_output_device is not None:
+        # Allow explicit override via env (sounddevice device index)
+        _out_env = os.environ.get("LELAMP_AUDIO_OUTPUT_DEVICE")
+        if _out_env is not None:
+            audio_output_device = int(_out_env)
+            logger.info("Audio output device override from env: %d", audio_output_device)
+        elif audio_output_device is not None:
             logger.info(f"Audio output device: {audio_output_device}")
         if audio_input_device is not None:
             logger.info(f"Audio input device: {audio_input_device}")
