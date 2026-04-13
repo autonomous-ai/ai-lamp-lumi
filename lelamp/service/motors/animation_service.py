@@ -21,6 +21,10 @@ STARTUP_POSITION = {
 # Duration for the startup move (seconds)
 STARTUP_MOVE_DURATION = 5.0
 
+# Recordings that hold final pose instead of returning to idle
+# (e.g. sleepy — lamp stays still until woken by presence/wake-word)
+NO_IDLE_RECORDINGS = {"sleepy"}
+
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
     """Read Present_Position only — same numeric scale as CSV, no camera/LED path.
@@ -45,6 +49,7 @@ class AnimationService:
         self.idle_recording = idle_recording
         self.hold_s = hold_s
         self._hold_until: float = 0.0  # timestamp until which to hold pose before returning to idle
+        self._no_idle_recordings = NO_IDLE_RECORDINGS
         self.robot_config = LeLampFollowerConfig(port=port, id=lamp_id)
         self.robot: LeLampFollower = None
         self.recordings_dir = os.path.join(os.path.dirname(__file__), "..", "..", "recordings")
@@ -318,6 +323,9 @@ class AnimationService:
                 if self._music_playing and self._current_recording == self._music_recording:
                     # Loop music groove while music is playing
                     self._current_frame_index = 0
+                elif self._current_recording in self._no_idle_recordings:
+                    # Hold final pose indefinitely (e.g. sleepy — wake via new play command)
+                    return
                 elif self._current_recording != self.idle_recording:
                     # Hold pose before returning to idle — skip hold when music is playing
                     if not self._music_playing:
