@@ -205,9 +205,7 @@ class MotionPerception(Perception):
             self._send_event(
                 "motion.activity",
                 f"Actions detected via video recognition: {actions_str}. "
-                "Look at the attached images — describe what the user appears to be doing. "
                 "If nothing noteworthy, reply NO_REPLY.",
-                images=snapshots,
             )
         else:
             self._send_event(
