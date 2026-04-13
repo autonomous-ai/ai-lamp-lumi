@@ -214,6 +214,14 @@ OpenClaw cron has two valid combos — do NOT mix:
 
 `main` + `agentTurn` is **rejected** by OpenClaw. Do NOT add a `delivery` field — it causes errors.
 
+**Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Please relay this reminder" — the agent echoes the text rather than executing tools. For dynamic behavior (check presence, take snapshot, decide whether to remind), you would need `agentTurn` in `isolated` mode, but that lacks TTS/HW marker support. Current approach: use `systemEvent` in `main` with instructional text, accepting that the agent may not always execute tools.
+
+### Priority: Skills > Knowledge > History
+
+AGENTS.md enforces a strict priority: **SKILL.md instructions always override KNOWLEDGE.md and conversation history**. This is critical because the agent self-accumulates "learnings" in KNOWLEDGE.md via heartbeat, and these can contain incorrect rules that conflict with developer-maintained skills. If the agent notices a conflict, it must update KNOWLEDGE.md to match the skill, not the other way around.
+
+This rule was added after discovering that the agent had written incorrect cron format rules into KNOWLEDGE.md ("NEVER use systemEvent") that overrode the correct Scheduling SKILL instructions.
+
 When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
 ### Cron-fired behavior
