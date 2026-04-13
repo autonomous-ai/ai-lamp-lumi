@@ -37,30 +37,28 @@ RMS_THRESHOLD = int(os.environ.get("LELAMP_VAD_THRESHOLD", "3500"))      # RMS a
 SILENCE_TIMEOUT_S = float(os.environ.get("LELAMP_SILENCE_TIMEOUT", "2.5"))  # Silence before STT disconnect
 SPEECH_HOLDOFF_S = float(os.environ.get("LELAMP_SPEECH_HOLDOFF", "0.2"))  # Minimum speech duration before connecting STT
 
-SESSION_COOLDOWN_S = 0.3  # Cooldown between STT sessions for cleanup
+SESSION_COOLDOWN_S = float(os.environ.get("LELAMP_SESSION_COOLDOWN_S", "0.3"))
 
 # Silero VAD config
 SILERO_VAD_ENABLED = os.environ.get("LELAMP_SILERO_ENABLED", "false").lower() == "true"
-SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.3"))  # Speech confidence (0-1), lower = more sensitive
-SILERO_CHUNK_SIZE = 512  # Samples per silero inference call (32ms @ 16kHz)
+SILERO_VAD_THRESHOLD = float(os.environ.get("LELAMP_SILERO_THRESHOLD", "0.3"))
+SILERO_CHUNK_SIZE = int(os.environ.get("LELAMP_SILERO_CHUNK_SIZE", "512"))
 _SILERO_MODEL_PATH = Path(__file__).parent / "resources" / "silero_vad.onnx"
 
 # WebRTC VAD config — fast C-based pre-filter before Silero (runs in ~0.1ms vs ~20ms)
 WEBRTCVAD_ENABLED = os.environ.get("LELAMP_WEBRTCVAD_ENABLED", "false").lower() == "true"
-WEBRTCVAD_AGGRESSIVENESS = int(os.environ.get("LELAMP_WEBRTCVAD_AGGRESSIVENESS", "2"))  # 0 (lenient) to 3 (strict)
-WEBRTCVAD_FRAME_MS = 30  # ms per frame — webrtcvad only accepts 10, 20, or 30ms
+WEBRTCVAD_AGGRESSIVENESS = int(os.environ.get("LELAMP_WEBRTCVAD_AGGRESSIVENESS", "2"))
+WEBRTCVAD_FRAME_MS = int(os.environ.get("LELAMP_WEBRTCVAD_FRAME_MS", "30"))
 
 # Echo cancellation config
-ECHO_RMS_FLOOR = 200          # RMS must drop below this before re-enabling VAD
-ECHO_GATE_MAX_WAIT_S = 1.5   # Max time to wait for reverb decay after TTS
-ECHO_GATE_WINDOW_S = 0.05    # RMS check window (50ms)
-ECHO_SIMILARITY_THRESHOLD = 0.55  # Transcript similarity above this = echo, drop it
-ECHO_RELEVANCE_WINDOW_S = 15.0   # Only filter transcripts within this window after TTS
-MAX_SESSION_DURATION_S = 30       # Force-close STT session after this (prevent zombie sessions)
+ECHO_RMS_FLOOR = int(os.environ.get("LELAMP_ECHO_RMS_FLOOR", "200"))
+ECHO_GATE_MAX_WAIT_S = float(os.environ.get("LELAMP_ECHO_GATE_MAX_WAIT_S", "1.5"))
+ECHO_GATE_WINDOW_S = float(os.environ.get("LELAMP_ECHO_GATE_WINDOW_S", "0.05"))
+ECHO_SIMILARITY_THRESHOLD = float(os.environ.get("LELAMP_ECHO_SIMILARITY_THRESHOLD", "0.55"))
+ECHO_RELEVANCE_WINDOW_S = float(os.environ.get("LELAMP_ECHO_RELEVANCE_WINDOW_S", "15.0"))
+MAX_SESSION_DURATION_S = float(os.environ.get("LELAMP_MAX_SESSION_DURATION_S", "30"))
 
 # Keep-alive mode: pre-connect STT WS before speech is detected so there's no connect delay.
-# Useful for clean-mic devices where VAD only triggers on real speech (no ambient pre-warm).
-# Set LELAMP_STT_KEEPALIVE=true in .env to enable. Default: false.
 STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true"
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
