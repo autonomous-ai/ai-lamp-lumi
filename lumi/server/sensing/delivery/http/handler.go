@@ -164,6 +164,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
 	// - During voice window: all passive sensing is queued (not dropped) so events aren't lost.
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
+	// TODO: temporarily skip motion.activity to agent — LeLamp spamming too fast (no cooldown).
+	// Re-enable after fixing LeLamp MOTION_FLUSH_S cooldown. Snapshot still saved for UI.
+	if req.Type == "motion.activity" {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "skipped_motion_activity"}))
+		return
+	}
+
 	isPassive := req.Type != "voice_command"
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
