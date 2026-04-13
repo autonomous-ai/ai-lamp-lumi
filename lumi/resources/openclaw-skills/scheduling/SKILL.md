@@ -117,8 +117,10 @@ Confirm: "Pomodoro started! I'll remind you every 25 minutes."
 - **Be descriptive in the payload message** — when the job fires, you read this message to know what to do. Include the user's original intent.
 - **Always confirm with the user** — after creating a schedule, tell them what you set up.
 - **Combine with other skills** — scheduled jobs can trigger any skill: LED, scene, emotion, audio, servo.
-- **`sessionTarget` is always `"main"`**.
-- **`payload.kind` is always `"agentTurn"`**.
+- **Two valid combos for sessionTarget + payload:**
+  - `sessionTarget: "main"` + `payload.kind: "systemEvent"` + `payload.text` — runs in main session (has conversation context)
+  - `sessionTarget: "isolated"` + `payload.kind: "agentTurn"` + `payload.message` — runs in fresh isolated session
+- **Do NOT mix** — `main` + `agentTurn` will be rejected.
 - **Do NOT add a `delivery` field** — it causes errors. The system handles delivery automatically.
 
 ## Output Template
