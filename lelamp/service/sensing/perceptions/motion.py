@@ -179,7 +179,7 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
     @override
-    def check(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
         if not config.MOTION_ENABLED or frame is None:
             return
 
