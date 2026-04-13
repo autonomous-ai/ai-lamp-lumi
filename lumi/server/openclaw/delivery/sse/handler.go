@@ -203,15 +203,24 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
 				continue
 			}
-			resp.Body.Close()
-			slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
+			hwOK := resp.StatusCode < 400
+			if !hwOK {
+				errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+				resp.Body.Close()
+				slog.Warn("HW marker error response", "component", "openclaw", "path", c.path, "status", resp.StatusCode, "body", string(errBody))
+			} else {
+				resp.Body.Close()
+				slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
+			}
 			switch {
 			case strings.Contains(c.path, "/emotion"):
 				flow.Log("hw_emotion", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
-				if e := parseEmotion(c.body); e != "" {
-					h.lastEmotionMu.Lock()
-					h.lastEmotion = e
-					h.lastEmotionMu.Unlock()
+				if hwOK {
+					if e := parseEmotion(c.body); e != "" {
+						h.lastEmotionMu.Lock()
+						h.lastEmotion = e
+						h.lastEmotionMu.Unlock()
+					}
 				}
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_emotion", Summary: c.path + " " + c.body, RunID: flowRunID})
 			case strings.Contains(c.path, "/scene"), strings.Contains(c.path, "/led"):
@@ -223,7 +232,7 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			case strings.Contains(c.path, "/audio"):
 				flow.Log("hw_audio", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: c.path + " " + c.body, RunID: flowRunID})
-				if strings.Contains(c.path, "/audio/play") {
+				if hwOK && strings.Contains(c.path, "/audio/play") {
 					mood.Log("music.play", 0, c.body)
 				}
 			default:
@@ -740,6 +749,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if text, hwCalls := h.flushAssistantText(payload.RunID); text != "" || len(hwCalls) > 0 {
 				// Fire HW calls with full tracking (flow.Log + lastEmotion + monitorBus).
 				h.fireHWCalls(hwCalls, flowRunID)
+
+				// Suppress TTS when HW markers include /audio/play to avoid
+				// voice and music racing on the speaker (matches tool-path behavior at line 626).
+				if suppressReason == "" {
+					for _, c := range hwCalls {
+						if strings.Contains(c.path, "/audio/play") {
+							suppressReason = "music_playing"
+							break
+						}
+					}
+				}
 
 				// Log LLM mood assessment if this was a mood-relevant sensing turn.
 				var turnEmotion string

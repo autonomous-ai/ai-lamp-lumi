@@ -349,9 +349,11 @@ class VoiceService:
             return True
 
     def _silero_reset_state(self):
-        """Reset Silero LSTM state between speech segments."""
+        """Reset Silero LSTM state and context between speech segments."""
         import numpy as np
         self._silero_state = np.zeros((2, 1, 128), dtype=np.float32)
+        # Silero v5+ requires 64 context samples (16kHz) prepended to each chunk
+        self._silero_context = np.zeros((1, 64), dtype=np.float32)
 
     def _silero_is_speech(self, data: "np.ndarray", device_rate: int) -> bool:
         """Run Silero VAD on audio frame. Returns True if speech detected.
@@ -381,18 +383,24 @@ class VoiceService:
                     chunk = audio_norm[i:i + SILERO_CHUNK_SIZE]
                     if len(chunk) < SILERO_CHUNK_SIZE:
                         chunk = np.pad(chunk, (0, SILERO_CHUNK_SIZE - len(chunk)))
+                    # Silero v5+: prepend 64-sample context from previous chunk
+                    x = np.concatenate([self._silero_context, chunk.reshape(1, -1)], axis=1)
                     out = self._silero.run(
                         None,
                         {
-                            "input": chunk.reshape(1, -1),
+                            "input": x,
                             "state": self._silero_state,
                             "sr": np.array(STT_RATE, dtype=np.int64),
                         },
                     )
                     max_conf = max(max_conf, float(out[0][0][0]))
                     self._silero_state = out[1]
+                    self._silero_context = x[:, -64:]
 
-            return max_conf >= SILERO_VAD_THRESHOLD
+            is_speech = max_conf >= SILERO_VAD_THRESHOLD
+            if not is_speech:
+                logger.info("Silero: conf=%.3f < threshold=%.2f — rejected", max_conf, SILERO_VAD_THRESHOLD)
+            return is_speech
         except Exception as e:
             logger.warning("Silero VAD inference error: %s", e)
             return True  # fail open — don't block speech
@@ -541,14 +549,23 @@ class VoiceService:
 
             rms = self._rms(data)
 
-            if rms >= RMS_THRESHOLD and self._webrtcvad_is_speech(data, device_rate) and self._silero_is_speech(data, device_rate):
+            if rms >= RMS_THRESHOLD and self._webrtcvad_is_speech(data, device_rate):
                 if speech_start is None:
                     speech_start = time.time()
-                    speech_pre_buffer = [self._resample_to_stt(data, device_rate)]
+                    speech_pre_buffer = [data]
                 else:
-                    speech_pre_buffer.append(self._resample_to_stt(data, device_rate))
+                    speech_pre_buffer.append(data)
                 # Wait for holdoff before connecting STT (avoid short noises)
                 if (time.time() - speech_start) >= SPEECH_HOLDOFF_S:
+                    # Run Silero on accumulated buffer (needs multiple chunks for LSTM)
+                    if self._silero is not None:
+                        combined = self._np.concatenate(speech_pre_buffer)
+                        if not self._silero_is_speech(combined, device_rate):
+                            speech_start = None
+                            speech_pre_buffer = []
+                            continue
+                    # Convert pre-buffer to STT format
+                    speech_pre_buffer = [self._resample_to_stt(f, device_rate) for f in speech_pre_buffer]
                     logger.info("Speech detected (RMS=%.0f), connecting STT...", rms)
                     self._stream_session(mic, frame_size, device_rate,
                                         preconnected_session=keepalive_session,
@@ -609,12 +626,11 @@ class VoiceService:
                 if len(text) > len(longest_partial[0]):
                     longest_partial[0] = text
                 return
-            # Always prefer longest partial — final may be over-revised or shorter than what was heard
-            best = longest_partial[0] if longest_partial[0] else text
-            if best != text:
-                logger.info("STT final='%s' — overriding with longest partial: '%s'", text, best)
+            # Accumulate final segments — don't send yet, wait for session close.
+            # Flux model fires multiple EndOfTurn events for natural pauses within
+            # one utterance, so sending immediately would split a single sentence.
+            logger.info("STT final segment: '%s'", text)
             final_sent[0] = True
-            _send_best(best)
 
         try:
             if preconnected_session:
@@ -705,9 +721,10 @@ class VoiceService:
         finally:
             self._listening = False
             session.close()
-            # If Deepgram closed without emitting is_final, fall back to longest partial seen
-            if not final_sent[0] and longest_partial[0]:
-                logger.info("STT no final received — using longest partial: '%s'", longest_partial[0])
+            # Send the best transcript once when session closes (not on each final).
+            # longest_partial accumulates across all finals in one session.
+            if longest_partial[0]:
+                logger.info("STT session done — sending: '%s'", longest_partial[0])
                 _send_best(longest_partial[0])
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
