@@ -215,7 +215,7 @@ OpenClaw cron has two valid combos — do NOT mix:
 
 `main` + `agentTurn` is **rejected** by OpenClaw. Do NOT add a `delivery` field — it causes errors.
 
-**Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Please relay this reminder" — the agent echoes the text rather than executing tools. For dynamic behavior (check presence, take snapshot, decide whether to remind), you would need `agentTurn` in `isolated` mode, but that lacks TTS/HW marker support. Current approach: use `systemEvent` in `main` with instructional text, accepting that the agent may not always execute tools.
+**Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — causing the agent to NO_REPLY. **Workaround:** Prefix payload text with `[MUST-SPEAK]` to force the agent to reply out loud despite the wrapper. All wellbeing and music cron payloads must start with `[MUST-SPEAK]`.
 
 ### Priority: Skills > Knowledge > History
 
