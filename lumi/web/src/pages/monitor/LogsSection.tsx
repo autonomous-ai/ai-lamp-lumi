@@ -113,26 +113,33 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
   };
 
-  // Parse log line into structured parts: timestamp, level, component, message
-  const parseLine = (line: string) => {
-    // Match: 2026-04-13 17:47:52,944 INFO lelamp.voice.stt: message
-    const m = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.\d]*)\s+(DEBUG|INFO|WARN(?:ING)?|ERROR|ERR|DBG|INF)\s+(\S+?):?\s+([\s\S]*)$/i);
-    if (!m) return null;
-    return { time: m[1], level: m[2], component: m[3], message: m[4] };
-  };
-
-  const highlightText = (text: string) => {
-    if (!filter.trim()) return text;
+  const highlightLine = (line: string) => {
+    if (!filter.trim()) return formatLine(line);
     try {
       const re = new RegExp(`(${filter})`, "gi");
-      const parts = text.split(re);
-      if (parts.length <= 1) return text;
+      const parts = line.split(re);
+      if (parts.length <= 1) return formatLine(line);
       return parts.map((p, i) =>
         re.test(p) ? <mark key={i} style={{ background: "#fbbf2466", color: "inherit", borderRadius: 2, padding: "0 1px" }}>{p}</mark> : p
       );
     } catch {
-      return text;
+      return formatLine(line);
     }
+  };
+
+  // Dim timestamp + bold level for readability
+  const formatLine = (line: string) => {
+    const m = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.\d]*)\s+(DEBUG|INFO|WARN(?:ING)?|ERROR|ERR|DBG|INF)\s+([\s\S]*)$/i);
+    if (!m) return line;
+    return (
+      <>
+        <span style={{ opacity: 0.45 }}>{m[1]}</span>
+        {" "}
+        <span style={{ fontWeight: 700 }}>{m[2]}</span>
+        {" "}
+        {m[3]}
+      </>
+    );
   };
 
   const btnStyle: React.CSSProperties = {
