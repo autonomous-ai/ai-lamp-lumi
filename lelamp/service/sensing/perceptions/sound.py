@@ -88,7 +88,7 @@ class SoundPerception(Perception):
         return True, current, persistent
 
     @override
-    def check(self, frame: np.ndarray) -> None:
+    def _check_impl(self, frame: np.ndarray) -> None:
         if self._input_device is None:
             return
 
