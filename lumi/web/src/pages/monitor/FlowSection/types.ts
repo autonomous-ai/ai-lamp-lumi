@@ -217,6 +217,7 @@ export const SOURCE_ICON: Record<string, string> = {
   "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   telegram: "💬", schedule: "⏰",
+  cron: "⏰", "cron:hydration": "💧", "cron:break": "🧘", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
   "music.mood": "🎵",
