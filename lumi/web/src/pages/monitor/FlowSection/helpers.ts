@@ -110,6 +110,24 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     }
     if (hasRealUser) return; // keep as telegram
     if (sensingType) { turn.type = sensingType; return; }
+    // Cron-fired turns: sender is empty + message contains "scheduled reminder" from OpenClaw systemEvent wrapper
+    let isCron = false;
+    let cronLabel = "cron";
+    for (const ev of turn.events) {
+      if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
+        const d = ev.detail as Record<string, any> | undefined;
+        const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+        const sender = d?.sender ?? d?.data?.sender ?? "";
+        if ((!sender || sender === "") && /scheduled reminder/i.test(msg)) {
+          isCron = true;
+          if (/hydration/i.test(msg)) cronLabel = "cron:hydration";
+          else if (/break|stretch/i.test(msg)) cronLabel = "cron:break";
+          else if (/music/i.test(msg)) cronLabel = "cron:music";
+          break;
+        }
+      }
+    }
+    if (isCron) { turn.type = cronLabel; return; }
     if (hasSystemMsg) { turn.type = "system"; return; }
     // node-host but normal message (e.g. voice command relayed via chat.send) — keep as telegram
     return;
