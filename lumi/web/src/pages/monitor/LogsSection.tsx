@@ -113,17 +113,25 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
   };
 
-  const highlightLine = (line: string) => {
-    if (!filter.trim()) return line;
+  // Parse log line into structured parts: timestamp, level, component, message
+  const parseLine = (line: string) => {
+    // Match: 2026-04-13 17:47:52,944 INFO lelamp.voice.stt: message
+    const m = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.\d]*)\s+(DEBUG|INFO|WARN(?:ING)?|ERROR|ERR|DBG|INF)\s+(\S+?):?\s+([\s\S]*)$/i);
+    if (!m) return null;
+    return { time: m[1], level: m[2], component: m[3], message: m[4] };
+  };
+
+  const highlightText = (text: string) => {
+    if (!filter.trim()) return text;
     try {
       const re = new RegExp(`(${filter})`, "gi");
-      const parts = line.split(re);
-      if (parts.length <= 1) return line;
+      const parts = text.split(re);
+      if (parts.length <= 1) return text;
       return parts.map((p, i) =>
         re.test(p) ? <mark key={i} style={{ background: "#fbbf2466", color: "inherit", borderRadius: 2, padding: "0 1px" }}>{p}</mark> : p
       );
     } catch {
-      return line;
+      return text;
     }
   };
 
@@ -217,13 +225,44 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
         ) : (
           filtered.map((line, i) => {
             const ll = detectLevel(line);
+            const parsed = parseLine(line);
             return (
               <div key={i} style={{
-                padding: "1px 12px",
-                color: levelColor[ll],
+                padding: "2px 12px",
                 borderLeft: `2px solid ${ll === "ERROR" ? "#f87171" : ll === "WARN" ? "#fbbf24" : "transparent"}`,
+                display: "flex",
+                gap: 0,
+                alignItems: "baseline",
               }}>
-                {highlightLine(line)}
+                {parsed ? (
+                  <>
+                    <span style={{ color: "var(--lm-text-muted)", flexShrink: 0, marginRight: 8, opacity: 0.6 }}>
+                      {parsed.time.replace(/^\d{4}-\d{2}-\d{2}\s+/, "")}
+                    </span>
+                    <span style={{
+                      color: levelColor[ll],
+                      flexShrink: 0,
+                      marginRight: 8,
+                      fontWeight: 700,
+                      width: 38,
+                      textAlign: "center",
+                      fontSize: 9,
+                      padding: "1px 0",
+                      borderRadius: 3,
+                      background: ll === "ERROR" ? "#f8717118" : ll === "WARN" ? "#fbbf2418" : "transparent",
+                    }}>
+                      {parsed.level}
+                    </span>
+                    <span style={{ color: "#8b9fc9", flexShrink: 0, marginRight: 8, opacity: 0.7, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {parsed.component}
+                    </span>
+                    <span style={{ color: levelColor[ll], flex: 1, wordBreak: "break-all" as const }}>
+                      {highlightText(parsed.message)}
+                    </span>
+                  </>
+                ) : (
+                  <span style={{ color: levelColor[ll] }}>{highlightText(line)}</span>
+                )}
               </div>
             );
           })
