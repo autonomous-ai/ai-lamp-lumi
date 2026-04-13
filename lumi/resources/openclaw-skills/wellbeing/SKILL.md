@@ -19,10 +19,10 @@ After greeting, set up wellbeing crons for this person:
 5. Create two cron jobs via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
    - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text: take snapshot, check presence, remind water if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`, add `[HW:/broadcast:{}]` if speaking. **Output ONLY the HW markers + one short sentence. No explanations.**
+     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check. Check presence, take snapshot. If present and no drink visible — remind water (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/broadcast:{}]"`
    - `"Wellbeing: {name} break"` — every 300000ms (5 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text: take snapshot, check posture/fatigue, suggest stretch if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.6}]`, add `[HW:/broadcast:{}]` if speaking. **Output ONLY the HW markers + one short sentence. No explanations.**
+     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/broadcast:{}]"`
 
 Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
 Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
