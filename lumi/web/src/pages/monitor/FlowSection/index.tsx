@@ -83,13 +83,9 @@ export function FlowSection({
       const j = await r.json();
       if (!r.ok || j?.status !== 1) throw new Error(j?.message || "request failed");
 
-      const r2 = await fetch(`${API}/openclaw/debug-logs`, { method: "DELETE" });
-      const j2 = await r2.json();
-      if (!r2.ok || j2?.status !== 1) throw new Error(j2?.message || "request failed");
-
       setSelectedTurnId(null);
       onClearEvents();
-      window.alert("Server flow log + OpenClaw debug logs cleared.");
+      window.alert("Server flow log cleared.");
     } catch (e) {
       window.alert(`Failed to clear server flow log: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -151,35 +147,12 @@ export function FlowSection({
     }
   }, []);
 
-  const downloadOpenClawDebugPayloads = useCallback(async (): Promise<boolean> => {
-    try {
-      const r = await fetch(`${API}/openclaw/debug-logs?last=500`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `openclaw_debug_payloads_${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return true;
-    } catch (e) {
-      console.error(e);
-      window.alert(`OpenClaw debug download failed: ${e instanceof Error ? e.message : String(e)}`);
-      return false;
-    }
-  }, []);
 
   const downloadFlowBundle = useCallback(async () => {
     const jsonlOk = await downloadServerJsonlTail();
     if (jsonlOk) await new Promise((resolve) => setTimeout(resolve, 500));
-    const debugOk = await downloadOpenClawDebugPayloads();
-    if (debugOk) await new Promise((resolve) => setTimeout(resolve, 300));
     downloadUISnapshot();
-  }, [downloadServerJsonlTail, downloadOpenClawDebugPayloads, downloadUISnapshot]);
+  }, [downloadServerJsonlTail, downloadUISnapshot]);
 
   const saveExcluded = (next: Set<string>) => {
     try { localStorage.setItem("lumi-excluded-types-v1", JSON.stringify([...next])); } catch {}

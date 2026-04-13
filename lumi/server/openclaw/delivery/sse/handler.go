@@ -62,7 +62,6 @@ type OpenClawHandler struct {
 	channelRunsMu sync.Mutex
 	channelRuns   map[string]bool
 
-	debugMu sync.Mutex
 }
 
 var emotionRe = regexp.MustCompile(`(?:\\"|")emotion(?:\\"|")\s*:\s*(?:\\"|")([a-zA-Z_]+)(?:\\"|")`)
@@ -297,30 +296,6 @@ func (h *OpenClawHandler) mapRunID(openclawID, deviceID string) {
 	}
 }
 
-// appendDebugJSONL appends a JSON object into local/openclaw_debug_payloads.jsonl.
-// Best-effort only: logging failures must not break event handling.
-func (h *OpenClawHandler) appendDebugJSONL(record map[string]any) {
-	h.debugMu.Lock()
-	defer h.debugMu.Unlock()
-
-	record["at"] = time.Now().UTC().Format(time.RFC3339Nano)
-	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	b, err := json.Marshal(record)
-	if err != nil {
-		return
-	}
-	_, _ = f.Write(append(b, '\n'))
-}
-
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
 func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) error {
 	slog.Debug("event received", "component", "agent", "event", evt.Event)
@@ -353,19 +328,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// Resolve OpenClaw UUID → device ID for consistent flow tracing across all agent events
 		flowRunID := h.resolveRunID(payload.RunID)
-		// Full raw dump: persist every OpenClaw agent-stream payload so debugging can reconstruct
-		// the exact upstream timeline (lifecycle/tool/thinking/assistant deltas, etc.).
-		h.appendDebugJSONL(map[string]any{
-			"source":      "openclaw_raw",
-			"event":       evt.Event,
-			"stream":      payload.Stream,
-			"run_id":      payload.RunID,
-			"flow_run_id": flowRunID,
-			"session_key": payload.SessionKey,
-			"phase":       payload.Data.Phase,
-			"raw_payload": string(evt.Payload),
-		})
-
 		switch payload.Stream {
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
@@ -377,14 +339,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			isChannelTurn := payload.Data.Phase == "start" && payload.RunID != "" &&
 				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
 			if isChannelTurn {
-				h.appendDebugJSONL(map[string]any{
-					"source":      "agent.lifecycle_start_fallback_chat_input",
-					"run_id":      payload.RunID,
-					"stream":      payload.Stream,
-					"phase":       payload.Data.Phase,
-					"raw_payload": string(evt.Payload),
-				})
-
 				// Emit chat_input immediately (no message text yet).
 				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{
@@ -408,12 +362,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					if historyPayload == nil {
 						return
 					}
-					h.appendDebugJSONL(map[string]any{
-						"source":       "chat_history_on_channel_turn",
-						"run_id":       capturedRunID,
-						"session_key":  capturedSessionKey,
-						"raw_history":  string(historyPayload),
-					})
 					slog.Info("chat.history for channel turn", "component", "agent", "run_id", capturedRunID, "history_bytes", len(historyPayload))
 
 					// Extract last user message from history.
@@ -905,16 +853,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		flowRunID := h.resolveRunID(payload.RunID)
 		toolName := payload.ToolName()
 		toolArgs := payload.ToolArguments()
-		// Debug: log raw session.tool payload to identify field mapping issues
-		h.appendDebugJSONL(map[string]any{
-			"source":      "session_tool_raw",
-			"run_id":      payload.RunID,
-			"flow_run_id": flowRunID,
-			"tool_name":   toolName,
-			"tool_args":   toolArgs,
-			"phase":       payload.Data.Phase,
-			"raw_payload": string(evt.Payload),
-		})
 		summary := toolName
 		if payload.Data.Phase == "start" {
 			summary = fmt.Sprintf("Tool %s started", toolName)
@@ -1007,18 +945,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			"raw_message", string(payload.RawMessage))
 		// Same as agent stream: OpenClaw may send UUID while lifecycle/tool/tts used resolved device id.
 		flowRunID := h.resolveRunID(payload.RunID)
-		// Full raw dump: persist every OpenClaw chat payload as well.
-		h.appendDebugJSONL(map[string]any{
-			"source":      "openclaw_raw",
-			"event":       evt.Event,
-			"stream":      "chat",
-			"run_id":      payload.RunID,
-			"flow_run_id": flowRunID,
-			"session_key": payload.SessionKey,
-			"role":        payload.Role,
-			"state":       payload.State,
-			"raw_payload": string(evt.Payload),
-		})
 		// Debug alignment: OpenClaw "chat" stream may or may not include user messages for outbound chat.send.
 		// When flowRunID belongs to Lumi, log role/state/message so we can confirm whether chat_input can be emitted.
 		if strings.HasPrefix(flowRunID, "lumi-") {
@@ -1040,17 +966,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				"openclaw_run_id", payload.RunID, "device_run_id", flowRunID,
 				"role", payload.Role, "state", payload.State)
 		}
-		h.appendDebugJSONL(map[string]any{
-			"source":        "chat_event",
-			"run_id":        payload.RunID,
-			"flow_run_id":   flowRunID,
-			"role":          payload.Role,
-			"state":         payload.State,
-			"session_key":   payload.SessionKey,
-			"message":       payload.Message,
-			"raw_message":   string(payload.RawMessage),
-			"raw_payload":   string(evt.Payload),
-		})
+
 
 		// (OpenClaw gateway never broadcasts role:"user" on the chat stream.
 		// User messages are captured via lifecycle_start + chat.history above.)
@@ -1095,12 +1011,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
 
 	default:
-		// Log unhandled WS events for debugging (health, heartbeat, cron, shutdown, etc.)
-		h.appendDebugJSONL(map[string]any{
-			"source":      "ws_event_unhandled",
-			"event":       evt.Event,
-			"raw_payload": string(evt.Payload),
-		})
+		// Unhandled WS events (health, heartbeat, cron, shutdown, etc.) — no-op.
 	}
 
 	return nil
@@ -1404,135 +1315,6 @@ func (h *OpenClawHandler) ClearFlowLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"cleared": true,
 		"file":    path,
-	}))
-}
-
-// ClearDebugLogs truncates the raw OpenClaw debug payload JSONL file.
-func (h *OpenClawHandler) ClearDebugLogs(c *gin.Context) {
-	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-			"cleared": false,
-			"file":    path,
-			"note":    "file not found",
-		}))
-		return
-	}
-	if err := os.Truncate(path, 0); err != nil {
-		c.JSON(http.StatusInternalServerError, serializers.ResponseError("clear debug log failed: "+err.Error()))
-		return
-	}
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-		"cleared": true,
-		"file":    path,
-	}))
-}
-
-// DebugLogs serves the OpenClaw raw debug payload log file for download.
-// Optional query param: last=<n> to return only the last N lines (default: full file).
-func (h *OpenClawHandler) DebugLogs(c *gin.Context) {
-	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
-
-	ts := time.Now().UTC().Format("2006-01-02T15-04-05-000Z")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=openclaw_debug_payloads_%s.jsonl", ts))
-	c.Header("Content-Type", "application/x-ndjson")
-
-	// If "last" param is set, tail the file instead of serving the whole thing.
-	// Reads from end of file to avoid loading entire file into memory on Pi.
-	if s := c.Query("last"); s != "" {
-		n, _ := strconv.Atoi(s)
-		if n <= 0 {
-			n = 500
-		}
-		if n > 5000 {
-			n = 5000
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
-			return
-		}
-		defer f.Close()
-		stat, err := f.Stat()
-		if err != nil || stat.Size() == 0 {
-			c.String(http.StatusOK, "")
-			return
-		}
-		// Read last chunk (estimate ~2KB per line)
-		chunkSize := int64(n) * 2048
-		if chunkSize > stat.Size() {
-			chunkSize = stat.Size()
-		}
-		buf := make([]byte, chunkSize)
-		f.Seek(stat.Size()-chunkSize, 0) //nolint:errcheck
-		nr, _ := f.Read(buf)
-		buf = buf[:nr]
-		lines := strings.Split(string(buf), "\n")
-		// Drop first partial line (unless we read from start)
-		if chunkSize < stat.Size() && len(lines) > 0 {
-			lines = lines[1:]
-		}
-		// Remove empty trailing line
-		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-			lines = lines[:len(lines)-1]
-		}
-		if len(lines) > n {
-			lines = lines[len(lines)-n:]
-		}
-		c.String(http.StatusOK, strings.Join(lines, "\n")+"\n")
-		return
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		c.JSON(http.StatusNotFound, serializers.ResponseError("no debug log file"))
-		return
-	}
-	defer f.Close()
-	io.Copy(c.Writer, f) //nolint:errcheck
-}
-
-// DebugLogLines returns parsed tail lines from openclaw debug payload JSONL.
-// Query param: last=<n> (default 200, max 2000)
-func (h *OpenClawHandler) DebugLogLines(c *gin.Context) {
-	last := 200
-	if s := c.Query("last"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			last = n
-		}
-	}
-	if last > 10000 {
-		last = 10000
-	}
-	path := filepath.Join("local", "openclaw_debug_payloads.jsonl")
-	f, err := os.Open(path)
-	if err != nil {
-		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-			"rows": []map[string]any{},
-		}))
-		return
-	}
-	defer f.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	if len(lines) > last {
-		lines = lines[len(lines)-last:]
-	}
-	rows := make([]map[string]any, 0, len(lines))
-	for _, line := range lines {
-		var row map[string]any
-		if err := json.Unmarshal([]byte(line), &row); err != nil {
-			continue
-		}
-		rows = append(rows, row)
-	}
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-		"rows": rows,
 	}))
 }
 
