@@ -626,12 +626,11 @@ class VoiceService:
                 if len(text) > len(longest_partial[0]):
                     longest_partial[0] = text
                 return
-            # Always prefer longest partial — final may be over-revised or shorter than what was heard
-            best = longest_partial[0] if longest_partial[0] else text
-            if best != text:
-                logger.info("STT final='%s' — overriding with longest partial: '%s'", text, best)
+            # Accumulate final segments — don't send yet, wait for session close.
+            # Flux model fires multiple EndOfTurn events for natural pauses within
+            # one utterance, so sending immediately would split a single sentence.
+            logger.info("STT final segment: '%s'", text)
             final_sent[0] = True
-            _send_best(best)
 
         try:
             if preconnected_session:
@@ -722,9 +721,10 @@ class VoiceService:
         finally:
             self._listening = False
             session.close()
-            # If Deepgram closed without emitting is_final, fall back to longest partial seen
-            if not final_sent[0] and longest_partial[0]:
-                logger.info("STT no final received — using longest partial: '%s'", longest_partial[0])
+            # Send the best transcript once when session closes (not on each final).
+            # longest_partial accumulates across all finals in one session.
+            if longest_partial[0]:
+                logger.info("STT session done — sending: '%s'", longest_partial[0])
                 _send_best(longest_partial[0])
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
