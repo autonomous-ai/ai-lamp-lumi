@@ -119,6 +119,7 @@ Confirm: "Pomodoro started! I'll remind you every 25 minutes."
 - **Combine with other skills** — scheduled jobs can trigger any skill: LED, scene, emotion, audio, servo.
 - **`sessionTarget` is always `"main"`**.
 - **`payload.kind` is always `"agentTurn"`**.
+- **Do NOT add a `delivery` field** — it causes errors. The system handles delivery automatically.
 
 ## Output Template
 
