@@ -163,6 +163,9 @@ export function FlowDiagram({
     .filter((f): f is string => !!f)
     .map((f) => `/api/sensing/snapshot/${f}`);
 
+  // Check if image was actually sent to agent (has_image in chat_send event)
+  const imageSentToAgent: boolean = (nodeInfo.agent_call ?? []).some((l) => l.includes("📷 image attached"));
+
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <svg
@@ -414,12 +417,12 @@ export function FlowDiagram({
           );
         })}
 
-        {/* Snapshot images — on the intent_check → agent_call line */}
+        {/* Snapshot images — below CAM node (always shown) */}
         {snapshotUrls.length > 0 && snapshotUrls.map((url, i) => {
           const imgW = 100;
           const imgH = 75;
-          const snapX = 515 + i * (imgW + 10);
-          const snapY = 145;
+          const snapX = 80 + i * (imgW + 10);
+          const snapY = 340;
           return (
             <g key={i}>
               <rect
@@ -447,6 +450,41 @@ export function FlowDiagram({
                   📷 {snapshotUrls.length > 1 ? `${snapshotUrls.length} Snapshots` : "Snapshot"}
                 </text>
               )}
+            </g>
+          );
+        })}
+
+        {/* Snapshot on INTENT→AGENT line — only when image was actually sent to agent */}
+        {imageSentToAgent && snapshotUrls.length > 0 && snapshotUrls.slice(0, 1).map((url, i) => {
+          const imgW = 80;
+          const imgH = 60;
+          const snapX = 515;
+          const snapY = 145;
+          return (
+            <g key={`agent-snap-${i}`}>
+              <rect
+                x={snapX - imgW / 2} y={snapY - imgH / 2}
+                width={imgW} height={imgH}
+                rx={6} ry={6}
+                fill="var(--lm-card)" stroke="#60a5fa" strokeWidth={1}
+                opacity={0.9}
+              />
+              <image
+                href={url}
+                x={snapX - imgW / 2 + 2} y={snapY - imgH / 2 + 2}
+                width={imgW - 4} height={imgH - 4}
+                preserveAspectRatio="xMidYMid meet"
+                clipPath={`inset(0 round 4px)`}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); setLightboxUrl(url); }}
+              />
+              <text
+                x={snapX} y={snapY + imgH / 2 + 10}
+                textAnchor="middle"
+                fill="#60a5fa" fontSize={6} fontWeight={600}
+              >
+                📷 → Agent
+              </text>
             </g>
           );
         })}

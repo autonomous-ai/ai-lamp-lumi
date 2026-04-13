@@ -244,8 +244,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	var err error
-	if req.Image != "" {
-		// Send with image attachment so AI can see what triggered the event
+	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
+	if req.Image != "" && req.Type != "motion.activity" {
 		_, err = h.agentGateway.SendChatMessageWithImageAndRun(msg, req.Image, reqID, runID)
 	} else {
 		_, err = h.agentGateway.SendChatMessageWithRun(msg, reqID, runID)
