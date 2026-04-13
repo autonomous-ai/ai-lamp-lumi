@@ -408,9 +408,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     if (turn.type === "telegram" && (!turnHasChatInputEvent(turn))) {
       turn.type = "unknown";
     }
-    if (turn.type === "telegram" && turnHasChatInputEvent(turn) && !turnHasRealTelegramInput(turn) && !turnHasOutput(turn)) {
-      turn.type = "unknown";
-    }
+    // chat_input without resolved message is still a telegram turn — keep it.
     // Done turn with no recognizable input source → unknown,
     // but only if the type is still generic (telegram/unknown). Preserve
     // specific types that were already resolved from sensing data

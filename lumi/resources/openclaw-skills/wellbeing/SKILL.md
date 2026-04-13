@@ -15,7 +15,8 @@ After greeting, set up wellbeing crons for this person:
 1. `cron.list` — check for existing wellbeing jobs
 2. `cron.remove` any jobs related to hydration, break, or wellbeing (name containing `"hydration"`, `"break"`, or `"Wellbeing"` — case insensitive)
 3. Read their summary if it exists: `/root/local/users/{name}/wellbeing.md`
-4. Create two cron jobs via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
+4. Read today's daily log if it exists: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — use this to adjust cron intervals and know what happened earlier today
+5. Create two cron jobs via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
    - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
      - Text: take snapshot, check presence, remind water if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`, add `[HW:/broadcast:{}]` if speaking. **Output ONLY the HW markers + one short sentence. No explanations.**
@@ -29,24 +30,31 @@ Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delive
 ## On `presence.leave`
 
 1. `cron.list` → `cron.remove` any jobs related to hydration, break, or wellbeing
-2. Write today's daily log: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — what reminders you sent, which were acknowledged vs ignored, any observations
+2. Append a summary to today's daily log: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — what reminders you sent, which were acknowledged vs ignored, any observations
 3. Update `wellbeing.md` summary if you noticed new patterns
 
 Do NOT cancel on `presence.away` — only on `presence.leave`.
 
 ## On `motion.activity` — reset timers
 
-When you see the user doing something relevant, reset the corresponding cron timer:
-- **Drinking water / holding cup** → `cron.list`, find `"Wellbeing: {name} hydration"`, `cron.remove` it, `cron.add` it again with same params (resets timer to zero)
-- **Stretching / standing up / walking** → same for `"Wellbeing: {name} break"`
-- **Both visible** → reset both
-- **No wellbeing crons active** → skip
+1. **Read** today's daily log (`/root/local/users/{name}/wellbeing/YYYY-MM-DD.md`) for context — how many times they drank, took breaks, etc.
+2. From the action name, **infer**:
+   - User is drinking something? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
+   - User is NOT sedentary (standing, stretching, walking, etc.)? → reset `"Wellbeing: {name} break"` cron
+   - Both apply? → reset both
+   - No wellbeing crons active? → skip
+   - Neither applies (just sitting/working)? → NO_REPLY
+3. **Append** a line to today's daily log:
+   ```
+   HH:MM — [action name] (hydration reset / break reset / both reset)
+   ```
+4. **Respond** with a short caring observation about what they're doing, using context from the log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ## Wellbeing data
 
 Each person has their own folder at `/root/local/users/{name}/`:
 - `wellbeing.md` — habit summary (read on enter, update on leave)
-- `wellbeing/YYYY-MM-DD.md` — daily log (write on leave)
+- `wellbeing/YYYY-MM-DD.md` — daily log (appended throughout the day on motion.activity resets + summarized on leave)
 
 ## Principles
 
