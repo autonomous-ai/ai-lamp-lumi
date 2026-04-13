@@ -36,43 +36,43 @@ LELAMP_DATA_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data"))
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
 
 # --- Sensing: Event cooldown ---
-EVENT_COOLDOWN_S = 60.0  # minimum seconds between events of the same type
+EVENT_COOLDOWN_S = float(os.environ.get("LELAMP_EVENT_COOLDOWN_S", "60.0"))
 
 # --- Sensing: Sound detection ---
-SOUND_RMS_THRESHOLD = int(os.environ.get("LELAMP_SOUND_RMS_THRESHOLD", "8000"))  # RMS threshold for "loud noise"
-SOUND_SAMPLE_DURATION_S = 0.5    # sample window for sound level check
+SOUND_RMS_THRESHOLD = int(os.environ.get("LELAMP_SOUND_RMS_THRESHOLD", "8000"))
+SOUND_SAMPLE_DURATION_S = float(os.environ.get("LELAMP_SOUND_SAMPLE_DURATION_S", "0.5"))
 
 # --- Sensing: Light level detection ---
-LIGHT_LEVEL_INTERVAL_S = 300.0   # check every 5 minutes
-LIGHT_CHANGE_THRESHOLD = 50      # minimum brightness change (0-255) to trigger event
+LIGHT_LEVEL_INTERVAL_S = float(os.environ.get("LELAMP_LIGHT_LEVEL_INTERVAL_S", "300.0"))
+LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "50"))
 
 # --- Sensing: Face detection ---
 USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
-YUNET_CONFIDENCE_THRESHOLD = 0.6  # minimum confidence score for YuNet face detection
-FACE_COOLDOWN_S = 10.0            # minimum seconds between face presence events
-FACE_OWNER_FORGET_S = 30 * 60.0   # re-fire presence.enter / fire presence.leave after this many seconds without seeing an owner
-FACE_STRANGER_FORGET_S = 5 * 60.0  # same for strangers
-FACE_STRANGER_FLUSH_S = 10.0      # flush stranger snapshots every 10 seconds
+YUNET_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.6"))
+FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
+FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "1800.0"))
+FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "300.0"))
+FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
 # --- Sensing: Motion detection (X3D video action recognition) ---
-MOTION_ENABLED = False  # feature flag — set True to enable motion events
-MOTION_X3D_CONFIDENCE_THRESHOLD = 0.3  # minimum softmax confidence to accept an action prediction
-MOTION_FLUSH_S = 10.0  # flush motion snapshots every 10 seconds
-MOTION_EVENT_COOLDOWN_S = 360.0   # minimum seconds between motion events forwarded to the agent
+MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "false").lower() == "true"
+MOTION_X3D_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_MOTION_X3D_CONFIDENCE_THRESHOLD", "0.3"))
+MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
+MOTION_EVENT_COOLDOWN_S = float(os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0"))
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
-POSE_MOTION_ENABLED = True
+POSE_MOTION_ENABLED = os.environ.get("LELAMP_POSE_MOTION_ENABLED", "true").lower() == "true"
 POSE_MOTION_MODEL_PATH = LELAMP_DATA_DIR / "models" / "rtmpose-m.onnx"
-POSE_MOTION_ANGLE_THRESHOLD = 30.0  # minimum arm joint angle change (degrees) to classify as FOREGROUND
+POSE_MOTION_ANGLE_THRESHOLD = float(os.environ.get("LELAMP_POSE_MOTION_ANGLE_THRESHOLD", "30.0"))
 
 # --- Sensing: Snapshot storage ---
-SNAPSHOT_TMP_DIR = "/tmp/lumi-sensing-snapshots"
-SNAPSHOT_TMP_MAX_COUNT = 50
-SNAPSHOT_PERSIST_DIR = "/var/log/lumi/snapshots"
-SNAPSHOT_PERSIST_TTL_S = 72 * 3600       # 72 hours
-SNAPSHOT_PERSIST_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+SNAPSHOT_TMP_DIR = os.environ.get("LELAMP_SNAPSHOT_TMP_DIR", "/tmp/lumi-sensing-snapshots")
+SNAPSHOT_TMP_MAX_COUNT = int(os.environ.get("LELAMP_SNAPSHOT_TMP_MAX_COUNT", "50"))
+SNAPSHOT_PERSIST_DIR = os.environ.get("LELAMP_SNAPSHOT_PERSIST_DIR", "/var/log/lumi/snapshots")
+SNAPSHOT_PERSIST_TTL_S = float(os.environ.get("LELAMP_SNAPSHOT_PERSIST_TTL_S", str(72 * 3600)))
+SNAPSHOT_PERSIST_MAX_BYTES = int(os.environ.get("LELAMP_SNAPSHOT_PERSIST_MAX_BYTES", str(50 * 1024 * 1024)))
 
 # --- Presence: Auto light on/off ---
-IDLE_TIMEOUT_S = 5 * 60    # 5 min → dim
-AWAY_TIMEOUT_S = 15 * 60   # 15 min → off
-IDLE_BRIGHTNESS = 0.20
+IDLE_TIMEOUT_S = float(os.environ.get("LELAMP_IDLE_TIMEOUT_S", "300"))
+AWAY_TIMEOUT_S = float(os.environ.get("LELAMP_AWAY_TIMEOUT_S", "900"))
+IDLE_BRIGHTNESS = float(os.environ.get("LELAMP_IDLE_BRIGHTNESS", "0.20"))
