@@ -62,8 +62,8 @@ def _build_flux_query_params(
         encoding=encoding,
         sample_rate=sample_rate,
     )
-    if keywords:
-        params["keywords"] = ",".join(keywords)
+    # if keywords:
+    #     params["keywords"] = ",".join(keywords)
     return params
 
 
