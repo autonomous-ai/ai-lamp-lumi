@@ -20,7 +20,7 @@ class LightLevelPerception(Perception):
         self._last_level: Optional[float] = None
         self._last_check: float = 0.0
 
-    def check(self, frame: np.ndarray) -> None:
+    def _check_impl(self, frame: np.ndarray) -> None:
         if frame is None:
             return
         now = time.time()

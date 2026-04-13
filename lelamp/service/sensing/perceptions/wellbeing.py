@@ -34,7 +34,7 @@ class WellbeingPerception(Perception):
         super().__init__(send_event)
 
     @override
-    def check(self, frame) -> None:
+    def _check_impl(self, frame) -> None:
         pass
 
     def to_dict(self) -> dict:
