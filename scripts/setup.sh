@@ -56,7 +56,7 @@ stage_prerequisites() {
   apt update
   apt install -y \
     hostapd dnsmasq nginx unzip curl jq wpasupplicant dhcpcd iproute2 iptables \
-    iw git xvfb chromium chromium-sandbox || true
+    iw git xvfb xauth chromium chromium-sandbox || true
   systemctl stop hostapd dnsmasq nginx 2>/dev/null || true
   systemctl unmask hostapd dnsmasq 2>/dev/null || true
   # Node.js 22 for OpenClaw CLI
