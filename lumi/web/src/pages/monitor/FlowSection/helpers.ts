@@ -514,10 +514,11 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const chatMsg = d?.data?.message ?? d?.message ?? "";
       if (hasImage) info.agent_call.push(`📷 image attached (~${Math.round(imgBytes * 3 / 4 / 1024)}KB)`);
       if (chatMsg) {
-        // Extract [snapshot: /path] if present
-        const snapMatch = chatMsg.match(/\[snapshot:\s*([^\]]+)\]/);
-        if (snapMatch) {
-          info.agent_call.push(`🖼 snapshot: ${snapMatch[1].trim()}`);
+        // Extract all [snapshot: /path] entries
+        const snapAllRe = /\[snapshot:\s*([^\]]+)\]/g;
+        let snapM;
+        while ((snapM = snapAllRe.exec(chatMsg)) !== null) {
+          info.agent_call.push(`🖼 snapshot: ${snapM[1].trim()}`);
         }
         // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
         const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
@@ -993,12 +994,12 @@ export function turnBilledTokens(turn: Turn): number {
 }
 
 // Extract input/output summary from a turn
-export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string; snapshotUrl: string } {
+export function turnIO(turn: Turn): { input: string; output: string; hwOutput: string; snapshotUrls: string[] } {
   let input = "";
   let output = "";
   let outputFromIntent = false;
   let hwOutput = "";
-  let snapshotUrl = "";
+  const snapshotUrls: string[] = [];
   const turnRunId = turn.runId;
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
@@ -1031,14 +1032,16 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       const d = ev.detail as Record<string, any> | undefined;
       const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
-      // Extract snapshot path → convert to API URL
-      const snap = raw.match(/\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/);
-      if (snap && !snapshotUrl) {
-        snapshotUrl = `/api/sensing/snapshot/${snap[1]}`;
+      // Extract all snapshot paths → convert to API URLs
+      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/g;
+      let snapMatch;
+      while ((snapMatch = snapRe.exec(raw)) !== null) {
+        const url = `/api/sensing/snapshot/${snapMatch[1]}`;
+        if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
       }
       if (!input) {
         const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/is);
-        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/, "").trim();
+        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
         if (extracted) input = extracted;
       }
     }
@@ -1084,7 +1087,7 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       }
     }
   }
-  return { input, output, hwOutput, snapshotUrl };
+  return { input, output, hwOutput, snapshotUrls };
 }
 
 export function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {

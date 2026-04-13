@@ -156,10 +156,12 @@ export function FlowDiagram({
 
   const nodeInfo = extractNodeInfo(turnEvents);
 
-  // Extract snapshot URL from agent_call lines
-  const snapshotLine = (nodeInfo.agent_call ?? []).find((l) => l.startsWith("🖼"));
-  const snapshotFile = snapshotLine?.match(/snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\s]+\.jpg)/)?.[1];
-  const snapshotUrl = snapshotFile ? `/api/sensing/snapshot/${snapshotFile}` : null;
+  // Extract snapshot URLs from agent_call lines
+  const snapshotUrls: string[] = (nodeInfo.agent_call ?? [])
+    .filter((l) => l.startsWith("🖼"))
+    .map((l) => l.match(/snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\s]+\.jpg)/)?.[1])
+    .filter((f): f is string => !!f)
+    .map((f) => `/api/sensing/snapshot/${f}`);
 
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -412,15 +414,14 @@ export function FlowDiagram({
           );
         })}
 
-        {/* Snapshot image — on the intent_check → agent_call line */}
-        {snapshotUrl && (() => {
-          const snapX = 515;
-          const snapY = 145;
+        {/* Snapshot images — on the intent_check → agent_call line */}
+        {snapshotUrls.length > 0 && snapshotUrls.map((url, i) => {
           const imgW = 100;
           const imgH = 75;
+          const snapX = 515 + i * (imgW + 10);
+          const snapY = 145;
           return (
-            <g>
-              {/* Image border */}
+            <g key={i}>
               <rect
                 x={snapX - imgW / 2} y={snapY - imgH / 2}
                 width={imgW} height={imgH}
@@ -428,26 +429,27 @@ export function FlowDiagram({
                 fill="var(--lm-card)" stroke="#fbbf24" strokeWidth={1}
                 opacity={0.9}
               />
-              {/* The image — click to enlarge */}
               <image
-                href={snapshotUrl}
+                href={url}
                 x={snapX - imgW / 2 + 2} y={snapY - imgH / 2 + 2}
                 width={imgW - 4} height={imgH - 4}
                 preserveAspectRatio="xMidYMid meet"
                 clipPath={`inset(0 round 4px)`}
                 style={{ cursor: "pointer" }}
-                onClick={(e) => { e.stopPropagation(); setLightboxUrl(snapshotUrl); }}
+                onClick={(e) => { e.stopPropagation(); setLightboxUrl(url); }}
               />
-              <text
-                x={snapX} y={snapY + imgH / 2 + 10}
-                textAnchor="middle"
-                fill="#fbbf24" fontSize={6} fontWeight={600}
-              >
-                📷 Snapshot
-              </text>
+              {i === 0 && (
+                <text
+                  x={snapX} y={snapY + imgH / 2 + 10}
+                  textAnchor="middle"
+                  fill="#fbbf24" fontSize={6} fontWeight={600}
+                >
+                  📷 {snapshotUrls.length > 1 ? `${snapshotUrls.length} Snapshots` : "Snapshot"}
+                </text>
+              )}
             </g>
           );
-        })()}
+        })}
       </svg>
 
       {/* Snapshot lightbox */}
