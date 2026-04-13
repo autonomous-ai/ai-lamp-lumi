@@ -320,11 +320,16 @@ class AnimationService:
                 self._current_frame_index += 1
             else:
                 # Recording finished
+                logger.info("Recording '%s' finished (no_idle=%s, music=%s)",
+                            self._current_recording,
+                            self._current_recording in self._no_idle_recordings,
+                            self._music_playing)
                 if self._music_playing and self._current_recording == self._music_recording:
                     # Loop music groove while music is playing
                     self._current_frame_index = 0
                 elif self._current_recording in self._no_idle_recordings:
                     # Hold final pose indefinitely (e.g. sleepy — wake via new play command)
+                    logger.info("Holding final pose for '%s' — no idle fallback", self._current_recording)
                     return
                 elif self._current_recording != self.idle_recording:
                     # Hold pose before returning to idle — skip hold when music is playing
