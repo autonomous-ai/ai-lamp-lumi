@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+# Load .env BEFORE any lelamp imports so config.py reads correct env vars
+load_dotenv(Path(__file__).parent / ".env", override=False)
+
 from fastapi import FastAPI, HTTPException, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lelamp.presets import (
@@ -91,8 +94,6 @@ from lelamp.models import (
     VoiceStartRequest,
     VoiceConfigRequest,
 )
-# Load .env from the install dir (/opt/lelamp/.env) — no-op if missing
-load_dotenv(Path(__file__).parent / ".env", override=False)
 
 # --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
