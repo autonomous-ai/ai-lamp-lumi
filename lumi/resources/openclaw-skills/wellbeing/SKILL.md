@@ -15,11 +15,16 @@ After greeting, set up wellbeing crons for this person:
 1. `cron.list` — check for existing wellbeing jobs
 2. `cron.remove` any jobs related to hydration, break, or wellbeing (name containing `"hydration"`, `"break"`, or `"Wellbeing"` — case insensitive)
 3. Read their summary if it exists: `/root/local/users/{name}/wellbeing.md`
-4. Create two cron jobs using **Scheduling skill** format (`cron.add`):
-   - `"Wellbeing: {name} hydration"` — every 360000ms (6 min). Payload: take snapshot, check presence, remind water if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`, add `[HW:/broadcast:{}]` if speaking.
-   - `"Wellbeing: {name} break"` — every 300000ms (5 min). Payload: take snapshot, check posture/fatigue, suggest stretch if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.6}]`, add `[HW:/broadcast:{}]` if speaking.
+4. Create two cron jobs via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
+   - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
+     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
+     - Text: take snapshot, check presence, remind water if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`, add `[HW:/broadcast:{}]` if speaking. **Output ONLY the HW markers + one short sentence. No explanations.**
+   - `"Wellbeing: {name} break"` — every 300000ms (5 min)
+     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
+     - Text: take snapshot, check posture/fatigue, suggest stretch if needed. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.6}]`, add `[HW:/broadcast:{}]` if speaking. **Output ONLY the HW markers + one short sentence. No explanations.**
 
-Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement. Do NOT add a `delivery` field — it causes errors.
+Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
+Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 
 ## On `presence.leave`
 
