@@ -298,6 +298,9 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                     m = re.search(r"card \d+: \S+ \[(.+?)\]", line)
                     if not m:
                         continue
+                    card_label = m.group(1).lower()
+                    if any(s in card_label for s in ("hdmi", "spdif", "iec958")):
+                        continue
                     label_words = [w.lower() for w in m.group(1).split() if len(w) > 2]
                     for i, d in enumerate(devices):
                         dname = d["name"].lower()
