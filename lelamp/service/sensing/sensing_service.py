@@ -145,11 +145,13 @@ class SensingService:
     def _loop(self):
         # Wait a bit for hardware to initialize
         time.sleep(3)
+        self._tick_count = 0
         while self._running:
             try:
                 self._tick()
             except Exception as e:
                 logger.error("Sensing tick error: %s", e, exc_info=True)
+            self._tick_count += 1
             time.sleep(self._poll_interval)
 
     def _tick(self):
@@ -160,6 +162,10 @@ class SensingService:
             frame = self._camera.last_frame
 
         for perception in self._perceptions:
+            # Run heavy perceptions (face/pose) every other tick to save CPU
+            if isinstance(perception, (FaceRecognizer, PoseMotionPerception)):
+                if self._tick_count % 2 != 0:
+                    continue
             perception.check(frame)
 
         # Presence timeout check (dim/off)
