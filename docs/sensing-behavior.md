@@ -188,16 +188,17 @@ Lumi proactively cares for the user's health using AI-driven cron jobs managed b
 The agent maintains **per-person wellbeing data** under `/root/local/users/{name}/`:
 
 - **`wellbeing.md`** — summary of accumulated habits and patterns (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00")
-- **`wellbeing/YYYY-MM-DD.md`** — daily log of each session (reminders sent, responses, observations)
+- **`wellbeing/YYYY-MM-DD.md`** — daily log, appended throughout the day on `motion.activity` resets (e.g. `14:30 — drinking beer (hydration reset)`) and summarized on `presence.leave`
 
-The agent reads the summary on `presence.enter` to quickly recall the person, writes the daily log on `presence.leave`, and periodically distills daily logs back into the summary.
+The agent reads the summary + today's daily log on `presence.enter` to quickly recall the person and know what happened earlier today (e.g. if the user left and came back). Daily log is updated continuously during `motion.activity` and finalized on `presence.leave`.
 
 When a known person arrives (`presence.enter`), the agent:
 
-1. **Reads their notebook** to recall what it has learned about their patterns.
-2. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
-3. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
-4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+1. **Reads their notebook** (`wellbeing.md`) to recall what it has learned about their patterns.
+2. **Reads today's daily log** (`wellbeing/YYYY-MM-DD.md`) to know what happened earlier today — how many times they drank, took breaks, etc. Used to adjust cron intervals.
+3. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
+4. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
+5. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
    - `"Wellbeing: {name} hydration"` — every 6 min (360000ms), takes a camera snapshot, checks presence, reminds if appropriate
    - `"Wellbeing: {name} break"` — every 5 min (300000ms), takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
 
@@ -222,7 +223,7 @@ AGENTS.md enforces a strict priority: **SKILL.md instructions always override KN
 
 This rule was added after discovering that the agent had written incorrect cron format rules into KNOWLEDGE.md ("NEVER use systemEvent") that overrode the correct Scheduling SKILL instructions.
 
-When they leave (`presence.leave`), the agent cancels both cron jobs, writes the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
+When they leave (`presence.leave`), the agent silently cancels both cron jobs, appends a session summary to the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
 
 ### Cron-fired behavior
 
@@ -284,36 +285,40 @@ The agent links face recognition names to Telegram usernames by observing timing
 
 ## Motion Activity Analysis (while present)
 
-When the user is already present (PRESENT state), foreground motion triggers a `motion.activity` event instead of `motion`. Same cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 min) — no separate timer. The system sends a camera snapshot asking the LLM to analyze what the user is doing.
+When the user is already present (PRESENT state), foreground motion triggers a `motion.activity` event instead of `motion`. Same cooldown (`MOTION_EVENT_COOLDOWN_S`, 3 min) — no separate timer. The system sends the detected action name(s) (no images — action names are sufficient for the agent to infer behavior).
 
 ### How it works
 
-`MotionPerception` checks `PresenceService.state` after the cooldown gate:
-- **PRESENT** → sends `motion.activity` with prompt: "describe what the user appears to be doing"
-- **NOT PRESENT** (AWAY/IDLE) → sends `motion` (enter/leave detection)
+`MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
+- **PRESENT** → sends `motion.activity` with action names only (e.g. `'drinking', 'stretching'`). No images attached — saves tokens.
+- **NOT PRESENT** (AWAY/IDLE) → sends `motion` with images (enter/leave detection needs visual confirmation)
 
-Both share the same `MOTION_EVENT_COOLDOWN_S` (3 min) cooldown.
+Both share the same flush interval cooldown.
 
 ### Wellbeing cron reset (LLM-driven)
 
-When the agent responds to `motion.activity`, it visually assesses what the user is doing and resets the appropriate wellbeing cron job:
+The agent infers from the **action name** (not images) whether to reset wellbeing crons:
 
-- User stretching/standing → `cron.remove` the break check job, then `cron.add` it again with the same interval (resets the timer to zero)
-- User drinking water → `cron.remove` the hydration check job, then `cron.add` it again with the same interval
-
-The agent uses per-user job names (`"Wellbeing: {name} hydration"`, `"Wellbeing: {name} break"`) to find and reset them. This way the LLM decides *which* cron to reset based on what it actually sees — stretching ≠ drinking water.
+1. **Read today's daily log** for context (how many times they drank, took breaks today)
+2. **Infer from action name:**
+   - User drinking something (water, beer, coffee, etc.) → reset hydration cron
+   - User NOT sedentary (standing, stretching, walking, etc.) → reset break cron
+   - Both apply → reset both
+   - Sedentary (sitting, typing, etc.) → NO_REPLY
+3. **Append to daily log:** `HH:MM — [action] (hydration reset / break reset / both reset)`
+4. **Respond with caring observation** using context from log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ### Agent behavior
 
 | Event | Emotion | Voice |
 |---|---|---|
-| `motion.activity` | `curious` (0.4) | YES (brief comment on activity) or NO_REPLY |
+| `motion.activity` | `curious` (0.4) | YES (caring observation with context) or NO_REPLY (sedentary) |
 
 ---
 
 ## Snapshot Storage (two-tier)
 
-Sensing events that include a camera frame (motion, presence.enter, presence.leave, music.mood, motion.activity) save snapshots in two locations:
+Sensing events that include a camera frame (motion, presence.enter, presence.leave, music.mood) save snapshots in two locations. Note: `motion.activity` no longer sends images — only action names.
 
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
