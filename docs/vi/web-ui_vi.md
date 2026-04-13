@@ -94,7 +94,6 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 | `GET /api/openclaw/recent` | Các flow event mới nhất từ JSONL của ngày hiện tại (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | API flow theo file dùng cho seed/history của Flow |
 | `GET /api/openclaw/flow-stream` | Stream live theo file (SSE) khi JSONL thay đổi |
-| `GET /api/openclaw/debug-lines?last=300` | Tail log đã parse từ `openclaw_debug_payloads.jsonl` cho tab Logs |
 | `GET /api/openclaw/events` | SSE từ monitor bus, giữ để tương thích |
 | `POST /api/system/force-update` | Kích hoạt kiểm tra OTA qua bootstrap worker (proxy tới `localhost:8080/force-check`) |
 
@@ -219,9 +218,9 @@ Hành vi gom nhóm Turn Pipeline:
 - Fallback tạm thời: khi không lấy được text Telegram, UI sẽ hiển thị `Message content from telegram`.
 - Turn badge luôn render dòng `IN`; nếu thiếu input, UI sẽ hiển thị `Input not captured`.
 - Header Flow Panel: `↓ Bundle`, `full day`, `🗑 Log`.
-- `↓ Bundle` = **một lần bấm tải ba file**: JSONL server (fetch + blob, `flow-logs?last=500`), JSON snapshot trong browser (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`), và OpenClaw debug payload JSONL (`GET /api/openclaw/debug-logs`) — có delay ngắn giữa các lần tải để browser cho phép download đủ cả 3 file.
+- `↓ Bundle` = **một lần bấm tải hai file**: JSONL server (fetch + blob, `flow-logs?last=500`) và JSON snapshot trong browser (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`).
 - `full day` = cả file JSONL trong ngày.
-- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` AND `DELETE /api/openclaw/debug-logs` để truncate cả flow log và OpenClaw debug payload, rồi xóa events đang hiển thị trong Flow UI.
+- Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate flow log, rồi xóa events đang hiển thị trong Flow UI.
 - Danh sách Turn history: tối đa **100 turn** (mới nhất ở trên), suy ra từ **500 event** cuối — sự kiện đầu ngày có thể không còn trong bộ nhớ UI.
 - Bộ nhớ event của Flow được giới hạn 500 events.
 - Heuristic ghép turn Telegram: nếu turn Telegram fallback (không có text input thật) đứng ngay trước turn có output agent trong vòng 30 giây, Monitor sẽ ghép thành 1 turn để câu trả lời đi cùng input Telegram.
@@ -234,12 +233,9 @@ Hành vi gom nhóm Turn Pipeline:
 
 ### 5.5 Logs Section
 
-- Tab log runtime riêng để debug Telegram/OpenClaw input.
-- Poll `GET /api/openclaw/debug-lines` mỗi 2 giây, hiển thị dòng mới nhất ở trên.
-- Hiển thị `source`, `role`, `run_id`, `at` và `message` parse được (nếu có).
-- Raw dump giờ là full-stream: mọi WS payload OpenClaw (`agent` + `chat`) đều được append với `source: "openclaw_raw"` và `raw_payload`, nên debug không còn phụ thuộc log chọn lọc.
-- Tab Logs giờ có thêm panel **OpenClaw Raw** (cùng LeLamp/Lumi/OpenClaw), đọc từ `GET /api/openclaw/debug-lines` để filter trực tiếp các dòng `openclaw_raw` ngay trên trang.
-- Có nút tải file debug qua `GET /api/openclaw/debug-logs`.
+- Tab log runtime cho LeLamp, Lumi, và OpenClaw service logs.
+- Mỗi panel stream qua SSE (`GET /api/logs/stream?source=<source>`) với fallback polling.
+- Hỗ trợ filter theo level (ALL/DEBUG/INFO/WARN/ERROR) và tìm kiếm text/regex.
 
 > **Lưu ý**: Camera có vai trò kép — (1) hiển thị live stream cho user xem, (2) nguồn dữ liệu sensing tự động. Sensing service đọc frame từ camera mỗi 2s để detect motion, face (Haar cascade), và light level. Khi phát hiện sự kiện đáng kể (người xuất hiện, chuyển động lớn), auto-snapshot 320px JPEG được gửi kèm event tới OpenClaw AI để phân tích bằng vision.
 
