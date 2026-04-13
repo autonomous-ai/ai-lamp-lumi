@@ -55,7 +55,7 @@ FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
 # --- Sensing: Motion detection (X3D video action recognition) ---
-MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "false").lower() == "true"
+MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
 MOTION_X3D_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_MOTION_X3D_CONFIDENCE_THRESHOLD", "0.3"))
 MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
 MOTION_EVENT_COOLDOWN_S = float(os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0"))
