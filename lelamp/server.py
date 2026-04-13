@@ -1829,9 +1829,10 @@ def express_emotion(req: EmotionRequest):
         )
 
     global _sleeping
-    logger.info("POST /emotion: emotion=%s intensity=%s user_state=%s",
+    logger.info("POST /emotion: emotion=%s intensity=%s user_state=%s sleeping=%s",
                 req.emotion, req.intensity,
-                _user_led_state.get("type") if _user_led_state else None)
+                _user_led_state.get("type") if _user_led_state else None,
+                _sleeping)
 
     _sleeping = req.emotion == "sleepy"
 
