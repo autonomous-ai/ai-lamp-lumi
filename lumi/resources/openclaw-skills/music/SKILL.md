@@ -118,7 +118,7 @@ When you first start or after a reboot, set up your proactive music check:
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
-**When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (owner detected), check and set up the music cron job.
+**When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (friend detected), check and set up the music cron job.
 
 ### When Cron Fires: The Decision Process
 

@@ -234,7 +234,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.enter":
-			msg += "\n[MANDATORY for owner/friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
+			msg += "\n[MANDATORY for friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
 		case "presence.leave":
 			msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
 		case "motion.activity":
@@ -435,10 +435,10 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
 
 // extractSnapshotPath extracts the snapshot file path from a sensing message.
-// reUserName matches "owner (gray)" or "friend (chloe)" in presence.enter messages.
-var reUserName = regexp.MustCompile(`(?:owner|friend)\s*\(([^)]+)\)`)
+// reUserName matches "friend (gray)" in presence.enter messages.
+var reUserName = regexp.MustCompile(`friend\s*\(([^)]+)\)`)
 
-// extractUserName returns the first recognized owner/friend name from a presence.enter message.
+// extractUserName returns the first recognized friend name from a presence.enter message.
 func extractUserName(message string) string {
 	m := reUserName.FindStringSubmatch(message)
 	if m == nil {
