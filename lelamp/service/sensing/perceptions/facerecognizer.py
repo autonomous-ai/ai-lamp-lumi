@@ -28,12 +28,10 @@ _STRANGER_STATS_FILE = USERS_DIR / ".stranger_stats.json"
 
 
 class FaceRecognizer(Perception):
-    """InsightFace-based face recognizer. Detects owners, friends, and strangers, fires presence events."""
+    """InsightFace-based face recognizer. Detects friends and strangers, fires presence events."""
 
-    OWNER_PREFIX: str = "owner_"
     FRIEND_PREFIX: str = "friend_"
     STRANGER_PREFIX: str = "stranger_"
-    KNOWN_ROLES: set[str] = {"owner", "friend"}
 
     def __init__(
         self,
@@ -60,7 +58,7 @@ class FaceRecognizer(Perception):
         self._strangers_forget_ts = strangers_forget_ts
 
         self._owners_last_seen: dict[str, float] = {}
-        self._known_face_kinds: dict[str, str] = {}  # person_id → "owner"|"friend"
+        self._known_face_kinds: dict[str, str] = {}  # person_id → "friend"
         self._strangers_last_seen: dict[str, float] = {}
         self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
@@ -74,11 +72,11 @@ class FaceRecognizer(Perception):
         self._stranger_ids_buffer: set[str] = set()
         self._last_stranger_flush_ts: float = 0.0
 
-        # Owner embeddings — populated by train(), cleared by reset_owners()
+        # Enrolled embeddings — populated by train(), cleared by reset_enrolled()
         self._owner_embeddings: np.ndarray | None = None
         self._owner_labels: np.ndarray | None = None
 
-        # Stranger embeddings — accumulated at runtime, never cleared by reset_owners().
+        # Stranger embeddings — accumulated at runtime, never cleared by reset_enrolled().
         # Rows are insertion-ordered; index 0 is always the oldest stranger.
         self._stranger_embeddings: np.ndarray | None = None
         self._stranger_labels: np.ndarray | None = None
@@ -116,7 +114,7 @@ class FaceRecognizer(Perception):
                 current = _latest_mtime()
                 if current != last:
                     last = current
-                    logger.info("Owner photos changed — reloading embeddings")
+                    logger.info("User photos changed — reloading embeddings")
                     self.load_from_disk()
 
         t = threading.Thread(target=_poll, daemon=True, name="owner-photos-watcher")
@@ -127,10 +125,8 @@ class FaceRecognizer(Perception):
         self,
         images: list[npt.NDArray[np.uint8]],
         labels: list[int | str],
-        role: str = "owner",
     ) -> None:
-        prefix = self.FRIEND_PREFIX if role == "friend" else self.OWNER_PREFIX
-        prefixed_labels = [prefix + str(lbl) for lbl in labels]
+        prefixed_labels = [self.FRIEND_PREFIX + str(lbl) for lbl in labels]
         new_embeddings = []
         new_labels = []
         for img, label in zip(images, prefixed_labels):
@@ -154,7 +150,7 @@ class FaceRecognizer(Perception):
                 else stacked_l
             )
             logger.info(
-                "Added %d owner faces — total owners: %d, total strangers: %d",
+                "Added %d faces — total enrolled: %d, total strangers: %d",
                 len(new_embeddings),
                 len(self._owner_embeddings),
                 len(self._stranger_embeddings)
@@ -168,48 +164,24 @@ class FaceRecognizer(Perception):
         s = label.strip().lower()
         s = re.sub(r"[^a-z0-9_-]+", "_", s)
         s = s.strip("_")
-        return s[:64] if s else "owner"
+        return s[:64] if s else "person"
 
     def _clear_owner_embeddings(self) -> None:
         self._owner_embeddings = None
         self._owner_labels = None
 
-    @staticmethod
-    def _read_role(person_dir: Path) -> str:
-        """Read role from metadata.json in a person's photo folder. Default 'owner'."""
-        meta_path = person_dir / "metadata.json"
-        if meta_path.is_file():
-            try:
-                data = json.loads(meta_path.read_text())
-                role = data.get("role", "owner")
-                if role in FaceRecognizer.KNOWN_ROLES:
-                    return role
-            except (json.JSONDecodeError, OSError):
-                pass
-        return "owner"
-
-    @staticmethod
-    def _write_role(person_dir: Path, role: str) -> None:
-        """Write role to metadata.json in a person's photo folder."""
-        meta_path = person_dir / "metadata.json"
-        meta_path.write_text(json.dumps({"role": role}))
-
-    def save_photo(self, image_bytes: bytes, label: str, role: str = "owner") -> str:
+    def save_photo(self, image_bytes: bytes, label: str) -> str:
         """Write JPEG bytes under USERS_DIR/{label}/ with a timestamp name."""
         norm = self.normalize_label(label)
-        if role not in self.KNOWN_ROLES:
-            role = "owner"
         dest_dir = USERS_DIR / norm
         dest_dir.mkdir(parents=True, exist_ok=True)
-        # Persist role metadata
-        self._write_role(dest_dir, role)
         fname = f"{int(time.time() * 1000)}.jpg"
         path = dest_dir / fname
         path.write_bytes(image_bytes)
         return str(path)
 
     def load_from_disk(self) -> int:
-        """Clear owner/friend embeddings and re-train from all JPEG/PNG images under USERS_DIR."""
+        """Clear enrolled embeddings and re-train from all JPEG/PNG images under USERS_DIR."""
         self._clear_owner_embeddings()
         if not USERS_DIR.is_dir():
             logger.info("No users dir at %s — skipping", USERS_DIR)
@@ -221,7 +193,6 @@ class FaceRecognizer(Perception):
         for person_dir in sorted(USERS_DIR.iterdir()):
             if not person_dir.is_dir():
                 continue
-            role = self._read_role(person_dir)
             images = []
             labels: list[str] = []
             for fname in sorted(person_dir.iterdir()):
@@ -235,16 +206,15 @@ class FaceRecognizer(Perception):
                 labels.append(person_dir.name)
 
             if images:
-                self.train(images, labels, role=role)
+                self.train(images, labels)
                 loaded_total += len(images)
                 logger.info(
-                    "Loaded %d image(s) for %s '%s'",
+                    "Loaded %d image(s) for '%s'",
                     len(images),
-                    role,
                     person_dir.name,
                 )
 
-        n_enrolled = self.owner_count()
+        n_enrolled = self.enrolled_count()
         logger.info(
             "Load from disk done — %d image(s), %d enrolled person(s)",
             loaded_total,
@@ -252,13 +222,9 @@ class FaceRecognizer(Perception):
         )
         return n_enrolled
 
-    def enroll_from_bytes(
-        self, image_bytes: bytes, label: str, role: str = "owner"
-    ) -> str:
+    def enroll_from_bytes(self, image_bytes: bytes, label: str) -> str:
         """Decode image, save as JPEG on disk, and append embeddings."""
         norm = self.normalize_label(label)
-        if role not in self.KNOWN_ROLES:
-            role = "owner"
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         img = self._cv2.imdecode(arr, self._cv2.IMREAD_COLOR)
         if img is None:
@@ -268,64 +234,46 @@ class FaceRecognizer(Perception):
         ok, buf = self._cv2.imencode(".jpg", img)
         if not ok:
             raise ValueError("could not encode image")
-        path = self.save_photo(buf.tobytes(), norm, role=role)
-        self.train([img], [norm], role=role)
+        path = self.save_photo(buf.tobytes(), norm)
+        self.train([img], [norm])
         return path
 
-    def remove_owner(self, label: str) -> bool:
-        """Remove one owner's directory and re-load remaining owners from disk."""
+    def remove_person(self, label: str) -> bool:
+        """Remove one person's directory and re-load remaining persons from disk."""
         norm = self.normalize_label(label)
-        owner_dir = USERS_DIR / norm
-        if not owner_dir.is_dir():
+        person_dir = USERS_DIR / norm
+        if not person_dir.is_dir():
             return False
-        shutil.rmtree(owner_dir)
+        shutil.rmtree(person_dir)
         self.load_from_disk()
         return True
 
-    def owner_count(self) -> int:
+    def enrolled_count(self) -> int:
         if self._owner_labels is None:
             return 0
         unique = set()
         for lbl in self._owner_labels:
             s = str(lbl)
-            if s.startswith(self.FRIEND_PREFIX):
-                unique.add(s.removeprefix(self.FRIEND_PREFIX))
-            else:
-                unique.add(s.removeprefix(self.OWNER_PREFIX))
+            unique.add(s.removeprefix(self.FRIEND_PREFIX))
         return len(unique)
 
-    def owner_names(self) -> list[str]:
+    def enrolled_names(self) -> list[str]:
         if self._owner_labels is None:
             return []
         unique = set()
         for lbl in self._owner_labels:
             s = str(lbl)
-            if s.startswith(self.FRIEND_PREFIX):
-                unique.add(s.removeprefix(self.FRIEND_PREFIX))
-            else:
-                unique.add(s.removeprefix(self.OWNER_PREFIX))
+            unique.add(s.removeprefix(self.FRIEND_PREFIX))
         return sorted(unique)
 
-    def enrolled_persons(self) -> list[dict]:
-        """Return list of enrolled persons with name and role."""
-        if not USERS_DIR.is_dir():
-            return []
-        persons = []
-        for d in sorted(USERS_DIR.iterdir()):
-            if not d.is_dir():
-                continue
-            role = self._read_role(d)
-            persons.append({"label": d.name, "role": role})
-        return persons
-
-    def reset_owners(self) -> None:
-        """Clear owner embeddings and delete all saved owner photos. Stranger bank is unchanged."""
+    def reset_enrolled(self) -> None:
+        """Clear enrolled embeddings and delete all saved photos. Stranger bank is unchanged."""
         self._clear_owner_embeddings()
         if USERS_DIR.is_dir():
             for child in USERS_DIR.iterdir():
                 if child.is_dir():
                     shutil.rmtree(child)
-        logger.info("Owner embeddings cleared and owner photos removed")
+        logger.info("Enrolled embeddings cleared and photos removed")
 
     def _evict_oldest_strangers(self) -> None:
         if self._stranger_embeddings is None or self._stranger_labels is None:
@@ -418,7 +366,7 @@ class FaceRecognizer(Perception):
         new_stranger_labels = []
         owners_seen = set()
         strangers_seen = set()
-        # per-face: (bbox_pixels, face_kind, label)  face_kind: "owner"|"friend"|"stranger"|"unsure"
+        # per-face: (bbox_pixels, face_kind, label)  face_kind: "friend"|"stranger"|"unsure"
         face_annotations: list[tuple[list[int], str, str]] = []
 
         for x in range(n):
@@ -428,12 +376,8 @@ class FaceRecognizer(Perception):
 
             if o_score > self.threshold:
                 raw_id = owner_ids[x] or ""
-                if raw_id.startswith(self.FRIEND_PREFIX):
-                    face_kind = "friend"
-                    person_id = raw_id.removeprefix(self.FRIEND_PREFIX)
-                else:
-                    face_kind = "owner"
-                    person_id = raw_id.removeprefix(self.OWNER_PREFIX)
+                face_kind = "friend"
+                person_id = raw_id.removeprefix(self.FRIEND_PREFIX)
 
                 if person_id not in self._owners_last_seen:
                     last_seen = None
@@ -448,7 +392,7 @@ class FaceRecognizer(Perception):
                     face_annotations.append((bbox, face_kind, person_id))
                 else:
                     logger.debug(
-                        f"Ignore owner(id={person_id}): owner has been seen in the last {cur_ts - last_seen:.2f} seconds"
+                        f"Ignore friend(id={person_id}): seen in the last {cur_ts - last_seen:.2f} seconds"
                     )
 
             elif s_score > self.threshold:
@@ -511,7 +455,7 @@ class FaceRecognizer(Perception):
 
         self._faces_n = len(owners_seen) + len(strangers_seen)
         logger.info(
-            f"Detected owners={list(owners_seen)} and strangers={list(strangers_seen)}"
+            f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
         )
         self._face_present = self._faces_n > 0
 
@@ -531,11 +475,11 @@ class FaceRecognizer(Perception):
 
         flushed_snapshots, flushed_ids = self._flush_stranger_buffer(cur_ts)
 
-        # Build annotations to send: owners/friends always, strangers only on flush
+        # Build annotations to send: friends always, strangers only on flush
         owner_annotations = [
             (bbox, kind, label)
             for bbox, kind, label in face_annotations
-            if kind in ("owner", "friend")
+            if kind == "friend"
         ]
         annotations_to_send = list(owner_annotations)
         if flushed_ids:
@@ -546,16 +490,11 @@ class FaceRecognizer(Perception):
             ]
 
         if annotations_to_send:
-            owners_in_frame = {
-                name for _, kind, name in annotations_to_send if kind == "owner"
-            }
             friends_in_frame = {
                 name for _, kind, name in annotations_to_send if kind == "friend"
             }
             strangers_in_frame = flushed_ids
             parts = []
-            if owners_in_frame:
-                parts.append(f"owner ({', '.join(owners_in_frame)})")
             if friends_in_frame:
                 parts.append(f"friend ({', '.join(friends_in_frame)})")
             if strangers_in_frame:
@@ -573,7 +512,7 @@ class FaceRecognizer(Perception):
             "type": "face",
             "face_present": self._face_present,
             "faces_count": self._faces_n,
-            "owner_count": self.owner_count(),
+            "enrolled_count": self.enrolled_count(),
             "stranger_count": len(self._stranger_embeddings)
             if self._stranger_embeddings is not None
             else 0,
@@ -586,7 +525,7 @@ class FaceRecognizer(Perception):
         for person_id, last_seen in list(self._owners_last_seen.items()):
             if (cur_ts - last_seen) > self._owners_forget_ts:
                 del self._owners_last_seen[person_id]
-                kind = self._known_face_kinds.pop(person_id, "owner")
+                kind = self._known_face_kinds.pop(person_id, "friend")
                 self._send_leave_event(person_id, kind=kind)
 
         for person_id, last_seen in list(self._strangers_last_seen.items()):
@@ -649,7 +588,7 @@ class FaceRecognizer(Perception):
         for person_id, last_seen in self._owners_last_seen.items():
             elapsed = now - last_seen
             remaining = max(0.0, self._owners_forget_ts - elapsed)
-            kind = self._known_face_kinds.get(person_id, "owner")
+            kind = self._known_face_kinds.get(person_id, "friend")
             owners.append({
                 "person_id": person_id,
                 "kind": kind,
@@ -693,8 +632,7 @@ class FaceRecognizer(Perception):
         annotated = frame.copy()
         cv2 = self._cv2
         _COLOR = {
-            "owner": (0, 255, 0),  # green
-            "friend": (255, 200, 0),  # cyan/teal
+            "friend": (0, 255, 0),  # green
             "stranger": (0, 0, 255),  # red
             "unsure": (0, 255, 255),  # yellow
         }
@@ -748,7 +686,7 @@ class FaceRecognizer(Perception):
                 with bounding boxes and labels before sending. Includes the current
                 frame plus any buffered stranger snapshots from the flush window.
             summary: Human-readable description of who was detected
-                (e.g. "owner (alice), stranger (stranger_3)").
+                (e.g. "friend (alice), stranger (stranger_3)").
         """
         images = [self._annotate_frame(frame, annotations) for frame, annotations in frames]
         faces: set[tuple[str, str]] = set()

@@ -289,7 +289,7 @@ GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
 
 ### Nhận diện cross-channel
 
-Agent liên kết tên face recognition với Telegram username bằng cách quan sát timing và context (ví dụ: "gray" đang ngồi và "@GrayDev" nhắn Telegram cùng lúc). Mapping được lưu vào USER.md (cho owner) hoặc notes trong folder user. Agent hỏi xác nhận nếu chưa chắc.
+Agent liên kết tên face recognition với Telegram username bằng cách quan sát timing và context (ví dụ: "gray" đang ngồi và "@GrayDev" nhắn Telegram cùng lúc). Mapping được lưu vào USER.md (cho friend) hoặc notes trong folder user. Agent hỏi xác nhận nếu chưa chắc.
 
 ---
 
