@@ -216,38 +216,39 @@ def speaking_wave(
     stop_event: threading.Event,
     svc,
 ):
-    """Drum-beat speaking pulse — strong brightness pulsation during TTS playback.
+    """Calm speaking glow — gentle brightness swell like Google Home / Alexa.
 
-    Alternates between dim (5%) and full brightness with a sharp attack and
-    smooth decay, like a drum beat synced to speech rhythm. A secondary ripple
-    adds variation so it doesn't feel mechanical.
+    All LEDs pulse together with a single smooth sine wave. Brightness stays
+    in a narrow band (40%-85%) so the lamp never goes dark or blindingly
+    bright. Tempo is ~0.7 Hz (slower than breathing) to feel calm and not
+    compete with the audio output. A very subtle center-to-edge gradient
+    adds a tiny bit of spatial life without being distracting.
     """
-    step_delay = 0.02 / speed
+    # ~33fps, smooth enough for gentle pulse
+    step_delay = 0.03 / speed
     led_count = getattr(svc, "led_count", 64)
     center = led_count / 2.0
     phase = 0.0
 
+    # Brightness bounds — narrow range keeps it calm
+    bright_min = 0.40
+    bright_max = 0.85
+
     while not is_done(deadline, stop_event):
+        # Single sine wave: all LEDs share the same base brightness
+        # Pure sine, no sharpening — smooth swell up and down
+        base = math.sin(phase) * 0.5 + 0.5  # 0..1
+
         pixels = [(0, 0, 0)] * led_count
         for i in range(led_count):
-            # Distance from center, normalized 0..1
-            dist = abs(i - center) / center
+            # Subtle gradient: center is slightly brighter than edges
+            dist = abs(i - center) / center  # 0 at center, 1 at edges
+            gradient = 1.0 - dist * 0.12     # center=1.0, edges=0.88
 
-            # Main pulse: strong beat radiating from center outward
-            # Uses abs(sin) for sharp attack, full on-off swing
-            wave = math.sin(phase - dist * math.pi * 2.0)
-            # Sharp attack: square the positive half for punch
-            pulse = max(0.0, wave) ** 0.6
-
-            # Secondary beat at different rhythm for organic feel
-            wave2 = math.sin(phase * 1.7 - dist * math.pi * 3.0)
-            pulse2 = max(0.0, wave2) ** 0.8 * 0.4
-
-            # Combine: range [0.05 .. 1.0] — nearly off to full bright
-            brightness = 0.05 + 0.95 * min(1.0, pulse + pulse2)
-
+            brightness = bright_min + (bright_max - bright_min) * base * gradient
             pixels[i] = tuple(int(c * brightness) for c in color)
 
         svc.dispatch("paint", pixels)
-        phase += 0.25 * speed  # fast beat tempo
+        # ~0.7 Hz cycle: phase advances 0.07 rad/frame * 33fps ≈ 2.3 rad/s ≈ 0.37 Hz per half-cycle
+        phase += 0.07 * speed
         time.sleep(step_delay)
