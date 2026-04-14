@@ -82,6 +82,7 @@ export interface DeviceConfig {
   llm_base_url: string;
   llm_disable_thinking: boolean;
   deepgram_api_key: string;
+  tts_voice: string;
   device_id: string;
   network_ssid: string;
   network_password: string;
