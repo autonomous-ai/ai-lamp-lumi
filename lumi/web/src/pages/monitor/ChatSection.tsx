@@ -568,19 +568,34 @@ export function ChatSection({ events }: Props) {
           }
 
           if (ev.state === "complete" || ev.state === "final") {
+            const finalText = chatMsg || deltaBufRef.current.get(pending) || "";
+            // Skip empty finals — OpenClaw sends acknowledgment-only finals with no message.
+            // Wait for the actual response or let the timeout handle it.
+            if (!finalText) return;
             const { savedChips, usage } = resolveRun(pending);
-            const finalText = stripHWMarkers(chatMsg || deltaBufRef.current.get(pending) || "…");
+            const cleaned = stripHWMarkers(finalText);
             updateMessages((prev) =>
               prev.map((m) =>
                 m.runId === pending && m.role === "lumi" && m.pending
-                  ? { ...m, text: finalText, pending: false, tools: savedChips, tokenUsage: usage }
+                  ? { ...m, text: cleaned, pending: false, tools: savedChips, tokenUsage: usage }
                   : m,
               ),
             );
             return;
           }
 
-          if (ev.state === "error") return; // error handled separately
+          if (ev.state === "error") {
+            const errMsg = (ev.detail as Record<string, string>)?.error ?? ev.summary ?? "error";
+            const { savedChips, usage } = resolveRun(pending);
+            updateMessages((prev) =>
+              prev.map((m) =>
+                m.runId === pending && m.role === "lumi" && m.pending
+                  ? { ...m, text: errMsg, pending: false, error: true, tools: savedChips, tokenUsage: usage }
+                  : m,
+              ),
+            );
+            return;
+          }
 
           // Partial (non-delta path)
           if (chatMsg && !deltaBufRef.current.has(pending)) {
@@ -868,7 +883,7 @@ export function ChatSection({ events }: Props) {
     const sendImage = attachedImage ?? fileBase64;
 
     try {
-      const body: Record<string, string> = { type: "voice", message: text };
+      const body: Record<string, string> = { type: "voice_command", message: text, source: "web" };
       if (sendImage) body.image = sendImage;
       const res = await fetch(`${API}/sensing/event`, {
         method: "POST",
@@ -908,7 +923,7 @@ export function ChatSection({ events }: Props) {
               ),
             );
           }
-        }, 30_000);
+        }, 120_000);
       } else if (json.data?.handler === "local") {
         setSending(false);
         const localText = json.data?.response || "✓ handled locally";
@@ -919,7 +934,7 @@ export function ChatSection({ events }: Props) {
               : c,
           ),
         );
-      } else if (json.data?.handler === "dropped") {
+      } else if (json.data?.handler === "dropped" || json.data?.handler === "queued") {
         setSending(false);
         setConvos((prev) =>
           prev.map((c) =>
