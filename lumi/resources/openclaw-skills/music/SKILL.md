@@ -139,11 +139,11 @@ Before querying any API, review the recent conversation history in this session.
 
 **Mood history** (today + recent days):
 ```bash
-# Today
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=200"
+# Today — current user (auto-detected from presence)
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=50"
 
-# Yesterday (for pattern learning)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date -d yesterday +%Y-%m-%d)&last=200"
+# Today — shared pool (mood logged before face was detected)
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=unknown&date=$(date +%Y-%m-%d)&last=50"
 ```
 
 **Listening history** (what user actually played):
@@ -167,14 +167,13 @@ From the data, extract these patterns:
 
 | Question | Where to find the answer |
 |----------|--------------------------|
-| User usually sits down at what time? | `presence.enter` events → look at `hour` field |
-| How long before they want music? | Time between `presence.enter` and `music.play` events |
+| What's the user's current mood? | Conversation context (PRIMARY) + `mood-history` → `mood` and `trigger` fields |
 | What genre do they prefer? | `audio/history` → `query` and `title` fields |
 | How long do they listen? | `audio/history` → `duration_s` field |
 | When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
 | Did they accept my last suggestion? | Compare suggestion time with next `music.play` event time from `audio/history`. Close = accepted, far/none = rejected |
-| What time of day do they enjoy music most? | `music.play` events → `hour` field |
-| Are there times they never want music? | Repeated NO_REPLY or no `music.play` at certain hours |
+| What time of day do they enjoy music most? | `audio/history` → `hour` field |
+| Are there times they never want music? | Repeated skips or no plays at certain hours in `audio/history` |
 
 #### Step 3 — Decide
 
