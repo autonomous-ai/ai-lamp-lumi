@@ -22,6 +22,7 @@ from typing import Optional
 
 import requests
 
+from lelamp.service.voice.backchannel import Backchannel
 from lelamp.service.voice.stt_provider import STTProvider
 
 logger = logging.getLogger("lelamp.voice")
@@ -63,6 +64,7 @@ STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+
 
 
 class _ArecordStream:
@@ -140,6 +142,8 @@ class VoiceService:
         self._np = None
         # Explicit override from .env → skip auto-detection entirely
         self._alsa_device: Optional[str] = alsa_device or None
+
+        self._backchannel = Backchannel(tts_service)
 
         try:
             import numpy as np
@@ -625,6 +629,7 @@ class VoiceService:
                 logger.info("STT partial: '%s'", text)
                 if len(text) > len(longest_partial[0]):
                     longest_partial[0] = text
+                self._backchannel.on_partial(text)
                 return
             # Accumulate final segments — don't send yet, wait for session close.
             # Flux model fires multiple EndOfTurn events for natural pauses within
@@ -719,6 +724,7 @@ class VoiceService:
         except Exception as e:
             logger.error("STT stream error: %s", e)
         finally:
+            self._backchannel.reset()
             self._listening = False
             session.close()
             # Send the best transcript once when session closes (not on each final).
