@@ -1,6 +1,6 @@
 ---
 name: wellbeing
-description: Manages hydration and break reminders for owners and friends. Schedules cron jobs on presence.enter, cancels on presence.leave, resets timers on motion.activity. Each person has their own wellbeing data folder.
+description: Manages hydration and break reminders for owners and friends. Hydration cron starts on presence.enter. Break cron starts only when sedentary activity detected (using computer, writing, etc.). Cancels on presence.leave, resets/manages timers on motion.activity. Each person has their own wellbeing data folder.
 ---
 
 # Wellbeing
@@ -10,19 +10,16 @@ You care about the user's health. When an owner or friend arrives, set up hydrat
 
 ## On `presence.enter` (owner or friend)
 
-After greeting, set up wellbeing crons for this person:
+After greeting, set up **hydration cron only**. Break cron is NOT created here — it starts later when sedentary activity is detected (see `motion.activity` section).
 
 1. `cron.list` — check for existing wellbeing jobs
 2. `cron.remove` any jobs related to hydration, break, or wellbeing (name containing `"hydration"`, `"break"`, or `"Wellbeing"` — case insensitive)
 3. Read their summary if it exists: `/root/local/users/{name}/wellbeing.md`
 4. Read today's daily log if it exists: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — use this to adjust cron intervals and know what happened earlier today
-5. Create two cron jobs via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
+5. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
    - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
      - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check. Check presence, take snapshot. If present and no drink visible — remind water (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/broadcast:{}]"`
-   - `"Wellbeing: {name} break"` — every 300000ms (5 min)
-     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/broadcast:{}]"`
 
 Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
 Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
@@ -35,18 +32,25 @@ Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delive
 
 Do NOT cancel on `presence.away` — only on `presence.leave`.
 
-## On `motion.activity` — reset timers
+## On `motion.activity` — manage break cron & reset timers
 
 1. **Read** today's daily log (`/root/local/users/{name}/wellbeing/YYYY-MM-DD.md`) for context — how many times they drank, took breaks, etc.
 2. From the action name, **infer**:
-   - User is drinking something? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
-   - User is NOT sedentary (standing, stretching, walking, etc.)? → reset `"Wellbeing: {name} break"` cron
-   - Both apply? → reset both
+   - **Sedentary action** (using computer, writing, texting, reading book, drawing)?
+     → `cron.list` — if NO break cron exists yet, **create** it now:
+       - `"Wellbeing: {name} break"` — every 300000ms (5 min)
+       - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
+       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/broadcast:{}]"`
+     → If break cron already exists, do nothing (timer keeps running). → NO_REPLY
+   - **Hydration action** (drinking, opening bottle, making tea, etc.)? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
+   - **Break action** (stretching, yoga, exercise, jogging, etc.)? → `cron.remove` the break cron. It will be re-created when next sedentary action is detected.
+   - **Meal action** (dining, eating *)? → reset hydration cron (they're consuming food/drink)
+   - Both hydration + break apply? → handle both
    - No wellbeing crons active? → skip
-   - Neither applies (just sitting/working)? → NO_REPLY
+   - Emotional action (laughing, crying, yawning, singing, etc.)? → handled by **Emotion Detection** skill, do NOT touch any cron
 3. **Append** a line to today's daily log:
    ```
-   HH:MM — [action name] (hydration reset / break reset / both reset)
+   HH:MM — [action name] (hydration reset / break created / break removed / etc.)
    ```
 4. **Respond** with a short caring observation about what they're doing, using context from the log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 

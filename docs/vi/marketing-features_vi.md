@@ -59,6 +59,8 @@ Trạng thái: **Đang Xem Xét** — chưa lên lịch, chưa implement.
 - Dùng presence detection hiện có (FaceRecognizer) — không cần model mới
 - OpenClaw xử lý giọng điệu/thời điểm nhắc dựa trên lịch sử và tính cách người dùng
 
+> **Ghi chú triển khai (2026-04)**: UC này đã được cover bằng cách tiếp cận AI-driven linh hoạt hơn. Thay vì dùng timer cố định `wellness.sitting_too_long` từ sensing loop, Wellbeing SKILL dùng OpenClaw cron jobs được kích hoạt khi `motion.activity` phát hiện hành vi sedentary (using computer, writing, reading, v.v.). Break cron chỉ được tạo khi xác nhận người dùng đang ngồi làm việc — không phải chỉ vì có mặt trong khung hình. Agent có đầy đủ conversation context, lịch sử per-person, và personality awareness, giúp nhắc nhở tự nhiên và thích ứng hơn so với timer cố định. Xem `lumi/resources/openclaw-skills/wellbeing/SKILL.md`.
+
 **Câu hỏi mở**:
 - [ ] Khoảng thời gian nhắc nhở mặc định là bao nhiêu? (45 phút? 60 phút? Người dùng tùy chỉnh?)
 - [ ] Làm sao Lumi phân biệt "đang ngồi làm việc" với "vừa xuất hiện trong frame"?

@@ -61,6 +61,7 @@ var skills = []string{
 	"camera",
 	"display",
 	"emotion",
+	"emotion-detection",
 	"face-enroll",
 	"guard",
 	"led-control",
