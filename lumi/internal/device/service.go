@@ -67,6 +67,9 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	}
 	s.config.DeviceID = data.DeviceID
 	s.config.DeepgramAPIKey = data.DeepgramAPIKey
+	if data.TTSVoice != "" {
+		s.config.TTSVoice = data.TTSVoice
+	}
 	s.config.MQTTEndpoint = data.MQTTEndpoint
 	s.config.MQTTUsername = data.MQTTUsername
 	s.config.MQTTPassword = data.MQTTPassword
@@ -200,6 +203,7 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		LLMBaseURL:         s.config.LLMBaseURL,
 		LLMDisableThinking: disableThinking,
 		DeepgramAPIKey:     s.config.DeepgramAPIKey,
+		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           s.config.DeviceID,
 		NetworkSSID:        s.config.NetworkSSID,
 		NetworkPassword:    s.config.NetworkPassword,
@@ -230,6 +234,9 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	}
 	if data.DeepgramAPIKey != "" {
 		s.config.DeepgramAPIKey = data.DeepgramAPIKey
+	}
+	if data.TTSVoice != "" {
+		s.config.TTSVoice = data.TTSVoice
 	}
 	if data.DeviceID != "" {
 		s.config.DeviceID = data.DeviceID

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getNetworks, setupDevice } from "@/lib/api";
+import { getNetworks, setupDevice, getTTSVoices } from "@/lib/api";
 import type { ChannelType, NetworkItem } from "@/types";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "channel" | "mqtt";
+type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -168,7 +168,8 @@ export default function Setup() {
     { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
     ...(!urlParams.deviceId ? [{ id: "device" as SectionId, label: "Device", icon: "◈" }] : []),
     ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: "⬢" }] : []),
-    ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "Deepgram", icon: "◉" }] : []),
+    ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: "◉" }] : []),
+    { id: "tts" as SectionId, label: "TTS", icon: "◎" },
     ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: "⬟" }] : []),
     { id: "mqtt",     label: "MQTT",     icon: "☰" },
   ];
@@ -190,6 +191,8 @@ export default function Setup() {
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "claude-haiku-4-5");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [ttsVoice, setTtsVoice] = useState("alloy");
+  const [ttsVoices, setTtsVoices] = useState<string[]>([]);
   const [teleToken, setTeleToken] = useState("");
   const [teleUserId, setTeleUserId] = useState("");
   const [slackBotToken, setSlackBotToken] = useState("");
@@ -224,6 +227,7 @@ export default function Setup() {
         .catch(() => { if (attempt < maxAttempts) return fetchNetworks(); setNetworks([]); });
     }
     fetchNetworks().finally(() => setLoadingList(false));
+    getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -300,6 +304,7 @@ export default function Setup() {
         llm_model: urlParams.llmModel || llmModel,
         llm_disable_thinking: llmDisableThinking || undefined,
         deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
+        tts_voice: ttsVoice || undefined,
         device_id: urlParams.deviceId || deviceId,
       };
       const endpoint = mqttEndpoint || urlParams.mqttEndpoint;
@@ -324,7 +329,7 @@ export default function Setup() {
   }, [
     channel, urlParams, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl, llmApiKey,
-    llmModel, llmDisableThinking, deepgramApiKey, deviceId,
+    llmModel, llmDisableThinking, deepgramApiKey, ttsVoice, deviceId,
     mqttEndpoint, mqttPort, mqttUsername, mqttPassword, faChannel, fdChannel,
   ]);
 
@@ -512,12 +517,36 @@ export default function Setup() {
                     </SectionCard>
                   )}
 
-                  {/* Deepgram */}
+                  {/* STT (Deepgram) */}
                   {!urlParams.deepgramApiKey && (
-                    <SectionCard id="deepgram" title="Deepgram STT">
+                    <SectionCard id="deepgram" title="STT (Deepgram)">
                       <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
                     </SectionCard>
                   )}
+
+                  {/* TTS */}
+                  <SectionCard id="tts" title="TTS Voice">
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Voice
+                      </label>
+                      <select
+                        id="tts_voice"
+                        value={ttsVoice}
+                        onChange={(e) => setTtsVoice(e.target.value)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        {(ttsVoices.length > 0 ? ttsVoices : ["alloy"]).map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </SectionCard>
 
                   {/* Channel */}
                   {!hasChannelParams && (

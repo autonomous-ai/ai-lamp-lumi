@@ -245,6 +245,7 @@ func (s *Server) Serve(closeFn func()) error {
 	device.POST("channel", s.deviceHandler.ChangeChannel)
 	device.GET("config", s.deviceHandler.GetConfig)
 	device.PUT("config", s.deviceHandler.UpdateConfig)
+	device.GET("voices", s.deviceHandler.GetVoices)
 
 	network := api.Group("network")
 	network.GET("", s.networkHandler.GetNetworks)
@@ -381,7 +382,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			// Retry because lumi-lelamp may not be running yet at setup time.
 			if s.config.DeepgramAPIKey != "" {
 				for attempt := 1; attempt <= 10; attempt++ {
-					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL)
+					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice)
 					if err == nil {
 						break
 					}
