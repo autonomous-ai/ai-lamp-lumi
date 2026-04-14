@@ -114,7 +114,7 @@ When you first start or after a reboot, set up your proactive music check:
 2. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Query presence, mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
