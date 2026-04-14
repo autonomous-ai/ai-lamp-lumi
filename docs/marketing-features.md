@@ -59,6 +59,8 @@ Status: **Under Review** — not scheduled, not implemented.
 - Uses existing presence detection (FaceRecognizer) — no new model required
 - OpenClaw handles message tone/timing based on user history and personality
 
+> **Implementation note (2026-04)**: This UC is already covered by a more flexible AI-driven approach. Instead of a fixed-timer `wellness.sitting_too_long` event from the sensing loop, the Wellbeing SKILL uses OpenClaw cron jobs triggered by `motion.activity` sedentary detection (using computer, writing, reading, etc.). The break cron is only created when sedentary activity is confirmed — not on mere presence. The agent has full conversation context, per-person history, and personality awareness, making reminders more natural and adaptive than a static sensing-loop timer. See `lumi/resources/openclaw-skills/wellbeing/SKILL.md`.
+
 **Open questions**:
 - [ ] What are the default reminder intervals? (45 min? 60 min? User-configurable?)
 - [ ] How does Lumi distinguish "sitting at desk working" vs. "briefly back in frame"?
