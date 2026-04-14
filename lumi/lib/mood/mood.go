@@ -87,11 +87,11 @@ func CurrentUser() string {
 }
 
 // LogMood records a user mood event to the current user's mood directory.
-// Returns error if no user is currently set.
+// Falls back to "unknown" when no user is detected via presence.
 func LogMood(moodStr, source, trigger string) error {
 	user := CurrentUser()
 	if user == "" {
-		return nil // no user present, skip
+		user = "unknown" // TODO
 	}
 
 	now := time.Now()
