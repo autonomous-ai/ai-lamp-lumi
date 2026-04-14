@@ -87,6 +87,13 @@ type Service struct {
 	// TTS is suppressed for these runs — response is displayed in the web UI only.
 	webChatRunsMu sync.Mutex
 	webChatRuns   map[string]bool
+
+	// pendingChatTrace stores the idempotencyKey of the most recent chat.send.
+	// Used by SSE handler to map OpenClaw UUID → device trace on lifecycle_start,
+	// replacing the race-prone global flow.GetTrace().
+	pendingChatMu      sync.Mutex
+	pendingChatTrace   string
+	pendingChatTraceAt time.Time
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -1614,6 +1621,28 @@ func (s *Service) ConsumeWebChatRun(runID string) bool {
 	return ok
 }
 
+// SetPendingChatTrace stores the idempotencyKey after a successful chat.send.
+func (s *Service) SetPendingChatTrace(runID string) {
+	s.pendingChatMu.Lock()
+	s.pendingChatTrace = runID
+	s.pendingChatTraceAt = time.Now()
+	s.pendingChatMu.Unlock()
+}
+
+// ConsumePendingChatTrace returns and clears the pending chat trace. One-shot.
+// Returns "" if no pending chat or expired (>2 min).
+func (s *Service) ConsumePendingChatTrace() string {
+	s.pendingChatMu.Lock()
+	defer s.pendingChatMu.Unlock()
+	if s.pendingChatTrace == "" || time.Since(s.pendingChatTraceAt) > 2*time.Minute {
+		s.pendingChatTrace = ""
+		return ""
+	}
+	trace := s.pendingChatTrace
+	s.pendingChatTrace = ""
+	return trace
+}
+
 // --- Channel abstraction (backend-agnostic) ---
 
 // GetTelegramBotToken returns the Telegram bot token from the agent runtime config.
@@ -1856,6 +1885,9 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 
 	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
+	// Store pending trace so SSE handler can map OpenClaw UUID → device trace
+	// without relying on the race-prone global flow.GetTrace().
+	s.SetPendingChatTrace(idempotencyKey)
 	flow.Log("chat_send", map[string]any{
 		"run_id":      idempotencyKey,
 		"has_session": sessionKey != "",

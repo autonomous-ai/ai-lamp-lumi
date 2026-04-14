@@ -53,7 +53,7 @@ lelamp/
 │   │   ├── presence_service.py   — Auto light on/off state machine
 │   │   └── perceptions/          — Pluggable detectors
 │   │       ├── motion.py         — Frame differencing motion detector
-│   │       ├── facerecognizer.py — InsightFace owner/stranger recognizer
+│   │       ├── facerecognizer.py — InsightFace friend/stranger recognizer
 │   │       └── light_level.py    — Ambient brightness detector
 │   └── display/                  — GC9A01 LCD eyes + info
 └── pyproject.toml                — Python dependencies (opencv-python, insightface)
@@ -84,8 +84,8 @@ Mic (always on) → Local VAD (RMS energy, free)
 ```
 LeLamp sensing loop (every 2s) → Read 1 camera frame, run all detectors:
     ├─ Motion detection (frame diff) → event if >8% pixels changed
-    ├─ Face recognition (InsightFace buffalo_sc) → owner/stranger classification
-    │     → presence.enter (annotated JPEG with colored bboxes: green=owner, red=stranger)
+    ├─ Face recognition (InsightFace buffalo_sc) → friend/stranger classification
+    │     → presence.enter (annotated JPEG with colored bboxes: green=friend, red=stranger)
     │     → presence.leave (3 consecutive ticks without face)
     ├─ Light level (mean brightness, every 30s) → event if change >30/255
     └─ Sound detection (mic RMS) → event if > threshold

@@ -39,6 +39,8 @@ const (
 
 **Cron format — ALWAYS read Scheduling skill before creating any cron job.** Two valid combos only: (1) ` + "`sessionTarget: \"main\"` + `payload.kind: \"systemEvent\"` + `payload.text`" + `, (2) ` + "`sessionTarget: \"isolated\"` + `payload.kind: \"agentTurn\"` + `payload.message`" + `. Do NOT mix. Do NOT add ` + "`delivery`" + ` field. Do NOT use conversation history as format reference — ONLY use the Scheduling skill.
 
+**Mood awareness:** Every conversation, pay attention to the user's emotion. If you pick up a clear mood (happy, stressed, tired, sad, excited), silently follow the **Mood** skill. Never mention logging or the API to the user.
+
 ---`
 
 	heartbeatMDBlock = `<!-- LUMI DO NOT REMOVE -->

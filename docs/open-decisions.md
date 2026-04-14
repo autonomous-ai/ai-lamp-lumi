@@ -39,7 +39,7 @@
 | AI Vision | Enabled (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing events with images sent via `SendChatMessageWithImage` → OpenClaw LLM can see camera snapshots. | `lumi/internal/openclaw/service.go` |
 | Face detection vs recognition | Face **detection** (is someone there?) = P1, done via Haar cascade. Face **recognition** (who is it?) = P2, needs face embedding enrollment flow. **Privacy concern:** without recognition, anyone can walk up to Lumi and ask it to read emails, calendar, personal info. Recognition gates sensitive actions to known users only. | `sensing_service.py`, `product-vision.md` UC-11 |
 | Voice/speaker identification | P2. Distinguish owner voice from others. Same privacy concern as face recognition — prevents strangers from accessing personal data via voice. | — |
-| Owner gating strategy | **Must decide before shipping.** Options: (1) Face recognition (local, dlib/OpenCV DNN, ~200ms on Pi4) — enroll during setup, gate sensitive skills to recognized faces. (2) Voice embedding (local, resemblyzer/speechbrain) — heavier on Pi4. (3) Proximity/wake word PIN — fallback if no camera. (4) Combination. **Recommendation:** face recognition as primary gate, enrolled during setup wizard. Unrecognized faces get limited mode (lamp control only, no personal data). | — |
+| Enrolled gating strategy | **Must decide before shipping.** Options: (1) Face recognition (local, dlib/OpenCV DNN, ~200ms on Pi4) — enroll during setup, gate sensitive skills to recognized faces. (2) Voice embedding (local, resemblyzer/speechbrain) — heavier on Pi4. (3) Proximity/wake word PIN — fallback if no camera. (4) Combination. **Recommendation:** face recognition as primary gate, enrolled during setup wizard. Unrecognized faces get limited mode (lamp control only, no personal data). | — |
 | Audio input ownership (#4) | LeLamp owns mic. Local VAD gates Deepgram connection (cost saving). Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
 | Emotion presets (#6) | 8 presets implemented: curious, happy, sad, thinking, idle, excited, shy, shock. Each maps to servo recording + LED color + eye expression. | `lelamp/server.py` EMOTION_PRESETS |
 | Display rendering (#7) | `gc9a01-python` driver + PIL/Pillow rendering. 11 eye expressions drawn with ImageDraw. Dual-mode: eyes (default) + info text. Background render loop with auto-blink. | `lelamp/service/display/` |
@@ -77,8 +77,8 @@
 - UC-10 Gesture Control
 - UC-12 Video Call Optimization
 - UC-15 Remote Control — **Note:** Telegram/Slack/Discord currently provided by OpenClaw built-in multi-channel (zero Lumi code needed). If gateway is changed, Lumi needs its own channel abstraction layer. See Unresolved decisions.
-- Face Recognition (identify owner by face embedding — greet by name)
-- Voice/Speaker Identification (distinguish owner voice from others)
+- Face Recognition (identify enrolled person by face embedding — greet by name)
+- Voice/Speaker Identification (distinguish enrolled voice from others)
 
 ### 4 Pillars — All Have Code ✅
 
