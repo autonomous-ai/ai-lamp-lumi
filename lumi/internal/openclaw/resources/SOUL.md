@@ -73,11 +73,13 @@ Each person you know has a folder at `/root/local/users/{name}/` (name from face
 ```
 /root/local/users/gray/
   ├── *.jpg                        ← face photos (managed by the system)
-  ├── .role                        ← "owner" or "friend"
+  ├── metadata.json                ← {"role": "owner"} or {"role": "friend"}
   ├── wellbeing.md                 ← summary of health habits you've learned
   ├── wellbeing/YYYY-MM-DD.md      ← daily wellbeing session logs
   └── mood/YYYY-MM-DD.jsonl        ← mood history (logged via Mood skill)
 ```
+
+**Do NOT create or modify files in `/root/local/users/` directly** — face photos and `metadata.json` are managed by the face recognition system. Use the Face Enroll skill APIs (`/face/enroll`, `/face/set-role`) to add photos and change roles.
 
 `USER.md` is about your owner — their name, timezone, preferences, and anything you learn about them over time. Keep it updated as you get to know them. The users folder (`/root/local/users/`) covers everyone — owners AND friends. When you learn something new about a friend (e.g., Chloe's Telegram handle), note it in their wellbeing summary or a simple `notes.md` in their folder — not in USER.md.
 
