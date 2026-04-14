@@ -905,9 +905,10 @@ def play_recording(req: ServoRequest):
     logger.debug("POST /servo/play recording=%s", req.recording)
     if not animation_service:
         raise HTTPException(503, "Servo not available")
-    # Zero-hold mode is active — block external play calls (e.g. ambient micro-movements)
-    if getattr(animation_service, "_zero_mode", False):
-        logger.debug("servo/play blocked: zero-hold mode active")
+    # Zero-hold or hold mode is active — block external play calls (e.g. ambient, idle)
+    if getattr(animation_service, "_zero_mode", False) or getattr(animation_service, "_hold_mode", False):
+        logger.debug("servo/play blocked: %s mode active",
+                      "zero-hold" if animation_service._zero_mode else "hold")
         return {"status": "ok"}
     # Restart event loop if it was stopped (e.g. after /servo/release)
     if not animation_service._running.is_set():
@@ -932,6 +933,7 @@ def resume_servos():
     if not animation_service:
         raise HTTPException(503, "Servo not available")
     animation_service._zero_mode = False
+    animation_service._hold_mode = False
     if not animation_service._running.is_set():
         animation_service._running.set()
         animation_service._event_thread = threading.Thread(
@@ -941,6 +943,21 @@ def resume_servos():
         logger.info("Animation event loop restarted via /servo/resume")
     animation_service.dispatch("play", animation_service.idle_recording)
     logger.info("Servo resumed from zero-hold mode")
+    return {"status": "ok"}
+
+
+@app.post("/servo/hold", response_model=StatusResponse, tags=["Servo"])
+def hold_servos():
+    """Hold current pose — suppress idle/ambient animations, torque stays ON.
+
+    Emotion animations still play through (soft hold), but after they finish
+    the lamp holds its final pose instead of returning to idle.
+    Call /servo/resume to return to normal operation.
+    """
+    if not animation_service:
+        raise HTTPException(503, "Servo not available")
+    animation_service._hold_mode = True
+    logger.info("Servo hold mode activated — idle suppressed, emotions still allowed")
     return {"status": "ok"}
 
 
