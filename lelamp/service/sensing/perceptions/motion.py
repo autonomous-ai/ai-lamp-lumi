@@ -112,13 +112,10 @@ class MotionChecker:
         pred[:, ~self._class_mask] = 0
         pred = pred / np.sum(pred, axis=-1, keepdims=True)
         idx = pred[0].argmax()
-        for i in range(len(self._classes_names)):
-            if self._class_mask[i]:
-                logger.debug(f"{self._classes_names[i]}: conf={pred[0][i]}")
         logger.info(
-            f"Detected {self._classes_names[idx]} with confidence {float(pred[0][idx])}"
+            f"Detected {self._classes_names[idx][0]} with confidence {float(pred[0][idx])}"
         )
-        return self._classes_names[idx], float(pred[0][idx])
+        return self._classes_names[idx][0], float(pred[0][idx])
 
     def update(self, frame: npt.NDArray[np.uint8]) -> str | None:
         """Buffer a frame and run X3D inference when the interval elapses.

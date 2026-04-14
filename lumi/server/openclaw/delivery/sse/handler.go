@@ -232,9 +232,7 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			case strings.Contains(c.path, "/audio"):
 				flow.Log("hw_audio", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: c.path + " " + c.body, RunID: flowRunID})
-				if hwOK && strings.Contains(c.path, "/audio/play") {
-					mood.Log("music.play", 0, c.body)
-				}
+				// music.play logged via flow.Log above
 			default:
 				flow.Log("hw_call", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 			}
@@ -418,13 +416,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						h.channelRunsMu.Unlock()
 					}
 					if userMsg != "" {
-						// Detect music-proactive cron turns so mood.assessed gets logged
-						// and the suggestion is broadcast to Telegram for remote confirmation.
-						// Use resolveRunID so the key matches flowRunID at lifecycle_end
-						// (in case the UUID was mapped to a device trace at lifecycle_start).
+						// Detect music-proactive cron turns — broadcast to Telegram for remote confirmation.
 						if strings.Contains(userMsg, "[music-proactive]") {
 							resolved := h.resolveRunID(capturedRunID)
-							mood.TrackRun(resolved, "music.proactive")
 							h.agentGateway.MarkBroadcastRun(resolved)
 						}
 
@@ -637,9 +631,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					slog.Info("music tool detected, TTS will be suppressed for this turn", "component", "agent", "runId", payload.RunID)
 					h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 					flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
-					// Log music.play to mood history so AI can correlate
-					// suggestions with actual playback for learning.
-					mood.Log("music.play", 0, toolArgs)
+					// music.play logged via flow.Log above
 				}
 				// Emit specific hardware events for flow monitor visualization.
 				// Both flow.Log (for JSONL persistence + UI flow_event triggers) and monitorBus (for SSE).
@@ -761,17 +753,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}
 				}
 
-				// Log LLM mood assessment if this was a mood-relevant sensing turn.
-				var turnEmotion string
-				for _, c := range hwCalls {
-					if strings.Contains(c.path, "/emotion") {
-						if e := parseEmotion(c.body); e != "" {
-							turnEmotion = e
-						}
-					}
-				}
-				mood.CompleteRun(flowRunID, turnEmotion, text)
-
 				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
 				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
 
@@ -881,7 +862,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				slog.Info("music tool detected (session.tool), TTS suppressed", "component", "agent", "runId", payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: toolArgs, RunID: flowRunID})
 				flow.Log("hw_audio", map[string]any{"args": toolArgs, "run_id": flowRunID}, flowRunID)
-				mood.Log("music.play", 0, toolArgs)
 			}
 			// Emit specific hardware events for flow monitor visualization.
 			// Both flow.Log (for JSONL persistence + UI flow_event triggers) and monitorBus (for SSE).
