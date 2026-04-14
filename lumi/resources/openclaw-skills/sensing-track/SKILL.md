@@ -124,14 +124,7 @@ curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=gray&date=$(date +%Y-%m-%d)&last=100"
 ```
 
-**Write API** (call this when you detect user mood from camera or conversation):
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-  -H 'Content-Type: application/json' \
-  -d '{"mood":"happy","source":"camera","trigger":"laughing"}'
-```
-
-Each entry has: `mood` (happy, sad, stressed, tired, excited, etc.), `source` (camera or conversation), `trigger` (what caused it).
+**Write:** Follow the **Mood** skill to log user mood from camera or conversation.
 
 ```json
 {"ts":1776138500,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}
