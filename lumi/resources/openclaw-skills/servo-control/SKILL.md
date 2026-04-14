@@ -1,6 +1,6 @@
 ---
 name: servo-control
-description: Use when the user asks to aim/point the lamp light in a direction, or when a specific servo animation is needed without LED/display changes.
+description: Use when the user asks to aim/point the lamp light in a direction, stop/freeze/hold movement ("đứng im", "stand still", "stop moving", "freeze"), resume movement, or when a specific servo animation is needed without LED/display changes.
 ---
 
 # Servo Control
