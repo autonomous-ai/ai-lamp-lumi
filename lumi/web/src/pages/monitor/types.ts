@@ -1,7 +1,7 @@
 export const API = "/api";
 export const HW  = "/hw";
 export const HISTORY_LEN = 60;
-export const FLOW_EVENTS_MAX = 5000;
+export const FLOW_EVENTS_MAX = 10000;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
