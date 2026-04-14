@@ -34,6 +34,8 @@ type SensingEventRequest struct {
 	// Image is an optional base64-encoded JPEG snapshot from the camera.
 	// Attached automatically for significant events (large motion, face detected) so AI can see.
 	Image string `json:"image,omitempty"`
+	// Source identifies where this event originated. "web" = web monitor chat (TTS suppressed).
+	Source string `json:"source,omitempty"`
 }
 
 
@@ -66,10 +68,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Light up listening LED only when wake word is confirmed (voice_command).
-	// Do NOT set on voice_listening — that fires for every STT session (any RMS spike),
-	// not just wake word interactions, causing false cyan after agent responds.
-	if req.Type == "voice_command" {
+	// Light up listening LED only when wake word is confirmed (voice_command) from physical device.
+	// Skip for web chat (source="web") — no physical speaker interaction.
+	if req.Type == "voice_command" && req.Source != "web" {
 		slog.Info("listening LED set", "component", "statusled", "reason", req.Type, "message", req.Message)
 		h.statusLED.Set(statusled.StateListening)
 	}
@@ -203,6 +204,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	if guardActive {
 		snap := extractSnapshotPath(req.Message)
 		h.agentGateway.MarkGuardRun(runID, snap)
+	}
+	// Web monitor chat: suppress TTS — response displayed in web UI only.
+	if req.Source == "web" {
+		h.agentGateway.MarkWebChatRun(runID)
 	}
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
@@ -394,6 +399,7 @@ type MoodLogRequest struct {
 	Mood    string `json:"mood" validate:"required"`    // happy, sad, stressed, tired, excited, etc.
 	Source  string `json:"source" validate:"required"`  // camera, conversation
 	Trigger string `json:"trigger" validate:"required"` // what triggered: action name or context
+	User    string `json:"user"`                        // optional: agent passes when it knows (e.g. Telegram sender)
 }
 
 // PostMoodLog records the user's current mood to their mood history.
@@ -408,10 +414,12 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		return
 	}
 
-	user := mood.CurrentUser()
+	user := strings.ToLower(strings.TrimSpace(req.User))
 	if user == "" {
-		c.JSON(http.StatusBadRequest, serializers.ResponseError("no user currently present"))
-		return
+		user = mood.CurrentUser()
+	}
+	if user == "" {
+		user = "unknown"
 	}
 
 	mood.LogMood(req.Mood, req.Source, req.Trigger)
