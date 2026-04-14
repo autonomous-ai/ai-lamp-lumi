@@ -50,7 +50,7 @@ LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "50
 USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
 YUNET_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.6"))
 FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
-FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "1800.0"))
+FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "300.0"))
 FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "300.0"))
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
