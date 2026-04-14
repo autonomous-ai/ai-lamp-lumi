@@ -21,12 +21,13 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "channel" | "mqtt";
+type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
 const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
   { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
   { id: "device",   label: "Device",   icon: "◈" },
   { id: "llm",      label: "LLM",      icon: "⬢" },
-  { id: "deepgram", label: "Deepgram", icon: "◉" },
+  { id: "deepgram", label: "STT",      icon: "◉" },
+  { id: "tts",      label: "TTS",      icon: "◎" },
   { id: "channel",  label: "Channel",  icon: "⬟" },
   { id: "mqtt",     label: "MQTT",     icon: "☰" },
 ];
@@ -157,6 +158,8 @@ export default function EditConfig() {
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [ttsVoice, setTtsVoice] = useState("alloy");
+  const [ttsVoices, setTtsVoices] = useState<string[]>([]);
   const [channel, setChannel] = useState<ChannelType>("telegram");
   const [teleToken, setTeleToken] = useState("");
   const [teleUserId, setTeleUserId] = useState("");
@@ -184,6 +187,7 @@ export default function EditConfig() {
         setLlmModel(cfg.llm_model ?? "");
         setLlmDisableThinking(cfg.llm_disable_thinking ?? false);
         setDeepgramApiKey(cfg.deepgram_api_key ?? "");
+        setTtsVoice(cfg.tts_voice || "alloy");
         setChannel((cfg.channel as ChannelType) || "telegram");
         setTeleToken(cfg.telegram_bot_token ?? "");
         setTeleUserId(cfg.telegram_user_id ?? "");
@@ -202,6 +206,7 @@ export default function EditConfig() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCfg(false));
+    getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
   // scroll spy: update active section as user scrolls
