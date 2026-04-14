@@ -77,9 +77,9 @@ class MotionChecker:
 
         return classes, mask
 
-    def _prepare_session(self, model_path: Path, n_threads: int = 4):
+    def _prepare_session(self, model_path: Path):
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = n_threads
+        opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
