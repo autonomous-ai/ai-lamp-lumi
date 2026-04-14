@@ -82,6 +82,11 @@ type Service struct {
 	// to all messaging channels alongside TTS (e.g. music.mood confirmations).
 	broadcastRunsMu sync.Mutex
 	broadcastRuns   map[string]bool
+
+	// webChatRuns tracks runIDs originating from the web monitor chat.
+	// TTS is suppressed for these runs — response is displayed in the web UI only.
+	webChatRunsMu sync.Mutex
+	webChatRuns   map[string]bool
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -99,6 +104,7 @@ func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
 		pendingRPC:    make(map[string]chan json.RawMessage),
 		guardRuns:     make(map[string]string),
 		broadcastRuns: make(map[string]bool),
+		webChatRuns:   make(map[string]bool),
 	}
 	// Register channel senders.
 	s.channels = []domain.ChannelSender{
@@ -1578,6 +1584,33 @@ func (s *Service) ConsumeBroadcastRun(runID string) bool {
 		delete(s.broadcastRuns, runID)
 	}
 	s.broadcastRunsMu.Unlock()
+	return ok
+}
+
+// MarkWebChatRun marks a runID as originating from the web monitor chat.
+func (s *Service) MarkWebChatRun(runID string) {
+	s.webChatRunsMu.Lock()
+	s.webChatRuns[runID] = true
+	s.webChatRunsMu.Unlock()
+	slog.Info("web chat run marked — TTS will be suppressed", "component", "openclaw", "runID", runID)
+}
+
+// IsWebChatRun checks if a runID is a web chat run (non-consuming).
+func (s *Service) IsWebChatRun(runID string) bool {
+	s.webChatRunsMu.Lock()
+	ok := s.webChatRuns[runID]
+	s.webChatRunsMu.Unlock()
+	return ok
+}
+
+// ConsumeWebChatRun checks and removes a web-chat-marked runID. One-shot.
+func (s *Service) ConsumeWebChatRun(runID string) bool {
+	s.webChatRunsMu.Lock()
+	ok := s.webChatRuns[runID]
+	if ok {
+		delete(s.webChatRuns, runID)
+	}
+	s.webChatRunsMu.Unlock()
 	return ok
 }
 
