@@ -1911,3 +1911,41 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	// Return idempotencyKey (not reqID) so trace_id matches OpenClaw's run_id.
 	return idempotencyKey, nil
 }
+
+// CompactSession sends a sessions.compact RPC to reduce conversation history.
+func (s *Service) CompactSession(sessionKey string) error {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	reqID := fmt.Sprintf("compact-%d", s.reqCounter.Add(1))
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "sessions.compact",
+		"params": map[string]interface{}{
+			"sessionKey": sessionKey,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal compact request: %w", err)
+	}
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		return fmt.Errorf("write compact request: %w", err)
+	}
+
+	slog.Info("sessions.compact sent", "component", "openclaw", "sessionKey", sessionKey)
+	return nil
+}
