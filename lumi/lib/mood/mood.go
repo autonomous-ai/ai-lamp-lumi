@@ -88,12 +88,16 @@ func CurrentUser() string {
 
 // LogMood records a user mood event to the current user's mood directory.
 // Falls back to "unknown" when no user is detected via presence.
-func LogMood(moodStr, source, trigger string) error {
+func LogMood(moodStr, source, trigger string) {
 	user := CurrentUser()
 	if user == "" {
-		user = "unknown" // TODO
+		user = "unknown"
 	}
+	LogMoodForUser(user, moodStr, source, trigger)
+}
 
+// LogMoodForUser records a user mood event for a specific user.
+func LogMoodForUser(user, moodStr, source, trigger string) {
 	now := time.Now()
 	seq := global.seqN.Add(1)
 
@@ -109,7 +113,6 @@ func LogMood(moodStr, source, trigger string) error {
 	global.mu.Lock()
 	global.writeJSONL(now, user, evt)
 	global.mu.Unlock()
-	return nil
 }
 
 // Query reads mood events for a given user and day (YYYY-MM-DD format).

@@ -422,7 +422,7 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		user = "unknown"
 	}
 
-	mood.LogMood(req.Mood, req.Source, req.Trigger)
+	mood.LogMoodForUser(user, req.Mood, req.Source, req.Trigger)
 	slog.Info("mood logged", "component", "mood", "user", user, "mood", req.Mood, "source", req.Source, "trigger", req.Trigger)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"user": user,
