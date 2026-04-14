@@ -113,6 +113,16 @@ type AgentGateway interface {
 	// ConsumeBroadcastRun checks if a runID is marked for broadcast. One-shot.
 	ConsumeBroadcastRun(runID string) bool
 
+	// MarkWebChatRun marks a runID as originating from the web monitor chat.
+	// TTS is suppressed for these runs — response is displayed in the web UI only.
+	MarkWebChatRun(runID string)
+
+	// IsWebChatRun checks if a runID is a web chat run (non-consuming).
+	IsWebChatRun(runID string) bool
+
+	// ConsumeWebChatRun checks and removes a web-chat-marked runID. One-shot.
+	ConsumeWebChatRun(runID string) bool
+
 	// --- Channel abstraction (backend-agnostic) ---
 
 	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.
