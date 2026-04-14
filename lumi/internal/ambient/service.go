@@ -100,7 +100,7 @@ func (s *Service) resume() {
 func (s *Service) isPaused() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.paused
+	return s.paused || s.sleeping
 }
 
 // watchInteractions monitors the event bus and pauses/resumes accordingly.
