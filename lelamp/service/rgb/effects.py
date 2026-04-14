@@ -238,7 +238,7 @@ def speaking_wave(
         # Pick new random targets every 4-8 frames (~160-320ms)
         if frames_until_new_target <= 0:
             for s in range(num_segments):
-                target[s] = random.uniform(0.15, 1.0)
+                target[s] = random.uniform(0.0, 1.0)
             frames_until_new_target = random.randint(4, 8)
         frames_until_new_target -= 1
 
