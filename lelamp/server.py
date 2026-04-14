@@ -472,6 +472,8 @@ async def lifespan(app: FastAPI):
                 numpy_module=np,
                 output_device=audio_output_device,
                 speed=TTS_SPEED,
+                on_speak_start=_on_tts_speak_start,
+                on_speak_end=_on_tts_speak_end,
             )
             logger.info(
                 "TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
@@ -1416,6 +1418,99 @@ def _stop_current_effect():
     _effect_base_color = None
 
 
+# --- TTS speaking LED effect ---
+# Automatically shows a speaking_wave effect while TTS is playing.
+# Uses the current LED color if a color/scene/effect is set, otherwise warm white.
+# Saves and restores the LED state around TTS playback.
+
+# Snapshot of LED state before TTS started — used to restore after TTS ends.
+_tts_led_snapshot: Optional[dict] = None
+
+
+def _get_current_led_color() -> tuple:
+    """Return the current LED color from user state, effect, or scene.
+
+    Priority: user_led_state > effect_base_color > scene > default warm white.
+    """
+    # Check user-set LED state first (most explicit)
+    if _user_led_state:
+        stype = _user_led_state.get("type")
+        if stype == "solid" and _user_led_state.get("color"):
+            return tuple(_user_led_state["color"])
+        if stype == "effect" and _user_led_state.get("color"):
+            return tuple(_user_led_state["color"])
+        if stype == "scene":
+            preset = SCENE_PRESETS.get(_user_led_state.get("scene", ""))
+            if preset:
+                return tuple(int(c * preset["brightness"]) for c in preset["color"])
+
+    # Fallback: currently running effect color
+    if _effect_base_color:
+        return _effect_base_color
+
+    # Default: warm white
+    return (255, 180, 100)
+
+
+def _on_tts_speak_start():
+    """Called by TTSService when TTS playback begins.
+
+    Saves current LED state, then starts speaking_wave effect using the
+    current LED color (or warm white if nothing is set).
+    """
+    global _tts_led_snapshot, _effect_thread, _effect_name, _effect_base_color
+    if not rgb_service:
+        return
+
+    # Save current LED state so we can restore after TTS ends
+    _tts_led_snapshot = {
+        "effect_name": _effect_name,
+        "effect_base_color": _effect_base_color,
+        "effect_thread_alive": _effect_thread is not None and _effect_thread.is_alive(),
+        "user_led_state": _user_led_state,
+    }
+
+    color = _get_current_led_color()
+    logger.info("TTS speaking LED start: color=%s", color)
+
+    _stop_current_effect()
+    _effect_stop.clear()
+    _effect_name = "speaking_wave"
+    _effect_base_color = color
+    _effect_thread = threading.Thread(
+        target=_run_effect,
+        args=("speaking_wave", color, 1.0, None, _effect_stop, rgb_service),
+        daemon=True,
+        name="led-effect-speaking_wave",
+    )
+    _effect_thread.start()
+
+
+def _on_tts_speak_end():
+    """Called by TTSService when TTS playback finishes or is interrupted.
+
+    Stops the speaking_wave effect and restores the LED to whatever state
+    was active before TTS started.
+    """
+    global _tts_led_snapshot
+    if not rgb_service:
+        return
+
+    # Only stop if speaking_wave is still the active effect (user may have
+    # manually changed LED during TTS — don't override their intent)
+    if _effect_name != "speaking_wave":
+        logger.info("TTS speaking LED end: effect changed during TTS (%s), skipping restore", _effect_name)
+        _tts_led_snapshot = None
+        return
+
+    _stop_current_effect()
+    logger.info("TTS speaking LED end: restoring previous state")
+
+    # Restore previous LED state
+    _restore_user_led()
+    _tts_led_snapshot = None
+
+
 # --- LED effect endpoints ---
 
 
@@ -2212,6 +2307,8 @@ def start_voice(req: VoiceStartRequest):
                 numpy_module=np,
                 output_device=audio_output_device,
                 speed=TTS_SPEED,
+                on_speak_start=_on_tts_speak_start,
+                on_speak_end=_on_tts_speak_end,
             )
             logger.info("TTSService started")
             # Wire TTS to MusicService so music pauses during speech
