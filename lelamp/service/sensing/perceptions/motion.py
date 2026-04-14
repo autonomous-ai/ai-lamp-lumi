@@ -177,7 +177,7 @@ class MotionPerception(Perception):
 
     @override
     def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
-        if not config.MOTION_ENABLED or frame is None:
+        if frame is None:
             return
 
         try:
