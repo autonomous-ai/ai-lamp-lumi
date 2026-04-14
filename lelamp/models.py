@@ -191,6 +191,8 @@ class SpeakRequest(BaseModel):
     text: str = Field(
         ..., min_length=1, max_length=2000, description="Text to speak via TTS"
     )
+    # When True, this speech can be interrupted by the next speak() call (e.g. dead air filler).
+    interruptible: bool = Field(False, description="If True, can be interrupted by next speech")
 
     model_config = {
         "json_schema_extra": {"examples": [{"text": "Hi there! I am Lumi."}]}

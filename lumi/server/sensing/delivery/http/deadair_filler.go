@@ -42,7 +42,7 @@ func PlayDeadAirFiller() {
 	resp, err := http.Post(
 		LeLampSpeakURL,
 		"application/json",
-		strings.NewReader(`{"text":"`+filler+`"}`),
+		strings.NewReader(`{"text":"`+filler+`","interruptible":true}`),
 	)
 	if err != nil {
 		slog.Warn("dead air filler failed", "component", "sensing", "error", err)
