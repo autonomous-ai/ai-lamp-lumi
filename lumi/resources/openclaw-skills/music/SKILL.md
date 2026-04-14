@@ -124,6 +124,17 @@ When you first start or after a reboot, set up your proactive music check:
 
 When you receive `[music-proactive]`, follow this process:
 
+#### Step 0 — Quick Checks
+
+**Check if music is already playing:**
+```bash
+curl -s http://127.0.0.1:5001/audio/status
+```
+If `playing: true` → NO_REPLY, skip this cycle entirely.
+
+**Review conversation context:**
+Before querying any API, review the recent conversation history in this session. If the user has mentioned their mood, stress, or work context ("lots of bugs today", "need to focus", "feeling tired", "stressed", "bored"), use that as the **PRIMARY signal** for music genre selection. This is the most accurate mood input — it comes directly from the user's own words. Structured data (mood-history, audio/history) is supplementary.
+
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
 **Mood history** (today + recent days):
@@ -274,6 +285,7 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 | API | Host | What it tells you | Use for |
 |-----|------|-------------------|---------|
+| `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /presence` | LeLamp (5001) | User present/idle/away, seconds since motion | Should I suggest now? |
 | `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
 | `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Lumi (5000) | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |

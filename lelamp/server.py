@@ -2631,6 +2631,7 @@ def audio_status():
     return {
         "available": music_service is not None and music_service.available,
         "playing": music_service.playing if music_service else False,
+        "title": music_service.current_title if music_service else None,
     }
 
 
