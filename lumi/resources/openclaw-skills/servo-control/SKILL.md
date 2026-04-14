@@ -32,6 +32,12 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 **Input:** "Release the motors"
 **Output:** `[HW:/servo/release:{}]` Servos released — you can move the lamp by hand now.
 
+**Input:** "Đứng im đi" / "Stop moving" / "Hold still" / "Freeze"
+**Output:** `[HW:/servo/hold:{}]` OK, holding still.
+
+**Input:** "Tiếp tục đi" / "Resume" / "Move again" / "You can move now"
+**Output:** `[HW:/servo/resume:{}]` Alright, back to normal!
+
 ## Tools
 
 ## How to Control Servo
@@ -42,6 +48,8 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 [HW:/servo/aim:{"direction":"desk"}] Aimed at your desk.
 [HW:/servo/aim:{"direction":"left","duration":3.0}] Aiming left slowly.
 [HW:/servo/play:{"recording":"nod"}] Nodding!
+[HW:/servo/hold:{}] OK, holding still.
+[HW:/servo/resume:{}] Back to normal!
 [HW:/servo/release:{}] Servos released.
 ```
 
@@ -90,6 +98,26 @@ Available animations:
 | `acknowledge` | Quick micro-nod (1.5s), confirming |
 | `stretching` | Big extension + settle, after waking up |
 
+### Hold position (stop moving)
+
+```
+[HW:/servo/hold:{}] OK, holding still.
+```
+
+Suppresses idle and ambient animations — lamp freezes in current pose. Emotions still play through (the lamp reacts when you talk, then holds still again). Call `/servo/resume` to return to normal.
+
+**Triggers:** "đứng im", "stop moving", "hold still", "freeze", "don't move"
+
+### Resume from hold
+
+```
+[HW:/servo/resume:{}] Back to normal!
+```
+
+Exits hold mode and resumes idle animations.
+
+**Triggers:** "tiếp tục", "resume", "move again", "you can move now"
+
 ### Release servos (disable motors)
 
 ```
@@ -109,6 +137,8 @@ Disables all servo motors so they can be moved freely by hand.
 - Aim positions are persistent until changed.
 - Use `/servo/aim` as the primary way to control light direction — do not use raw joint control unless testing.
 - Always confirm the action to the user after execution.
+- **Hold vs Release**: Hold keeps torque ON (lamp stays rigid in place). Release turns torque OFF (lamp goes limp). Use hold for "stop moving", release for "let me reposition the lamp by hand".
+- **Hold is soft** — emotions still animate through, then the lamp holds still again. This keeps the lamp feeling alive during conversation while respecting the user's request to stop fidgeting.
 
 ## Output Template
 

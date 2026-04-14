@@ -122,6 +122,15 @@ export function ServoSection() {
     setTimeout(refresh, 2500);
   };
 
+  const holdServos = async () => {
+    flash("Hold — freezing current pose...");
+    await fetch(`${HW}/servo/hold`, {
+      method: "POST",
+      headers: { accept: "application/json" },
+    }).catch(() => {});
+    setTimeout(refresh, 500);
+  };
+
   const resumeServos = async () => {
     flash("Resuming animation...");
     await fetch(`${HW}/servo/resume`, {
@@ -277,6 +286,16 @@ export function ServoSection() {
             }}>Zero All (0°)</button>
             <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
               Hold at 0° — blocks all play calls
+            </div>
+          </div>
+          <div>
+            <button onClick={holdServos} style={{
+              fontSize: 12, padding: "6px 18px", borderRadius: 5,
+              background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)",
+              color: "var(--lm-amber, #f59e0b)", cursor: "pointer", fontWeight: 600,
+            }}>Hold</button>
+            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
+              Freeze current pose — emotions still play
             </div>
           </div>
           <div>

@@ -79,6 +79,10 @@ class AnimationService:
         # Freeze flag — when set, _continue_playback() skips servo writes so camera can capture a stable frame
         self._frozen = threading.Event()
 
+        # Hold mode — suppresses idle/ambient animations but allows emotion dispatch.
+        # Set by /servo/hold, cleared by /servo/resume.
+        self._hold_mode = False
+
         # When True, idle recording finished and pose is held — loop sleeps longer to save CPU
         self._idle_settled = False
 
@@ -244,6 +248,7 @@ class AnimationService:
         """Start playing a recording with interpolation from current state"""
         self._idle_settled = False
         self._holding_logged = False
+        self._hold_logged = False
         if not self.robot:
             print("Robot not connected")
             return
@@ -314,6 +319,10 @@ class AnimationService:
 
             # Play current frame
             if self._current_frame_index < len(self._current_actions):
+                # Hold mode: skip servo writes for idle to freeze immediately
+                if self._hold_mode and self._current_recording == self.idle_recording:
+                    self._idle_settled = True
+                    return
                 action = self._current_actions[self._current_frame_index]
                 with self.bus_lock:
                     self.robot.send_action(action)
@@ -329,6 +338,13 @@ class AnimationService:
                     if not getattr(self, '_holding_logged', False):
                         logger.info("Holding final pose for '%s' — no idle fallback", self._current_recording)
                         self._holding_logged = True
+                    return
+                elif self._hold_mode and not self._music_playing:
+                    # Hold mode: keep final pose, do not return to idle
+                    self._idle_settled = True
+                    if not getattr(self, '_hold_logged', False):
+                        logger.info("Hold mode: keeping final pose for '%s'", self._current_recording)
+                        self._hold_logged = True
                     return
                 elif self._current_recording != self.idle_recording:
                     # Hold pose before returning to idle — skip hold when music is playing
@@ -355,6 +371,10 @@ class AnimationService:
                         if self._current_state is not None:
                             self._interpolation_frames = int(self.duration * self.fps)
                             self._interpolation_target = next_actions[0]
+                elif self._hold_mode:
+                    # Hold mode active while idle finished — hold pose, reduce FPS
+                    self._idle_settled = True
+                    return
                 else:
                     # Loop idle recording at reduced FPS to save CPU
                     self._idle_settled = True
