@@ -321,10 +321,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Map OpenClaw UUID → device idempotencyKey on lifecycle_start.
 		// Only map when the lifecycle belongs to Lumi's own direct session — group/channel
 		// sessions have independent runs that must NOT be merged into sensing traces.
+		// Uses dedicated pending chat trace (not global flow.GetTrace) to avoid race conditions
+		// where concurrent channel turns clear the global trace before lifecycle_start arrives.
 		lumiSession := h.agentGateway.GetSessionKey()
 		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
-			if deviceTrace := flow.GetTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
+			if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
 				h.mapRunID(payload.RunID, deviceTrace)
 				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
 				slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
