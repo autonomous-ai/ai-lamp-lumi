@@ -172,7 +172,7 @@ From the data, extract these patterns:
 | What genre do they prefer? | `audio/history` → `query` and `title` fields |
 | How long do they listen? | `audio/history` → `duration_s` field |
 | When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
-| Did they accept my last suggestion? | Compare `mood.assessed` time with next `music.play` time. Close = accepted, far/none = rejected |
+| Did they accept my last suggestion? | Compare suggestion time with next `music.play` event time from `audio/history`. Close = accepted, far/none = rejected |
 | What time of day do they enjoy music most? | `music.play` events → `hour` field |
 | Are there times they never want music? | Repeated NO_REPLY or no `music.play` at certain hours |
 
@@ -296,14 +296,17 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 ### Mood history event types relevant to music:
 
-| Event | Meaning for music decisions |
+Mood history now contains only **user mood** events (not system/lamp events):
+
+| Event field | Meaning for music decisions |
 |-------|----------------------------|
-| `presence.enter` + `hour` | When user typically arrives → when to start suggesting |
-| `presence.leave` | Session ended → stop suggesting |
-| `music.play` + `hour` | When user actually plays music → best times to suggest |
-| `mood.assessed` with `source: "music"` | Your past suggestion + AI's assessment |
-| `wellbeing.break` | User took a break → returning might be good time for music |
-| `light.level` | Room ambiance changed → adjust genre |
+| `mood: "happy"` | User is in good mood → upbeat music |
+| `mood: "sad"` | User seems down → comfort/chill music |
+| `mood: "stressed"` | User is tense → ambient/lo-fi |
+| `mood: "tired"` | User is fatigued → gentle/calm music |
+| `mood: "excited"` | User is energized → energetic music |
+| `source: "camera"` | Mood detected from action (laughing, crying, etc.) |
+| `source: "conversation"` | Mood inferred from what user said |
 
 ### Audio history entry fields:
 
