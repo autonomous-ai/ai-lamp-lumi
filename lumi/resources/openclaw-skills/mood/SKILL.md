@@ -41,14 +41,20 @@ Don't over-log. Only log when the mood is clear and genuine — not when the use
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/mood/log \
   -H 'Content-Type: application/json' \
-  -d '{"mood":"<mood>","source":"<source>","trigger":"<trigger>"}'
+  -d '{"mood":"<mood>","source":"<source>","trigger":"<trigger>","user":"<name>"}'
 ```
 
-| Field | Values |
-|-------|--------|
-| `mood` | happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate, unwell |
-| `source` | `camera` (from motion.activity) or `conversation` (from what user said) |
-| `trigger` | What caused it: action name or brief context (e.g. "laughing", "user said feeling stressed") |
+| Field | Values | Required |
+|-------|--------|----------|
+| `mood` | happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate, unwell | Yes |
+| `source` | `camera` (from motion.activity) or `conversation` (from what user said) | Yes |
+| `trigger` | What caused it: action name or brief context (e.g. "laughing", "user said feeling stressed") | Yes |
+| `user` | Person's name (lowercase). If omitted, uses whoever the camera currently sees. | No |
+
+### Identifying the user
+
+- **Camera (face-to-face)**: omit `user` — the system knows who's present from face recognition.
+- **Telegram**: match the sender's display name against known user folders at `/root/local/users/` (e.g. Telegram sender "Gray" → system name "gray"). Pass the matched name as `user`. If you can't confidently match, omit `user` — it will be logged as "unknown".
 
 ## How to Read
 
