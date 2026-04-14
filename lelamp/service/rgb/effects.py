@@ -216,37 +216,38 @@ def speaking_wave(
     stop_event: threading.Event,
     svc,
 ):
-    """Google Home-style speaking wave — smooth sine ripple across the LED strip.
+    """Drum-beat speaking pulse — strong brightness pulsation during TTS playback.
 
-    Two overlapping sine waves travel outward from center, creating a gentle
-    brightness ripple that mimics speech cadence. Base brightness stays at 30%
-    so the lamp never goes fully dark; peaks reach 100%.
+    Alternates between dim (5%) and full brightness with a sharp attack and
+    smooth decay, like a drum beat synced to speech rhythm. A secondary ripple
+    adds variation so it doesn't feel mechanical.
     """
-    step_delay = 0.03 / speed
+    step_delay = 0.02 / speed
     led_count = getattr(svc, "led_count", 64)
     center = led_count / 2.0
     phase = 0.0
-    # Two wave frequencies for organic feel
-    freq_primary = 4.0    # main wave: ~4 cycles across strip
-    freq_secondary = 7.0  # subtle overlay for texture
 
     while not is_done(deadline, stop_event):
         pixels = [(0, 0, 0)] * led_count
         for i in range(led_count):
-            # Normalize position relative to center (-1..1)
-            pos = (i - center) / center
+            # Distance from center, normalized 0..1
+            dist = abs(i - center) / center
 
-            # Primary wave: travels outward from center
-            wave1 = math.sin(freq_primary * math.pi * pos + phase)
-            # Secondary wave: faster, lower amplitude for texture
-            wave2 = math.sin(freq_secondary * math.pi * pos - phase * 1.3) * 0.3
+            # Main pulse: strong beat radiating from center outward
+            # Uses abs(sin) for sharp attack, full on-off swing
+            wave = math.sin(phase - dist * math.pi * 2.0)
+            # Sharp attack: square the positive half for punch
+            pulse = max(0.0, wave) ** 0.6
 
-            # Combine waves, map to brightness range [0.3 .. 1.0]
-            combined = (wave1 + wave2) / 1.3  # normalize to ~[-1..1]
-            brightness = 0.3 + 0.7 * (combined * 0.5 + 0.5)
+            # Secondary beat at different rhythm for organic feel
+            wave2 = math.sin(phase * 1.7 - dist * math.pi * 3.0)
+            pulse2 = max(0.0, wave2) ** 0.8 * 0.4
+
+            # Combine: range [0.05 .. 1.0] — nearly off to full bright
+            brightness = 0.05 + 0.95 * min(1.0, pulse + pulse2)
 
             pixels[i] = tuple(int(c * brightness) for c in color)
 
         svc.dispatch("paint", pixels)
-        phase += 0.15 * speed  # wave travel speed
+        phase += 0.25 * speed  # fast beat tempo
         time.sleep(step_delay)
