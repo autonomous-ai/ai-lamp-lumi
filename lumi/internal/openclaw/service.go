@@ -209,11 +209,11 @@ func (s *Service) drainPendingEvents() {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
 			switch ev.eventType {
 			case "presence.enter":
-				msg += "\n[MANDATORY for owner/friend: (1) ALWAYS call cron.list FIRST to see what actually exists — do NOT assume from memory. (2) cron.remove ALL jobs with \"hydration\"/\"break\"/\"Wellbeing\"/\"music\" in name. (3) Create fresh crons per Wellbeing skill and Music skill. You MUST call cron.list + cron.remove + cron.add every time — do not skip.]"
+				msg += "\n[MANDATORY for owner/friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
 			case "presence.leave":
-				msg += "\n[Follow Wellbeing skill: cancel crons + write daily log.]"
+				msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
 			case "motion.activity":
-				msg += "\n[Follow Wellbeing skill: reset cron timers if user is drinking/stretching. If emotional action (laughing/crying/yawning/singing) → follow Emotion Detection skill: ALWAYS speak.]"
+				msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 			}
 		}
 		var err error
