@@ -90,20 +90,22 @@ class SensingService:
                 presence_service=self.presence,
                 capture_stable_frame=self._capture_stable_frame,
             )
-            self._perceptions += [
-                MotionPerception(
+            if config.MOTION_ENABLED:
+                self._perceptions.append(MotionPerception(
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
                     presence_service=self.presence,
-                ),
-                PoseMotionPerception(
+                ))
+            if config.POSE_MOTION_ENABLED:
+                self._perceptions.append(PoseMotionPerception(
                     cv2=cv2_module,
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
                     presence_service=self.presence,
-                ),
+                ))
+            self._perceptions += [
                 face_recognizer,
                 LightLevelPerception(
                     cv2=cv2_module,
