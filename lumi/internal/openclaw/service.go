@@ -327,6 +327,10 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	sandboxMap := ensureMap(defaultsMap, "sandbox")
 	sandboxMap["mode"] = "off"
 	defaultsMap["sandbox"] = sandboxMap
+	compactionMap := ensureMap(defaultsMap, "compaction")
+	compactionMap["mode"] = "safeguard"
+	compactionMap["reserveTokensFloor"] = 80000
+	defaultsMap["compaction"] = compactionMap
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
 		agentModelsMap[m.Key] = map[string]any{}
