@@ -45,7 +45,7 @@ class MotionChecker:
         frame_size: tuple[int, int] = (256, 256),
     ):
         if model_path is None:
-            model_path = RESOURCES_DIR / "x3d_m_16x5x1.onnx"
+            model_path = RESOURCES_DIR / "x3d_m_16x5x1_int8.onnx"
         self._session: ort.InferenceSession = self._prepare_session(model_path)
 
         self._threshold: float = threshold
