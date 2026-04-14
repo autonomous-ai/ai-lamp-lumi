@@ -221,8 +221,8 @@ Turn Pipeline grouping behavior:
 - **`↓ Bundle`** — one click saves **two files**: (1) server JSONL tail via `fetch` + blob (`GET /api/openclaw/flow-logs?last=500`), (2) UI snapshot JSON (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`).
 - **`full day`** — `GET /api/openclaw/flow-logs` without `last` (whole day JSONL).
 - `🗑 Log` asks for confirmation and calls `DELETE /api/openclaw/flow-logs` to truncate the server flow log, then clears current Flow UI events.
-- Turn history list shows the latest **100 turns** (newest first), derived from the **last 500** flow events only — older events are not in memory, so Turns can omit early-day activity even if the full JSONL file is larger.
-- Flow event memory is capped at 500 events.
+- Turn history list shows **all turns** for the day (newest first), derived from the **last 10 000** flow events — covers a full day of typical activity.
+- Flow event memory is capped at 10 000 events.
 - Telegram stitching heuristic: if a Telegram fallback input turn (without real input text) is immediately followed by an agent-output turn within 30s, Monitor stitches them into one turn so the reply stays with the original Telegram input.
 
 ### 5.4 Camera Section

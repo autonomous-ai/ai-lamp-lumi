@@ -53,7 +53,7 @@ type Event struct {
 const (
 	ringSize     = 200
 	logsDir      = "local"
-	retentionDays = 30
+	retentionDays = 7
 )
 
 type emitter struct {

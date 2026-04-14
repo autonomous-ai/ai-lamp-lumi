@@ -221,8 +221,8 @@ Hành vi gom nhóm Turn Pipeline:
 - `↓ Bundle` = **một lần bấm tải hai file**: JSONL server (fetch + blob, `flow-logs?last=500`) và JSON snapshot trong browser (`events` + `groupIntoTurns` → `lumi_flow_ui_snapshot_*.json`).
 - `full day` = cả file JSONL trong ngày.
 - Nút `🗑 Log` sẽ hỏi xác nhận trước, gọi `DELETE /api/openclaw/flow-logs` để truncate flow log, rồi xóa events đang hiển thị trong Flow UI.
-- Danh sách Turn history: tối đa **100 turn** (mới nhất ở trên), suy ra từ **500 event** cuối — sự kiện đầu ngày có thể không còn trong bộ nhớ UI.
-- Bộ nhớ event của Flow được giới hạn 500 events.
+- Danh sách Turn history: hiển thị **tất cả turn** trong ngày (mới nhất ở trên), suy ra từ **10 000 event** cuối — đủ cho cả ngày hoạt động bình thường.
+- Bộ nhớ event của Flow được giới hạn 10 000 events.
 - Heuristic ghép turn Telegram: nếu turn Telegram fallback (không có text input thật) đứng ngay trước turn có output agent trong vòng 30 giây, Monitor sẽ ghép thành 1 turn để câu trả lời đi cùng input Telegram.
 
 ### 5.4 Camera Section
