@@ -47,8 +47,7 @@ Do NOT cancel on `presence.away` — only on `presence.leave`.
    - **Meal action** (dining, eating *)? → reset hydration cron (they're consuming food/drink)
    - Both hydration + break apply? → handle both
    - No wellbeing crons active? → skip
-   - Emotional action (laughing, crying, yawning, singing)? → handled by **Emotion Detection** skill, do NOT touch any cron
-   - Music action (playing piano, guitar, etc.)? → NO_REPLY
+   - Emotional action (laughing, crying, yawning, singing, etc.)? → handled by **Emotion Detection** skill, do NOT touch any cron
 3. **Append** a line to today's daily log:
    ```
    HH:MM — [action name] (hydration reset / break created / break removed / etc.)
