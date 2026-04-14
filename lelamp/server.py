@@ -1496,7 +1496,7 @@ def _on_tts_speak_start():
     _effect_base_color = color
     _effect_thread = threading.Thread(
         target=_run_effect,
-        args=("speaking_wave", color, 1.0, None, _effect_stop, rgb_service),
+        args=("speaking_wave", color, 2.5, None, _effect_stop, rgb_service),
         daemon=True,
         name="led-effect-speaking_wave",
     )
