@@ -164,13 +164,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
 	// - During voice window: all passive sensing is queued (not dropped) so events aren't lost.
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
-	// TODO: temporarily skip motion.activity to agent — LeLamp spamming too fast (no cooldown).
-	// Re-enable after fixing LeLamp MOTION_FLUSH_S cooldown. Snapshot still saved for UI.
-	if req.Type == "motion.activity" {
-		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "skipped_motion_activity"}))
-		return
-	}
-
 	isPassive := req.Type != "voice_command"
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
@@ -246,7 +239,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		case "presence.leave":
 			msg += "\n[Follow Wellbeing skill: cancel crons + append summary to daily log + update wellbeing.md. Do this silently.]"
 		case "motion.activity":
-			msg += "\n[Follow Wellbeing skill: From the action name, infer: (1) Is the user drinking something? → reset hydration cron. (2) Is the user NOT sitting/working? → reset break cron. Read today's daily log first for context. After reset, log it. Then comment on what you observe — use context from the log (e.g. \"3rd glass today, nice!\"). Observe, don't instruct. NEVER mention crons/timers/reminders. If neither applies → NO_REPLY.]"
+			msg += "\n[Follow Wellbeing skill: From the action name, infer: (1) Is the user drinking something? → reset hydration cron. (2) Is the user NOT sitting/working? → reset break cron. Read today's daily log first for context. After reset, log it. Then comment on what you observe — use context from the log (e.g. \"3rd glass today, nice!\"). Observe, don't instruct. NEVER mention crons/timers/reminders. If emotional action (laughing/crying/yawning/singing) → follow Emotion Detection skill: ALWAYS speak, never NO_REPLY. If neither wellbeing nor emotional → NO_REPLY.]"
 		}
 	}
 
