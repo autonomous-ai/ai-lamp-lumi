@@ -1422,9 +1422,10 @@ def _stop_current_effect():
 # Automatically shows a speaking_wave effect while TTS is playing.
 # Uses the current LED color if a color/scene/effect is set, otherwise warm white.
 # Saves and restores the LED state around TTS playback.
+# Uses _tts_speaking flag (not _effect_name) to track state, because Lumi's
+# status LED service may overwrite _effect_name during TTS via /led/effect.
 
-# Snapshot of LED state before TTS started — used to restore after TTS ends.
-_tts_led_snapshot: Optional[dict] = None
+_tts_speaking: bool = False  # True while TTS speaking LED is active
 
 
 def _get_current_led_color() -> tuple:
@@ -1455,25 +1456,21 @@ def _get_current_led_color() -> tuple:
 def _on_tts_speak_start():
     """Called by TTSService when TTS playback begins.
 
-    Saves current LED state, then starts speaking_wave effect using the
-    current LED color (or warm white if nothing is set).
+    Saves current LED color, clears the strip, then starts speaking_wave.
     """
-    global _tts_led_snapshot, _effect_thread, _effect_name, _effect_base_color
+    global _tts_speaking, _effect_thread, _effect_name, _effect_base_color
     if not rgb_service:
         return
-
-    # Save current LED state so we can restore after TTS ends
-    _tts_led_snapshot = {
-        "effect_name": _effect_name,
-        "effect_base_color": _effect_base_color,
-        "effect_thread_alive": _effect_thread is not None and _effect_thread.is_alive(),
-        "user_led_state": _user_led_state,
-    }
 
     color = _get_current_led_color()
     logger.info("TTS speaking LED start: color=%s", color)
 
+    _tts_speaking = True
+
+    # Stop any running effect and clear strip to avoid old frame bleeding through
     _stop_current_effect()
+    rgb_service.dispatch("solid", (0, 0, 0))
+
     _effect_stop.clear()
     _effect_name = "speaking_wave"
     _effect_base_color = color
@@ -1489,26 +1486,20 @@ def _on_tts_speak_start():
 def _on_tts_speak_end():
     """Called by TTSService when TTS playback finishes or is interrupted.
 
-    Stops the speaking_wave effect and restores the LED to whatever state
-    was active before TTS started.
+    Stops whatever effect is running and restores previous LED state.
+    Uses _tts_speaking flag instead of _effect_name because Lumi's status LED
+    may have overwritten the effect during TTS.
     """
-    global _tts_led_snapshot
-    if not rgb_service:
+    global _tts_speaking
+    if not _tts_speaking:
         return
 
-    # Only stop if speaking_wave is still the active effect (user may have
-    # manually changed LED during TTS — don't override their intent)
-    if _effect_name != "speaking_wave":
-        logger.info("TTS speaking LED end: effect changed during TTS (%s), skipping restore", _effect_name)
-        _tts_led_snapshot = None
-        return
+    _tts_speaking = False
+    logger.info("TTS speaking LED end: stopping effect and restoring")
 
     _stop_current_effect()
-    logger.info("TTS speaking LED end: restoring previous state")
-
-    # Restore previous LED state
+    # Restore previous LED state (solid/effect/scene/off)
     _restore_user_led()
-    _tts_led_snapshot = None
 
 
 # --- LED effect endpoints ---
