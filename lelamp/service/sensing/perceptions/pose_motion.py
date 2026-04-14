@@ -91,11 +91,9 @@ class PoseEstimator:
         frame = ((frame - self.INPUT_MEAN) / self.INPUT_STD).astype(np.float32)
         return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
 
-    def _prepare_session(
-        self, model_path: Path, n_threads: int = 2
-    ) -> ort.InferenceSession:
+    def _prepare_session(self, model_path: Path) -> ort.InferenceSession:
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = n_threads
+        opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
