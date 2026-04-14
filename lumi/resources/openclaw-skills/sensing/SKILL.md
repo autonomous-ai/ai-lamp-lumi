@@ -220,9 +220,10 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 **`[sensing:motion.activity]`** — fires when motion detected while PRESENT:
 1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
 2. Follow the **Wellbeing** skill for cron timer resets based on what you see.
-3. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
-4. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
-5. Keep it natural and non-intrusive. Don't narrate every small movement.
+3. If the action is an **emotional action** (laughing, crying, yawning, singing) → follow the **Emotion Detection** skill for empathetic response and logging.
+4. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
+5. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
+6. Keep it natural and non-intrusive. Don't narrate every small movement.
 
 ### Guard mode
 When an owner or friend returns (`[sensing:presence.enter]` with owner/friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"

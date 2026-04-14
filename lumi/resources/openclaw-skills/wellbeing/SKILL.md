@@ -43,6 +43,7 @@ Do NOT cancel on `presence.away` — only on `presence.leave`.
    - User is NOT sedentary (standing, stretching, walking, etc.)? → reset `"Wellbeing: {name} break"` cron
    - Both apply? → reset both
    - No wellbeing crons active? → skip
+   - Emotional action (laughing, crying, yawning, singing)? → handled by **Emotion Detection** skill, do NOT reset any cron
    - Neither applies (just sitting/working)? → NO_REPLY
 3. **Append** a line to today's daily log:
    ```
