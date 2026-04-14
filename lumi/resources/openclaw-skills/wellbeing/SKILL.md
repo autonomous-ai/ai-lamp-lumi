@@ -12,8 +12,8 @@ You care about the user's health. When an owner or friend arrives, set up hydrat
 
 After greeting, set up **hydration cron only**. Break cron is NOT created here — it starts later when sedentary activity is detected (see `motion.activity` section).
 
-1. `cron.list` — check for existing wellbeing jobs
-2. `cron.remove` any jobs related to hydration, break, or wellbeing (name containing `"hydration"`, `"break"`, or `"Wellbeing"` — case insensitive)
+1. `cron.list` — check if this person already has a hydration cron (name contains this person's name + `"hydration"`)
+2. If hydration cron already exists → skip, do nothing
 3. Read their summary if it exists: `/root/local/users/{name}/wellbeing.md`
 4. Read today's daily log if it exists: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — use this to adjust cron intervals and know what happened earlier today
 5. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
@@ -26,7 +26,7 @@ Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delive
 
 ## On `presence.leave`
 
-1. `cron.list` → `cron.remove` any jobs related to hydration, break, or wellbeing
+1. `cron.list` → `cron.remove` ONLY this person's wellbeing jobs (match by name containing this person's name)
 2. Append a summary to today's daily log: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — what reminders you sent, which were acknowledged vs ignored, any observations
 3. Update `wellbeing.md` summary if you noticed new patterns
 
