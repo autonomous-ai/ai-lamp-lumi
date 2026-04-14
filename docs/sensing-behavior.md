@@ -271,11 +271,17 @@ A special HW marker that forces the agent's spoken text to also be sent to all T
 
 ### Per-user mood history
 
-Mood history is stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention). The system tracks who is present via `presence.enter` (face recognition) and logs mood events to that user's directory. The mood history API supports a `?user=` parameter (defaults to current user):
+Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
 
 ```bash
+# Write (agent calls this)
+POST /api/mood/log  {"mood":"happy","source":"camera","trigger":"laughing"}
+
+# Read
 GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
 ```
+
+Each entry: `{"ts":...,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
 
 ### Cross-channel identity
 
@@ -348,7 +354,7 @@ The default response is light (brief remark). Context escalates the intensity:
 
 ### Logging
 
-- **Mood history** (automatic): `motion.activity` events are automatically logged to per-user mood JSONL by the server. The agent's emotion and response are recorded via `mood.assessed`. No agent action needed.
+- **Mood history** (agent logs): Agent calls `POST /api/mood/log` via Mood skill to record the user's emotional state (e.g. `{"mood":"happy","source":"camera","trigger":"laughing"}`).
 - **Wellbeing daily log** (agent writes): Agent appends `HH:MM — [emotion] {action} detected (observation)` to the user's wellbeing daily log, alongside hydration/break entries.
 
 ### Limitations (vs full UC-M1)

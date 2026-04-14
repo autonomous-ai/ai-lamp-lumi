@@ -113,9 +113,9 @@ The system log uses lumberjack rotation (1 MB cap, 3 backups) — it may miss da
 
 ## Mood history
 
-A dedicated mood history log tracks mood-relevant sensing events and LLM mood assessments per user. Each user's mood data lives in their own directory.
+A dedicated mood history log tracks **user mood** per user. Only the user's emotional state is logged — not system events or lamp emotions. Each user's mood data lives in their own directory.
 
-**API:**
+**Read API:**
 ```bash
 # Current user's mood history (auto-detects who's present)
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
@@ -124,13 +124,18 @@ curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=gray&date=$(date +%Y-%m-%d)&last=100"
 ```
 
-Returns two types of entries:
-- **Sensing input** — raw events: `presence.enter`, `presence.leave`, `light.level`, `sound`, `motion.activity`, etc.
-- **`mood.assessed`** — LLM's assessment result with `emotion`, `source` (which event triggered it), `response` (what LLM said), and `no_reply` flag.
+**Write API** (call this when you detect user mood from camera or conversation):
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+  -H 'Content-Type: application/json' \
+  -d '{"mood":"happy","source":"camera","trigger":"laughing"}'
+```
+
+Each entry has: `mood` (happy, sad, stressed, tired, excited, etc.), `source` (camera or conversation), `trigger` (what caused it).
 
 ```json
-{"event":"presence.enter","hour":9,"user":"gray","message":"Person detected..."}
-{"event":"mood.assessed","hour":15,"user":"gray","emotion":"caring","source":"music.mood","response":"How about some lo-fi?","no_reply":false}
+{"ts":1776138500,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}
+{"ts":1776139200,"seq":2,"hour":10,"mood":"stressed","source":"conversation","trigger":"user said feeling overwhelmed"}
 ```
 
 Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).

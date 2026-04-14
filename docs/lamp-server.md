@@ -60,6 +60,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/sensing/event` | Receive sensing event from LeLamp |
+| POST | `/api/mood/log` | Log user mood (called by agent via Mood skill) |
 | POST | `/api/monitor/event` | Push an event directly to the monitor bus (used by LeLamp for sound tracker state) |
 
 > **Note:** Stranger visit tracking (stats, persistence) is handled by **LeLamp** (port 5001) at `GET /face/stranger-stats`. See [sensing-behavior.md](sensing-behavior.md#stranger-visit-tracking) for details.
@@ -67,7 +68,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|music.mood",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -84,8 +85,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | `light.level` | Camera (mean brightness) | No | Significant ambient light change (>30/255) |
 | `sound` | Mic (RMS energy) | No | Loud noise |
 | `presence.away` | PresenceService (15 min no motion) | No | No one around for 15+ min — Lumi going to sleep |
-| `music.mood` | WellbeingPerception (60 min timer) | Yes | User present 60+ min — mood-based music suggestion |
-| `motion.activity` | MotionPerception (while PRESENT) | Yes | Motion detected while user is present — activity analysis |
+| `motion.activity` | MotionPerception (while PRESENT) | No | Activity detected while user is present — emotional actions logged via Mood skill |
 
 **Processing flow:**
 1. `voice_command` or `voice` + local intent enabled → match intent → execute directly (~50ms)
