@@ -17,7 +17,16 @@ import (
 
 // Fillers is the list of short phrases to play as dead air cues.
 // Empty slice = feature disabled. Override at init or via config.
-var Fillers = []string{"Hmm", "Ok", "Let me check", "One moment"}
+var Fillers = []string{
+	"Hmm, let me think",
+	"Ok, got it",
+	"Sure, one moment",
+	"Right, let me check",
+	"Alright, hold on",
+	"Oh, interesting",
+	"Ok, let me see",
+	"Hmm, let me work on that",
+}
 
 // LeLampSpeakURL is the endpoint to trigger TTS on LeLamp.
 const LeLampSpeakURL = "http://127.0.0.1:5001/voice/speak"
