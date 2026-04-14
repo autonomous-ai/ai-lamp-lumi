@@ -52,7 +52,7 @@ class SensingService:
         numpy_module=None,
         cv2_module=None,
         input_device: Optional[int] = None,
-        poll_interval: float = 1.0,
+        poll_interval: float = 2.0,
         rgb_service=None,
         tts_service=None,
         animation_service=None,
