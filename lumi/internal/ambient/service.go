@@ -36,6 +36,9 @@ type Service struct {
 	// While locked, the breathing loop will not override the LED state.
 	// Cleared when user explicitly turns off the LED.
 	ledLocked bool
+	// sleeping is true when sleepy emotion is active — suppresses all ambient
+	// behaviors until a real interaction (chat, sensing, wake word) occurs.
+	sleeping bool
 }
 
 // ProvideService constructs an AmbientLifeService.
@@ -111,9 +114,21 @@ func (s *Service) watchInteractions(ctx context.Context, eventCh <-chan domain.M
 			return
 		case evt := <-eventCh:
 			switch evt.Type {
-			// Interaction types that should pause ambient
+			// Interaction types that should pause ambient and wake from sleep
 			case "sensing_input", "chat_response", "intent_match", "tts", "chat_send":
+				s.mu.Lock()
+				s.sleeping = false
+				s.mu.Unlock()
 				s.Pause()
+			// Emotion fired — check if sleepy to suppress ambient
+			case "hw_emotion":
+				s.Pause()
+				if strings.Contains(evt.Summary, `"sleepy"`) {
+					s.mu.Lock()
+					s.sleeping = true
+					s.mu.Unlock()
+					slog.Info("sleep mode activated — ambient suppressed", "component", "ambient")
+				}
 			// LED explicitly set by user/agent — don't override with breathing
 			case "led_set":
 				s.mu.Lock()
@@ -130,7 +145,7 @@ func (s *Service) watchInteractions(ctx context.Context, eventCh <-chan domain.M
 		case <-ticker.C:
 			// Check if enough quiet time has passed to resume
 			s.mu.Lock()
-			shouldResume := s.paused && !s.lastInteraction.IsZero() &&
+			shouldResume := s.paused && !s.sleeping && !s.lastInteraction.IsZero() &&
 				time.Since(s.lastInteraction) > resumeDelay
 			s.mu.Unlock()
 			if shouldResume {
