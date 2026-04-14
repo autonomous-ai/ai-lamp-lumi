@@ -210,6 +210,7 @@ class MusicPlayRequest(BaseModel):
 class MusicStatusResponse(BaseModel):
     available: bool
     playing: bool
+    title: Optional[str] = None
 
 
 class VolumeResponse(BaseModel):
