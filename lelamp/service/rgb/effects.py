@@ -216,39 +216,45 @@ def speaking_wave(
     stop_event: threading.Event,
     svc,
 ):
-    """Calm speaking glow — gentle brightness swell like Google Home / Alexa.
+    """Audio-reactive speaking effect — simulated VU meter / equalizer.
 
-    All LEDs pulse together with a single smooth sine wave. Brightness stays
-    in a narrow band (40%-85%) so the lamp never goes dark or blindingly
-    bright. Tempo is ~0.7 Hz (slower than breathing) to feel calm and not
-    compete with the audio output. A very subtle center-to-edge gradient
-    adds a tiny bit of spatial life without being distracting.
+    Divides the LED strip into 8 segments. Each segment has its own
+    brightness target that changes randomly every few frames, simulating
+    audio amplitude response. Brightness smoothly interpolates toward
+    targets to avoid harsh flickering. Looks like the lamp is "reacting"
+    to its own speech.
     """
-    # ~33fps, smooth enough for gentle pulse
-    step_delay = 0.03 / speed
+    step_delay = 0.04 / speed  # ~25fps
     led_count = getattr(svc, "led_count", 64)
-    center = led_count / 2.0
-    phase = 0.0
+    num_segments = 8
+    seg_size = led_count // num_segments
 
-    # Brightness bounds — narrow range keeps it calm
-    bright_min = 0.40
-    bright_max = 0.85
+    # Each segment has a current brightness and a target brightness
+    current = [0.5] * num_segments
+    target = [random.uniform(0.2, 1.0) for _ in range(num_segments)]
+    frames_until_new_target = 0
 
     while not is_done(deadline, stop_event):
-        # Single sine wave: all LEDs share the same base brightness
-        # Pure sine, no sharpening — smooth swell up and down
-        base = math.sin(phase) * 0.5 + 0.5  # 0..1
+        # Pick new random targets every 4-8 frames (~160-320ms)
+        if frames_until_new_target <= 0:
+            for s in range(num_segments):
+                target[s] = random.uniform(0.15, 1.0)
+            frames_until_new_target = random.randint(4, 8)
+        frames_until_new_target -= 1
 
+        # Smooth interpolation toward targets
+        for s in range(num_segments):
+            current[s] += (target[s] - current[s]) * 0.3
+
+        # Paint pixels
         pixels = [(0, 0, 0)] * led_count
-        for i in range(led_count):
-            # Subtle gradient: center is slightly brighter than edges
-            dist = abs(i - center) / center  # 0 at center, 1 at edges
-            gradient = 1.0 - dist * 0.12     # center=1.0, edges=0.88
-
-            brightness = bright_min + (bright_max - bright_min) * base * gradient
-            pixels[i] = tuple(int(c * brightness) for c in color)
+        for s in range(num_segments):
+            brightness = current[s]
+            seg_color = tuple(int(c * brightness) for c in color)
+            for p in range(seg_size):
+                idx = s * seg_size + p
+                if idx < led_count:
+                    pixels[idx] = seg_color
 
         svc.dispatch("paint", pixels)
-        # ~0.7 Hz cycle: phase advances 0.07 rad/frame * 33fps ≈ 2.3 rad/s ≈ 0.37 Hz per half-cycle
-        phase += 0.07 * speed
         time.sleep(step_delay)
