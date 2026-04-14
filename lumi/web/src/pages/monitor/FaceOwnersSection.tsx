@@ -38,7 +38,6 @@ export function FaceOwnersSection() {
   // Enroll form state
   const [showEnroll, setShowEnroll] = useState(false);
   const [enrollName, setEnrollName] = useState("");
-  const [enrollRole, setEnrollRole] = useState<"owner" | "friend">("friend");
   const [enrollFile, setEnrollFile] = useState<File | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
@@ -86,7 +85,7 @@ export function FaceOwnersSection() {
     try {
       const r = await fetch(`${HW}/face/owners`, { signal: ctrl.signal }).then((x) => x.json());
       if (ctrl.signal.aborted) return;
-      setData({ owner_count: r.enrolled_count ?? r.owner_count ?? 0, owners: r.persons ?? r.owners ?? [] });
+      setData({ enrolled_count: r.enrolled_count ?? 0, persons: r.persons ?? [] });
       setError(false);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -153,7 +152,6 @@ export function FaceOwnersSection() {
         body: JSON.stringify({
           image_base64: base64,
           label: enrollName.trim().toLowerCase(),
-          role: enrollRole,
         }),
       });
       if (!res.ok) {
@@ -163,7 +161,6 @@ export function FaceOwnersSection() {
       setShowEnroll(false);
       setEnrollName("");
       setEnrollFile(null);
-      setEnrollRole("friend");
       if (fileInputRef.current) fileInputRef.current.value = "";
       refresh();
     } catch (e) {
@@ -261,8 +258,7 @@ export function FaceOwnersSection() {
                 : 0;
               const kindColor =
                 entry.kind === "stranger" ? "rgb(239,68,68)"
-                : entry.kind === "friend" ? "rgb(96,165,250)"
-                : "var(--lm-amber)";
+                : "rgb(96,165,250)";
               return (
                 <div key={`${entry.kind}-${entry.person_id}`} style={{
                   padding: "8px 12px",
@@ -284,7 +280,7 @@ export function FaceOwnersSection() {
                         fontSize: 9,
                         padding: "1px 6px",
                         borderRadius: 4,
-                        background: entry.kind === "stranger" ? "rgba(239,68,68,0.1)" : entry.kind === "friend" ? "rgba(96,165,250,0.15)" : "var(--lm-amber-dim)",
+                        background: entry.kind === "stranger" ? "rgba(239,68,68,0.1)" : "rgba(96,165,250,0.15)",
                         color: kindColor,
                         fontWeight: 600,
                       }}>
@@ -362,10 +358,10 @@ export function FaceOwnersSection() {
         {!error && data && (
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 24, fontWeight: 700, color: "var(--lm-amber)" }}>
-              {data.owner_count}
+              {data.enrolled_count}
             </span>
             <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
-              enrolled user{data.owner_count !== 1 ? "s" : ""}
+              enrolled user{data.enrolled_count !== 1 ? "s" : ""}
             </span>
           </div>
         )}
@@ -387,26 +383,6 @@ export function FaceOwnersSection() {
               onChange={(e) => setEnrollName(e.target.value)}
               style={inputStyle}
             />
-            <div style={{ display: "flex", gap: 8 }}>
-              {(["owner", "friend"] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setEnrollRole(r)}
-                  style={{
-                    ...btnStyle,
-                    flex: 1,
-                    background: enrollRole === r
-                      ? (r === "owner" ? "var(--lm-amber-dim)" : "rgba(96,165,250,0.15)")
-                      : "var(--lm-surface)",
-                    color: enrollRole === r
-                      ? (r === "owner" ? "var(--lm-amber)" : "rgb(96,165,250)")
-                      : "var(--lm-text-muted)",
-                  }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -440,10 +416,10 @@ export function FaceOwnersSection() {
       )}
 
       {/* Person cards */}
-      {data && data.owners.length > 0 && (
+      {data && data.persons.length > 0 && (
         <div className="lm-grid-2">
-          {data.owners.map((owner) => (
-            <div key={owner.label} style={S.card}>
+          {data.persons.map((person) => (
+            <div key={person.label} style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{
                   fontSize: 14,
@@ -451,19 +427,9 @@ export function FaceOwnersSection() {
                   color: "var(--lm-amber)",
                   textTransform: "capitalize",
                 }}>
-                  {owner.label}
+                  {person.label}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{
-                    fontSize: 10,
-                    padding: "2px 7px",
-                    borderRadius: 4,
-                    background: owner.role === "friend" ? "rgba(96,165,250,0.15)" : "var(--lm-amber-dim)",
-                    color: owner.role === "friend" ? "rgb(96,165,250)" : "var(--lm-amber)",
-                    fontWeight: 600,
-                  }}>
-                    {owner.role || "owner"}
-                  </span>
                   <span style={{
                     fontSize: 10,
                     padding: "2px 7px",
@@ -472,9 +438,9 @@ export function FaceOwnersSection() {
                     color: "var(--lm-amber)",
                     fontWeight: 600,
                   }}>
-                    {owner.photo_count} photo{owner.photo_count !== 1 ? "s" : ""}
+                    {person.photo_count} photo{person.photo_count !== 1 ? "s" : ""}
                   </span>
-                  {owner.mood_days && owner.mood_days.length > 0 && (
+                  {person.mood_days && person.mood_days.length > 0 && (
                     <span style={{
                       fontSize: 10,
                       padding: "2px 7px",
@@ -483,23 +449,23 @@ export function FaceOwnersSection() {
                       color: "rgb(74,222,128)",
                       fontWeight: 600,
                     }}>
-                      {owner.mood_days.length} mood day{owner.mood_days.length !== 1 ? "s" : ""}
+                      {person.mood_days.length} mood day{person.mood_days.length !== 1 ? "s" : ""}
                     </span>
                   )}
                   <button
-                    onClick={() => handleRemove(owner.label)}
-                    disabled={deleting === owner.label}
+                    onClick={() => handleRemove(person.label)}
+                    disabled={deleting === person.label}
                     style={{
                       ...btnStyle,
                       padding: "2px 7px",
                       background: "rgba(239,68,68,0.1)",
                       color: "rgb(239,68,68)",
                       border: "1px solid rgba(239,68,68,0.2)",
-                      cursor: deleting === owner.label ? "not-allowed" : "pointer",
-                      opacity: deleting === owner.label ? 0.5 : 1,
+                      cursor: deleting === person.label ? "not-allowed" : "pointer",
+                      opacity: deleting === person.label ? 0.5 : 1,
                     }}
                   >
-                    {deleting === owner.label ? "..." : "Remove"}
+                    {deleting === person.label ? "..." : "Remove"}
                   </button>
                 </div>
               </div>
@@ -513,10 +479,10 @@ export function FaceOwnersSection() {
               }}>
                 {(() => {
                   const items: { name: string; isDir?: boolean; dirKey?: string; children?: string[]; filePath?: string }[] = [];
-                  owner.photos.forEach((f) => items.push({ name: f, filePath: f }));
-                  owner.files?.filter((f) => !owner.photos.includes(f)).forEach((f) => items.push({ name: f, filePath: f }));
-                  if (owner.mood_days && owner.mood_days.length > 0) {
-                    items.push({ name: "mood", isDir: true, dirKey: `${owner.label}:mood`, children: owner.mood_days.map((d) => `${d}.jsonl`) });
+                  person.photos.forEach((f) => items.push({ name: f, filePath: f }));
+                  person.files?.filter((f) => !person.photos.includes(f)).forEach((f) => items.push({ name: f, filePath: f }));
+                  if (person.mood_days && person.mood_days.length > 0) {
+                    items.push({ name: "mood", isDir: true, dirKey: `${person.label}:mood`, children: person.mood_days.map((d) => `${d}.jsonl`) });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
@@ -537,12 +503,12 @@ export function FaceOwnersSection() {
                             const childPrefix = isLastTop ? "    " : "\u2502   ";
                             const childBranch = ci === (item.children?.length ?? 0) - 1 ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
                             const childPath = `${item.name}/${child}`;
-                            const isActive = preview?.label === owner.label && preview?.path === childPath;
+                            const isActive = preview?.label === person.label && preview?.path === childPath;
                             return (
                               <div key={child}>
                                 <span
                                   style={{ cursor: "pointer" }}
-                                  onClick={() => openFile(owner.label, childPath)}
+                                  onClick={() => openFile(person.label, childPath)}
                                 >
                                   <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
                                   <span style={{
@@ -559,12 +525,12 @@ export function FaceOwnersSection() {
                       );
                     }
                     const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(item.name);
-                    const isActive = preview?.label === owner.label && preview?.path === item.filePath;
+                    const isActive = preview?.label === person.label && preview?.path === item.filePath;
                     return (
                       <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span
                           style={{ cursor: "pointer" }}
-                          onClick={() => openFile(owner.label, item.filePath!)}
+                          onClick={() => openFile(person.label, item.filePath!)}
                         >
                           <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
                           <span style={{
@@ -576,7 +542,7 @@ export function FaceOwnersSection() {
                         </span>
                         {isImg && (
                           <img
-                            src={`${HW}/face/photo/${owner.label}/${item.name}`}
+                            src={`${HW}/face/photo/${person.label}/${item.name}`}
                             style={{
                               width: 28,
                               height: 28,
@@ -594,7 +560,7 @@ export function FaceOwnersSection() {
               </div>
 
               {/* File preview */}
-              {preview && preview.label === owner.label && (
+              {preview && preview.label === person.label && (
                 <div style={{
                   marginTop: 8,
                   padding: "8px 10px",
@@ -632,7 +598,7 @@ export function FaceOwnersSection() {
         </div>
       )}
 
-      {data && data.owners.length === 0 && !showEnroll && (
+      {data && data.persons.length === 0 && !showEnroll && (
         <div style={{ ...S.card, textAlign: "center" as const, padding: 32 }}>
           <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
             No users enrolled yet. Click "+ Enroll" above or send a photo via Telegram.

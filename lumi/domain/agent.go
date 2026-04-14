@@ -123,6 +123,14 @@ type AgentGateway interface {
 	// ConsumeWebChatRun checks and removes a web-chat-marked runID. One-shot.
 	ConsumeWebChatRun(runID string) bool
 
+	// SetPendingChatTrace stores the idempotencyKey of the most recent chat.send
+	// so lifecycle_start can map OpenClaw UUID → device trace without relying on global flow trace.
+	SetPendingChatTrace(runID string)
+
+	// ConsumePendingChatTrace returns and clears the pending chat trace. One-shot.
+	// Returns "" if no pending chat or expired (>2 min).
+	ConsumePendingChatTrace() string
+
 	// --- Channel abstraction (backend-agnostic) ---
 
 	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.

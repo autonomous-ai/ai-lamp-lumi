@@ -80,7 +80,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 |------|--------|-----------|-------------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | No | Voice command |
 | `motion` | Camera (frame diff) | Yes (large motion) | Motion detected |
-| `presence.enter` | Camera (InsightFace recognition) | Yes (bbox-annotated JPEG) | Face detected — owner or stranger classified |
+| `presence.enter` | Camera (InsightFace recognition) | Yes (bbox-annotated JPEG) | Face detected — friend or stranger classified |
 | `presence.leave` | Camera (3 consecutive ticks without face) | No | Person left |
 | `light.level` | Camera (mean brightness) | No | Significant ambient light change (>30/255) |
 | `sound` | Mic (RMS energy) | No | Loud noise |
@@ -171,16 +171,16 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/presence/enable` | Enable auto presence control |
 | POST | `/presence/disable` | Disable auto presence (manual mode) |
 
-### Face (owner enrollment)
+### Face (friend enrollment)
 
-Requires sensing with camera (InsightFace). Owner JPEGs persist under `/root/local/users/{label}/` by default, or under `LELAMP_USERS_DIR` if set.
+Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under `/root/local/users/{label}/` by default, or under `LELAMP_USERS_DIR` if set.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/face/enroll` | Body: `image_base64`, `label` — save photo, train owner embeddings |
-| GET | `/face/status` | `owner_count`, `owner_names` |
-| POST | `/face/remove` | Body: `label` — remove one owner (404 if unknown) |
-| POST | `/face/reset` | Clear all owners and photos on disk |
+| POST | `/face/enroll` | Body: `image_base64`, `label` — save photo, train friend embeddings |
+| GET | `/face/status` | `enrolled_count`, `enrolled_names` |
+| POST | `/face/remove` | Body: `label` — remove one person (404 if unknown) |
+| POST | `/face/reset` | Clear all enrolled persons and photos on disk |
 
 ### Display (GC9A01 1.28" round LCD)
 

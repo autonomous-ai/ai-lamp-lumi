@@ -431,7 +431,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
   }
 
-  return stitched.slice(-100).reverse();
+  return stitched.reverse();
 }
 
 // Extract runtime info for each node from turn events
