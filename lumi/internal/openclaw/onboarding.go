@@ -176,6 +176,13 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
+	// Ensure agent defaults (compaction, bootstrap limits, caching)
+	if defaultsPatched, err := s.ensureAgentDefaults(); err != nil {
+		slog.Error("ensure agent defaults failed", "component", "onboarding", "error", err)
+	} else if defaultsPatched {
+		needRestart = true
+	}
+
 	// Restart OpenClaw if anything changed so the new session picks it up
 	if needRestart {
 		slog.Info("restarting OpenClaw to pick up changes", "component", "onboarding")
@@ -477,4 +484,74 @@ func seedFile(efs embed.FS, src, dst string) bool {
 	}
 	slog.Info("seeded file", "component", "onboarding", "file", filepath.Base(dst))
 	return true
+}
+
+// ensureAgentDefaults patches agents.defaults in openclaw.json with performance config.
+// Returns true if the file was modified.
+func (s *Service) ensureAgentDefaults() (bool, error) {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configBytes, &configData); err != nil {
+		return false, fmt.Errorf("parse openclaw.json: %w", err)
+	}
+
+	agentsMap := ensureMap(configData, "agents")
+	defaultsMap := ensureMap(agentsMap, "defaults")
+
+	changed := false
+
+	// Compaction
+	compactionMap := ensureMap(defaultsMap, "compaction")
+	if v, _ := compactionMap["reserveTokensFloor"].(float64); v != 80000 {
+		compactionMap["reserveTokensFloor"] = 80000
+		changed = true
+	}
+	if v, _ := compactionMap["mode"].(string); v != "safeguard" {
+		compactionMap["mode"] = "safeguard"
+		changed = true
+	}
+
+	// Bootstrap limits
+	if v, _ := defaultsMap["bootstrapMaxChars"].(float64); v != 5000 {
+		defaultsMap["bootstrapMaxChars"] = 5000
+		changed = true
+	}
+	if v, _ := defaultsMap["bootstrapTotalMaxChars"].(float64); v != 30000 {
+		defaultsMap["bootstrapTotalMaxChars"] = 30000
+		changed = true
+	}
+
+	// Cache retention on all model entries
+	modelsMap := ensureMap(defaultsMap, "models")
+	for key, val := range modelsMap {
+		m, ok := val.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		params := ensureMap(m, "params")
+		if v, _ := params["cacheRetention"].(string); v != "short" {
+			params["cacheRetention"] = "short"
+			m["params"] = params
+			modelsMap[key] = m
+			changed = true
+		}
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	outBytes, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal openclaw.json: %w", err)
+	}
+	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
+		return false, fmt.Errorf("write openclaw.json: %w", err)
+	}
+	slog.Info("patched agent defaults in openclaw.json", "component", "onboarding")
+	return true, nil
 }
