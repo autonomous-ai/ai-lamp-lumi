@@ -21,9 +21,23 @@ Chỉ những action classes dưới đây được forward lên OpenClaw dạng
 - yoga
 - tai chi
 - exercising arm — tập tay
+- exercising with an exercise ball — tập với bóng
 - push up — hít đất
 - situp — gập bụng
 - squat
+- lunge — chùng chân
+- pull ups — kéo xà
+- deadlifting — nâng tạ
+- bench pressing — đẩy tạ nằm
+- clean and jerk — cử tạ
+- snatch weight lifting — giật tạ
+- front raises — nâng tạ trước
+- doing aerobics — tập aerobic
+- zumba
+- skipping rope — nhảy dây
+- hula hooping — lắc vòng
+- somersaulting — nhào lộn
+- gymnastics tumbling — thể dục dụng cụ
 - jogging — chạy bộ
 - running on treadmill — chạy máy
 
@@ -46,7 +60,9 @@ Chỉ những action classes dưới đây được forward lên OpenClaw dạng
 - writing — viết
 - texting — nhắn tin
 - reading book — đọc sách
+- reading newspaper — đọc báo
 - drawing — vẽ
+- playing controller — chơi game
 
 ## Emotional / Cảm xúc
 
@@ -54,6 +70,15 @@ Chỉ những action classes dưới đây được forward lên OpenClaw dạng
 - crying — khóc
 - yawning — ngáp
 - singing — hát
+- applauding — vỗ tay (khen)
+- clapping — vỗ tay
+- celebrating — ăn mừng
+- sneezing — hắt xì
+- sniffing — hít mũi
+- hugging — ôm
+- kissing — hôn
+- headbanging — lắc đầu theo nhạc
+- sticking tongue out — lè lưỡi
 
 ## Music / Nhạc cụ
 
