@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { getDeviceConfig, updateDeviceConfig } from "@/lib/api";
+import { getDeviceConfig, updateDeviceConfig, getTTSVoices } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import type { ChannelType } from "@/types";
 
