@@ -316,6 +316,52 @@ The agent infers from the **action name** (not images) whether to reset wellbein
 
 ---
 
+## Emotion Detection — User Emotion (Lightweight UC-M1)
+
+Lumi detects the **user's** emotional state from `motion.activity` actions using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
+
+> **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
+
+### Detected emotional actions
+
+The X3D model already classifies these emotional actions from the motion activity whitelist:
+
+| Action | Inferred state | Agent emotion |
+|---|---|---|
+| `laughing` | Happy/amused | `laugh` (0.8) |
+| `crying` | Sad/upset | `caring` (0.9) |
+| `yawning` | Tired/fatigued | `sleepy` (0.6) |
+| `singing` | Happy/relaxed | `happy` (0.7) |
+
+### Always speak
+
+Unlike regular `motion.activity` events (which may result in NO_REPLY for sedentary actions), emotional actions **always get a spoken response**. Silence is never appropriate when Lumi notices the user laughing, crying, yawning, or singing.
+
+### Context-aware intensity
+
+The default response is light (brief remark). Context escalates the intensity:
+
+- **Time of day**: yawning after 22:00 → suggest winding down + dim light. Yawning before 10:00 → just a light remark.
+- **Sitting duration**: yawning after 2+ hours sitting → suggest a break.
+- **Repetition**: crying detected a second time in the session → gently offer to talk. Laughing 3+ times → comment on their good mood.
+- **Cross-skill**: singing with no music playing → offer music via Music skill.
+
+### Logging
+
+- **Mood history** (automatic): `motion.activity` events are automatically logged to per-user mood JSONL by the server. The agent's emotion and response are recorded via `mood.assessed`. No agent action needed.
+- **Wellbeing daily log** (agent writes): Agent appends `HH:MM — [emotion] {action} detected (observation)` to the user's wellbeing daily log, alongside hydration/break entries.
+
+### Limitations (vs full UC-M1)
+
+- Only 4 discrete actions — no continuous emotion spectrum (surprise, anger, fear, disgust not detected)
+- Requires visible body movement (X3D is video-based action recognition, not facial close-up)
+- Cannot detect micro-expressions or subtle stress
+- Full UC-M1 would require a dedicated FER (Facial Expression Recognition) ONNX model added to the face recognition pipeline
+
+See `emotion-detection/SKILL.md` for the agent's full response rules.
+
+---
+
 ## Snapshot Storage (two-tier)
 
 Sensing events that include a camera frame (motion, presence.enter, presence.leave, music.mood) save snapshots in two locations. Note: `motion.activity` no longer sends images — only action names.
