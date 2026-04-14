@@ -1456,9 +1456,11 @@ def _get_current_led_color() -> tuple:
 def _on_tts_speak_start():
     """Called by TTSService when TTS playback begins.
 
-    Saves current LED color, clears the strip, then starts speaking_wave.
+    Saves current LED color, cancels any pending restore timer, clears the
+    strip, then starts speaking_wave.
     """
     global _tts_speaking, _effect_thread, _effect_name, _effect_base_color
+    global _restore_timer
     if not rgb_service:
         return
 
@@ -1466,6 +1468,11 @@ def _on_tts_speak_start():
     logger.info("TTS speaking LED start: color=%s", color)
 
     _tts_speaking = True
+
+    # Cancel any pending emotion restore timer — it would overwrite speaking_wave
+    if _restore_timer is not None and _restore_timer.is_alive():
+        _restore_timer.cancel()
+        _restore_timer = None
 
     # Stop any running effect and clear strip to avoid old frame bleeding through
     _stop_current_effect()
@@ -1486,9 +1493,8 @@ def _on_tts_speak_start():
 def _on_tts_speak_end():
     """Called by TTSService when TTS playback finishes or is interrupted.
 
-    Stops whatever effect is running and restores previous LED state.
-    Uses _tts_speaking flag instead of _effect_name because Lumi's status LED
-    may have overwritten the effect during TTS.
+    Stops whatever effect is running, clears the strip, then restores
+    previous LED state. If no user state was set, turns LEDs off cleanly.
     """
     global _tts_speaking
     if not _tts_speaking:
@@ -1498,7 +1504,14 @@ def _on_tts_speak_end():
     logger.info("TTS speaking LED end: stopping effect and restoring")
 
     _stop_current_effect()
-    # Restore previous LED state (solid/effect/scene/off)
+
+    # Clear strip immediately so last speaking_wave frame doesn't linger
+    if rgb_service:
+        rgb_service.dispatch("solid", (0, 0, 0))
+
+    # Restore previous LED state (solid/effect/scene).
+    # If _user_led_state is None or "off", _restore_user_led() does nothing —
+    # that's correct: LEDs stay off.
     _restore_user_led()
 
 
@@ -1519,6 +1532,13 @@ def start_led_effect(req: LEDEffectRequest):
         raise HTTPException(
             400, f"Unknown effect '{req.effect}'. Available: {VALID_LED_EFFECTS}"
         )
+
+    # During TTS playback, speaking_wave takes priority over status LED effects
+    # (Lumi sends breathing/pulse for listening/processing states). Skip to avoid
+    # killing the speaking animation mid-playback. TTS end callback handles restore.
+    if _tts_speaking and req.effect != "speaking_wave":
+        logger.info("LED effect '%s' skipped — TTS speaking_wave active", req.effect)
+        return {"status": "ok", "effect": req.effect, "speed": req.speed}
 
     # Stop any running effect
     global _active_scene
@@ -1570,6 +1590,10 @@ def stop_led_effect():
     """Stop the currently running LED effect."""
     if not rgb_service:
         raise HTTPException(503, "LED not available")
+    # Don't stop speaking_wave during TTS — TTS end callback handles cleanup
+    if _tts_speaking:
+        logger.info("LED effect/stop skipped — TTS speaking_wave active")
+        return {"status": "ok"}
     _stop_current_effect()
     return {"status": "ok"}
 
