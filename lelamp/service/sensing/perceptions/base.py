@@ -19,37 +19,42 @@ class Perception(ABC):
     running, the call is skipped.
     """
 
-    _queue: queue.Queue = queue.Queue()
-    _worker_started: bool = False
-    _worker_lock: threading.Lock = threading.Lock()
-
-    @classmethod
-    def _ensure_worker(cls) -> None:
-        with cls._worker_lock:
-            if cls._worker_started:
-                return
-            cls._worker_started = True
-            threading.Thread(
-                target=cls._worker_loop, daemon=True, name="perception-worker"
-            ).start()
-
-    @classmethod
-    def _worker_loop(cls) -> None:
-        while True:
-            perception, frame = cls._queue.get()
-            try:
-                perception._check_impl(frame)
-            except Exception:
-                logger.exception("[%s] check error", type(perception).__name__)
-            finally:
-                with perception._lock:
-                    perception._busy = False
-                cls._queue.task_done()
-
     def __init__(self, send_event: Callable):
         self._send_event = send_event
-        self._busy = False
-        self._lock = threading.Lock()
+        self._busy: bool = False
+        self._lock: threading.Lock = threading.Lock()
+        self._queue: queue.Queue[npt.NDArray[np.uint8]] = queue.Queue()
+        self._worker_thread: threading.Thread | None = None
+        self._worker_lock: threading.Lock = threading.Lock()
+        self._stopped: threading.Event = threading.Event()
+
+    def _ensure_worker(self) -> None:
+        with self._worker_lock:
+            if self._worker_thread is not None:
+                return
+
+            self._stopped.clear()
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop, daemon=True, name="perception-worker"
+            )
+            self._worker_thread.start()
+
+    def __del__(self):
+        self._stopped.set()
+        if self._worker_thread is not None:
+            self._worker_thread.join()
+
+    def _worker_loop(self) -> None:
+        while not self._stopped.is_set():
+            frame = self._queue.get()
+            try:
+                self._check_impl(frame)
+            except Exception:
+                logger.exception("check error")
+            finally:
+                with self._lock:
+                    self._busy = False
+                self._queue.task_done()
 
     def check(self, frame: npt.NDArray[np.uint8]) -> None:
         """Non-blocking entry point. Skips if a previous check is still queued or running."""
@@ -57,8 +62,8 @@ class Perception(ABC):
             if self._busy:
                 return
             self._busy = True
-        Perception._ensure_worker()
-        Perception._queue.put((self, frame))
+        self._ensure_worker()
+        self._queue.put(frame)
 
     @abstractmethod
     def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
