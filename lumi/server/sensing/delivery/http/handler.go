@@ -257,6 +257,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
+	// Dead air filler: play a short TTS cue while OpenClaw processes voice events.
+	// Covers voice_command (wake word) and voice (ambient STT).
+	// Local intents already returned above, passive sensing doesn't need it.
+	if req.Type == "voice_command" || req.Type == "voice" {
+		go PlayDeadAirFiller()
+	}
+
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
 	flow.Log("agent_call", map[string]any{"type": req.Type, "run_id": runID}, runID)
 
