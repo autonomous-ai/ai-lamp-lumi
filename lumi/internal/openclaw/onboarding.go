@@ -73,7 +73,7 @@ var skills = []string{
 	"servo-control",
 	"voice",
 	"wellbeing",
-	"mood"
+	"mood",
 }
 
 // EnsureOnboarding seeds SOUL.md, downloads skills, and injects the mandatory
