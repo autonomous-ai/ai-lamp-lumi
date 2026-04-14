@@ -44,6 +44,8 @@ class TTSService:
         model: str = DEFAULT_MODEL,
         max_retries: int = 3,
         speed: float = 1.0,
+        on_speak_start=None,
+        on_speak_end=None,
     ):
         self._sd = sound_device_module
         self._np = numpy_module
@@ -55,6 +57,12 @@ class TTSService:
         self._speaking = False
         self._max_retries = max_retries
         self._stop_event = threading.Event()
+
+        # Optional callbacks for LED speaking effect.
+        # on_speak_start(): called when TTS playback begins (before audio streams).
+        # on_speak_end():   called when TTS playback finishes or is interrupted.
+        self._on_speak_start = on_speak_start
+        self._on_speak_end = on_speak_end
 
         # Echo cancellation: store last spoken text for transcript self-filtering
         self._last_spoken_text: str = ""
@@ -365,6 +373,13 @@ class TTSService:
             self._lock.release()
             return
 
+        # Notify LED speaking effect — start wave before audio begins
+        if self._on_speak_start:
+            try:
+                self._on_speak_start()
+            except Exception as e:
+                logger.warning("on_speak_start callback failed: %s", e)
+
         head_text = chunks[0]
         tail_chunks = chunks[1:]
         total_samples = 0
@@ -431,4 +446,12 @@ class TTSService:
 
         self._speaking = False
         self._last_spoken_time = time.time()
+
+        # Notify LED speaking effect — stop wave and restore previous LED state
+        if self._on_speak_end:
+            try:
+                self._on_speak_end()
+            except Exception as e:
+                logger.warning("on_speak_end callback failed: %s", e)
+
         self._lock.release()

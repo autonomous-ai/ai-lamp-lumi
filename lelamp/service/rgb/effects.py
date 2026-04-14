@@ -71,6 +71,8 @@ def run_effect(
             pulse(color, speed, deadline, stop_event, svc)
         elif effect == "blink":
             blink(color, speed, deadline, stop_event, svc)
+        elif effect == "speaking_wave":
+            speaking_wave(color, speed, deadline, stop_event, svc)
     except Exception as e:
         import logging
         logging.getLogger("lelamp.led.effects").warning("LED effect '%s' error: %s", effect, e)
@@ -205,3 +207,46 @@ def pulse(
                     pixels[i] = tuple(int(c * falloff) for c in color)
             svc.dispatch("paint", pixels)
             time.sleep(step_delay)
+
+
+def speaking_wave(
+    color: tuple,
+    speed: float,
+    deadline: Optional[float],
+    stop_event: threading.Event,
+    svc,
+):
+    """Google Home-style speaking wave — smooth sine ripple across the LED strip.
+
+    Two overlapping sine waves travel outward from center, creating a gentle
+    brightness ripple that mimics speech cadence. Base brightness stays at 30%
+    so the lamp never goes fully dark; peaks reach 100%.
+    """
+    step_delay = 0.03 / speed
+    led_count = getattr(svc, "led_count", 64)
+    center = led_count / 2.0
+    phase = 0.0
+    # Two wave frequencies for organic feel
+    freq_primary = 4.0    # main wave: ~4 cycles across strip
+    freq_secondary = 7.0  # subtle overlay for texture
+
+    while not is_done(deadline, stop_event):
+        pixels = [(0, 0, 0)] * led_count
+        for i in range(led_count):
+            # Normalize position relative to center (-1..1)
+            pos = (i - center) / center
+
+            # Primary wave: travels outward from center
+            wave1 = math.sin(freq_primary * math.pi * pos + phase)
+            # Secondary wave: faster, lower amplitude for texture
+            wave2 = math.sin(freq_secondary * math.pi * pos - phase * 1.3) * 0.3
+
+            # Combine waves, map to brightness range [0.3 .. 1.0]
+            combined = (wave1 + wave2) / 1.3  # normalize to ~[-1..1]
+            brightness = 0.3 + 0.7 * (combined * 0.5 + 0.5)
+
+            pixels[i] = tuple(int(c * brightness) for c in color)
+
+        svc.dispatch("paint", pixels)
+        phase += 0.15 * speed  # wave travel speed
+        time.sleep(step_delay)
