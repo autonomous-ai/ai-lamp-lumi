@@ -206,9 +206,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		h.agentGateway.MarkGuardRun(runID, snap)
 	}
 	// Web monitor chat: suppress TTS — response displayed in web UI only.
-	if req.Source == "web" {
+	/* if req.Source == "web" {
 		h.agentGateway.MarkWebChatRun(runID)
-	}
+	} */
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
