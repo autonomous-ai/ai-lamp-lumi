@@ -751,7 +751,11 @@ class FaceRecognizer(Perception):
                 (e.g. "owner (alice), stranger (stranger_3)").
         """
         images = [self._annotate_frame(frame, annotations) for frame, annotations in frames]
-        total_faces = sum(len(annotations) for _, annotations in frames)
+        faces: set[tuple[str, str]] = set()
+        for _, annotations in frames:
+            for _, face_kind, label in annotations:
+                faces.add((face_kind, label))
+        total_faces = len(faces)
         self._send_event(
             "presence.enter",
             f"Person detected — {total_faces} face(s) visible ({summary})",
