@@ -60,6 +60,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | POST | `/api/sensing/event` | Nhận sensing event từ LeLamp |
+| POST | `/api/mood/log` | Ghi mood user (agent gọi qua Mood skill) |
 | POST | `/api/monitor/event` | Push event trực tiếp vào monitor bus (dùng bởi LeLamp để gửi trạng thái sound tracker) |
 
 > **Ghi chú:** Theo dõi stranger (stats, lưu trữ) được xử lý bởi **LeLamp** (port 5001) tại `GET /face/stranger-stats`. Xem [sensing-behavior_vi.md](sensing-behavior_vi.md#theo-dõi-người-lạ-stranger-visit-tracking) để biết chi tiết.
@@ -67,7 +68,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|music.mood",
+  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -84,8 +85,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | `light.level` | Camera (mean brightness) | Không | Ánh sáng môi trường thay đổi đáng kể (>30/255) |
 | `sound` | Mic (RMS energy) | Không | Tiếng động lớn |
 | `presence.away` | PresenceService (15 phút không chuyển động) | Không | Không ai xung quanh 15+ phút — Lumi đi ngủ |
-| `music.mood` | WellbeingPerception (timer 60 phút) | Có | User có mặt 60+ phút — gợi ý nhạc theo tâm trạng |
-| `motion.activity` | MotionPerception (khi PRESENT) | Có | Phát hiện chuyển động khi user đang có mặt — phân tích hoạt động |
+| `motion.activity` | MotionPerception (khi PRESENT) | Không | Phát hiện hoạt động khi user có mặt — emotional actions được ghi qua Mood skill |
 
 **Flow xử lý:**
 1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms)
