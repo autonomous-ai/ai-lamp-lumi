@@ -230,16 +230,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Remind agent to set up wellbeing + music crons on presence.enter.
-		// Agent decides whether to act based on face type (owner/friend only).
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.enter":
-			msg += "\n[MANDATORY for owner/friend: (1) ALWAYS call cron.list FIRST to see what actually exists — do NOT assume from memory. (2) cron.remove ALL jobs with \"hydration\"/\"break\"/\"Wellbeing\"/\"music\" in name. (3) Create fresh crons per Wellbeing skill and Music skill. You MUST call cron.list + cron.remove + cron.add every time — do not skip.]"
+			msg += "\n[MANDATORY for owner/friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel crons + append summary to daily log + update wellbeing.md. Do this silently.]"
+			msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
 		case "motion.activity":
-			msg += "\n[Follow Wellbeing skill: From the action name, infer: (1) Is the user drinking something? → reset hydration cron. (2) Is the user NOT sitting/working? → reset break cron. Read today's daily log first for context. After reset, log it. Then comment on what you observe — use context from the log (e.g. \"3rd glass today, nice!\"). Observe, don't instruct. NEVER mention crons/timers/reminders. If emotional action (laughing/crying/yawning/singing) → follow Emotion Detection skill: ALWAYS speak, never NO_REPLY. If neither wellbeing nor emotional → NO_REPLY.]"
+			msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 		}
 	}
 
