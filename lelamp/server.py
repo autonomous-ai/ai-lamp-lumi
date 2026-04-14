@@ -1331,13 +1331,19 @@ def _save_user_led_state(state: dict):
 def _restore_user_led():
     """Restore LED to user state after emotion animation completes.
 
-    Called by a Timer after the servo recording finishes.
+    Called by a Timer after the servo recording finishes, or by TTS end callback.
     - If user had explicitly set a color/effect/scene: restore it.
     - If LED was off or never set: leave emotion color in place (it's better
       than going dark when the lamp wakes up from sleep/off).
+    - Skipped if TTS speaking_wave is active — TTS end callback will restore.
     """
     global _restore_timer
     _restore_timer = None
+
+    # Don't overwrite speaking_wave — TTS end callback handles its own restore
+    if _tts_speaking:
+        logger.info("LED restore: skipped — TTS speaking_wave active")
+        return
 
     if not rgb_service:
         return
@@ -1428,25 +1434,32 @@ def _stop_current_effect():
 _tts_speaking: bool = False  # True while TTS speaking LED is active
 
 
+def _is_nonblack(color) -> bool:
+    """Return True if color is a non-black RGB tuple/list (at least one channel > 0)."""
+    return color and any(c > 0 for c in color)
+
+
 def _get_current_led_color() -> tuple:
-    """Return the current LED color from user state, effect, or scene.
+    """Return the current LED color for the speaking wave effect.
 
     Priority: user_led_state > effect_base_color > scene > default warm white.
+    Skips black (0,0,0) colors — Lumi status LED sometimes sends black as
+    a placeholder when it only cares about the effect name, not the color.
     """
     # Check user-set LED state first (most explicit)
     if _user_led_state:
         stype = _user_led_state.get("type")
-        if stype == "solid" and _user_led_state.get("color"):
+        if stype == "solid" and _is_nonblack(_user_led_state.get("color")):
             return tuple(_user_led_state["color"])
-        if stype == "effect" and _user_led_state.get("color"):
+        if stype == "effect" and _is_nonblack(_user_led_state.get("color")):
             return tuple(_user_led_state["color"])
         if stype == "scene":
             preset = SCENE_PRESETS.get(_user_led_state.get("scene", ""))
             if preset:
                 return tuple(int(c * preset["brightness"]) for c in preset["color"])
 
-    # Fallback: currently running effect color
-    if _effect_base_color:
+    # Fallback: currently running effect color (skip black)
+    if _is_nonblack(_effect_base_color):
         return _effect_base_color
 
     # Default: warm white
@@ -1483,7 +1496,7 @@ def _on_tts_speak_start():
     _effect_base_color = color
     _effect_thread = threading.Thread(
         target=_run_effect,
-        args=("speaking_wave", color, 1.0, None, _effect_stop, rgb_service),
+        args=("speaking_wave", color, 2.5, None, _effect_stop, rgb_service),
         daemon=True,
         name="led-effect-speaking_wave",
     )
@@ -1870,6 +1883,15 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
     """Apply LED effect + display expression for an emotion. Returns scaled LED color or None."""
     preset = EMOTION_PRESETS.get(emotion)
     if not preset:
+        return None
+    # Don't overwrite speaking_wave LED — only apply display expression
+    if _tts_speaking:
+        logger.info("Emotion LED skipped (%s) — TTS speaking_wave active", emotion)
+        if display_service:
+            try:
+                display_service.set_expression(emotion)
+            except Exception as e:
+                logger.warning("Emotion display failed: %s", e)
         return None
     led_color = None
     # Idle LED (cyan breathing) is the ambient fallback — only apply when the user has not
