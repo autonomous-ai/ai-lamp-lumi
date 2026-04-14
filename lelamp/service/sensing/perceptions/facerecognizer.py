@@ -86,7 +86,7 @@ class FaceRecognizer(Perception):
         import onnxruntime as ort
         ort.set_default_logger_severity(3)
         sess_opts = ort.SessionOptions()
-        sess_opts.intra_op_num_threads = 2
+        sess_opts.intra_op_num_threads = 1
         sess_opts.inter_op_num_threads = 1
 
         self.app: insightface.app.FaceAnalysis = insightface.app.FaceAnalysis(
