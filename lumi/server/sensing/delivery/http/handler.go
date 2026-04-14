@@ -112,9 +112,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		mood.ClearCurrentUser()
 	}
 
-	// Log mood-relevant events to dedicated mood history.
-	mood.Log(req.Type, 0, req.Message)
-
 	// Voice commands: try local intent matching first for instant response
 	if (req.Type == "voice" || req.Type == "voice_command") && h.config.LocalIntentEnabled() {
 		if result := intent.Match(req.Message); result != nil {
@@ -200,7 +197,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// Same run_id as chat.send / JSONL: SetTrace before flow.Start so enter matches this turn (not previous).
 	reqID, runID := h.agentGateway.NextChatRunID()
-	mood.TrackRun(runID, req.Type)
 	flow.SetTrace(runID)
 
 	// Mark this run as guard-active so SSE handler broadcasts the agent response via Telegram.
@@ -391,6 +387,39 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	}
 	tmpPath := filepath.Join("/tmp/lumi-sensing-snapshots", name)
 	c.File(tmpPath)
+}
+
+// MoodLogRequest is the payload for logging user mood.
+type MoodLogRequest struct {
+	Mood    string `json:"mood" validate:"required"`    // happy, sad, stressed, tired, excited, etc.
+	Source  string `json:"source" validate:"required"`  // camera, conversation
+	Trigger string `json:"trigger" validate:"required"` // what triggered: action name or context
+}
+
+// PostMoodLog records the user's current mood to their mood history.
+func (h *SensingHandler) PostMoodLog(c *gin.Context) {
+	var req MoodLogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := mood.CurrentUser()
+	if user == "" {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("no user currently present"))
+		return
+	}
+
+	mood.LogMood(req.Mood, req.Source, req.Trigger)
+	slog.Info("mood logged", "component", "mood", "user", user, "mood", req.Mood, "source", req.Source, "trigger", req.Trigger)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
+		"user": user,
+		"mood": req.Mood,
+	}))
 }
 
 // --- Guard helpers ---

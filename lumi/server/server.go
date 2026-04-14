@@ -262,6 +262,9 @@ func (s *Server) Serve(closeFn func()) error {
 	guard.GET("", s.sensingHandler.GetGuardStatus)
 	guard.POST("alert", s.sensingHandler.PostGuardAlert)
 
+	moodGroup := api.Group("mood")
+	moodGroup.POST("log", s.sensingHandler.PostMoodLog)
+
 	monitor := api.Group("monitor")
 	monitor.POST("event", s.sensingHandler.PostMonitorEvent)
 

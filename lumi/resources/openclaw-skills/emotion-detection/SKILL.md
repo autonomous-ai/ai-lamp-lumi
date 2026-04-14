@@ -79,8 +79,8 @@ Default responses are light. When context matches, **escalate** — speak with m
 
 ## Logging
 
-### Mood history (automatic)
-The system automatically logs `motion.activity` events and your assessed response to the user's mood history JSONL (`/root/local/users/{name}/mood/YYYY-MM-DD.jsonl`). You do NOT need to do anything — this happens at the server level. The mood history records both the input event (e.g. "laughing") and your emotion + response text (e.g. emotion: "laugh", response: "Haha, what's so funny?"). Music suggestion and wellbeing crons query this history to build a mood picture over time.
+### Mood history
+After responding to an emotional action, log the user's mood via the **Mood** skill. Use `source: "camera"` and the action name as trigger.
 
 ### Wellbeing daily log (you write this)
 On every emotional action detected, append to the user's wellbeing daily log (`/root/local/users/{name}/wellbeing/YYYY-MM-DD.md`):
