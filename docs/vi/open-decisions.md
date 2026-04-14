@@ -38,7 +38,7 @@
 | AI Vision | Bật (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing event có ảnh gửi qua `SendChatMessageWithImage` → AI nhìn được camera snapshot. |
 | Face detection vs recognition | Face **detection** (có người không?) = P1, done (Haar cascade). Face **recognition** (ai đây?) = P2, cần face embedding + enrollment flow lúc setup. **Vấn đề privacy:** nếu không có recognition, bất kỳ ai lại gần Lumi đều có thể hỏi email, lịch, thông tin cá nhân. Recognition cần để gate sensitive actions chỉ cho người đã đăng ký. |
 | Voice/speaker identification | P2. Phân biệt giọng chủ nhân vs người lạ. Cùng vấn đề privacy — chặn người lạ truy cập data cá nhân qua giọng nói. |
-| Owner gating strategy | **Phải chốt trước khi ship.** Các phương án: (1) Face recognition local (dlib/OpenCV DNN, ~200ms trên Pi4) — enroll lúc setup, gate sensitive skills cho mặt đã đăng ký. (2) Voice embedding local (resemblyzer/speechbrain) — nặng hơn trên Pi4. (3) Wake word + PIN — fallback nếu không có camera. (4) Kết hợp. **Đề xuất:** face recognition làm primary gate, enroll trong setup wizard. Mặt lạ → limited mode (chỉ điều khiển đèn, không truy cập data cá nhân). |
+| Enrolled gating strategy | **Phải chốt trước khi ship.** Các phương án: (1) Face recognition local (dlib/OpenCV DNN, ~200ms trên Pi4) — enroll lúc setup, gate sensitive skills cho mặt đã đăng ký. (2) Voice embedding local (resemblyzer/speechbrain) — nặng hơn trên Pi4. (3) Wake word + PIN — fallback nếu không có camera. (4) Kết hợp. **Đề xuất:** face recognition làm primary gate, enroll trong setup wizard. Mặt lạ → limited mode (chỉ điều khiển đèn, không truy cập data cá nhân). |
 | Audio/Voice (#4) | LeLamp own mic/speaker. Local VAD (RMS energy) + on-demand Deepgram STT. Wake word "Hey Lumi" trong transcript → `voice_command` (ưu tiên). Không có wake word → `voice` (ambient sensing). |
 | Emotion presets (#6) | 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock) + 11 eye expressions trên display. |
 | Display rendering (#7) | `gc9a01-python` + PIL/Pillow. 240x240 round LCD. Dual-mode eyes/info. Auto-blink. Plugin — skip nếu không có. |
@@ -80,7 +80,7 @@
 | UC-10 | Gesture control | Hand pose estimation |
 | UC-12 | Video call optimization | Face lighting analysis |
 | UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel — **Lưu ý:** hiện "free" nhờ OpenClaw. Nếu đổi gateway khác, cần channel abstraction layer. Xem mục Chưa chốt. |
-| — | Face recognition (nhận diện chủ nhân) | Face embedding + enrollment lúc setup |
+| — | Face recognition (nhận diện người quen) | Face embedding + enrollment lúc setup |
 | — | Voice/speaker identification | Phân biệt giọng chủ nhân vs người lạ |
 
 ### 4 Pillars ✅

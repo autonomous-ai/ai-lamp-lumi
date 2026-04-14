@@ -28,7 +28,7 @@ Toàn bộ logic nằm trong LLM (OpenClaw agent) — không có hard code timer
 ### 1. Bootstrap — Khi user ngồi vào bàn
 
 ```
-Camera detect face → [sensing:presence.enter] (owner/friend)
+Camera detect face → [sensing:presence.enter] (friend)
     ↓
 Agent greeting xong → bắt đầu wellbeing setup (im lặng, không thông báo)
     ↓
