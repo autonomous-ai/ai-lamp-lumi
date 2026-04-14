@@ -575,7 +575,13 @@ DEBIAN_FRONTEND=noninteractive TERM=xterm chroot ${MNT} apt-get install -y \
   systemd-sysv \
   xvfb chromium chromium-sandbox git \
   fake-hwclock \
-  libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils ffmpeg
+  libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils ffmpeg \
+  alsa-utils libasound2-dev \
+  libopenblas0 libgomp1 liblapack3 \
+  libgpiod2 \
+  python3-dev python3-spidev \
+  libsm6 libxext6 libgl1 \
+  libjpeg-dev zlib1g-dev libfreetype6-dev libopenjp2-7-dev libtiff-dev
 # Purge NetworkManager and its dependencies completely
 DEBIAN_FRONTEND=noninteractive TERM=xterm chroot ${MNT} apt-get purge -y --auto-remove \
   network-manager network-manager-gnome 2>/dev/null || true

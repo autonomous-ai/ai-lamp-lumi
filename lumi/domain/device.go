@@ -37,6 +37,7 @@ type SetupRequest struct {
 
 	// voice pipeline (optional): Deepgram API key for STT
 	DeepgramAPIKey string `json:"deepgram_api_key"`
+	TTSVoice       string `json:"tts_voice"`
 
 	// optional
 	DeviceID string `json:"device_id" validate:"required"`
@@ -164,9 +165,9 @@ type SetupResponse struct {
 // Command types received from server via MQTT FAChannel.
 // Matches spec: docs/mqtt_specs_autonomous.md
 const (
-	CommandInfo                    = "info"
-	CommandAddChannel              = "add_channel"
-	CommandOTA = "ota"
+	CommandInfo       = "info"
+	CommandAddChannel = "add_channel"
+	CommandOTA        = "ota"
 )
 
 // Message is the standard envelope for MQTT messages from the server (fa_channel).
@@ -284,6 +285,7 @@ type ConfigResponse struct {
 	LLMBaseURL         string `json:"llm_base_url"`
 	LLMDisableThinking bool   `json:"llm_disable_thinking"`
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	TTSVoice           string `json:"tts_voice"`
 	DeviceID           string `json:"device_id"`
 	NetworkSSID        string `json:"network_ssid"`
 	NetworkPassword    string `json:"network_password"`
@@ -327,4 +329,12 @@ type UpdateConfigRequest struct {
 	MQTTPort     int    `json:"mqtt_port"`
 	FAChannel    string `json:"fa_channel"`
 	FDChannel    string `json:"fd_channel"`
+
+	TTSVoice string `json:"tts_voice"`
 }
+
+// TTSVoices is the list of available OpenAI-compatible TTS voices.
+var TTSVoices = []string{"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
+
+// DefaultTTSVoice is the default voice when none is configured.
+const DefaultTTSVoice = "alloy"
