@@ -250,7 +250,7 @@ export default function EditConfig() {
         channel, ...channelCreds,
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
-        deepgram_api_key: deepgramApiKey, device_id: deviceId,
+        deepgram_api_key: deepgramApiKey, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
@@ -264,7 +264,7 @@ export default function EditConfig() {
   }, [
     channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
-    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, deviceId,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, ttsVoice, deviceId,
     mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
   ]);
 
@@ -402,8 +402,31 @@ export default function EditConfig() {
                   </label>
                 </SectionCard>
 
-                <SectionCard id="deepgram" title="Deepgram STT">
+                <SectionCard id="deepgram" title="STT (Deepgram)">
                   <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
+                </SectionCard>
+
+                <SectionCard id="tts" title="TTS Voice">
+                  <div style={{ marginBottom: 12 }}>
+                    <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                      Voice
+                    </label>
+                    <select
+                      id="tts_voice"
+                      value={ttsVoice}
+                      onChange={(e) => setTtsVoice(e.target.value)}
+                      style={{
+                        width: "100%", boxSizing: "border-box",
+                        background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 7, padding: "8px 11px",
+                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                      }}
+                    >
+                      {(ttsVoices.length > 0 ? ttsVoices : ["alloy"]).map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
                 </SectionCard>
 
                 <SectionCard id="channel" title="Messaging Channel">
