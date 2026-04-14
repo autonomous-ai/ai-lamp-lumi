@@ -43,8 +43,7 @@ Activate this skill when the user sends a **photo** together with ANY of these p
 3. Extract the **name** from the message. If no name is given, ask the user.
 4. Base64-encode the photo from `mediaPaths`.
 5. Call `POST /face/enroll` with the base64 image, label, and role.
-6. **If role is owner** — update `USER.md` with `Face ID: <label>` so the owner profile links to the face recognition folder. Also fill in the owner's name if not already set.
-7. Confirm to user with the enrolled count.
+6. Confirm to user with the enrolled count.
 
 ### Check who is recognized
 1. User asks "who do you recognize?" or "how many faces?"
@@ -59,8 +58,7 @@ Activate this skill when the user sends a **photo** together with ANY of these p
 ### Change a person's role
 1. User says "set Leo as owner" or "change Chloe to friend" or "make all friends".
 2. Call `POST /face/set-role` with the label and new role.
-3. **If new role is owner** — update `USER.md` with `Face ID: <label>` and the owner's name.
-4. Confirm the role change.
+3. Confirm the role change.
 
 ### Reset all faces
 1. User says "forget all faces" or "reset faces".
