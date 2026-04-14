@@ -104,7 +104,7 @@ Also update the user's `wellbeing.md` summary if you notice patterns over multip
 - **Never diagnose** — say "You seem tired" not "Fatigue detected" or "Emotional state: drowsy"
 - **Never narrate the technology** — say "I noticed you yawning" not "X3D action recognition classified your movement as yawning"
 - **Vary your responses** — don't repeat the exact same line. If you already said "Getting tired?" 30 minutes ago, say something different this time
-- **Owners and friends only** — don't react to stranger emotional actions
+- **Friends only** — don't react to stranger emotional actions
 - **One sentence max** — keep it brief and natural. You're noticing, not lecturing
 - **Image context** — always look at the attached snapshot for additional context (what they're doing, time cues, environment)
 - **Weave into conversation** — if the user is actively chatting, fold the observation in naturally rather than interrupting

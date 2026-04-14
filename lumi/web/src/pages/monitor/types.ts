@@ -85,20 +85,19 @@ export interface SceneInfo {
   active?: string;
 }
 export interface FaceStatus {
-  owner_count: number;
-  owner_names: string[];
+  enrolled_count: number;
+  enrolled_names: string[];
 }
 export interface FaceOwnerDetail {
   label: string;
-  role?: string;
   photo_count: number;
   photos: string[];
   mood_days?: string[];
   files?: string[];
 }
 export interface FaceOwnersDetail {
-  owner_count: number;
-  owners: FaceOwnerDetail[];
+  enrolled_count: number;
+  persons: FaceOwnerDetail[];
 }
 export interface MonitorEvent {
   id: string;
