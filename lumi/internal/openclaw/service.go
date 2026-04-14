@@ -331,9 +331,15 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	compactionMap["mode"] = "safeguard"
 	compactionMap["reserveTokensFloor"] = 80000
 	defaultsMap["compaction"] = compactionMap
+	defaultsMap["bootstrapMaxChars"] = 5000
+	defaultsMap["bootstrapTotalMaxChars"] = 30000
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
-		agentModelsMap[m.Key] = map[string]any{}
+		agentModelsMap[m.Key] = map[string]any{
+			"params": map[string]any{
+				"cacheRetention": "short",
+			},
+		}
 	}
 	defaultsMap["model"] = map[string]any{
 		"primary": fmt.Sprintf("%s/%s", customProviderName, defaultModel.Name),
