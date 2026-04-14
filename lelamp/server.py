@@ -2434,6 +2434,12 @@ def speak_text(req: SpeakRequest):
         )
         raise HTTPException(409, "Speaker busy — music is playing")
     logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
+    # If TTS is busy (e.g. dead air filler), stop it first — new speech always takes priority.
+    if tts_service.speaking:
+        logger.info("POST /voice/speak: interrupting current TTS for new speech")
+        tts_service.stop()
+        import time
+        time.sleep(0.1)  # brief pause for lock release
     started = tts_service.speak(req.text)
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
