@@ -213,7 +213,7 @@ func (s *Service) drainPendingEvents() {
 			case "presence.leave":
 				msg += "\n[Follow Wellbeing skill: cancel crons + write daily log.]"
 			case "motion.activity":
-				msg += "\n[Follow Wellbeing skill: reset cron timers if user is drinking/stretching.]"
+				msg += "\n[Follow Wellbeing skill: reset cron timers if user is drinking/stretching. If emotional action (laughing/crying/yawning/singing) → follow Emotion Detection skill: ALWAYS speak.]"
 			}
 		}
 		var err error

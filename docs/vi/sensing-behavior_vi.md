@@ -324,6 +324,52 @@ Agent suy luận từ **tên action** (không cần ảnh) để quyết định
 
 ---
 
+## Nhận diện cảm xúc người dùng — User Emotion (Lightweight UC-M1)
+
+Lumi nhận diện trạng thái cảm xúc **của người dùng** từ `motion.activity` actions bằng model X3D có sẵn — không cần model nhận diện biểu cảm khuôn mặt riêng. Đây là phiên bản lightweight của UC-M1 (Facial Expression & Wellness Detection).
+
+> **Đừng nhầm lẫn với Emotion Expression** (`emotion/SKILL.md`) — cái đó điều khiển cảm xúc đầu ra của Lumi (servo + LED + eyes). Emotion Detection là cảm nhận *user* đang cảm thấy gì; Emotion Expression là cách *Lumi* thể hiện cảm xúc của chính nó.
+
+### Các action cảm xúc được nhận diện
+
+Model X3D đã phân loại được các action cảm xúc từ motion activity whitelist:
+
+| Action | Trạng thái suy luận | Emotion của agent |
+|---|---|---|
+| `laughing` | Vui vẻ | `laugh` (0.8) |
+| `crying` | Buồn/khó chịu | `caring` (0.9) |
+| `yawning` | Mệt mỏi | `sleepy` (0.6) |
+| `singing` | Vui/thư giãn | `happy` (0.7) |
+
+### Luôn phải nói
+
+Khác với `motion.activity` thường (có thể NO_REPLY khi ngồi yên), emotional actions **luôn phải có phản hồi bằng giọng nói**. Im lặng không phù hợp khi Lumi nhận thấy user đang cười, khóc, ngáp, hay hát.
+
+### Cường độ theo ngữ cảnh
+
+Phản hồi mặc định là nhẹ nhàng (một câu ngắn). Ngữ cảnh sẽ tăng cường độ:
+
+- **Thời gian trong ngày**: ngáp sau 22:00 → gợi ý đi ngủ + dim đèn. Ngáp trước 10:00 → chỉ nhận xét nhẹ.
+- **Thời gian ngồi**: ngáp sau 2+ tiếng ngồi → gợi ý nghỉ ngơi.
+- **Lặp lại**: khóc lần 2 trong session → nhẹ nhàng hỏi muốn tâm sự không. Cười 3+ lần → nhận xét mood tốt.
+- **Cross-skill**: hát mà không có nhạc đang phát → gợi ý nhạc qua Music skill.
+
+### Logging
+
+- **Mood history** (tự động): `motion.activity` events được server tự động ghi vào mood JSONL per-user. Emotion và response của agent được ghi qua `mood.assessed`. Agent không cần làm gì.
+- **Wellbeing daily log** (agent tự ghi): Agent append `HH:MM — [emotion] {action} detected (quan sát)` vào wellbeing daily log, cùng chỗ với các entry hydration/break.
+
+### Hạn chế (so với full UC-M1)
+
+- Chỉ 4 action rời rạc — không có phổ cảm xúc liên tục (surprise, anger, fear, disgust không detect được)
+- Cần thấy body movement (X3D là video-based action recognition, không phải close-up khuôn mặt)
+- Không phát hiện micro-expression hay stress nhẹ
+- Full UC-M1 cần thêm model FER (Facial Expression Recognition) ONNX vào pipeline nhận diện khuôn mặt
+
+Xem `emotion-detection/SKILL.md` để biết rules phản hồi đầy đủ.
+
+---
+
 ## Lưu trữ Snapshot (hai tầng)
 
 Các sensing event có kèm camera frame (motion, presence.enter, presence.leave, music.mood) lưu snapshot ở hai nơi. Lưu ý: `motion.activity` không còn gửi ảnh — chỉ gửi tên action.
