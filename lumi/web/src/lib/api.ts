@@ -93,6 +93,10 @@ export interface DeviceConfig {
   fd_channel: string;
 }
 
+export async function getTTSVoices(): Promise<string[]> {
+  return apiRequest<string[]>(`${API_BASE}/api/device/voices`);
+}
+
 export async function getDeviceConfig(): Promise<DeviceConfig> {
   return apiRequest<DeviceConfig>(`${API_BASE}/api/device/config`);
 }

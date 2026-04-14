@@ -19,6 +19,7 @@ import numpy as np
 logger = logging.getLogger("lelamp.voice.tts")
 logger.setLevel(logging.DEBUG)
 
+AVAILABLE_VOICES = ("alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer")
 DEFAULT_VOICE = "alloy"
 DEFAULT_MODEL = "tts-1"
 
@@ -50,6 +51,9 @@ class TTSService:
         self._sd = sound_device_module
         self._np = numpy_module
         self._output_device = output_device
+        if voice not in AVAILABLE_VOICES:
+            logger.warning("Unknown TTS voice '%s', falling back to '%s'", voice, DEFAULT_VOICE)
+            voice = DEFAULT_VOICE
         self._voice = voice
         self._model = model
         self._speed = max(0.25, min(4.0, speed))

@@ -1418,7 +1418,7 @@ func buildWakeWords(name string) []string {
 }
 
 // StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
-func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error {
+func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice string) error {
 	if deepgramKey == "" {
 		return nil
 	}
@@ -1427,6 +1427,7 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL string) error
 		"deepgram_api_key": deepgramKey,
 		"llm_api_key":      llmKey,
 		"llm_base_url":     llmBaseURL,
+		"tts_voice":        ttsVoice,
 	})
 	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
 	if err != nil {

@@ -456,6 +456,9 @@ class VoiceStartRequest(BaseModel):
     deepgram_api_key: str = Field(
         "", description="Deepgram API key (optional, falls back to Autonomous STT)"
     )
+    tts_voice: str = Field(
+        "", description="TTS voice name (optional, defaults to config TTS_VOICE)"
+    )
 
 
 class VoiceConfigRequest(BaseModel):

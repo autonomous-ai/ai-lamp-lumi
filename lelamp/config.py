@@ -28,6 +28,8 @@ _sensing_device_env = os.environ.get("LELAMP_AUDIO_SENSING_DEVICE")
 AUDIO_SENSING_DEVICE: Optional[int] = int(_sensing_device_env) if _sensing_device_env else None
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
+# TTS voice — one of: alloy, ash, coral, echo, fable, onyx, nova, sage, shimmer
+TTS_VOICE: str = os.environ.get("TTS_VOICE", "alloy")
 
 # --- Data layout ---
 LELAMP_DATA_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data"))
