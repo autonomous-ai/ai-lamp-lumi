@@ -27,7 +27,8 @@
       "Bash(go build:*)",
       "Bash(go vet:*)",
       "WebFetch(domain:docs.openclaw.ai)",
-      "Bash(bash -n imager/build.sh)"
+      "Bash(bash -n imager/build.sh)",
+      "Bash(grep -r \"import\\\\|from\" /Users/stone7890/go/src/github.com/autonomous-ecm/ai-lamp-openclaw/lelamp/*.py --include=\"*.py\")"
     ]
   }
 }

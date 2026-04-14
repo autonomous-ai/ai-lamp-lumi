@@ -101,6 +101,11 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
 }
 
+// GetVoices returns the list of available TTS voices for the setup page SelectBox.
+func (h *DeviceHandler) GetVoices(c *gin.Context) {
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(domain.TTSVoices))
+}
+
 // ChangeChannel godoc
 //
 //	@Summary	change messaging channel

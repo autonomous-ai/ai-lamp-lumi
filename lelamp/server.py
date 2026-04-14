@@ -45,6 +45,7 @@ from lelamp.config import (
     SERVO_HOLD_S,
     SERVO_PORT,
     TTS_SPEED,
+    TTS_VOICE,
 )
 from lelamp.models import (
     AudioDevicesResponse,
@@ -464,6 +465,7 @@ async def lifespan(app: FastAPI):
         dgk = lumi_cfg.get("deepgram_api_key", "")
         llm_key = lumi_cfg.get("llm_api_key", "")
         llm_url = lumi_cfg.get("llm_base_url", "")
+        voice = lumi_cfg.get("tts_voice", "") or TTS_VOICE
         if llm_key and llm_url and TTSService and not tts_service:
             tts_service = TTSService(
                 api_key=llm_key,
@@ -471,6 +473,7 @@ async def lifespan(app: FastAPI):
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
+                voice=voice,
                 speed=TTS_SPEED,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
@@ -2351,6 +2354,8 @@ def start_voice(req: VoiceStartRequest):
     """Start the voice pipeline (always-on Deepgram STT + TTS). Called by Lumi on boot."""
     global voice_service, tts_service
 
+    voice = req.tts_voice or TTS_VOICE
+
     # Start TTS
     if TTSService and not (tts_service and tts_service.available):
         try:
@@ -2360,6 +2365,7 @@ def start_voice(req: VoiceStartRequest):
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
+                voice=voice,
                 speed=TTS_SPEED,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
