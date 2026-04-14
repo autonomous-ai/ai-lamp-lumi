@@ -287,6 +287,14 @@ class TTSService:
                 for frame in self._iter_tts_samples(text, dst_rate, ttfb_tag=ttfb_tag):
                     if self._stop_event.is_set():
                         return total_samples
+                    # Fire on_speak_start on first audio frame — syncs LED effect
+                    # with actual audio output, not with TTS API call
+                    if not self._speak_start_fired and self._on_speak_start:
+                        self._speak_start_fired = True
+                        try:
+                            self._on_speak_start()
+                        except Exception as e:
+                            logger.warning("on_speak_start callback failed: %s", e)
                     stream.write(frame)
                     total_samples += len(frame)
                 return total_samples
@@ -373,12 +381,8 @@ class TTSService:
             self._lock.release()
             return
 
-        # Notify LED speaking effect — start wave before audio begins
-        if self._on_speak_start:
-            try:
-                self._on_speak_start()
-            except Exception as e:
-                logger.warning("on_speak_start callback failed: %s", e)
+        # _on_speak_start fires on first audio frame, not here — see _stream_chunk_with_retry
+        self._speak_start_fired = False
 
         head_text = chunks[0]
         tail_chunks = chunks[1:]
