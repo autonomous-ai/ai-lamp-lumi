@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getNetworks, setupDevice, getTTSVoices } from "@/lib/api";
+import { getNetworks, setupDevice, getTTSVoices, getDeviceConfig } from "@/lib/api";
 import type { ChannelType, NetworkItem } from "@/types";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
@@ -228,6 +228,9 @@ export default function Setup() {
     }
     fetchNetworks().finally(() => setLoadingList(false));
     getTTSVoices().then(setTtsVoices).catch(() => {});
+    getDeviceConfig().then((cfg) => {
+      if (cfg.tts_voice) setTtsVoice(cfg.tts_voice);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
