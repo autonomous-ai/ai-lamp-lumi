@@ -1642,17 +1642,45 @@ def stop_led_effect():
 # --- Camera endpoints ---
 
 
+_camera_disabled = False
+
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
     """Get camera availability and resolution."""
-    if not camera_capture or cv2 is None:
-        return {"available": False, "width": None, "height": None}
+    if not camera_capture or cv2 is None or _camera_disabled:
+        return {"available": False, "width": None, "height": None, "disabled": _camera_disabled}
 
     return {
         "available": True,
         "width": CAMERA_WIDTH,
         "height": CAMERA_HEIGHT,
+        "disabled": False,
     }
+
+
+@app.post("/camera/disable", response_model=StatusResponse, tags=["Camera"])
+def disable_camera():
+    """Stop the camera capture loop. Saves CPU/RAM. Sensing skips vision perceptions.
+    Call /camera/enable to restart."""
+    global _camera_disabled
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+    _camera_disabled = True
+    camera_capture.stop()
+    logger.info("Camera disabled by user")
+    return {"status": "ok"}
+
+
+@app.post("/camera/enable", response_model=StatusResponse, tags=["Camera"])
+def enable_camera():
+    """Restart the camera capture loop after /camera/disable."""
+    global _camera_disabled
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+    _camera_disabled = False
+    camera_capture.start()
+    logger.info("Camera re-enabled by user")
+    return {"status": "ok"}
 
 
 _SNAPSHOT_DIR = "/tmp/lumi-snapshots"
