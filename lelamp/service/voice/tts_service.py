@@ -59,6 +59,7 @@ class TTSService:
         self._speed = max(0.25, min(4.0, speed))
         self._lock = threading.Lock()
         self._speaking = False
+        self._interruptible = False
         self._max_retries = max_retries
         self._stop_event = threading.Event()
 
@@ -143,15 +144,30 @@ class TTSService:
             logger.info("TTS stop requested — setting stop event")
             self._stop_event.set()
 
-    def speak(self, text: str) -> bool:
-        """Synthesize and play text. Returns True if started, False if busy or unavailable."""
+    @property
+    def interruptible(self) -> bool:
+        """Whether the current speech can be interrupted by a new speak() call."""
+        return self._interruptible
+
+    def speak(self, text: str, interruptible: bool = False) -> bool:
+        """Synthesize and play text. Returns True if started, False if busy or unavailable.
+        If interruptible=True, a subsequent speak() call can stop this one."""
         if not self.available:
             logger.warning("TTS not available")
             return False
 
         if not self._lock.acquire(blocking=False):
-            logger.info("TTS busy, skipping: %s", text[:50])
-            return False
+            # Busy — but if current speech is interruptible, stop it and retry
+            if self._interruptible:
+                logger.info("TTS interrupting interruptible speech for: %s", text[:50])
+                self.stop()
+                # Wait briefly for lock release
+                if not self._lock.acquire(blocking=True, timeout=2.0):
+                    logger.warning("TTS lock not released after stop, giving up: %s", text[:50])
+                    return False
+            else:
+                logger.info("TTS busy, skipping: %s", text[:50])
+                return False
 
         # Clear any leftover stop signal from a previous stop() call
         self._stop_event.clear()
@@ -159,6 +175,7 @@ class TTSService:
         # Mark speaking IMMEDIATELY so VoiceService stops streaming to Deepgram
         # before TTS API call (which can take 3-5s)
         self._speaking = True
+        self._interruptible = interruptible
         self._last_spoken_text = text
 
         thread = threading.Thread(

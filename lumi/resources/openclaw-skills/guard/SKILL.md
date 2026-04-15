@@ -1,20 +1,20 @@
 ---
 name: guard
-description: Toggle guard mode for security monitoring. Activates when the owner or a friend leaves. Use when they say "guard mode", "watch the house", "I'm going out", or similar.
+description: Toggle guard mode for security monitoring. Activates when a friend leaves. Use when they say "guard mode", "watch the house", "I'm going out", or similar.
 ---
 
 # Guard Mode
 
 ## Quick Start
-Guard mode turns Lumi into an alert watchdog. When enabled, Lumi monitors for strangers and reacts **dramatically** — jolting, flashing, and verbally describing intruders. The system auto-broadcasts alerts to Telegram so owners know what's happening. Both **owners** and **friends** (enrolled faces) can toggle guard mode.
+Guard mode turns Lumi into an alert watchdog. When enabled, Lumi monitors for strangers and reacts **dramatically** — jolting, flashing, and verbally describing intruders. The system auto-broadcasts alerts to Telegram so friends know what's happening. All **friends** (enrolled faces) can toggle guard mode.
 
 ## Workflow
-1. Owner or friend requests guard mode (explicit or implied departure).
+1. Friend requests guard mode (explicit or implied departure).
 2. Reply with `[HW:/emotion:{"emotion":"acknowledge","intensity":0.7}]` — lamp nods and flashes green.
 3. Enable guard mode via the API (include `instruction` if user gave extra requests).
 4. Confirm verbally: "Guard mode on. I'll keep watch."
 5. While active: react dramatically to stranger/motion events (see trigger table below).
-6. When owner/friend returns, greet and ask if they want to disable. Only disable on explicit confirm.
+6. When a friend returns, greet and ask if they want to disable. Only disable on explicit confirm.
 
 ## Enable Guard Mode
 
@@ -22,7 +22,7 @@ Guard mode turns Lumi into an alert watchdog. When enabled, Lumi monitors for st
 curl -s -X POST http://127.0.0.1:5000/api/guard/enable -H 'Content-Type: application/json' -d '{"instruction":"custom instruction here"}'
 ```
 
-The `instruction` field is **optional**. Use it when the owner adds extra instructions on what to do during guard mode (e.g. "play scary sound when stranger detected", "flash red lights", "play alarm music"). Extract the relevant part from the owner's message and pass it as the instruction. If the owner just says "guard mode" with no extra requests, omit the field or send an empty body.
+The `instruction` field is **optional**. Use it when the user adds extra instructions on what to do during guard mode (e.g. "play scary sound when stranger detected", "flash red lights", "play alarm music"). Extract the relevant part from the user's message and pass it as the instruction. If the user just says "guard mode" with no extra requests, omit the field or send an empty body.
 
 Response: `{"status": 1, "data": {"guard_mode": true, "instruction": "..."}}`
 
@@ -53,8 +53,8 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 
 ## Rules
 
-- **Who can toggle:** Both owners and friends (enrolled faces) can enable/disable guard mode. Strangers cannot.
-- **Guard mode does NOT affect direct messages.** If an owner or friend sends a message while guard mode is on, respond normally.
+- **Who can toggle:** All friends (enrolled faces) can enable/disable guard mode. Strangers cannot.
+- **Guard mode does NOT affect direct messages.** If a friend sends a message while guard mode is on, respond normally.
 
 ### Enabling guard mode — emotion is REQUIRED
 
@@ -80,7 +80,7 @@ When guard mode is active and a sensing event fires (`presence.enter` with stran
 | Stranger detected | `[HW:/emotion:{"emotion":"shock","intensity":1.0}][HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | React with genuine emotion — scared, startled, suspicious. No dry reports. |
 | Motion (no known face) | `[HW:/emotion:{"emotion":"shock","intensity":0.9}][HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | React with genuine emotion — nervous, alert. No dry reports. |
 | Stranger left | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | Report they left, stay vigilant |
-| Owner/friend returns | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | Greet + summarize what happened during guard (strangers seen, motion events, how long) + ask if they want to disable guard mode |
+| Friend returns | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | Greet + summarize what happened during guard (strangers seen, motion events, how long) + ask if they want to disable guard mode |
 
 **Key points:**
 - Use **shock** (0.9–1.0) as the first emotion — the lamp must jolt and flash white to signal danger.
@@ -97,5 +97,5 @@ When guard mode is active and a sensing event fires (`presence.enter` with stran
 - The system auto-broadcasts your spoken text to Telegram — just speak, never call send/message tools.
 
 ## Error Handling
-- If the API is unreachable, inform the owner that guard mode could not be toggled.
+- If the API is unreachable, inform the user that guard mode could not be toggled.
 - If guard mode is already in the requested state, just confirm the current state.

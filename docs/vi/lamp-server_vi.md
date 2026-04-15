@@ -80,7 +80,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 |------|-------|---------|-------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | Không | Lệnh giọng nói |
 | `motion` | Camera (frame diff) | Có (large motion) | Phát hiện chuyển động |
-| `presence.enter` | Camera (InsightFace recognition) | Có (JPEG bbox-annotated) | Phát hiện khuôn mặt — phân loại owner hoặc stranger |
+| `presence.enter` | Camera (InsightFace recognition) | Có (JPEG bbox-annotated) | Phát hiện khuôn mặt — phân loại friend hoặc stranger |
 | `presence.leave` | Camera (3 tick liên tục không thấy mặt) | Không | Người rời đi |
 | `light.level` | Camera (mean brightness) | Không | Ánh sáng môi trường thay đổi đáng kể (>30/255) |
 | `sound` | Mic (RMS energy) | Không | Tiếng động lớn |
@@ -171,16 +171,16 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/presence/enable` | Bật auto presence control |
 | POST | `/presence/disable` | Tắt auto presence (manual mode) |
 
-### Face (đăng ký chủ / owner)
+### Face (đăng ký người quen / friend)
 
-Cần sensing có camera (InsightFace). Mặc định ảnh owner lưu tại `/root/local/users/{label}/`; có thể ghi đè bằng `LELAMP_USERS_DIR`.
+Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng ký lưu tại `/root/local/users/{label}/`; có thể ghi đè bằng `LELAMP_USERS_DIR`.
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | POST | `/face/enroll` | Body: `image_base64`, `label` — lưu ảnh, train embedding |
-| GET | `/face/status` | `owner_count`, `owner_names` |
-| POST | `/face/remove` | Body: `label` — xóa một owner (404 nếu không có) |
-| POST | `/face/reset` | Xóa toàn bộ owner và ảnh trên đĩa |
+| GET | `/face/status` | `enrolled_count`, `enrolled_names` |
+| POST | `/face/remove` | Body: `label` — xóa một người đã đăng ký (404 nếu không có) |
+| POST | `/face/reset` | Xóa toàn bộ người đã đăng ký và ảnh trên đĩa |
 
 ### Display (GC9A01 1.28" LCD tròn)
 

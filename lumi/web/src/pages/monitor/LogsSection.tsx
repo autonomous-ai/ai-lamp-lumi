@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { S } from "./styles";
 import { API } from "./types";
 
-type LogSource = "lelamp" | "lumi" | "openclaw";
+type LogSource = "lelamp" | "lumi" | "openclaw" | "openclaw-service";
 const LOG_SOURCES: { id: LogSource; label: string; color: string }[] = [
-  { id: "lelamp",   label: "LeLamp",   color: "var(--lm-green)" },
-  { id: "lumi",     label: "Lumi",     color: "var(--lm-amber)" },
-  { id: "openclaw", label: "OpenClaw", color: "var(--lm-blue)" },
+  { id: "lelamp",           label: "LeLamp",   color: "var(--lm-green)" },
+  { id: "lumi",             label: "Lumi",     color: "var(--lm-amber)" },
+  { id: "openclaw",         label: "OpenClaw", color: "var(--lm-blue)" },
+  { id: "openclaw-service", label: "OC Service", color: "var(--lm-purple, #a78bfa)" },
 ];
 
 const LOG_LEVELS = ["ALL", "DEBUG", "INFO", "WARN", "ERROR"] as const;
@@ -32,15 +33,19 @@ const levelColor: Record<LogLevel, string> = {
 // Strip ANSI escape codes (color codes like [32m, [0m, etc.)
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m|\[(?:\d+;)*\d*m/g, "");
 
-function LogPanel({ source, label, color }: { source: LogSource; label: string; color: string }) {
+function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterChange }: {
+  source: LogSource; label: string; color: string;
+  initialFilter: string; initialLevel: LogLevel;
+  onFilterChange: (source: LogSource, filter: string, level: LogLevel) => void;
+}) {
   const [lines, setLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastN, setLastN] = useState(200);
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
-  const [level, setLevel] = useState<LogLevel>("ALL");
+  const [filter, setFilter] = useState(initialFilter);
+  const [level, setLevel] = useState<LogLevel>(initialLevel);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sseRef = useRef<EventSource | null>(null);
 
@@ -196,7 +201,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
         <span style={{ width: 1, height: 16, background: "var(--lm-border)", margin: "0 2px" }} />
         <select
           value={level}
-          onChange={(e) => setLevel(e.target.value as LogLevel)}
+          onChange={(e) => { const v = e.target.value as LogLevel; setLevel(v); onFilterChange(source, filter, v); }}
           style={{
             fontSize: 10, padding: "3px 6px", borderRadius: 5,
             background: level !== "ALL" ? "var(--lm-amber-dim)" : "var(--lm-surface)",
@@ -210,7 +215,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
         <input
           type="text"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => { setFilter(e.target.value); onFilterChange(source, e.target.value, level); }}
           placeholder="grep..."
           style={{
             fontSize: 10, padding: "3px 8px", borderRadius: 5, width: 120,
@@ -221,7 +226,7 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
           }}
         />
         {filter && (
-          <button onClick={() => setFilter("")} style={{ ...btnStyle, padding: "3px 6px" }}>✕</button>
+          <button onClick={() => { setFilter(""); onFilterChange(source, "", level); }} style={{ ...btnStyle, padding: "3px 6px" }}>✕</button>
         )}
         <button onClick={() => setLines([])} style={btnStyle}>Clear</button>
         <label style={{ marginLeft: "auto", fontSize: 9, color: "var(--lm-text-muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
@@ -271,10 +276,47 @@ function LogPanel({ source, label, color }: { source: LogSource; label: string; 
   );
 }
 
+const STORAGE_KEY = "lm-logs-state";
+
+function loadLogState(): { active: LogSource; filters: Record<string, { filter: string; level: LogLevel }> } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        active: LOG_SOURCES.some((s) => s.id === parsed.active) ? parsed.active : "openclaw",
+        filters: parsed.filters ?? {},
+      };
+    }
+  } catch {}
+  return { active: "openclaw", filters: {} };
+}
+
+function saveLogState(active: LogSource, filters: Record<string, { filter: string; level: LogLevel }>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ active, filters }));
+  } catch {}
+}
+
 export function LogsSection() {
-  const [active, setActive] = useState<LogSource>("openclaw");
+  const [saved] = useState(loadLogState);
+  const [active, setActive] = useState<LogSource>(saved.active);
+  const [filters, setFilters] = useState<Record<string, { filter: string; level: LogLevel }>>(saved.filters);
 
   const src = LOG_SOURCES.find((s) => s.id === active)!;
+
+  const handleTabChange = (id: LogSource) => {
+    setActive(id);
+    saveLogState(id, filters);
+  };
+
+  const handleFilterChange = (source: LogSource, filter: string, level: LogLevel) => {
+    setFilters((prev) => {
+      const next = { ...prev, [source]: { filter, level } };
+      saveLogState(active, next);
+      return next;
+    });
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0, height: "100%" }}>
@@ -282,7 +324,7 @@ export function LogsSection() {
         {LOG_SOURCES.map((s) => (
           <button
             key={s.id}
-            onClick={() => setActive(s.id)}
+            onClick={() => handleTabChange(s.id)}
             style={{
               fontSize: 11, padding: "4px 12px", borderRadius: 6, cursor: "pointer",
               border: active === s.id ? `1px solid ${s.color}` : "1px solid var(--lm-border)",
@@ -297,7 +339,15 @@ export function LogsSection() {
           </button>
         ))}
       </div>
-      <LogPanel key={active} source={src.id} label={src.label} color={src.color} />
+      <LogPanel
+        key={active}
+        source={src.id}
+        label={src.label}
+        color={src.color}
+        initialFilter={filters[src.id]?.filter ?? ""}
+        initialLevel={filters[src.id]?.level ?? "ALL"}
+        onFilterChange={handleFilterChange}
+      />
     </div>
   );
 }

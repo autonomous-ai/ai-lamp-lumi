@@ -60,8 +60,6 @@ from lelamp.models import (
     FaceRemoveRequest,
     FaceRemoveResponse,
     FaceResetResponse,
-    FaceSetRoleRequest,
-    FaceSetRoleResponse,
     FaceStatusResponse,
     HealthResponse,
     LEDColorResponse,
@@ -2147,7 +2145,6 @@ def _require_face_recognizer():
 def face_enroll(req: FaceEnrollRequest):
     """Save a JPEG photo, train embeddings, and persist under users/{label}/."""
     fr = _require_face_recognizer()
-    role = req.role if req.role in ("owner", "friend") else "owner"
     try:
         raw = base64.b64decode(req.image_base64)
     except Exception as exc:
@@ -2155,34 +2152,33 @@ def face_enroll(req: FaceEnrollRequest):
     if not raw:
         raise HTTPException(400, "empty image")
     try:
-        path = fr.enroll_from_bytes(raw, req.label, role=role)
+        path = fr.enroll_from_bytes(raw, req.label)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     norm = FaceRecognizer.normalize_label(req.label)
     return FaceEnrollResponse(
         status="ok",
         label=norm,
-        role=role,
         photo_path=path,
-        enrolled_count=fr.owner_count(),
+        enrolled_count=fr.enrolled_count(),
     )
 
 
 @app.get("/face/status", response_model=FaceStatusResponse, tags=["Face"])
 def face_status():
-    """List enrolled owners (unique labels) and count."""
+    """List enrolled persons (unique labels) and count."""
     fr = _require_face_recognizer()
     return FaceStatusResponse(
-        owner_count=fr.owner_count(),
-        owner_names=fr.owner_names(),
+        enrolled_count=fr.enrolled_count(),
+        enrolled_names=fr.enrolled_names(),
     )
 
 
 @app.get("/face/owners", response_model=FaceOwnersDetailResponse, tags=["Face"])
 def face_owners_detail():
-    """List enrolled persons (owners and friends) with photo filenames."""
+    """List enrolled persons with photo filenames."""
     fr = _require_face_recognizer()
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer as FR
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
 
     persons: list[FacePersonDetail] = []
     if USERS_DIR.is_dir():
@@ -2194,11 +2190,9 @@ def face_owners_detail():
             other_files = sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() not in img_exts)
             mood_dir = d / "mood"
             mood_days = sorted(f.stem for f in mood_dir.iterdir() if f.suffix == ".jsonl") if mood_dir.is_dir() else []
-            role = FR._read_role(d)
             persons.append(
                 FacePersonDetail(
                     label=d.name,
-                    role=role,
                     photo_count=len(photos),
                     photos=photos,
                     mood_days=mood_days,
@@ -2238,41 +2232,26 @@ def face_file(label: str, filepath: str):
     return Response(content=path.read_bytes(), media_type=mime)
 
 
-@app.post("/face/set-role", response_model=FaceSetRoleResponse, tags=["Face"])
-def face_set_role(req: FaceSetRoleRequest):
-    """Change a person's role without re-enrolling."""
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer
-    fr = _require_face_recognizer()
-    norm = FaceRecognizer.normalize_label(req.label)
-    person_dir = USERS_DIR / norm
-    if not person_dir.is_dir():
-        raise HTTPException(404, f"person '{norm}' not found")
-    if req.role not in FaceRecognizer.KNOWN_ROLES:
-        raise HTTPException(400, f"role must be one of {FaceRecognizer.KNOWN_ROLES}")
-    FaceRecognizer._write_role(person_dir, req.role)
-    return FaceSetRoleResponse(status="ok", label=norm, role=req.role)
-
-
 @app.post("/face/remove", response_model=FaceRemoveResponse, tags=["Face"])
 def face_remove(req: FaceRemoveRequest):
-    """Remove one owner's saved photos and re-train from disk."""
+    """Remove one person's saved photos and re-train from disk."""
     fr = _require_face_recognizer()
     norm = FaceRecognizer.normalize_label(req.label)
-    if not fr.remove_owner(req.label):
-        raise HTTPException(404, "owner not found")
+    if not fr.remove_person(req.label):
+        raise HTTPException(404, "person not found")
     return FaceRemoveResponse(
         status="ok",
         label=norm,
-        owner_count=fr.owner_count(),
+        enrolled_count=fr.enrolled_count(),
     )
 
 
 @app.post("/face/reset", response_model=FaceResetResponse, tags=["Face"])
 def face_reset():
-    """Clear all owner embeddings and delete all owner photos on disk."""
+    """Clear all enrolled embeddings and delete all photos on disk."""
     fr = _require_face_recognizer()
-    fr.reset_owners()
-    return FaceResetResponse(status="ok", owner_count=0)
+    fr.reset_enrolled()
+    return FaceResetResponse(status="ok", enrolled_count=0)
 
 
 @app.get("/face/stranger-stats", tags=["Face"])
@@ -2356,8 +2335,14 @@ def start_voice(req: VoiceStartRequest):
 
     voice = req.tts_voice or TTS_VOICE
 
-    # Start TTS
-    if TTSService and not (tts_service and tts_service.available):
+    # Start or re-init TTS (re-init when voice changed)
+    need_tts = TTSService and (
+        not (tts_service and tts_service.available)
+        or (tts_service and tts_service._voice != voice)
+    )
+    if need_tts:
+        if tts_service and tts_service.speaking:
+            tts_service.stop()
         try:
             tts_service = TTSService(
                 api_key=req.llm_api_key,
@@ -2370,7 +2355,7 @@ def start_voice(req: VoiceStartRequest):
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
             )
-            logger.info("TTSService started")
+            logger.info("TTSService started (voice=%s)", voice)
             # Wire TTS to MusicService so music pauses during speech
             if music_service:
                 music_service._tts_service = tts_service
@@ -2379,6 +2364,10 @@ def start_voice(req: VoiceStartRequest):
 
     # Start voice (always-on streaming STT)
     if voice_service and voice_service.available:
+        # Wire updated TTS into running voice service (e.g. voice changed)
+        if need_tts and tts_service:
+            voice_service._tts_service = tts_service
+            logger.info("Updated TTS in running voice service (voice=%s)", voice)
         return {"status": "already_running"}
     if not VoiceService:
         raise HTTPException(503, "Voice service not available (missing deps)")
@@ -2454,8 +2443,8 @@ def speak_text(req: SpeakRequest):
             "POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80]
         )
         raise HTTPException(409, "Speaker busy — music is playing")
-    logger.info("POST /voice/speak: text='%s' (len=%d)", req.text[:80], len(req.text))
-    started = tts_service.speak(req.text)
+    logger.info("POST /voice/speak: text='%s' (len=%d, interruptible=%s)", req.text[:80], len(req.text), req.interruptible)
+    started = tts_service.speak(req.text, interruptible=req.interruptible)
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
     return {"status": "ok"}
