@@ -272,7 +272,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.enter":
-			msg += "\n[MANDATORY for friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
+			msg += "\n[MANDATORY for friend: You MUST create wellbeing/music crons BEFORE greeting. Steps: (1) cron.list to check existing crons. (2) Read Wellbeing skill and Music skill. (3) Create missing crons per each skill. Only then greet.]"
 		case "presence.leave":
 			msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
 		case "motion.activity":
