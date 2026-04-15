@@ -187,7 +187,7 @@ export default function EditConfig() {
   const [faceUploading, setFaceUploading] = useState(false);
   const [faceMsg, setFaceMsg] = useState<string | null>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
-  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: { name: string }[] }[]>([]);
+  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[] }[]>([]);
 
   const loadFaceOwners = useCallback(async () => {
     try {
@@ -521,14 +521,14 @@ export default function EditConfig() {
                       <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
                         Enrolled ({faceOwners.length})
                       </div>
-                      {faceOwners.map((p) => (
+                      {faceOwners.filter((p) => p.photo_count > 0).map((p) => (
                         <div key={p.label} style={{
                           display: "flex", alignItems: "center", gap: 10,
                           padding: "8px 0", borderBottom: `1px solid ${C.border}`,
                         }}>
                           {p.photos?.[0] && (
                             <img
-                              src={`/hw/face/photo/${p.label}/${p.photos[0].name}`}
+                              src={`/hw/face/photo/${p.label}/${p.photos[0]}`}
                               style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", border: `1px solid ${C.border}` }}
                             />
                           )}
@@ -536,16 +536,18 @@ export default function EditConfig() {
                             <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.label}</div>
                             <div style={{ fontSize: 10, color: C.textMuted }}>{p.photo_count} photo{p.photo_count !== 1 ? "s" : ""}</div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeFaceOwner(p.label)}
-                            style={{
-                              background: "none", border: "none", cursor: "pointer",
-                              fontSize: 11, color: C.red, padding: "4px 8px",
-                            }}
-                          >
-                            Remove
-                          </button>
+                          {p.label !== "unknown" && (
+                            <button
+                              type="button"
+                              onClick={() => removeFaceOwner(p.label)}
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                fontSize: 11, color: C.red, padding: "4px 8px",
+                              }}
+                            >
+                              Remove
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
