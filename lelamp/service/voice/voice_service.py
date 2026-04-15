@@ -22,6 +22,7 @@ from typing import Optional
 
 import requests
 
+from lelamp.service.voice.backchannel import Backchannel
 from lelamp.service.voice.stt_provider import STTProvider
 
 logger = logging.getLogger("lelamp.voice")
@@ -63,6 +64,7 @@ STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
+
 
 
 class _ArecordStream:
@@ -140,6 +142,8 @@ class VoiceService:
         self._np = None
         # Explicit override from .env → skip auto-detection entirely
         self._alsa_device: Optional[str] = alsa_device or None
+
+        self._backchannel = Backchannel(tts_service)
 
         try:
             import numpy as np
@@ -512,7 +516,7 @@ class VoiceService:
                     )
                     self._vad_loop(mic, frame_size, device_rate)
             except Exception as e:
-                logger.error("Voice loop error: %s", e)
+                logger.warning("Voice loop error: %s", e)
                 if self._running:
                     time.sleep(3)
 
@@ -595,6 +599,7 @@ class VoiceService:
         session = preconnected_session or self._stt.create_session()
 
         longest_partial = [""]
+        final_segments = []
         final_sent = [False]
 
         def _send_best(best: str):
@@ -625,11 +630,18 @@ class VoiceService:
                 logger.info("STT partial: '%s'", text)
                 if len(text) > len(longest_partial[0]):
                     longest_partial[0] = text
+                self._backchannel.on_partial(text)
                 return
             # Accumulate final segments — don't send yet, wait for session close.
             # Flux model fires multiple EndOfTurn events for natural pauses within
             # one utterance, so sending immediately would split a single sentence.
             logger.info("STT final segment: '%s'", text)
+            # Store final text + any partial accumulated before this final.
+            # After final, STT resets partials to empty, so save longest_partial now.
+            best = longest_partial[0] if len(longest_partial[0]) > len(text) else text
+            if best:
+                final_segments.append(best)
+            longest_partial[0] = ""
             final_sent[0] = True
 
         try:
@@ -719,13 +731,16 @@ class VoiceService:
         except Exception as e:
             logger.error("STT stream error: %s", e)
         finally:
+            self._backchannel.reset()
             self._listening = False
             session.close()
-            # Send the best transcript once when session closes (not on each final).
-            # longest_partial accumulates across all finals in one session.
+            # Combine all final segments + any trailing partial into one transcript.
             if longest_partial[0]:
-                logger.info("STT session done — sending: '%s'", longest_partial[0])
-                _send_best(longest_partial[0])
+                final_segments.append(longest_partial[0])
+            combined = " ".join(final_segments).strip()
+            if combined:
+                logger.info("STT session done — sending: '%s'", combined)
+                _send_best(combined)
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
                 requests.post("http://127.0.0.1:5000/api/sensing/event",

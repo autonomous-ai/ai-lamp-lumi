@@ -27,7 +27,10 @@
       "Bash(go build:*)",
       "Bash(go vet:*)",
       "WebFetch(domain:docs.openclaw.ai)",
-      "Bash(bash -n imager/build.sh)"
+      "Bash(bash -n imager/build.sh)",
+      "Bash(sshpass:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ]
   }
 }

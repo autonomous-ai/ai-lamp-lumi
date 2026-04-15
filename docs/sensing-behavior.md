@@ -75,9 +75,9 @@ Python pushes `sound_tracker` events directly to the monitor bus via `POST /api/
 
 Always triggers a full reaction — no exceptions. The agent **must** do all three:
 
-1. `/emotion greeting` (0.9) for owner — `/emotion curious` (0.8) for stranger
-2. `/servo/aim {"direction": "user"}` for owner — `/servo/play {"recording": "scanning"}` for stranger
-3. Speak: warm greeting for owner (by name), cautious acknowledgment for stranger
+1. `/emotion greeting` (0.9) for friend — `/emotion curious` (0.8) for stranger
+2. `/servo/aim {"direction": "user"}` for friend — `/servo/play {"recording": "scanning"}` for stranger
+3. Speak: warm greeting for friend (by name), cautious acknowledgment for stranger
 
 The system handles cooldowns on the LeLamp side. If the event reached the agent, enough time has passed — react fully.
 
@@ -134,7 +134,7 @@ When guard mode is active, stranger/motion events trigger **much stronger** emot
 | Stranger detected | `shock` (1.0) → `curious` (0.9) + servo shock | Genuinely scared/startled reaction |
 | Motion (no known face) | `shock` (0.9) → `curious` (0.8) + servo scanning | Nervous/alert reaction |
 | Stranger left | `curious` (0.7) + scanning | Report they left, stay vigilant |
-| Owner/friend returns | `greeting` (0.9) + servo aim | Greet + recap what happened during guard + ask to disable |
+| Friend returns | `greeting` (0.9) + servo aim | Greet + recap what happened during guard + ask to disable |
 
 The agent's **spoken words must also carry emotion** — not dry security reports. Examples: "Oh no, who is that?!", "Someone's here... I'm shaking...", "Hey, this person looks really suspicious...". Each reaction should feel different.
 
@@ -175,7 +175,7 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 - Persisted in LeLamp's data directory (survives restarts).
 - Query stats via `GET http://127.0.0.1:5001/face/stranger-stats`.
 
-**Auto-enrollment suggestion:** When a stranger reaches 3+ visits, the sensing skill suggests face enrollment — this person is likely a regular visitor who should be registered as an owner.
+**Auto-enrollment suggestion:** When a stranger reaches 3+ visits, the sensing skill suggests face enrollment — this person is likely a regular visitor who should be registered as a friend.
 
 ---
 
@@ -285,7 +285,7 @@ Each entry: `{"ts":...,"hour":10,"mood":"happy","source":"camera","trigger":"lau
 
 ### Cross-channel identity
 
-The agent links face recognition names to Telegram usernames by observing timing and context (e.g., "gray" is at the desk and "@GrayDev" messages on Telegram simultaneously). Confirmed mappings are stored in `USER.md` (for the owner) or the user's folder notes. The agent asks for confirmation if unsure.
+The agent links face recognition names to Telegram usernames by observing timing and context (e.g., "gray" is at the desk and "@GrayDev" messages on Telegram simultaneously). Confirmed mappings are stored in `USER.md` (for the enrolled person) or the user's folder notes. The agent asks for confirmation if unsure.
 
 ---
 

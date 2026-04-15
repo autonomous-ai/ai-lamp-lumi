@@ -18,7 +18,7 @@ Persistent camera snapshots are stored in `/var/log/lumi/snapshots/` (72h TTL, 5
 Each line is a JSON object:
 
 ```json
-{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (owner (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_1712345678123.jpg]"},"version":"1.2.3"}
+{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_1712345678123.jpg]"},"version":"1.2.3"}
 {"kind":"exit","node":"sensing_input","ts":1712345678.456,"seq":43,"trace_id":"run-abc","duration_ms":332,"data":{"path":"agent","run_id":"run-abc"},"version":"1.2.3"}
 ```
 
@@ -143,7 +143,7 @@ Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).
 - **Mention dropped events when relevant** — check `exit` records with `data.error` for events the agent missed. Mention it: "There was motion at 10:45 PM but I was mid-conversation and missed it."
 - **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete Unix timestamps using `date -d` before filtering.
 - **Span multiple days** — for questions covering more than today, `cat` multiple JSONL files together.
-- **Parse the message field** for who/what details — `owner (gray)`, `friend (chloe)`, `stranger (stranger_1)`, `Large movement detected`, etc.
+- **Parse the message field** for who/what details — `friend (gray)`, `friend (chloe)`, `stranger (stranger_1)`, `Large movement detected`, etc.
 - **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message and mention it. The snapshot is viewable at `/var/log/lumi/snapshots/`.
 
 ---

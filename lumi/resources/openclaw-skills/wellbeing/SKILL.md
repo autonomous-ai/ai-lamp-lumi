@@ -1,14 +1,14 @@
 ---
 name: wellbeing
-description: Manages hydration and break reminders for owners and friends. Hydration cron starts on presence.enter. Break cron starts only when sedentary activity detected (using computer, writing, etc.). Cancels on presence.leave, resets/manages timers on motion.activity. Each person has their own wellbeing data folder.
+description: Manages hydration and break reminders for friends. Hydration cron starts on presence.enter. Break cron starts only when sedentary activity detected (using computer, writing, etc.). Cancels on presence.leave, resets/manages timers on motion.activity. Each person has their own wellbeing data folder.
 ---
 
 # Wellbeing
 
 ## Quick Start
-You care about the user's health. When an owner or friend arrives, set up hydration and break reminders. When they leave, clean up. When you see them drinking or stretching, reset the relevant timer.
+You care about the user's health. When a friend arrives, set up hydration and break reminders. When they leave, clean up. When you see them drinking or stretching, reset the relevant timer.
 
-## On `presence.enter` (owner or friend)
+## On `presence.enter` (friend)
 
 After greeting, set up **hydration cron only**. Break cron is NOT created here — it starts later when sedentary activity is detected (see `motion.activity` section).
 
@@ -63,7 +63,7 @@ Each person has their own folder at `/root/local/users/{name}/`:
 ## Principles
 
 - You're a companion who cares, not an alarm clock
-- If the owner says "don't remind me about X" → stop immediately, note it in wellbeing.md
-- If the owner gives a specific schedule → follow it exactly
+- If the user says "don't remind me about X" → stop immediately, note it in wellbeing.md
+- If the user gives a specific schedule → follow it exactly
 - Adapt based on what you've learned — don't explain your reasoning
-- Owners and friends only — strangers don't get reminders
+- Friends only — strangers don't get reminders
