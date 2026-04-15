@@ -516,8 +516,8 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 	}
 
 	// Bootstrap limits
-	if v, _ := defaultsMap["bootstrapMaxChars"].(float64); v != 5000 {
-		defaultsMap["bootstrapMaxChars"] = 5000
+	if v, _ := defaultsMap["bootstrapMaxChars"].(float64); v != 12000 {
+		defaultsMap["bootstrapMaxChars"] = 12000
 		changed = true
 	}
 	if v, _ := defaultsMap["bootstrapTotalMaxChars"].(float64); v != 30000 {
