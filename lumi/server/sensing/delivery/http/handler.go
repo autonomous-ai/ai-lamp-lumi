@@ -258,6 +258,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
+	// Strip [snapshot: ...] paths from agent message — presence events don't need images
+	// (face recognition already ran on Python side). Prevents agent from reading files and wasting tokens.
+	// Guard mode snapshot path is already extracted above (line 221) so stripping here is safe.
+	if req.Type == "presence.enter" || req.Type == "presence.leave" {
+		msg = strings.TrimSpace(reSnapshotPath.ReplaceAllString(msg, ""))
+	}
+
 	var err error
 	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
 	if req.Image != "" && req.Type != "motion.activity" {
