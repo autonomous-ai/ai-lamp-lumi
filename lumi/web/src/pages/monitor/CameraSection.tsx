@@ -56,7 +56,7 @@ export function CameraSection({
         </div>
       </div>
 
-      {!cameraDisabled && (
+      {!cameraDisabled && ( <>
       <div className="lm-grid-2">
         {/* Live camera stream */}
         <div style={S.card}>
@@ -170,7 +170,7 @@ export function CameraSection({
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
         />
       </div>
-      )}
+      </> )}
     </div>
   );
 }
