@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { getNetworks, setupDevice, getTTSVoices, getDeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
+import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -166,15 +167,15 @@ export default function Setup() {
     urlParams.discordBotToken || urlParams.discordGuildId
   );
 
-  const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
-    { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
-    { id: "face",     label: "Face",     icon: "◐" },
-    ...(!urlParams.deviceId ? [{ id: "device" as SectionId, label: "Device", icon: "◈" }] : []),
-    ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: "⬢" }] : []),
-    ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: "◉" }] : []),
-    { id: "tts" as SectionId, label: "TTS", icon: "◎" },
-    ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: "⬟" }] : []),
-    { id: "mqtt",     label: "MQTT",     icon: "☰" },
+  const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
+    { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={15} /> },
+    { id: "face",     label: "Face",     icon: <UserCircle size={15} /> },
+    ...(!urlParams.deviceId ? [{ id: "device" as SectionId, label: "Device", icon: <Lamp size={15} /> }] : []),
+    ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: <Brain size={15} /> }] : []),
+    ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: <Mic size={15} /> }] : []),
+    { id: "tts" as SectionId, label: "TTS", icon: <Volume2 size={15} /> },
+    ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: <MessageSquare size={15} /> }] : []),
+    { id: "mqtt",     label: "MQTT",     icon: <Link size={15} /> },
   ];
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
@@ -370,7 +371,7 @@ export default function Setup() {
     <div className={`lm-root lm-setup ${themeClass}`} style={{
       display: "flex", height: "100vh",
       background: C.bg, color: C.text,
-      fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
+      fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 14,
     }}>
       <style>{`
         @media (max-width: 640px) {
@@ -406,7 +407,7 @@ export default function Setup() {
                 cursor: "pointer", transition: "all 0.15s",
                 border: "none", width: "calc(100% - 16px)", textAlign: "left",
               }}>
-                <span style={{ fontSize: 14, lineHeight: 1 }}>{s.icon}</span>
+                {s.icon}
                 {s.label}
               </button>
             );

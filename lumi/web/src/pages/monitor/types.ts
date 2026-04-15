@@ -133,22 +133,22 @@ export function isNavLink(c: NavChild): c is NavLink {
 }
 
 export const NAV: NavEntry[] = [
-  { id: "overview",  label: "Overview",  icon: "◈" },
-  { id: "flow",      label: "Flow",      icon: "⇉" },
-  { id: "face-owners", label: "Users",   icon: "◎" },
-  { id: "camera",      label: "Camera",  icon: "◫" },
-  { id: "analytics", label: "Analytics", icon: "▦" },
-  { id: "chat",      label: "Chat",      icon: "✉" },
+  { id: "overview",    label: "Overview",  icon: "⊞" },
+  { id: "flow",        label: "Flow",      icon: "⇄" },
+  { id: "face-owners", label: "Users",     icon: "☺" },
+  { id: "camera",      label: "Camera",    icon: "⊙" },
+  { id: "analytics",   label: "Analytics", icon: "⊟" },
+  { id: "chat",        label: "Chat",      icon: "▤" },
   {
     group: "system",
     label: "System",
-    icon: "▣",
+    icon: "⎚",
     children: [
-      { id: "system", label: "Info",  icon: "◧" },
-      { id: "servo",  label: "Servo", icon: "⚙" },
-      { id: "logs",                       label: "Logs",    icon: "≡" },
-      { id: "cli",                        label: "CLI",     icon: "$" },
-      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⬟" },
+      { id: "system", label: "Info",  icon: "ℹ" },
+      { id: "servo",  label: "Servo", icon: "⎈" },
+      { id: "logs",                       label: "Logs",    icon: "☰" },
+      { id: "cli",                        label: "CLI",     icon: "▸" },
+      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⎗" },
     ],
   },
 ];
