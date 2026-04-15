@@ -271,7 +271,25 @@ A special HW marker that forces the agent's spoken text to also be sent to all T
 
 ### Per-user mood history
 
-Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
+Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
+
+#### Mood sources
+
+| Source | How it works |
+|---|---|
+| **Camera** (`source: "camera"`) | `motion.activity` detects emotional action (laughing, crying, yawning, singing) → Emotion Detection skill triggers → agent logs mood |
+| **Conversation** (`source: "conversation"`) | Agent scans the **overall conversation flow** — not just the latest message. Subtle cues count: short/curt replies → stress, repeated topics → worry, tone shifts → mood change. Works across all channels (Telegram, voice, web). |
+
+#### Voice mood nudge
+
+Voice events (`voice_command`, `voice`) include a `[Silently follow Mood skill.]` nudge in the message sent to the agent, plus `[Current user: {name}]` when face recognition knows who is present. This ensures the agent scans mood from voice conversations — not just Telegram where conversation context is more obvious.
+
+#### Storage format
+
+JSONL (one JSON object per line) — chosen over JSON array for:
+- **Append**: O(1) — just write a new line (no read-parse-rewrite)
+- **Crash-safe**: worst case loses 1 line (array can corrupt entire file)
+- **Read last N**: `Query()` reads all lines then slices — fast enough for daily files (tens of entries)
 
 ```bash
 # Write (agent calls this)
@@ -281,7 +299,7 @@ POST /api/mood/log  {"mood":"happy","source":"camera","trigger":"laughing"}
 GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
 ```
 
-Each entry: `{"ts":...,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
+Each entry: `{"ts":...,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
 
 ### Cross-channel identity
 
@@ -390,7 +408,7 @@ Configuration constants are in `lelamp/config.py`:
 
 - **Pending event replay**: When the agent is busy, `presence.enter`, `presence.leave`, and `voice` events are queued and replayed when the agent becomes idle. The replay path (`drainPendingEvents` in `service.go`) applies the same nudge messages as the live handler (cron setup for presence.enter, cleanup for presence.leave, etc.).
 - **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn (except presence and voice events which are queued).
-- **Voice events** always pass through — the user is explicitly speaking.
+- **Voice events** always pass through — the user is explicitly speaking. Voice messages include a mood scan nudge (`[Silently follow Mood skill.]`) so the agent remembers to detect mood from the conversation flow.
 - The `[sensing:type]` prefix in the message is how the agent knows it's an ambient event, not a user message.
 - Sensing events are exempt from the "call `/emotion thinking` first" rule — each type has its own defined first emotion.
 - **Image pruning echo**: OpenClaw strips old image payloads from conversation history to save tokens. Smaller models (Haiku) may echo the pruning markers as `[image description removed]` in their response text. `SOUL.md` instructs the agent to never echo these markers.
