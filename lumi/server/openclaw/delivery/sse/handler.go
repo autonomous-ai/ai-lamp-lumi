@@ -349,7 +349,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
-			// Detect Telegram/channel-initiated turns: lifecycle_start arrives from OpenClaw
+			// Detect external channel-initiated turns: lifecycle_start arrives from OpenClaw
 			// with a UUID run_id (not lumi-chat-* prefix). This covers:
 			// 1. No active trace (original case)
 			// 2. Active trace from a different turn (sensing trace still active when Telegram arrives)
@@ -360,7 +360,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "chat_input",
-					Summary: "[telegram]",
+					Summary: "[" + h.agentGateway.GetConfiguredChannel() + "]",
 					RunID:   payload.RunID,
 					Detail:  map[string]string{"role": "user"},
 				})
@@ -436,9 +436,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if len(displayMsg) > 200 {
 							displayMsg = displayMsg[:200] + "…"
 						}
-						prefix := "[telegram]"
+						chName := h.agentGateway.GetConfiguredChannel()
+						prefix := "[" + chName + "]"
 						if senderLabel != "" {
-							prefix = "[telegram:" + senderLabel + "]"
+							prefix = "[" + chName + ":" + senderLabel + "]"
 						}
 						flow.Log("chat_input", map[string]any{
 							"run_id":  capturedRunID,
@@ -1080,7 +1081,7 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 // Recent returns the latest flow events from today's JSONL file only.
 // This keeps Flow UI deterministic by using a single source of truth (file log).
 func (h *OpenClawHandler) Recent(c *gin.Context) {
-	events := recentFlowFromJSONL(time.Now().Format("2006-01-02"), 500)
+	events := recentFlowFromJSONL(time.Now().Format("2006-01-02"), 500, h.agentGateway.GetConfiguredChannel())
 	if events == nil {
 		events = []domain.MonitorEvent{}
 	}
@@ -1108,7 +1109,7 @@ func readAllJSONLines(path string) ([]string, error) {
 
 // recentFlowFromJSONL reads the last n lines from flow JSONL for a given date (YYYY-MM-DD)
 // and converts them to MonitorEvents.
-func recentFlowFromJSONL(day string, n int) []domain.MonitorEvent {
+func recentFlowFromJSONL(day string, n int, channelName string) []domain.MonitorEvent {
 	path := filepath.Join("local", fmt.Sprintf("flow_events_%s.jsonl", day))
 	lines, err := readAllJSONLines(path)
 	if err != nil {
@@ -1126,7 +1127,7 @@ func recentFlowFromJSONL(day string, n int) []domain.MonitorEvent {
 		if err := json.Unmarshal([]byte(line), &fe); err != nil {
 			continue
 		}
-		ev := flowEventToMonitor(fe)
+		ev := flowEventToMonitor(fe, channelName)
 		events = append(events, ev)
 	}
 	return events
@@ -1145,7 +1146,7 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 	if last > 10000 {
 		last = 10000
 	}
-	events := recentFlowFromJSONL(day, last)
+	events := recentFlowFromJSONL(day, last, h.agentGateway.GetConfiguredChannel())
 	if events == nil {
 		events = []domain.MonitorEvent{}
 	}
@@ -1201,7 +1202,7 @@ func (h *OpenClawHandler) FlowStream(c *gin.Context) {
 			mt := st.ModTime().UnixNano()
 			if mt > lastMtime {
 				lastMtime = mt
-				events := recentFlowFromJSONL(day, 500)
+				events := recentFlowFromJSONL(day, 500, h.agentGateway.GetConfiguredChannel())
 				if events == nil {
 					events = []domain.MonitorEvent{}
 				}
@@ -1219,7 +1220,7 @@ func (h *OpenClawHandler) FlowStream(c *gin.Context) {
 }
 
 // flowEventToMonitor converts a flow.Event (JSONL) to a domain.MonitorEvent (for UI).
-func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
+func flowEventToMonitor(fe flow.Event, channelName string) domain.MonitorEvent {
 	evType := "flow_" + string(fe.Kind)
 
 	// Promote well-known nodes to their own event type for turn grouping
@@ -1252,9 +1253,9 @@ func flowEventToMonitor(fe flow.Event) domain.MonitorEvent {
 	}
 	if fe.Node == "chat_input" && fe.Data != nil {
 		if msg, ok := fe.Data["message"].(string); ok && msg != "" {
-			summary = fmt.Sprintf("[telegram] %s", msg)
+			summary = fmt.Sprintf("[%s] %s", channelName, msg)
 		} else {
-			summary = "[telegram]"
+			summary = "[" + channelName + "]"
 		}
 	}
 
