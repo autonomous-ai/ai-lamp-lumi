@@ -143,6 +143,10 @@ type AgentGateway interface {
 	// Currently supports Telegram via Bot API. imagePath is an optional local image file.
 	Broadcast(msg string, imagePath string) error
 
+	// SendToUser sends a direct message to a specific Telegram user by their user ID.
+	// If the user ID is empty, the message is silently dropped.
+	SendToUser(telegramID string, msg string, imagePath string) error
+
 	// SendToLeLampTTS posts response text to LeLamp for TTS playback.
 	SendToLeLampTTS(text string) error
 

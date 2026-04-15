@@ -1748,6 +1748,24 @@ func (s *Service) Broadcast(msg string, imagePath string) error {
 	return nil
 }
 
+// SendToUser sends a direct message to a specific Telegram user ID.
+// If the ID is empty the message is silently dropped.
+func (s *Service) SendToUser(telegramID string, msg string, imagePath string) error {
+	if telegramID == "" {
+		return nil
+	}
+	for _, ch := range s.channels {
+		if !ch.IsConfigured() {
+			continue
+		}
+		if sender, ok := ch.(*TelegramSender); ok {
+			return sender.SendToUser(telegramID, msg, imagePath)
+		}
+	}
+	slog.Warn("sendToUser: no telegram channel configured", "component", "openclaw")
+	return nil
+}
+
 // readOpenClawTelegramToken reads the Telegram bot token from OpenClaw's config file.
 func (s *Service) readOpenClawTelegramToken() string {
 	// Try configured dir first, then common locations.

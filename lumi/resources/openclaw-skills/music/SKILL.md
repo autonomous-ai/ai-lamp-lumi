@@ -111,12 +111,14 @@ When you first start or after a reboot, set up your proactive music check:
 **Default interval: 420000 ms (7 minutes).** Always use this interval when creating the music cron job unless you have learned a better interval from mood + listening history.
 
 1. Call `cron.list()` to see if a music check job already exists (look for name containing "music").
-2. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
+2. Read the person's `telegram_id` from `/root/local/users/{name}/metadata.json` (field `telegram_id`). If no metadata or no `telegram_id` → still create the cron (music plays on speaker), but omit the `/dm` marker from the cron text.
+3. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query latest mood, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query latest mood, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state. If suggesting, prefix reply with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] to DM the person."`
+   - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown, omit the `/dm` instruction from the cron text.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
-3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
+4. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
 **When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (friend detected), check and set up the music cron job.
 
@@ -177,6 +179,7 @@ Based on your analysis, decide one of:
 - Take a camera snapshot to assess current mood
 - Suggest 1-2 songs matching their mood AND past preferences
 - Keep it conversational, never say "based on analysis"
+- If you have the person's `telegram_id`, include `[HW:/dm:{"telegram_id":"..."}]` so the suggestion also reaches them on Telegram
 
 **B. Skip** — Bad timing or user is busy.
 - Reply NO_REPLY silently
@@ -242,7 +245,7 @@ Based on your analysis, decide one of:
 [music-proactive] Time for a proactive music check...
 ```
 *You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, camera shows user typing*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats going?
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Looks like you're in the zone. Want some lo-fi beats going?
 
 **Cron fires — 3rd rejection this afternoon:**
 *You recall: you already suggested at 14:00 and 15:00 this session with no music.play after*
@@ -254,7 +257,7 @@ Output: (skip — let them settle in first)
 
 **Cron fires — user just arrived 5 min ago, but has listening history at this hour:**
 *You query: presence.enter was 5 min ago, but audio/history shows user often plays jazz at 9 AM*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Morning! Want some jazz to start the day?
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Morning! Want some jazz to start the day?
 
 **First presence.enter of the day — bootstrap:**
 *You receive `[sensing:presence.enter]`*
@@ -264,7 +267,7 @@ Then greet the user normally.
 **Reactive — user asks directly:**
 Input: "Suggest some music"
 *You query audio/history: user played jazz 3 times, R&B twice this week*
-Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}]` You've been into jazz lately... How about "Take Five" by Dave Brubeck?
+Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_id":"158406741"}]` You've been into jazz lately... How about "Take Five" by Dave Brubeck?
 
 **After confirmation:**
 Input: "Yeah play that"
