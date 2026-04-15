@@ -10,20 +10,24 @@ const webVersion = fs.existsSync(versionFile)
   : "dev";
 
 // https://vite.dev/config/
-export default defineConfig({
-  define: {
-    __WEB_VERSION__: JSON.stringify(webVersion),
-  },
-  plugins: [react(), tailwindcss()],
-  server: {
-    proxy: process.env.LUMI_PROXY ? {
-      "/api": process.env.LUMI_PROXY,
-      "/hw": process.env.LUMI_PROXY,
-    } : undefined,
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, "LUMI_");
+  const proxy = env.LUMI_PROXY || process.env.LUMI_PROXY;
+  return {
+    define: {
+      __WEB_VERSION__: JSON.stringify(webVersion),
     },
-  },
+    plugins: [react(), tailwindcss()],
+    server: {
+      proxy: proxy ? {
+        "/api": proxy,
+        "/hw": proxy,
+      } : undefined,
+    },
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+    },
+  };
 });
