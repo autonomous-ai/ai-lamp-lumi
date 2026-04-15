@@ -77,6 +77,8 @@ func (s *Service) Start(ctx context.Context) {
 	// false positives when LeLamp just restarted (systemd or cold boot)
 	// and voice hasn't been started yet by Lumi.
 	voiceWasRunning := false
+	// wasUnreachable tracks LeLamp downtime so we can announce recovery via TTS.
+	wasUnreachable := false
 
 	for {
 		select {
@@ -91,6 +93,7 @@ func (s *Service) Start(ctx context.Context) {
 				// stays true so we can still detect ALSA re-failure after
 				// restart if it happens again.
 				slog.Debug("LeLamp unreachable", "component", "healthwatch", "error", err)
+				wasUnreachable = true
 				continue
 			}
 
@@ -98,6 +101,17 @@ func (s *Service) Start(ctx context.Context) {
 			if h.Voice && !voiceWasRunning {
 				slog.Info("voice pipeline confirmed running", "component", "healthwatch")
 				voiceWasRunning = true
+			}
+
+			// LeLamp recovered from downtime — announce via TTS once voice+TTS are ready.
+			if wasUnreachable && h.Voice && h.TTS {
+				wasUnreachable = false
+				slog.Info("LeLamp recovered from downtime, announcing via TTS", "component", "healthwatch")
+				go s.speakRecovery()
+			} else if wasUnreachable && (h.Voice || h.TTS) {
+				// Still waiting for both voice and TTS to be ready
+			} else {
+				wasUnreachable = false
 			}
 
 			if h.Sensing {
@@ -159,6 +173,18 @@ func (s *Service) Start(ctx context.Context) {
 			voiceWasRunning = false
 		}
 	}
+}
+
+// speakRecovery announces LeLamp recovery via TTS.
+func (s *Service) speakRecovery() {
+	body, _ := json.Marshal(map[string]string{"text": "I'm back!"})
+	resp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/speak", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		slog.Warn("recovery TTS failed", "component", "healthwatch", "error", err)
+		return
+	}
+	resp.Body.Close()
+	slog.Info("recovery TTS sent", "component", "healthwatch")
 }
 
 // fetchHealth calls LeLamp GET /health and returns the parsed response.
