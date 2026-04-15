@@ -25,14 +25,21 @@ When `motion.activity` detects an emotional action, log the mood after respondin
 | headbanging | energetic |
 
 ### From conversation (always-on)
-When the user expresses how they feel in conversation, log it:
+Scan from the **overall conversation**, not just the latest message. Mood often emerges from patterns across multiple exchanges — short/curt replies may signal stress, repeated topics may signal worry, tone shifts matter. Don't wait for explicit statements like "I'm sad".
 
+Examples of explicit cues:
 - "I'm so tired" → `tired`
 - "Stressed out" / "Too much work" → `stressed`
 - "Feeling great today!" → `happy`
 - "I'm bored" → `bored`
 - "This is so frustrating" → `frustrated`
 - "I'm excited about..." → `excited`
+
+Examples of subtle cues (from conversation flow):
+- Multiple short, curt replies in a row → `stressed` or `frustrated`
+- User keeps changing topic, can't focus → `restless` or `stressed`
+- Increasingly enthusiastic responses → `excited` or `happy`
+- Trailing off, low engagement → `tired` or `bored`
 
 Don't over-log. Only log when the mood is clear and genuine — not when the user is quoting someone else or speaking hypothetically.
 
