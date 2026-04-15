@@ -7,7 +7,7 @@
 ## Tổng quan
 
 Tính năng này cho phép Lumi **tự quyết định thời điểm** gợi ý nhạc dựa trên:
-- Mood hiện tại (qua camera snapshot)
+- Mood hiện tại (qua mood history + conversation context)
 - Thói quen nghe nhạc (lịch sử play)
 - Lịch sử gợi ý trước đó (accepted/rejected)
 - Thời gian trong ngày
@@ -35,7 +35,7 @@ T+7 min ─────┤  Cron fire lần đầu → [music-proactive]
               │    ├── GET /presence        → user có đang ngồi?
               │    ├── GET /mood-history    → pattern trước đó
               │    ├── GET /audio/history   → genre hay nghe
-              │    └── GET /camera/snapshot → mood hiện tại
+              │    └── Conversation context → mood cues
               │
               ├── ✅ Suggest → TTS nói + broadcast Telegram
               │       User confirm → play music
@@ -102,9 +102,7 @@ Agent chạy theo music SKILL workflow:
     ↓
   Step 3: GET /audio/history → genre hay nghe, duration, stopped_by
     ↓
-  Step 4: GET /camera/snapshot → nhìn user đang làm gì
-    ↓
-  Step 5: AI quyết định 1 trong 3:
+  Step 4: AI quyết định 1 trong 3:
     A) Suggest → trả lời kèm emotion marker + gợi ý 1-2 bài
     B) Skip   → NO_REPLY (bad timing, user đang bận)
     C) Adjust → cron.update thay đổi interval cho phù hợp hơn
@@ -288,7 +286,7 @@ Lumi chỉ có 1 speaker chia sẻ giữa TTS và music. Handler xử lý bằng
 3. Quan sát response
 
 **Kết quả mong đợi:**
-- Agent query presence, mood history, audio history, camera snapshot
+- Agent query presence, mood history, audio history
 - Agent trả lời gợi ý 1-2 bài (hoặc NO_REPLY nếu judge không phù hợp)
 - TTS nói suggestion bằng giọng
 - Telegram nhận được cùng text (broadcast)
@@ -395,7 +393,7 @@ curl -s "http://<LUMI_IP>:5001/audio/history?last=5"
 
 **Kết quả mong đợi:**
 - Agent query audio history → gợi ý dựa trên genre user hay nghe
-- Nếu chưa có history → gợi ý theo mood từ camera snapshot
+- Nếu chưa có history → gợi ý theo mood từ mood history + conversation context
 - Không auto-play, chờ confirm
 
 ---
