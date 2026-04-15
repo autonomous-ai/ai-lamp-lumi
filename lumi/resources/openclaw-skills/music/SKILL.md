@@ -95,7 +95,6 @@ You: cron.add("Proactive music check", every 7min)
         ↓
 You: GET http://127.0.0.1:5001/face/cooldowns → any friend present?
         ↓ (yes)
-You: GET /camera/snapshot → assess mood visually
 You: GET /api/openclaw/mood-history?last=1 → latest mood
 You: GET /audio/history → listening history, preferences
         ↓
@@ -115,7 +114,7 @@ When you first start or after a reboot, set up your proactive music check:
 3. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query latest mood, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state. If suggesting, prefix reply with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] to DM the person."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. If suggesting, prefix reply with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] to DM the person."`
    - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown, omit the `/dm` instruction from the cron text.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 4. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
@@ -140,8 +139,7 @@ curl -s http://127.0.0.1:5001/audio/status
 ```
 If `playing: true` → NO_REPLY, skip this cycle entirely.
 
-**Review conversation context:**
-Before querying any API, review the recent conversation history in this session. If the user has mentioned their mood, stress, or work context ("lots of bugs today", "need to focus", "feeling tired", "stressed", "bored"), use that as the **PRIMARY signal** for music genre selection. This is the most accurate mood input — it comes directly from the user's own words. Structured data (mood-history, audio/history) is supplementary.
+**Mood history is the primary signal.** Also glance at recent conversation for any extra mood or context cues.
 
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
@@ -156,12 +154,6 @@ curl -s "http://127.0.0.1:5001/audio/history?last=50"
 # Yesterday
 curl -s "http://127.0.0.1:5001/audio/history?date=$(date -d yesterday +%Y-%m-%d)&last=50"
 ```
-
-**Camera snapshot** (current mood):
-```bash
-curl -s http://127.0.0.1:5001/camera/snapshot --output /tmp/mood_check.jpg
-```
-Then analyze the image visually.
 
 #### Step 2 — Analyze and Learn
 
@@ -182,7 +174,6 @@ From the data, extract these patterns:
 Based on your analysis, decide one of:
 
 **A. Suggest now** — User is present, mood is right, timing matches their pattern.
-- Take a camera snapshot to assess current mood
 - Suggest 1-2 songs matching their mood AND past preferences
 - Keep it conversational, never say "based on analysis"
 - If you have the person's `telegram_id`, include `[HW:/dm:{"telegram_id":"..."}]` so the suggestion also reaches them on Telegram
@@ -250,7 +241,7 @@ Based on your analysis, decide one of:
 ```
 [music-proactive] Time for a proactive music check...
 ```
-*You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, camera shows user typing*
+*You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, mood=focused*
 Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Looks like you're in the zone. Want some lo-fi beats going?
 
 **Cron fires — 3rd rejection this afternoon:**
@@ -289,7 +280,6 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 |-----|------|-------------------|---------|
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /face/cooldowns` | LeLamp (5001) | Lists friends currently present (entered but not left) | Skip if no friend present |
-| `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
 | `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
 | `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
 

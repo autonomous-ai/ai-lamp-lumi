@@ -162,7 +162,7 @@ Bỏ WellbeingPerception timer cho music.mood, thay bằng OpenClaw cron:
   "schedule": {"kind": "every", "everyMs": 3600000},
   "payload": {
     "kind": "agentTurn",
-    "message": "Proactive music check: GET /presence to check if user is home, then GET /camera/snapshot to assess mood. If present and appropriate, suggest 1-2 songs. Query mood history first to personalize suggestion."
+    "message": "Proactive music check: GET /presence to check if user is home. If present and appropriate, suggest 1-2 songs. Query mood history first to personalize suggestion."
   }
 }
 ```
