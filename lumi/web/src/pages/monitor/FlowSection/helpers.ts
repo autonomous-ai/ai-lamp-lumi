@@ -1,6 +1,12 @@
 import type { DisplayEvent } from "../types";
 import type { ActiveFlowStage, Turn, NodeInfoMap } from "./types";
-import { FLOW_NODES, TELEGRAM_FALLBACK_MESSAGE } from "./types";
+import { FLOW_NODES, CHANNEL_FALLBACK_MESSAGE } from "./types";
+
+// Known external messaging channel types. Turn types matching these are channel-initiated turns.
+const CHANNEL_TYPES = new Set(["telegram", "discord", "slack", "wechat", "channel"]);
+function isChannelType(type: string): boolean {
+  return CHANNEL_TYPES.has(type);
+}
 
 // Derive active stage from most recent relevant events
 export function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
@@ -27,8 +33,9 @@ export function extractEventRunId(ev: DisplayEvent): string | undefined {
   return detail?.run_id ?? detail?.runId ?? detail?.data?.run_id ?? detail?.data?.runId;
 }
 
-export function parseTelegramSummary(summary: string): string {
-  const m = summary.match(/^\[telegram\]\s*(.*)/i);
+export function parseChannelSummary(summary: string): string {
+  // Match any channel prefix: [telegram], [discord], [slack], [channel], [telegram:sender], etc.
+  const m = summary.match(/^\[[^\]]+\]\s*(.*)/);
   if (!m) return summary.trim();
   return (m[1] ?? "").trim();
 }
@@ -41,10 +48,10 @@ export function turnHasOutput(turn: Turn): boolean {
   );
 }
 
-export function turnHasRealTelegramInput(turn: Turn): boolean {
+export function turnHasRealChannelInput(turn: Turn): boolean {
   return turn.events.some((ev) => {
     if (ev.type !== "chat_input") return false;
-    const msg = parseTelegramSummary(ev.summary);
+    const msg = parseChannelSummary(ev.summary);
     return msg.length > 0;
   });
 }
@@ -89,10 +96,10 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
-  // Reclassify "telegram" turns that are actually sensing events routed via OpenClaw channel.
+  // Reclassify channel turns that are actually sensing events routed via OpenClaw channel.
   // node-host is Lumi's own WebSocket identity in OpenClaw — it sends sensing events AND
   // voice commands via chat.send, so sender=node-host alone doesn't mean "system".
-  if (turn.type === "telegram") {
+  if (isChannelType(turn.type)) {
     let hasRealUser = false;
     let sensingType: string | null = null;
     let hasSystemMsg = false;
@@ -108,7 +115,7 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
         if (systemPatterns.some((p) => p.test(msg))) hasSystemMsg = true;
       }
     }
-    if (hasRealUser) return; // keep as telegram
+    if (hasRealUser) return; // keep as channel type
     if (sensingType) { turn.type = sensingType; return; }
     // Cron-fired turns: sender is empty + message contains "scheduled reminder" from OpenClaw systemEvent wrapper
     let isCron = false;
@@ -129,7 +136,7 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     }
     if (isCron) { turn.type = cronLabel; return; }
     if (hasSystemMsg) { turn.type = "system"; return; }
-    // node-host but normal message (e.g. voice command relayed via chat.send) — keep as telegram
+    // node-host but normal message (e.g. voice command relayed via chat.send) — keep as channel type
     return;
   }
 
@@ -191,7 +198,9 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       if (sensingMatch) {
         return { type: sensingMatch[1], path: "agent", boundary: "chat" as const };
       }
-      return { type: "telegram", path: "agent", boundary: "chat" };
+      // Extract channel name from summary prefix: [telegram], [discord], [slack], etc.
+      const chMatch = ev.summary.match(/^\[([^\]:]+)/);
+      return { type: chMatch ? chMatch[1] : "channel", path: "agent", boundary: "chat" };
     }
     const ambientNode = ev.detail?.node ?? "";
     const isAmbientTurn = ev.type === "ambient_action" ||
@@ -290,7 +299,12 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       const d = ev.detail as Record<string, any> | undefined;
       const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
       const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
-      current.type = sensingMatch ? sensingMatch[1] : "telegram";
+      if (sensingMatch) {
+        current.type = sensingMatch[1];
+      } else {
+        const chM = ev.summary.match(/^\[([^\]:]+)/);
+        current.type = chM ? chM[1] : "channel";
+      }
     }
     if (!current.runId && evRunId) {
       current.runId = evRunId;
@@ -375,8 +389,8 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     const currTs = new Date(turn.startTime).getTime();
     const closeInTime = Number.isFinite(prevTs) && Number.isFinite(currTs) && (currTs - prevTs) <= 30_000;
 
-    const prevIsTelegramFallback = prev.type === "telegram" && !turnHasRealTelegramInput(prev);
-    if (prevIsTelegramFallback && prevHasNoOutput && currLooksAgentReply && closeInTime) {
+    const prevIsChannelFallback = isChannelType(prev.type) && !turnHasRealChannelInput(prev);
+    if (prevIsChannelFallback && prevHasNoOutput && currLooksAgentReply && closeInTime) {
       if (turn.runId && /^lumi-(chat|sensing)-/i.test(turn.runId)) {
         stitched.push(turn);
         continue;
@@ -390,7 +404,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
 
     const prevIsSensingNoOutput = turnHasSensingInput(prev) && prevHasNoOutput;
-    const currIsOrphanOutput = !turnHasSensingInput(turn) && !turnHasRealTelegramInput(turn) && turnHasOutput(turn);
+    const currIsOrphanOutput = !turnHasSensingInput(turn) && !turnHasRealChannelInput(turn) && turnHasOutput(turn);
     if (prevIsSensingNoOutput && currIsOrphanOutput && closeInTime) {
       prev.events.push(...turn.events);
       prev.events.sort((a, b) => a._seq - b._seq);
@@ -405,16 +419,16 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 
   for (const turn of stitched) {
     refineTurnTypeFromSensingInputs(turn);
-    if (turn.type === "telegram" && (!turnHasChatInputEvent(turn))) {
+    if (isChannelType(turn.type) && (!turnHasChatInputEvent(turn))) {
       turn.type = "unknown";
     }
-    // chat_input without resolved message is still a telegram turn — keep it.
+    // chat_input without resolved message is still a channel turn — keep it.
     // Done turn with no recognizable input source → unknown,
-    // but only if the type is still generic (telegram/unknown). Preserve
+    // but only if the type is still generic (channel/unknown). Preserve
     // specific types that were already resolved from sensing data
     // (e.g. voice, motion, presence.enter) arriving via chat_send.
-    if (turn.status === "done" && !turnHasSensingInput(turn) && !turnHasRealTelegramInput(turn) && !turnHasVoicePipeline(turn)) {
-      if (turn.type === "telegram" || turn.type === "unknown") {
+    if (turn.status === "done" && !turnHasSensingInput(turn) && !turnHasRealChannelInput(turn) && !turnHasVoicePipeline(turn)) {
+      if (isChannelType(turn.type) || turn.type === "unknown") {
         turn.type = "unknown";
       }
     }
@@ -437,7 +451,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 // Extract runtime info for each node from turn events
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
-    mic_input: [], cam_input: [], telegram_input: [], intent_check: [], local_match: [],
+    mic_input: [], cam_input: [], channel_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
     lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [], tg_alert: [],
@@ -496,8 +510,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       info.schedule_trigger.push(d?.name ?? ev.summary ?? "cron fired");
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
-      const msg = parseTelegramSummary(ev.summary);
-      info.telegram_input.push(`"${msg || TELEGRAM_FALLBACK_MESSAGE}"`);
+      const msg = parseChannelSummary(ev.summary);
+      info.channel_input.push(`"${msg || CHANNEL_FALLBACK_MESSAGE}"`);
     }
     if (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match")) {
       const d = ev.detail as Record<string, any> | undefined;
@@ -1031,11 +1045,11 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       const fullMsg = d?.message ?? d?.data?.message;
       const sender = d?.sender ?? d?.data?.sender;
-      const msg = fullMsg || parseTelegramSummary(ev.summary);
+      const msg = fullMsg || parseChannelSummary(ev.summary);
       if (msg) {
         input = sender ? `[${sender}] ${msg}` : msg;
       } else if (!input) {
-        input = TELEGRAM_FALLBACK_MESSAGE;
+        input = CHANNEL_FALLBACK_MESSAGE;
       }
     }
     if (!input && turn.type.startsWith("ambient:")) {

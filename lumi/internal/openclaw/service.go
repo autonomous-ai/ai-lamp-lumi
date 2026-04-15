@@ -1782,6 +1782,39 @@ func (s *Service) readOpenClawTelegramToken() string {
 	return cfg.Channels.Telegram.BotToken
 }
 
+// GetConfiguredChannel reads openclaw.json and returns the first enabled channel name.
+// Falls back to "channel" if none can be determined.
+func (s *Service) GetConfiguredChannel() string {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "channel"
+	}
+	var cfg struct {
+		Channels map[string]struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"channels"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return "channel"
+	}
+	// Return the first enabled channel found. Priority order: telegram, discord, slack.
+	for _, name := range []string{"telegram", "discord", "slack"} {
+		if ch, ok := cfg.Channels[name]; ok {
+			if ch.Enabled == nil || *ch.Enabled {
+				return name
+			}
+		}
+	}
+	// Fallback: any channel present in config.
+	for name, ch := range cfg.Channels {
+		if ch.Enabled == nil || *ch.Enabled {
+			return name
+		}
+	}
+	return "channel"
+}
+
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {

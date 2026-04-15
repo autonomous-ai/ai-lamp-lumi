@@ -158,6 +158,11 @@ type AgentGateway interface {
 	// WatchIdentity polls IDENTITY.md and pushes updated wake words to LeLamp on rename.
 	WatchIdentity(ctx context.Context)
 
+	// GetConfiguredChannel returns the primary messaging channel type configured
+	// in the agent runtime (e.g. "telegram", "discord", "slack").
+	// Returns "channel" if none can be determined.
+	GetConfiguredChannel() string
+
 	// CompactSession sends a sessions.compact RPC to the agent runtime
 	// to summarize and reduce conversation history for the given session.
 	CompactSession(sessionKey string) error
