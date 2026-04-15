@@ -93,7 +93,7 @@ You: cron.add("Proactive music check", every 7min)
         ↓
 [Cron fires → agent turn]
         ↓
-You: GET /presence → user present?
+You: GET http://127.0.0.1:5001/face/cooldowns → any friend present?
         ↓ (yes)
 You: GET /camera/snapshot → assess mood visually
 You: GET /api/openclaw/mood-history?last=1 → latest mood
@@ -127,6 +127,12 @@ When you first start or after a reboot, set up your proactive music check:
 When you receive `[music-proactive]`, follow this process:
 
 #### Step 0 — Quick Checks
+
+**Check if any friend is present:**
+```bash
+curl -s http://127.0.0.1:5001/face/cooldowns
+```
+If no friend in the response (empty list) → NO_REPLY, skip this cycle entirely.
 
 **Check if music is already playing:**
 ```bash
@@ -282,7 +288,7 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 | API | Host | What it tells you | Use for |
 |-----|------|-------------------|---------|
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
-| `GET /presence` | LeLamp (5001) | User present/idle/away, seconds since motion | Should I suggest now? |
+| `GET /face/cooldowns` | LeLamp (5001) | Lists friends currently present (entered but not left) | Skip if no friend present |
 | `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
 | `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
 | `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
