@@ -16,10 +16,12 @@ After greeting, set up **hydration cron only**. Break cron is NOT created here �
 2. If hydration cron already exists → skip, do nothing
 3. Read their summary if it exists: `/root/local/users/{name}/wellbeing.md`
 4. Read today's daily log if it exists: `/root/local/users/{name}/wellbeing/YYYY-MM-DD.md` — use this to adjust cron intervals and know what happened earlier today
-5. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
+5. Read the person's `telegram_id` from `/root/local/users/{name}/metadata.json` (field `telegram_id`). If no metadata or no `telegram_id` → **do not create the cron** (we can't deliver reminders without a target).
+6. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
    - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check. Check presence, take snapshot. If present and no drink visible — remind water (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/broadcast:{}]"`
+     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check. Check presence, take snapshot. If present and no drink visible — remind water (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
+     - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json.
 
 Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
 Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
@@ -40,7 +42,8 @@ Do NOT cancel on `presence.away` — only on `presence.leave`.
      → `cron.list` — if NO break cron exists yet, **create** it now:
        - `"Wellbeing: {name} break"` — every 300000ms (5 min)
        - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/broadcast:{}]"`
+       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
+       - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown → do not create the cron.
      → If break cron already exists, do nothing (timer keeps running). → NO_REPLY
    - **Hydration action** (drinking, opening bottle, making tea, etc.)? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
    - **Break action** (stretching, yoga, exercise, jogging, etc.)? → `cron.remove` the break cron. It will be re-created when next sedentary action is detected.

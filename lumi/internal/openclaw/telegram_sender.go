@@ -65,6 +65,43 @@ func (t *TelegramSender) Send(msg string, imagePath string) error {
 	return nil
 }
 
+// SendToUser sends a message to a specific Telegram user by their numeric user ID.
+// If telegramID is empty the message is silently dropped.
+func (t *TelegramSender) SendToUser(telegramID string, msg string, imagePath string) error {
+	if telegramID == "" {
+		return nil
+	}
+	botToken := t.svc.GetTelegramBotToken()
+	if botToken == "" {
+		return fmt.Errorf("telegram bot token not configured")
+	}
+
+	slog.Info("telegram dm", "component", "openclaw", "telegram_id", telegramID, "hasImage", imagePath != "")
+
+	var photoBytes []byte
+	if imagePath != "" {
+		if data, err := os.ReadFile(imagePath); err == nil {
+			photoBytes = data
+		} else {
+			slog.Warn("telegram: failed to read image", "component", "openclaw", "path", imagePath, "err", err)
+		}
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	if photoBytes != nil {
+		sendTelegramPhoto(client, botToken, telegramID, msg, photoBytes)
+	} else {
+		sendTelegramMessage(client, botToken, telegramID, msg)
+	}
+
+	flow.Log("telegram_dm", map[string]any{
+		"method":      "bot_api",
+		"telegram_id": telegramID,
+		"message":     msg,
+	})
+	return nil
+}
+
 func sendTelegramMessage(client *http.Client, token, chatID, text string) {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := fmt.Sprintf(`{"chat_id":%q,"text":%q}`, chatID, text)
