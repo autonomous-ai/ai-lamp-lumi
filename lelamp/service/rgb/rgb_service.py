@@ -56,35 +56,89 @@ class _StripPWM:
         pass
 
 
+# --- Previous neopixel_spi implementation (kept for reference) ---
+# class _StripSPI:
+#     """Pi 5 — neopixel_spi over SPI MOSI (GPIO 10)."""
+#
+#     def __init__(self, led_count, led_brightness):
+#         import board
+#         import busio
+#         import neopixel_spi
+#         spi = busio.SPI(board.SCK, MOSI=board.MOSI)
+#         self._pixels = neopixel_spi.NeoPixel_SPI(
+#             spi, led_count,
+#             brightness=led_brightness,
+#             auto_write=False,
+#             pixel_order=neopixel_spi.GRB,
+#         )
+#
+#     def setPixelColor(self, i, color_tuple):
+#         self._pixels[i] = color_tuple
+#
+#     def fill(self, color_tuple, count):
+#         self._pixels.fill(color_tuple)
+#
+#     def show(self):
+#         self._pixels.show()
+#
+#     def getPixelColor(self, index):
+#         return tuple(self._pixels[index])
+#
+#     def deinit(self):
+#         self._pixels.deinit()
+
+
 class _StripSPI:
-    """Pi 5 — neopixel_spi over SPI MOSI (GPIO 10)."""
+    """Pi 5 — raw spidev WS2812 driver over SPI0.0 MOSI (GPIO 10).
+
+    Encodes WS2812 bit timing via SPI at 6.4 MHz:
+      bit 0 = 0xC0 (11000000)  ~312ns high, ~937ns low
+      bit 1 = 0xF8 (11111000)  ~781ns high, ~468ns low
+    """
+
+    _BIT0 = 0xC0
+    _BIT1 = 0xF8
+    _RESET_BYTES = 64  # >280us reset at 6.4 MHz
 
     def __init__(self, led_count, led_brightness):
-        import board
-        import busio
-        import neopixel_spi
-        spi = busio.SPI(board.SCK, MOSI=board.MOSI)
-        self._pixels = neopixel_spi.NeoPixel_SPI(
-            spi, led_count,
-            brightness=led_brightness,
-            auto_write=False,
-            pixel_order=neopixel_spi.GRB,
-        )
+        import spidev
+        self._led_count = led_count
+        self._brightness = led_brightness  # 0.0–1.0
+        self._pixels = [(0, 0, 0)] * led_count
+        self._spi = spidev.SpiDev()
+        self._spi.open(0, 0)
+        self._spi.max_speed_hz = 6_400_000
+        self._spi.mode = 0b00
+
+    def _encode_byte(self, b):
+        return [self._BIT1 if b & (1 << (7 - i)) else self._BIT0 for i in range(8)]
+
+    def _encode_pixel(self, r, g, b):
+        # WS2812 expects GRB order; apply brightness scaling
+        br = self._brightness
+        return (self._encode_byte(int(g * br))
+                + self._encode_byte(int(r * br))
+                + self._encode_byte(int(b * br)))
 
     def setPixelColor(self, i, color_tuple):
         self._pixels[i] = color_tuple
 
     def fill(self, color_tuple, count):
-        self._pixels.fill(color_tuple)
+        for i in range(count):
+            self._pixels[i] = color_tuple
 
     def show(self):
-        self._pixels.show()
+        buf = []
+        for r, g, b in self._pixels:
+            buf.extend(self._encode_pixel(r, g, b))
+        buf.extend([0x00] * self._RESET_BYTES)
+        self._spi.writebytes2(buf)
 
     def getPixelColor(self, index):
-        return tuple(self._pixels[index])
+        return self._pixels[index]
 
     def deinit(self):
-        self._pixels.deinit()
+        self._spi.close()
 
 
 class RGBService(ServiceBase):
