@@ -560,9 +560,11 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
           info.agent_call.push(`🖼 snapshot: ${snapM[1].trim()}`);
         }
         // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
+        // Strip [snapshot: ...] from display text (thumbnails rendered separately via 🖼 lines)
+        const displayMsg = chatMsg.replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
         const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
-        if (idx >= 0) info.agent_call[idx] = `📩 ${chatMsg}`;
-        else info.agent_call.push(`📩 ${chatMsg}`);
+        if (idx >= 0) info.agent_call[idx] = `📩 ${displayMsg}`;
+        else info.agent_call.push(`📩 ${displayMsg}`);
       }
     }
     // Show input message on agent_call node (fallback if chat_send hasn't fired yet)
