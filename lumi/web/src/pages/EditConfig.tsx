@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { getDeviceConfig, updateDeviceConfig, getTTSVoices } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
+import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
@@ -21,9 +22,10 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
+type SectionId = "wifi" | "face" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
 const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
   { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
+  { id: "face",     label: "Face",     icon: "◐" },
   { id: "device",   label: "Device",   icon: "◈" },
   { id: "llm",      label: "LLM",      icon: "⬢" },
   { id: "deepgram", label: "STT",      icon: "◉" },
@@ -103,14 +105,14 @@ function PasswordField({ label, id, value, onChange, placeholder }: {
   );
 }
 
-function SectionCard({ id, title, children }: { id: SectionId; title: string; children: React.ReactNode }) {
+function SectionCard({ id, title, active, children }: { id: SectionId; title: string; active: boolean; children: React.ReactNode }) {
+  if (!active) return null;
   return (
     <div
       id={`section-${id}`}
       style={{
         background: C.card, border: `1px solid ${C.border}`,
         borderRadius: 12, padding: "18px 20px", marginBottom: 16,
-        scrollMarginTop: 16,
       }}
     >
       <div style={{
@@ -143,6 +145,7 @@ function SkeletonBlock() {
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function EditConfig() {
+  const [theme, toggleTheme, themeClass] = useTheme();
   const [loadingCfg, setLoadingCfg] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +178,73 @@ export default function EditConfig() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
+
+  // Face enroll state
+  const [faceName, setFaceName] = useState("");
+  const [faceFiles, setFaceFiles] = useState<File[]>([]);
+  const [faceUploading, setFaceUploading] = useState(false);
+  const [faceMsg, setFaceMsg] = useState<string | null>(null);
+  const faceInputRef = useRef<HTMLInputElement>(null);
+  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: { name: string }[] }[]>([]);
+
+  const loadFaceOwners = useCallback(async () => {
+    try {
+      const r = await fetch("/hw/face/owners").then((x) => x.json());
+      if (Array.isArray(r?.persons)) setFaceOwners(r.persons);
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadFaceOwners(); }, [loadFaceOwners]);
+
+  const removeFaceOwner = async (label: string) => {
+    if (!confirm(`Remove "${label}"?`)) return;
+    try {
+      await fetch("/hw/face/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      loadFaceOwners();
+    } catch {}
+  };
+
+  const handleFaceEnroll = async () => {
+    if (!faceName.trim() || faceFiles.length === 0) return;
+    setFaceUploading(true);
+    setFaceMsg(null);
+    const label = faceName.trim().toLowerCase();
+    let ok = 0;
+    let lastErr = "";
+    for (const file of faceFiles) {
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const resp = await fetch("/hw/face/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, image_base64: b64 }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          ok++;
+        } else {
+          lastErr = data.detail || data.message || `Failed: ${file.name}`;
+        }
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (ok > 0) {
+      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
+        + (lastErr ? ` (${lastErr})` : ""));
+      setFaceName("");
+      setFaceFiles([]);
+      if (faceInputRef.current) faceInputRef.current.value = "";
+    } else {
+      setFaceMsg(`Error: ${lastErr}`);
+    }
+    setFaceUploading(false);
+  };
 
   useEffect(() => {
     getDeviceConfig()
@@ -209,27 +279,8 @@ export default function EditConfig() {
     getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
-  // scroll spy: update active section as user scrolls
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const handler = () => {
-      for (const s of [...SECTIONS].reverse()) {
-        const node = document.getElementById(`section-${s.id}`);
-        if (node && node.getBoundingClientRect().top <= 80) {
-          setActiveSection(s.id);
-          return;
-        }
-      }
-      setActiveSection("wifi");
-    };
-    el.addEventListener("scroll", handler, { passive: true });
-    return () => el.removeEventListener("scroll", handler);
-  }, []);
-
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
-    document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -269,14 +320,21 @@ export default function EditConfig() {
   ]);
 
   return (
-    <div className="lm-root" style={{
+    <div className={`lm-root lm-edit ${themeClass}`} style={{
       display: "flex", height: "100vh",
       background: C.bg, color: C.text,
       fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
     }}>
+      <style>{`
+        @media (max-width: 640px) {
+          .lm-edit .lm-sidebar { display: none !important; }
+          .lm-edit .lm-mobile-tabs { display: flex !important; }
+          .lm-edit .lm-main-content { padding: 16px !important; }
+        }
+      `}</style>
 
-      {/* ── Sidebar ── */}
-      <aside style={{
+      {/* ── Sidebar (hidden on mobile) ── */}
+      <aside className="lm-sidebar" style={{
         width: 192, flexShrink: 0,
         background: C.sidebar, borderRight: `1px solid ${C.border}`,
         display: "flex", flexDirection: "column",
@@ -308,9 +366,7 @@ export default function EditConfig() {
           })}
         </nav>
 
-        <div style={{
-          padding: "12px 16px", borderTop: `1px solid ${C.border}`,
-        }}>
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <a href="/" style={{
             display: "flex", alignItems: "center", gap: 7,
             color: C.textMuted, textDecoration: "none", fontSize: 12,
@@ -321,11 +377,43 @@ export default function EditConfig() {
           >
             ← Monitor
           </a>
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 14, color: C.textMuted, padding: "2px 4px",
+          }} title={`Theme: ${theme}`}>
+            {theme === "dark" ? "◑" : "◐"}
+          </button>
         </div>
       </aside>
 
       {/* ── Main ── */}
       <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Mobile tabs (hidden on desktop) */}
+        <div className="lm-mobile-tabs" style={{
+          display: "none", overflowX: "auto", gap: 4, padding: "8px 12px",
+          borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: "center",
+        }}>
+          {SECTIONS.map((s) => {
+            const active = activeSection === s.id;
+            return (
+              <button key={s.id} onClick={() => scrollTo(s.id)} style={{
+                padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: active ? 600 : 400,
+                color: active ? C.amber : C.textDim,
+                background: active ? C.amberDim : "transparent",
+                border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+              }}>
+                {s.label}
+              </button>
+            );
+          })}
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 14, color: C.textMuted, padding: "2px 6px", marginLeft: "auto", flexShrink: 0,
+          }}>
+            {theme === "dark" ? "◑" : "◐"}
+          </button>
+        </div>
 
         {/* Topbar */}
         <div style={{
@@ -354,7 +442,7 @@ export default function EditConfig() {
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="lm-fade-in" style={{
+        <div ref={contentRef} className="lm-fade-in lm-main-content" style={{
           flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 32px",
         }}>
           <div style={{ maxWidth: 560, margin: "0 auto" }}>
@@ -379,16 +467,57 @@ export default function EditConfig() {
             {loadingCfg ? <SkeletonBlock /> : (
               <form id="edit-form" onSubmit={handleSubmit}>
 
-                <SectionCard id="wifi" title="Wi-Fi">
+                <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
                   <Field label="SSID" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
                   <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                 </SectionCard>
 
-                <SectionCard id="device" title="Device">
+                <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
+                  <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                    Upload photos of the owner so the lamp can recognize them.
+                  </div>
+                  <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photos ({faceFiles.length} selected)</label>
+                    <input
+                      ref={faceInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
+                      style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </div>
+                  {faceMsg && (
+                    <div style={{
+                      fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                      background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                        ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                      color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                        ? C.red : "rgb(52,211,153)",
+                    }}>{faceMsg}</div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleFaceEnroll}
+                    disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
+                    style={{
+                      width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
+                      fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
+                      background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
+                      border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
+                      color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
+                    }}
+                  >
+                    {faceUploading ? "Uploading…" : "Enroll Face"}
+                  </button>
+                </SectionCard>
+
+                <SectionCard id="device" title="Device" active={activeSection === "device"}>
                   <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
                 </SectionCard>
 
-                <SectionCard id="llm" title="LLM">
+                <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
                   <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
                   <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
                   <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
@@ -402,11 +531,11 @@ export default function EditConfig() {
                   </label>
                 </SectionCard>
 
-                <SectionCard id="deepgram" title="STT (Deepgram)">
+                <SectionCard id="deepgram" title="STT (Deepgram)" active={activeSection === "deepgram"}>
                   <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
                 </SectionCard>
 
-                <SectionCard id="tts" title="TTS Voice">
+                <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
                   <div style={{ marginBottom: 12 }}>
                     <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                       Voice
@@ -429,7 +558,7 @@ export default function EditConfig() {
                   </div>
                 </SectionCard>
 
-                <SectionCard id="channel" title="Messaging Channel">
+                <SectionCard id="channel" title="Messaging Channel" active={activeSection === "channel"}>
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel</label>
                     <select
@@ -469,7 +598,7 @@ export default function EditConfig() {
                   )}
                 </SectionCard>
 
-                <SectionCard id="mqtt" title="MQTT (optional)">
+                <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
                   <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
                   <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
                   <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
