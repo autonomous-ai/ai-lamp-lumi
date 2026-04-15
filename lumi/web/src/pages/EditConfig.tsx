@@ -529,7 +529,8 @@ export default function EditConfig() {
                           {p.photos?.[0] && (
                             <img
                               src={`/hw/face/photo/${p.label}/${p.photos[0]}`}
-                              style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", border: `1px solid ${C.border}` }}
+                              onClick={() => window.open(`/hw/face/photo/${p.label}/${p.photos[0]}`, "_blank")}
+                              style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", border: `1px solid ${C.border}`, cursor: "pointer" }}
                             />
                           )}
                           <div style={{ flex: 1 }}>
