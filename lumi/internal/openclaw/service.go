@@ -233,10 +233,6 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 			}
 		}
-		// Strip [snapshot: ...] paths for presence events — agent doesn't need the image.
-		if ev.eventType == "presence.enter" || ev.eventType == "presence.leave" {
-			msg = strings.TrimSpace(reSnapshotPath.ReplaceAllString(msg, ""))
-		}
 		var err error
 		if ev.image != "" {
 			_, err = s.SendChatMessageWithImageAndRun(msg, ev.image, reqID, runID)
@@ -1882,7 +1878,14 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		params["sessionKey"] = sessionKey
 	}
 
-	params["message"] = message
+	// Strip [snapshot: ...] paths from presence events before sending to agent —
+	// face recognition already ran, agent doesn't need file paths (wastes tokens).
+	// Keep original message for flow/monitor so UI can render snapshot thumbnails.
+	wsMessage := message
+	if strings.Contains(message, "[sensing:presence.enter]") || strings.Contains(message, "[sensing:presence.leave]") {
+		wsMessage = strings.TrimSpace(reSnapshotPath.ReplaceAllString(message, ""))
+	}
+	params["message"] = wsMessage
 	hasImage := imageBase64 != ""
 	if hasImage {
 		// OpenClaw chat.send accepts attachments[]{content, mimeType} — content is raw base64 string.
