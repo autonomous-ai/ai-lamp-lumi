@@ -162,7 +162,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// (light.level, motion, sound) so they don't wake the agent and override the
 	// sleepy emotion. Only presence.enter and voice_command can wake the lamp.
 	isPassive := req.Type != "voice_command"
-	if isPassive && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
+	isVoice := req.Type == "voice" || req.Type == "voice_command"
+	if isPassive && !isVoice && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("sensing event dropped — sleeping", "component", "sensing", "type", req.Type)
 		h.monitorBus.Push(domain.MonitorEvent{
 			Type:    "sensing_drop",
