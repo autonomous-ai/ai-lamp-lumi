@@ -20,8 +20,8 @@ After greeting, set up **hydration cron only**. Break cron is NOT created here �
 6. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
    - `"Wellbeing: {name} hydration"` — every 360000ms (6 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check. Check presence, take snapshot. If present and no drink visible — remind water (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
-     - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json.
+     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check for {name}. First call GET http://127.0.0.1:5001/face/cooldowns — if no friend in the response (empty list) → NO_REPLY, skip. If a friend is present → take snapshot, if no drink visible — remind water (one short sentence). Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
+     - Replace `{name}` with the person's name and `<THEIR_TELEGRAM_ID>` with their numeric Telegram ID from metadata.json.
 
 Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
 Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
@@ -42,8 +42,8 @@ Do NOT cancel on `presence.away` — only on `presence.leave`.
      → `cron.list` — if NO break cron exists yet, **create** it now:
        - `"Wellbeing: {name} break"` — every 300000ms (5 min)
        - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check. Check presence, take snapshot. If present — suggest stretch (one short sentence). If away — do nothing. Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
-       - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown → do not create the cron.
+       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check for {name}. First call GET http://127.0.0.1:5001/face/cooldowns — if no friend in the response (empty list) → NO_REPLY, skip. If a friend is present → take snapshot, suggest stretch (one short sentence). Prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}]"`
+       - Replace `{name}` with the person's name and `<THEIR_TELEGRAM_ID>` with their Telegram ID. If unknown → do not create the cron.
      → If break cron already exists, do nothing (timer keeps running). → NO_REPLY
    - **Hydration action** (drinking, opening bottle, making tea, etc.)? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
    - **Break action** (stretching, yoga, exercise, jogging, etc.)? → `cron.remove` the break cron. It will be re-created when next sedentary action is detected.
