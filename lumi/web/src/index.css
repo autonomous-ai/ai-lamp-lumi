@@ -118,6 +118,58 @@
   color: var(--lm-text);
 }
 
+/* ── Light theme — toggled via .lm-light class or system preference ── */
+.lm-root.lm-light {
+  --lm-bg:          #FAFAF8;
+  --lm-sidebar:     #F0EFEB;
+  --lm-card:        #FFFFFF;
+  --lm-surface:     #F5F4F0;
+  --lm-border:      #E0DED6;
+  --lm-border-hi:   #D0CEC6;
+
+  --lm-amber:       #D97706;
+  --lm-amber-dim:   rgba(217,119,6,0.10);
+  --lm-amber-glow:  rgba(217,119,6,0.25);
+  --lm-teal:        #0D9488;
+  --lm-teal-dim:    rgba(13,148,136,0.10);
+  --lm-green:       #059669;
+  --lm-red:         #DC2626;
+  --lm-blue:        #2563EB;
+  --lm-purple:      #7C3AED;
+  --lm-orange:      #EA580C;
+  --lm-yellow:      #CA8A04;
+
+  --lm-text:        #1C1917;
+  --lm-text-dim:    #57534E;
+  --lm-text-muted:  #A8A29E;
+}
+@media (prefers-color-scheme: light) {
+  .lm-root:not(.lm-dark) {
+    --lm-bg:          #FAFAF8;
+    --lm-sidebar:     #F0EFEB;
+    --lm-card:        #FFFFFF;
+    --lm-surface:     #F5F4F0;
+    --lm-border:      #E0DED6;
+    --lm-border-hi:   #D0CEC6;
+
+    --lm-amber:       #D97706;
+    --lm-amber-dim:   rgba(217,119,6,0.10);
+    --lm-amber-glow:  rgba(217,119,6,0.25);
+    --lm-teal:        #0D9488;
+    --lm-teal-dim:    rgba(13,148,136,0.10);
+    --lm-green:       #059669;
+    --lm-red:         #DC2626;
+    --lm-blue:        #2563EB;
+    --lm-purple:      #7C3AED;
+    --lm-orange:      #EA580C;
+    --lm-yellow:      #CA8A04;
+
+    --lm-text:        #1C1917;
+    --lm-text-dim:    #57534E;
+    --lm-text-muted:  #A8A29E;
+  }
+}
+
 /* Scrollbar */
 .lm-root ::-webkit-scrollbar        { width: 4px; height: 4px; }
 .lm-root ::-webkit-scrollbar-track  { background: transparent; }
