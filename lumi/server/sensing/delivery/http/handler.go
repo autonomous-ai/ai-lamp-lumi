@@ -236,7 +236,17 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = "[ambient] " + req.Message
-	} else if guardActive {
+	}
+	// Nudge mood scan for voice conversations — agent should detect mood from
+	// the overall conversation flow, not just this single message.
+	if req.Type == "voice_command" || req.Type == "voice" {
+		moodNudge := "\n[Silently follow Mood skill.]"
+		if u := mood.CurrentUser(); u != "" {
+			moodNudge += " [Current user: " + u + "]"
+		}
+		msg += moodNudge
+	}
+	if guardActive {
 		// Guard mode: tag so the system broadcasts the response via Telegram.
 		// Include custom instruction if the owner provided one when enabling guard mode.
 		guardTag := "[sensing:" + req.Type + "][guard-active]"
