@@ -41,7 +41,7 @@ class X3DModel:
 
     def __init__(self, model_path: Path | None = None):
         if model_path is None:
-            model_path = RESOURCES_DIR / "videomae_fp32.onnx"
+            model_path = RESOURCES_DIR / "videomae_int8.onnx"
 
         logger.info("Loading X3D model from %s", model_path)
         opts = ort.SessionOptions()
