@@ -10,6 +10,7 @@ import cv2
 import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
+from websockets import ConnectionClosedError
 from websockets.sync.client import ClientConnection, connect
 
 from .base import Perception
@@ -81,17 +82,21 @@ class RemoteMotionChecker:
         """
 
         if self._ws_session is not None:
-            self._ws_session.send(
-                json.dumps({"type": "frame", "frame_b64": self._img2b64(frame)})
-            )
-            resp = json.loads(self._ws_session.recv())
-            detected_classes = sorted(
-                resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
-            )
             try:
-                return detected_classes[0][0]
-            except IndexError:
-                return None
+                self._ws_session.send(
+                    json.dumps({"type": "frame", "frame_b64": self._img2b64(frame)})
+                )
+                resp = json.loads(self._ws_session.recv())
+                detected_classes = sorted(
+                    resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
+                )
+                try:
+                    return detected_classes[0][0]
+                except IndexError:
+                    return None
+            except ConnectionClosedError:
+                logger.warning("[%s] connection closed", self.__class__.__name__)
+                self._ws_session = None
 
         return None
 
