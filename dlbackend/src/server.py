@@ -12,6 +12,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -35,6 +36,10 @@ from core.models import ActionRequest, ConfigRequest, FrameRequest
 _ = load_dotenv()
 
 DL_API_KEY = os.getenv("DL_API_KEY", "")
+action_recognition_model = os.getenv("ACTION_RECOGNITION_MODEL", None)
+ACTION_RECOGNITION_MODEL = (
+    Path(action_recognition_model) if action_recognition_model is not None else None
+)
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -64,7 +69,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading X3D action model...")
     try:
-        action_model = X3DModel()
+        action_model = X3DModel(ACTION_RECOGNITION_MODEL)
         logger.info("X3D action model ready")
     except Exception as e:
         logger.warning(f"Failed to load X3D action model: {e}")

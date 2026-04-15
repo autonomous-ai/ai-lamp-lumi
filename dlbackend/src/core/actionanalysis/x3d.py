@@ -41,7 +41,7 @@ class X3DModel:
 
     def __init__(self, model_path: Path | None = None):
         if model_path is None:
-            model_path = RESOURCES_DIR / "x3d_m_16x5x1_int8.onnx"
+            model_path = RESOURCES_DIR / "videomae_fp32.onnx"
 
         logger.info("Loading X3D model from %s", model_path)
         opts = ort.SessionOptions()
@@ -50,7 +50,7 @@ class X3DModel:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
         self.session = ort.InferenceSession(
-            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+            str(model_path), sess_options=opts, providers=["CUDAExecutionProvider"]
         )
         self.class_names, self.default_mask = self._load_classes()
         logger.info(
