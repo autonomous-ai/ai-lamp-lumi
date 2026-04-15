@@ -25,7 +25,9 @@ When `motion.activity` detects an emotional action, log the mood after respondin
 | headbanging | energetic |
 
 ### From conversation (always-on)
-Scan from the **overall conversation**, not just the latest message. Mood often emerges from patterns across multiple exchanges — short/curt replies may signal stress, repeated topics may signal worry, tone shifts matter. Don't wait for explicit statements like "I'm sad".
+Two modes:
+1. **Explicit** — the message contains emotional words ("tired", "happy", "stressed", "so sad") → log mood immediately in the same turn.
+2. **Inferred** — no explicit emotion, but context implies it ("I lost my money" → `stressed`, "work is killing me" → `frustrated`). Scan from the **overall conversation** — tone shifts, short/curt replies, repeated topics all matter.
 
 Examples of explicit cues:
 - "I'm so tired" → `tired`

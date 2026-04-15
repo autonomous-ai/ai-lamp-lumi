@@ -263,7 +263,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 		}
 	}
-	// Nudge mood scan for voice conversations — append after message is built.
+	// Nudge mood scan for all voice types (voice_command + ambient voice).
 	if req.Type == "voice_command" || req.Type == "voice" {
 		moodNudge := "\n[Silently follow Mood skill.]"
 		if u := mood.CurrentUser(); u != "" {
