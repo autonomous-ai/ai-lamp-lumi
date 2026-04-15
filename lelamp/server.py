@@ -2364,6 +2364,10 @@ def start_voice(req: VoiceStartRequest):
 
     # Start voice (always-on streaming STT)
     if voice_service and voice_service.available:
+        # Wire updated TTS into running voice service (e.g. voice changed)
+        if need_tts and tts_service:
+            voice_service._tts_service = tts_service
+            logger.info("Updated TTS in running voice service (voice=%s)", voice)
         return {"status": "already_running"}
     if not VoiceService:
         raise HTTPException(503, "Voice service not available (missing deps)")
