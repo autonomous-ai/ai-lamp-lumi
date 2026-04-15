@@ -12,6 +12,7 @@ import cv2
 import httpx
 import numpy as np
 import pytest
+import pytest_asyncio
 import websockets
 from dotenv import load_dotenv
 
@@ -44,10 +45,12 @@ AUTH_HEADERS = {"X-API-Key": DL_API_KEY}
 
 
 class TestApiKeyAuth:
+    @pytest.mark.skipif(not DL_API_KEY, reason="DL_API_KEY not set — skipping auth tests")
     def test_health_without_key_returns_401(self):
         resp = httpx.get(_http_url("/api/dl/health"))
         assert resp.status_code == 401
 
+    @pytest.mark.skipif(not DL_API_KEY, reason="DL_API_KEY not set — skipping auth tests")
     def test_health_with_wrong_key_returns_401(self):
         resp = httpx.get(_http_url("/api/dl/health"), headers={"X-API-Key": "wrong"})
         assert resp.status_code == 401
@@ -67,7 +70,7 @@ class TestHealthEndpoint:
 
 
 class TestActionAnalysisWebSocket:
-    @pytest.fixture()
+    @pytest_asyncio.fixture()
     async def ws(self):
         """Connect to the remote WebSocket with auth headers."""
         async with websockets.connect(
