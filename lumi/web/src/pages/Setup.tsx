@@ -93,14 +93,14 @@ function PasswordField({ label, id, value, onChange, placeholder }: {
   );
 }
 
-function SectionCard({ id, title, children }: { id: SectionId; title: string; children: React.ReactNode }) {
+function SectionCard({ id, title, active, children }: { id: SectionId; title: string; active: boolean; children: React.ReactNode }) {
+  if (!active) return null;
   return (
     <div
       id={`section-${id}`}
       style={{
         background: C.card, border: `1px solid ${C.border}`,
         borderRadius: 12, padding: "18px 20px", marginBottom: 16,
-        scrollMarginTop: 16,
       }}
     >
       <div style={{
@@ -166,13 +166,13 @@ export default function Setup() {
 
   const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
     { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
+    { id: "face",     label: "Face",     icon: "◐" },
     ...(!urlParams.deviceId ? [{ id: "device" as SectionId, label: "Device", icon: "◈" }] : []),
     ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: "⬢" }] : []),
     ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: "◉" }] : []),
     { id: "tts" as SectionId, label: "TTS", icon: "◎" },
     ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: "⬟" }] : []),
     { id: "mqtt",     label: "MQTT",     icon: "☰" },
-    { id: "face",     label: "Face",     icon: "◐" },
   ];
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
@@ -290,27 +290,9 @@ export default function Setup() {
     return () => clearInterval(id);
   }, [setupWorking]);
 
-  // scroll spy
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const handler = () => {
-      for (const s of [...SECTIONS].reverse()) {
-        const node = document.getElementById(`section-${s.id}`);
-        if (node && node.getBoundingClientRect().top <= 80) {
-          setActiveSection(s.id);
-          return;
-        }
-      }
-      setActiveSection("wifi");
-    };
-    el.addEventListener("scroll", handler, { passive: true });
-    return () => el.removeEventListener("scroll", handler);
-  }, [SECTIONS]);
 
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
-    document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const uniqueNetworks = useMemo(
@@ -383,14 +365,21 @@ export default function Setup() {
   ]);
 
   return (
-    <div className="lm-root" style={{
+    <div className="lm-root lm-setup" style={{
       display: "flex", height: "100vh",
       background: C.bg, color: C.text,
       fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
     }}>
+      <style>{`
+        @media (max-width: 640px) {
+          .lm-setup .lm-sidebar { display: none !important; }
+          .lm-setup .lm-mobile-tabs { display: flex !important; }
+          .lm-setup .lm-main-content { padding: 16px !important; }
+        }
+      `}</style>
 
-      {/* ── Sidebar ── */}
-      <aside style={{
+      {/* ── Sidebar (hidden on mobile) ── */}
+      <aside className="lm-sidebar" style={{
         width: 192, flexShrink: 0,
         background: C.sidebar, borderRight: `1px solid ${C.border}`,
         display: "flex", flexDirection: "column",
@@ -439,6 +428,26 @@ export default function Setup() {
       {/* ── Main ── */}
       <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
+        {/* Mobile tabs (hidden on desktop) */}
+        <div className="lm-mobile-tabs" style={{
+          display: "none", overflowX: "auto", gap: 4, padding: "8px 12px",
+          borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+        }}>
+          {SECTIONS.map((s) => {
+            const active = activeSection === s.id;
+            return (
+              <button key={s.id} onClick={() => scrollTo(s.id)} style={{
+                padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: active ? 600 : 400,
+                color: active ? C.amber : C.textDim,
+                background: active ? C.amberDim : "transparent",
+                border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+              }}>
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Topbar */}
         <div style={{
           padding: "10px 24px", borderBottom: `1px solid ${C.border}`,
@@ -468,7 +477,7 @@ export default function Setup() {
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="lm-fade-in" style={{
+        <div ref={contentRef} className="lm-fade-in lm-main-content" style={{
           flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 32px",
         }}>
           <div style={{ maxWidth: 560, margin: "0 auto" }}>
@@ -501,7 +510,7 @@ export default function Setup() {
                 <form id="setup-form" onSubmit={handleSubmit}>
 
                   {/* Wi-Fi */}
-                  <SectionCard id="wifi" title="Wi-Fi">
+                  <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="ssid" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         SSID
@@ -542,16 +551,58 @@ export default function Setup() {
                     <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                   </SectionCard>
 
+                  {/* Face Enroll */}
+                  <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                      Upload photos of the owner so the lamp can recognize them.
+                    </div>
+                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photos ({faceFiles.length} selected)</label>
+                      <input
+                        ref={faceInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
+                        style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    {faceMsg && (
+                      <div style={{
+                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? C.red : "rgb(52,211,153)",
+                      }}>{faceMsg}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleFaceEnroll}
+                      disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
+                      style={{
+                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
+                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
+                        background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
+                      }}
+                    >
+                      {faceUploading ? "Uploading…" : "Enroll Face"}
+                    </button>
+                  </SectionCard>
+
                   {/* Device */}
                   {!urlParams.deviceId && (
-                    <SectionCard id="device" title="Device">
+                    <SectionCard id="device" title="Device" active={activeSection === "device"}>
                       <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
                     </SectionCard>
                   )}
 
                   {/* LLM */}
                   {!hasLlmParams && (
-                    <SectionCard id="llm" title="LLM">
+                    <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
                       <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
                       <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
                       <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
@@ -568,13 +619,13 @@ export default function Setup() {
 
                   {/* STT (Deepgram) */}
                   {!urlParams.deepgramApiKey && (
-                    <SectionCard id="deepgram" title="STT (Deepgram)">
+                    <SectionCard id="deepgram" title="STT (Deepgram)" active={activeSection === "deepgram"}>
                       <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
                     </SectionCard>
                   )}
 
                   {/* TTS */}
-                  <SectionCard id="tts" title="TTS Voice">
+                  <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         Voice
@@ -599,7 +650,7 @@ export default function Setup() {
 
                   {/* Channel */}
                   {!hasChannelParams && (
-                    <SectionCard id="channel" title={channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"}>
+                    <SectionCard id="channel" title={channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"} active={activeSection === "channel"}>
                       {channel === "telegram" && (
                         <>
                           <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
@@ -624,54 +675,13 @@ export default function Setup() {
                   )}
 
                   {/* MQTT */}
-                  <SectionCard id="mqtt" title="MQTT (optional)">
+                  <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
                     <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
                     <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
                     <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
                     <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
                     <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
                     <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
-                  </SectionCard>
-
-                  {/* Face Enroll */}
-                  <SectionCard id="face" title="Face Enroll (optional)">
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                      Upload a photo of the owner so the lamp can recognize them.
-                    </div>
-                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photo</label>
-                      <input
-                        ref={faceInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setFaceFile(e.target.files?.[0] ?? null)}
-                        style={{ fontSize: 12, color: C.text }}
-                      />
-                    </div>
-                    {faceMsg && (
-                      <div style={{
-                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? C.red : "rgb(52,211,153)",
-                      }}>{faceMsg}</div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleFaceEnroll}
-                      disabled={!faceName.trim() || !faceFile || faceUploading}
-                      style={{
-                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
-                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
-                        background: !faceName.trim() || !faceFile ? C.surface : "rgba(52,211,153,0.12)",
-                        border: `1px solid ${!faceName.trim() || !faceFile ? C.border : "rgba(52,211,153,0.35)"}`,
-                        color: !faceName.trim() || !faceFile ? C.textMuted : "rgb(52,211,153)",
-                      }}
-                    >
-                      {faceUploading ? "Uploading…" : "Enroll Face"}
-                    </button>
                   </SectionCard>
 
                 </form>
