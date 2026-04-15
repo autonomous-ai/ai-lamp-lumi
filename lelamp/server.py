@@ -448,7 +448,17 @@ async def lifespan(app: FastAPI):
         if _out_env is not None:
             audio_output_device = int(_out_env)
             logger.info("Audio output device override from env: %d", audio_output_device)
-        elif audio_output_device is not None:
+        elif os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA"):
+            # Derive sounddevice index from ALSA device name (e.g. plughw:wm8960soundcard,0)
+            _alsa_out = os.environ["LELAMP_AUDIO_OUTPUT_ALSA"]
+            _alsa_card = _alsa_out.split(":")[1].split(",")[0] if ":" in _alsa_out else ""
+            if _alsa_card:
+                for _i, _d in enumerate(sd.query_devices()):
+                    if _alsa_card.lower() in _d["name"].lower() and _d["max_output_channels"] > 0:
+                        audio_output_device = _i
+                        logger.info("Audio output device from ALSA env: %d '%s' (matched '%s')", _i, _d["name"], _alsa_card)
+                        break
+        if audio_output_device is not None:
             logger.info(f"Audio output device: {audio_output_device}")
         if audio_input_device is not None:
             logger.info(f"Audio input device: {audio_input_device}")
@@ -1770,12 +1780,28 @@ def get_audio_info():
 
 
 def _audio_output_card() -> Optional[int]:
-    """Derive ALSA card index from LELAMP_AUDIO_OUTPUT_ALSA (e.g. 'plughw:3,0' → 3)."""
+    """Derive ALSA card index from LELAMP_AUDIO_OUTPUT_ALSA.
+
+    Supports both numeric (plughw:3,0 → 3) and named (plughw:wm8960soundcard,0)
+    formats. Named cards are resolved via /proc/asound/cards.
+    """
     if AUDIO_OUTPUT_ALSA:
         import re
         m = re.search(r":(\d+)", AUDIO_OUTPUT_ALSA)
         if m:
             return int(m.group(1))
+        # Named card — resolve via /proc/asound/cards
+        m = re.search(r":([^,]+)", AUDIO_OUTPUT_ALSA)
+        if m:
+            card_name = m.group(1).lower()
+            try:
+                with open("/proc/asound/cards") as f:
+                    for line in f:
+                        cm = re.match(r"\s*(\d+)\s+\[(\S+)", line)
+                        if cm and cm.group(2).lower() == card_name:
+                            return int(cm.group(1))
+            except Exception:
+                pass
     return None
 
 
