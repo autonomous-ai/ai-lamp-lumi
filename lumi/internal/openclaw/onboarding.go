@@ -585,6 +585,29 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 		}
 	}
 
+	// Sync reasoning field on all provider model entries with current disable_thinking config.
+	// Ensures manual edits to config.json take effect on next boot without needing API call.
+	disableThinking := s.config.LLMThinkingDisabled()
+	wantReasoning := !disableThinking
+	if topModels, ok := configData["models"].(map[string]interface{}); ok {
+		if providers, ok := topModels["providers"].(map[string]interface{}); ok {
+			for _, provider := range providers {
+				if p, ok := provider.(map[string]interface{}); ok {
+					if modelsList, ok := p["models"].([]interface{}); ok {
+						for _, entry := range modelsList {
+							if m, ok := entry.(map[string]interface{}); ok {
+								if curr, _ := m["reasoning"].(bool); curr != wantReasoning {
+									m["reasoning"] = wantReasoning
+									changed = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if !changed {
 		return false, nil
 	}
