@@ -177,7 +177,7 @@ func (s *Service) Start(ctx context.Context) {
 
 // speakRecovery announces LeLamp recovery via TTS.
 func (s *Service) speakRecovery() {
-	body, _ := json.Marshal(map[string]string{"text": "I'm back!"})
+	body, _ := json.Marshal(map[string]string{"text": "Hardware recovered!"})
 	resp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/speak", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		slog.Warn("recovery TTS failed", "component", "healthwatch", "error", err)

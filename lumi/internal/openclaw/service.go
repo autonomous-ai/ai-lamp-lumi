@@ -914,7 +914,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	// On reconnect (not first boot), announce via TTS so user knows agent is back.
 	if s.wsHasConnected.Swap(true) {
 		go func() {
-			if err := s.SendToLeLampTTS("I'm back!"); err != nil {
+			if err := s.SendToLeLampTTS("Brain reconnected!"); err != nil {
 				slog.Warn("reconnect TTS failed", "component", "openclaw", "error", err)
 			}
 		}()
