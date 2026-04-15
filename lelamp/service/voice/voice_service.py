@@ -516,7 +516,7 @@ class VoiceService:
                     )
                     self._vad_loop(mic, frame_size, device_rate)
             except Exception as e:
-                logger.error("Voice loop error: %s", e)
+                logger.warning("Voice loop error: %s", e)
                 if self._running:
                     time.sleep(3)
 
