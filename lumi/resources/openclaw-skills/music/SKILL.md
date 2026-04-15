@@ -96,7 +96,7 @@ You: cron.add("Proactive music check", every 7min)
 You: GET /presence → user present?
         ↓ (yes)
 You: GET /camera/snapshot → assess mood visually
-You: GET /api/openclaw/mood-history → presence patterns, past suggestions
+You: GET /api/openclaw/mood-history?last=1 → latest mood
 You: GET /audio/history → listening history, preferences
         ↓
 You: Analyze all data → decide whether to suggest
@@ -114,7 +114,7 @@ When you first start or after a reboot, set up your proactive music check:
 2. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query latest mood, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
@@ -137,13 +137,10 @@ Before querying any API, review the recent conversation history in this session.
 
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
-**Mood history** (today + recent days):
+**Latest mood** (most recent record only):
 ```bash
-# Today — current user (auto-detected from presence)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=50"
-
-# Today — shared pool (mood logged before face was detected)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=unknown&date=$(date +%Y-%m-%d)&last=50"
+# Current user — latest mood record
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=1"
 ```
 
 **Listening history** (what user actually played):
@@ -167,7 +164,7 @@ From the data, extract these patterns:
 
 | Question | Where to find the answer |
 |----------|--------------------------|
-| What's the user's current mood? | Conversation context (PRIMARY) + `mood-history` → `mood` and `trigger` fields |
+| What's the user's current mood? | Conversation context (PRIMARY) + latest `mood-history` record → `mood` and `trigger` fields |
 | What genre do they prefer? | `audio/history` → `query` and `title` fields |
 | How long do they listen? | `audio/history` → `duration_s` field |
 | When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
@@ -196,7 +193,7 @@ Based on your analysis, decide one of:
 
 ### Learning Rules — How to Get Smarter Over Time
 
-**Pattern recognition from mood history:**
+**Pattern recognition from audio history:**
 - Count `music.play` events by `hour` → build a preference heat map
 - If 80%+ of plays happen between 9-11 AM → schedule checks at 9:30 AM
 - If user never plays music after 6 PM → don't suggest in the evening
@@ -251,7 +248,7 @@ Based on your analysis, decide one of:
 Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats going?
 
 **Cron fires — 3rd rejection this afternoon:**
-*You query: mood history shows 2 suggestions at 14:00 and 15:00 with no music.play after*
+*You recall: you already suggested at 14:00 and 15:00 this session with no music.play after*
 Action: `cron.update` interval to 7200000ms (2h), skip this check. Maybe try again tomorrow afternoon.
 
 **Cron fires — user just arrived 5 min ago, no listening history:**
@@ -287,11 +284,11 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /presence` | LeLamp (5001) | User present/idle/away, seconds since motion | Should I suggest now? |
 | `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
-| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Lumi (5000) | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |
+| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=1` | Lumi (5000) | Latest mood record (mood, trigger, source) | Current mood for genre selection |
 | `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
 | `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
 
-**Note:** Mood history is per-user — it automatically uses the current user detected by face recognition. You can also query a specific user with `?user=name`.
+**Note:** Mood history is per-user — it automatically uses the current user detected by face recognition. Only the latest record (`last=1`) is needed for music decisions — use conversation context and audio history for deeper patterns.
 
 ### Mood history event types relevant to music:
 
