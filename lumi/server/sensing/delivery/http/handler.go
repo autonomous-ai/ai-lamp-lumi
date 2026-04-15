@@ -46,11 +46,12 @@ type SensingHandler struct {
 	config           *config.Config
 	statusLED        *statusled.Service
 	voiceActiveUntil atomic.Int64 // unix ms; set on voice_listening, extended on voice_listening_end
+	isSleeping       func() bool  // returns true when agent last expressed "sleepy" emotion
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
-func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config, sled *statusled.Service) SensingHandler {
-	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, statusLED: sled}
+func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config, sled *statusled.Service, isSleeping func() bool) SensingHandler {
+	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, statusLED: sled, isSleeping: isSleeping}
 }
 
 // PostEvent receives a sensing event and sends it to the agent as a chat message.
@@ -157,12 +158,26 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
+	// Sleep guard: while the agent is in "sleepy" state, drop all passive sensing
+	// (light.level, motion, sound) so they don't wake the agent and override the
+	// sleepy emotion. Only presence.enter and voice_command can wake the lamp.
+	isPassive := req.Type != "voice_command"
+	if isPassive && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
+		slog.Info("sensing event dropped — sleeping", "component", "sensing", "type", req.Type)
+		h.monitorBus.Push(domain.MonitorEvent{
+			Type:    "sensing_drop",
+			Summary: "[" + req.Type + "] " + req.Message,
+			Detail:  map[string]any{"type": req.Type, "reason": "sleeping"},
+		})
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped_sleeping"}))
+		return
+	}
+
 	// When agent is busy:
 	// - voice_command (wake word confirmed) always passes through immediately.
 	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
 	// - During voice window: all passive sensing is queued (not dropped) so events aren't lost.
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
-	isPassive := req.Type != "voice_command"
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
 		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||

@@ -105,6 +105,14 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	}
 }
 
+// IsSleeping returns true when the last emotion expressed by the agent was "sleepy".
+// Used by SensingHandler to suppress passive sensing events during sleep mode.
+func (h *OpenClawHandler) IsSleeping() bool {
+	h.lastEmotionMu.Lock()
+	defer h.lastEmotionMu.Unlock()
+	return h.lastEmotion == "sleepy"
+}
+
 // isAgentNoReply returns true if text is an OpenClaw framework "silent" sentinel
 // (e.g. "NO_REPLY", "NO_RE") or a bare "NO" the LLM sometimes emits instead.
 // These should never be spoken aloud or shown to the user.
