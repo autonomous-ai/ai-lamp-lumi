@@ -267,42 +267,20 @@ export default function Monitor() {
     const needsFlow = s === "flow" || s === "chat";
     if (!needsFlow) return;
 
-    let es: EventSource | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    const applyEvents = (rows: MonitorEvent[]) => {
-      const next = rows
-        .slice(-FLOW_EVENTS_MAX)
-        .map((ev, i) => ({ ...ev, _seq: i }));
-      setEvents(next);
-      evtIdRef.current = next.length;
-    };
-    const fetchRecentFlow = async () => {
-      try {
-        const r = await fetch(`${API}/openclaw/flow-events?last=${FLOW_EVENTS_MAX}`).then((x) => x.json());
-        const rows = (r?.data?.events ?? []) as MonitorEvent[];
-        if (!Array.isArray(rows)) return;
-        applyEvents(rows);
-      } catch {}
-    };
-
-    fetchRecentFlow();
-    es = new EventSource(`${API}/openclaw/flow-stream`);
+    // SSE only — EventSource auto-reconnects on disconnect, no polling fallback needed
+    const es = new EventSource(`${API}/openclaw/flow-stream`);
     es.onmessage = (msg) => {
       try {
         const payload = JSON.parse(msg.data) as { events?: MonitorEvent[] };
         if (!Array.isArray(payload.events)) return;
-        applyEvents(payload.events);
+        const next = payload.events
+          .slice(-FLOW_EVENTS_MAX)
+          .map((ev, i) => ({ ...ev, _seq: i }));
+        setEvents(next);
+        evtIdRef.current = next.length;
       } catch {}
     };
-    es.onerror = () => {
-      es?.close();
-      es = null;
-      if (!pollTimer) pollTimer = setInterval(fetchRecentFlow, 2000);
-    };
-    return () => {
-      es?.close();
-      if (pollTimer) clearInterval(pollTimer);
-    };
+    return () => { es.close(); };
   }, [section]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
