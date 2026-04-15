@@ -2151,14 +2151,18 @@ def face_enroll(req: FaceEnrollRequest):
         raise HTTPException(400, "invalid base64") from exc
     if not raw:
         raise HTTPException(400, "empty image")
+    tg_username = req.telegram_username or ""
+    tg_id = req.telegram_id or ""
     try:
-        path = fr.enroll_from_bytes(raw, req.label)
+        path = fr.enroll_from_bytes(raw, req.label, tg_username, tg_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     norm = FaceRecognizer.normalize_label(req.label)
     return FaceEnrollResponse(
         status="ok",
         label=norm,
+        telegram_username=tg_username or None,
+        telegram_id=tg_id or None,
         photo_path=path,
         enrolled_count=fr.enrolled_count(),
     )
@@ -2190,9 +2194,12 @@ def face_owners_detail():
             other_files = sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() not in img_exts)
             mood_dir = d / "mood"
             mood_days = sorted(f.stem for f in mood_dir.iterdir() if f.suffix == ".jsonl") if mood_dir.is_dir() else []
+            meta = FaceRecognizer._read_metadata(d)
             persons.append(
                 FacePersonDetail(
                     label=d.name,
+                    telegram_username=meta.get("telegram_username"),
+                    telegram_id=meta.get("telegram_id"),
                     photo_count=len(photos),
                     photos=photos,
                     mood_days=mood_days,

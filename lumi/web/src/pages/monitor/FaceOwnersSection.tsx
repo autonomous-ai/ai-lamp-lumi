@@ -38,6 +38,8 @@ export function FaceOwnersSection() {
   // Enroll form state
   const [showEnroll, setShowEnroll] = useState(false);
   const [enrollName, setEnrollName] = useState("");
+  const [enrollTgUsername, setEnrollTgUsername] = useState("");
+  const [enrollTgId, setEnrollTgId] = useState("");
   const [enrollFile, setEnrollFile] = useState<File | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
@@ -152,6 +154,8 @@ export function FaceOwnersSection() {
         body: JSON.stringify({
           image_base64: base64,
           label: enrollName.trim().toLowerCase(),
+          ...(enrollTgUsername.trim() ? { telegram_username: enrollTgUsername.trim() } : {}),
+          ...(enrollTgId.trim() ? { telegram_id: enrollTgId.trim() } : {}),
         }),
       });
       if (!res.ok) {
@@ -160,6 +164,8 @@ export function FaceOwnersSection() {
       }
       setShowEnroll(false);
       setEnrollName("");
+      setEnrollTgUsername("");
+      setEnrollTgId("");
       setEnrollFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       refresh();
@@ -384,6 +390,20 @@ export function FaceOwnersSection() {
               style={inputStyle}
             />
             <input
+              type="text"
+              placeholder="Telegram username (optional)"
+              value={enrollTgUsername}
+              onChange={(e) => setEnrollTgUsername(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="text"
+              placeholder="Telegram ID (optional)"
+              value={enrollTgId}
+              onChange={(e) => setEnrollTgId(e.target.value)}
+              style={inputStyle}
+            />
+            <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
@@ -421,13 +441,22 @@ export function FaceOwnersSection() {
           {data.persons.map((person) => (
             <div key={person.label} style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--lm-amber)",
-                  textTransform: "capitalize",
-                }}>
-                  {person.label}
+                <div>
+                  <div style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--lm-amber)",
+                    textTransform: "capitalize",
+                  }}>
+                    {person.label}
+                  </div>
+                  {(person.telegram_username || person.telegram_id) && (
+                    <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 2 }}>
+                      {person.telegram_username && <span>@{person.telegram_username}</span>}
+                      {person.telegram_username && person.telegram_id && <span> · </span>}
+                      {person.telegram_id && <span>ID: {person.telegram_id}</span>}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{
