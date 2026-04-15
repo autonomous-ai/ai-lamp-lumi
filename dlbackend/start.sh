@@ -16,7 +16,7 @@ pip install .
 # Stop any existing nginx and start with our config only
 nginx -s stop 2>/dev/null || true
 pkill nginx 2>/dev/null || true
-nginx -c nginx.conf
+nginx -c /workspace/ai-lamp-openclaw/dlbackend/nginx.conf
 
 # Start uvicorn (foreground)
-python server.py --host 127.0.0.1 --port 8000
+python src/server.py --host 127.0.0.1 --port 8000
