@@ -2335,8 +2335,14 @@ def start_voice(req: VoiceStartRequest):
 
     voice = req.tts_voice or TTS_VOICE
 
-    # Start TTS
-    if TTSService and not (tts_service and tts_service.available):
+    # Start or re-init TTS (re-init when voice changed)
+    need_tts = TTSService and (
+        not (tts_service and tts_service.available)
+        or (tts_service and tts_service._voice != voice)
+    )
+    if need_tts:
+        if tts_service and tts_service.speaking:
+            tts_service.stop()
         try:
             tts_service = TTSService(
                 api_key=req.llm_api_key,
@@ -2349,7 +2355,7 @@ def start_voice(req: VoiceStartRequest):
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
             )
-            logger.info("TTSService started")
+            logger.info("TTSService started (voice=%s)", voice)
             # Wire TTS to MusicService so music pauses during speech
             if music_service:
                 music_service._tts_service = tts_service
