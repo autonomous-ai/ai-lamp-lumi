@@ -22,6 +22,7 @@ dependencies = [
     "pandas",
     "opencv-contrib-python",
     "onnxruntime",
+    "websockets",
 ]
 
 [project.optional-dependencies]

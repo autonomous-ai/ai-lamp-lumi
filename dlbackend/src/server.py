@@ -29,7 +29,7 @@ from fastapi import (
 from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
-from core.actionanalysis.x3d import X3DActionRecognizer
+from core.actionanalysis.x3d import X3DActionRecognizer, X3DModel
 from core.models import ActionRequest, FrameRequest, WhiteListRequest
 
 _ = load_dotenv()
@@ -53,21 +53,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-action_recognizer: X3DActionRecognizer | None = None
+action_model: X3DModel | None = None
 action_request_adapter = TypeAdapter(ActionRequest)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load models at startup."""
-    global action_recognizer
+    global action_model
 
-    logger.info("Loading X3D action recognizer...")
+    logger.info("Loading X3D action model...")
     try:
-        action_recognizer = X3DActionRecognizer()
-        logger.info("X3D action recognizer ready")
+        action_model = X3DModel()
+        logger.info("X3D action model ready")
     except Exception as e:
-        logger.warning(f"Failed to load X3D action recognizer: {e}")
+        logger.warning(f"Failed to load X3D action model: {e}")
 
     yield
 
@@ -111,11 +111,12 @@ async def action_analysis_ws(websocket: WebSocket):
 
     await websocket.accept()
 
-    if action_recognizer is None or not action_recognizer.is_ready():
-        await websocket.close(code=1011, reason="Action recognizer not loaded")
+    if action_model is None or not action_model.is_ready():
+        await websocket.close(code=1011, reason="Action model not loaded")
         return
 
     try:
+        action_recognizer = X3DActionRecognizer(action_model)
         while True:
             raw = await websocket.receive_text()
             try:
@@ -147,7 +148,7 @@ async def health():
     """Health check endpoint."""
     return {
         "status": "ok",
-        "action_recognizer": action_recognizer is not None and action_recognizer.is_ready(),
+        "action_model": action_model is not None and action_model.is_ready(),
     }
 
 
