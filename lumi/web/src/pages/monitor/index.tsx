@@ -1,5 +1,6 @@
 declare const __WEB_VERSION__: string;
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "@/lib/useTheme";
 
 function fmtDur(s: number): string {
   if (s < 60) return `${s}s`;
@@ -136,6 +137,7 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
 }
 
 export default function Monitor() {
+  const [theme, toggleTheme, themeClass] = useTheme();
   const [section, setSectionRaw] = useState<Section>(() => {
     const h = window.location.hash.replace("#", "") as Section;
     return allNavLeaves().some((n) => n.id === h) ? h : "overview";
@@ -294,7 +296,7 @@ export default function Monitor() {
   const ocOnline = oc?.connected ?? false;
 
   return (
-    <div className="lm-root" style={S.root}>
+    <div className={`lm-root ${themeClass}`} style={S.root}>
       {/* Mobile overlay */}
       <div
         className={`lm-sidebar-overlay${sidebarOpen ? " lm-sidebar-overlay--open" : ""}`}
@@ -349,6 +351,13 @@ export default function Monitor() {
             <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.lelampUptime != null ? fmtDur(sys.lelampUptime) : "—"}</span></div>
             <SoftwareUpdateButtons />
           </div>
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 13, color: "var(--lm-text-muted)", padding: "4px 0", marginTop: 4,
+            textAlign: "left",
+          }} title={`Theme: ${theme}`}>
+            {theme === "dark" ? "◑ Dark" : "◐ Light"}
+          </button>
         </div>
       </aside>
 
