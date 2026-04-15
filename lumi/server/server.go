@@ -423,10 +423,12 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 }
 
 // allowedLogs maps source names to their log file paths (supports glob patterns).
+// Entries prefixed with "journal:" use journalctl instead of file reading.
 var allowedLogs = map[string]string{
-	"lelamp":   "/var/log/lelamp/server.log",
-	"lumi":     "/var/log/lumi.log",
-	"openclaw": "/var/log/openclaw/lumi.log",
+	"lelamp":           "/var/log/lelamp/server.log",
+	"lumi":             "/var/log/lumi.log",
+	"openclaw":         "/var/log/openclaw/lumi.log",
+	"openclaw-service": "journal:openclaw.service",
 }
 
 // resolveOpenclawLog returns the openclaw log path, falling back to the newest
@@ -458,7 +460,7 @@ func resolveLogPaths(pattern string) ([]string, error) {
 }
 
 // logTail returns the last N lines of a whitelisted log file (or merged glob).
-// GET /api/logs/tail?source=lelamp|lumi|openclaw&lines=200
+// GET /api/logs/tail?source=lelamp|lumi|openclaw|openclaw-service&lines=200
 func (s *Server) logTail(c *gin.Context) {
 	source := c.DefaultQuery("source", "lumi")
 	pattern, ok := allowedLogs[source]
@@ -466,13 +468,31 @@ func (s *Server) logTail(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
 		return
 	}
-	if source == "openclaw" {
-		pattern = resolveOpenclawLog()
-	}
 
 	n, _ := strconv.Atoi(c.DefaultQuery("lines", "200"))
 	if n <= 0 || n > 5000 {
 		n = 200
+	}
+
+	// Journal-based source: use journalctl instead of file reading.
+	if strings.HasPrefix(pattern, "journal:") {
+		unit := strings.TrimPrefix(pattern, "journal:")
+		lines, err := journalTail(unit, n)
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"source": source,
+			"path":   "journalctl -u " + unit,
+			"lines":  lines,
+			"error":  errMsg,
+		}))
+		return
+	}
+
+	if source == "openclaw" {
+		pattern = resolveOpenclawLog()
 	}
 
 	paths, err := resolveLogPaths(pattern)
@@ -508,7 +528,7 @@ func (s *Server) logTail(c *gin.Context) {
 }
 
 // logStream streams new log lines via SSE from one or more log files.
-// GET /api/logs/stream?source=lelamp|lumi|openclaw
+// GET /api/logs/stream?source=lelamp|lumi|openclaw|openclaw-service
 func (s *Server) logStream(c *gin.Context) {
 	source := c.DefaultQuery("source", "lumi")
 	pattern, ok := allowedLogs[source]
@@ -516,14 +536,22 @@ func (s *Server) logStream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown log source"))
 		return
 	}
-	if source == "openclaw" {
-		pattern = resolveOpenclawLog()
-	}
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
+
+	// Journal-based source: stream via journalctl -f.
+	if strings.HasPrefix(pattern, "journal:") {
+		unit := strings.TrimPrefix(pattern, "journal:")
+		s.streamJournal(c, unit)
+		return
+	}
+
+	if source == "openclaw" {
+		pattern = resolveOpenclawLog()
+	}
 
 	paths, err := resolveLogPaths(pattern)
 	if err != nil || len(paths) == 0 {
@@ -579,6 +607,76 @@ func (s *Server) logStream(c *gin.Context) {
 				}
 			}
 			return true
+		}
+	})
+}
+
+// journalTail returns the last n lines from a systemd journal unit.
+func journalTail(unit string, n int) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "journalctl", "-u", unit, "--no-pager", "-n", strconv.Itoa(n))
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("journalctl: %w", err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
+}
+
+// streamJournal streams journal lines via SSE using journalctl -f.
+func (s *Server) streamJournal(c *gin.Context, unit string) {
+	ctx := c.Request.Context()
+	cmd := exec.CommandContext(ctx, "journalctl", "-u", unit, "--no-pager", "-f", "-n", "0")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		c.SSEvent("error", "journalctl pipe: "+err.Error())
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		c.SSEvent("error", "journalctl start: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	scanner := bufio.NewScanner(stdout)
+	lineCh := make(chan string, 64)
+	go func() {
+		defer close(lineCh)
+		for scanner.Scan() {
+			lineCh <- scanner.Text()
+		}
+	}()
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case line, ok := <-lineCh:
+			if !ok {
+				return false
+			}
+			c.SSEvent("log", line)
+			// Drain any buffered lines to batch SSE writes.
+			for {
+				select {
+				case l, ok := <-lineCh:
+					if !ok {
+						return false
+					}
+					c.SSEvent("log", l)
+				default:
+					return true
+				}
+			}
 		}
 	})
 }
