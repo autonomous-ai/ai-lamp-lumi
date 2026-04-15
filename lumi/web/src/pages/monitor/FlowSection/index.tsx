@@ -14,6 +14,7 @@ const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
   cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
   channel: ["telegram", "discord", "slack", "wechat", "channel"],
+  web: ["web_chat"],
   cron: ["cron", "cron:hydration", "cron:break", "cron:music"],
   system: ["system", "schedule", "music.mood"],
 };
@@ -26,7 +27,7 @@ const TYPE_LABEL: Record<string, string> = {
   motion: "motion", "motion.activity": "activity", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
-  "music.mood": "mood", telegram: "TG", discord: "DC", slack: "SL", wechat: "WC", channel: "CH", schedule: "sched",
+  "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
   cron: "cron", "cron:hydration": "💧hydration", "cron:break": "🧘break", "cron:music": "🎵music",
 };
 
@@ -479,6 +480,7 @@ export function FlowSection({
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
                 { key: "channel", icon: "💬", label: "CH" },
+                { key: "web", icon: "🖥", label: "Web" },
                 { key: "cron", icon: "⏰", label: "Cron" },
                 { key: "system", icon: "⚙", label: "Sys" },
               ] as const).map((f) => {

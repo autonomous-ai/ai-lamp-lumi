@@ -172,11 +172,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
-      const t = m ? m[1] : "unknown";
+      let t = m ? m[1] : "unknown";
+      const d = ev.detail as Record<string, any> | undefined;
+      const source = d?.source ?? d?.data?.source;
+      if (source === "web") t = "web_chat";
       return {
         type: t,
         path: "unknown",
-        forceNewTurn: t === "voice" || t === "voice_command",
+        forceNewTurn: t === "voice" || t === "voice_command" || t === "web_chat",
         boundary: t === "voice" || t === "voice_command" ? "mic" : undefined,
       };
     }
@@ -451,7 +454,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 // Extract runtime info for each node from turn events
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
-    mic_input: [], cam_input: [], channel_input: [], intent_check: [], local_match: [],
+    mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
     lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [], tg_alert: [],
@@ -486,12 +489,18 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "sensing_input") {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       const sType = m?.[1] ?? "";
-      const isCam = /motion|presence|light/i.test(sType);
-      const target = isCam ? info.cam_input : info.mic_input;
-      if (m) {
-        target.push(`type: ${m[1]}`, `"${m[2]}"`);
+      const d = ev.detail as Record<string, any> | undefined;
+      const isWeb = d?.source === "web" || d?.data?.source === "web";
+      if (isWeb) {
+        info.webchat_input.push(`"${m?.[2] ?? ev.summary}"`);
       } else {
-        target.push(ev.summary);
+        const isCam = /motion|presence|light/i.test(sType);
+        const target = isCam ? info.cam_input : info.mic_input;
+        if (m) {
+          target.push(`type: ${m[1]}`, `"${m[2]}"`);
+        } else {
+          target.push(ev.summary);
+        }
       }
     }
     {
