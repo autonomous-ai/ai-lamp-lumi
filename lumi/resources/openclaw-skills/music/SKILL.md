@@ -137,14 +137,8 @@ Before querying any API, review the recent conversation history in this session.
 
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
-**Mood history** (today + recent days):
-```bash
-# Today — current user (auto-detected from presence)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=50"
-
-# Today — shared pool (mood logged before face was detected)
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=unknown&date=$(date +%Y-%m-%d)&last=50"
-```
+**Mood history** (the latest mood matters most):
+Read mood history using the **Mood** skill's "How to Read" section. Use the **last entry** as the primary signal for genre selection — that's the user's most recent emotional state. Earlier entries provide trend context but don't override the latest mood.
 
 **Listening history** (what user actually played):
 ```bash
@@ -287,25 +281,10 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /presence` | LeLamp (5001) | User present/idle/away, seconds since motion | Should I suggest now? |
 | `GET /camera/snapshot` | LeLamp (5001) | Current visual of user | Mood assessment |
-| `GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N` | Lumi (5000) | Presence events, past mood assessments, `music.play` events | Timing patterns, accept/reject history |
 | `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
 | `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
 
-**Note:** Mood history is per-user — it automatically uses the current user detected by face recognition. You can also query a specific user with `?user=name`.
-
-### Mood history event types relevant to music:
-
-Mood history now contains only **user mood** events (not system/lamp events):
-
-| Event field | Meaning for music decisions |
-|-------|----------------------------|
-| `mood: "happy"` | User is in good mood → upbeat music |
-| `mood: "sad"` | User seems down → comfort/chill music |
-| `mood: "stressed"` | User is tense → ambient/lo-fi |
-| `mood: "tired"` | User is fatigued → gentle/calm music |
-| `mood: "excited"` | User is energized → energetic music |
-| `source: "camera"` | Mood detected from action (laughing, crying, etc.) |
-| `source: "conversation"` | Mood inferred from what user said |
+**Mood history:** See **Mood** skill for how to read/write mood and event structure. Use the Mood → Music Mapping table above to translate mood into genre.
 
 ### Audio history entry fields:
 
