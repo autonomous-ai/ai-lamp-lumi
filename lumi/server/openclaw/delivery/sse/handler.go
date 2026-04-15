@@ -787,10 +787,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 				// [HW:/broadcast] marker: agent requests broadcast to Telegram.
 				// Used by wellbeing crons, music suggestions, and proactive care.
+				// [HW:/dm:{"telegram_id":"123"}] marker: send to a specific Telegram user.
+				var dmTelegramID string
 				for _, c := range hwCalls {
 					if c.path == "/broadcast" {
 						isBroadcastRun = true
-						break
+					}
+					if c.path == "/dm" {
+						var dm struct {
+							TelegramID string `json:"telegram_id"`
+						}
+						if err := json.Unmarshal([]byte(c.body), &dm); err == nil && dm.TelegramID != "" {
+							dmTelegramID = dm.TelegramID
+						}
 					}
 				}
 
@@ -859,9 +868,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}
 					// Guard broadcast is handled above (before the if/else) to ensure
 					// it fires even on NO_REPLY / empty / suppressed paths.
-					// Broadcast run (e.g. music.mood): send agent response to all channels
-					// so user can confirm via Telegram instead of only voice.
-					if isBroadcastRun && len(text) > 10 {
+					// DM run: send agent response to a specific Telegram user.
+					// Takes priority over broadcast — if /dm is present, /broadcast is skipped.
+					if dmTelegramID != "" && len(text) > 10 {
+						go func(t, tid string) {
+							slog.Info("dm run response to user", "component", "agent", "run_id", flowRunID, "telegram_id", tid, "text", t[:min(len(t), 80)])
+							if err := h.agentGateway.SendToUser(tid, t, ""); err != nil {
+								slog.Error("dm run failed", "component", "agent", "err", err)
+							}
+						}(text, dmTelegramID)
+					} else if isBroadcastRun && len(text) > 10 {
+						// Broadcast run (e.g. music.mood): send agent response to all channels
+						// so user can confirm via Telegram instead of only voice.
 						go func(t string) {
 							slog.Info("broadcast run response to channels", "component", "agent", "run_id", flowRunID, "text", t[:min(len(t), 80)])
 							if err := h.agentGateway.Broadcast(t, ""); err != nil {
