@@ -4,6 +4,7 @@ import { getDeviceConfig, updateDeviceConfig, getTTSVoices } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
+import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -23,15 +24,16 @@ const C = {
 };
 
 type SectionId = "wifi" | "face" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
-const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
-  { id: "wifi",     label: "Wi-Fi",    icon: "⬡" },
-  { id: "face",     label: "Face",     icon: "◐" },
-  { id: "device",   label: "Device",   icon: "◈" },
-  { id: "llm",      label: "LLM",      icon: "⬢" },
-  { id: "deepgram", label: "STT",      icon: "◉" },
-  { id: "tts",      label: "TTS",      icon: "◎" },
-  { id: "channel",  label: "Channel",  icon: "⬟" },
-  { id: "mqtt",     label: "MQTT",     icon: "☰" },
+const ICON_SIZE = 15;
+const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
+  { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
+  { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
+  { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
+  { id: "llm",      label: "LLM",      icon: <Brain size={ICON_SIZE} /> },
+  { id: "deepgram", label: "STT",      icon: <Mic size={ICON_SIZE} /> },
+  { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
+  { id: "channel",  label: "Channel",  icon: <MessageSquare size={ICON_SIZE} /> },
+  { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
 
 // ── small components ──────────────────────────────────────────────────────────
@@ -240,6 +242,7 @@ export default function EditConfig() {
       setFaceName("");
       setFaceFiles([]);
       if (faceInputRef.current) faceInputRef.current.value = "";
+      loadFaceOwners();
     } else {
       setFaceMsg(`Error: ${lastErr}`);
     }
@@ -323,7 +326,7 @@ export default function EditConfig() {
     <div className={`lm-root lm-edit ${themeClass}`} style={{
       display: "flex", height: "100vh",
       background: C.bg, color: C.text,
-      fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
+      fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 14,
     }}>
       <style>{`
         @media (max-width: 640px) {
@@ -359,7 +362,7 @@ export default function EditConfig() {
                 cursor: "pointer", transition: "all 0.15s",
                 border: "none", width: "calc(100% - 16px)", textAlign: "left",
               }}>
-                <span style={{ fontSize: 14, lineHeight: 1 }}>{s.icon}</span>
+                {s.icon}
                 {s.label}
               </button>
             );
@@ -423,22 +426,24 @@ export default function EditConfig() {
           <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
             {SECTIONS.find((s) => s.id === activeSection)?.label}
           </span>
-          <button
-            form="edit-form"
-            type="submit"
-            disabled={saving || loadingCfg}
-            style={{
-              padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              cursor: saving || loadingCfg ? "not-allowed" : "pointer",
-              border: "none",
-              background: saving || loadingCfg ? C.surface : C.amber,
-              color: saving || loadingCfg ? C.textMuted : "#0C0B09",
-              transition: "all 0.15s",
-              opacity: saving || loadingCfg ? 0.6 : 1,
-            }}
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
+          {activeSection !== "face" && (
+            <button
+              form="edit-form"
+              type="submit"
+              disabled={saving || loadingCfg}
+              style={{
+                padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+                cursor: saving || loadingCfg ? "not-allowed" : "pointer",
+                border: "none",
+                background: saving || loadingCfg ? C.surface : C.amber,
+                color: saving || loadingCfg ? C.textMuted : "#0C0B09",
+                transition: "all 0.15s",
+                opacity: saving || loadingCfg ? 0.6 : 1,
+              }}
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -511,6 +516,40 @@ export default function EditConfig() {
                   >
                     {faceUploading ? "Uploading…" : "Enroll Face"}
                   </button>
+                  {faceOwners.length > 0 && (
+                    <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                        Enrolled ({faceOwners.length})
+                      </div>
+                      {faceOwners.map((p) => (
+                        <div key={p.label} style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 0", borderBottom: `1px solid ${C.border}`,
+                        }}>
+                          {p.photos?.[0] && (
+                            <img
+                              src={`/hw/face/photo/${p.label}/${p.photos[0].name}`}
+                              style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", border: `1px solid ${C.border}` }}
+                            />
+                          )}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.label}</div>
+                            <div style={{ fontSize: 10, color: C.textMuted }}>{p.photo_count} photo{p.photo_count !== 1 ? "s" : ""}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeFaceOwner(p.label)}
+                            style={{
+                              background: "none", border: "none", cursor: "pointer",
+                              fontSize: 11, color: C.red, padding: "4px 8px",
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </SectionCard>
 
                 <SectionCard id="device" title="Device" active={activeSection === "device"}>
