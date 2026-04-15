@@ -26,6 +26,18 @@ var Fillers = []string{
 	"Oh, interesting",
 	"Ok, let me see",
 	"Hmm, let me work on that",
+	"One sec",
+	"Ah, ok ok",
+	"Let me figure this out",
+	"Hmm, give me a moment",
+	"Oh, right",
+	"Let me look into that",
+	"Sure, hang on",
+	"Ok, thinking",
+	"Ah, let me see",
+	"Hmm, hold on a sec",
+	"Got it, one moment",
+	"Oh, let me check that",
 }
 
 // LeLampSpeakURL is the endpoint to trigger TTS on LeLamp.
