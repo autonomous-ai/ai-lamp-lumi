@@ -114,7 +114,7 @@ When you first start or after a reboot, set up your proactive music check:
 3. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. If suggesting, prefix reply with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] to DM the person."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Proactive music check. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
    - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown, omit the `/dm` instruction from the cron text.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 4. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
@@ -125,19 +125,19 @@ When you first start or after a reboot, set up your proactive music check:
 
 When you receive `[music-proactive]`, follow this process:
 
-#### Step 0 — Quick Checks
+#### Step 0 — Quick Checks (MUST do before anything else)
 
 **Check if any friend is present:**
 ```bash
 curl -s http://127.0.0.1:5001/face/cooldowns
 ```
-If no friend in the response (empty list) → NO_REPLY, skip this cycle entirely.
+If no friend in the response (empty list) → reply **only** `NO_REPLY`. Do NOT output analysis or explanation.
 
 **Check if music is already playing:**
 ```bash
 curl -s http://127.0.0.1:5001/audio/status
 ```
-If `playing: true` → NO_REPLY, skip this cycle entirely.
+If `playing: true` → reply **only** `NO_REPLY`.
 
 **Mood history is the primary signal.** Also glance at recent conversation for any extra mood or context cues.
 
@@ -161,7 +161,7 @@ From the data, extract these patterns:
 
 | Question | Where to find the answer |
 |----------|--------------------------|
-| What's the user's current mood? | Conversation context (PRIMARY) + latest `mood-history` record → `mood` and `trigger` fields |
+| What's the user's current mood? | `mood-history` record (PRIMARY) → `mood` and `trigger` fields + conversation context |
 | What genre do they prefer? | `audio/history` → `query` and `title` fields |
 | How long do they listen? | `audio/history` → `duration_s` field |
 | When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
@@ -174,12 +174,13 @@ From the data, extract these patterns:
 Based on your analysis, decide one of:
 
 **A. Suggest now** — User is present, mood is right, timing matches their pattern.
+- **MUST** prefix reply with `[HW:/dm:{"telegram_id":"..."}]` if you have the person's telegram_id — this is NOT optional
 - Suggest 1-2 songs matching their mood AND past preferences
-- Keep it conversational, never say "based on analysis"
-- If you have the person's `telegram_id`, include `[HW:/dm:{"telegram_id":"..."}]` so the suggestion also reaches them on Telegram
+- Keep it conversational and SHORT (1-2 sentences), never say "based on analysis"
+- Do NOT output your analysis or reasoning — only the suggestion
 
-**B. Skip** — Bad timing or user is busy.
-- Reply NO_REPLY silently
+**B. Skip** — Bad timing, user is busy, or no one present.
+- Reply **only** `NO_REPLY` — no analysis, no explanation, no text at all
 - Optionally `cron.update` to adjust next check time
 
 **C. Adjust schedule** — You've learned the pattern is different.
@@ -229,7 +230,8 @@ Based on your analysis, decide one of:
 ### Suggestion Rules
 
 - **NEVER auto-play when suggesting** — only speak the suggestion. Play only after explicit confirmation.
-- Keep it conversational: "You look like you could use some chill music... How about some Norah Jones?" not "Based on mood analysis..."
+- **NEVER explain your process** — no "Status check", no "Mood: X", no "Analysis:", no listing what APIs you called. The user doesn't need to know. Just suggest or skip.
+- Keep it conversational: "How about some Norah Jones?" not "Based on mood analysis..."
 - Use listening history as primary signal for genre — prefer songs/genres they already enjoy.
 - Suggest max 2 songs at a time — don't overwhelm.
 - If user rejected last 2 suggestions → back off, wait longer before next attempt.
