@@ -515,6 +515,9 @@ stage_openclaw() {
     "auth": {
       "mode": "token",
       "token": "$GATEWAY_TOKEN"
+    },
+    "controlUi": {
+      "allowedOrigins": ["*"]
     }
   }
 }
@@ -624,6 +627,17 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Prefix /hw;
+  }
+
+  # Exact /gw match for WebSocket (WS doesn't follow 301 redirect to /gw/)
+  location = /gw {
+    proxy_pass http://openclaw/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
   }
 
   location /gw/ {
