@@ -195,26 +195,28 @@ export default function Monitor() {
     const fetchForSection = async () => {
       const s = sectionRef.current;
 
-      // Sidebar needs openclaw status for the online dot
+      // Sidebar needs openclaw status + system info (version, uptime)
       try {
-        const ocR = await fetch(`${API}/openclaw/status`).then((r) => r.json());
+        const [ocR, sysR] = await Promise.all([
+          fetch(`${API}/openclaw/status`).then((r) => r.json()),
+          fetch(`${API}/system/info`).then((r) => r.json()),
+        ]);
         if (ocR.status === 1) setOc(ocR.data);
+        if (sysR.status === 1) {
+          const d = sysR.data;
+          setSys(d);
+          if (s === "overview" || s === "system") {
+            setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
+            setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
+          }
+        }
+        setLastUpdate(new Date().toLocaleTimeString());
       } catch {}
 
       if (s === "overview" || s === "system") {
         try {
-          const [sysR, netR] = await Promise.all([
-            fetch(`${API}/system/info`).then((r) => r.json()),
-            fetch(`${API}/system/network`).then((r) => r.json()),
-          ]);
-          if (sysR.status === 1) {
-            const d = sysR.data;
-            setSys(d);
-            setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
-            setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
-          }
+          const netR = await fetch(`${API}/system/network`).then((r) => r.json());
           if (netR.status === 1) setNet(netR.data);
-          setLastUpdate(new Date().toLocaleTimeString());
         } catch {}
       }
 
