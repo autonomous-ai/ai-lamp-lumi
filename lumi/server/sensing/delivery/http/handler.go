@@ -47,6 +47,7 @@ type SensingHandler struct {
 	statusLED        *statusled.Service
 	voiceActiveUntil atomic.Int64 // unix ms; set on voice_listening, extended on voice_listening_end
 	isSleeping       func() bool  // returns true when agent last expressed "sleepy" emotion
+	lastNotReadyTTS  atomic.Int64 // unix ms; cooldown for "brain restarting" TTS
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
@@ -214,6 +215,21 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	if !h.agentGateway.IsReady() {
 		turnStart := flow.Start("sensing_input", startPayload)
 		flow.End("sensing_input", turnStart, map[string]any{"error": "agent not connected"})
+		// Announce once via TTS so user knows the brain is restarting (cooldown 60s).
+		if req.Type == "voice_command" || req.Type == "presence.enter" {
+			now := time.Now().UnixMilli()
+			if last := h.lastNotReadyTTS.Load(); now-last > 60_000 {
+				if h.lastNotReadyTTS.CompareAndSwap(last, now) {
+					go func() {
+						resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
+							strings.NewReader(`{"text":"Hold on, brain is restarting."}`))
+						if err == nil {
+							resp.Body.Close()
+						}
+					}()
+				}
+			}
+		}
 		c.JSON(http.StatusServiceUnavailable, serializers.ResponseError("agent gateway not connected"))
 		return
 	}
