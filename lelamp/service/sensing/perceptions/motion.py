@@ -118,6 +118,7 @@ class MotionPerception(Perception):
         on_motion: Callable,
         capture_stable_frame: Callable,
         presence_service,
+        face_recognizer=None,
         base_url: str = config.DL_BACKEND_URL,
         api_key: str = config.DL_API_KEY,
     ):
@@ -125,6 +126,7 @@ class MotionPerception(Perception):
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
+        self._face_recognizer = face_recognizer
         self._last_motion_time: Optional[float] = None
         whitelist = self._load_whitelist()
         self._checker = RemoteMotionChecker(
@@ -195,7 +197,12 @@ class MotionPerception(Perception):
 
         from ..presence_service import PresenceState
 
-        if self._presence.state == PresenceState.PRESENT:
+        has_friend = (
+            self._face_recognizer is not None
+            and self._face_recognizer.has_friend_present()
+        )
+
+        if self._presence.state == PresenceState.PRESENT and has_friend:
             self._send_event(
                 "motion.activity",
                 f"Actions detected via video recognition: {actions_str}. "
