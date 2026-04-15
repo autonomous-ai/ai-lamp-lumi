@@ -1,4 +1,4 @@
-"""FastAPI server for X3D human action recognition.
+"""FastAPI server for VideoMAE human action recognition.
 
 Usage:
     python server.py                    # default 0.0.0.0:8000
@@ -30,7 +30,7 @@ from fastapi import (
 from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
-from core.actionanalysis.x3d import X3DActionRecognizer, X3DModel
+from core.actionanalysis.videomae import VideoMAEModel
 from core.models import ActionRequest, ConfigRequest, FrameRequest
 
 _ = load_dotenv()
@@ -58,7 +58,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-action_model: X3DModel | None = None
+action_model: VideoMAEModel | None = None
 action_request_adapter = TypeAdapter(ActionRequest)
 
 
@@ -67,12 +67,12 @@ async def lifespan(app: FastAPI):
     """Load models at startup."""
     global action_model
 
-    logger.info("Loading X3D action model...")
+    logger.info("Loading VideoMAE action model...")
     try:
-        action_model = X3DModel(ACTION_RECOGNITION_MODEL)
-        logger.info("X3D action model ready")
+        action_model = VideoMAEModel(ACTION_RECOGNITION_MODEL)
+        logger.info("VideoMAE action model ready")
     except Exception as e:
-        logger.warning(f"Failed to load X3D action model: {e}")
+        logger.warning(f"Failed to load VideoMAE action model: {e}")
 
     yield
 
@@ -121,7 +121,7 @@ async def action_analysis_ws(websocket: WebSocket):
         return
 
     try:
-        action_recognizer = X3DActionRecognizer(action_model)
+        action_recognizer = action_model.create_session()
         while True:
             raw = await websocket.receive_text()
             try:
