@@ -51,22 +51,23 @@ type rule struct {
 	exec  func(string) *Result
 }
 
-// colorKeywords maps Vietnamese/English color keywords to RGB values.
+// colorKeywords maps color keywords to RGB values.
 // Checked in order — first match wins.
 var colorKeywords = []struct {
 	keywords []string
 	rgb      [3]int
 	name     string
 }{
-	{[]string{"vàng", "vang", "yellow"}, [3]int{255, 220, 0}, "Yellow"},
-	{[]string{"đỏ", "do", "red"}, [3]int{255, 0, 0}, "Red"},
-	{[]string{"xanh lá", "xanh la", "xanh lam", "xanh dương", "xanh duong", "green", "blue"}, [3]int{0, 150, 255}, "Blue"},
-	{[]string{"xanh", "cyan"}, [3]int{0, 200, 150}, "Cyan"},
-	{[]string{"tím", "tim", "purple", "violet"}, [3]int{100, 50, 200}, "Purple"},
-	{[]string{"cam", "orange"}, [3]int{255, 100, 0}, "Orange"},
-	{[]string{"hồng", "hong", "pink"}, [3]int{255, 80, 150}, "Pink"},
-	{[]string{"trắng", "trang", "white"}, [3]int{255, 255, 255}, "White"},
-	{[]string{"ấm", "am", "warm"}, [3]int{255, 180, 100}, "Warm"},
+	{[]string{"yellow"}, [3]int{255, 220, 0}, "Yellow"},
+	{[]string{"red"}, [3]int{255, 0, 0}, "Red"},
+	{[]string{"green"}, [3]int{0, 200, 100}, "Green"},
+	{[]string{"blue"}, [3]int{0, 100, 255}, "Blue"},
+	{[]string{"cyan"}, [3]int{0, 200, 150}, "Cyan"},
+	{[]string{"purple", "violet"}, [3]int{100, 50, 200}, "Purple"},
+	{[]string{"orange"}, [3]int{255, 100, 0}, "Orange"},
+	{[]string{"pink"}, [3]int{255, 80, 150}, "Pink"},
+	{[]string{"white"}, [3]int{255, 255, 255}, "White"},
+	{[]string{"warm"}, [3]int{255, 180, 100}, "Warm"},
 }
 
 // extractColor returns the RGB and name for the first color keyword found in t.
@@ -83,7 +84,7 @@ func extractColor(t string) ([3]int, string, bool) {
 
 // isLEDOnCommand returns true if t contains a "turn on light" trigger phrase.
 func isLEDOnCommand(t string) bool {
-	triggers := []string{"bật đèn", "mở đèn", "bat den", "mo den", "turn on the light", "light on", "turn on", "đổi màu", "doi mau", "đèn màu", "den mau", "set color", "change color"}
+	triggers := []string{"turn on the light", "light on", "turn on", "set color", "change color"}
 	for _, kw := range triggers {
 		if strings.Contains(t, kw) {
 			return true
@@ -115,7 +116,7 @@ var rules = []rule{
 // 	// --- LED on/off ---
 // 	{
 // 		name:  "led_on",
-// 		match: anyOf("bật đèn", "mở đèn", "bat den", "mo den", "turn on the light", "light on", "turn on"),
+// 		match: anyOf("turn on the light", "light on", "turn on"),
 // 		exec: func(string) *Result {
 // 			post("/led/solid", `{"color":[255,220,180]}`)
 // 			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
@@ -124,7 +125,7 @@ var rules = []rule{
 // 	},
 // 	{
 // 		name:  "led_off",
-// 		match: anyOf("tắt đèn", "tắt hết đèn", "tat den", "turn off the light", "light off", "turn off"),
+// 		match: anyOf("turn off the light", "light off", "turn off"),
 // 		exec: func(string) *Result {
 // 			post("/led/off", "")
 // 			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
@@ -135,27 +136,27 @@ var rules = []rule{
 // 	// --- Scenes ---
 // 	{
 // 		name:  "scene_reading",
-// 		match: anyOf("đọc sách", "chế độ đọc", "doc sach", "reading mode", "reading"),
+// 		match: anyOf("reading mode", "reading"),
 // 		exec:  sceneExec("reading", "Reading mode!"),
 // 	},
 // 	{
 // 		name:  "scene_focus",
-// 		match: anyOf("tập trung", "làm việc", "tap trung", "lam viec", "focus mode", "focus"),
+// 		match: anyOf("focus mode", "focus"),
 // 		exec:  sceneExec("focus", "Focus mode!"),
 // 	},
 // 	{
 // 		name:  "scene_relax",
-// 		match: anyOf("thư giãn", "thu gian", "relax", "chill"),
+// 		match: anyOf("relax", "chill"),
 // 		exec:  sceneExec("relax", "Relax mode!"),
 // 	},
 // 	{
 // 		name:  "scene_movie",
-// 		match: anyOf("xem phim", "xem film", "movie mode", "movie"),
+// 		match: anyOf("movie mode", "movie"),
 // 		exec:  sceneExec("movie", "Movie mode!"),
 // 	},
 // 	{
-// 		name: "scene_night",
-// 		match: anyOf("đèn ngủ", "ngủ đi", "chúc ngủ ngon", "den ngu", "ngu di", "goodnight", "night mode", "sleep"),
+// 		name:  "scene_night",
+// 		match: anyOf("goodnight", "night mode", "sleep"),
 // 		exec: func(string) *Result {
 // 			post("/scene", `{"scene":"night"}`)
 // 			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
@@ -164,31 +165,31 @@ var rules = []rule{
 // 	},
 // 	{
 // 		name:  "scene_energize",
-// 		match: anyOf("sáng lên", "sáng hơn", "sang len", "sang hon", "brighter", "bright", "energize"),
+// 		match: anyOf("brighter", "bright", "energize"),
 // 		exec:  sceneExec("energize", "Max brightness!"),
 // 	},
 //
 // 	// --- Emotions ---
 // 	{
 // 		name:  "emotion_happy",
-// 		match: anyOf("vui lên", "vui đi", "happy"),
+// 		match: anyOf("happy"),
 // 		exec:  emotionExec("happy", "Yay!"),
 // 	},
 // 	{
 // 		name:  "emotion_sad",
-// 		match: anyOf("buồn", "buon", "sad"),
+// 		match: anyOf("sad"),
 // 		exec:  emotionExec("sad", "Aww."),
 // 	},
 // 	{
 // 		name:  "emotion_shock",
-// 		match: anyOf("ngạc nhiên", "ngac nhien", "wow", "shock", "surprised"),
+// 		match: anyOf("wow", "shock", "surprised"),
 // 		exec:  emotionExec("shock", "Wow!"),
 // 	},
 //
 // 	// --- Volume ---
 // 	{
 // 		name:  "volume_up",
-// 		match: anyOf("tăng âm", "to hơn", "lớn hơn", "tang am", "to hon", "lon hon", "volume up", "louder"),
+// 		match: anyOf("volume up", "louder"),
 // 		exec: func(string) *Result {
 // 			post("/audio/volume", `{"volume":80}`)
 // 			return &Result{TTSText: "Volume up!", Actions: []string{`POST /audio/volume {"volume":80}`}}
@@ -196,7 +197,7 @@ var rules = []rule{
 // 	},
 // 	{
 // 		name:  "volume_down",
-// 		match: anyOf("giảm âm", "nhỏ hơn", "bé hơn", "giam am", "nho hon", "be hon", "volume down", "quieter", "softer"),
+// 		match: anyOf("volume down", "quieter", "softer"),
 // 		exec: func(string) *Result {
 // 			post("/audio/volume", `{"volume":30}`)
 // 			return &Result{TTSText: "Volume down!", Actions: []string{`POST /audio/volume {"volume":30}`}}
@@ -204,7 +205,7 @@ var rules = []rule{
 // 	},
 // 	{
 // 		name:  "mute",
-// 		match: anyOf("im", "im đi", "tắt tiếng", "tat tieng", "mute", "shut up", "quiet"),
+// 		match: anyOf("mute", "shut up", "quiet"),
 // 		exec: func(string) *Result {
 // 			post("/audio/volume", `{"volume":0}`)
 // 			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
