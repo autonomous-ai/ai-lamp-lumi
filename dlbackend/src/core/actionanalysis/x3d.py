@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
+
 from core.models import ActionResponse
 
 from .base import HumanActionRecognizer
@@ -114,11 +115,14 @@ class X3DActionRecognizer(HumanActionRecognizer):
         self._frame_size = frame_size
 
         self._class_mask: npt.NDArray[np.bool_] = model.default_mask.copy()
+        self._threshold: float = 0.3
         self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
         self._last_ts: float = 0
         self._last_detected: list[tuple[str, float]] = []
 
-    def set_whitelist(self, whitelist: list[str] | None) -> None:
+    def set_config(self, whitelist: list[str] | None, threshold: float = 0.8) -> None:
+        self._threshold = threshold
+
         if whitelist is None:
             self._class_mask = self._model.default_mask.copy()
         else:
@@ -126,7 +130,11 @@ class X3DActionRecognizer(HumanActionRecognizer):
             self._class_mask = np.array(
                 [name in allowed for name in self._model.class_names], dtype=np.bool_
             )
-        logger.info("Whitelist updated — %d classes enabled", int(self._class_mask.sum()))
+        logger.info(
+            "Config updated — %d classes enabled, threshold=%f",
+            int(self._class_mask.sum()),
+            round(threshold, 2),
+        )
 
     def _preprocess(self, frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         frame_rgb = cast(npt.NDArray[np.uint8], cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))

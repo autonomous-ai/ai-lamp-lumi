@@ -95,22 +95,22 @@ class TestActionAnalysisWebSocket:
 
     @pytest.mark.asyncio
     async def test_whitelist_update(self, ws):
-        await ws.send(json.dumps({"type": "whitelist", "whitelist": ["applauding", "clapping"]}))
+        await ws.send(json.dumps({"type": "config", "whitelist": ["applauding", "clapping"]}))
         resp = json.loads(await ws.recv())
-        assert resp["status"] == "whitelist_updated"
+        assert resp["status"] == "config_updated"
 
     @pytest.mark.asyncio
     async def test_whitelist_reset(self, ws):
-        await ws.send(json.dumps({"type": "whitelist", "whitelist": None}))
+        await ws.send(json.dumps({"type": "config", "whitelist": None}))
         resp = json.loads(await ws.recv())
-        assert resp["status"] == "whitelist_updated"
+        assert resp["status"] == "config_updated"
 
     @pytest.mark.asyncio
     async def test_whitelist_then_frame(self, ws):
         allowed = {"applauding", "clapping"}
-        await ws.send(json.dumps({"type": "whitelist", "whitelist": list(allowed)}))
+        await ws.send(json.dumps({"type": "config", "whitelist": list(allowed)}))
         resp = json.loads(await ws.recv())
-        assert resp["status"] == "whitelist_updated"
+        assert resp["status"] == "config_updated"
 
         await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
         resp = json.loads(await ws.recv())
@@ -119,7 +119,7 @@ class TestActionAnalysisWebSocket:
             assert class_name in allowed
 
         # Reset
-        await ws.send(json.dumps({"type": "whitelist", "whitelist": None}))
+        await ws.send(json.dumps({"type": "config", "whitelist": None}))
         await ws.recv()
 
     @pytest.mark.asyncio
@@ -152,5 +152,5 @@ class TestActionAnalysisWebSocket:
             async with websockets.connect(
                 _ws_url("/api/dl/action-analysis/ws"),
             ) as conn:
-                await conn.send(json.dumps({"type": "whitelist", "whitelist": None}))
+                await conn.send(json.dumps({"type": "config", "whitelist": None}))
                 _ = await conn.recv()

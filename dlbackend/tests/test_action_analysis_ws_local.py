@@ -94,23 +94,29 @@ class TestActionAnalysisWebSocket:
 
     def test_whitelist_update(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "whitelist", "whitelist": ["walking", "running"]}))
+            ws.send_text(json.dumps({"type": "config", "whitelist": ["walking", "running"]}))
             resp = ws.receive_json()
-            assert resp["status"] == "whitelist_updated"
+            assert resp["status"] == "config_updated"
+
+    def test_threshold_update(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "threshold": 0.2}))
+            resp = ws.receive_json()
+            assert resp["status"] == "config_updated"
 
     def test_whitelist_reset(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "whitelist", "whitelist": None}))
+            ws.send_text(json.dumps({"type": "config", "whitelist": None}))
             resp = ws.receive_json()
-            assert resp["status"] == "whitelist_updated"
+            assert resp["status"] == "config_updated"
 
     def test_whitelist_then_frame(self, client):
         """Set a whitelist, then send a frame — response classes should be from whitelist."""
         allowed = {"applauding", "clapping"}
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "whitelist", "whitelist": list(allowed)}))
+            ws.send_text(json.dumps({"type": "config", "whitelist": list(allowed)}))
             resp = ws.receive_json()
-            assert resp["status"] == "whitelist_updated"
+            assert resp["status"] == "config_updated"
 
             ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
             resp = ws.receive_json()
@@ -119,7 +125,7 @@ class TestActionAnalysisWebSocket:
                 assert class_name in allowed
 
             # Reset whitelist for other tests
-            ws.send_text(json.dumps({"type": "whitelist", "whitelist": None}))
+            ws.send_text(json.dumps({"type": "config", "whitelist": None}))
             ws.receive_json()
 
     def test_invalid_json(self, client):
@@ -160,5 +166,5 @@ class TestActionAnalysisWebSocket:
     def test_ws_without_api_key_rejected(self, client):
         with pytest.raises(Exception):
             with client.websocket_connect("/api/dl/action-analysis/ws") as ws:
-                ws.send_text(json.dumps({"type": "whitelist", "whitelist": None}))
+                ws.send_text(json.dumps({"type": "config", "whitelist": None}))
                 ws.receive_json()
