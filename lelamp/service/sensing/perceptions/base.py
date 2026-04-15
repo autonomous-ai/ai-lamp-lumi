@@ -19,7 +19,7 @@ class Perception(ABC):
     perceptions run in parallel.
     """
 
-    _pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
+    _pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=4)
 
     def __init__(self, send_event: Callable):
         self._send_event = send_event
