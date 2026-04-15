@@ -2,7 +2,7 @@ import type { DisplayEvent } from "../types";
 
 // Maps a MonitorEvent type/node to a flow stage ID
 export type FlowStage =
-  | "mic_input" | "cam_input" | "telegram_input" | "intent_check" | "local_match"
+  | "mic_input" | "cam_input" | "channel_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out" | "tg_alert";
 
@@ -56,10 +56,10 @@ export const FLOW_NODES: FlowNodeDef[] = [
     desc: "Motion / presence / light from camera",
     triggers: [] },
 
-  { id: "telegram_input",
-    label: "Telegram In", short: "TG IN", icon: "💬", color: "#229ed9", path: "main",
+  { id: "channel_input",
+    label: "Channel In", short: "CH IN", icon: "💬", color: "#229ed9", path: "main",
     shape: "hexagon",
-    desc: "Inbound message via Telegram / Slack / Discord",
+    desc: "Inbound message via messaging channel (Telegram, Discord, Slack, etc.)",
     triggers: [
       "chat_input",
       "flow_event:chat_input",
@@ -158,9 +158,9 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "tg_out",
-    label: "Telegram Out", short: "TG OUT", icon: "💬", color: "#229ed9", path: "agent",
+    label: "Channel Out", short: "CH OUT", icon: "💬", color: "#229ed9", path: "agent",
     shape: "diamond",
-    desc: "OpenClaw delivers response to Telegram / Slack / Discord",
+    desc: "OpenClaw delivers response to messaging channel (Telegram, Discord, Slack, etc.)",
     triggers: [
       "flow_event:telegram_alert_broadcast",
     ] },
@@ -168,7 +168,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
   { id: "tg_alert",
     label: "Broadcast", short: "BCAST", icon: "📢", color: "#e53935", path: "agent",
     shape: "diamond",
-    desc: "Broadcast to all Telegram sessions (guard alerts, wellbeing reminders, music suggestions)",
+    desc: "Broadcast to all messaging channels (guard alerts, wellbeing reminders, music suggestions)",
     triggers: [
       "flow_event:telegram_alert_broadcast",
     ] },
@@ -212,16 +212,16 @@ export const FLOW_NODES: FlowNodeDef[] = [
 
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
-  voice: "🎤", sound: "🔊",
+  voice: "🎤", voice_command: "🎙", sound: "🔊",
   motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡",
   "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
-  telegram: "💬", schedule: "⏰",
+  telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", schedule: "⏰",
   cron: "⏰", "cron:hydration": "💧", "cron:break": "🧘", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
   "music.mood": "🎵",
 };
 
-export const TELEGRAM_FALLBACK_MESSAGE = "Message from telegram";
+export const CHANNEL_FALLBACK_MESSAGE = "Message from channel";
 export const TURN_INPUT_FALLBACK = "Input not captured";
