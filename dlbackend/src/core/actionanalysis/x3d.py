@@ -30,14 +30,16 @@ RESOURCES_DIR = Path(__file__).parent / "resources"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.3
 DEFAULT_MAX_FRAMES = 16
 DEFAULT_FRAME_INTERVAL = 1.0
-DEFAULT_FRAME_SIZE = (256, 256)
+DEFAULT_FRAME_SIZE = (224, 224)
 
 
 class X3DModel:
     """Shared X3D ONNX model. Loaded once, used by all recognizer sessions."""
 
-    MEAN: npt.NDArray[np.float32] = np.array([114.75, 114.75, 114.75], dtype=np.float32)
-    STD: npt.NDArray[np.float32] = np.array([57.38, 57.38, 57.38], dtype=np.float32)
+    # MEAN: npt.NDArray[np.float32] = np.array([114.75, 114.75, 114.75], dtype=np.float32)
+    # STD: npt.NDArray[np.float32] = np.array([57.38, 57.38, 57.38], dtype=np.float32)
+    MEAN: npt.NDArray[np.float32] = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+    STD: npt.NDArray[np.float32] = np.array([58.395, 57.12, 57.375], dtype=np.float32)
 
     def __init__(self, model_path: Path | None = None):
         if model_path is None:
@@ -160,7 +162,7 @@ class X3DActionRecognizer(HumanActionRecognizer):
         # Shape: (1, 1, C, T, H, W)
         tensor = tensor.transpose(3, 0, 1, 2)[None, None, ...]
 
-        (pred,) = self._model.session.run(["pred"], {"input": tensor})
+        (pred,) = self._model.session.run(["pred"], {})
         pred = cast(npt.NDArray[np.float32], pred)
 
         # Softmax over whitelisted classes only
