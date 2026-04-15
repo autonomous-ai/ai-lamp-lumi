@@ -194,9 +194,10 @@ func (s *Service) breathingLoop(ctx context.Context) {
 				continue
 			}
 			if !running {
-				// Read the current LED color from LeLamp and start breathing with it
+				// Read the current LED color from LeLamp and start breathing with it.
+				// Fall back to soft blue-white if LeLamp returns black (just started, no color set).
 				color := [3]int{180, 220, 255} // fallback
-				if c, err := fetchLeLampColor(); err == nil {
+				if c, err := fetchLeLampColor(); err == nil && (c[0]+c[1]+c[2]) > 0 {
 					color = c
 				}
 				startLeLampBreathing(color)
