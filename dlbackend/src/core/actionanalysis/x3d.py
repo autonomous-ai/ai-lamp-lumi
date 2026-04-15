@@ -45,8 +45,8 @@ class X3DModel:
 
         logger.info("Loading X3D model from %s", model_path)
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
-        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 0
+        opts.inter_op_num_threads = 0
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
         self.session = ort.InferenceSession(
