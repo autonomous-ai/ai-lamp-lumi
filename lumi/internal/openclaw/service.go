@@ -50,8 +50,9 @@ var _ domain.AgentGateway = (*Service)(nil)
 type Service struct {
 	config      *config.Config
 	monitorBus  *monitor.Bus
-	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
-	activeTurn  atomic.Bool // true while agent is processing a turn (lifecycle start → end)
+	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
+	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
 	wsConn *websocket.Conn
@@ -327,9 +328,19 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	sandboxMap := ensureMap(defaultsMap, "sandbox")
 	sandboxMap["mode"] = "off"
 	defaultsMap["sandbox"] = sandboxMap
+	compactionMap := ensureMap(defaultsMap, "compaction")
+	compactionMap["mode"] = "safeguard"
+	compactionMap["reserveTokensFloor"] = 80000
+	defaultsMap["compaction"] = compactionMap
+	defaultsMap["bootstrapMaxChars"] = 5000
+	defaultsMap["bootstrapTotalMaxChars"] = 30000
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
-		agentModelsMap[m.Key] = map[string]any{}
+		agentModelsMap[m.Key] = map[string]any{
+			"params": map[string]any{
+				"cacheRetention": "short",
+			},
+		}
 	}
 	defaultsMap["model"] = map[string]any{
 		"primary": fmt.Sprintf("%s/%s", customProviderName, defaultModel.Name),
@@ -896,6 +907,15 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConnected.Store(true)
 	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
 	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
+
+	// On reconnect (not first boot), announce via TTS so user knows agent is back.
+	if s.wsHasConnected.Swap(true) {
+		go func() {
+			if err := s.SendToLeLampTTS("I'm back!"); err != nil {
+				slog.Warn("reconnect TTS failed", "component", "openclaw", "error", err)
+			}
+		}()
+	}
 
 	// Subscribe to session events so we receive tool events for all turns
 	// (including Telegram-initiated turns where Lumi didn't call chat.send).
@@ -1939,4 +1959,42 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 
 	// Return idempotencyKey (not reqID) so trace_id matches OpenClaw's run_id.
 	return idempotencyKey, nil
+}
+
+// CompactSession sends a sessions.compact RPC to reduce conversation history.
+func (s *Service) CompactSession(sessionKey string) error {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	reqID := fmt.Sprintf("compact-%d", s.reqCounter.Add(1))
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "sessions.compact",
+		"params": map[string]interface{}{
+			"sessionKey": sessionKey,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal compact request: %w", err)
+	}
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		return fmt.Errorf("write compact request: %w", err)
+	}
+
+	slog.Info("sessions.compact sent", "component", "openclaw", "sessionKey", sessionKey)
+	return nil
 }

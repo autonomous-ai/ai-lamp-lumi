@@ -53,7 +53,7 @@ lelamp/
 │   │   ├── presence_service.py   — State machine tự bật/tắt đèn theo presence
 │   │   └── perceptions/          — Các detector có thể plug in
 │   │       ├── motion.py         — Phát hiện chuyển động (frame diff)
-│   │       ├── facerecognizer.py — Nhận diện owner/stranger (InsightFace)
+│   │       ├── facerecognizer.py — Nhận diện friend/stranger (InsightFace)
 │   │       └── light_level.py    — Phát hiện thay đổi độ sáng môi trường
 │   └── display/                  — GC9A01 LCD eyes + info
 └── pyproject.toml                — Python dependencies (opencv-python, insightface)
@@ -84,14 +84,14 @@ Mic (always on) → Local VAD (RMS energy, free)
 ```
 LeLamp sensing loop (mỗi 2s) → Đọc 1 frame camera, chạy tất cả detectors:
     ├─ Motion detection (frame diff) → event nếu >8% pixel thay đổi
-    ├─ Face recognition (InsightFace buffalo_sc) → phân loại owner/stranger
-    │     → presence.enter (JPEG được annotate bbox: xanh=owner, đỏ=stranger)
+    ├─ Face recognition (InsightFace buffalo_sc) → phân loại friend/stranger
+    │     → presence.enter (JPEG được annotate bbox: xanh=friend, đỏ=stranger)
     │     → presence.leave (3 tick liên tiếp không thấy mặt)
     ├─ Light level (mean brightness, mỗi 30s) → event nếu thay đổi >30/255
     └─ Sound detection (mic RMS) → event nếu > threshold
 
 Event có ảnh? (large motion, face enter) → encode frame 320px JPEG base64
-Ảnh face enter: frame gốc được vẽ bounding box + nhãn owner/stranger
+Ảnh face enter: frame gốc được vẽ bounding box + nhãn friend/stranger
 
 POST /api/sensing/event {type, message, image?}
     → Lumi Go:

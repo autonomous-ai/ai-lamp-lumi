@@ -46,11 +46,12 @@ type SensingHandler struct {
 	config           *config.Config
 	statusLED        *statusled.Service
 	voiceActiveUntil atomic.Int64 // unix ms; set on voice_listening, extended on voice_listening_end
+	isSleeping       func() bool  // returns true when agent last expressed "sleepy" emotion
 }
 
 // ProvideSensingHandler constructs a SensingHandler.
-func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config, sled *statusled.Service) SensingHandler {
-	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, statusLED: sled}
+func ProvideSensingHandler(gw domain.AgentGateway, bus *monitor.Bus, cfg *config.Config, sled *statusled.Service, isSleeping func() bool) SensingHandler {
+	return SensingHandler{agentGateway: gw, monitorBus: bus, config: cfg, statusLED: sled, isSleeping: isSleeping}
 }
 
 // PostEvent receives a sensing event and sends it to the agent as a chat message.
@@ -157,12 +158,27 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
+	// Sleep guard: while the agent is in "sleepy" state, drop all passive sensing
+	// (light.level, motion, sound) so they don't wake the agent and override the
+	// sleepy emotion. Only presence.enter and voice_command can wake the lamp.
+	isPassive := req.Type != "voice_command"
+	isVoice := req.Type == "voice" || req.Type == "voice_command"
+	if isPassive && !isVoice && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
+		slog.Info("sensing event dropped — sleeping", "component", "sensing", "type", req.Type)
+		h.monitorBus.Push(domain.MonitorEvent{
+			Type:    "sensing_drop",
+			Summary: "[" + req.Type + "] " + req.Message,
+			Detail:  map[string]any{"type": req.Type, "reason": "sleeping"},
+		})
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "dropped_sleeping"}))
+		return
+	}
+
 	// When agent is busy:
 	// - voice_command (wake word confirmed) always passes through immediately.
 	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
 	// - During voice window: all passive sensing is queued (not dropped) so events aren't lost.
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
-	isPassive := req.Type != "voice_command"
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
 		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||
@@ -206,9 +222,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		h.agentGateway.MarkGuardRun(runID, snap)
 	}
 	// Web monitor chat: suppress TTS — response displayed in web UI only.
-	if req.Source == "web" {
+	/* if req.Source == "web" {
 		h.agentGateway.MarkWebChatRun(runID)
-	}
+	} */
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
@@ -234,7 +250,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.enter":
-			msg += "\n[MANDATORY for owner/friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
+			msg += "\n[MANDATORY for friend: (1) cron.list to check if this person already has wellbeing/music crons. (2) Only create missing crons per Wellbeing skill and Music skill — do NOT recreate if already exist.]"
 		case "presence.leave":
 			msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
 		case "motion.activity":
@@ -255,6 +271,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		flow.End("sensing_input", turnStart, map[string]any{"error": err.Error()})
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
+	}
+
+	// Dead air filler: play a short TTS cue while OpenClaw processes voice events.
+	// Covers voice_command (wake word) and voice (ambient STT).
+	// Local intents already returned above, passive sensing doesn't need it.
+	if req.Type == "voice_command" || req.Type == "voice" {
+		go PlayDeadAirFiller()
 	}
 
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)
@@ -435,10 +458,10 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
 
 // extractSnapshotPath extracts the snapshot file path from a sensing message.
-// reUserName matches "owner (gray)" or "friend (chloe)" in presence.enter messages.
-var reUserName = regexp.MustCompile(`(?:owner|friend)\s*\(([^)]+)\)`)
+// reUserName matches "friend (gray)" in presence.enter messages.
+var reUserName = regexp.MustCompile(`friend\s*\(([^)]+)\)`)
 
-// extractUserName returns the first recognized owner/friend name from a presence.enter message.
+// extractUserName returns the first recognized friend name from a presence.enter message.
 func extractUserName(message string) string {
 	m := reUserName.FindStringSubmatch(message)
 	if m == nil {

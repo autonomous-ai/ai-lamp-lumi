@@ -191,6 +191,8 @@ class SpeakRequest(BaseModel):
     text: str = Field(
         ..., min_length=1, max_length=2000, description="Text to speak via TTS"
     )
+    # When True, this speech can be interrupted by the next speak() call (e.g. dead air filler).
+    interruptible: bool = Field(False, description="If True, can be interrupted by next speech")
 
     model_config = {
         "json_schema_extra": {"examples": [{"text": "Hi there! I am Lumi."}]}
@@ -271,45 +273,31 @@ class PresenceResponse(BaseModel):
 class FaceEnrollRequest(BaseModel):
     image_base64: str = Field(..., description="Base64-encoded image (JPEG or PNG)")
     label: str = Field(..., min_length=1, max_length=64, description="Person name")
-    role: str = Field("owner", description="Role: 'owner' or 'friend'")
 
 
 class FaceEnrollResponse(BaseModel):
     status: str
     label: str
-    role: str
     photo_path: str
     enrolled_count: int
 
 
 class FaceStatusResponse(BaseModel):
-    owner_count: int
-    owner_names: list[str]
+    enrolled_count: int
+    enrolled_names: list[str]
 
 
 class FacePersonDetail(BaseModel):
     label: str
-    role: str
     photo_count: int
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
     mood_days: list[str] = []  # e.g. ["2026-04-09"]
-    files: list[str] = []  # all non-photo files, e.g. ["metadata.json"]
+    files: list[str] = []  # all non-photo files
 
 
 class FaceOwnersDetailResponse(BaseModel):
     enrolled_count: int
     persons: list[FacePersonDetail]
-
-
-class FaceSetRoleRequest(BaseModel):
-    label: str = Field(..., min_length=1, max_length=64)
-    role: str = Field(..., description="Role: 'owner' or 'friend'")
-
-
-class FaceSetRoleResponse(BaseModel):
-    status: str
-    label: str
-    role: str
 
 
 class FaceRemoveRequest(BaseModel):
@@ -319,12 +307,12 @@ class FaceRemoveRequest(BaseModel):
 class FaceRemoveResponse(BaseModel):
     status: str
     label: str
-    owner_count: int
+    enrolled_count: int
 
 
 class FaceResetResponse(BaseModel):
     status: str
-    owner_count: int
+    enrolled_count: int
 
 
 class SensingResponse(BaseModel):
