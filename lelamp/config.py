@@ -25,7 +25,9 @@ AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or N
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
 # Separate mic device index for SoundPerception (noise sensing).
 _sensing_device_env = os.environ.get("LELAMP_AUDIO_SENSING_DEVICE")
-AUDIO_SENSING_DEVICE: Optional[int] = int(_sensing_device_env) if _sensing_device_env else None
+AUDIO_SENSING_DEVICE: Optional[int] = (
+    int(_sensing_device_env) if _sensing_device_env else None
+)
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
 # TTS voice — one of: alloy, ash, coral, echo, fable, onyx, nova, sage, shimmer
@@ -51,7 +53,9 @@ LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "50
 # --- Sensing: Face detection ---
 USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
 STRANGERS_DIR: str = os.environ.get("LELAMP_STRANGERS_DIR", "/root/local/strangers")
-YUNET_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.6"))
+YUNET_CONFIDENCE_THRESHOLD = float(
+    os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.6")
+)
 FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
 FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "300.0"))
 FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "300.0"))
@@ -59,21 +63,39 @@ FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10
 
 # --- Sensing: Motion detection (X3D video action recognition) ---
 MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
-MOTION_X3D_CONFIDENCE_THRESHOLD = float(os.environ.get("LELAMP_MOTION_X3D_CONFIDENCE_THRESHOLD", "0.3"))
+MOTION_X3D_CONFIDENCE_THRESHOLD = float(
+    os.environ.get("LELAMP_MOTION_X3D_CONFIDENCE_THRESHOLD", "0.3")
+)
 MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
-MOTION_EVENT_COOLDOWN_S = float(os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0"))
+MOTION_EVENT_COOLDOWN_S = float(
+    os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0")
+)
+DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "")
+DL_API_KEY = os.environ.get("DL_API_KEY", "")
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
-POSE_MOTION_ENABLED = os.environ.get("LELAMP_POSE_MOTION_ENABLED", "true").lower() == "true"
+POSE_MOTION_ENABLED = (
+    os.environ.get("LELAMP_POSE_MOTION_ENABLED", "true").lower() == "true"
+)
 POSE_MOTION_MODEL_PATH = LELAMP_DATA_DIR / "models" / "rtmpose-m.onnx"
-POSE_MOTION_ANGLE_THRESHOLD = float(os.environ.get("LELAMP_POSE_MOTION_ANGLE_THRESHOLD", "30.0"))
+POSE_MOTION_ANGLE_THRESHOLD = float(
+    os.environ.get("LELAMP_POSE_MOTION_ANGLE_THRESHOLD", "30.0")
+)
 
 # --- Sensing: Snapshot storage ---
-SNAPSHOT_TMP_DIR = os.environ.get("LELAMP_SNAPSHOT_TMP_DIR", "/tmp/lumi-sensing-snapshots")
+SNAPSHOT_TMP_DIR = os.environ.get(
+    "LELAMP_SNAPSHOT_TMP_DIR", "/tmp/lumi-sensing-snapshots"
+)
 SNAPSHOT_TMP_MAX_COUNT = int(os.environ.get("LELAMP_SNAPSHOT_TMP_MAX_COUNT", "50"))
-SNAPSHOT_PERSIST_DIR = os.environ.get("LELAMP_SNAPSHOT_PERSIST_DIR", "/var/log/lumi/snapshots")
-SNAPSHOT_PERSIST_TTL_S = float(os.environ.get("LELAMP_SNAPSHOT_PERSIST_TTL_S", str(72 * 3600)))
-SNAPSHOT_PERSIST_MAX_BYTES = int(os.environ.get("LELAMP_SNAPSHOT_PERSIST_MAX_BYTES", str(50 * 1024 * 1024)))
+SNAPSHOT_PERSIST_DIR = os.environ.get(
+    "LELAMP_SNAPSHOT_PERSIST_DIR", "/var/log/lumi/snapshots"
+)
+SNAPSHOT_PERSIST_TTL_S = float(
+    os.environ.get("LELAMP_SNAPSHOT_PERSIST_TTL_S", str(72 * 3600))
+)
+SNAPSHOT_PERSIST_MAX_BYTES = int(
+    os.environ.get("LELAMP_SNAPSHOT_PERSIST_MAX_BYTES", str(50 * 1024 * 1024))
+)
 
 # --- Presence: Auto light on/off ---
 IDLE_TIMEOUT_S = float(os.environ.get("LELAMP_IDLE_TIMEOUT_S", "300"))
