@@ -30,7 +30,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
 from core.actionanalysis.x3d import X3DActionRecognizer, X3DModel
-from core.models import ActionRequest, FrameRequest, WhiteListRequest
+from core.models import ActionRequest, ConfigRequest, FrameRequest
 
 _ = load_dotenv()
 
@@ -98,8 +98,8 @@ async def action_analysis_ws(websocket: WebSocket):
 
     Accepts JSON messages with a "type" field:
     - {"type": "frame", "frame_b64": "<base64>"} — feed a frame
-    - {"type": "whitelist", "whitelist": ["action1", ...]} — update whitelist
-    - {"type": "whitelist", "whitelist": null} — reset to default whitelist
+    - {"type": "config", "whitelist": ["action1", ...]} — update whitelist
+    - {"type": "config", "whitelist": null} — reset to default whitelist
 
     API key is validated from the X-API-Key header on connect.
     """
@@ -132,9 +132,9 @@ async def action_analysis_ws(websocket: WebSocket):
                     if result is not None:
                         await websocket.send_json(result.model_dump())
 
-                case WhiteListRequest():
-                    action_recognizer.set_whitelist(req.whitelist)
-                    await websocket.send_json({"status": "whitelist_updated"})
+                case ConfigRequest():
+                    action_recognizer.set_config(req.whitelist, req.threshold)
+                    await websocket.send_json({"status": "config_updated"})
 
                 case _:
                     pass
