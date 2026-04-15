@@ -50,8 +50,9 @@ var _ domain.AgentGateway = (*Service)(nil)
 type Service struct {
 	config      *config.Config
 	monitorBus  *monitor.Bus
-	wsConnected atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
-	activeTurn  atomic.Bool // true while agent is processing a turn (lifecycle start → end)
+	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
+	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
 	wsConn *websocket.Conn
@@ -906,6 +907,15 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConnected.Store(true)
 	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
 	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
+
+	// On reconnect (not first boot), announce via TTS so user knows agent is back.
+	if s.wsHasConnected.Swap(true) {
+		go func() {
+			if err := s.SendToLeLampTTS("I'm back!"); err != nil {
+				slog.Warn("reconnect TTS failed", "component", "openclaw", "error", err)
+			}
+		}()
+	}
 
 	// Subscribe to session events so we receive tool events for all turns
 	// (including Telegram-initiated turns where Lumi didn't call chat.send).
