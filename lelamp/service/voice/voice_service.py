@@ -599,6 +599,7 @@ class VoiceService:
         session = preconnected_session or self._stt.create_session()
 
         longest_partial = [""]
+        final_segments = []
         final_sent = [False]
 
         def _send_best(best: str):
@@ -635,6 +636,12 @@ class VoiceService:
             # Flux model fires multiple EndOfTurn events for natural pauses within
             # one utterance, so sending immediately would split a single sentence.
             logger.info("STT final segment: '%s'", text)
+            # Store final text + any partial accumulated before this final.
+            # After final, STT resets partials to empty, so save longest_partial now.
+            best = longest_partial[0] if len(longest_partial[0]) > len(text) else text
+            if best:
+                final_segments.append(best)
+            longest_partial[0] = ""
             final_sent[0] = True
 
         try:
@@ -727,11 +734,13 @@ class VoiceService:
             self._backchannel.reset()
             self._listening = False
             session.close()
-            # Send the best transcript once when session closes (not on each final).
-            # longest_partial accumulates across all finals in one session.
+            # Combine all final segments + any trailing partial into one transcript.
             if longest_partial[0]:
-                logger.info("STT session done — sending: '%s'", longest_partial[0])
-                _send_best(longest_partial[0])
+                final_segments.append(longest_partial[0])
+            combined = " ".join(final_segments).strip()
+            if combined:
+                logger.info("STT session done — sending: '%s'", combined)
+                _send_best(combined)
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
                 requests.post("http://127.0.0.1:5000/api/sensing/event",
