@@ -20,7 +20,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
+type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt" | "face";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -172,6 +172,7 @@ export default function Setup() {
     { id: "tts" as SectionId, label: "TTS", icon: "◎" },
     ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: "⬟" }] : []),
     { id: "mqtt",     label: "MQTT",     icon: "☰" },
+    { id: "face",     label: "Face",     icon: "◐" },
   ];
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
@@ -207,6 +208,51 @@ export default function Setup() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
+
+  // Face enroll state
+  const [faceName, setFaceName] = useState("");
+  const [faceFiles, setFaceFiles] = useState<File[]>([]);
+  const [faceUploading, setFaceUploading] = useState(false);
+  const [faceMsg, setFaceMsg] = useState<string | null>(null);
+  const faceInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFaceEnroll = async () => {
+    if (!faceName.trim() || faceFiles.length === 0) return;
+    setFaceUploading(true);
+    setFaceMsg(null);
+    const label = faceName.trim().toLowerCase();
+    let ok = 0;
+    let lastErr = "";
+    for (const file of faceFiles) {
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const resp = await fetch("/hw/face/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, image_base64: b64 }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          ok++;
+        } else {
+          lastErr = data.detail || data.message || `Failed: ${file.name}`;
+        }
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (ok > 0) {
+      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
+        + (lastErr ? ` (${lastErr})` : ""));
+      setFaceName("");
+      setFaceFiles([]);
+      if (faceInputRef.current) faceInputRef.current.value = "";
+    } else {
+      setFaceMsg(`Error: ${lastErr}`);
+    }
+    setFaceUploading(false);
+  };
 
   useEffect(() => {
     setMqttEndpoint((prev) => prev || urlParams.mqttEndpoint);
@@ -585,6 +631,47 @@ export default function Setup() {
                     <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
                     <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
                     <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
+                  </SectionCard>
+
+                  {/* Face Enroll */}
+                  <SectionCard id="face" title="Face Enroll (optional)">
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                      Upload a photo of the owner so the lamp can recognize them.
+                    </div>
+                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photo</label>
+                      <input
+                        ref={faceInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setFaceFile(e.target.files?.[0] ?? null)}
+                        style={{ fontSize: 12, color: C.text }}
+                      />
+                    </div>
+                    {faceMsg && (
+                      <div style={{
+                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? C.red : "rgb(52,211,153)",
+                      }}>{faceMsg}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleFaceEnroll}
+                      disabled={!faceName.trim() || !faceFile || faceUploading}
+                      style={{
+                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
+                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
+                        background: !faceName.trim() || !faceFile ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${!faceName.trim() || !faceFile ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: !faceName.trim() || !faceFile ? C.textMuted : "rgb(52,211,153)",
+                      }}
+                    >
+                      {faceUploading ? "Uploading…" : "Enroll Face"}
+                    </button>
                   </SectionCard>
 
                 </form>
