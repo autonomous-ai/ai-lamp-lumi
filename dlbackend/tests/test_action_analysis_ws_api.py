@@ -1,0 +1,153 @@
+"""Integration tests against a remote DL backend server.
+
+Requires DL_BACKEND_URL and DL_API_KEY in .env (or environment).
+Run with: pytest tests/test_action_analysis_ws_api.py -v
+"""
+
+import base64
+import json
+import os
+
+import cv2
+import httpx
+import numpy as np
+import pytest
+import websockets
+from dotenv import load_dotenv
+
+_ = load_dotenv()
+
+DL_BACKEND_URL = os.getenv("DL_BACKEND_URL", "")
+DL_API_KEY = os.getenv("DL_API_KEY", "")
+
+pytestmark = pytest.mark.skipif(
+    not DL_BACKEND_URL, reason="DL_BACKEND_URL not set — skipping remote API tests"
+)
+
+
+def _make_frame_b64(width: int = 320, height: int = 240) -> str:
+    """Create a base64-encoded JPEG of a random BGR image."""
+    frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".jpg", frame)
+    return base64.b64encode(buf.tobytes()).decode()
+
+
+def _http_url(path: str) -> str:
+    return f"{DL_BACKEND_URL}{path}"
+
+
+def _ws_url(path: str) -> str:
+    return DL_BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://") + path
+
+
+AUTH_HEADERS = {"X-API-Key": DL_API_KEY}
+
+
+class TestApiKeyAuth:
+    def test_health_without_key_returns_401(self):
+        resp = httpx.get(_http_url("/api/dl/health"))
+        assert resp.status_code == 401
+
+    def test_health_with_wrong_key_returns_401(self):
+        resp = httpx.get(_http_url("/api/dl/health"), headers={"X-API-Key": "wrong"})
+        assert resp.status_code == 401
+
+    def test_health_with_valid_key(self):
+        resp = httpx.get(_http_url("/api/dl/health"), headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+
+
+class TestHealthEndpoint:
+    def test_health_ok(self):
+        resp = httpx.get(_http_url("/api/dl/health"), headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["action_recognizer"] is True
+
+
+class TestActionAnalysisWebSocket:
+    @pytest.fixture()
+    async def ws(self):
+        """Connect to the remote WebSocket with auth headers."""
+        async with websockets.connect(
+            _ws_url("/api/dl/action-analysis/ws"),
+            additional_headers=AUTH_HEADERS,
+        ) as conn:
+            yield conn
+
+    @pytest.mark.asyncio
+    async def test_frame_returns_detected_classes(self, ws):
+        await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        assert "detected_classes" in resp
+        assert isinstance(resp["detected_classes"], list)
+
+    @pytest.mark.asyncio
+    async def test_multiple_frames(self, ws):
+        for _ in range(3):
+            await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+            resp = json.loads(await ws.recv())
+            assert "detected_classes" in resp
+
+    @pytest.mark.asyncio
+    async def test_whitelist_update(self, ws):
+        await ws.send(json.dumps({"type": "whitelist", "whitelist": ["applauding", "clapping"]}))
+        resp = json.loads(await ws.recv())
+        assert resp["status"] == "whitelist_updated"
+
+    @pytest.mark.asyncio
+    async def test_whitelist_reset(self, ws):
+        await ws.send(json.dumps({"type": "whitelist", "whitelist": None}))
+        resp = json.loads(await ws.recv())
+        assert resp["status"] == "whitelist_updated"
+
+    @pytest.mark.asyncio
+    async def test_whitelist_then_frame(self, ws):
+        allowed = {"applauding", "clapping"}
+        await ws.send(json.dumps({"type": "whitelist", "whitelist": list(allowed)}))
+        resp = json.loads(await ws.recv())
+        assert resp["status"] == "whitelist_updated"
+
+        await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        assert "detected_classes" in resp
+        for class_name, _ in resp["detected_classes"]:
+            assert class_name in allowed
+
+        # Reset
+        await ws.send(json.dumps({"type": "whitelist", "whitelist": None}))
+        await ws.recv()
+
+    @pytest.mark.asyncio
+    async def test_invalid_json(self, ws):
+        await ws.send("not json at all")
+        resp = json.loads(await ws.recv())
+        assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_missing_type_field(self, ws):
+        await ws.send(json.dumps({"frame_b64": "abc"}))
+        resp = json.loads(await ws.recv())
+        assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_unknown_type(self, ws):
+        await ws.send(json.dumps({"type": "bogus"}))
+        resp = json.loads(await ws.recv())
+        assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_frame_missing_frame_b64(self, ws):
+        await ws.send(json.dumps({"type": "frame"}))
+        resp = json.loads(await ws.recv())
+        assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_ws_without_api_key_rejected(self):
+        with pytest.raises(Exception):
+            async with websockets.connect(
+                _ws_url("/api/dl/action-analysis/ws"),
+            ) as conn:
+                await conn.send(json.dumps({"type": "whitelist", "whitelist": None}))
+                await conn.recv()

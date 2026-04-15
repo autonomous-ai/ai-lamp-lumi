@@ -30,9 +30,8 @@ lumi/web/dist/
 *.zip
 
 # LeLamp (Python)
-lelamp/.venv/
-lelamp/__pycache__/
-lelamp/**/__pycache__/
-lelamp/*.egg-info/
+.venv
+__pycache__
+*.egg-info
 
 imager/output/*.img
