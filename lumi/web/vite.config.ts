@@ -15,6 +15,12 @@ export default defineConfig({
     __WEB_VERSION__: JSON.stringify(webVersion),
   },
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: process.env.LUMI_PROXY ? {
+      "/api": process.env.LUMI_PROXY,
+      "/hw": process.env.LUMI_PROXY,
+    } : undefined,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
