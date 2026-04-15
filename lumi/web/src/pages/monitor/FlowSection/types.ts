@@ -2,7 +2,7 @@ import type { DisplayEvent } from "../types";
 
 // Maps a MonitorEvent type/node to a flow stage ID
 export type FlowStage =
-  | "mic_input" | "cam_input" | "channel_input" | "intent_check" | "local_match"
+  | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out" | "tg_alert";
 
@@ -64,6 +64,12 @@ export const FLOW_NODES: FlowNodeDef[] = [
       "chat_input",
       "flow_event:chat_input",
     ] },
+
+  { id: "webchat_input",
+    label: "Web Chat", short: "WEB", icon: "🖥", color: "#7c4dff", path: "main",
+    shape: "hexagon",
+    desc: "Message sent from web monitor chat UI",
+    triggers: [] },
 
   { id: "intent_check",
     label: "Intent Check", short: "INTENT", icon: "🔀", color: "var(--lm-teal)", path: "main",
@@ -216,7 +222,7 @@ export const SOURCE_ICON: Record<string, string> = {
   motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡",
   "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
-  telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", schedule: "⏰",
+  web_chat: "🖥", telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", schedule: "⏰",
   cron: "⏰", "cron:hydration": "💧", "cron:break": "🧘", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",

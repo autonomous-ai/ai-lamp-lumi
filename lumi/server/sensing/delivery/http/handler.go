@@ -96,9 +96,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	startPayload := map[string]any{"type": req.Type, "message": req.Message}
+	if req.Source != "" {
+		startPayload["source"] = req.Source
+	}
 
 	// Push sensing input to monitor.
 	monitorDetail := map[string]any{"type": req.Type}
+	if req.Source != "" {
+		monitorDetail["source"] = req.Source
+	}
 	h.monitorBus.Push(domain.MonitorEvent{
 		Type:    "sensing_input",
 		Summary: "[" + req.Type + "] " + req.Message,
