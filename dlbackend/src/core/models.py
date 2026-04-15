@@ -31,13 +31,14 @@ class FrameRequest(ActionRecognitionRequest):
     frame_b64: str
 
 
-class WhiteListRequest(ActionRecognitionRequest):
-    type: Literal["whitelist"] = "whitelist"
+class ConfigRequest(ActionRecognitionRequest):
+    type: Literal["config"] = "config"
     whitelist: list[str] | None = None
+    threshold: float = 0.3
 
 
 ActionRequest = Annotated[
-    Annotated[FrameRequest, Tag("frame")] | Annotated[WhiteListRequest, Tag("whitelist")],
+    Annotated[FrameRequest, Tag("frame")] | Annotated[ConfigRequest, Tag("config")],
     Discriminator("type"),
 ]
 

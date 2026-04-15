@@ -23,12 +23,8 @@ class HumanActionRecognizer(ABC):
         ...
 
     @abstractmethod
-    def set_whitelist(self, whitelist: list[str] | None) -> None:
-        """Set or clear the action whitelist.
-
-        Args:
-            whitelist: List of allowed action names, or None to allow all.
-        """
+    def set_config(self, *args, **kwargs) -> None:
+        """Set or clear the action whitelist."""
         ...
 
     @abstractmethod
