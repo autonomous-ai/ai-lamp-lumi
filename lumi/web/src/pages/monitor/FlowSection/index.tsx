@@ -13,7 +13,7 @@ import { CanvasModal } from "./CanvasModal";
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
   cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
-  telegram: ["telegram"],
+  channel: ["telegram", "discord", "slack", "wechat", "channel"],
   cron: ["cron", "cron:hydration", "cron:break", "cron:music"],
   system: ["system", "schedule", "music.mood"],
 };
@@ -26,7 +26,7 @@ const TYPE_LABEL: Record<string, string> = {
   motion: "motion", "motion.activity": "activity", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
-  "music.mood": "mood", telegram: "TG", schedule: "sched",
+  "music.mood": "mood", telegram: "TG", discord: "DC", slack: "SL", wechat: "WC", channel: "CH", schedule: "sched",
   cron: "cron", "cron:hydration": "💧hydration", "cron:break": "🧘break", "cron:music": "🎵music",
 };
 
@@ -281,8 +281,9 @@ export function FlowSection({
   );
   if (hasTtsSuppressed) visitedStages.add("tts_speak");
 
-  // TG OUT: only light up for telegram turns with a real response (not no_reply)
-  if (selectedTurn?.type === "telegram" && visitedStages.has("agent_response")) {
+  // CH OUT: only light up for channel turns with a real response (not no_reply)
+  const CHANNEL_TYPES = new Set(["telegram", "discord", "slack", "wechat", "channel"]);
+  if (selectedTurn && CHANNEL_TYPES.has(selectedTurn.type) && visitedStages.has("agent_response")) {
     const hasNoReply = turnEvents.some((ev) =>
       (ev.type === "flow_event" && ev.detail?.node === "no_reply") ||
       (ev.type === "chat_response" && ev.summary === "[no reply]")
@@ -477,7 +478,7 @@ export function FlowSection({
               {([
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
-                { key: "telegram", icon: "💬", label: "TG" },
+                { key: "channel", icon: "💬", label: "CH" },
                 { key: "cron", icon: "⏰", label: "Cron" },
                 { key: "system", icon: "⚙", label: "Sys" },
               ] as const).map((f) => {

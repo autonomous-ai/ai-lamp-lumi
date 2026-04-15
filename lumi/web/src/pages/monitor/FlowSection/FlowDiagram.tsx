@@ -83,7 +83,7 @@ export function FlowDiagram({
     agent_thinking:    { x: 950, y: 390 },
     agent_response:    { x: 750, y: 795 },
     // External channels — outside OpenClaw
-    telegram_input:    { x: 1300, y: 240 },
+    channel_input:    { x: 1300, y: 240 },
     tg_out:            { x: 1300, y: 795 },
     tg_alert:          { x: 467, y: 930 },
   };
@@ -97,7 +97,7 @@ export function FlowDiagram({
     ["local_match",       "hw_servo"],
     ["local_match",       "tts_speak"],
     ["intent_check",      "agent_call"],
-    ["telegram_input",    "agent_call"],
+    ["channel_input",    "agent_call"],
     ["schedule_trigger",  "agent_call"],
     ["agent_call",        "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
