@@ -54,6 +54,7 @@ class RemoteMotionChecker:
             return
 
         try:
+            print(self._base_url, self._api_key)
             self._ws_session = connect(
                 self._base_url, additional_headers={"X-API-Key": self._api_key}
             )
@@ -87,7 +88,10 @@ class RemoteMotionChecker:
             detected_classes = sorted(
                 resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
             )
-            return detected_classes[0][0]
+            try:
+                return detected_classes[0][0]
+            except IndexError:
+                return None
 
         return None
 
@@ -117,13 +121,30 @@ class MotionPerception(Perception):
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
         self._last_motion_time: Optional[float] = None
-        self._checker = RemoteMotionChecker(base_url=base_url, api_key=api_key)
+        whitelist = self._load_whitelist()
+        self._checker = RemoteMotionChecker(
+            base_url=base_url,
+            api_key=api_key,
+            whitelist=whitelist,
+            threshold=config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+        )
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S
         self._flush_interval: float = config.MOTION_FLUSH_S
         self._snapshot_buffer: list[npt.NDArray[np.uint8]] = []
         self._actions_buffer: list[str] = []
         self._last_flush_ts: float = 0.0
+
+    @staticmethod
+    def _load_whitelist() -> list[str] | None:
+        whitelist_path = RESOURCES_DIR / "white_list.txt"
+        if not whitelist_path.exists():
+            logger.warning("[motion] whitelist file not found: %s", whitelist_path)
+            return None
+        lines = whitelist_path.read_text().strip().splitlines()
+        whitelist = [line.strip() for line in lines if line.strip()]
+        logger.info("[motion] loaded %d whitelist entries", len(whitelist))
+        return whitelist
 
     @override
     def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
