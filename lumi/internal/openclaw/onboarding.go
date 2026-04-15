@@ -52,7 +52,6 @@ const (
 // hooks is the list of hook names available on CDN.
 // Each hook has HOOK.md (metadata) and handler.ts (logic).
 var hooks = []string{
-	"camera-inject",
 	"emotion-acknowledge",
 	"turn-gate",
 }
