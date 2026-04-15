@@ -370,7 +370,7 @@ export function ChatSection({ events }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number>(0);
   const [fileIsImage, setFileIsImage] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -679,7 +679,16 @@ export function ChatSection({ events }: Props) {
     }
   }, [events, updateMessages]);
 
-  // Auto-scroll on new messages
+  // Scroll to bottom on conversation switch
+  useEffect(() => {
+    // Use setTimeout to let DOM render messages first
+    setTimeout(() => {
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
+  }, [activeId]);
+
+  // Auto-scroll on new messages (only when already near bottom)
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -984,15 +993,26 @@ export function ChatSection({ events }: Props) {
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ display: "flex", height: "100%", gap: 0 }}>
+    <div style={{ display: "flex", height: "100%", gap: 0, position: "relative" }}>
+      {/* ── Overlay backdrop ── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            background: "rgba(0,0,0,0.3)",
+          }}
+        />
+      )}
       {/* ── Sidebar ── */}
       {sidebarOpen && (
       <div style={{
-        width: 230, flexShrink: 0,
-        borderRight: "1px solid var(--lm-border)",
+        width: 260, flexShrink: 0,
+        position: "absolute", top: 0, right: 0, bottom: 0, zIndex: 11,
+        borderLeft: "1px solid var(--lm-border)",
         display: "flex", flexDirection: "column",
         background: "var(--lm-sidebar)",
-        transition: "width 0.2s",
+        boxShadow: "-4px 0 16px rgba(0,0,0,0.2)",
       }}>
         <div style={{ padding: "12px 12px 4px", display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1423,7 +1443,7 @@ export function ChatSection({ events }: Props) {
         )}
 
         {/* Input */}
-        <div style={{ padding: "12px 16px", borderTop: fileName ? "none" : "1px solid var(--lm-border)", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--lm-sidebar)" }}>
+        <div style={{ padding: "12px 16px", borderTop: fileName ? "none" : "1px solid var(--lm-border)", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--lm-sidebar)", minWidth: 0 }}>
           <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileSelect} />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -1445,14 +1465,15 @@ export function ChatSection({ events }: Props) {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={sending}
-            placeholder="Send a message to Lumi… (Shift+Enter for new line)"
+            placeholder="Message Lumi…"
             rows={1}
             style={{
-              flex: 1, background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+              flex: 1, minWidth: 0, background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
               borderRadius: 8, padding: "9px 13px", color: "var(--lm-text)", fontSize: 13,
               outline: "none", opacity: sending ? 0.6 : 1,
               resize: "none", lineHeight: 1.5, fontFamily: "inherit",
-              maxHeight: 120, overflow: "auto",
+              minHeight: 38, maxHeight: 120, overflow: "auto",
+              boxSizing: "border-box",
             }}
           />
           <button
