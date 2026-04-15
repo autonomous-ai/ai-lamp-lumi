@@ -281,11 +281,35 @@ HW marker đặc biệt — force text agent nói cũng được gửi lên tấ
 
 ### Mood history per-user
 
-Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó. API mood history hỗ trợ `?user=` parameter (mặc định: user hiện tại):
+Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó.
+
+#### Nguồn mood
+
+| Source | Cách hoạt động |
+|---|---|
+| **Camera** (`source: "camera"`) | `motion.activity` detect action cảm xúc (laughing, crying, yawning, singing) → Emotion Detection skill trigger → agent log mood |
+| **Conversation** (`source: "conversation"`) | Agent scan **toàn bộ đoạn hội thoại** — không chỉ message cuối. Tín hiệu tinh tế cũng tính: trả lời ngắn cộc → stress, lặp topic → lo lắng, thay đổi giọng → mood change. Hoạt động trên mọi channel (Telegram, voice, web). |
+
+#### Voice mood nudge
+
+Voice events (`voice_command`, `voice`) kèm nudge `[Silently follow Mood skill.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
+
+#### Định dạng lưu trữ
+
+JSONL (mỗi dòng 1 JSON object) — chọn thay vì JSON array vì:
+- **Append**: O(1) — ghi thêm 1 dòng (không cần đọc-parse-ghi lại cả file)
+- **Crash-safe**: tệ nhất mất 1 dòng (array có thể corrupt cả file)
+- **Đọc N cuối**: `Query()` đọc tất cả rồi slice — đủ nhanh cho file daily (vài chục entry)
 
 ```bash
+# Ghi (agent gọi)
+POST /api/mood/log  {"mood":"happy","source":"camera","trigger":"laughing"}
+
+# Đọc
 GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
 ```
+
+Mỗi entry: `{"ts":...,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
 
 ### Nhận diện cross-channel
 
@@ -391,7 +415,7 @@ Các hằng số cấu hình nằm trong `lelamp/config.py`:
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.
-- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện.
+- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện. Voice messages kèm mood scan nudge (`[Silently follow Mood skill.]`) để agent nhớ detect mood từ conversation flow.
 - Prefix `[sensing:type]` trong message là cách agent biết đây là ambient event, không phải message từ người dùng.
 - Sensing events được miễn rule "phải gọi `/emotion thinking` trước" — mỗi type có emotion đầu tiên riêng.
 - **Image pruning echo**: OpenClaw strip image payload cũ khỏi conversation history để tiết kiệm token. Model nhỏ (Haiku) có thể echo marker dưới dạng `[image description removed]` trong response. `SOUL.md` hướng dẫn agent không được echo các marker này.
