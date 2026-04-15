@@ -170,11 +170,40 @@ class FaceRecognizer(Perception):
         self._owner_embeddings = None
         self._owner_labels = None
 
-    def save_photo(self, image_bytes: bytes, label: str) -> str:
+    @staticmethod
+    def _read_metadata(person_dir: Path) -> dict:
+        """Read metadata.json from a person's folder. Returns {} if missing."""
+        meta_path = person_dir / "metadata.json"
+        if meta_path.is_file():
+            try:
+                return json.loads(meta_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    @staticmethod
+    def _write_metadata(person_dir: Path, telegram_username: str = "", telegram_id: str = "") -> None:
+        """Write metadata.json with telegram info."""
+        meta_path = person_dir / "metadata.json"
+        data: dict = {}
+        if meta_path.is_file():
+            try:
+                data = json.loads(meta_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        if telegram_username:
+            data["telegram_username"] = telegram_username
+        if telegram_id:
+            data["telegram_id"] = telegram_id
+        meta_path.write_text(json.dumps(data))
+
+    def save_photo(self, image_bytes: bytes, label: str, telegram_username: str = "", telegram_id: str = "") -> str:
         """Write JPEG bytes under USERS_DIR/{label}/ with a timestamp name."""
         norm = self.normalize_label(label)
         dest_dir = USERS_DIR / norm
         dest_dir.mkdir(parents=True, exist_ok=True)
+        if telegram_username or telegram_id:
+            self._write_metadata(dest_dir, telegram_username, telegram_id)
         fname = f"{int(time.time() * 1000)}.jpg"
         path = dest_dir / fname
         path.write_bytes(image_bytes)
@@ -222,7 +251,7 @@ class FaceRecognizer(Perception):
         )
         return n_enrolled
 
-    def enroll_from_bytes(self, image_bytes: bytes, label: str) -> str:
+    def enroll_from_bytes(self, image_bytes: bytes, label: str, telegram_username: str = "", telegram_id: str = "") -> str:
         """Decode image, save as JPEG on disk, and append embeddings."""
         norm = self.normalize_label(label)
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -234,9 +263,16 @@ class FaceRecognizer(Perception):
         ok, buf = self._cv2.imencode(".jpg", img)
         if not ok:
             raise ValueError("could not encode image")
-        path = self.save_photo(buf.tobytes(), norm)
+        path = self.save_photo(buf.tobytes(), norm, telegram_username, telegram_id)
         self.train([img], [norm])
         return path
+
+    def get_telegram_id(self, label: str) -> str | None:
+        """Return telegram_id for a person, or None if not set."""
+        norm = self.normalize_label(label)
+        person_dir = USERS_DIR / norm
+        meta = self._read_metadata(person_dir)
+        return meta.get("telegram_id") or None
 
     def remove_person(self, label: str) -> bool:
         """Remove one person's directory and re-load remaining persons from disk."""

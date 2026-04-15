@@ -90,6 +90,8 @@ export interface FaceStatus {
 }
 export interface FaceOwnerDetail {
   label: string;
+  telegram_username?: string | null;
+  telegram_id?: string | null;
   photo_count: number;
   photos: string[];
   mood_days?: string[];
