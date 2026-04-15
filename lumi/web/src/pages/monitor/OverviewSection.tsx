@@ -4,7 +4,8 @@ import { HW } from "./types";
 const EMOTION_EMOJI: Record<string, string> = {
   happy: "😊", curious: "🤔", thinking: "💭", sad: "😢", excited: "🤩",
   shy: "😳", shock: "😱", idle: "😐", listening: "👂", laugh: "😄",
-  confused: "😕", sleepy: "😴", greeting: "👋", acknowledge: "👍", stretching: "🙆",
+  confused: "😕", sleepy: "😴", greeting: "👋", goodbye: "👋", acknowledge: "👍",
+  stretching: "🙆", caring: "🤗",
 };
 
 const EMOTION_COLOR: Record<string, string> = {
@@ -12,12 +13,14 @@ const EMOTION_COLOR: Record<string, string> = {
   sad:        "#60a5fa", excited:    "#fb923c", shy:        "#f472b6",
   shock:      "#f8fafc", idle:       "#2dd4bf", listening:  "#93c5fd",
   laugh:      "#fbbf24", confused:   "#c4b5fd", sleepy:     "#818cf8",
-  greeting:   "#fb923c", acknowledge:"#34d399", stretching: "#fde68a",
+  greeting:   "#fb923c", goodbye:    "#f97316", acknowledge:"#34d399",
+  stretching: "#fde68a", caring:     "#fca5a0",
 };
 
 const ALL_EMOTIONS = [
   "happy","curious","thinking","sad","excited","shy","shock",
-  "idle","listening","laugh","confused","sleepy","greeting","acknowledge","stretching",
+  "idle","listening","laugh","confused","sleepy","greeting","goodbye",
+  "acknowledge","stretching","caring",
 ];
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
 import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
