@@ -287,7 +287,9 @@ function loadConvos(): Conversation[] {
 
 function cleanPending(msgs: ChatMessage[]): ChatMessage[] {
   return msgs.map((m) =>
-    m.pending ? { ...m, pending: false, text: m.text || "…", error: true } : m,
+    m.pending
+      ? { ...m, pending: false, text: m.text || "…", error: !m.text }
+      : m,
   );
 }
 
@@ -868,7 +870,7 @@ export function ChatSection({ events }: Props) {
     }
 
     const nowDate = new Date();
-    const now = nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const now = nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const dateStr = nowDate.toISOString().slice(0, 10);
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`, role: "user", text, time: now, date: dateStr,
@@ -904,7 +906,7 @@ export function ChatSection({ events }: Props) {
       if (json.status === 1 && json.data?.runId) {
         const runId: string = json.data.runId;
         pendingRunIdRef.current = runId;
-        const replyTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const replyTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         setConvos((prev) =>
           prev.map((c) =>
             c.id === targetId
@@ -1258,17 +1260,13 @@ export function ChatSection({ events }: Props) {
               )}
               <div
                 className="lm-chat-msg"
-                style={{ display: "flex", flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-end", gap: 8 }}
+                style={{ display: "flex", flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-end" }}
               >
-              {msg.role === "lumi" && (
-                <div style={{
-                  width: 28, height: 28, borderRadius: "50%",
-                  background: "var(--lm-amber-dim)", border: "1px solid rgba(245,158,11,0.3)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, flexShrink: 0, color: "var(--lm-amber)",
-                }}>✦</div>
-              )}
-              <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+              <div style={{ maxWidth: msg.role === "user" ? "72%" : "85%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+                {/* Sender label for first Lumi message or after user message */}
+                {msg.role === "lumi" && (i === 0 || messages[i - 1]?.role === "user") && (
+                  <span style={{ fontSize: 10, color: "var(--lm-amber)", fontWeight: 600, paddingLeft: 4 }}>Lumi</span>
+                )}
                 {/* Thinking indicator — shown only for the active pending message */}
                 {msg.pending && msg.role === "lumi" && msg.runId === pendingRunIdRef.current && thinkingText && (
                   <ThinkingBlock text={thinkingText} />
