@@ -66,7 +66,7 @@ class TestHealthEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
-        assert body["action_recognizer"] is True
+        assert body["action_model"] is True
 
 
 class TestActionAnalysisWebSocket:
@@ -153,4 +153,4 @@ class TestActionAnalysisWebSocket:
                 _ws_url("/api/dl/action-analysis/ws"),
             ) as conn:
                 await conn.send(json.dumps({"type": "whitelist", "whitelist": None}))
-                await conn.recv()
+                _ = await conn.recv()

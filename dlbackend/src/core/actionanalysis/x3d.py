@@ -2,6 +2,10 @@
 
 Buffers frames at a configurable interval and runs them through an
 X3D ONNX model to classify actions from 400 Kinetics action classes.
+
+The ONNX model is loaded once via X3DModel, and each WebSocket connection
+creates a lightweight X3DActionRecognizer that shares the model but
+maintains its own frame buffer, whitelist, and timing state.
 """
 
 import logging
@@ -28,60 +32,34 @@ DEFAULT_FRAME_INTERVAL = 1.0
 DEFAULT_FRAME_SIZE = (256, 256)
 
 
-class X3DActionRecognizer(HumanActionRecognizer):
-    """X3D ONNX-based human action recognizer.
-
-    Buffers BGR frames and runs X3D inference at a configurable interval,
-    returning the top detected actions that pass the confidence threshold.
-    A whitelist can be set to filter which action classes are considered.
-    """
+class X3DModel:
+    """Shared X3D ONNX model. Loaded once, used by all recognizer sessions."""
 
     MEAN: npt.NDArray[np.float32] = np.array([114.75, 114.75, 114.75], dtype=np.float32)
     STD: npt.NDArray[np.float32] = np.array([57.38, 57.38, 57.38], dtype=np.float32)
 
-    def __init__(
-        self,
-        model_path: Path | None = None,
-        threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-        max_frames: int = DEFAULT_MAX_FRAMES,
-        frame_interval: float = DEFAULT_FRAME_INTERVAL,
-        frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
-    ):
+    def __init__(self, model_path: Path | None = None):
         if model_path is None:
             model_path = RESOURCES_DIR / "x3d_m_16x5x1_int8.onnx"
 
-        self._threshold = threshold
-        self._max_frames = max_frames
-        self._frame_interval = frame_interval
-        self._frame_size = frame_size
-
-        self._session: ort.InferenceSession | None = None
-        self._model_path = model_path
-        self._class_names: list[str] = []
-        self._class_mask: npt.NDArray[np.bool_] | None = None
-        self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
-        self._last_ts: float = 0
-
-        self._load_model()
-
-    def _load_model(self) -> None:
-        logger.info("Loading X3D model from %s", self._model_path)
+        logger.info("Loading X3D model from %s", model_path)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
-        self._session = ort.InferenceSession(
-            str(self._model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        self.session = ort.InferenceSession(
+            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
-        self._class_names, self._class_mask = self._load_classes()
+        self.class_names, self.default_mask = self._load_classes()
         logger.info(
             "X3D model loaded — %d classes, %d whitelisted",
-            len(self._class_names),
-            int(self._class_mask.sum()),
+            len(self.class_names),
+            int(self.default_mask.sum()),
         )
 
-    def _load_classes(self) -> tuple[list[str], npt.NDArray[np.bool_]]:
+    @staticmethod
+    def _load_classes() -> tuple[list[str], npt.NDArray[np.bool_]]:
         classes_path = RESOURCES_DIR / "kinect_classes.txt"
         whitelist_path = RESOURCES_DIR / "white_list.txt"
 
@@ -94,23 +72,63 @@ class X3DActionRecognizer(HumanActionRecognizer):
 
         return class_names, mask
 
-    def set_whitelist(self, whitelist: list[str] | None) -> None:
-        """Set or clear the action whitelist.
+    def is_ready(self) -> bool:
+        return self.session is not None
 
-        When set, only actions in the whitelist will have non-zero probability.
-        When None, all classes from the default whitelist file are used.
-        """
+    def create_session(
+        self,
+        threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        max_frames: int = DEFAULT_MAX_FRAMES,
+        frame_interval: float = DEFAULT_FRAME_INTERVAL,
+        frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
+    ) -> "X3DActionRecognizer":
+        """Create a per-connection recognizer session backed by this model."""
+        return X3DActionRecognizer(
+            model=self,
+            threshold=threshold,
+            max_frames=max_frames,
+            frame_interval=frame_interval,
+            frame_size=frame_size,
+        )
+
+
+class X3DActionRecognizer(HumanActionRecognizer):
+    """Per-connection action recognizer session.
+
+    Shares the ONNX model with other sessions but maintains its own
+    frame buffer, whitelist mask, and timing state.
+    """
+
+    def __init__(
+        self,
+        model: X3DModel,
+        threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        max_frames: int = DEFAULT_MAX_FRAMES,
+        frame_interval: float = DEFAULT_FRAME_INTERVAL,
+        frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
+    ):
+        self._model = model
+        self._threshold = threshold
+        self._max_frames = max_frames
+        self._frame_interval = frame_interval
+        self._frame_size = frame_size
+
+        self._class_mask: npt.NDArray[np.bool_] = model.default_mask.copy()
+        self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
+        self._last_ts: float = 0
+        self._last_detected: list[tuple[str, float]] = []
+
+    def set_whitelist(self, whitelist: list[str] | None) -> None:
         if whitelist is None:
-            _, self._class_mask = self._load_classes()
+            self._class_mask = self._model.default_mask.copy()
         else:
             allowed = set(whitelist)
             self._class_mask = np.array(
-                [name in allowed for name in self._class_names], dtype=np.bool_
+                [name in allowed for name in self._model.class_names], dtype=np.bool_
             )
         logger.info("Whitelist updated — %d classes enabled", int(self._class_mask.sum()))
 
     def _preprocess(self, frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """Resize and center-crop a BGR frame to the target size."""
         frame_rgb = cast(npt.NDArray[np.uint8], cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         h, w = frame_rgb.shape[:2]
         target_h, target_w = self._frame_size
@@ -121,10 +139,9 @@ class X3DActionRecognizer(HumanActionRecognizer):
         return resized[nh // 2 - half_h : nh // 2 + half_h, nw // 2 - half_w : nw // 2 + half_w]
 
     def _infer(self) -> list[tuple[str, float]]:
-        """Run X3D inference on the buffered frames."""
         frames = np.stack(list(self._frame_buffer), axis=0).astype(np.float32)
         t, h, w, c = frames.shape
-        norm_frames = (frames - self.MEAN) / self.STD
+        norm_frames = (frames - X3DModel.MEAN) / X3DModel.STD
 
         if t < self._max_frames:
             pad = np.zeros((self._max_frames - t, h, w, c), dtype=np.float32)
@@ -135,7 +152,7 @@ class X3DActionRecognizer(HumanActionRecognizer):
         # Shape: (1, 1, C, T, H, W)
         tensor = tensor.transpose(3, 0, 1, 2)[None, None, ...]
 
-        (pred,) = self._session.run(["pred"], {"input": tensor})
+        (pred,) = self._model.session.run(["pred"], {"input": tensor})
         pred = cast(npt.NDArray[np.float32], pred)
 
         # Softmax over whitelisted classes only
@@ -153,35 +170,25 @@ class X3DActionRecognizer(HumanActionRecognizer):
             score = float(scores[idx])
             if score < self._threshold:
                 break
-            results.append((self._class_names[idx], score))
+            results.append((self._model.class_names[idx], score))
 
         return results
 
     def update(self, frame: npt.NDArray[np.uint8]) -> ActionResponse | None:
-        """Buffer a frame and run X3D inference when the interval elapses.
-
-        Returns ActionResponse with detected classes, or None if not enough
-        time has passed since the last inference.
-        """
         cur_ts = time.time()
-        if cur_ts - self._last_ts < self._frame_interval:
-            return None
+        if cur_ts - self._last_ts >= self._frame_interval:
+            processed = self._preprocess(frame)
+            self._frame_buffer.append(processed)
+            while len(self._frame_buffer) > self._max_frames:
+                _ = self._frame_buffer.popleft()
 
-        processed = self._preprocess(frame)
-        self._frame_buffer.append(processed)
-        while len(self._frame_buffer) > self._max_frames:
-            self._frame_buffer.popleft()
+            self._last_detected = self._infer()
+            self._last_ts = cur_ts
 
-        detected = self._infer()
-        self._last_ts = cur_ts
-
-        if not detected:
-            return ActionResponse(detected_classes=[])
-
-        for name, conf in detected:
+        for name, conf in self._last_detected:
             logger.info("Detected '%s' (%.3f)", name, conf)
 
-        return ActionResponse(detected_classes=detected)
+        return ActionResponse(detected_classes=self._last_detected)
 
     def is_ready(self) -> bool:
-        return self._session is not None
+        return self._model.is_ready()
