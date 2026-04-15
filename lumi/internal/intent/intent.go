@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const lelampBase = "http://127.0.0.1:5001"
@@ -95,122 +96,146 @@ func isLEDOnCommand(t string) bool {
 
 var rules = []rule{
 	// --- LED color (must be before generic LED on/off) ---
-// 	{
-// 		name: "led_color",
-// 		match: func(t string) bool {
-// 			if !isLEDOnCommand(t) {
-// 				return false
-// 			}
-// 			_, _, ok := extractColor(t)
-// 			return ok
-// 		},
-// 		exec: func(t string) *Result {
-// 			rgb, name, _ := extractColor(t)
-// 			post("/led/effect/stop", "")
-// 			body := fmt.Sprintf(`{"color":[%d,%d,%d]}`, rgb[0], rgb[1], rgb[2])
-// 			post("/led/solid", body)
-// 			return &Result{TTSText: name + " light on!", LEDChanged: true, Actions: []string{"POST /led/effect/stop", "POST /led/solid " + body}}
-// 		},
-// 	},
-//
-// 	// --- LED on/off ---
-// 	{
-// 		name:  "led_on",
-// 		match: anyOf("turn on the light", "light on", "turn on"),
-// 		exec: func(string) *Result {
-// 			post("/led/solid", `{"color":[255,220,180]}`)
-// 			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
-// 			return &Result{TTSText: "Light on!", LEDChanged: true, Actions: []string{`POST /led/solid {"color":[255,220,180]}`, `POST /emotion {"emotion":"happy","intensity":0.6}`}}
-// 		},
-// 	},
-// 	{
-// 		name:  "led_off",
-// 		match: anyOf("turn off the light", "light off", "turn off"),
-// 		exec: func(string) *Result {
-// 			post("/led/off", "")
-// 			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
-// 			return &Result{TTSText: "Light off!", LEDOff: true, Actions: []string{"POST /led/off", `POST /emotion {"emotion":"idle","intensity":0.3}`}}
-// 		},
-// 	},
-//
-// 	// --- Scenes ---
-// 	{
-// 		name:  "scene_reading",
-// 		match: anyOf("reading mode", "reading"),
-// 		exec:  sceneExec("reading", "Reading mode!"),
-// 	},
-// 	{
-// 		name:  "scene_focus",
-// 		match: anyOf("focus mode", "focus"),
-// 		exec:  sceneExec("focus", "Focus mode!"),
-// 	},
-// 	{
-// 		name:  "scene_relax",
-// 		match: anyOf("relax", "chill"),
-// 		exec:  sceneExec("relax", "Relax mode!"),
-// 	},
-// 	{
-// 		name:  "scene_movie",
-// 		match: anyOf("movie mode", "movie"),
-// 		exec:  sceneExec("movie", "Movie mode!"),
-// 	},
-// 	{
-// 		name:  "scene_night",
-// 		match: anyOf("goodnight", "night mode", "sleep"),
-// 		exec: func(string) *Result {
-// 			post("/scene", `{"scene":"night"}`)
-// 			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
-// 			return &Result{TTSText: "Goodnight!", LEDChanged: true, Actions: []string{`POST /scene {"scene":"night"}`, `POST /emotion {"emotion":"sleepy","intensity":0.4}`}}
-// 		},
-// 	},
-// 	{
-// 		name:  "scene_energize",
-// 		match: anyOf("brighter", "bright", "energize"),
-// 		exec:  sceneExec("energize", "Max brightness!"),
-// 	},
-//
-// 	// --- Emotions ---
-// 	{
-// 		name:  "emotion_happy",
-// 		match: anyOf("happy"),
-// 		exec:  emotionExec("happy", "Yay!"),
-// 	},
-// 	{
-// 		name:  "emotion_sad",
-// 		match: anyOf("sad"),
-// 		exec:  emotionExec("sad", "Aww."),
-// 	},
-// 	{
-// 		name:  "emotion_shock",
-// 		match: anyOf("wow", "shock", "surprised"),
-// 		exec:  emotionExec("shock", "Wow!"),
-// 	},
-//
-// 	// --- Volume ---
-// 	{
-// 		name:  "volume_up",
-// 		match: anyOf("volume up", "louder"),
-// 		exec: func(string) *Result {
-// 			post("/audio/volume", `{"volume":80}`)
-// 			return &Result{TTSText: "Volume up!", Actions: []string{`POST /audio/volume {"volume":80}`}}
-// 		},
-// 	},
-// 	{
-// 		name:  "volume_down",
-// 		match: anyOf("volume down", "quieter", "softer"),
-// 		exec: func(string) *Result {
-// 			post("/audio/volume", `{"volume":30}`)
-// 			return &Result{TTSText: "Volume down!", Actions: []string{`POST /audio/volume {"volume":30}`}}
-// 		},
-// 	},
-// 	{
-// 		name:  "mute",
-// 		match: anyOf("mute", "shut up", "quiet"),
-// 		exec: func(string) *Result {
-// 			post("/audio/volume", `{"volume":0}`)
-// 			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
-// 		},
-// 	},
+	{
+		name: "led_color",
+		match: func(t string) bool {
+			if !isLEDOnCommand(t) {
+				return false
+			}
+			_, _, ok := extractColor(t)
+			return ok
+		},
+		exec: func(t string) *Result {
+			rgb, name, _ := extractColor(t)
+			post("/led/effect/stop", "")
+			body := fmt.Sprintf(`{"color":[%d,%d,%d]}`, rgb[0], rgb[1], rgb[2])
+			post("/led/solid", body)
+			return &Result{TTSText: name + " light on!", LEDChanged: true, Actions: []string{"POST /led/effect/stop", "POST /led/solid " + body}}
+		},
+	},
+
+	// --- LED on/off ---
+	{
+		name:  "led_on",
+		match: anyOf("turn on the light", "light on", "turn on"),
+		exec: func(string) *Result {
+			post("/led/solid", `{"color":[255,220,180]}`)
+			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
+			return &Result{TTSText: "Light on!", LEDChanged: true, Actions: []string{`POST /led/solid {"color":[255,220,180]}`, `POST /emotion {"emotion":"happy","intensity":0.6}`}}
+		},
+	},
+	{
+		name:  "led_off",
+		match: anyOf("turn off the light", "light off", "turn off"),
+		exec: func(string) *Result {
+			post("/led/off", "")
+			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
+			return &Result{TTSText: "Light off!", LEDOff: true, Actions: []string{"POST /led/off", `POST /emotion {"emotion":"idle","intensity":0.3}`}}
+		},
+	},
+
+	// --- Scenes ---
+	{
+		name:  "scene_reading",
+		match: anyOf("reading mode", "reading"),
+		exec:  sceneExec("reading", "Reading mode!"),
+	},
+	{
+		name:  "scene_focus",
+		match: anyOf("focus mode", "focus"),
+		exec:  sceneExec("focus", "Focus mode!"),
+	},
+	{
+		name:  "scene_relax",
+		match: anyOf("relax", "chill"),
+		exec:  sceneExec("relax", "Relax mode!"),
+	},
+	{
+		name:  "scene_movie",
+		match: anyOf("movie mode", "movie"),
+		exec:  sceneExec("movie", "Movie mode!"),
+	},
+	{
+		name:  "scene_night",
+		match: anyOf("goodnight", "night mode", "sleep"),
+		exec: func(string) *Result {
+			post("/scene", `{"scene":"night"}`)
+			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
+			return &Result{TTSText: "Goodnight!", LEDChanged: true, Actions: []string{`POST /scene {"scene":"night"}`, `POST /emotion {"emotion":"sleepy","intensity":0.4}`}}
+		},
+	},
+	{
+		name:  "scene_energize",
+		match: anyOf("brighter", "bright", "energize"),
+		exec:  sceneExec("energize", "Max brightness!"),
+	},
+
+	// --- Volume ---
+	{
+		name:  "volume_up",
+		match: anyOf("volume up", "louder"),
+		exec: func(string) *Result {
+			post("/audio/volume", `{"volume":80}`)
+			return &Result{TTSText: "Volume up!", Actions: []string{`POST /audio/volume {"volume":80}`}}
+		},
+	},
+	{
+		name:  "volume_down",
+		match: anyOf("volume down", "quieter", "softer"),
+		exec: func(string) *Result {
+			post("/audio/volume", `{"volume":30}`)
+			return &Result{TTSText: "Volume down!", Actions: []string{`POST /audio/volume {"volume":30}`}}
+		},
+	},
+	{
+		name:  "mute",
+		match: anyOf("mute", "shut up", "quiet"),
+		exec: func(string) *Result {
+			post("/audio/volume", `{"volume":0}`)
+			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
+		},
+	},
+
+	// --- Music control ---
+	{
+		name:  "music_stop",
+		match: anyOf("stop music", "stop the music", "music off", "stop playing"),
+		exec: func(string) *Result {
+			post("/audio/stop", "")
+			return &Result{TTSText: "Music stopped.", Actions: []string{"POST /audio/stop"}}
+		},
+	},
+
+	// --- TTS stop (interrupt Lumi speaking) ---
+	{
+		name:  "stop_talking",
+		match: anyOf("stop talking", "be quiet", "enough", "ok stop", "stop it"),
+		exec: func(string) *Result {
+			post("/tts/stop", "")
+			return &Result{TTSText: "", Actions: []string{"POST /tts/stop"}}
+		},
+	},
+
+	// --- Time ---
+	{
+		name:  "what_time",
+		match: anyOf("what time", "whats the time", "what's the time"),
+		exec: func(string) *Result {
+			now := time.Now()
+			text := fmt.Sprintf("It's %s.", now.Format("3:04 PM"))
+			return &Result{TTSText: text, Actions: []string{"time.Now()"}}
+		},
+	},
+
+	// --- Dim / brightness ---
+	{
+		name:  "dim",
+		match: anyOf("dim", "dimmer", "darker"),
+		exec: func(string) *Result {
+			post("/led/solid", `{"color":[80,60,40]}`)
+			return &Result{TTSText: "Dimmed.", LEDChanged: true, Actions: []string{`POST /led/solid {"color":[80,60,40]}`}}
+		},
+	},
 }
 
 // --- helpers ---
