@@ -34,7 +34,7 @@ logger = logging.getLogger("lelamp.voice.backchannel")
 
 # Config from env
 # Comma-separated filler words to play as listening cues. Empty string = feature disabled.
-_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah")
+_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh ok,Yep,I see")
 FILLERS = [w.strip() for w in _fillers_env.split(",") if w.strip()]
 # How long (seconds) the partial transcript must stay unchanged before playing a cue.
 # 0 = play on every new partial (still throttled by MIN_INTERVAL_S).
