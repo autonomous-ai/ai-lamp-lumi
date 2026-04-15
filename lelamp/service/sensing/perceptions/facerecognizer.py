@@ -615,6 +615,16 @@ class FaceRecognizer(Perception):
         """Return visit counts for all tracked stranger IDs."""
         return dict(self._stranger_visit_counts)
 
+    def has_friend_present(self) -> bool:
+        """Return True if any friend was seen within the forget interval."""
+        if not self._owners_last_seen:
+            return False
+        now = time.time()
+        return any(
+            (now - ts) <= self._owners_forget_ts
+            for ts in self._owners_last_seen.values()
+        )
+
     # -- Cooldown state / reset -------------------------------------------------
 
     def cooldown_state(self) -> dict:

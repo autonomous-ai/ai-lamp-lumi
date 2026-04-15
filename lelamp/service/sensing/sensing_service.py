@@ -96,6 +96,7 @@ class SensingService:
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
                     presence_service=self.presence,
+                    face_recognizer=face_recognizer,
                 ))
             if config.POSE_MOTION_ENABLED:
                 self._perceptions.append(PoseMotionPerception(
@@ -104,6 +105,7 @@ class SensingService:
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
                     presence_service=self.presence,
+                    face_recognizer=face_recognizer,
                 ))
             self._perceptions += [
                 face_recognizer,
