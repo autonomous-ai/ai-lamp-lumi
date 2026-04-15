@@ -186,67 +186,85 @@ export default function Monitor() {
     }).catch(() => {});
   }, []);
 
-  // Polling
+  // Section ref so polling callback always sees current section without re-mounting
+  const sectionRef = useRef(section);
+  useEffect(() => { sectionRef.current = section; }, [section]);
+
+  // Section-aware polling: only fetch APIs the active section needs
   useEffect(() => {
-    const fetchAll = async () => {
+    const fetchForSection = async () => {
+      const s = sectionRef.current;
+
+      // Sidebar needs openclaw status for the online dot
       try {
-        const [sysR, netR, ocR] = await Promise.all([
-          fetch(`${API}/system/info`).then((r) => r.json()),
-          fetch(`${API}/system/network`).then((r) => r.json()),
-          fetch(`${API}/openclaw/status`).then((r) => r.json()),
-        ]);
-        if (sysR.status === 1) {
-          const d = sysR.data;
-          setSys(d);
-          setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
-          setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
-        }
-        if (netR.status === 1) setNet(netR.data);
+        const ocR = await fetch(`${API}/openclaw/status`).then((r) => r.json());
         if (ocR.status === 1) setOc(ocR.data);
-        setLastUpdate(new Date().toLocaleTimeString());
       } catch {}
 
-      try {
-        const hwR = await fetch(`${HW}/health`).then((r) => r.json());
-        setHw(hwR);
-      } catch {}
+      if (s === "overview" || s === "system") {
+        try {
+          const [sysR, netR] = await Promise.all([
+            fetch(`${API}/system/info`).then((r) => r.json()),
+            fetch(`${API}/system/network`).then((r) => r.json()),
+          ]);
+          if (sysR.status === 1) {
+            const d = sysR.data;
+            setSys(d);
+            setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
+            setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
+          }
+          if (netR.status === 1) setNet(netR.data);
+          setLastUpdate(new Date().toLocaleTimeString());
+        } catch {}
+      }
 
-      try {
-        const presR = await fetch(`${HW}/presence`).then((r) => r.json());
-        setPresence(presR);
-      } catch {}
+      if (s === "overview") {
+        try {
+          const hwR = await fetch(`${HW}/health`).then((r) => r.json());
+          setHw(hwR);
+        } catch {}
 
-      try {
-        const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
-          fetch(`${HW}/voice/status`).then((r) => r.json()),
-          fetch(`${HW}/servo`).then((r) => r.json()),
-          fetch(`${HW}/display`).then((r) => r.json()),
-          fetch(`${HW}/audio/volume`).then((r) => r.json()),
-          fetch(`${HW}/audio/status`).then((r) => r.json()),
-          fetch(`${HW}/led/color`).then((r) => r.json()),
-        ]);
-        setVoice(voiceR);
-        setServo(servoR);
-        setDisplayState(dispR);
-        setAudio(audioR);
-        if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
-        if (ledR.hex) setLedColor(ledR);
-        setDisplayTs(Date.now());
-      } catch {}
+        try {
+          const presR = await fetch(`${HW}/presence`).then((r) => r.json());
+          setPresence(presR);
+        } catch {}
 
-      try {
-        const sceneR = await fetch(`${HW}/scene`).then((r) => r.json());
-        if (sceneR.scenes) setSceneInfo(sceneR);
-      } catch {}
+        try {
+          const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
+            fetch(`${HW}/voice/status`).then((r) => r.json()),
+            fetch(`${HW}/servo`).then((r) => r.json()),
+            fetch(`${HW}/display`).then((r) => r.json()),
+            fetch(`${HW}/audio/volume`).then((r) => r.json()),
+            fetch(`${HW}/audio/status`).then((r) => r.json()),
+            fetch(`${HW}/led/color`).then((r) => r.json()),
+          ]);
+          setVoice(voiceR);
+          setServo(servoR);
+          setDisplayState(dispR);
+          setAudio(audioR);
+          if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
+          if (ledR.hex) setLedColor(ledR);
+          setDisplayTs(Date.now());
+        } catch {}
+
+        try {
+          const sceneR = await fetch(`${HW}/scene`).then((r) => r.json());
+          if (sceneR.scenes) setSceneInfo(sceneR);
+        } catch {}
+      }
     };
 
-    fetchAll();
-    const t = setInterval(fetchAll, 3000);
+    fetchForSection();
+    const t = setInterval(fetchForSection, 3000);
     return () => clearInterval(t);
   }, []);
 
-  // Flow data source (Doggi-style): seed from file REST + live file stream.
+  // Flow data: only connect when flow or chat section is active
   useEffect(() => {
+    const s = section;
+    const needsFlow = s === "flow" || s === "chat";
+    if (!needsFlow) return;
+
     let es: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     const applyEvents = (rows: MonitorEvent[]) => {
@@ -262,9 +280,7 @@ export default function Monitor() {
         const rows = (r?.data?.events ?? []) as MonitorEvent[];
         if (!Array.isArray(rows)) return;
         applyEvents(rows);
-      } catch {
-        // keep previous UI state on fetch failure
-      }
+      } catch {}
     };
 
     fetchRecentFlow();
@@ -274,21 +290,18 @@ export default function Monitor() {
         const payload = JSON.parse(msg.data) as { events?: MonitorEvent[] };
         if (!Array.isArray(payload.events)) return;
         applyEvents(payload.events);
-      } catch {
-        // ignore malformed stream payload
-      }
+      } catch {}
     };
     es.onerror = () => {
       es?.close();
       es = null;
-      // Fallback to polling if stream disconnects.
       if (!pollTimer) pollTimer = setInterval(fetchRecentFlow, 2000);
     };
     return () => {
       es?.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, []);
+  }, [section]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
@@ -363,33 +376,8 @@ export default function Monitor() {
 
       {/* Main */}
       <main style={S.main}>
-        {/* Topbar */}
-        <div style={S.topbar}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-text)" }}>
-              {allNavLeaves().find((n) => n.id === section)?.label}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {sys && (
-              <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                CPU {sys.cpuLoad.toFixed(1)}% · RAM {sys.memPercent.toFixed(0)}% · {sys.cpuTemp.toFixed(0)}°C
-              </span>
-            )}
-            <span style={{
-              fontSize: 10,
-              padding: "2px 8px",
-              borderRadius: 4,
-              background: ocOnline ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
-              color: ocOnline ? "var(--lm-green)" : "var(--lm-red)",
-              border: `1px solid ${ocOnline ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.25)"}`,
-              fontWeight: 600,
-            }}>
-              {ocOnline ? "● ONLINE" : "○ OFFLINE"}
-            </span>
-          </div>
-        </div>
+        {/* Mobile hamburger */}
+        <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
 
         {/* Content */}
         <div style={{ ...S.content, ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}) }} className="lm-content lm-fade-in">
