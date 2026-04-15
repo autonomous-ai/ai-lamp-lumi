@@ -49,9 +49,15 @@ class X3DModel:
         opts.inter_op_num_threads = 0
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.add_session_config_entry("session.dynamic_block_base", "4")
+        providers = []
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            providers.append("CUDAExecutionProvider")
+        providers.append("CPUExecutionProvider")
         self.session = ort.InferenceSession(
-            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+            str(model_path), sess_options=opts, providers=providers
         )
+        active = self.session.get_providers()
+        logger.info("ONNX providers: %s", active)
         self.class_names, self.default_mask = self._load_classes()
         logger.info(
             "X3D model loaded — %d classes, %d whitelisted",
@@ -115,7 +121,6 @@ class X3DActionRecognizer(HumanActionRecognizer):
         self._frame_size = frame_size
 
         self._class_mask: npt.NDArray[np.bool_] = model.default_mask.copy()
-        self._threshold: float = 0.3
         self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
         self._last_ts: float = 0
         self._last_detected: list[tuple[str, float]] = []

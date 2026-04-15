@@ -55,7 +55,6 @@ class RemoteMotionChecker:
             return
 
         try:
-            print(self._base_url, self._api_key)
             self._ws_session = connect(
                 self._base_url, additional_headers={"X-API-Key": self._api_key}
             )
