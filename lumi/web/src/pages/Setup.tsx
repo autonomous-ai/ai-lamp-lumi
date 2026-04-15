@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getNetworks, setupDevice, getTTSVoices, getDeviceConfig } from "@/lib/api";
+import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ function SkeletonBlock() {
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Setup() {
+  const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
 
   const channelParam = searchParams.get("channel");
@@ -365,7 +367,7 @@ export default function Setup() {
   ]);
 
   return (
-    <div className="lm-root lm-setup" style={{
+    <div className={`lm-root lm-setup ${themeClass}`} style={{
       display: "flex", height: "100vh",
       background: C.bg, color: C.text,
       fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13,
@@ -411,7 +413,7 @@ export default function Setup() {
           })}
         </nav>
 
-        <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <a href="/" style={{
             display: "flex", alignItems: "center", gap: 7,
             color: C.textMuted, textDecoration: "none", fontSize: 12,
@@ -422,6 +424,12 @@ export default function Setup() {
           >
             ← Monitor
           </a>
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 14, color: C.textMuted, padding: "2px 4px",
+          }} title={`Theme: ${theme}`}>
+            {theme === "dark" ? "◑" : "◐"}
+          </button>
         </div>
       </aside>
 
@@ -431,7 +439,7 @@ export default function Setup() {
         {/* Mobile tabs (hidden on desktop) */}
         <div className="lm-mobile-tabs" style={{
           display: "none", overflowX: "auto", gap: 4, padding: "8px 12px",
-          borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+          borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: "center",
         }}>
           {SECTIONS.map((s) => {
             const active = activeSection === s.id;
@@ -446,6 +454,12 @@ export default function Setup() {
               </button>
             );
           })}
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 14, color: C.textMuted, padding: "2px 6px", marginLeft: "auto", flexShrink: 0,
+          }}>
+            {theme === "dark" ? "◑" : "◐"}
+          </button>
         </div>
 
         {/* Topbar */}
@@ -471,7 +485,7 @@ export default function Setup() {
                 opacity: loading || loadingList ? 0.6 : 1,
               }}
             >
-              {loading ? "Connecting…" : "Connect"}
+              {loading ? "Setting up…" : "Setup"}
             </button>
           )}
         </div>
