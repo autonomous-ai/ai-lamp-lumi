@@ -273,11 +273,15 @@ class PresenceResponse(BaseModel):
 class FaceEnrollRequest(BaseModel):
     image_base64: str = Field(..., description="Base64-encoded image (JPEG or PNG)")
     label: str = Field(..., min_length=1, max_length=64, description="Person name")
+    telegram_username: Optional[str] = Field(None, description="Telegram username of the person")
+    telegram_id: Optional[str] = Field(None, description="Telegram user ID for DM targeting")
 
 
 class FaceEnrollResponse(BaseModel):
     status: str
     label: str
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
     photo_path: str
     enrolled_count: int
 
@@ -289,6 +293,8 @@ class FaceStatusResponse(BaseModel):
 
 class FacePersonDetail(BaseModel):
     label: str
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
     photo_count: int
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
     mood_days: list[str] = []  # e.g. ["2026-04-09"]

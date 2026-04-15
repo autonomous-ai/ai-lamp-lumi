@@ -173,11 +173,11 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 
 ### Face (đăng ký người quen / friend)
 
-Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng ký lưu tại `/root/local/users/{label}/`; có thể ghi đè bằng `LELAMP_USERS_DIR`.
+Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng ký lưu tại `/root/local/users/{label}/`; có thể ghi đè bằng `LELAMP_USERS_DIR`. Mỗi thư mục người dùng chứa `metadata.json` với `telegram_username` và `telegram_id` để gửi DM.
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| POST | `/face/enroll` | Body: `image_base64`, `label` — lưu ảnh, train embedding |
+| POST | `/face/enroll` | Body: `image_base64`, `label`, `telegram_username`?, `telegram_id`? — lưu ảnh, train embedding, lưu Telegram identity |
 | GET | `/face/status` | `enrolled_count`, `enrolled_names` |
 | POST | `/face/remove` | Body: `label` — xóa một người đã đăng ký (404 nếu không có) |
 | POST | `/face/reset` | Xóa toàn bộ người đã đăng ký và ảnh trên đĩa |

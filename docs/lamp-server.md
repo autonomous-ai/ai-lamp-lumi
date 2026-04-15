@@ -173,11 +173,11 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 
 ### Face (friend enrollment)
 
-Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under `/root/local/users/{label}/` by default, or under `LELAMP_USERS_DIR` if set.
+Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under `/root/local/users/{label}/` by default, or under `LELAMP_USERS_DIR` if set. Each person's folder contains a `metadata.json` with `telegram_username` and `telegram_id` for DM targeting.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/face/enroll` | Body: `image_base64`, `label` — save photo, train friend embeddings |
+| POST | `/face/enroll` | Body: `image_base64`, `label`, `telegram_username`?, `telegram_id`? — save photo, train friend embeddings, persist Telegram identity |
 | GET | `/face/status` | `enrolled_count`, `enrolled_names` |
 | POST | `/face/remove` | Body: `label` — remove one person (404 if unknown) |
 | POST | `/face/reset` | Clear all enrolled persons and photos on disk |
