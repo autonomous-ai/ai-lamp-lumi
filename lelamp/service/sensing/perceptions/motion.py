@@ -212,7 +212,6 @@ class MotionPerception(Perception):
             self._send_event(
                 "motion",
                 f"Actions detected via video recognition: {actions_str} — someone may have entered or left the room",
-                images=snapshots,
             )
 
     def to_dict(self) -> dict:
