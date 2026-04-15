@@ -7,7 +7,7 @@ export const S = {
     background: "var(--lm-bg)",
     color: "var(--lm-text)",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    fontSize: 13,
+    fontSize: 14,
   } as React.CSSProperties,
   sidebar: {
     width: 192,
