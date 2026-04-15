@@ -46,6 +46,9 @@ const (
 // Compile-time check: *Service implements domain.AgentGateway.
 var _ domain.AgentGateway = (*Service)(nil)
 
+// reSnapshotPath matches [snapshot: /path/to/file.jpg] markers in sensing messages.
+var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*[^\]]+\]`)
+
 // Service provides setup, reset, restart of openclaw config/gateway and StartWS.
 type Service struct {
 	config      *config.Config
@@ -229,6 +232,10 @@ func (s *Service) drainPendingEvents() {
 			case "motion.activity":
 				msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 			}
+		}
+		// Strip [snapshot: ...] paths for presence events — agent doesn't need the image.
+		if ev.eventType == "presence.enter" || ev.eventType == "presence.leave" {
+			msg = strings.TrimSpace(reSnapshotPath.ReplaceAllString(msg, ""))
 		}
 		var err error
 		if ev.image != "" {
