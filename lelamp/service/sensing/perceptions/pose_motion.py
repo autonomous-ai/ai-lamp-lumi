@@ -168,6 +168,7 @@ class PoseMotionPerception(Perception):
         on_motion: Callable,
         capture_stable_frame: Callable,
         presence_service,
+        face_recognizer=None,
         model_path: Path | None = None,
         motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,
     ):
@@ -175,6 +176,7 @@ class PoseMotionPerception(Perception):
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
+        self._face_recognizer = face_recognizer
         self._motion_update_ts = motion_update_ts
         self._last_motion_time: Optional[float] = None
         self._last_motion_event_ts: float = 0.0
@@ -210,8 +212,13 @@ class PoseMotionPerception(Perception):
 
         from ..presence_service import PresenceState
 
-        if self._presence.state == PresenceState.PRESENT:
-            logger.info("[pose_motion] activity analysis while PRESENT")
+        has_friend = (
+            self._face_recognizer is not None
+            and self._face_recognizer.has_friend_present()
+        )
+
+        if self._presence.state == PresenceState.PRESENT and has_friend:
+            logger.info("[pose_motion] activity analysis while PRESENT + friend")
             self._send_event(
                 "motion.activity",
                 "Body movement detected via pose estimation while user is present. "
