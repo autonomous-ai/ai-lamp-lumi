@@ -49,8 +49,8 @@ class RemoteMotionChecker:
         self._last_action: str | None = None
 
     def _prepare_session(self):
-        if self._ws_session is None:
-            logger.info("[%s] has been started", self.__class__)
+        if self._ws_session is not None:
+            logger.info("[%s] has been started", self.__class__.__name__)
             return
 
         try:
