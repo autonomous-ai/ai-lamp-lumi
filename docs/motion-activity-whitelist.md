@@ -18,28 +18,6 @@ Chỉ những action classes dưới đây được forward lên OpenClaw dạng
 
 - stretching arm — vươn tay
 - stretching leg — vươn chân
-- yoga
-- tai chi
-- exercising arm — tập tay
-- exercising with an exercise ball — tập với bóng
-- push up — hít đất
-- situp — gập bụng
-- squat
-- lunge — chùng chân
-- pull ups — kéo xà
-- deadlifting — nâng tạ
-- bench pressing — đẩy tạ nằm
-- clean and jerk — cử tạ
-- snatch weight lifting — giật tạ
-- front raises — nâng tạ trước
-- doing aerobics — tập aerobic
-- zumba
-- skipping rope — nhảy dây
-- hula hooping — lắc vòng
-- somersaulting — nhào lộn
-- gymnastics tumbling — thể dục dụng cụ
-- jogging — chạy bộ
-- running on treadmill — chạy máy
 
 ## Meal — skip hydration reminder / Bữa ăn, bỏ qua nhắc nước
 

@@ -1,10 +1,10 @@
-"""X3D video action recognition-based human action recognizer.
+"""VideoMAE video action recognition-based human action recognizer.
 
-Buffers frames at a configurable interval and runs them through an
-X3D ONNX model to classify actions from 400 Kinetics action classes.
+Buffers frames at a configurable interval and runs them through a
+VideoMAE ONNX model to classify actions from 400 Kinetics action classes.
 
-The ONNX model is loaded once via X3DModel, and each WebSocket connection
-creates a lightweight X3DActionRecognizer that shares the model but
+The ONNX model is loaded once via VideoMAEModel, and each WebSocket connection
+creates a lightweight VideoMAEActionRecognizer that shares the model but
 maintains its own frame buffer, whitelist, and timing state.
 """
 
@@ -30,20 +30,20 @@ RESOURCES_DIR = Path(__file__).parent / "resources"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.3
 DEFAULT_MAX_FRAMES = 16
 DEFAULT_FRAME_INTERVAL = 1.0
-DEFAULT_FRAME_SIZE = (256, 256)
+DEFAULT_FRAME_SIZE = (224, 224)
 
 
-class X3DModel:
-    """Shared X3D ONNX model. Loaded once, used by all recognizer sessions."""
+class VideoMAEModel:
+    """Shared VideoMAE ONNX model. Loaded once, used by all recognizer sessions."""
 
-    MEAN: npt.NDArray[np.float32] = np.array([114.75, 114.75, 114.75], dtype=np.float32)
-    STD: npt.NDArray[np.float32] = np.array([57.38, 57.38, 57.38], dtype=np.float32)
+    MEAN: npt.NDArray[np.float32] = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+    STD: npt.NDArray[np.float32] = np.array([58.395, 57.12, 57.375], dtype=np.float32)
 
     def __init__(self, model_path: Path | None = None):
         if model_path is None:
-            model_path = RESOURCES_DIR / "x3d_m_16x5x1_int8.onnx"
+            model_path = RESOURCES_DIR / "videomae_int8.onnx"
 
-        logger.info("Loading X3D model from %s", model_path)
+        logger.info("Loading VideoMAE model from %s", model_path)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 0
         opts.inter_op_num_threads = 0
@@ -60,7 +60,7 @@ class X3DModel:
         logger.info("ONNX providers: %s", active)
         self.class_names, self.default_mask = self._load_classes()
         logger.info(
-            "X3D model loaded — %d classes, %d whitelisted",
+            "VideoMAE model loaded — %d classes, %d whitelisted",
             len(self.class_names),
             int(self.default_mask.sum()),
         )
@@ -88,9 +88,8 @@ class X3DModel:
         max_frames: int = DEFAULT_MAX_FRAMES,
         frame_interval: float = DEFAULT_FRAME_INTERVAL,
         frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
-    ) -> "X3DActionRecognizer":
-        """Create a per-connection recognizer session backed by this model."""
-        return X3DActionRecognizer(
+    ) -> "VideoMAEActionRecognizer":
+        return VideoMAEActionRecognizer(
             model=self,
             threshold=threshold,
             max_frames=max_frames,
@@ -99,8 +98,8 @@ class X3DModel:
         )
 
 
-class X3DActionRecognizer(HumanActionRecognizer):
-    """Per-connection action recognizer session.
+class VideoMAEActionRecognizer(HumanActionRecognizer):
+    """Per-connection VideoMAE action recognizer session.
 
     Shares the ONNX model with other sessions but maintains its own
     frame buffer, whitelist mask, and timing state.
@@ -108,7 +107,7 @@ class X3DActionRecognizer(HumanActionRecognizer):
 
     def __init__(
         self,
-        model: X3DModel,
+        model: VideoMAEModel,
         threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
         max_frames: int = DEFAULT_MAX_FRAMES,
         frame_interval: float = DEFAULT_FRAME_INTERVAL,
@@ -154,7 +153,7 @@ class X3DActionRecognizer(HumanActionRecognizer):
     def _infer(self) -> list[tuple[str, float]]:
         frames = np.stack(list(self._frame_buffer), axis=0).astype(np.float32)
         t, h, w, c = frames.shape
-        norm_frames = (frames - X3DModel.MEAN) / X3DModel.STD
+        norm_frames = (frames - VideoMAEModel.MEAN) / VideoMAEModel.STD
 
         if t < self._max_frames:
             pad = np.zeros((self._max_frames - t, h, w, c), dtype=np.float32)
