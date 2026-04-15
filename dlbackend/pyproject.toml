@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deeplearning-backend"
+version = "0.1.0"
+
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "ultralytics>=8.3.0",
+    "transformers>=4.40.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "pillow>=10.0.0",
+    "numpy>=2",
+    "python-dotenv>=1.0.0",
+    "tqdm",
+    "scikit-learn",
+    "pandas",
+    "opencv-contrib-python",
+    "onnxruntime",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest", "pytest-asyncio", "httpx", "websockets"]
+
+[project.scripts]
+
+[tool.setuptools_scm]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
