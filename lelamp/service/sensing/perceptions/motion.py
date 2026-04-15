@@ -1,3 +1,5 @@
+import base64
+import json
 import logging
 import time
 from collections import deque
@@ -5,10 +7,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, cast, override
 
+import cv2
 import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
+from websockets.sync.client import ClientConnection, connect
 
 from .base import Perception
 
@@ -147,6 +151,74 @@ class MotionChecker:
         return self._last_action
 
 
+class RemoteMotionChecker:
+    """Video action recognition-based motion detector."""
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        whitelist: list[str] | None = None,
+        threshold: float = config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+    ):
+        self._base_url: str = base_url
+        self._api_key: str = api_key
+        self._whitelist: list[str] | None = whitelist
+        self._threshold: float = threshold
+        self._ws_session: ClientConnection | None = None
+
+        self._prepare_session()
+
+        self._last_action: str | None = None
+
+    def _prepare_session(self):
+        if self._ws_session is None:
+            logger.info("[%s] has been started", self.__class__)
+            return
+
+        try:
+            self._ws_session = connect(
+                self._base_url, additional_headers={"X-API-Key": self._api_key}
+            )
+            self._ws_session.send(
+                json.dumps(
+                    {
+                        "type": "config",
+                        "whitelist": self._whitelist,
+                        "threshold": self._threshold,
+                    }
+                )
+            )
+        except Exception:
+            logger.exception("Failed to connect to remote motion recognition backend")
+
+    def _img2b64(self, frame: npt.NDArray[np.uint8]):
+        _, buf = cv2.imencode(".jpg", frame)
+        return base64.b64encode(buf.tobytes()).decode()
+
+    def update(self, frame: npt.NDArray[np.uint8]) -> str | None:
+        """Buffer a frame and run X3D inference when the interval elapses.
+
+        Returns the predicted action name, or None if not enough time has passed.
+        """
+
+        if self._ws_session is not None:
+            self._ws_session.send(
+                json.dumps({"type": "frame", "frame_b64": self._img2b64(frame)})
+            )
+            resp = json.loads(self._ws_session.recv())
+            detected_classes = sorted(
+                resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
+            )
+            return detected_classes[0][0]
+
+        return None
+
+    @property
+    def last_action(self) -> str | None:
+        return self._last_action
+
+
 class MotionPerception(Perception):
     """Detects motion via X3D video action recognition (400 Kinect action classes).
 
@@ -160,14 +232,15 @@ class MotionPerception(Perception):
         on_motion: Callable,
         capture_stable_frame: Callable,
         presence_service,
-        model_path: Path | None = None,
+        base_url: str,
+        api_key: str,
     ):
         super().__init__(send_event)
         self._on_motion = on_motion
         self._capture_stable_frame = capture_stable_frame
         self._presence = presence_service
         self._last_motion_time: Optional[float] = None
-        self._checker = MotionChecker(model_path=model_path)
+        self._checker = RemoteMotionChecker(base_url=base_url, api_key=api_key)
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S
         self._flush_interval: float = config.MOTION_FLUSH_S
