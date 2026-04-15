@@ -96,7 +96,7 @@ You: cron.add("Proactive music check", every 7min)
 You: GET /presence → user present?
         ↓ (yes)
 You: GET /camera/snapshot → assess mood visually
-You: GET /api/openclaw/mood-history → presence patterns, past suggestions
+You: GET /api/openclaw/mood-history?last=1 → latest mood
 You: GET /audio/history → listening history, preferences
         ↓
 You: Analyze all data → decide whether to suggest
@@ -114,7 +114,7 @@ When you first start or after a reboot, set up your proactive music check:
 2. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
    - Name: `"Proactive music check"`, every 420000ms (7 min)
    - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query mood history, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
+   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Time for a proactive music check. Check audio status, review conversation context, then query latest mood, listening history, and camera snapshot. Decide whether to suggest music based on user habits and current state."`
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 3. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
@@ -137,8 +137,8 @@ Before querying any API, review the recent conversation history in this session.
 
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
-**Mood history** (the latest mood matters most):
-Read mood history using the **Mood** skill's "How to Read" section. Use the **last entry** as the primary signal for genre selection — that's the user's most recent emotional state. Earlier entries provide trend context but don't override the latest mood.
+**Latest mood** (most recent record only):
+Read the latest mood entry using the **Mood** skill's "How to Read" section with `last=1`. This is the primary signal for genre selection — the user's most recent emotional state.
 
 **Listening history** (what user actually played):
 ```bash
@@ -161,7 +161,7 @@ From the data, extract these patterns:
 
 | Question | Where to find the answer |
 |----------|--------------------------|
-| What's the user's current mood? | Conversation context (PRIMARY) + `mood-history` → `mood` and `trigger` fields |
+| What's the user's current mood? | Conversation context (PRIMARY) + latest `mood-history` record → `mood` and `trigger` fields |
 | What genre do they prefer? | `audio/history` → `query` and `title` fields |
 | How long do they listen? | `audio/history` → `duration_s` field |
 | When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
@@ -190,7 +190,7 @@ Based on your analysis, decide one of:
 
 ### Learning Rules — How to Get Smarter Over Time
 
-**Pattern recognition from mood history:**
+**Pattern recognition from audio history:**
 - Count `music.play` events by `hour` → build a preference heat map
 - If 80%+ of plays happen between 9-11 AM → schedule checks at 9:30 AM
 - If user never plays music after 6 PM → don't suggest in the evening
@@ -245,7 +245,7 @@ Based on your analysis, decide one of:
 Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` Looks like you're in the zone. Want some lo-fi beats going?
 
 **Cron fires — 3rd rejection this afternoon:**
-*You query: mood history shows 2 suggestions at 14:00 and 15:00 with no music.play after*
+*You recall: you already suggested at 14:00 and 15:00 this session with no music.play after*
 Action: `cron.update` interval to 7200000ms (2h), skip this check. Maybe try again tomorrow afternoon.
 
 **Cron fires — user just arrived 5 min ago, no listening history:**
