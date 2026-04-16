@@ -85,7 +85,7 @@ func extractColor(t string) ([3]int, string, bool) {
 
 // isLEDOnCommand returns true if t contains a "turn on light" trigger phrase.
 func isLEDOnCommand(t string) bool {
-	triggers := []string{"turn on the light", "light on", "turn on", "set color", "change color"}
+	triggers := []string{"turn on the light", "light on", "set color", "change color", "set the light"}
 	for _, kw := range triggers {
 		if strings.Contains(t, kw) {
 			return true
@@ -117,7 +117,7 @@ var rules = []rule{
 	// --- LED on/off ---
 	{
 		name:  "led_on",
-		match: anyOf("turn on the light", "light on", "turn on"),
+		match: anyOf("turn on the light", "light on"),
 		exec: func(string) *Result {
 			post("/led/solid", `{"color":[255,220,180]}`)
 			post("/emotion", `{"emotion":"happy","intensity":0.6}`)
@@ -126,7 +126,7 @@ var rules = []rule{
 	},
 	{
 		name:  "led_off",
-		match: anyOf("turn off the light", "light off", "turn off"),
+		match: anyOf("turn off the light", "light off"),
 		exec: func(string) *Result {
 			post("/led/off", "")
 			post("/emotion", `{"emotion":"idle","intensity":0.3}`)
@@ -137,27 +137,27 @@ var rules = []rule{
 	// --- Scenes ---
 	{
 		name:  "scene_reading",
-		match: anyOf("reading mode", "reading"),
+		match: anyOf("reading mode", "reading light"),
 		exec:  sceneExec("reading", "Reading mode!"),
 	},
 	{
 		name:  "scene_focus",
-		match: anyOf("focus mode", "focus"),
+		match: anyOf("focus mode", "focus light"),
 		exec:  sceneExec("focus", "Focus mode!"),
 	},
 	{
 		name:  "scene_relax",
-		match: anyOf("relax", "chill"),
+		match: anyOf("relax mode", "relax light"),
 		exec:  sceneExec("relax", "Relax mode!"),
 	},
 	{
 		name:  "scene_movie",
-		match: anyOf("movie mode", "movie"),
+		match: anyOf("movie mode", "movie light"),
 		exec:  sceneExec("movie", "Movie mode!"),
 	},
 	{
 		name:  "scene_night",
-		match: anyOf("goodnight", "night mode", "sleep"),
+		match: anyOf("goodnight", "good night", "night mode"),
 		exec: func(string) *Result {
 			post("/scene", `{"scene":"night"}`)
 			post("/emotion", `{"emotion":"sleepy","intensity":0.4}`)
@@ -166,7 +166,7 @@ var rules = []rule{
 	},
 	{
 		name:  "scene_energize",
-		match: anyOf("brighter", "bright", "energize"),
+		match: anyOf("brighter", "energize", "max brightness"),
 		exec:  sceneExec("energize", "Max brightness!"),
 	},
 
@@ -181,7 +181,7 @@ var rules = []rule{
 	},
 	{
 		name:  "volume_down",
-		match: anyOf("volume down", "quieter", "softer"),
+		match: anyOf("volume down", "quieter"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":30}`)
 			return &Result{TTSText: "Volume down!", Actions: []string{`POST /audio/volume {"volume":30}`}}
@@ -189,7 +189,7 @@ var rules = []rule{
 	},
 	{
 		name:  "mute",
-		match: anyOf("mute", "shut up", "quiet"),
+		match: anyOf("mute", "shut up"),
 		exec: func(string) *Result {
 			post("/audio/volume", `{"volume":0}`)
 			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
@@ -209,7 +209,7 @@ var rules = []rule{
 	// --- TTS stop (interrupt Lumi speaking) ---
 	{
 		name:  "stop_talking",
-		match: anyOf("stop talking", "be quiet", "enough", "ok stop", "stop it"),
+		match: anyOf("stop talking", "be quiet", "ok stop"),
 		exec: func(string) *Result {
 			post("/tts/stop", "")
 			return &Result{TTSText: "", Actions: []string{"POST /tts/stop"}}
@@ -230,7 +230,7 @@ var rules = []rule{
 	// --- Dim / brightness ---
 	{
 		name:  "dim",
-		match: anyOf("dim", "dimmer", "darker"),
+		match: anyOf("dim the light", "dimmer", "dim light"),
 		exec: func(string) *Result {
 			post("/led/solid", `{"color":[80,60,40]}`)
 			return &Result{TTSText: "Dimmed.", LEDChanged: true, Actions: []string{`POST /led/solid {"color":[80,60,40]}`}}
