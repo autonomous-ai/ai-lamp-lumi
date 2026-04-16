@@ -17,7 +17,8 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
-2. Prefix reply with `[HW:/audio/play:{"query":"song artist"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+2. Prefix reply with `[HW:/audio/play:{"query":"song artist","person":"name"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+   - `person`: the name of the person who requested (from face recognition / presence context). Omit if unknown.
 3. Confirm it's playing — keep reply to one short sentence
 4. User can stop at any time -> `[HW:/audio/stop:{}]`
 
@@ -36,10 +37,10 @@ You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on ge
 ## Examples
 
 Input: "Play Bohemian Rhapsody"
-Output: `[HW:/audio/play:{"query":"Bohemian Rhapsody Queen"}][HW:/emotion:{"emotion":"excited","intensity":0.8}]` Playing Bohemian Rhapsody!
+Output: `[HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"alice"}][HW:/emotion:{"emotion":"excited","intensity":0.8}]` Playing Bohemian Rhapsody!
 
 Input: "Sing me a song"
-Output: `[HW:/audio/play:{"query":"happy upbeat pop song"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Playing something fun for you!
+Output: `[HW:/audio/play:{"query":"happy upbeat pop song","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Playing something fun for you!
 
 Input: "Stop the music" / "Turn it off"
 Output: `[HW:/audio/stop:{}]` Music stopped.
@@ -49,7 +50,7 @@ Output: `[HW:/audio/stop:{}]` Music stopped.
 **No exec/curl needed.** Inline markers at start of reply:
 
 ```
-[HW:/audio/play:{"query":"Bohemian Rhapsody Queen"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
+[HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"alice"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
 [HW:/audio/stop:{}] Music stopped.
 ```
 
@@ -270,7 +271,7 @@ Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_
 
 **After confirmation:**
 Input: "Yeah play that"
-Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
 
 ---
 

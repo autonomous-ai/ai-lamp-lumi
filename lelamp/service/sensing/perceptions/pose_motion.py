@@ -228,10 +228,10 @@ class PoseMotionPerception(Perception):
                 image=image,
             )
         else:
-            self._send_event(
-                "motion",
-                "Body movement detected via pose estimation — someone may have entered or left the room",
-                image=image,
+            # Skip — Lumi only expects motion.activity, plain motion is not useful.
+            logger.info(
+                "[pose_motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
+                self._presence.state, has_friend,
             )
 
     def to_dict(self) -> dict:
