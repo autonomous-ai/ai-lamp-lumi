@@ -210,7 +210,7 @@ class MusicPlayRequest(BaseModel):
     )
 
     model_config = {
-        "json_schema_extra": {"examples": [{"query": "Bohemian Rhapsody Queen", "person": "alice"}]}
+        "json_schema_extra": {"examples": [{"query": "The Calling - Wherever You Will Go", "person": "alice"}]}
     }
 
 
