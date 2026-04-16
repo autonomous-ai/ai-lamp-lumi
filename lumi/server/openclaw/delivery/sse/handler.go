@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,6 +63,8 @@ type OpenClawHandler struct {
 	channelRunsMu sync.Mutex
 	channelRuns   map[string]bool
 
+	// compacting prevents duplicate /compact sends while one is in progress.
+	compacting atomic.Bool
 }
 
 var emotionRe = regexp.MustCompile(`(?:\\"|")emotion(?:\\"|")\s*:\s*(?:\\"|")([a-zA-Z_]+)(?:\\"|")`)
@@ -594,10 +597,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 								// chat.history TotalTokens undercounts by ~35K (excludes system prompt,
 								// tools, workspace bootstrap). Use 80K so actual context ~115K triggers compact.
 								const autoCompactThreshold = 80_000
-								if u.TotalTokens > autoCompactThreshold {
+								if u.TotalTokens > autoCompactThreshold && !h.compacting.Load() {
 									slog.Info("auto-compact triggered", "component", "agent",
 										"total_tokens", u.TotalTokens, "threshold", autoCompactThreshold)
+									h.compacting.Store(true)
 									go func() {
+										defer h.compacting.Store(false)
 										// Notify user via TTS
 										resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
 											strings.NewReader(`{"text":"Hold on, tidying up a bit.","interruptible":true}`))
