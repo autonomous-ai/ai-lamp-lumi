@@ -56,14 +56,15 @@ Response: `{"status": 1, "data": {"guard_mode": true}}`
 - **Who can toggle:** All friends (enrolled faces) can enable/disable guard mode. Strangers cannot.
 - **Guard mode does NOT affect direct messages.** If a friend sends a message while guard mode is on, respond normally.
 
-### Enabling guard mode — emotion is REQUIRED
+### Enabling guard mode — camera + emotion are REQUIRED
 
 When the user asks to enable guard mode, you MUST:
-1. **Express emotion first** — `[HW:/emotion:{"emotion":"acknowledge","intensity":0.7}]` so the lamp visibly nods/flashes green to confirm.
-2. Call the enable API (with `instruction` if provided).
-3. Confirm verbally: "Guard mode on. I'll keep watch and alert you if anyone shows up."
+1. **Enable camera** — `[HW:/camera/enable:{}]` — guard mode requires vision. This overrides any manual camera disable.
+2. **Express emotion** — `[HW:/emotion:{"emotion":"acknowledge","intensity":0.7}]` so the lamp visibly nods/flashes green to confirm.
+3. Call the enable API (with `instruction` if provided).
+4. Confirm verbally: "Guard mode on. I'll keep watch and alert you if anyone shows up."
 
-Do NOT skip the emotion marker. The user needs physical feedback from the lamp that guard mode activated.
+Do NOT skip the camera enable or emotion marker. Guard mode is security-critical and needs both vision and physical feedback.
 
 ### Disabling guard mode
 
