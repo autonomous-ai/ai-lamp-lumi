@@ -34,7 +34,7 @@ logger = logging.getLogger("lelamp.voice.backchannel")
 
 # Config from env
 # Comma-separated filler words to play as listening cues. Empty string = feature disabled.
-_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh ok,Yep,I see")
+_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh ok,Yep,I see,And?,Oh yeah,Cool")
 FILLERS = [w.strip() for w in _fillers_env.split(",") if w.strip()]
 # How long (seconds) the partial transcript must stay unchanged before playing a cue.
 # 0 = play on every new partial (still throttled by MIN_INTERVAL_S).
@@ -42,7 +42,7 @@ STALL_TIMEOUT_S = float(os.environ.get("LELAMP_BACKCHANNEL_STALL_S", "0.1"))
 # Minimum seconds between two consecutive cues (prevents spamming).
 MIN_INTERVAL_S = float(os.environ.get("LELAMP_BACKCHANNEL_INTERVAL_S", "3.0"))
 # Volume multiplier for cue audio relative to normal TTS (0.0 = silent, 1.0 = full).
-VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "0.5"))
+VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "1.0"))
 
 
 class Backchannel:

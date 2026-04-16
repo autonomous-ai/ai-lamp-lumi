@@ -158,11 +158,11 @@ Bỏ WellbeingPerception timer cho music.mood, thay bằng OpenClaw cron:
 
 ```json
 {
-  "name": "Music mood check",
-  "schedule": {"kind": "every", "everyMs": 3600000},
+  "name": "Music: gray",
+  "schedule": {"kind": "every", "everyMs": 420000},
   "payload": {
-    "kind": "agentTurn",
-    "message": "Proactive music check: GET /presence to check if user is home. If present and appropriate, suggest 1-2 songs. Query mood history first to personalize suggestion."
+    "kind": "systemEvent",
+    "text": "[MUST-SPEAK][music-proactive][person:gray] Proactive music check for gray. Either suggest a song or reply NO_REPLY."
   }
 }
 ```
