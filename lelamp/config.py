@@ -38,7 +38,6 @@ TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
 TTS_VOICE: str = os.environ.get("TTS_VOICE", "alloy")
 
 # --- Data layout ---
-LELAMP_DATA_DIR = Path(os.environ.get("LELAMP_DATA_DIR", "/root/lelamp/data"))
 
 # --- Sensing: Lumi integration ---
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
@@ -81,7 +80,7 @@ DL_API_KEY = os.environ.get("DL_API_KEY", "")
 POSE_MOTION_ENABLED = (
     os.environ.get("LELAMP_POSE_MOTION_ENABLED", "true").lower() == "true"
 )
-POSE_MOTION_MODEL_PATH = LELAMP_DATA_DIR / "models" / "rtmpose-m.onnx"
+POSE_MOTION_MODEL_PATH = Path(os.environ.get("LELAMP_POSE_MODEL_PATH", "/root/local/models/rtmpose-m.onnx"))
 POSE_MOTION_ANGLE_THRESHOLD = float(
     os.environ.get("LELAMP_POSE_MOTION_ANGLE_THRESHOLD", "30.0")
 )

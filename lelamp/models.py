@@ -205,9 +205,12 @@ class MusicPlayRequest(BaseModel):
     query: str = Field(
         ..., min_length=1, max_length=500, description="Song name or search query"
     )
+    person: str = Field(
+        default="", max_length=64, description="Person name (from face recognition) for per-user history"
+    )
 
     model_config = {
-        "json_schema_extra": {"examples": [{"query": "Bohemian Rhapsody Queen"}]}
+        "json_schema_extra": {"examples": [{"query": "Bohemian Rhapsody Queen", "person": "alice"}]}
     }
 
 
