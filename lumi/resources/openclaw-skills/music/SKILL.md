@@ -18,9 +18,12 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
 2. Prefix reply with `[HW:/audio/play:{"query":"song artist","person":"name"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+   - **`query` is REQUIRED** — a YouTube search string. NEVER use `track`, `artist`, `title`, or any other field name. Only `query` and optionally `person`.
    - `person`: the name of the person who requested (from face recognition / presence context). Omit if unknown.
 3. Confirm it's playing — keep reply to one short sentence
 4. User can stop at any time -> `[HW:/audio/stop:{}]`
+
+**CRITICAL: The only valid fields are `query` (required) and `person` (optional). Any other fields like `track`, `artist`, `title`, `song` will cause a 422 error.**
 
 ## Genre → Emotion
 You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on genre:
