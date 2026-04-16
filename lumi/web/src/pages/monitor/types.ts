@@ -95,6 +95,7 @@ export interface FaceOwnerDetail {
   photo_count: number;
   photos: string[];
   mood_days?: string[];
+  wellbeing_days?: string[];
   files?: string[];
 }
 export interface FaceOwnersDetail {
