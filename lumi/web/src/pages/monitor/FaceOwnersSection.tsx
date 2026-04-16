@@ -506,6 +506,18 @@ export function FaceOwnersSection() {
                       {person.mood_days.length} mood day{person.mood_days.length !== 1 ? "s" : ""}
                     </span>
                   )}
+                  {person.wellbeing_days && person.wellbeing_days.length > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 4,
+                      background: "rgba(96,165,250,0.15)",
+                      color: "rgb(96,165,250)",
+                      fontWeight: 600,
+                    }}>
+                      {person.wellbeing_days.length} wellbeing day{person.wellbeing_days.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
                   <button
                     onClick={() => handleRemove(person.label)}
                     disabled={deleting === person.label}
@@ -614,6 +626,9 @@ export function FaceOwnersSection() {
                   person.files?.filter((f) => !person.photos.includes(f)).forEach((f) => items.push({ name: f, filePath: f }));
                   if (person.mood_days && person.mood_days.length > 0) {
                     items.push({ name: "mood", isDir: true, dirKey: `${person.label}:mood`, children: person.mood_days.map((d) => `${d}.jsonl`) });
+                  }
+                  if (person.wellbeing_days && person.wellbeing_days.length > 0) {
+                    items.push({ name: "wellbeing", isDir: true, dirKey: `${person.label}:wellbeing`, children: person.wellbeing_days.map((d) => `${d}.md`) });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
