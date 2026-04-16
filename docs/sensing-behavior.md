@@ -282,7 +282,7 @@ Mood history tracks the **user's emotional state** only — not system events or
 
 #### Voice mood nudge
 
-Voice events (`voice_command`, `voice`) include a `[Silently follow Mood skill.]` nudge in the message sent to the agent, plus `[Current user: {name}]` when face recognition knows who is present. This ensures the agent scans mood from voice conversations — not just Telegram where conversation context is more obvious.
+Voice events (`voice_command`, `voice`) include a `[MANDATORY: Follow Mood skill — log mood now.]` nudge in the message sent to the agent, plus `[Current user: {name}]` when face recognition knows who is present. This ensures the agent scans mood from voice conversations — not just Telegram where conversation context is more obvious.
 
 #### Storage format
 
@@ -408,7 +408,7 @@ Configuration constants are in `lelamp/config.py`:
 
 - **Pending event replay**: When the agent is busy, `presence.enter`, `presence.leave`, and `voice` events are queued and replayed when the agent becomes idle. The replay path (`drainPendingEvents` in `service.go`) applies the same nudge messages as the live handler (cron setup for presence.enter, cleanup for presence.leave, etc.).
 - **Passive sensing events** (`[sensing:*]`) are dropped if the agent is already busy with another turn (except presence and voice events which are queued).
-- **Voice events** always pass through — the user is explicitly speaking. Voice messages include a mood scan nudge (`[Silently follow Mood skill.]`) so the agent remembers to detect mood from the conversation flow.
+- **Voice events** always pass through — the user is explicitly speaking. Voice messages include a mood scan nudge (`[MANDATORY: Follow Mood skill — log mood now.]`) so the agent remembers to detect mood from the conversation flow.
 - The `[sensing:type]` prefix in the message is how the agent knows it's an ambient event, not a user message.
 - Sensing events are exempt from the "call `/emotion thinking` first" rule — each type has its own defined first emotion.
 - **Image pruning echo**: OpenClaw strips old image payloads from conversation history to save tokens. Smaller models (Haiku) may echo the pruning markers as `[image description removed]` in their response text. `SOUL.md` instructs the agent to never echo these markers.
