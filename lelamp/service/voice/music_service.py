@@ -111,7 +111,7 @@ def _detect_alsa_output_device() -> str:
         result = subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=5)
         if result.returncode != 0:
             return "default"
-        speaker_keywords = ["cd002", "seeed", "usb audio"]
+        speaker_keywords = ["cd002", "seeed", "wm8960", "usb audio"]
         for keyword in speaker_keywords:
             for line in result.stdout.splitlines():
                 if not line.startswith("card "):
