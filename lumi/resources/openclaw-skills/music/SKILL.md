@@ -23,7 +23,14 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 3. Confirm it's playing — keep reply to one short sentence
 4. User can stop at any time -> `[HW:/audio/stop:{}]`
 
-**CRITICAL: The only valid fields are `query` (required) and `person` (optional). Any other fields like `track`, `artist`, `title`, `song` will cause a 422 error.**
+**CRITICAL — API schema (no other fields accepted, 422 error otherwise):**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `query` | **YES** | string | YouTube search string (e.g. "Bohemian Rhapsody Queen") |
+| `person` | no | string | Who requested (e.g. "gray") |
+
+**WRONG:** `{"track":"..."}`, `{"artist":"..."}`, `{"title":"..."}`, `{"song":"..."}` → all cause 422 error.
 
 ## Genre → Emotion
 You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on genre:
