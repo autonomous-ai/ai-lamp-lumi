@@ -164,7 +164,7 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
 
 ## Edge Cases
 
-- **Guard mode + camera off**: Guard mode requires camera. If guard mode activates while camera is off → force camera on, ignore manual override. Guard mode is security-critical.
+- **Guard mode + camera off**: ✅ Done — guard SKILL.md step 1: `[HW:/camera/enable:{}]` before enabling guard. Overrides manual disable.
 - **Face enroll while camera off**: `/face/enroll` uses uploaded image, not live camera. No conflict.
 - **Snapshot request while camera off**: Return 503 with message "Camera disabled". Agent handles gracefully.
 - **Multiple rapid triggers**: Debounce camera start/stop — don't restart if already starting. `camera_capture.start()` already handles "already started" case.
