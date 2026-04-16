@@ -145,6 +145,23 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
 
 11. Already done — Camera tab has Enable/Disable toggle.
 
+## Skill Changes Needed
+
+### Camera SKILL.md
+
+- Update description to include "don't look", "stop watching", "đừng nhìn", "camera on/off"
+- Add examples for disable/enable via `[HW:/camera/disable:{}]` and `[HW:/camera/enable:{}]`
+- Add rule: when camera is disabled and user asks to see something → auto-enable first, then capture
+
+### Servo-control SKILL.md
+
+- No change needed — camera is separate from servo hold
+
+### New consideration: agent should NOT call camera disable/enable proactively
+
+- Only user-initiated voice commands or system triggers (scene, emotion, presence) should toggle
+- Agent must never decide on its own to turn camera off/on without user asking
+
 ## Edge Cases
 
 - **Guard mode + camera off**: Guard mode requires camera. If guard mode activates while camera is off → force camera on, ignore manual override. Guard mode is security-critical.
