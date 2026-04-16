@@ -2120,7 +2120,7 @@ def express_emotion(req: EmotionRequest):
     cam = preset.get("camera")
     if cam == "off":
         _auto_camera_off(f"emotion:{req.emotion}")
-    elif _camera_disabled:
+    elif cam == "on" and _camera_disabled:
         _auto_camera_on(f"emotion:{req.emotion}")
 
     return {
