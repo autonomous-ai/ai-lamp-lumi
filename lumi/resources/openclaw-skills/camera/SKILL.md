@@ -1,6 +1,6 @@
 ---
 name: camera
-description: Use when the user explicitly asks to see something — "what do you see?", "look at this", "take a photo". Never use proactively — respect privacy.
+description: Use when the user explicitly asks to see something — "what do you see?", "look at this", "take a photo", or to toggle camera — "don't look", "stop watching", "camera on/off". Never use proactively — respect privacy.
 ---
 
 # Camera
@@ -93,6 +93,47 @@ curl -s http://127.0.0.1:5001/camera/stream
 
 Returns an MJPEG stream (`multipart/x-mixed-replace`). Only use when continuous video is needed. Prefer snapshot for one-time checks.
 
+## Camera On/Off (Privacy Control)
+
+Users can toggle the camera via voice or chat. Use HW markers — no curl needed.
+
+### Disable camera
+
+```
+[HW:/camera/disable:{}]
+```
+
+The user wants privacy. Camera stays off until the user explicitly re-enables it (voice or web toggle).
+
+### Enable camera
+
+```
+[HW:/camera/enable:{}]
+```
+
+### Trigger phrases
+
+| User says | Action |
+|-----------|--------|
+| "don't look" / "stop watching" / "đừng nhìn" / "privacy mode" | `[HW:/camera/disable:{}]` |
+| "look at me" / "camera on" / "nhìn xem" | `[HW:/camera/enable:{}]` |
+
+### Examples
+
+**Input:** "Lumi, don't watch me"
+**Output:** `[HW:/camera/disable:{}]` Got it, camera off. Just say "look at me" when you want me to see again.
+
+**Input:** "Lumi, nhìn xem"
+**Output:** `[HW:/camera/enable:{}]` Camera back on!
+
+### Auto-enable before capture
+
+If the camera is disabled (`GET /camera` returns `"disabled": true`) and the user asks to see something ("what do you see?", "take a photo"), auto-enable first, then follow the Capture Protocol:
+
+1. `[HW:/camera/enable:{}]` — re-enable camera
+2. Wait 1 second for camera to warm up
+3. Follow the normal Capture Protocol (aim center → wait 2s → snapshot)
+
 ## Error Handling
 - If `GET /camera` returns `{"available": false}`, tell the user: "The camera is not connected right now."
 - If the API is unreachable, inform the user that the camera is temporarily unavailable.
@@ -103,6 +144,7 @@ Returns an MJPEG stream (`multipart/x-mixed-replace`). Only use when continuous 
 - **Always use `?save=true`** and read the `path` from the JSON response — never invent filenames.
 - **Image delivery is handled automatically by the system** — do not manually send images via tools.
 - **Never use the camera proactively without the user's request** — respect privacy.
+- **Never disable/enable camera on your own** — only toggle when the user explicitly asks or when a system trigger requires it (guard mode, scene change).
 - **Don't repeatedly snapshot without reason.**
 - **Don't call the camera API when a sensing event already included an image.**
 - **Prefer `/camera/snapshot`** over `/camera/stream` — simpler and sufficient for most tasks.
