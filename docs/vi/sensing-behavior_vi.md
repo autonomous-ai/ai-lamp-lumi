@@ -292,7 +292,7 @@ Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl
 
 #### Voice mood nudge
 
-Voice events (`voice_command`, `voice`) kèm nudge `[Silently follow Mood skill.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
+Voice events (`voice_command`, `voice`) kèm nudge `[MANDATORY: Follow Mood skill — log mood now.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
 
 #### Định dạng lưu trữ
 
@@ -415,7 +415,7 @@ Các hằng số cấu hình nằm trong `lelamp/config.py`:
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.
-- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện. Voice messages kèm mood scan nudge (`[Silently follow Mood skill.]`) để agent nhớ detect mood từ conversation flow.
+- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện. Voice messages kèm mood scan nudge (`[MANDATORY: Follow Mood skill — log mood now.]`) để agent nhớ detect mood từ conversation flow.
 - Prefix `[sensing:type]` trong message là cách agent biết đây là ambient event, không phải message từ người dùng.
 - Sensing events được miễn rule "phải gọi `/emotion thinking` trước" — mỗi type có emotion đầu tiên riêng.
 - **Image pruning echo**: OpenClaw strip image payload cũ khỏi conversation history để tiết kiệm token. Model nhỏ (Haiku) có thể echo marker dưới dạng `[image description removed]` trong response. `SOUL.md` hướng dẫn agent không được echo các marker này.
