@@ -256,7 +256,7 @@ Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_
 
 **After confirmation:**
 Input: "Yeah play that"
-Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+Output: `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"gray"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
 
 ---
 
@@ -285,11 +285,16 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 ---
 
-## Output Template
+## Output Format Reminder
+
+**ALWAYS use HW markers — never plain text templates.** Correct:
 ```
-[Music] {action} — {details}
+[HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"gray"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
+[HW:/audio/stop:{}] Music stopped.
 ```
-Examples:
-- `[Music] Playing — Bohemian Rhapsody by Queen`
-- `[Music] Stopped`
-- `[Music] Not available — music service is offline`
+
+**WRONG (will NOT play music):**
+```
+[Music] Playing — Bohemian Rhapsody by Queen
+Playing Bohemian Rhapsody for you!
+```
