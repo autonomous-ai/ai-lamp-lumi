@@ -287,7 +287,9 @@ function loadConvos(): Conversation[] {
 
 function cleanPending(msgs: ChatMessage[]): ChatMessage[] {
   return msgs.map((m) =>
-    m.pending ? { ...m, pending: false, text: m.text || "…", error: true } : m,
+    m.pending
+      ? { ...m, pending: false, text: m.text || "…", error: !m.text }
+      : m,
   );
 }
 
@@ -370,7 +372,7 @@ export function ChatSection({ events }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number>(0);
   const [fileIsImage, setFileIsImage] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -679,7 +681,16 @@ export function ChatSection({ events }: Props) {
     }
   }, [events, updateMessages]);
 
-  // Auto-scroll on new messages
+  // Scroll to bottom on conversation switch
+  useEffect(() => {
+    // Use setTimeout to let DOM render messages first
+    setTimeout(() => {
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
+  }, [activeId]);
+
+  // Auto-scroll on new messages (only when already near bottom)
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -859,7 +870,7 @@ export function ChatSection({ events }: Props) {
     }
 
     const nowDate = new Date();
-    const now = nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const now = nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const dateStr = nowDate.toISOString().slice(0, 10);
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`, role: "user", text, time: now, date: dateStr,
@@ -895,7 +906,7 @@ export function ChatSection({ events }: Props) {
       if (json.status === 1 && json.data?.runId) {
         const runId: string = json.data.runId;
         pendingRunIdRef.current = runId;
-        const replyTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const replyTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         setConvos((prev) =>
           prev.map((c) =>
             c.id === targetId
@@ -984,15 +995,26 @@ export function ChatSection({ events }: Props) {
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ display: "flex", height: "100%", gap: 0 }}>
+    <div style={{ display: "flex", height: "100%", gap: 0, position: "relative" }}>
+      {/* ── Overlay backdrop ── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            background: "rgba(0,0,0,0.3)",
+          }}
+        />
+      )}
       {/* ── Sidebar ── */}
       {sidebarOpen && (
       <div style={{
-        width: 230, flexShrink: 0,
-        borderRight: "1px solid var(--lm-border)",
+        width: 260, flexShrink: 0,
+        position: "absolute", top: 0, right: 0, bottom: 0, zIndex: 11,
+        borderLeft: "1px solid var(--lm-border)",
         display: "flex", flexDirection: "column",
         background: "var(--lm-sidebar)",
-        transition: "width 0.2s",
+        boxShadow: "-4px 0 16px rgba(0,0,0,0.2)",
       }}>
         <div style={{ padding: "12px 12px 4px", display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1238,17 +1260,13 @@ export function ChatSection({ events }: Props) {
               )}
               <div
                 className="lm-chat-msg"
-                style={{ display: "flex", flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-end", gap: 8 }}
+                style={{ display: "flex", flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-end" }}
               >
-              {msg.role === "lumi" && (
-                <div style={{
-                  width: 28, height: 28, borderRadius: "50%",
-                  background: "var(--lm-amber-dim)", border: "1px solid rgba(245,158,11,0.3)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, flexShrink: 0, color: "var(--lm-amber)",
-                }}>✦</div>
-              )}
-              <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+              <div style={{ maxWidth: msg.role === "user" ? "72%" : "85%", display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
+                {/* Sender label for first Lumi message or after user message */}
+                {msg.role === "lumi" && (i === 0 || messages[i - 1]?.role === "user") && (
+                  <span style={{ fontSize: 10, color: "var(--lm-amber)", fontWeight: 600, paddingLeft: 4 }}>Lumi</span>
+                )}
                 {/* Thinking indicator — shown only for the active pending message */}
                 {msg.pending && msg.role === "lumi" && msg.runId === pendingRunIdRef.current && thinkingText && (
                   <ThinkingBlock text={thinkingText} />
@@ -1423,7 +1441,7 @@ export function ChatSection({ events }: Props) {
         )}
 
         {/* Input */}
-        <div style={{ padding: "12px 16px", borderTop: fileName ? "none" : "1px solid var(--lm-border)", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--lm-sidebar)" }}>
+        <div style={{ padding: "12px 16px", borderTop: fileName ? "none" : "1px solid var(--lm-border)", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--lm-sidebar)", minWidth: 0 }}>
           <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileSelect} />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -1445,14 +1463,15 @@ export function ChatSection({ events }: Props) {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={sending}
-            placeholder="Send a message to Lumi… (Shift+Enter for new line)"
+            placeholder="Message Lumi…"
             rows={1}
             style={{
-              flex: 1, background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+              flex: 1, minWidth: 0, background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
               borderRadius: 8, padding: "9px 13px", color: "var(--lm-text)", fontSize: 13,
               outline: "none", opacity: sending ? 0.6 : 1,
               resize: "none", lineHeight: 1.5, fontFamily: "inherit",
-              maxHeight: 120, overflow: "auto",
+              minHeight: 38, maxHeight: 120, overflow: "auto",
+              boxSizing: "border-box",
             }}
           />
           <button

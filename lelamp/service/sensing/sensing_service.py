@@ -51,7 +51,7 @@ class SensingService:
         sound_device_module=None,
         numpy_module=None,
         cv2_module=None,
-        input_device: Optional[int] = None,
+        input_device=None,  # int (sounddevice index) or str (ALSA device name)
         poll_interval: float = 2.0,
         rgb_service=None,
         tts_service=None,
