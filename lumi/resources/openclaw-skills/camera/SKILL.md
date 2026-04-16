@@ -1,6 +1,6 @@
 ---
 name: camera
-description: Use when the user explicitly asks to see something — "what do you see?", "look at this", "take a photo", or to toggle camera — "don't look", "stop watching", "camera on/off". Never use proactively — respect privacy.
+description: Camera control — snapshot, stream, and privacy toggle. Trigger on "what do you see", "look at this", "take a photo", "don't look", "stop looking", "stop watching", "stop staring", "camera off", "camera on", "give me privacy", "đừng nhìn". MUST call [HW:/camera/disable:{}] or [HW:/camera/enable:{}] when toggling — never just reply with text.
 ---
 
 # Camera
@@ -111,17 +111,22 @@ The user wants privacy. Camera stays off until the user explicitly re-enables it
 [HW:/camera/enable:{}]
 ```
 
-### Trigger phrases
+### Trigger phrases (MANDATORY — must call HW marker, not just reply with text)
+
+Any phrase meaning "stop looking" or "camera off" MUST trigger `[HW:/camera/disable:{}]`. Any phrase meaning "look at me" or "camera on" MUST trigger `[HW:/camera/enable:{}]`. Do NOT just acknowledge — you MUST include the HW marker.
 
 | User says | Action |
 |-----------|--------|
-| "don't look" / "stop watching" / "đừng nhìn" / "privacy mode" | `[HW:/camera/disable:{}]` |
-| "look at me" / "camera on" / "nhìn xem" | `[HW:/camera/enable:{}]` |
+| "don't look" / "stop looking" / "stop watching" / "đừng nhìn" / "privacy mode" / "camera off" / "don't watch me" / "give me privacy" / "stop staring" | `[HW:/camera/disable:{}]` — MUST call |
+| "look at me" / "camera on" / "nhìn xem" / "you can look now" / "start watching" | `[HW:/camera/enable:{}]` — MUST call |
 
 ### Examples
 
 **Input:** "Lumi, don't watch me"
 **Output:** `[HW:/camera/disable:{}]` Got it, camera off. Just say "look at me" when you want me to see again.
+
+**Input:** "đừng nhìn mình nữa"
+**Output:** `[HW:/camera/disable:{}]` I'll look away. Let me know when you want me back.
 
 **Input:** "Lumi, nhìn xem"
 **Output:** `[HW:/camera/enable:{}]` Camera back on!

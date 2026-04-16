@@ -18,9 +18,12 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 ## Workflow
 1. User asks to play/sing/listen to a song or artist
 2. Prefix reply with `[HW:/audio/play:{"query":"song artist","person":"name"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+   - **`query` is REQUIRED** — a YouTube search string. NEVER use `track`, `artist`, `title`, or any other field name. Only `query` and optionally `person`.
    - `person`: the name of the person who requested (from face recognition / presence context). Omit if unknown.
 3. Confirm it's playing — keep reply to one short sentence
 4. User can stop at any time -> `[HW:/audio/stop:{}]`
+
+**CRITICAL: The only valid fields are `query` (required) and `person` (optional). Any other fields like `track`, `artist`, `title`, `song` will cause a 422 error.**
 
 ## Genre → Emotion
 You MUST call `/emotion` after every `/audio/play`. Pick the emotion based on genre:
@@ -253,7 +256,7 @@ Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_
 
 **After confirmation:**
 Input: "Yeah play that"
-Output: `[HW:/audio/play:{"query":"Dave Brubeck Take Five","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+Output: `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"gray"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
 
 ---
 
@@ -282,11 +285,16 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 ---
 
-## Output Template
+## Output Format Reminder
+
+**ALWAYS use HW markers — never plain text templates.** Correct:
 ```
-[Music] {action} — {details}
+[HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"gray"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
+[HW:/audio/stop:{}] Music stopped.
 ```
-Examples:
-- `[Music] Playing — Bohemian Rhapsody by Queen`
-- `[Music] Stopped`
-- `[Music] Not available — music service is offline`
+
+**WRONG (will NOT play music):**
+```
+[Music] Playing — Bohemian Rhapsody by Queen
+Playing Bohemian Rhapsody for you!
+```
