@@ -1115,12 +1115,17 @@ func readAllJSONLines(path string) ([]string, error) {
 	defer f.Close()
 	var lines []string
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024) // 2MB max line
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := scanner.Text()
+		if len(line) == 0 || line[0] != '{' {
+			continue // skip corrupt/binary lines
+		}
+		lines = append(lines, line)
 	}
+	// Don't fail on scanner error — return what we have so far
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		slog.Warn("readAllJSONLines: scanner error, returning partial results", "path", path, "lines_read", len(lines), "error", err)
 	}
 	return lines, nil
 }
