@@ -602,7 +602,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										"total_tokens", u.TotalTokens, "threshold", autoCompactThreshold)
 									h.compacting.Store(true)
 									go func() {
-										defer h.compacting.Store(false)
+										// Reset after 2min — compact takes time, prevent re-trigger
+										defer func() {
+											time.Sleep(2 * time.Minute)
+											h.compacting.Store(false)
+										}()
 										// Notify user via TTS
 										resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
 											strings.NewReader(`{"text":"Hold on, tidying up a bit.","interruptible":true}`))
