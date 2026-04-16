@@ -1,6 +1,6 @@
 ---
 name: camera
-description: Use when the user explicitly asks to see something — "what do you see?", "look at this", "take a photo", or to toggle camera — "don't look", "stop watching", "camera on/off". Never use proactively — respect privacy.
+description: Camera control — snapshot, stream, and privacy toggle. Trigger on "what do you see", "look at this", "take a photo", "don't look", "stop looking", "stop watching", "stop staring", "camera off", "camera on", "give me privacy", "đừng nhìn". MUST call [HW:/camera/disable:{}] or [HW:/camera/enable:{}] when toggling — never just reply with text.
 ---
 
 # Camera
