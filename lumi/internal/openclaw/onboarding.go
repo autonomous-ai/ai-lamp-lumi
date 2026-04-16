@@ -98,6 +98,7 @@ func (s *Service) EnsureOnboarding() error {
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		return fmt.Errorf("create skills dir: %w", err)
 	}
+	var changedSkills []string
 	for _, name := range skills {
 		dir := filepath.Join(skillsDir, name)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -112,7 +113,7 @@ func (s *Service) EnsureOnboarding() error {
 			continue
 		}
 		if changed {
-			needRestart = true
+			changedSkills = append(changedSkills, name)
 		}
 		slog.Info("seeded skill", "component", "onboarding", "skill", name)
 	}
@@ -189,13 +190,25 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
-	// Restart OpenClaw if anything changed so the new session picks it up
+	// Restart OpenClaw if non-skill files changed (SOUL.md, AGENTS.md, hooks, config)
 	if needRestart {
 		slog.Info("restarting OpenClaw to pick up changes", "component", "onboarding")
 		if err := restartOpenclawGateway(); err != nil {
 			return fmt.Errorf("restart openclaw after onboarding: %w", err)
 		}
 		slog.Info("OpenClaw restarted successfully", "component", "onboarding")
+	}
+
+	// For changed skills, tell the agent to re-read them (no restart needed).
+	// This runs after restart (if any) so WS is connected.
+	if len(changedSkills) > 0 {
+		slog.Info("skills updated, notifying agent", "component", "onboarding", "skills", changedSkills)
+		for _, name := range changedSkills {
+			msg := fmt.Sprintf("[system] The skill '%s' has been updated. Re-read skills/%s/SKILL.md now — the file on disk has changed. Follow the updated instructions strictly.", name, name)
+			if _, err := s.SendChatMessage(msg); err != nil {
+				slog.Warn("failed to notify agent about skill update", "component", "onboarding", "skill", name, "error", err)
+			}
+		}
 	}
 
 	return nil
