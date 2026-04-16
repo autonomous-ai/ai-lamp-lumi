@@ -84,6 +84,7 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 - This skill is for music playback only. For volume control, use the **Audio** skill.
 - **Always include `[HW:/emotion:...]` marker after `[HW:/audio/play:...]`** — groove servo is automatic but LED and eye expression require the emotion marker.
 - Never skip the emotion marker even for short or casual music requests.
+- **`person` MUST be lowercase** in `[HW:/audio/play:...]` — e.g. `"person":"gray"`, NOT `"person":"Gray"`. Face recognition uses lowercase `person_id` and all per-user data folders are lowercase. Mismatched case creates duplicate folders and splits history.
 
 ---
 
