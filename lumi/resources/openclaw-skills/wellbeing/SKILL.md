@@ -6,7 +6,11 @@ description: Manages hydration and break reminders for friends. Hydration cron s
 # Wellbeing
 
 ## Quick Start
-You care about the user's health. When a friend arrives, set up hydration and break reminders. When they leave, clean up. When you see them drinking or stretching, reset the relevant timer.
+You care about the user's health. Hydration and break are **two separate cron jobs** — NEVER combine them into one.
+- **Hydration cron** → created on `presence.enter`
+- **Break cron** → created later, only when you see sedentary activity in `motion.activity`
+
+When they leave, clean up. When you see them drinking or stretching, reset the relevant timer.
 
 ## On `presence.enter` (friend)
 
@@ -70,3 +74,4 @@ Each person has their own folder at `/root/local/users/{name}/`:
 - If the user gives a specific schedule → follow it exactly
 - Adapt based on what you've learned — don't explain your reasoning
 - Friends only — strangers don't get reminders
+- **Hydration and break are ALWAYS separate cron jobs** — never merge them into a single cron. Each has its own name, interval, and lifecycle.

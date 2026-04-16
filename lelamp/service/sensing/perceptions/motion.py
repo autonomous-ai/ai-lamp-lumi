@@ -215,9 +215,10 @@ class MotionPerception(Perception):
                 "If nothing noteworthy, reply NO_REPLY.",
             )
         else:
-            self._send_event(
-                "motion",
-                f"Actions detected via video recognition: {actions_str} — someone may have entered or left the room",
+            # Skip — Lumi only expects motion.activity, plain motion is not useful.
+            logger.info(
+                "[motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
+                self._presence.state, has_friend,
             )
 
     def to_dict(self) -> dict:

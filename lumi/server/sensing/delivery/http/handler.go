@@ -282,7 +282,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
 	// Skip user identification — voice mood is always logged as "unknown" for simplicity.
 	if req.Type == "voice_command" || req.Type == "voice" {
-		msg += "\n[Silently follow Mood skill.]"
+		msg += "\n[MANDATORY: Follow Mood skill — log mood now. For voice, pass user as empty string.]"
 	}
 
 	var err error

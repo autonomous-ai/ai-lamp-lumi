@@ -253,7 +253,7 @@ Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay v
   - `GET /presence` — user có đang ở đó không?
   - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
   - `GET /api/openclaw/mood-history` — pattern hiện diện, kết quả gợi ý trước đó
-  - `GET /audio/history` — lịch sử nghe nhạc (genre ưa thích, thời lượng, mức độ hài lòng)
+  - `GET /audio/history?person={name}` — lịch sử nghe nhạc per-user (genre ưa thích, thời lượng, mức độ hài lòng)
 - **Vòng lặp học:** AI so sánh thời điểm gợi ý với `music.play` events trong mood history. Gợi ý được chấp nhận → củng cố timing/genre; bị từ chối → điều chỉnh schedule.
 - **Cá nhân hóa:** Theo thời gian, AI học được khi nào user thích nghe nhạc, thể loại nào, nghe bao lâu — và điều chỉnh gợi ý cho phù hợp.
 
@@ -292,7 +292,7 @@ Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl
 
 #### Voice mood nudge
 
-Voice events (`voice_command`, `voice`) kèm nudge `[Silently follow Mood skill.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
+Voice events (`voice_command`, `voice`) kèm nudge `[MANDATORY: Follow Mood skill — log mood now.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
 
 #### Định dạng lưu trữ
 
@@ -323,9 +323,9 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 
 ### Cách hoạt động
 
-`MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state`:
-- **PRESENT** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
-- **NOT PRESENT** (AWAY/IDLE) → gửi `motion` có kèm ảnh (cần xác nhận bằng mắt cho enter/leave)
+`MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state` và `has_friend` (face recognizer):
+- **PRESENT + has_friend** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
+- **Còn lại** → event bị **skip** (log, không gửi). Lumi chỉ expect `motion.activity` — plain `motion` từ X3D/pose không có handler và lãng phí agent tokens.
 
 ### Reset wellbeing cron (LLM-driven)
 
@@ -415,7 +415,7 @@ Các hằng số cấu hình nằm trong `lelamp/config.py`:
 ## Quy tắc chung (tất cả event type)
 
 - **Passive sensing events** (`[sensing:*]`) bị drop nếu agent đang bận xử lý turn khác.
-- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện. Voice messages kèm mood scan nudge (`[Silently follow Mood skill.]`) để agent nhớ detect mood từ conversation flow.
+- **Voice events** luôn pass through — người dùng đang chủ động nói chuyện. Voice messages kèm mood scan nudge (`[MANDATORY: Follow Mood skill — log mood now.]`) để agent nhớ detect mood từ conversation flow.
 - Prefix `[sensing:type]` trong message là cách agent biết đây là ambient event, không phải message từ người dùng.
 - Sensing events được miễn rule "phải gọi `/emotion thinking` trước" — mỗi type có emotion đầu tiên riêng.
 - **Image pruning echo**: OpenClaw strip image payload cũ khỏi conversation history để tiết kiệm token. Model nhỏ (Haiku) có thể echo marker dưới dạng `[image description removed]` trong response. `SOUL.md` hướng dẫn agent không được echo các marker này.
