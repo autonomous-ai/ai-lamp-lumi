@@ -46,6 +46,7 @@ from lelamp.config import (
     SERVO_PORT,
     TTS_SPEED,
     TTS_VOICE,
+    TTS_INSTRUCTIONS,
 )
 from lelamp.models import (
     AudioDevicesResponse,
@@ -483,6 +484,7 @@ async def lifespan(app: FastAPI):
                 output_device=audio_output_device,
                 voice=voice,
                 speed=TTS_SPEED,
+                instructions=lumi_cfg.get("tts_instructions", "") or TTS_INSTRUCTIONS or None,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
             )
@@ -2452,11 +2454,13 @@ def start_voice(req: VoiceStartRequest):
     global voice_service, tts_service
 
     voice = req.tts_voice or TTS_VOICE
+    instructions = req.tts_instructions or TTS_INSTRUCTIONS or None
 
-    # Start or re-init TTS (re-init when voice changed)
+    # Start or re-init TTS (re-init when voice or instructions changed)
     need_tts = TTSService and (
         not (tts_service and tts_service.available)
         or (tts_service and tts_service._voice != voice)
+        or (tts_service and getattr(tts_service, "_instructions", None) != instructions)
     )
     if need_tts:
         if tts_service and tts_service.speaking:
@@ -2470,6 +2474,7 @@ def start_voice(req: VoiceStartRequest):
                 output_device=audio_output_device,
                 voice=voice,
                 speed=TTS_SPEED,
+                instructions=instructions,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
             )

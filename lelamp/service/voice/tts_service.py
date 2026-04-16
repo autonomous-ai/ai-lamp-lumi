@@ -45,6 +45,7 @@ class TTSService:
         model: str = DEFAULT_MODEL,
         max_retries: int = 3,
         speed: float = 1.0,
+        instructions: Optional[str] = None,
         on_speak_start=None,
         on_speak_end=None,
     ):
@@ -57,6 +58,7 @@ class TTSService:
         self._voice = voice
         self._model = model
         self._speed = max(0.25, min(4.0, speed))
+        self._instructions = instructions
         self._lock = threading.Lock()
         self._speaking = False
         self._interruptible = False
@@ -251,13 +253,16 @@ class TTSService:
         remainder = b""
         first_audio_logged = False
         t0 = time.perf_counter()
-        with self._client.audio.speech.with_streaming_response.create(
+        kwargs = dict(
             model=self._model,
             voice=self._voice,
             input=text,
             response_format="pcm",
             speed=self._speed,
-        ) as response:
+        )
+        if self._instructions:
+            kwargs["instructions"] = self._instructions
+        with self._client.audio.speech.with_streaming_response.create(**kwargs) as response:
             for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
                 if self._stop_event.is_set():
                     return
