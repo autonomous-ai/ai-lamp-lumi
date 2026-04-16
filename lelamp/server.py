@@ -1652,13 +1652,14 @@ _camera_manual_override = False
 def get_camera_info():
     """Get camera availability and resolution."""
     if not camera_capture or cv2 is None or _camera_disabled:
-        return {"available": False, "width": None, "height": None, "disabled": _camera_disabled}
+        return {"available": False, "width": None, "height": None, "disabled": _camera_disabled, "manual_override": _camera_manual_override}
 
     return {
         "available": True,
         "width": CAMERA_WIDTH,
         "height": CAMERA_HEIGHT,
         "disabled": False,
+        "manual_override": _camera_manual_override,
     }
 
 
