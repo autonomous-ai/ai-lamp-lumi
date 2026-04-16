@@ -35,7 +35,9 @@ if _sensing_device_env:
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
 # TTS voice — one of: alloy, ash, coral, echo, fable, onyx, nova, sage, shimmer
-TTS_VOICE: str = os.environ.get("TTS_VOICE", "alloy")
+TTS_VOICE: str = os.environ.get("TTS_VOICE", "nova")
+# TTS instructions — style/vibe prompt for voice (e.g. "Speak warmly like a caring friend")
+TTS_INSTRUCTIONS: str = os.environ.get("LELAMP_TTS_INSTRUCTIONS", "Friendly")
 
 # --- Data layout ---
 

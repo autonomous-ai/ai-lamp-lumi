@@ -458,6 +458,9 @@ class VoiceStartRequest(BaseModel):
     tts_voice: str = Field(
         "", description="TTS voice name (optional, defaults to config TTS_VOICE)"
     )
+    tts_instructions: str = Field(
+        "", description="TTS style/vibe instructions (optional, e.g. 'Speak warmly')"
+    )
 
 
 class VoiceConfigRequest(BaseModel):
