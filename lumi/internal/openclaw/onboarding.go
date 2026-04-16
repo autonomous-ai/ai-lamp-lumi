@@ -569,18 +569,21 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 		changed = true
 	}
 
-	// Cache retention on all model entries
+	// Cache retention on all known models — seed entries if missing
 	modelsMap := ensureMap(defaultsMap, "models")
-	for key, val := range modelsMap {
-		m, ok := val.(map[string]interface{})
+	knownModels := []string{"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-6"}
+	for _, modelKey := range knownModels {
+		m, ok := modelsMap[modelKey].(map[string]interface{})
 		if !ok {
-			continue
+			m = map[string]interface{}{}
+			modelsMap[modelKey] = m
+			changed = true
 		}
 		params := ensureMap(m, "params")
 		if v, _ := params["cacheRetention"].(string); v != "short" {
 			params["cacheRetention"] = "short"
 			m["params"] = params
-			modelsMap[key] = m
+			modelsMap[modelKey] = m
 			changed = true
 		}
 	}
