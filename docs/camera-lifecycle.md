@@ -147,11 +147,12 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
 
 ## Skill Changes Needed
 
-### Camera SKILL.md
+### Camera SKILL.md — ✅ Done
 
-- Update description to include "don't look", "stop watching", "đừng nhìn", "camera on/off"
-- Add examples for disable/enable via `[HW:/camera/disable:{}]` and `[HW:/camera/enable:{}]`
-- Add rule: when camera is disabled and user asks to see something → auto-enable first, then capture
+- ✅ Description updated with toggle trigger phrases
+- ✅ Examples for disable/enable via `[HW:/camera/disable:{}]` and `[HW:/camera/enable:{}]`
+- ✅ Auto-enable before capture rule added
+- ✅ Rule: never toggle camera proactively without user request
 
 ### Servo-control SKILL.md
 
