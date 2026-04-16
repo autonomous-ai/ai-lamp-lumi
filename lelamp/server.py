@@ -2657,7 +2657,8 @@ def audio_play(req: MusicPlayRequest):
         raise HTTPException(
             503, "Music service not available — missing sounddevice or numpy"
         )
-    logger.info("POST /audio/play: query='%s'", req.query[:80])
+    person = req.person.strip()
+    logger.info("POST /audio/play: query='%s' person='%s'", req.query[:80], person)
     # Detect genre up front so the callback captures the right style.
     style = _detect_music_style(req.query)
     logger.info("music style detected: %s", style)
@@ -2671,12 +2672,12 @@ def audio_play(req: MusicPlayRequest):
 
     import os as _os
     if req.query.startswith("/") and _os.path.isfile(req.query):
-        started = music_service.play_file(req.query)
+        started = music_service.play_file(req.query, person=person)
         # play_file resolves instantly (local file) — start groove right away.
         if started and animation_service:
             animation_service.dispatch("music_start", style)
     else:
-        started = music_service.play(req.query, on_started=_on_audio_started)
+        started = music_service.play(req.query, on_started=_on_audio_started, person=person)
     if not started:
         raise HTTPException(409, "Music is busy playing")
     _apply_emotion_led_display(emotion)
@@ -2749,16 +2750,17 @@ def audio_status():
 
 
 @app.get("/audio/history", tags=["Audio"])
-def audio_history(date: str | None = None, last: int = 50):
+def audio_history(date: str | None = None, person: str = "", last: int = 50):
     """Return music playback history for AI to learn user preferences.
 
-    Each entry: {ts, date, hour, query, title, duration_s, stopped_by}.
+    Each entry: {ts, date, hour, query, title, duration_s, stopped_by, person}.
     stopped_by is one of: "user", "end", "tts", "error", "next".
+    Pass person to get per-user history; omit for shared/anonymous history.
     """
     from lelamp.service.voice.music_service import query_play_history
 
-    entries = query_play_history(date_str=date, last=min(last, 500))
-    return {"date": date or "today", "entries": entries, "count": len(entries)}
+    entries = query_play_history(person=person.strip(), date_str=date, last=min(last, 500))
+    return {"date": date or "today", "person": person or "shared", "entries": entries, "count": len(entries)}
 
 
 # --- Version ---
