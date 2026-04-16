@@ -468,7 +468,7 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		user = mood.CurrentUser()
 	}
 	if user == "" {
-		user = "unknown"
+		user = mood.DefaultUser
 	}
 
 	mood.LogMoodForUser(user, req.Mood, req.Source, req.Trigger)

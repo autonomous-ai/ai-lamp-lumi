@@ -39,6 +39,7 @@ const (
 	moodSubdir    = "mood"
 	fileSuffix    = ".jsonl"
 	retentionDays = 7
+	DefaultUser   = "unknown"
 )
 
 type logger struct {
@@ -91,7 +92,7 @@ func CurrentUser() string {
 func LogMood(moodStr, source, trigger string) {
 	user := CurrentUser()
 	if user == "" {
-		user = "unknown"
+		user = DefaultUser
 	}
 	LogMoodForUser(user, moodStr, source, trigger)
 }

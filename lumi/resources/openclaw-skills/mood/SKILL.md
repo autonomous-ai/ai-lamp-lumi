@@ -45,7 +45,7 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 | `user` | Lowercase name (see rules below) | No |
 
 **User field:**
-- **Camera**: query `curl -s http://127.0.0.1:5001/face/status | jq '.enrolled_names'` to get current user. If nobody, omit.
+- **Camera**: the system knows who's present from face recognition — omit `user` field, it defaults to current user. If you need to verify, `GET http://127.0.0.1:5001/face/cooldowns` shows who's present.
 - **Telegram**: extract from `[telegram:SenderName]`, lowercase.
 - **Voice**: omit (logged as "unknown").
 

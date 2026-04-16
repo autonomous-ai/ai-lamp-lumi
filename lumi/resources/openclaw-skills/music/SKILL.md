@@ -90,8 +90,8 @@ There is NO hardcoded timer for music suggestions. **You** control when to check
         ↓
 You: cron.list() → check if "Music: gray" job exists
         ↓ (if not)
-You: read /root/local/users/gray/metadata.json → telegram_id
-You: cron.add("Music: gray", every 7min, payload includes [person:gray])
+You: GET http://127.0.0.1:5001/user/info?name=gray → telegram_id
+You: cron.add("Music: gray", every 20min, payload includes [person:gray])
         ↓
 [Cron fires → agent turn]
         ↓
@@ -108,18 +108,18 @@ You: Analyze → suggest or skip
 
 Each friend gets their own music cron job. When a friend triggers `[sensing:presence.enter]`:
 
-**Default interval: 420000 ms (7 minutes).** Always use this interval unless you have learned a better one from mood + listening history.
+**Default interval: 1200000 ms (20 minutes).** Always use this interval unless you have learned a better one from mood + listening history.
 
 1. Call `cron.list()` to check if a music job **for this person** already exists (look for name `"Music: {name}"`).
 2. If the job already exists → skip (do not recreate). Optionally `cron.update` the interval if you've learned a better one.
 3. If NO job exists for this person → create one:
-   - Read the person's `telegram_id` from `/root/local/users/{name}/metadata.json`. If no metadata or no `telegram_id` → still create the cron, but omit the `/dm` marker from the cron text.
+   - Get the person's `telegram_id`: `GET http://127.0.0.1:5001/user/info?name={name}`. If `telegram_id` is null → still create the cron, but omit the `/dm` marker from the cron text.
    - `cron.add` with:
      - Name: `"Music: {name}"` (e.g. `"Music: gray"`)
-     - Schedule: `every 420000ms` (7 min)
+     - Schedule: `every 1200000ms` (20 min)
      - `sessionTarget: "main"`, `payload.kind: "systemEvent"`
      - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
-     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from metadata.json. If telegram_id is unknown, omit the `/dm` instruction.
+     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 
 **When to bootstrap:** On each `[sensing:presence.enter]` for a friend. Each friend gets their own cron — gray entering creates `"Music: gray"`, henry entering creates `"Music: henry"`.
@@ -243,7 +243,7 @@ Output: (skip — let them settle in first)
 
 **First presence.enter of the day — bootstrap:**
 *You receive `[sensing:presence.enter]` for gray*
-Action: `cron.list()` → no `"Music: gray"` job → `cron.add("Music: gray", every 420000ms, [person:gray])`
+Action: `cron.list()` → no `"Music: gray"` job → `cron.add("Music: gray", every 1200000ms, [person:gray])`
 Then greet the user normally.
 
 **Reactive — user asks directly:**

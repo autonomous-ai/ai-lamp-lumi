@@ -1185,6 +1185,9 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 // Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
 func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 	user := c.DefaultQuery("user", mood.CurrentUser())
+	if user == "" {
+		user = mood.DefaultUser
+	}
 	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 	last := 100
 	if s := c.Query("last"); s != "" {
