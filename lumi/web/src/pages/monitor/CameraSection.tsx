@@ -9,16 +9,23 @@ export function CameraSection({
 }) {
   const [snapTs, setSnapTs] = useState(Date.now());
   const [cameraDisabled, setCameraDisabled] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
   const [toggling, setToggling] = useState(false);
 
   const checkStatus = useCallback(async () => {
     try {
       const r = await fetch(`${HW}/camera`).then((x) => x.json());
       setCameraDisabled(!!r.disabled);
+      setManualOverride(!!r.manual_override);
     } catch {}
   }, []);
 
-  useEffect(() => { checkStatus(); }, [checkStatus]);
+  // Poll camera state every 5s to stay in sync with auto triggers (scene/emotion)
+  useEffect(() => {
+    checkStatus();
+    const id = setInterval(checkStatus, 5000);
+    return () => clearInterval(id);
+  }, [checkStatus]);
 
   const toggleCamera = async () => {
     setToggling(true);
@@ -37,7 +44,11 @@ export function CameraSection({
           <div>
             <div style={S.cardLabel}>Camera</div>
             <div style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
-              {cameraDisabled ? "Disabled — face/motion detection paused, saves CPU" : "Active — streaming, face/motion detection running"}
+              {cameraDisabled
+                ? manualOverride
+                  ? "Disabled by you — face/motion detection paused"
+                  : "Auto-disabled (scene/emotion) — face/motion paused"
+                : "Active — streaming, face/motion detection running"}
             </div>
           </div>
           <button
