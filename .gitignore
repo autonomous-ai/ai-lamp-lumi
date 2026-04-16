@@ -5,6 +5,7 @@
 .idea/
 .vscode/
 .cursor/
+.claude/settings.local.json
 *.log
 
 # Go build artifacts

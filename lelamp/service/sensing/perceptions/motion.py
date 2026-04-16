@@ -188,10 +188,17 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        unique_actions = sorted(set(actions))
+        unique_snapshots = []
+        unique_actions = set()
+
+        for s, a in zip(snapshots[::-1], actions[::-1]):
+            if a not in unique_actions:
+                unique_snapshots.append(s)
+                unique_actions.add(a)
+
         actions_str = ", ".join(f"'{a}'" for a in unique_actions)
         logger.info(
-            "[motion] flushing %d snapshot(s), actions: %s", len(snapshots), actions_str
+            "[motion] flushing %d snapshot(s), actions: %s", len(unique_snapshots), actions_str
         )
 
         from ..presence_service import PresenceState
