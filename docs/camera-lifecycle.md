@@ -111,13 +111,13 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
 
 ### LeLamp (Python)
 
-1. **`server.py`**: Already has `/camera/disable`, `/camera/enable`, `_camera_disabled` flag.
+1. **`server.py`**: ✅ Done — Already has `/camera/disable`, `/camera/enable`, `_camera_disabled` flag.
 
-2. **Add `_camera_manual_override` flag**: When user toggles via web or voice command "đừng nhìn", set `True`. Auto triggers (scene, emotion, presence) check this flag and skip if `True`. Voice command "nhìn xem" or web enable clears it.
+2. **`_camera_manual_override` flag**: ✅ Done — `/camera/disable` sets override, `/camera/enable` clears it. `_auto_camera_off()` / `_auto_camera_on()` helpers respect override.
 
-3. **Scene endpoint** (`/scene`): After setting scene, check scene name:
-   - `night`, `focus`, `reading`, `movie` → call `camera_capture.stop()` if not manual override
-   - `energize`, `relax` → call `camera_capture.start()` if not manual override
+3. **Scene endpoint** (`/scene`): ✅ Done — After setting scene:
+   - `night`, `focus`, `reading`, `movie` → `_auto_camera_off("scene:{name}")`
+   - `energize`, `relax` → `_auto_camera_on("scene:{name}")`
 
 4. **Emotion endpoint** (`/emotion`): 
    - `sleepy` → stop camera if not manual override
