@@ -186,6 +186,16 @@ Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under 
 | POST | `/face/remove` | Body: `label` — remove one person (404 if unknown) |
 | POST | `/face/reset` | Clear all enrolled persons and photos on disk |
 
+### User (per-user data)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/user/info?name=X` | User metadata: `name`, `is_friend`, `telegram_id`, `telegram_username`. Defaults to `"unknown"` if name omitted. Auto-creates folder. |
+| GET | `/user/wellbeing/summary?name=X` | Read `wellbeing.md` summary. Returns `{"name","summary"}` (null if no file). |
+| GET | `/user/wellbeing/today?name=X` | Read today's wellbeing daily log. Returns `{"name","date","log"}` (null if no file). |
+| POST | `/user/wellbeing/log` | Append line to daily log. Body: `{"name","line"}`. |
+| POST | `/user/wellbeing/summary` | Overwrite wellbeing summary. Body: `{"name","summary"}`. |
+
 ### Display (GC9A01 1.28" round LCD)
 
 | Method | Endpoint | Description |

@@ -85,6 +85,9 @@ from lelamp.models import (
     ServoStatusResponse,
     SpeakRequest,
     StatusResponse,
+    UserInfoResponse,
+    WellbeingLogRequest,
+    WellbeingSummaryUpdateRequest,
     VoiceStatusResponse,
     VolumeRequest,
     VolumeResponse,
@@ -93,6 +96,8 @@ from lelamp.models import (
     VoiceStartRequest,
     VoiceConfigRequest,
 )
+
+DEFAULT_USER = os.environ.get("LELAMP_DEFAULT_USER", "unknown")
 
 # --- Logging: colored stdout + rotating file ---
 LOG_DIR = Path(os.environ.get("LELAMP_LOG_DIR", "/var/log/lelamp"))
@@ -2397,6 +2402,81 @@ def face_cooldowns_reset():
     return {"status": "ok"}
 
 
+# --- User endpoints ---
+
+
+def _resolve_user_dir(name: str) -> tuple[str, "Path"]:
+    """Resolve user name and directory. Defaults to 'unknown', auto-creates folder."""
+    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer
+
+    norm = FaceRecognizer.normalize_label(name) if name else DEFAULT_USER
+    user_dir = USERS_DIR / norm
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return norm, user_dir
+
+
+@app.get("/user/info", response_model=UserInfoResponse, tags=["User"])
+def user_info(name: str = DEFAULT_USER):
+    """Get basic user info: name, is_friend, telegram identity."""
+    from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer
+
+    norm, user_dir = _resolve_user_dir(name)
+    meta = FaceRecognizer._read_metadata(user_dir)
+    img_exts = {".jpg", ".jpeg", ".png", ".bmp"}
+    is_friend = any(f.suffix.lower() in img_exts for f in user_dir.iterdir() if f.is_file())
+
+    return UserInfoResponse(
+        name=norm,
+        is_friend=is_friend,
+        telegram_id=meta.get("telegram_id"),
+        telegram_username=meta.get("telegram_username"),
+    )
+
+
+@app.get("/user/wellbeing/summary", tags=["User"])
+def user_wellbeing_summary_read(name: str = DEFAULT_USER):
+    """Read the user's wellbeing.md summary."""
+    norm, user_dir = _resolve_user_dir(name)
+    wb_file = user_dir / "wellbeing.md"
+    if not wb_file.is_file():
+        return {"name": norm, "summary": None}
+    return {"name": norm, "summary": wb_file.read_text().strip()}
+
+
+@app.get("/user/wellbeing/today", tags=["User"])
+def user_wellbeing_today(name: str = DEFAULT_USER):
+    """Read today's wellbeing daily log."""
+    norm, user_dir = _resolve_user_dir(name)
+    today = time.strftime("%Y-%m-%d")
+    log_file = user_dir / "wellbeing" / f"{today}.md"
+    if not log_file.is_file():
+        return {"name": norm, "date": today, "log": None}
+    return {"name": norm, "date": today, "log": log_file.read_text().strip()}
+
+
+@app.post("/user/wellbeing/log", response_model=StatusResponse, tags=["User"])
+def user_wellbeing_log(req: WellbeingLogRequest):
+    """Append a line to today's wellbeing daily log."""
+    norm, user_dir = _resolve_user_dir(req.name)
+    wb_dir = user_dir / "wellbeing"
+    wb_dir.mkdir(exist_ok=True)
+    today = time.strftime("%Y-%m-%d")
+    log_file = wb_dir / f"{today}.md"
+    with open(log_file, "a") as f:
+        f.write(req.line.rstrip("\n") + "\n")
+    return {"status": "ok"}
+
+
+@app.post("/user/wellbeing/summary", response_model=StatusResponse, tags=["User"])
+def user_wellbeing_summary_write(req: WellbeingSummaryUpdateRequest):
+    """Overwrite the user's wellbeing.md summary."""
+    norm, user_dir = _resolve_user_dir(req.name)
+
+    wb_file = user_dir / "wellbeing.md"
+    wb_file.write_text(req.summary)
+    return {"status": "ok"}
+
+
 # --- Display endpoints ---
 
 
@@ -2762,8 +2842,9 @@ def audio_history(date: str | None = None, person: str = "", last: int = 50):
     """
     from lelamp.service.voice.music_service import query_play_history
 
-    entries = query_play_history(person=person.strip(), date_str=date, last=min(last, 500))
-    return {"date": date or "today", "person": person or "shared", "entries": entries, "count": len(entries)}
+    norm_person = person.strip() or DEFAULT_USER
+    entries = query_play_history(person=norm_person, date_str=date, last=min(last, 500))
+    return {"date": date or "today", "person": norm_person, "entries": entries, "count": len(entries)}
 
 
 # --- Version ---
