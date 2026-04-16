@@ -253,7 +253,7 @@ Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay v
   - `GET /presence` — user có đang ở đó không?
   - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
   - `GET /api/openclaw/mood-history` — pattern hiện diện, kết quả gợi ý trước đó
-  - `GET /audio/history` — lịch sử nghe nhạc (genre ưa thích, thời lượng, mức độ hài lòng)
+  - `GET /audio/history?person={name}` — lịch sử nghe nhạc per-user (genre ưa thích, thời lượng, mức độ hài lòng)
 - **Vòng lặp học:** AI so sánh thời điểm gợi ý với `music.play` events trong mood history. Gợi ý được chấp nhận → củng cố timing/genre; bị từ chối → điều chỉnh schedule.
 - **Cá nhân hóa:** Theo thời gian, AI học được khi nào user thích nghe nhạc, thể loại nào, nghe bao lâu — và điều chỉnh gợi ý cho phù hợp.
 
@@ -323,9 +323,9 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 
 ### Cách hoạt động
 
-`MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state`:
-- **PRESENT** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
-- **NOT PRESENT** (AWAY/IDLE) → gửi `motion` có kèm ảnh (cần xác nhận bằng mắt cho enter/leave)
+`MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state` và `has_friend` (face recognizer):
+- **PRESENT + has_friend** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
+- **Còn lại** → event bị **skip** (log, không gửi). Lumi chỉ expect `motion.activity` — plain `motion` từ X3D/pose không có handler và lãng phí agent tokens.
 
 ### Reset wellbeing cron (LLM-driven)
 
