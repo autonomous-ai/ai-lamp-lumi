@@ -24,8 +24,12 @@ func (s *Service) StartSkillWatcher(ctx context.Context) {
 
 	slog.Info("skill watcher started", "component", "skill-watcher", "interval", skillWatchInterval)
 
-	// Track last known version per skill
+	// Seed last known versions from current metadata so first poll doesn't re-notify
 	lastVersions := map[string]string{}
+	if initial, err := s.fetchSkillVersions(); err == nil && initial != nil {
+		lastVersions = initial
+		slog.Info("skill watcher seeded versions", "component", "skill-watcher", "count", len(lastVersions))
+	}
 
 	ticker := time.NewTicker(skillWatchInterval)
 	defer ticker.Stop()
