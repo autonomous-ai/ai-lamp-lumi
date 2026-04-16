@@ -224,3 +224,6 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
     def stop(self):
         super().stop()
         self._stopped.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
