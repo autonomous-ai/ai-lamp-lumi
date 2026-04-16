@@ -119,26 +119,15 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         if isinstance(device_id, str) and device_id.isdigit():
             device_id = int(device_id)
 
-        # Retry open — V4L2 driver may need time to release after previous stop()
-        video_capture = None
-        for attempt in range(5):
-            vc = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
-            if vc.isOpened():
-                video_capture = vc
-                break
-            vc.release()
-            # Fallback: try default backend
-            vc = cv2.VideoCapture(device_id)
-            if vc.isOpened():
-                video_capture = vc
-                break
-            vc.release()
-            self._logger.warning("Camera open attempt %d failed, retrying in 1s...", attempt + 1)
-            if self._stopped.wait(1.0):
-                return  # stopped during retry
-        if video_capture is None or not video_capture.isOpened():
-            self._logger.error("Failed to open camera after 5 attempts: %s", self.device_info.device_id)
-            return
+        video_capture = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
+        if not video_capture.isOpened():
+            # Fallback: try default backend in case hardware changes
+            video_capture = cv2.VideoCapture(device_id)
+
+        if not video_capture.isOpened():
+            raise ValueError(
+                f"Failed to open video capture device: {self.device_info.device_id}"
+            )
 
         # Force MJPEG format — some USB webcams (e.g. Generalplus) fail read()
         # with the default YUYV format on Pi 5 but work fine with MJPEG.
@@ -220,8 +209,6 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
                 self.last_response = response
         finally:
             video_capture.release()
-            self._thread = None
-            self._last_response = None
 
     def acquire_consumer(self):
         """Register an active consumer (e.g. MJPEG stream) for full-FPS capture."""
