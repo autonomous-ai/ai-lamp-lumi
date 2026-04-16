@@ -1,49 +1,18 @@
 ---
 name: wellbeing
-description: Manages hydration and break reminders for friends. Hydration cron starts on presence.enter. Break cron starts only when sedentary activity detected (using computer, writing, etc.). Cancels on presence.leave, resets/manages timers on motion.activity. Uses HTTP APIs for all data access — no direct file read/write.
+description: Manages hydration and break reminders for everyone present. Both crons start when sedentary activity detected in motion.activity (using computer, reading, etc.). Cancels on presence.leave (friends) or presence.away (strangers). Uses HTTP APIs for all data access — no direct file read/write.
 ---
 
 # Wellbeing
 
 ## Quick Start
 You care about the user's health. Hydration and break are **two separate cron jobs** — NEVER combine them into one.
-- **Hydration cron** → created on `presence.enter`
-- **Break cron** → created later, only when you see sedentary activity in `motion.activity`
+- **Both crons** → created on `motion.activity` when sedentary activity is first detected
+- Do NOT create crons on `presence.enter` — wait until you see them actually sitting down
 
 When they leave, clean up. When you see them drinking or stretching, reset the relevant timer.
 
-## On `presence.enter` (friend)
-
-After greeting, set up **hydration cron only**. Break cron is NOT created here — it starts later when sedentary activity is detected (see `motion.activity` section).
-
-1. `cron.list` — check if this person already has a hydration cron (name contains this person's name + `"hydration"`)
-2. If hydration cron already exists → skip, do nothing
-3. Get user info and telegram_id:
-   ```bash
-   curl -s "http://127.0.0.1:5001/user/info?name={name}"
-   ```
-   Response: `{"name":"gray","is_friend":true,"telegram_id":"158406741","telegram_username":"grayson"}`
-   If `telegram_id` is null → **do not create the cron** (we can't deliver reminders without a target).
-4. Read their wellbeing summary:
-   ```bash
-   curl -s "http://127.0.0.1:5001/user/wellbeing/summary?name={name}"
-   ```
-   Response: `{"name":"gray","summary":"Drinks water every ~45min..."}` — use to adjust cron interval.
-5. Read today's daily log:
-   ```bash
-   curl -s "http://127.0.0.1:5001/user/wellbeing/today?name={name}"
-   ```
-   Response: `{"name":"gray","date":"2026-04-16","log":"09:30 — drinking (hydration reset)\n..."}` — use to know what happened earlier today.
-6. Create **one** cron job via `cron.add`. Wellbeing crons run in **main session** (needs conversation context):
-   - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
-     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-     - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing hydration check for {name}. First GET http://127.0.0.1:5001/face/cooldowns — if no friend → reply only NO_REPLY. If present → remind water (one short sentence). Do NOT explain your process. You MUST prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
-     - Replace `{name}` with the person's name and `<THEIR_TELEGRAM_ID>` with their numeric Telegram ID from user info.
-
-Adjust `everyMs` based on the person's wellbeing summary if you have one. Do this silently — no announcement.
-Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
-
-## On `presence.leave`
+## On `presence.leave` (recognized person)
 
 1. `cron.list` → `cron.remove` ONLY this person's wellbeing jobs (match by name containing this person's name)
 2. Append a summary to today's daily log:
@@ -59,29 +28,40 @@ Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delive
      -d '{"name":"{name}","summary":"Updated summary text..."}'
    ```
 
-Do NOT cancel on `presence.away` — only on `presence.leave`.
+Do NOT cancel `"unknown"` crons on `presence.leave` — strangers share one set of crons, cancel only on `presence.away`.
 
-## On `motion.activity` — manage break cron & reset timers
+## On `presence.away` (no one for 15+ min)
+
+Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this silently.
+
+## On `motion.activity` — create crons & reset timers
 
 1. **Read** today's daily log for context:
    ```bash
    curl -s "http://127.0.0.1:5001/user/wellbeing/today?name={name}"
    ```
 2. From the action name, **infer**:
-   - **Sedentary action** (using computer, writing, texting, reading book, drawing)?
-     → `cron.list` — if NO break cron exists yet, **create** it now:
-       - `{name}` = the last friend from `presence.enter` (motion.activity doesn't detect face, so use the most recent friend who entered).
-       - Get telegram_id if you don't have it: `GET http://127.0.0.1:5001/user/info?name={name}`. If `telegram_id` is null → do not create the cron.
-       - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
-       - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-       - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK] Wellbeing break check for {name}. First GET http://127.0.0.1:5001/face/cooldowns — if no friend → reply only NO_REPLY. If present → suggest stretch (one short sentence). Do NOT explain your process. You MUST prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
-       - Replace `{name}` with the person's name and `<THEIR_TELEGRAM_ID>` with their Telegram ID.
-     → If break cron already exists, do nothing (timer keeps running). → NO_REPLY
+   - **Sedentary action** (using computer, writing, texting, reading book, drawing, gaming)?
+     → `cron.list` — check if hydration AND break crons exist for this person. Create any that are missing:
+       - `{name}` = the last person from `presence.enter` (motion.activity doesn't detect face, so use the most recent person who entered). Use `"unknown"` if no name was identified.
+       - Get telegram_id if you don't have it: `GET http://127.0.0.1:5001/user/info?name={name}`. If `telegram_id` is null → still create the crons, but omit the `/dm` marker (voice-only reminders).
+       - **Hydration cron** (if missing):
+         - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
+         - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
+         - Text: `"[MUST-SPEAK] Wellbeing hydration check. Remind water (one short sentence). You MUST prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
+         - Adjust `everyMs` based on wellbeing summary if available.
+       - **Break cron** (if missing):
+         - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
+         - Same session/payload format as hydration.
+         - Text: `"[MUST-SPEAK] Wellbeing break check. Suggest stretch (one short sentence). You MUST prefix reply with [HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
+       - Replace `<THEIR_TELEGRAM_ID>` with their Telegram ID. If no telegram_id, omit the `/dm` marker entirely.
+     → If both crons already exist, do nothing (timers keep running).
+     Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
    - **Hydration action** (drinking, opening bottle, making tea, etc.)? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)
    - **Break action** (stretching, yoga, exercise, jogging, etc.)? → `cron.remove` the break cron. It will be re-created when next sedentary action is detected.
    - **Meal action** (dining, eating *)? → reset hydration cron (they're consuming food/drink)
    - Both hydration + break apply? → handle both
-   - No wellbeing crons active? → skip
+   - No wellbeing crons active and not sedentary? → skip
    - Emotional action (laughing, crying, yawning, singing, etc.)? → handled by **Emotion Detection** skill, do NOT touch any cron
 3. **Append** a line to today's daily log:
    ```bash
@@ -102,7 +82,6 @@ All on LeLamp (port 5001):
 | `/user/wellbeing/today?name=X` | GET | Read today's daily log |
 | `/user/wellbeing/log` | POST | Append line to daily log `{"name","line"}` |
 | `/user/wellbeing/summary` | POST | Overwrite summary `{"name","summary"}` |
-| `/face/cooldowns` | GET | Check who is present |
 
 All endpoints default to `"unknown"` user if name is omitted. Folder is auto-created.
 
@@ -112,5 +91,5 @@ All endpoints default to `"unknown"` user if name is omitted. Folder is auto-cre
 - If the user says "don't remind me about X" → stop immediately, update summary via POST /user/wellbeing/summary
 - If the user gives a specific schedule → follow it exactly
 - Adapt based on what you've learned — don't explain your reasoning
-- Friends only — strangers don't get reminders
 - **Hydration and break are ALWAYS separate cron jobs** — never merge them into a single cron. Each has its own name, interval, and lifecycle.
+- For unrecognized people, use `"unknown"` as the name. Do NOT distinguish between different strangers — all share the same crons and data.

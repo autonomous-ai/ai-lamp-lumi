@@ -97,7 +97,7 @@ Lumi **proactively suggests music** based on the user's mood, habits, and contex
 There is NO hardcoded timer for music suggestions. **You** control when to check using OpenClaw's `cron.add` tool. You analyze mood history and listening history to decide timing, genre, and whether to suggest at all.
 
 ```
-[presence.enter for friend "gray"]
+[motion.activity: sedentary detected for "gray"]
         ↓
 You: cron.list() → check if "Music: gray" job exists
         ↓ (if not)
@@ -106,9 +106,7 @@ You: cron.add("Music: gray", every 20min, payload includes [person:gray])
         ↓
 [Cron fires → agent turn]
         ↓
-You: extract {name} from [person:gray] in cron text
-You: GET /face/cooldowns → is "gray" in owners?
-        ↓ (yes)
+You: GET /audio/status → already playing?
 You: GET /api/openclaw/mood-history?user=gray&last=1 → latest mood
 You: GET /audio/history?person=gray&last=1 → last played song
         ↓
@@ -117,13 +115,14 @@ You: Analyze → suggest or skip
 
 ### Bootstrap: Setting Up Per-User Music Schedule
 
-Each friend gets their own music cron job. When a friend triggers `[sensing:presence.enter]`:
+Each person gets their own music cron job. Created on `motion.activity` when **sedentary activity** is detected (using computer, reading, gaming, etc.) — NOT on `presence.enter`.
 
 **Default interval: 1200000 ms (20 minutes).** Always use this interval unless you have learned a better one from mood + listening history.
 
 1. Call `cron.list()` to check if a music job **for this person** already exists (look for name `"Music: {name}"`).
 2. If the job already exists → skip (do not recreate). Optionally `cron.update` the interval if you've learned a better one.
 3. If NO job exists for this person → create one:
+   - `{name}` = the last person from `presence.enter`. Use `"unknown"` if no name was identified.
    - Get the person's `telegram_id`: `GET http://127.0.0.1:5001/user/info?name={name}`. If `telegram_id` is null → still create the cron, but omit the `/dm` marker from the cron text.
    - `cron.add` with:
      - Name: `"Music: {name}"` (e.g. `"Music: gray"`)
@@ -133,7 +132,8 @@ Each friend gets their own music cron job. When a friend triggers `[sensing:pres
      - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
 
-**When to bootstrap:** On each `[sensing:presence.enter]` for a friend. Each friend gets their own cron — gray entering creates `"Music: gray"`, henry entering creates `"Music: henry"`.
+**When to bootstrap:** On `motion.activity` with sedentary action. Each recognized person gets their own cron — gray creates `"Music: gray"`, henry creates `"Music: henry"`. For unrecognized people, use `"unknown"` as the name — all strangers share one cron (`"Music: unknown"`).
+**Cleanup:** Friend crons cancel on `presence.leave`. `"unknown"` crons cancel on `presence.away`.
 
 ### When Cron Fires: The Decision Process
 
@@ -143,12 +143,6 @@ When you receive `[music-proactive]`, follow this process:
 
 **Extract the target person from the cron text:**
 The cron text contains `[person:{name}]` — extract `{name}`. This is who you're checking for.
-
-**Check if that person is present:**
-```bash
-curl -s http://127.0.0.1:5001/face/cooldowns
-```
-Response contains `owners` array — each entry has `person_id`. If `{name}` is not in the `owners` list → reply **only** `NO_REPLY`.
 
 **Check if music is already playing:**
 ```bash
@@ -252,10 +246,9 @@ Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id
 *You query: presence.enter was 5 min ago, no audio/history*
 Output: (skip — let them settle in first)
 
-**First presence.enter of the day — bootstrap:**
-*You receive `[sensing:presence.enter]` for gray*
+**First sedentary activity of the day — bootstrap:**
+*You receive `[sensing:motion.activity]` — gray is using computer*
 Action: `cron.list()` → no `"Music: gray"` job → `cron.add("Music: gray", every 1200000ms, [person:gray])`
-Then greet the user normally.
 
 **Reactive — user asks directly:**
 Input: "Suggest some music"
@@ -274,7 +267,6 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 | API | Host | What it tells you | Use for |
 |-----|------|-------------------|---------|
-| `GET /face/cooldowns` | LeLamp (5001) | `owners` array with `person_id` — who is present | Check if target person is present |
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /api/openclaw/mood-history?user={name}&last=1` | Lumi (5000) | Latest mood event for a specific user | Genre direction (mood → music mapping) |
 | `GET /audio/history?person={name}&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |

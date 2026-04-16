@@ -271,12 +271,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		msg = "[sensing:" + req.Type + "] " + req.Message
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
-		case "presence.enter":
-			msg += "\n[MANDATORY for friend: You MUST create wellbeing/music crons BEFORE greeting. Steps: (1) cron.list to check existing crons. (2) Read Wellbeing skill and Music skill. (3) Create missing crons per each skill. Only then greet.]"
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel ONLY this person's crons (match by name) + append summary to daily log + update wellbeing.md. Do this silently.]"
+			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons + append summary to daily log + update wellbeing.md. For strangers, cancel \"unknown\" crons. Do this silently.]"
+		case "presence.away":
+			msg += "\n[Cancel ALL remaining wellbeing/music crons (including \"unknown\"). Do this silently.]"
 		case "motion.activity":
-			msg += "\n[Follow Wellbeing skill for this person. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
+			msg += "\n[MANDATORY: If sedentary activity (using computer, reading, writing, gaming, etc.) → check cron.list and create missing wellbeing/music crons per Wellbeing skill and Music skill. For strangers use \"unknown\" as name. If emotional action → follow Emotion Detection skill: ALWAYS speak.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
