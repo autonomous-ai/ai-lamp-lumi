@@ -1,0 +1,136 @@
+package openclaw
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"path/filepath"
+	"time"
+)
+
+const skillWatchInterval = 5 * time.Minute
+
+// StartSkillWatcher polls OTA metadata for per-skill version changes.
+// When any skill version changes, downloads that skill from CDN and notifies
+// the agent to re-read it.
+func (s *Service) StartSkillWatcher(ctx context.Context) {
+	if s.config.OTAMetadataURL == "" {
+		slog.Info("skill watcher disabled — no OTA metadata URL", "component", "skill-watcher")
+		return
+	}
+
+	slog.Info("skill watcher started", "component", "skill-watcher", "interval", skillWatchInterval)
+
+	// Track last known version per skill
+	lastVersions := map[string]string{}
+
+	ticker := time.NewTicker(skillWatchInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("skill watcher stopped", "component", "skill-watcher")
+			return
+		case <-ticker.C:
+			remote, err := s.fetchSkillVersions()
+			if err != nil {
+				slog.Debug("skill watcher: fetch failed", "component", "skill-watcher", "error", err)
+				continue
+			}
+
+			// Find skills with changed versions
+			var toUpdate []string
+			for name, ver := range remote {
+				if ver != "" && ver != lastVersions[name] {
+					toUpdate = append(toUpdate, name)
+					lastVersions[name] = ver
+				}
+			}
+			if len(toUpdate) == 0 {
+				continue
+			}
+
+			slog.Info("skill versions changed", "component", "skill-watcher", "skills", toUpdate)
+			changed := s.downloadSkillsByName(toUpdate)
+			s.notifySkillChanges(changed)
+		}
+	}
+}
+
+// downloadSkills downloads all skills from CDN, returns names of changed ones.
+func (s *Service) downloadSkills() []string {
+	return s.downloadSkillsByName(skills)
+}
+
+// downloadSkillsByName downloads specific skills from CDN, returns names of changed ones.
+func (s *Service) downloadSkillsByName(names []string) []string {
+	skillsDir := filepath.Join(s.config.OpenclawConfigDir, "workspace", "skills")
+	var changed []string
+	for _, name := range names {
+		dst := filepath.Join(skillsDir, name, "SKILL.md")
+		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
+		updated, err := downloadFile(url, dst)
+		if err != nil {
+			slog.Warn("skill download failed", "component", "skill-watcher", "skill", name, "error", err)
+			continue
+		}
+		if updated {
+			changed = append(changed, name)
+		}
+	}
+	return changed
+}
+
+// notifySkillChanges sends a message to the agent for each changed skill.
+func (s *Service) notifySkillChanges(changedSkills []string) {
+	if len(changedSkills) == 0 {
+		return
+	}
+	slog.Info("skills updated, notifying agent", "component", "skill-watcher", "changed", changedSkills)
+	for _, name := range changedSkills {
+		msg := fmt.Sprintf("[system] The skill '%s' has been updated. Re-read skills/%s/SKILL.md now — the file on disk has changed. Follow the updated instructions strictly.", name, name)
+		if _, err := s.SendChatMessage(msg); err != nil {
+			slog.Warn("notify agent failed", "component", "skill-watcher", "skill", name, "error", err)
+		}
+	}
+}
+
+// fetchSkillVersions gets per-skill versions from OTA metadata.
+// Returns map[skillName]version.
+func (s *Service) fetchSkillVersions() (map[string]string, error) {
+	resp, err := http.Get(s.config.OTAMetadataURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return nil, err
+	}
+	raw, ok := meta["skills"]
+	if !ok {
+		return nil, nil
+	}
+	var skillMap map[string]struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &skillMap); err != nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(skillMap))
+	for name, v := range skillMap {
+		result[name] = v.Version
+	}
+	return result, nil
+}

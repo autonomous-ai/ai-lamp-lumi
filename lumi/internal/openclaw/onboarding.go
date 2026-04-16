@@ -98,25 +98,13 @@ func (s *Service) EnsureOnboarding() error {
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		return fmt.Errorf("create skills dir: %w", err)
 	}
-	var changedSkills []string
+	// Ensure skill directories exist
 	for _, name := range skills {
-		dir := filepath.Join(skillsDir, name)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			slog.Error("mkdir failed", "component", "onboarding", "dir", dir, "error", err)
-			continue
+		if err := os.MkdirAll(filepath.Join(skillsDir, name), 0755); err != nil {
+			slog.Error("mkdir failed", "component", "onboarding", "dir", name, "error", err)
 		}
-		dst := filepath.Join(dir, "SKILL.md")
-		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
-		changed, err := downloadFile(url, dst)
-		if err != nil {
-			slog.Error("download skill failed", "component", "onboarding", "skill", name, "error", err)
-			continue
-		}
-		if changed {
-			changedSkills = append(changedSkills, name)
-		}
-		slog.Info("seeded skill", "component", "onboarding", "skill", name)
 	}
+	changedSkills := s.downloadSkills()
 
 	// Download hooks from CDN
 	hooksDir := filepath.Join(workspace, "hooks")
@@ -201,15 +189,7 @@ func (s *Service) EnsureOnboarding() error {
 
 	// For changed skills, tell the agent to re-read them (no restart needed).
 	// This runs after restart (if any) so WS is connected.
-	if len(changedSkills) > 0 {
-		slog.Info("skills updated, notifying agent", "component", "onboarding", "skills", changedSkills)
-		for _, name := range changedSkills {
-			msg := fmt.Sprintf("[system] The skill '%s' has been updated. Re-read skills/%s/SKILL.md now — the file on disk has changed. Follow the updated instructions strictly.", name, name)
-			if _, err := s.SendChatMessage(msg); err != nil {
-				slog.Warn("failed to notify agent about skill update", "component", "onboarding", "skill", name, "error", err)
-			}
-		}
-	}
+	s.notifySkillChanges(changedSkills)
 
 	return nil
 }
