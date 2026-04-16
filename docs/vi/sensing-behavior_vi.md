@@ -288,11 +288,11 @@ Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl
 | Source | Cách hoạt động |
 |---|---|
 | **Camera** (`source: "camera"`) | `motion.activity` detect action cảm xúc (laughing, crying, yawning, singing) → Emotion Detection skill trigger → agent log mood |
-| **Conversation** (`source: "conversation"`) | Agent scan **toàn bộ đoạn hội thoại** — không chỉ message cuối. Tín hiệu tinh tế cũng tính: trả lời ngắn cộc → stress, lặp topic → lo lắng, thay đổi giọng → mood change. Hoạt động trên mọi channel (Telegram, voice, web). |
+| **Conversation** (`source: "conversation"`) | Agent detect mood từ lời user — explicit ("I'm tired") hoặc implied ("work is killing me" → stressed). Thiết kế lightweight: agent tin vào nhận định của mình và log ngay, không cần phân tích sâu. Hoạt động trên mọi channel (Telegram, voice, web). |
 
 #### Voice mood nudge
 
-Voice events (`voice_command`, `voice`) kèm nudge `[MANDATORY: Follow Mood skill — log mood now.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi. Đảm bảo agent scan mood từ voice conversation — không chỉ Telegram nơi conversation context rõ ràng hơn.
+Voice events (`voice_command`, `voice`) kèm nudge `[MANDATORY: Follow Mood skill — log mood now.]` trong message gửi lên agent, cộng `[Current user: {name}]` khi face recognition biết ai đang ngồi.
 
 #### Định dạng lưu trữ
 
