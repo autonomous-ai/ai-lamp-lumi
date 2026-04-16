@@ -186,6 +186,16 @@ Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng
 | POST | `/face/remove` | Body: `label` — xóa một người đã đăng ký (404 nếu không có) |
 | POST | `/face/reset` | Xóa toàn bộ người đã đăng ký và ảnh trên đĩa |
 
+### User (dữ liệu per-user)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| GET | `/user/info?name=X` | Metadata user: `name`, `is_friend`, `telegram_id`, `telegram_username`. Mặc định `"unknown"` nếu thiếu name. Tự tạo folder. |
+| GET | `/user/wellbeing/summary?name=X` | Đọc wellbeing summary. Trả `{"name","summary"}` (null nếu chưa có). |
+| GET | `/user/wellbeing/today?name=X` | Đọc daily log hôm nay. Trả `{"name","date","log"}` (null nếu chưa có). |
+| POST | `/user/wellbeing/log` | Thêm dòng vào daily log. Body: `{"name","line"}`. |
+| POST | `/user/wellbeing/summary` | Ghi đè wellbeing summary. Body: `{"name","summary"}`. |
+
 ### Display (GC9A01 1.28" LCD tròn)
 
 | Method | Endpoint | Mô tả |

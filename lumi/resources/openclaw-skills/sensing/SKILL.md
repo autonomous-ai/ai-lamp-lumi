@@ -126,6 +126,7 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
   - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
   - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
 - **presence.enter (friend) triggers cron setup** — after greeting, follow the **Wellbeing** skill and **Music** skill to set up crons.
+- **presence.leave (friend) triggers cron cleanup** — `cron.list` → remove this person's wellbeing AND music crons (match by name containing the person's name). Wellbeing skill also logs a session summary.
 - **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
 - **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
 - **Always express emotion** — every sensing event must have at least one `[HW:/emotion:...]` marker. No silent reactions.
