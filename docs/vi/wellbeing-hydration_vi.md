@@ -10,52 +10,55 @@ Lumi theo dõi sức khỏe người dùng qua 2 loại nhắc nhở:
 
 | Loại | Mục đích | Default interval | Emotion |
 |------|----------|-----------------|---------|
-| **Hydration** | Nhắc uống nước | ~6 phút (test) | `caring` (0.5) |
-| **Break** | Nhắc đứng dậy/vươn vai | ~5 phút (test) | `caring` (0.6) |
+| **Hydration** | Nhắc uống nước | ~45 phút (2700000ms) | `caring` (0.5) |
+| **Break** | Nhắc đứng dậy/vươn vai | ~30 phút (1800000ms) | `caring` (0.6) |
 
-Toàn bộ logic nằm trong LLM (OpenClaw agent) — không có hard code timer. AI tự schedule cron jobs, tự chụp ảnh camera để đánh giá, tự quyết định có nhắc hay không.
+Toàn bộ logic nằm trong LLM (OpenClaw agent) — không có hard code timer. AI tự schedule cron jobs và tự quyết định có nhắc hay không.
 
 **Đặc điểm:**
-- Per-user: mỗi người có thói quen riêng, Lumi nhớ riêng
+- Per-user: mỗi người quen có thói quen riêng, Lumi nhớ riêng. Người lạ chung vào `"unknown"`.
 - AI học từ quan sát: user hay bỏ qua nhắc buổi sáng? hay mệt lúc 15h?
-- Chỉ nhắc owner và friend — stranger không nhận wellbeing reminders
-- Mỗi lần nhắc đều chụp ảnh camera trước — nếu user đang uống nước hoặc trông ổn → im lặng
+- **Nhắc cho tất cả** — friend và stranger đều được chăm sóc. Stranger dùng `"unknown"` làm tên, share chung 1 bộ cron.
+- Cron chỉ tạo khi phát hiện **hoạt động tĩnh** (ngồi xài máy tính, đọc sách, chơi game) qua `motion.activity` — KHÔNG tạo khi `presence.enter`. Tránh tạo/xóa cron liên tục khi người đi qua mà không ngồi xuống.
+- Khi cron fire thì cứ nhắc — không cần check presence (cron chỉ active khi có người).
 
 ---
 
 ## Luồng hoạt động
 
-### 1. Bootstrap — Khi user ngồi vào bàn
+### 1. Bootstrap — Khi phát hiện hoạt động tĩnh
 
 ```
-Camera detect face → [sensing:presence.enter] (friend)
+Camera detect face → [sensing:presence.enter]
     ↓
-Agent greeting xong → bắt đầu wellbeing setup (im lặng, không thông báo)
+Agent greeting (không tạo cron ở đây)
     ↓
-Step 1: Đọc wellbeing summary
-  → cat /root/local/users/{name}/wellbeing.md
-  → Nhớ lại thói quen: "hay bỏ qua hydration buổi sáng", "mệt lúc 15h"
+Camera detect motion → [sensing:motion.activity] — "using computer"
     ↓
-Step 2: Dọn cron cũ (phục hồi sau crash/restart)
-  → cron.list() → tìm "Wellbeing: {name} ..."
-  → cron.remove() nếu còn sót
+Agent: hoạt động tĩnh → bắt đầu wellbeing setup (im lặng)
     ↓
-Step 3: Schedule 2 cron jobs
+Step 1: Đọc wellbeing summary + daily log
+  → GET /user/wellbeing/summary?name={name}
+  → GET /user/wellbeing/today?name={name}
+    ↓
+Step 2: cron.list() → check cron đã có chưa
+    ↓
+Step 3: Schedule 2 cron jobs (nếu chưa có)
 
   cron.add:
     name: "Wellbeing: {name} hydration"
-    schedule: {kind: "every", everyMs: <interval>}
-    message: "Wellbeing hydration check. Take a snapshot,
-             check presence. If present and no drink visible,
-             gently remind..."
+    schedule: {kind: "every", everyMs: 2700000}  (45 phút)
+    sessionTarget: "main", payload.kind: "systemEvent"
+    text: "[MUST-SPEAK] Wellbeing hydration check. Remind water..."
 
   cron.add:
     name: "Wellbeing: {name} break"
-    schedule: {kind: "every", everyMs: <interval>}
-    message: "Wellbeing break check. Take a snapshot,
-             check presence. If slouching, tired, or sitting
-             too long, gently suggest standing up..."
+    schedule: {kind: "every", everyMs: 1800000}  (30 phút)
+    sessionTarget: "main", payload.kind: "systemEvent"
+    text: "[MUST-SPEAK] Wellbeing break check. Suggest stretch..."
 ```
+
+**{name}** = tên người quen từ `presence.enter` trước đó, hoặc `"unknown"` nếu là người lạ.
 
 **Kết quả:** 2 cron jobs chạy song song, mỗi cái fire theo interval riêng.
 
