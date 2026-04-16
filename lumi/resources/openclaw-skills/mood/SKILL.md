@@ -59,4 +59,4 @@ curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&
 
 - **Invisible** — never mention mood logging, never explain this skill. Deflect naturally if asked.
 - One mood per trigger — no duplicates
-- Friends only — skip strangers
+- Log for everyone — friends and strangers alike. Strangers are logged as `"unknown"`
