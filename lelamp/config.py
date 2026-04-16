@@ -6,7 +6,7 @@ Import: from lelamp.config import LAMP_ID, SERVO_PORT, ...
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 # --- Hardware ---
 SERVO_PORT = os.environ.get("LELAMP_SERVO_PORT", "/dev/ttyACM0")
@@ -23,11 +23,15 @@ CAMERA_HEIGHT = int(os.environ.get("LELAMP_CAMERA_HEIGHT", "480"))
 # e.g. LELAMP_AUDIO_INPUT_ALSA=plughw:1,0  LELAMP_AUDIO_OUTPUT_ALSA=plughw:2,0
 AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_INPUT_ALSA") or None
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA") or None
-# Separate mic device index for SoundPerception (noise sensing).
+# Separate mic device for SoundPerception (noise sensing).
+# Accepts int (sounddevice index) or string (ALSA device name like "plughw:6,0").
 _sensing_device_env = os.environ.get("LELAMP_AUDIO_SENSING_DEVICE")
-AUDIO_SENSING_DEVICE: Optional[int] = (
-    int(_sensing_device_env) if _sensing_device_env else None
-)
+AUDIO_SENSING_DEVICE: Optional[Union[int, str]] = None
+if _sensing_device_env:
+    try:
+        AUDIO_SENSING_DEVICE = int(_sensing_device_env)
+    except ValueError:
+        AUDIO_SENSING_DEVICE = _sensing_device_env
 # TTS speed multiplier — 1.0=normal, 1.3=faster, max 4.0
 TTS_SPEED: float = float(os.environ.get("LELAMP_TTS_SPEED", "1.3"))
 # TTS voice — one of: alloy, ash, coral, echo, fable, onyx, nova, sage, shimmer

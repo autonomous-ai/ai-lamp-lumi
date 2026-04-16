@@ -1642,17 +1642,84 @@ def stop_led_effect():
 # --- Camera endpoints ---
 
 
+_camera_disabled = False
+# Manual override: True when user explicitly disabled camera (web toggle or voice command).
+# Auto triggers (scene, emotion, presence) check this flag and skip camera toggle if True.
+# Cleared only by explicit user action: web enable or voice "camera on" / "nhìn xem".
+_camera_manual_override = False
+
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
     """Get camera availability and resolution."""
-    if not camera_capture or cv2 is None:
-        return {"available": False, "width": None, "height": None}
+    if not camera_capture or cv2 is None or _camera_disabled:
+        return {"available": False, "width": None, "height": None, "disabled": _camera_disabled, "manual_override": _camera_manual_override}
 
     return {
         "available": True,
         "width": CAMERA_WIDTH,
         "height": CAMERA_HEIGHT,
+        "disabled": False,
+        "manual_override": _camera_manual_override,
     }
+
+
+@app.post("/camera/disable", response_model=StatusResponse, tags=["Camera"])
+def disable_camera():
+    """Stop the camera capture loop (manual). Sets manual override so auto triggers
+    (scene, emotion, presence) cannot re-enable. Call /camera/enable to restart."""
+    global _camera_disabled, _camera_manual_override
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+    _camera_disabled = True
+    _camera_manual_override = True
+    camera_capture.stop()
+    logger.info("Camera disabled by user (manual override set)")
+    return {"status": "ok"}
+
+
+@app.post("/camera/enable", response_model=StatusResponse, tags=["Camera"])
+def enable_camera():
+    """Restart the camera capture loop (manual). Clears manual override."""
+    global _camera_disabled, _camera_manual_override
+    if not camera_capture:
+        raise HTTPException(503, "Camera not available")
+    _camera_disabled = False
+    _camera_manual_override = False
+    camera_capture.start()
+    logger.info("Camera re-enabled by user (manual override cleared)")
+    return {"status": "ok"}
+
+
+def _auto_camera_off(reason: str) -> bool:
+    """Auto-disable camera (called by scene/emotion/presence triggers).
+    Respects manual override — if user explicitly disabled, skip.
+    Returns True if camera was stopped, False if skipped."""
+    global _camera_disabled
+    if _camera_manual_override:
+        logger.debug("Auto camera off skipped — manual override active (reason: %s)", reason)
+        return False
+    if not camera_capture or _camera_disabled:
+        return False
+    _camera_disabled = True
+    camera_capture.stop()
+    logger.info("Camera auto-disabled (reason: %s)", reason)
+    return True
+
+
+def _auto_camera_on(reason: str) -> bool:
+    """Auto-enable camera (called by scene/emotion/presence/sound triggers).
+    Respects manual override — if user explicitly disabled, skip.
+    Returns True if camera was started, False if skipped."""
+    global _camera_disabled
+    if _camera_manual_override:
+        logger.debug("Auto camera on skipped — manual override active (reason: %s)", reason)
+        return False
+    if not camera_capture or not _camera_disabled:
+        return False
+    _camera_disabled = False
+    camera_capture.start()
+    logger.info("Camera auto-enabled (reason: %s)", reason)
+    return True
 
 
 _SNAPSHOT_DIR = "/tmp/lumi-snapshots"
@@ -2047,6 +2114,16 @@ def express_emotion(req: EmotionRequest):
         logger.info("Emotion: %s — LED restore scheduled in %.1fs (servo=%s)", req.emotion, restore_delay, servo_name)
         _schedule_led_restore(restore_delay)
 
+    # Camera reactive lifecycle: auto off/on based on preset "camera" field.
+    # sleepy → camera off (lamp going to sleep, no vision needed).
+    # Any non-off emotion while camera is auto-off → re-enable (active interaction detected).
+    # Respects manual override — if user explicitly disabled camera, skip.
+    cam = preset.get("camera")
+    if cam == "off":
+        _auto_camera_off(f"emotion:{req.emotion}")
+    elif cam == "on" and _camera_disabled:
+        _auto_camera_on(f"emotion:{req.emotion}")
+
     return {
         "status": "ok",
         "emotion": req.emotion,
@@ -2101,6 +2178,14 @@ def activate_scene(req: SceneRequest):
             daemon=True,
             name=f"scene-aim-{aim_dir}",
         ).start()
+
+    # Camera reactive lifecycle: auto off/on based on preset "camera" field.
+    # Respects manual override — if user explicitly disabled camera, skip.
+    cam = preset.get("camera")
+    if cam == "off":
+        _auto_camera_off(f"scene:{req.scene}")
+    elif cam == "on":
+        _auto_camera_on(f"scene:{req.scene}")
 
     return {
         "status": "ok",

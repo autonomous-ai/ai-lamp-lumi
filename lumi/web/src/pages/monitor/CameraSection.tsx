@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 
@@ -8,9 +8,66 @@ export function CameraSection({
   displayTs: number;
 }) {
   const [snapTs, setSnapTs] = useState(Date.now());
+  const [cameraDisabled, setCameraDisabled] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  const checkStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${HW}/camera`).then((x) => x.json());
+      setCameraDisabled(!!r.disabled);
+      setManualOverride(!!r.manual_override);
+    } catch {}
+  }, []);
+
+  // Poll camera state every 5s to stay in sync with auto triggers (scene/emotion)
+  useEffect(() => {
+    checkStatus();
+    const id = setInterval(checkStatus, 5000);
+    return () => clearInterval(id);
+  }, [checkStatus]);
+
+  const toggleCamera = async () => {
+    setToggling(true);
+    try {
+      await fetch(`${HW}/camera/${cameraDisabled ? "enable" : "disable"}`, { method: "POST" });
+      setCameraDisabled(!cameraDisabled);
+    } catch {}
+    setToggling(false);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Camera toggle */}
+      <div style={S.card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={S.cardLabel}>Camera</div>
+            <div style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
+              {cameraDisabled
+                ? manualOverride
+                  ? "Disabled by you — face/motion detection paused"
+                  : "Auto-disabled (scene/emotion) — face/motion paused"
+                : "Active — streaming, face/motion detection running"}
+            </div>
+          </div>
+          <button
+            onClick={toggleCamera}
+            disabled={toggling}
+            style={{
+              padding: "6px 16px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+              cursor: toggling ? "wait" : "pointer",
+              background: cameraDisabled ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+              border: `1px solid ${cameraDisabled ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
+              color: cameraDisabled ? "var(--lm-green)" : "var(--lm-red)",
+            }}
+          >
+            {toggling ? "…" : cameraDisabled ? "Enable" : "Disable"}
+          </button>
+        </div>
+      </div>
+
+      {!cameraDisabled && ( <>
       <div className="lm-grid-2">
         {/* Live camera stream */}
         <div style={S.card}>
@@ -124,6 +181,7 @@ export function CameraSection({
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
         />
       </div>
+      </> )}
     </div>
   );
 }

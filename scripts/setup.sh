@@ -1069,7 +1069,6 @@ elif [ "$APP" = "lelamp" ]; then
   unzip -o -q "$ZIP_TMP" -d "$LELAMP_DIR"
   UV_BIN=$(command -v uv || echo "/root/.local/bin/uv")
   find /root/.cache/uv -name "lerobot.egg-info" -type d 2>/dev/null | xargs rm -rf
-  rm -rf "$LELAMP_DIR/.venv"
   cd "$LELAMP_DIR" && "$UV_BIN" sync --python 3.12 --extra hardware || { echo "uv sync failed"; exit 1; }
   cd /
   systemctl restart lumi-lelamp
