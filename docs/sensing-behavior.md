@@ -192,17 +192,20 @@ The agent maintains **per-person wellbeing data** under `/root/local/users/{name
 
 The agent reads the summary + today's daily log on `presence.enter` to quickly recall the person and know what happened earlier today (e.g. if the user left and came back). Daily log is updated continuously during `motion.activity` and finalized on `presence.leave`.
 
-When a known person arrives (`presence.enter`), the agent:
+Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with sedentary action** (using computer, reading, writing, gaming, etc.). This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
+
+When sedentary activity is detected (`motion.activity`), the agent:
 
 1. **Reads their notebook** (`wellbeing.md`) to recall what it has learned about their patterns.
 2. **Reads today's daily log** (`wellbeing/YYYY-MM-DD.md`) to know what happened earlier today — how many times they drank, took breaks, etc. Used to adjust cron intervals.
-3. **Decides intervals and approach** based on its observations, time of day, and how they looked when arriving. First-time defaults are science-based (~25 min hydration, ~50 min break), but the agent adapts over sessions.
-4. **Cleans up stale crons** — removes any leftover wellbeing crons from previous sessions (crash recovery).
-5. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
-   - `"Wellbeing: {name} hydration"` — every 6 min (360000ms), takes a camera snapshot, checks presence, reminds if appropriate
-   - `"Wellbeing: {name} break"` — every 5 min (300000ms), takes a camera snapshot, assesses posture/fatigue, reminds if appropriate
+3. **Decides intervals and approach** based on its observations, time of day, and what activity was detected. First-time defaults are science-based (~45 min hydration, ~30 min break), but the agent adapts over sessions.
+4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+   - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
+   - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
 
-> **Note:** Wellbeing is now a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `presence.enter` events reminding the agent to follow the Wellbeing and Music skills for cron setup.
+**Works for everyone — friends and strangers alike.** For unrecognized people, `{name}` = `"unknown"` (all strangers share one set of crons). Cron text no longer includes presence checks — when the cron fires, the agent simply speaks.
+
+> **Note:** Wellbeing is a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `motion.activity` events reminding the agent to follow the Wellbeing and Music skills for cron setup when sedentary activity is detected.
 
 ### Cron sessionTarget rules
 
@@ -223,17 +226,13 @@ AGENTS.md enforces a strict priority: **SKILL.md instructions always override KN
 
 This rule was added after discovering that the agent had written incorrect cron format rules into KNOWLEDGE.md ("NEVER use systemEvent") that overrode the correct Scheduling SKILL instructions.
 
-When they leave (`presence.leave`), the agent silently cancels both cron jobs, appends a session summary to the daily log (`wellbeing/YYYY-MM-DD.md`), and updates the summary (`wellbeing.md`) if new patterns emerged.
+**Cleanup:**
+- **Recognized person leaves** (`presence.leave`) → cancel their crons, append session summary to daily log, update `wellbeing.md` if new patterns emerged.
+- **No one around for 15 min** (`presence.away`) → cancel ALL remaining crons including `"unknown"`.
 
 ### Cron-fired behavior
 
-Each cron fires an agent turn. The agent:
-1. Takes a camera snapshot (`GET http://127.0.0.1:5001/camera/snapshot`)
-2. Checks presence (`GET http://127.0.0.1:5001/presence`)
-3. If user is present and the reminder is warranted → one short sentence, varied phrasing
-4. If user is absent, already has a drink, or looks fine → no response
-5. Always emits `[HW:/emotion:{...}]` marker
-6. If speaking, adds `[HW:/broadcast:{}]` — forces TTS + sends text to Telegram so the user sees it on their phone too
+Each cron fires an agent turn. The agent simply speaks a short reminder — no presence check needed (crons are only active while someone is present). Always emits `[HW:/emotion:{...}]` marker.
 
 ### Agent behavior
 
@@ -248,11 +247,10 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the AI agent **self-schedules** music checks via OpenClaw cron jobs and **learns** the user's habits over time:
 
-- **Self-scheduling:** On first `presence.enter` of the day, the AI creates a cron job (default: every 7 min / 420000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
+- **Self-scheduling:** On first **sedentary `motion.activity`** of the session (not `presence.enter`), the AI creates a cron job (default: every 20 min / 1200000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
 - **Data-driven decisions:** Before suggesting, the AI queries:
-  - `GET /presence` — is user present?
-  - `GET /camera/snapshot` — visual mood assessment
-  - `GET /api/openclaw/mood-history` — presence patterns, past suggestion outcomes
+  - `GET /audio/status` — is music already playing?
+  - `GET /api/openclaw/mood-history` — latest mood for genre selection
   - `GET /audio/history?person={name}` — per-user listening history (genre preference, duration, satisfaction)
 - **Learning loop:** The AI correlates suggestions with `music.play` events in mood history. Accepted suggestions reinforce timing/genre; rejected suggestions trigger schedule adjustments.
 - **Personalization:** Over time, the AI learns when the user prefers music, what genres they enjoy, and how long they typically listen — adapting its suggestions accordingly.

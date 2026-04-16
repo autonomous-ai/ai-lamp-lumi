@@ -192,17 +192,20 @@ Agent duy trì **dữ liệu wellbeing cho từng người** tại `/root/local/
 
 Agent đọc summary + daily log hôm nay khi `presence.enter` để nhớ nhanh và biết chuyện gì đã xảy ra trước đó (ví dụ user đi ra rồi quay lại). Daily log được cập nhật liên tục trong `motion.activity` và hoàn tất khi `presence.leave`.
 
-Khi người quen đến (`presence.enter`), agent:
+Wellbeing crons **KHÔNG** tạo khi `presence.enter`. Thay vào đó, tạo khi **`motion.activity` detect hoạt động tĩnh** (ngồi xài máy tính, đọc sách, chơi game, v.v.). Tránh tạo/xóa cron liên tục khi người đi qua mà không ngồi xuống — đặc biệt trong môi trường nhiều người như văn phòng.
+
+Khi phát hiện hoạt động tĩnh (`motion.activity`), agent:
 
 1. **Đọc notebook** (`wellbeing.md`) để nhớ lại những gì đã học.
 2. **Đọc daily log hôm nay** (`wellbeing/YYYY-MM-DD.md`) để biết chuyện gì đã xảy ra — uống bao nhiêu lần, nghỉ mấy lần, v.v. Dùng để điều chỉnh interval.
-3. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và trạng thái khi đến. Lần đầu dùng mặc định theo khoa học (~25 phút hydration, ~50 phút break), nhưng agent tự điều chỉnh qua các session.
-4. **Dọn cron cũ** — xóa wellbeing crons còn sót từ session trước (phục hồi sau crash).
-5. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
-   - `"Wellbeing: {name} hydration"` — mỗi 6 phút (360000ms), chụp ảnh camera, check presence, nhắc nếu phù hợp
-   - `"Wellbeing: {name} break"` — mỗi 5 phút (300000ms), chụp ảnh camera, đánh giá tư thế/mệt mỏi, nhắc nếu phù hợp
+3. **Quyết định interval và cách tiếp cận** dựa trên quan sát tích lũy, thời gian trong ngày, và hoạt động phát hiện được. Mặc định (~45 phút hydration, ~30 phút break), agent tự điều chỉnh qua các session.
+4. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
+   - `"Wellbeing: {name} hydration"` — mỗi 2700000ms (45 phút)
+   - `"Wellbeing: {name} break"` — mỗi 1800000ms (30 phút)
 
-> **Ghi chú:** Wellbeing giờ là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `presence.enter` events nhắc agent follow Wellbeing và Music skill.
+**Áp dụng cho tất cả — người quen và người lạ.** Người lạ dùng `{name}` = `"unknown"` (tất cả stranger share chung 1 bộ cron). Cron text không cần check presence — khi fire thì agent cứ nhắc.
+
+> **Ghi chú:** Wellbeing là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `motion.activity` events nhắc agent follow Wellbeing và Music skill khi phát hiện hoạt động tĩnh.
 
 ### Quy tắc sessionTarget cho cron
 
@@ -223,17 +226,13 @@ AGENTS.md quy định thứ tự ưu tiên: **SKILL.md luôn override KNOWLEDGE.
 
 Rule này được thêm sau khi phát hiện agent đã ghi sai rules về cron format vào KNOWLEDGE.md ("NEVER use systemEvent") và override hướng dẫn đúng trong Scheduling SKILL.
 
-Khi rời đi (`presence.leave`), agent im lặng cancel cả 2 cron jobs, append tóm tắt vào daily log (`wellbeing/YYYY-MM-DD.md`), và cập nhật summary (`wellbeing.md`) nếu phát hiện pattern mới.
+**Dọn dẹp:**
+- **Người quen rời** (`presence.leave`) → cancel cron của họ, append tóm tắt vào daily log, cập nhật `wellbeing.md` nếu phát hiện pattern mới.
+- **Không ai 15 phút** (`presence.away`) → cancel TẤT CẢ cron còn lại bao gồm `"unknown"`.
 
 ### Hành vi khi cron fire
 
-Mỗi lần cron fire, agent:
-1. Chụp ảnh camera (`GET http://127.0.0.1:5001/camera/snapshot`)
-2. Check presence (`GET http://127.0.0.1:5001/presence`)
-3. Nếu user đang ngồi và cần nhắc → một câu ngắn, đổi cách nói mỗi lần
-4. Nếu user vắng mặt, đang uống nước, hoặc trông ổn → không nói
-5. Luôn emit `[HW:/emotion:{...}]` marker
-6. Nếu nói, thêm `[HW:/broadcast:{}]` — force TTS + gửi text lên Telegram để user thấy trên điện thoại
+Mỗi lần cron fire, agent cứ nhắc (một câu ngắn) — không cần check presence (cron chỉ active khi có người). Luôn emit `[HW:/emotion:{...}]` marker.
 
 ### Hành vi của agent
 
@@ -248,11 +247,10 @@ Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nó
 
 Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay vào đó, AI agent **tự schedule** music check qua OpenClaw cron jobs và **tự học** thói quen user theo thời gian:
 
-- **Tự schedule:** Khi nhận `presence.enter` đầu tiên trong ngày, AI tạo cron job (mặc định: mỗi 7 phút / 420000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). AI tự điều chỉnh interval dựa trên phản hồi của user.
+- **Tự schedule:** Khi phát hiện **hoạt động tĩnh đầu tiên** trong `motion.activity` (không phải `presence.enter`), AI tạo cron job (mặc định: mỗi 20 phút / 1200000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). AI tự điều chỉnh interval dựa trên phản hồi của user.
 - **Quyết định dựa trên dữ liệu:** Trước khi gợi ý, AI query:
-  - `GET /presence` — user có đang ở đó không?
-  - `GET /camera/snapshot` — đánh giá mood bằng hình ảnh
-  - `GET /api/openclaw/mood-history` — pattern hiện diện, kết quả gợi ý trước đó
+  - `GET /audio/status` — nhạc đang phát chưa?
+  - `GET /api/openclaw/mood-history` — mood mới nhất để chọn genre
   - `GET /audio/history?person={name}` — lịch sử nghe nhạc per-user (genre ưa thích, thời lượng, mức độ hài lòng)
 - **Vòng lặp học:** AI so sánh thời điểm gợi ý với `music.play` events trong mood history. Gợi ý được chấp nhận → củng cố timing/genre; bị từ chối → điều chỉnh schedule.
 - **Cá nhân hóa:** Theo thời gian, AI học được khi nào user thích nghe nhạc, thể loại nào, nghe bao lâu — và điều chỉnh gợi ý cho phù hợp.
