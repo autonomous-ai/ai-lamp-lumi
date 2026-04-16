@@ -154,6 +154,7 @@ class MusicService:
         self._stop_event = threading.Event()
         self._ytdlp_proc: Optional[subprocess.Popen] = None
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
+        self._aplay_proc: Optional[subprocess.Popen] = None
         self._current_title: Optional[str] = None
         # Per-play callback fired when ffmpeg actually starts (after yt-dlp resolves URL).
         # Set by play() each call; cleared after firing.
@@ -223,7 +224,7 @@ class MusicService:
     def stop(self):
         """Stop current playback."""
         self._stop_event.set()
-        for proc in [self._ffmpeg_proc, self._ytdlp_proc]:
+        for proc in [self._aplay_proc, self._ffmpeg_proc, self._ytdlp_proc]:
             if proc and proc.poll() is None:
                 try:
                     proc.terminate()
@@ -255,13 +256,21 @@ class MusicService:
                 [
                     "ffmpeg",
                     "-i", path,
+                    "-ac", "2",
                     "-ar", "44100",
-                    "-f", "alsa",
-                    self._alsa_device,
+                    "-f", "wav",
+                    "pipe:1",
                 ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self._aplay_proc = subprocess.Popen(
+                ["aplay", "-D", self._alsa_device, "-q"],
+                stdin=self._ffmpeg_proc.stdout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
+            self._ffmpeg_proc.stdout.close()
 
             while not self._stop_event.is_set():
                 ret = self._ffmpeg_proc.poll()
@@ -287,11 +296,13 @@ class MusicService:
             logger.error("File play failed: %s (type=%s)", e, type(e).__name__)
             _stopped_by = "error"
         finally:
-            if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
-                try:
-                    self._ffmpeg_proc.terminate()
-                except Exception:
-                    pass
+            for proc in [self._aplay_proc, self._ffmpeg_proc]:
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+            self._aplay_proc = None
             _log_play_event(path, self._current_title, _started_at, time.time(), _stopped_by, person)
             self._ffmpeg_proc = None
             self._playing = False
@@ -347,19 +358,29 @@ class MusicService:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
+            # ffmpeg decodes to raw PCM, aplay handles ALSA output.
+            # Direct ffmpeg -f alsa causes distorted audio on some wm8960 boards.
             self._ffmpeg_proc = subprocess.Popen(
                 [
                     "ffmpeg",
                     "-threads", "1",
                     "-i", "pipe:0",
+                    "-ac", "2",
                     "-ar", "44100",
-                    "-f", "alsa",
-                    self._alsa_device,
+                    "-f", "wav",
+                    "pipe:1",
                 ],
                 stdin=self._ytdlp_proc.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self._aplay_proc = subprocess.Popen(
+                ["aplay", "-D", self._alsa_device, "-q"],
+                stdin=self._ffmpeg_proc.stdout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
+            self._ffmpeg_proc.stdout.close()
             self._ytdlp_proc.stdout.close()
 
             # Notify caller that audio is actually starting (yt-dlp resolved, ffmpeg running).
@@ -396,13 +417,14 @@ class MusicService:
             logger.error("Music play failed: %s (type=%s)", e, type(e).__name__)
             _stopped_by = "error"
         finally:
-            for proc in [self._ffmpeg_proc, self._ytdlp_proc]:
+            for proc in [self._aplay_proc, self._ffmpeg_proc, self._ytdlp_proc]:
                 if proc and proc.poll() is None:
                     try:
                         proc.terminate()
                     except Exception:
                         pass
             _log_play_event(query, self._current_title, _started_at, time.time(), _stopped_by, person)
+            self._aplay_proc = None
             self._ffmpeg_proc = None
             self._ytdlp_proc = None
             self._playing = False

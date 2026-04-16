@@ -270,6 +270,8 @@ class TTSService:
                     np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32)
                     / 32768.0
                 )
+                # Boost TTS volume to match music loudness (speech is inherently quieter)
+                samples = np.clip(samples * 2.5, -1.0, 1.0)
                 if dst_rate != TTS_SAMPLE_RATE:
                     samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
                 if ttfb_tag and not first_audio_logged:
