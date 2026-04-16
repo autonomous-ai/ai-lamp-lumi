@@ -278,11 +278,11 @@ Mood history tracks the **user's emotional state** only — not system events or
 | Source | How it works |
 |---|---|
 | **Camera** (`source: "camera"`) | `motion.activity` detects emotional action (laughing, crying, yawning, singing) → Emotion Detection skill triggers → agent logs mood |
-| **Conversation** (`source: "conversation"`) | Agent scans the **overall conversation flow** — not just the latest message. Subtle cues count: short/curt replies → stress, repeated topics → worry, tone shifts → mood change. Works across all channels (Telegram, voice, web). |
+| **Conversation** (`source: "conversation"`) | Agent detects mood from what the user says — explicit ("I'm tired") or implied ("work is killing me" → stressed). Designed to be lightweight: agent trusts its read and logs immediately without deep analysis. Works across all channels (Telegram, voice, web). |
 
 #### Voice mood nudge
 
-Voice events (`voice_command`, `voice`) include a `[MANDATORY: Follow Mood skill — log mood now.]` nudge in the message sent to the agent, plus `[Current user: {name}]` when face recognition knows who is present. This ensures the agent scans mood from voice conversations — not just Telegram where conversation context is more obvious.
+Voice events (`voice_command`, `voice`) include a `[MANDATORY: Follow Mood skill — log mood now.]` nudge in the message sent to the agent, plus `[Current user: {name}]` when face recognition knows who is present.
 
 #### Storage format
 
