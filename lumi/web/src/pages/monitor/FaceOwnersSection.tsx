@@ -3,6 +3,17 @@ import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
 
+interface AudioHistoryEntry {
+  ts: number;
+  date: string;
+  hour: number;
+  query: string;
+  title: string;
+  duration_s: number;
+  stopped_by: string;
+  person: string;
+}
+
 interface CooldownEntry {
   person_id: string;
   kind: string;
@@ -49,6 +60,9 @@ export function FaceOwnersSection() {
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Audio history per user: { "gray": [...entries] }
+  const [audioHistory, setAudioHistory] = useState<Record<string, AudioHistoryEntry[]>>({});
+
   // Folder toggle state: "label:mood" => expanded
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // File preview state: { label, path, content, loading }
@@ -56,6 +70,17 @@ export function FaceOwnersSection() {
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const toggleDir = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const fetchAudioHistory = useCallback(async (person: string) => {
+    try {
+      const r = await fetch(`${HW}/audio/history?person=${encodeURIComponent(person)}&last=20`);
+      if (!r.ok) return;
+      const json = await r.json();
+      setAudioHistory((prev) => ({ ...prev, [person]: json.entries ?? [] }));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const openFile = async (label: string, filepath: string) => {
     const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(filepath);
@@ -498,6 +523,83 @@ export function FaceOwnersSection() {
                   </button>
                 </div>
               </div>
+
+              {/* Audio history */}
+              {(() => {
+                const histKey = `${person.label}:audio`;
+                const isOpen = expanded[histKey] ?? false;
+                const entries = audioHistory[person.label];
+                return (
+                  <div style={{ marginBottom: 8 }}>
+                    <span
+                      style={{
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontFamily: "monospace",
+                        color: "rgb(96,165,250)",
+                        fontWeight: 600,
+                      }}
+                      onClick={() => {
+                        toggleDir(histKey);
+                        if (!entries) fetchAudioHistory(person.label);
+                      }}
+                    >
+                      {isOpen ? "▾" : "▸"} ♫ audio history
+                      {entries && <span style={{ fontWeight: 400, color: "var(--lm-text-muted)" }}> ({entries.length})</span>}
+                    </span>
+                    {isOpen && entries && entries.length === 0 && (
+                      <div style={{ fontSize: 10, color: "var(--lm-text-muted)", fontStyle: "italic", marginLeft: 16, marginTop: 4 }}>
+                        No listening history yet
+                      </div>
+                    )}
+                    {isOpen && entries && entries.length > 0 && (
+                      <div style={{
+                        marginTop: 6,
+                        maxHeight: 180,
+                        overflowY: "auto",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}>
+                        {entries.slice().reverse().map((e, i) => {
+                          const time = new Date(e.ts * 1000);
+                          const hh = time.getHours().toString().padStart(2, "0");
+                          const mm = time.getMinutes().toString().padStart(2, "0");
+                          const dur = e.duration_s < 60
+                            ? `${Math.round(e.duration_s)}s`
+                            : `${Math.floor(e.duration_s / 60)}m${Math.round(e.duration_s % 60)}s`;
+                          const stopColor = e.stopped_by === "user" ? "var(--lm-amber)"
+                            : e.stopped_by === "end" ? "rgb(74,222,128)"
+                            : "var(--lm-text-muted)";
+                          return (
+                            <div key={i} style={{
+                              fontSize: 10,
+                              fontFamily: "monospace",
+                              padding: "4px 8px",
+                              borderRadius: 4,
+                              background: "var(--lm-surface)",
+                              border: "1px solid var(--lm-border)",
+                              lineHeight: 1.5,
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                <span style={{ color: "var(--lm-text)" }}>{e.title || e.query}</span>
+                                <span style={{ color: "var(--lm-text-muted)", whiteSpace: "nowrap", marginLeft: 8 }}>{hh}:{mm}</span>
+                              </div>
+                              <div style={{ display: "flex", gap: 8, color: "var(--lm-text-muted)", marginTop: 2 }}>
+                                <span>{dur}</span>
+                                <span style={{ color: stopColor }}>{e.stopped_by}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {isOpen && !entries && (
+                      <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 16, marginTop: 4 }}>Loading...</div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Folder tree */}
               <div style={{
