@@ -697,12 +697,14 @@ export function ChatSection({ events }: Props) {
     }, 50);
   }, [activeId]);
 
-  // Auto-scroll on new messages (only when already near bottom)
+  // Auto-scroll on new messages — always scroll if last message is pending (streaming)
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom) scrollToBottom();
+    const lastMsg = messages[messages.length - 1];
+    const hasPending = lastMsg?.pending;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+    if (nearBottom || hasPending) scrollToBottom();
   }, [messages, scrollToBottom]);
 
   // ─── Actions ────────────────────────────────────────────────────────────
@@ -897,6 +899,7 @@ export function ChatSection({ events }: Props) {
     setInput("");
     clearFile();
     setSending(true);
+    setTimeout(scrollToBottom, 50);
 
     const sendImage = attachedImage ?? fileBase64;
 
