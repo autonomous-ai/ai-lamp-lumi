@@ -29,6 +29,9 @@ def _history_dir(person: str = "") -> Path:
     """Return history directory for a person, or 'unknown' fallback."""
     if not person:
         person = "unknown"
+    # Normalize to lowercase — face recognition always uses lowercase person_id,
+    # but AI may capitalize names (e.g. "Gray" vs "gray").
+    person = person.lower()
     return _USERS_DIR / person / "audio_history"
 
 
@@ -49,6 +52,7 @@ def _log_play_event(
 ) -> None:
     """Append a play event to today's history file (per-user if person is set)."""
     try:
+        person = person.lower() if person else person
         hist_dir = _history_dir(person)
         hist_dir.mkdir(parents=True, exist_ok=True)
         entry = {

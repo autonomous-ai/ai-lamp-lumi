@@ -2745,7 +2745,7 @@ def audio_play(req: MusicPlayRequest):
         raise HTTPException(
             503, "Music service not available — missing sounddevice or numpy"
         )
-    person = req.person.strip()
+    person = req.person.strip().lower()
     logger.info("POST /audio/play: query='%s' person='%s'", req.query[:80], person)
     # Detect genre up front so the callback captures the right style.
     style = _detect_music_style(req.query)
@@ -2847,7 +2847,7 @@ def audio_history(date: str | None = None, person: str = "", last: int = 50):
     """
     from lelamp.service.voice.music_service import query_play_history
 
-    norm_person = person.strip() or DEFAULT_USER
+    norm_person = person.strip().lower() or DEFAULT_USER
     entries = query_play_history(person=norm_person, date_str=date, last=min(last, 500))
     return {"date": date or "today", "person": norm_person, "entries": entries, "count": len(entries)}
 
