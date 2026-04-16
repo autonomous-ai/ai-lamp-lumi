@@ -190,12 +190,11 @@ export default function Monitor() {
   const sectionRef = useRef(section);
   useEffect(() => { sectionRef.current = section; }, [section]);
 
-  // Section-aware polling: only fetch APIs the active section needs
+  // Section-aware polling: only fetch APIs the active section needs.
+  // Sidebar info polls at 10s, overview hardware at 5s.
   useEffect(() => {
-    const fetchForSection = async () => {
-      const s = sectionRef.current;
-
-      // Sidebar needs openclaw status + system info (version, uptime)
+    // Sidebar: openclaw status + system info (needed for all tabs)
+    const fetchSidebar = async () => {
       try {
         const [ocR, sysR] = await Promise.all([
           fetch(`${API}/openclaw/status`).then((r) => r.json()),
@@ -205,6 +204,7 @@ export default function Monitor() {
         if (sysR.status === 1) {
           const d = sysR.data;
           setSys(d);
+          const s = sectionRef.current;
           if (s === "overview" || s === "system") {
             setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
             setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
@@ -212,6 +212,11 @@ export default function Monitor() {
         }
         setLastUpdate(new Date().toLocaleTimeString());
       } catch {}
+    };
+
+    // Section-specific data
+    const fetchSection = async () => {
+      const s = sectionRef.current;
 
       if (s === "overview" || s === "system") {
         try {
@@ -222,13 +227,14 @@ export default function Monitor() {
 
       if (s === "overview") {
         try {
-          const hwR = await fetch(`${HW}/health`).then((r) => r.json());
+          const [hwR, presR, sceneR] = await Promise.all([
+            fetch(`${HW}/health`).then((r) => r.json()),
+            fetch(`${HW}/presence`).then((r) => r.json()),
+            fetch(`${HW}/scene`).then((r) => r.json()),
+          ]);
           setHw(hwR);
-        } catch {}
-
-        try {
-          const presR = await fetch(`${HW}/presence`).then((r) => r.json());
           setPresence(presR);
+          if (sceneR.scenes) setSceneInfo(sceneR);
         } catch {}
 
         try {
@@ -248,17 +254,14 @@ export default function Monitor() {
           if (ledR.hex) setLedColor(ledR);
           setDisplayTs(Date.now());
         } catch {}
-
-        try {
-          const sceneR = await fetch(`${HW}/scene`).then((r) => r.json());
-          if (sceneR.scenes) setSceneInfo(sceneR);
-        } catch {}
       }
     };
 
-    fetchForSection();
-    const t = setInterval(fetchForSection, 3000);
-    return () => clearInterval(t);
+    fetchSidebar();
+    fetchSection();
+    const tSidebar = setInterval(fetchSidebar, 10_000);
+    const tSection = setInterval(fetchSection, 5_000);
+    return () => { clearInterval(tSidebar); clearInterval(tSection); };
   }, []);
 
   // Flow data: only connect when flow or chat section is active

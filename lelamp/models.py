@@ -151,6 +151,8 @@ class CameraInfoResponse(BaseModel):
     available: bool
     width: Optional[int]
     height: Optional[int]
+    disabled: bool = False
+    manual_override: bool = False
 
 
 class EmotionRequest(BaseModel):

@@ -34,7 +34,7 @@ class SoundPerception(Perception):
         sd,
         np_module,
         send_event: Callable,
-        input_device: Optional[int] = None,
+        input_device=None,  # int (sounddevice index) or str (ALSA device name)
         tts_service=None,
     ):
         super().__init__(send_event)
