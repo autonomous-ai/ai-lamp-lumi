@@ -582,6 +582,7 @@ export function FaceOwnersSection() {
                             : `${Math.floor(e.duration_s / 60)}m${Math.round(e.duration_s % 60)}s`;
                           const stopColor = e.stopped_by === "user" ? "var(--lm-amber)"
                             : e.stopped_by === "end" ? "rgb(74,222,128)"
+                            : e.stopped_by === "error" ? "rgb(239,68,68)"
                             : "var(--lm-text-muted)";
                           return (
                             <div key={i} style={{
@@ -594,12 +595,18 @@ export function FaceOwnersSection() {
                               lineHeight: 1.5,
                             }}>
                               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                <span style={{ color: "var(--lm-text)" }}>{e.title || e.query}</span>
-                                <span style={{ color: "var(--lm-text-muted)", whiteSpace: "nowrap", marginLeft: 8 }}>{hh}:{mm}</span>
+                                <span style={{ color: "var(--lm-text)", fontWeight: 600 }}>{e.title || e.query}</span>
+                                <span style={{ color: "var(--lm-text-muted)", whiteSpace: "nowrap", marginLeft: 8 }}>{e.date} {hh}:{mm}</span>
                               </div>
-                              <div style={{ display: "flex", gap: 8, color: "var(--lm-text-muted)", marginTop: 2 }}>
+                              {e.title && e.query && e.title !== e.query && (
+                                <div style={{ color: "var(--lm-text-muted)", marginTop: 2 }}>
+                                  q: {e.query}
+                                </div>
+                              )}
+                              <div style={{ display: "flex", gap: 8, color: "var(--lm-text-muted)", marginTop: 2, flexWrap: "wrap" }}>
                                 <span>{dur}</span>
                                 <span style={{ color: stopColor }}>{e.stopped_by}</span>
+                                {e.person && <span>person: {e.person}</span>}
                               </div>
                             </div>
                           );
