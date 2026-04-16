@@ -590,8 +590,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										"total_tokens":       fmt.Sprintf("%d", u.TotalTokens),
 									},
 								})
-								// Auto-compact when context exceeds threshold
-								const autoCompactThreshold = 120_000
+								// Auto-compact when context exceeds threshold.
+								// chat.history TotalTokens undercounts by ~35K (excludes system prompt,
+								// tools, workspace bootstrap). Use 80K so actual context ~115K triggers compact.
+								const autoCompactThreshold = 80_000
 								if u.TotalTokens > autoCompactThreshold {
 									sk := h.agentGateway.GetSessionKey()
 									slog.Info("auto-compact triggered", "component", "agent",
