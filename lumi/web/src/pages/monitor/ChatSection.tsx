@@ -545,6 +545,13 @@ export function ChatSection({ events }: Props) {
           const delta = ev.summary ?? "";
           if (delta) {
             const buf = deltaBufRef.current.get(pending) ?? "";
+            // First token: update message time to now
+            if (!buf) {
+              const firstTokenTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+              updateMessages((prev) =>
+                prev.map((m) => m.runId === pending && m.pending ? { ...m, time: firstTokenTime } : m),
+              );
+            }
             deltaBufRef.current.set(pending, buf + delta);
             dirtyRef.current = true;
             scheduleFlush();
