@@ -2113,6 +2113,16 @@ def express_emotion(req: EmotionRequest):
         logger.info("Emotion: %s — LED restore scheduled in %.1fs (servo=%s)", req.emotion, restore_delay, servo_name)
         _schedule_led_restore(restore_delay)
 
+    # Camera reactive lifecycle: auto off/on based on preset "camera" field.
+    # sleepy → camera off (lamp going to sleep, no vision needed).
+    # Any non-off emotion while camera is auto-off → re-enable (active interaction detected).
+    # Respects manual override — if user explicitly disabled camera, skip.
+    cam = preset.get("camera")
+    if cam == "off":
+        _auto_camera_off(f"emotion:{req.emotion}")
+    elif _camera_disabled:
+        _auto_camera_on(f"emotion:{req.emotion}")
+
     return {
         "status": "ok",
         "emotion": req.emotion,

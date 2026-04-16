@@ -10,6 +10,8 @@ VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pu
 # Emotion presets: maps emotion name to servo recording + LED color + optional LED effect.
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
 # When no "effect" is set, LED is a simple solid fill.
+# "camera": "off" = auto-disable camera (e.g. sleepy — lamp going to sleep)
+# omitted         = if camera is auto-off, re-enable (active interaction detected)
 EMOTION_PRESETS = {
     "curious":       {"servo": "curious",       "color": [255, 191, 0],   "effect": "breathing",          "speed": 1.0},
     "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "candle",             "speed": 1.0},
@@ -22,7 +24,7 @@ EMOTION_PRESETS = {
     "listening":     {"servo": "listening",     "color": [51, 121, 230],  "effect": "pulse",              "speed": 0.6},
     "laugh":         {"servo": "laugh",         "color": [230, 191, 51],  "effect": "blink",              "speed": 1.2},
     "confused":      {"servo": "confused",      "color": [224, 71, 25],   "effect": "candle",             "speed": 0.6},
-    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.5},
+    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.5, "camera": "off"},
     "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "blink",              "speed": 0.8},
     "goodbye":       {"servo": "goodbye",       "color": [255, 180, 100], "effect": "breathing",          "speed": 0.5},
     "caring":        {"servo": "nod",           "color": [255, 160, 120], "effect": "breathing",          "speed": 0.4},

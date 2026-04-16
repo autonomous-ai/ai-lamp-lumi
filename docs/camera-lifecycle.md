@@ -119,9 +119,9 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
    - `night`, `focus`, `reading`, `movie` → `_auto_camera_off("scene:{name}")`
    - `energize`, `relax` → `_auto_camera_on("scene:{name}")`
 
-4. **Emotion endpoint** (`/emotion`): 
-   - `sleepy` → stop camera if not manual override
-   - Any other emotion when camera off and not manual override → start camera
+4. **Emotion endpoint** (`/emotion`): ✅ Done — preset "camera" field drives behavior:
+   - `sleepy` has `"camera": "off"` → `_auto_camera_off("emotion:sleepy")`
+   - Any non-off emotion when camera is auto-off → `_auto_camera_on("emotion:{name}")`
 
 5. **Presence service**: When state → `away` → stop camera if not manual override.
 
