@@ -123,7 +123,7 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
    - `sleepy` has `"camera": "off"` → `_auto_camera_off("emotion:sleepy")`
    - Any non-off emotion when camera is auto-off → `_auto_camera_on("emotion:{name}")`
 
-5. **Presence service**: When state → `away` → stop camera if not manual override.
+5. **Presence service**: ❌ Skipped — camera stays on when away. Turning off would break auto-greeting (face detect → presence.enter) when user returns. CPU cost not worth losing autonomous detection.
 
 6. **Sound perception**: When camera off and RMS spike detected → start camera, set auto-off timer (30s no face → stop again).
 
