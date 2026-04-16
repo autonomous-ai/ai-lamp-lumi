@@ -119,12 +119,19 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         if isinstance(device_id, str) and device_id.isdigit():
             device_id = int(device_id)
 
-        video_capture = cv2.VideoCapture(device_id)
+        video_capture = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
+        if not video_capture.isOpened():
+            # Fallback: try default backend in case hardware changes
+            video_capture = cv2.VideoCapture(device_id)
 
         if not video_capture.isOpened():
             raise ValueError(
                 f"Failed to open video capture device: {self.device_info.device_id}"
             )
+
+        # Force MJPEG format — some USB webcams (e.g. Generalplus) fail read()
+        # with the default YUYV format on Pi 5 but work fine with MJPEG.
+        video_capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
         w = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -162,7 +169,13 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
                 ret, frame = video_capture.read()
 
                 if not ret:
-                    break
+                    # Some webcams need a few warmup reads before producing frames
+                    self._logger.warning("Camera read() failed, retrying in 1s...")
+                    time.sleep(1)
+                    ret, frame = video_capture.read()
+                    if not ret:
+                        self._logger.error("Camera read() failed twice, exiting loop")
+                        break
 
                 frame_ts = time.time()
 
