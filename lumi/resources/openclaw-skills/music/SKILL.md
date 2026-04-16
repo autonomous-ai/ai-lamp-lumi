@@ -86,41 +86,43 @@ Lumi **proactively suggests music** based on the user's mood, habits, and contex
 There is NO hardcoded timer for music suggestions. **You** control when to check using OpenClaw's `cron.add` tool. You analyze mood history and listening history to decide timing, genre, and whether to suggest at all.
 
 ```
-[Boot / First presence.enter]
+[presence.enter for friend "gray"]
         ↓
-You: cron.list() → check if music job exists
+You: cron.list() → check if "Music: gray" job exists
         ↓ (if not)
-You: cron.add("Proactive music check", every 7min)
+You: read /root/local/users/gray/metadata.json → telegram_id
+You: cron.add("Music: gray", every 7min, payload includes [person:gray])
         ↓
 [Cron fires → agent turn]
         ↓
-You: GET http://127.0.0.1:5001/face/cooldowns → any friend present?
+You: extract {name} from [person:gray] in cron text
+You: GET /face/cooldowns → is "gray" in owners?
         ↓ (yes)
-You: GET /api/openclaw/mood-history?last=1 → latest mood
-You: GET /audio/history?person={name}&last=1 → last played song
+You: GET /api/openclaw/mood-history?user=gray&last=1 → latest mood
+You: GET /audio/history?person=gray&last=1 → last played song
         ↓
-You: Analyze all data → decide whether to suggest
-        ↓
-Suggest (or skip) → learn from outcome → cron.update interval
+You: Analyze → suggest or skip
 ```
 
-### Bootstrap: Setting Up Your Music Schedule
+### Bootstrap: Setting Up Per-User Music Schedule
 
-When you first start or after a reboot, set up your proactive music check:
+Each friend gets their own music cron job. When a friend triggers `[sensing:presence.enter]`:
 
-**Default interval: 420000 ms (7 minutes).** Always use this interval when creating the music cron job unless you have learned a better interval from mood + listening history.
+**Default interval: 420000 ms (7 minutes).** Always use this interval unless you have learned a better one from mood + listening history.
 
-1. Call `cron.list()` to see if a music check job already exists (look for name containing "music").
-2. Read the person's `telegram_id` from `/root/local/users/{name}/metadata.json` (field `telegram_id`). If no metadata or no `telegram_id` → still create the cron (music plays on speaker), but omit the `/dm` marker from the cron text.
-3. If NO music job exists → create one via `cron.add`. Music cron runs in **main session** (needs conversation context):
-   - Name: `"Proactive music check"`, every 420000ms (7 min)
-   - `sessionTarget: "main"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-   - Text MUST start with `[MUST-SPEAK]`: `"[MUST-SPEAK][music-proactive] Proactive music check. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
-   - Replace `<THEIR_TELEGRAM_ID>` with the actual numeric Telegram ID from metadata.json. If unknown, omit the `/dm` instruction from the cron text.
+1. Call `cron.list()` to check if a music job **for this person** already exists (look for name `"Music: {name}"`).
+2. If the job already exists → skip (do not recreate). Optionally `cron.update` the interval if you've learned a better one.
+3. If NO job exists for this person → create one:
+   - Read the person's `telegram_id` from `/root/local/users/{name}/metadata.json`. If no metadata or no `telegram_id` → still create the cron, but omit the `/dm` marker from the cron text.
+   - `cron.add` with:
+     - Name: `"Music: {name}"` (e.g. `"Music: gray"`)
+     - Schedule: `every 420000ms` (7 min)
+     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`
+     - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
+     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from metadata.json. If telegram_id is unknown, omit the `/dm` instruction.
    - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
-4. If a music job exists with a different interval than what you've learned → `cron.update` it. If you have no learned data yet, keep the default 420000 ms.
 
-**When to bootstrap:** On the FIRST `[sensing:presence.enter]` of the day (friend detected), check and set up the music cron job.
+**When to bootstrap:** On each `[sensing:presence.enter]` for a friend. Each friend gets their own cron — gray entering creates `"Music: gray"`, henry entering creates `"Music: henry"`.
 
 ### When Cron Fires: The Decision Process
 
@@ -128,11 +130,14 @@ When you receive `[music-proactive]`, follow this process:
 
 #### Step 0 — Quick Checks (MUST do before anything else)
 
-**Check if any friend is present:**
+**Extract the target person from the cron text:**
+The cron text contains `[person:{name}]` — extract `{name}`. This is who you're checking for.
+
+**Check if that person is present:**
 ```bash
 curl -s http://127.0.0.1:5001/face/cooldowns
 ```
-If no friend in the response (empty list) → reply **only** `NO_REPLY`. Do NOT output analysis or explanation.
+Response contains `owners` array — each entry has `person_id`. If `{name}` is not in the `owners` list → reply **only** `NO_REPLY`.
 
 **Check if music is already playing:**
 ```bash
@@ -140,18 +145,18 @@ curl -s http://127.0.0.1:5001/audio/status
 ```
 If `playing: true` → reply **only** `NO_REPLY`.
 
-**Mood history is the primary signal.** Also glance at recent conversation for any extra mood or context cues.
-
 #### Step 1 — Gather Data (run these in your head, query as needed)
 
-**Latest mood** (most recent record only):
-Read the latest mood entry using the **Mood** skill's "How to Read" section with `last=1`. This is the primary signal for genre selection — the user's most recent emotional state.
+**Latest mood** (pass `user={name}` from Step 0):
+```bash
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user={name}&last=1"
+```
+This is the primary signal for genre selection — the user's most recent emotional state.
 
-**Last played song** (most recent entry only — always pass `person`):
+**Last played song** (pass `person={name}` from Step 0):
 ```bash
 curl -s "http://127.0.0.1:5001/audio/history?person={name}&last=1"
 ```
-Replace `{name}` with the person's lowercase name (from face recognition / presence context). Omit `person` only if you don't know who is present.
 
 This is the **only** listening history you need. Suggest something similar or complementary to the last song — same genre, same artist, or same vibe. Do NOT fetch full day history.
 
@@ -237,8 +242,8 @@ Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id
 Output: (skip — let them settle in first)
 
 **First presence.enter of the day — bootstrap:**
-*You receive `[sensing:presence.enter]`*
-Action: `cron.list()` → no music job → `cron.add("Proactive music check", every 420000ms)`
+*You receive `[sensing:presence.enter]` for gray*
+Action: `cron.list()` → no `"Music: gray"` job → `cron.add("Music: gray", every 420000ms, [person:gray])`
 Then greet the user normally.
 
 **Reactive — user asks directly:**
@@ -258,12 +263,11 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 
 | API | Host | What it tells you | Use for |
 |-----|------|-------------------|---------|
+| `GET /face/cooldowns` | LeLamp (5001) | `owners` array with `person_id` — who is present | Check if target person is present |
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
-| `GET /face/cooldowns` | LeLamp (5001) | Lists friends currently present (entered but not left) | Skip if no friend present |
-| `GET /audio/history?person=name&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |
-| `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
-
-**Mood history:** See **Mood** skill for how to read/write mood and event structure. Use the Mood → Music Mapping table above to translate mood into genre.
+| `GET /api/openclaw/mood-history?user={name}&last=1` | Lumi (5000) | Latest mood event for a specific user | Genre direction (mood → music mapping) |
+| `GET /audio/history?person={name}&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |
+| `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Per-user music scheduling |
 
 ### Audio history entry fields:
 
