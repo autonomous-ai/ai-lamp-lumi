@@ -1184,7 +1184,7 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 // MoodHistory returns mood-relevant sensing events for music suggestion context.
 // Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
 func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
-	user := c.DefaultQuery("user", mood.CurrentUser())
+	user := strings.ToLower(strings.TrimSpace(c.DefaultQuery("user", mood.CurrentUser())))
 	if user == "" {
 		user = mood.DefaultUser
 	}
