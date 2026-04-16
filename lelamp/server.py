@@ -1677,6 +1677,8 @@ def disable_camera():
     global _camera_disabled, _camera_manual_override
     if not camera_capture:
         raise HTTPException(503, "Camera not available")
+    if _camera_disabled:
+        return {"status": "already_disabled"}
     _camera_disabled = True
     _camera_manual_override = True
     camera_capture.stop()
@@ -1690,6 +1692,8 @@ def enable_camera():
     global _camera_disabled, _camera_manual_override
     if not camera_capture:
         raise HTTPException(503, "Camera not available")
+    if not _camera_disabled:
+        return {"status": "already_enabled"}
     _camera_disabled = False
     _camera_manual_override = False
     camera_capture.start()
