@@ -125,25 +125,29 @@ Manual override does NOT get auto-overridden by scene/emotion/presence triggers.
 
 5. **Presence service**: ❌ Skipped — camera stays on when away. Turning off would break auto-greeting (face detect → presence.enter) when user returns. CPU cost not worth losing autonomous detection.
 
-6. **Sound perception**: When camera off and RMS spike detected → start camera, set auto-off timer (30s no face → stop again).
+6. **Sound perception**: ❌ Skipped — camera off cases (scene/emotion/manual) all have explicit re-enable paths. Sound spike adds complexity (30s timer, face check) without covering new cases.
 
-7. **`_tick()` in sensing_service**: Already handles `frame = None` when camera stopped — vision perceptions get `None` frame and skip. No code change needed here.
+7. **`_tick()` in sensing_service**: ✅ Already works — `frame = None` when camera stopped, vision perceptions skip. No change needed.
 
 ### Lumi (Go)
 
-8. **Voice service / wake word**: When wake word detected, POST `/camera/enable` to LeLamp before processing.
+8. **Voice service / wake word**: ❌ Skipped — wake word → agent → emotion preset `"camera": "on"` already re-enables camera automatically. No need for early enable.
 
-9. **Healthwatch**: No change needed — camera state is independent of health monitoring.
+9. **Healthwatch**: ✅ No change needed — camera state is independent of health monitoring.
 
 ### OpenClaw Skills
 
-10. **Camera skill** (`servo-control/SKILL.md` or new `camera/SKILL.md`): Add examples:
-    - "đừng nhìn" → `[HW:/camera/disable:{}]`
-    - "nhìn xem" → `[HW:/camera/enable:{}]`
+10. **Camera skill**: ✅ Done — voice/chat toggle + auto-enable before capture.
+
+11. **Scene / Emotion SKILL.md**: ❌ Skipped — camera toggle is automatic in server.py via preset `"camera"` field. Agent doesn't need to know.
+
+### Lumi Go (intent.go, lib/lelamp)
+
+12. **intent.go + lib/lelamp/client.go**: ❌ Skipped — local intents call `/scene` endpoint which already handles camera via preset. No Go-side camera helpers needed.
 
 ### Web Monitor
 
-11. Already done — Camera tab has Enable/Disable toggle.
+13. ✅ Already done — Camera tab has Enable/Disable toggle.
 
 ## Skill Changes Needed
 
