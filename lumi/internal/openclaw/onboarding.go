@@ -68,7 +68,6 @@ var skills = []string{
 	"led-control",
 	"music",
 	"scene",
-	"scheduling",
 	"sensing",
 	"sensing-track",
 	"servo-control",
@@ -105,6 +104,7 @@ func (s *Service) EnsureOnboarding() error {
 		}
 	}
 	changedSkills := s.downloadSkills()
+
 
 	// Download hooks from CDN
 	hooksDir := filepath.Join(workspace, "hooks")
