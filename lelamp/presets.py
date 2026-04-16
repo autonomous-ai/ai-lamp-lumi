@@ -37,13 +37,16 @@ EMOTION_PRESETS = {
 
 # Lighting scene presets — simulated color temperature via RGB mixing.
 # 2200K = very warm amber, 2700K = warm white, 4000K = neutral, 5000K = cool, 6500K = daylight
+# "camera": "off" = auto-disable camera (idle scene, no vision needed)
+# "camera": "on"  = auto-enable camera (active scene, vision useful)
+# omitted          = no camera change
 SCENE_PRESETS = {
-    "reading":  {"brightness": 0.80, "color": [255, 225, 180], "aim": "desk"},   # ~4000K neutral
-    "focus":    {"brightness": 1.00, "color": [235, 240, 255], "aim": "desk"},   # ~5000K cool white
-    "relax":    {"brightness": 0.40, "color": [255, 180, 100], "aim": "wall"},   # ~2700K warm
-    "movie":    {"brightness": 0.15, "color": [255, 170, 80],  "aim": "wall"},   # ~2700K dim amber
-    "night":    {"brightness": 0.05, "color": [255, 140, 40],  "aim": "down"},   # ~2200K very warm
-    "energize": {"brightness": 1.00, "color": [220, 235, 255], "aim": "up"},     # ~6500K daylight
+    "reading":  {"brightness": 0.80, "color": [255, 225, 180], "aim": "desk", "camera": "off"},   # ~4000K neutral
+    "focus":    {"brightness": 1.00, "color": [235, 240, 255], "aim": "desk", "camera": "off"},   # ~5000K cool white
+    "relax":    {"brightness": 0.40, "color": [255, 180, 100], "aim": "wall", "camera": "on"},    # ~2700K warm
+    "movie":    {"brightness": 0.15, "color": [255, 170, 80],  "aim": "wall", "camera": "off"},   # ~2700K dim amber
+    "night":    {"brightness": 0.05, "color": [255, 140, 40],  "aim": "down", "camera": "off"},   # ~2200K very warm
+    "energize": {"brightness": 1.00, "color": [220, 235, 255], "aim": "up",   "camera": "on"},    # ~6500K daylight
 }
 
 # Servo aim presets — named lamp-head directions mapped to joint positions (normalized -100..100).

@@ -2168,15 +2168,12 @@ def activate_scene(req: SceneRequest):
             name=f"scene-aim-{aim_dir}",
         ).start()
 
-    # Camera reactive lifecycle: auto off/on based on scene type.
-    # Idle scenes (night, focus, reading, movie) don't need vision — save CPU/RAM.
-    # Active scenes (energize, relax) re-enable vision for face/presence detection.
+    # Camera reactive lifecycle: auto off/on based on preset "camera" field.
     # Respects manual override — if user explicitly disabled camera, skip.
-    _CAMERA_OFF_SCENES = {"night", "focus", "reading", "movie"}
-    _CAMERA_ON_SCENES = {"energize", "relax"}
-    if req.scene in _CAMERA_OFF_SCENES:
+    cam = preset.get("camera")
+    if cam == "off":
         _auto_camera_off(f"scene:{req.scene}")
-    elif req.scene in _CAMERA_ON_SCENES:
+    elif cam == "on":
         _auto_camera_on(f"scene:{req.scene}")
 
     return {
