@@ -1664,27 +1664,61 @@ def get_camera_info():
 
 @app.post("/camera/disable", response_model=StatusResponse, tags=["Camera"])
 def disable_camera():
-    """Stop the camera capture loop. Saves CPU/RAM. Sensing skips vision perceptions.
-    Call /camera/enable to restart."""
-    global _camera_disabled
+    """Stop the camera capture loop (manual). Sets manual override so auto triggers
+    (scene, emotion, presence) cannot re-enable. Call /camera/enable to restart."""
+    global _camera_disabled, _camera_manual_override
     if not camera_capture:
         raise HTTPException(503, "Camera not available")
     _camera_disabled = True
+    _camera_manual_override = True
     camera_capture.stop()
-    logger.info("Camera disabled by user")
+    logger.info("Camera disabled by user (manual override set)")
     return {"status": "ok"}
 
 
 @app.post("/camera/enable", response_model=StatusResponse, tags=["Camera"])
 def enable_camera():
-    """Restart the camera capture loop after /camera/disable."""
-    global _camera_disabled
+    """Restart the camera capture loop (manual). Clears manual override."""
+    global _camera_disabled, _camera_manual_override
     if not camera_capture:
         raise HTTPException(503, "Camera not available")
     _camera_disabled = False
+    _camera_manual_override = False
     camera_capture.start()
-    logger.info("Camera re-enabled by user")
+    logger.info("Camera re-enabled by user (manual override cleared)")
     return {"status": "ok"}
+
+
+def _auto_camera_off(reason: str) -> bool:
+    """Auto-disable camera (called by scene/emotion/presence triggers).
+    Respects manual override — if user explicitly disabled, skip.
+    Returns True if camera was stopped, False if skipped."""
+    global _camera_disabled
+    if _camera_manual_override:
+        logger.debug("Auto camera off skipped — manual override active (reason: %s)", reason)
+        return False
+    if not camera_capture or _camera_disabled:
+        return False
+    _camera_disabled = True
+    camera_capture.stop()
+    logger.info("Camera auto-disabled (reason: %s)", reason)
+    return True
+
+
+def _auto_camera_on(reason: str) -> bool:
+    """Auto-enable camera (called by scene/emotion/presence/sound triggers).
+    Respects manual override — if user explicitly disabled, skip.
+    Returns True if camera was started, False if skipped."""
+    global _camera_disabled
+    if _camera_manual_override:
+        logger.debug("Auto camera on skipped — manual override active (reason: %s)", reason)
+        return False
+    if not camera_capture or not _camera_disabled:
+        return False
+    _camera_disabled = False
+    camera_capture.start()
+    logger.info("Camera auto-enabled (reason: %s)", reason)
+    return True
 
 
 _SNAPSHOT_DIR = "/tmp/lumi-snapshots"
