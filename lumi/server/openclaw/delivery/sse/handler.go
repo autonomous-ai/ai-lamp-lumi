@@ -595,12 +595,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 								// tools, workspace bootstrap). Use 80K so actual context ~115K triggers compact.
 								const autoCompactThreshold = 80_000
 								if u.TotalTokens > autoCompactThreshold {
-									sk := h.agentGateway.GetSessionKey()
 									slog.Info("auto-compact triggered", "component", "agent",
-										"total_tokens", u.TotalTokens, "threshold", autoCompactThreshold,
-										"sessionKey", sk)
+										"total_tokens", u.TotalTokens, "threshold", autoCompactThreshold)
 									go func() {
-										if err := h.agentGateway.CompactSession(sk); err != nil {
+										// Notify user via TTS
+										resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
+											strings.NewReader(`{"text":"Hold on, tidying up a bit.","interruptible":true}`))
+										if err == nil {
+											resp.Body.Close()
+										}
+										if _, err := h.agentGateway.SendChatMessage("/compact"); err != nil {
 											slog.Error("auto-compact failed", "component", "agent", "error", err)
 										}
 									}()
