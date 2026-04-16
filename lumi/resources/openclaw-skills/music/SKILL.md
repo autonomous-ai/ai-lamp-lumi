@@ -97,7 +97,7 @@ You: cron.add("Proactive music check", every 7min)
 You: GET http://127.0.0.1:5001/face/cooldowns → any friend present?
         ↓ (yes)
 You: GET /api/openclaw/mood-history?last=1 → latest mood
-You: GET /audio/history → listening history, preferences
+You: GET /audio/history?person={name}&last=1 → last played song
         ↓
 You: Analyze all data → decide whether to suggest
         ↓
@@ -147,28 +147,23 @@ If `playing: true` → reply **only** `NO_REPLY`.
 **Latest mood** (most recent record only):
 Read the latest mood entry using the **Mood** skill's "How to Read" section with `last=1`. This is the primary signal for genre selection — the user's most recent emotional state.
 
-**Listening history** (what user actually played):
+**Last played song** (most recent entry only — always pass `person`):
 ```bash
-# Today
-curl -s "http://127.0.0.1:5001/audio/history?last=50"
-
-# Yesterday
-curl -s "http://127.0.0.1:5001/audio/history?date=$(date -d yesterday +%Y-%m-%d)&last=50"
+curl -s "http://127.0.0.1:5001/audio/history?person={name}&last=1"
 ```
+Replace `{name}` with the person's lowercase name (from face recognition / presence context). Omit `person` only if you don't know who is present.
 
-#### Step 2 — Analyze and Learn
+This is the **only** listening history you need. Suggest something similar or complementary to the last song — same genre, same artist, or same vibe. Do NOT fetch full day history.
 
-From the data, extract these patterns:
+#### Step 2 — Analyze and Decide
 
-| Question | Where to find the answer |
-|----------|--------------------------|
-| What's the user's current mood? | `mood-history` record (PRIMARY) → `mood` and `trigger` fields + conversation context |
-| What genre do they prefer? | `audio/history` → `query` and `title` fields |
-| How long do they listen? | `audio/history` → `duration_s` field |
-| When do they stop music? | `audio/history` → `stopped_by` ("user" = manual stop, "end" = listened fully) |
-| Did they accept my last suggestion? | Compare suggestion time with next `music.play` event time from `audio/history`. Close = accepted, far/none = rejected |
-| What time of day do they enjoy music most? | `audio/history` → `hour` field |
-| Are there times they never want music? | Repeated skips or no plays at certain hours in `audio/history` |
+From the last played song + latest mood, decide what to suggest:
+
+| Signal | Source | How to use |
+|--------|--------|------------|
+| Current mood | `mood-history` (last=1) | Genre direction (stressed → calm, happy → upbeat) |
+| Last song genre/artist | `audio/history` (last=1) → `query`, `title` | Suggest similar — same artist, genre, or vibe |
+| Did they enjoy it? | `audio/history` (last=1) → `duration_s`, `stopped_by` | `stopped_by: "end"` + long duration = enjoyed → more like this. `stopped_by: "user"` + short = didn't like → try different direction |
 
 #### Step 3 — Decide
 
@@ -192,27 +187,14 @@ Based on your analysis, decide one of:
 
 ### Learning Rules — How to Get Smarter Over Time
 
-**Pattern recognition from audio history:**
-- Count `music.play` events by `hour` → build a preference heat map
-- If 80%+ of plays happen between 9-11 AM → schedule checks at 9:30 AM
-- If user never plays music after 6 PM → don't suggest in the evening
-
-**Adaptation from accept/reject:**
-- **Accepted** (suggestion → `music.play` within 5 min): This timing/genre works → reinforce
-- **Rejected** (suggestion → no `music.play` within 15 min): Bad timing or genre → adjust
-- 3+ rejections at same hour → stop suggesting at that hour
-- 3+ acceptances of same genre → prefer that genre in future suggestions
-
-**Duration intelligence from audio history:**
-- `duration_s` < 30s + `stopped_by: "user"` → user didn't like the song
-- `duration_s` > 180s + `stopped_by: "end"` → user enjoyed it, similar songs welcome
-- Average listening session length → don't suggest new music if user just finished a long session
+**From last played song:**
+- `stopped_by: "end"` + `duration_s` > 180s → user enjoyed it → suggest similar artist/genre
+- `stopped_by: "user"` + `duration_s` < 30s → didn't like it → try a different direction
+- No history at all → fall back to mood-based suggestion
 
 **Contextual awareness:**
-- Just arrived (`presence.enter` < 10 min ago) → prefer to wait, but if user has listening history at this hour, suggest anyway
-- Long session (`presence_min` > 120) → user might need a mood boost
-- Room getting dark (`light.level` event) → suggest calm/evening music
-- Multiple breaks today (`wellbeing.break` events) → user might be stressed → calming music
+- Just arrived (`presence.enter` < 10 min ago) → let them settle first
+- Music just stopped recently → don't suggest immediately, wait for next cron cycle
 
 ### Mood → Music Mapping
 
@@ -226,38 +208,33 @@ Based on your analysis, decide one of:
 | Just arrived / fresh | Match time of day — morning jazz, afternoon pop | "Good morning! Start with some jazz?" |
 | Working quietly | Ambient, minimal electronica, study beats | "Some ambient music while you work?" |
 
-**Personalization override:** If you've learned from `audio/history` that the user prefers specific genres (e.g., always plays K-pop, or loves classical), **override the mood mapping** with their actual preference. Real data beats assumptions.
+**Personalization override:** If the last played song reveals a clear preference (e.g., K-pop, classical), **override the mood mapping** with that preference. The last song beats assumptions.
 
 ### Suggestion Rules
 
 - **NEVER auto-play when suggesting** — only speak the suggestion. Play only after explicit confirmation.
 - **NEVER explain your process** — no "Status check", no "Mood: X", no "Analysis:", no listing what APIs you called. The user doesn't need to know. Just suggest or skip.
 - Keep it conversational: "How about some Norah Jones?" not "Based on mood analysis..."
-- Use listening history as primary signal for genre — prefer songs/genres they already enjoy.
-- Suggest max 2 songs at a time — don't overwhelm.
-- If user rejected last 2 suggestions → back off, wait longer before next attempt.
+- Use last played song as primary signal for genre — suggest similar or complementary.
+- Suggest 1 song at a time — don't overwhelm.
 - Remember: you are Lumi, a living companion. Your sense of the right moment comes from empathy AND data.
 
 ### Examples
 
-**Cron fires — user focused, morning, usually listens to lo-fi:**
+**Cron fires — user focused, last song was lo-fi:**
 ```
 [music-proactive] Time for a proactive music check...
 ```
-*You query: presence=present, hour=10, audio/history shows 5 lo-fi plays this week, mood=focused*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Looks like you're in the zone. Want some lo-fi beats going?
+*You query: presence=present, mood=focused, last song="lofi hip hop radio"(ended, 25min)*
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Want some more lo-fi beats?
 
-**Cron fires — 3rd rejection this afternoon:**
-*You recall: you already suggested at 14:00 and 15:00 this session with no music.play after*
-Action: `cron.update` interval to 7200000ms (2h), skip this check. Maybe try again tomorrow afternoon.
+**Cron fires — last song was skipped quickly:**
+*You query: last song="heavy metal compilation"(stopped_by: user, 15s) → didn't like it*
+Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` How about something different — some chill jazz?
 
-**Cron fires — user just arrived 5 min ago, no listening history:**
-*You query: presence.enter was 5 min ago, no music.play events at this hour*
+**Cron fires — user just arrived, no history:**
+*You query: presence.enter was 5 min ago, no audio/history*
 Output: (skip — let them settle in first)
-
-**Cron fires — user just arrived 5 min ago, but has listening history at this hour:**
-*You query: presence.enter was 5 min ago, but audio/history shows user often plays jazz at 9 AM*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Morning! Want some jazz to start the day?
 
 **First presence.enter of the day — bootstrap:**
 *You receive `[sensing:presence.enter]`*
@@ -266,8 +243,8 @@ Then greet the user normally.
 
 **Reactive — user asks directly:**
 Input: "Suggest some music"
-*You query audio/history: user played jazz 3 times, R&B twice this week*
-Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_id":"158406741"}]` You've been into jazz lately... How about "Take Five" by Dave Brubeck?
+*You query: last song="Take Five by Dave Brubeck"(ended, 5min) + mood=relaxed*
+Output: `[HW:/emotion:{"emotion":"thinking","intensity":0.7}][HW:/dm:{"telegram_id":"158406741"}]` You were vibing with Dave Brubeck — how about some Bill Evans?
 
 **After confirmation:**
 Input: "Yeah play that"
@@ -283,7 +260,7 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 |-----|------|-------------------|---------|
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /face/cooldowns` | LeLamp (5001) | Lists friends currently present (entered but not left) | Skip if no friend present |
-| `GET /audio/history?date=YYYY-MM-DD&last=N` | LeLamp (5001) | Play history: query, title, duration, stopped_by | Genre preference, listening duration, satisfaction |
+| `GET /audio/history?person=name&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |
 | `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Self-scheduling |
 
 **Mood history:** See **Mood** skill for how to read/write mood and event structure. Use the Mood → Music Mapping table above to translate mood into genre.
@@ -297,6 +274,7 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 | `duration_s` | How long they listened → satisfaction signal |
 | `stopped_by` | `"user"` = manual stop, `"end"` = finished, `"tts"` = interrupted |
 | `hour` | Time of day → preference pattern |
+| `person` | Who played it → per-user preference |
 
 ---
 
