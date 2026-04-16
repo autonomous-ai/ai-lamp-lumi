@@ -42,7 +42,7 @@ STALL_TIMEOUT_S = float(os.environ.get("LELAMP_BACKCHANNEL_STALL_S", "0.1"))
 # Minimum seconds between two consecutive cues (prevents spamming).
 MIN_INTERVAL_S = float(os.environ.get("LELAMP_BACKCHANNEL_INTERVAL_S", "3.0"))
 # Volume multiplier for cue audio relative to normal TTS (0.0 = silent, 1.0 = full).
-VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "0.5"))
+VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "0.8"))
 
 
 class Backchannel:
