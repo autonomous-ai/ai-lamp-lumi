@@ -89,17 +89,19 @@ func (s *Service) downloadSkillsByName(names []string) []string {
 	return changed
 }
 
-// notifySkillChanges sends a message to the agent for each changed skill.
+// notifySkillChanges sends a single message to the agent listing all changed skills.
 func (s *Service) notifySkillChanges(changedSkills []string) {
 	if len(changedSkills) == 0 {
 		return
 	}
 	slog.Info("skills updated, notifying agent", "component", "skill-watcher", "changed", changedSkills)
+	list := ""
 	for _, name := range changedSkills {
-		msg := fmt.Sprintf("[system] The skill '%s' has been updated. Re-read skills/%s/SKILL.md now — the file on disk has changed. Follow the updated instructions strictly.", name, name)
-		if _, err := s.SendChatMessage(msg); err != nil {
-			slog.Warn("notify agent failed", "component", "skill-watcher", "skill", name, "error", err)
-		}
+		list += fmt.Sprintf("\n- skills/%s/SKILL.md", name)
+	}
+	msg := fmt.Sprintf("[system] The following skills have been updated. Re-read them now — files on disk have changed. Follow the updated instructions strictly.%s", list)
+	if _, err := s.SendChatMessage(msg); err != nil {
+		slog.Warn("notify agent failed", "component", "skill-watcher", "error", err)
 	}
 }
 
