@@ -63,7 +63,7 @@ YUNET_CONFIDENCE_THRESHOLD = float(
 )
 FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
 FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "300.0"))
-FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "300.0"))
+FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "1800.0"))
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
 # --- Sensing: Motion detection (X3D video action recognition) ---
