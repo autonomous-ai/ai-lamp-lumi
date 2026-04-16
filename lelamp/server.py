@@ -1643,6 +1643,10 @@ def stop_led_effect():
 
 
 _camera_disabled = False
+# Manual override: True when user explicitly disabled camera (web toggle or voice command).
+# Auto triggers (scene, emotion, presence) check this flag and skip camera toggle if True.
+# Cleared only by explicit user action: web enable or voice "camera on" / "nhìn xem".
+_camera_manual_override = False
 
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
