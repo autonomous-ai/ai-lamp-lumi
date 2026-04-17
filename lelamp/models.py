@@ -218,6 +218,7 @@ class MusicStatusResponse(BaseModel):
     available: bool
     playing: bool
     title: Optional[str] = None
+    speaker_muted: bool = False
 
 
 class VolumeResponse(BaseModel):
