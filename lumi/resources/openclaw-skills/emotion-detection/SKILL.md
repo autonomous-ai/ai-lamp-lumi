@@ -1,6 +1,6 @@
 ---
 name: emotion-detection
-description: Detects user emotional state from the `emotional` activity group in motion.activity events. Maps to empathetic responses and logs to wellbeing daily log. Lightweight UC-M1 — no separate model needed, uses existing X3D action recognition.
+description: Detects user emotional state from the `Emotional cue:` field in motion.activity events. Maps to empathetic responses and logs to wellbeing daily log. Lightweight UC-M1 — no separate model needed, uses existing X3D action recognition.
 ---
 
 # Emotion Detection (User Emotion)
@@ -15,15 +15,16 @@ description: Detects user emotional state from the `emotional` activity group in
 > **Lightweight UC-M1** — uses existing X3D action recognition (laughing, crying, yawning, singing) as a proxy for emotional state. No separate FER model needed. Covers ~80% of perceived "emotion detection" value. Full UC-M1 (facial expression classifier) can be added later on top of this.
 
 ## Quick Start
-When `motion.activity` contains the `emotional` group, respond with empathy as a caring companion who notices how the user feels. Log the observation to their wellbeing daily log.
+When `motion.activity` contains an `Emotional cue:` line, respond with empathy as a caring companion who notices how the user feels. Log the observation to their wellbeing daily log.
 
 ## Trigger
-`[sensing:motion.activity]` where the activity group is `emotional`.
+`[sensing:motion.activity]` where the message contains `Emotional cue: <action>` (one of `laughing`, `crying`, `yawning`, `singing`; multiple comma-separated actions are possible).
 
 This skill works **alongside** the Wellbeing skill on the same `motion.activity` event:
-- Wellbeing handles cron resets (drink/break/sedentary groups)
-- This skill handles emotional response and logging
-- The `emotional` group does NOT reset any wellbeing cron — they are observations, not physical activities
+- Wellbeing handles cron resets from the `Activity detected:` line (drink/break/sedentary groups)
+- This skill handles the `Emotional cue:` line: empathetic response and logging
+- Emotional cues do NOT reset any wellbeing cron — they are observations, not physical activities
+- A single event may contain both lines (e.g. `Activity detected: sedentary. Emotional cue: laughing.`) — both skills run
 
 ## Core Rule: Always Speak
 

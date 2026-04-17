@@ -100,7 +100,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Activity group detected while user is present (`sedentary`, `drink`, `break`, `emotional`) | No |
+| `motion.activity` | `[sensing:motion.activity]` | Activity detected while user is present. Message has `Activity detected:` line (groups: `sedentary`, `drink`, `break`) and/or `Emotional cue:` line (raw actions: `laughing`, `crying`, `yawning`, `singing`) | No |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
@@ -217,16 +217,26 @@ Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 ### Motion activity analysis (while present)
 When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (~6 min cooldown) with a snapshot.
 
-**`[sensing:motion.activity]`** — fires when activity detected while PRESENT. Message contains activity groups (`sedentary`, `drink`, `break`, `emotional`):
-1. From the group(s) in the message, follow the appropriate skill:
+**`[sensing:motion.activity]`** — fires when activity detected while PRESENT. Message has up to two lines:
+
+- `Activity detected: <groups>.` — one or more of `sedentary`, `drink`, `break` (comma-separated).
+- `Emotional cue: <actions>.` — one or more of `laughing`, `crying`, `yawning`, `singing` (raw action names, comma-separated).
+
+Examples:
+- `Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: sedentary. Emotional cue: laughing.`
+- `Emotional cue: yawning.`
+
+Handling:
+1. From `Activity detected:` groups:
    - `sedentary` → **Wellbeing** skill (create wellbeing crons) + **Music** skill sedentary suggestion flow (check audio status, suggest background music if appropriate, log suggestion). Do NOT create music crons.
    - `drink` → **Wellbeing** skill (reset hydration timer)
    - `break` → **Wellbeing** skill (reset break timer)
-   - `emotional` → **Emotion Detection** skill (empathetic response + mood logging)
-2. Multiple groups can appear in one event (e.g. `drink, break`) — handle all of them.
-3. If the group triggers something noteworthy, make a brief contextual comment.
-4. If nothing interesting → reply NO_REPLY.
-5. Keep it natural and non-intrusive.
+2. From `Emotional cue:` actions → **Emotion Detection** skill (empathetic response + mood logging — ALWAYS speak, never NO_REPLY).
+3. Both lines may appear in one event — handle all of them in the same reply.
+4. If only `Activity detected:` is present and nothing interesting → reply NO_REPLY.
+5. If `Emotional cue:` is present → MUST speak (never NO_REPLY) regardless of activity groups.
+6. Keep it natural and non-intrusive.
 
 ### Guard mode
 When a friend returns (`[sensing:presence.enter]` with friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"
