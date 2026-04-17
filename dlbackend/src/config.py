@@ -5,7 +5,7 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.actionanalysis.enums import HumanActionRecognizerEnum
+from enums import HumanActionRecognizerEnum
 
 
 class HumanActionRecognizerSetting(BaseModel):
