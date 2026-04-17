@@ -274,7 +274,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing skill on relevant events.
 		switch req.Type {
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
+			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
 		case "presence.away":
 			msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
 		case "motion.activity":

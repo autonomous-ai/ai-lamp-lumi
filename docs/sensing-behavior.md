@@ -315,7 +315,7 @@ The agent receives **activity groups** (`drink`, `break`, `sedentary`, `emotiona
 2. **By group:**
    - `drink` → reset hydration cron
    - `break` → reset break cron (eating, stretching, movement)
-   - `sedentary` → create hydration + break + music crons if missing
+   - `sedentary` → create hydration + break crons if missing; also trigger Music skill sedentary suggestion (event-driven, no cron)
    - `emotional` → Emotion Detection skill, no cron changes
    - Multiple groups in one event → handle all
 3. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
