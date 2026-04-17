@@ -1,6 +1,6 @@
 ---
 name: voice
-description: TTS speech + mic/speaker mute for privacy. MUST trigger on meetings, calls, privacy, silence requests. "meeting"/"call"/"private" = mic+speaker mute. "be quiet"/"im đi"/"silent" = speaker mute only. Always call HW markers — never just text.
+description: TTS speech + mic/speaker mute for privacy. MUST trigger on meetings, calls, privacy, silence requests. "meeting"/"call"/"private" = mic+speaker mute. "be quiet"/"silent" = speaker mute only. Always call HW markers — never just text.
 ---
 
 # Voice — Speak Through Speaker
@@ -96,11 +96,11 @@ Any phrase about **privacy, meetings, calls, not wanting to be heard, or asking 
 | "I'm in a meeting" / "I have a meeting" / "I need a private meeting" / "meeting" | `[HW:/voice/mute:{}]` — MUST call |
 | "I'm on a call" / "I have a call" / "phone call" | `[HW:/voice/mute:{}]` — MUST call |
 | "privacy" / "private" / "give me privacy" / "need privacy" | `[HW:/voice/mute:{}]` — MUST call |
-| "đừng nghe" / "đang họp" / "tắt mic" / "im đi đừng nghe" | `[HW:/voice/mute:{}]` — MUST call |
+| "don't hear me" / "in a meeting" / "mute mic" / "stop hearing" | `[HW:/voice/mute:{}]` — MUST call |
 
 ### Examples
 
-**Input:** "Lumi, đừng nghe, tao đang họp"
+**Input:** "Lumi, I have a meeting now"
 **Output:** `[HW:/voice/mute:{}]` OK, I'll stop listening. Press the button when you need me.
 
 **Input:** "Stop listening"
@@ -122,7 +122,7 @@ Use when a **Telegram or web chat** user asks to unmute remotely. Voice unmute i
 
 | User says (via Telegram/web) | Action |
 |-----------|--------|
-| "unmute" / "start listening" / "nghe lại đi" / "mic on" | `[HW:/voice/unmute:{}]` — only works from Telegram/web, not voice |
+| "unmute" / "start listening" / "listen again" / "mic on" | `[HW:/voice/unmute:{}]` — only works from Telegram/web, not voice |
 
 ## Speaker Mute/Unmute (Silent Mode)
 
@@ -144,12 +144,12 @@ Mic still works when speaker is muted — user can unmute via voice command.
 
 | User says | Action |
 |-----------|--------|
-| "im đi" / "be quiet" / "silent mode" / "tắt loa" / "don't talk" | `[HW:/speaker/mute:{}]` — MUST call |
-| "nói đi" / "unmute speaker" / "you can talk" / "bật loa" | `[HW:/speaker/unmute:{}]` — MUST call |
+| "be quiet" / "silent mode" / "don't talk" / "hush" / "silence" | `[HW:/speaker/mute:{}]` — MUST call |
+| "you can talk" / "unmute speaker" / "speak again" / "talk again" | `[HW:/speaker/unmute:{}]` — MUST call |
 
 ### Examples
 
-**Input:** "Lumi, im đi"
+**Input:** "Lumi, be quiet"
 **Output:** `[HW:/speaker/mute:{}]` Going silent. Just say "you can talk" when you want me back.
 
 **Input:** "You can talk now"
@@ -159,7 +159,7 @@ Mic still works when speaker is muted — user can unmute via voice command.
 
 When user mentions a meeting or call and wants **full silence** (not just speaker), mute BOTH mic and speaker:
 
-**Input:** "I'm in a meeting" / "đang họp"
+**Input:** "I'm in a meeting"
 **Output:** `[HW:/voice/mute:{}][HW:/speaker/mute:{}]` Meeting mode — fully silent. Press the button when you're done.
 
 ## Rules
