@@ -340,7 +340,7 @@ export default function Monitor() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <StatusDot ok={ocOnline} />
-            <span>{ocOnline ? "OpenClaw Online" : "OpenClaw Offline"}</span>
+            <span>{ocOnline ? "Agent Online" : "Agent Offline"}</span>
           </div>
           {lastUpdate && <div>Updated {lastUpdate}</div>}
           <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2, fontSize: 9.5, color: "var(--lm-text-muted)" }}>
