@@ -137,9 +137,9 @@ Each person gets their own music cron job. Created on `motion.activity` when the
      - Name: `"Music: {name}"` (e.g. `"Music: gray"`)
      - Schedule: `every 1200000ms` (20 min)
      - `sessionTarget: "current"`, `payload.kind: "systemEvent"`
-     - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/broadcast][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix (broadcast forces TTS on speaker, dm sends to Telegram), or reply only NO_REPLY."`
-     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction (keep `[HW:/broadcast]`).
-   - `sessionTarget: "current"` binds the cron to the session active at creation time — fire routes back into that same session so TTS + channel reply both work. Do NOT add a `delivery` field.
+     - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/speak][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
+     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction (keep `[HW:/speak]`).
+   - `sessionTarget: "current"` binds the cron to the session active at creation time — fire routes back into that same session.
 
 **When to bootstrap:** On `motion.activity` with `sedentary` group. Each recognized person gets their own cron — gray creates `"Music: gray"`, henry creates `"Music: henry"`. For unrecognized people, use `"unknown"` as the name — all strangers share one cron (`"Music: unknown"`).
 **Cleanup:** Friend crons cancel on `presence.leave`. `"unknown"` crons cancel on `presence.away`.
@@ -189,7 +189,7 @@ From the last played song + latest mood, decide what to suggest:
 Based on your analysis, decide one of:
 
 **A. Suggest now** — User is present, mood is right, timing matches their pattern.
-- **MUST** prefix reply with `[HW:/broadcast][HW:/dm:{"telegram_id":"..."}]` — broadcast forces TTS on the speaker, dm routes text to Telegram. Both are required when the person has a telegram_id. If no telegram_id, keep `[HW:/broadcast]` alone so the speaker still speaks.
+- **MUST** prefix reply with `[HW:/speak][HW:/dm:{"telegram_id":"..."}]`. If no telegram_id, use `[HW:/speak]` alone.
 - Suggest 1-2 songs matching their mood AND past preferences
 - Keep it conversational and SHORT (1-2 sentences), never say "based on analysis"
 - Do NOT output your analysis or reasoning — only the suggestion
@@ -245,11 +245,11 @@ Based on your analysis, decide one of:
 [music-proactive] Time for a proactive music check...
 ```
 *You query: presence=present, mood=focused, last song="lofi hip hop radio"(ended, 25min)*
-Output: `[HW:/broadcast][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Want some more lo-fi beats?
+Output: `[HW:/speak][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Want some more lo-fi beats?
 
 **Cron fires — last song was skipped quickly:**
 *You query: last song="heavy metal compilation"(stopped_by: user, 15s) → didn't like it*
-Output: `[HW:/broadcast][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` How about something different — some chill jazz?
+Output: `[HW:/speak][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` How about something different — some chill jazz?
 
 **Cron fires — user just arrived, no history:**
 *You query: presence.enter was 5 min ago, no audio/history*
