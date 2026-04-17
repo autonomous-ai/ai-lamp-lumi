@@ -281,15 +281,27 @@ JSONL (one JSON object per line) — chosen over JSON array for:
 - **Crash-safe**: worst case loses 1 line (array can corrupt entire file)
 - **Read last N**: `Query()` reads all lines then slices — fast enough for daily files (tens of entries)
 
-```bash
-# Write (agent calls this)
-POST /api/mood/log  {"mood":"happy","source":"camera","trigger":"laughing"}
+Each row carries a `kind` field — either a raw `signal` from one source or a
+`decision` synthesized by the agent from the recent signals + previous decision.
+The store never fuses anything; the Mood skill is responsible for writing both
+rows on every detection.
 
-# Read
+```bash
+# Write — raw signal (agent calls this on every camera/voice/telegram cue)
+POST /api/mood/log  {"kind":"signal","mood":"happy","source":"camera","trigger":"laughing"}
+
+# Write — synthesized decision (agent calls this right after, after reading recent history)
+POST /api/mood/log  {"kind":"decision","mood":"happy","based_on":"3 signals last 20min","reasoning":"laughing reinforces previous happy decision"}
+
+# Read — all kinds for a day (agent uses this to re-analyze)
 GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
+
+# Read — latest decision only (downstream skills use this for "current mood")
+GET /api/openclaw/mood-history?user=gray&kind=decision&last=1
 ```
 
-Each entry: `{"ts":...,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
+Each row: `{"ts":...,"seq":1,"hour":10,"kind":"signal","mood":"happy","source":"camera","trigger":"laughing"}` for signals,
+or `{"ts":...,"seq":2,"hour":10,"kind":"decision","mood":"happy","source":"agent","based_on":"...","reasoning":"..."}` for decisions.
 
 ### Cross-channel identity
 
@@ -303,8 +315,8 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 
 ### How it works
 
-`MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state` and `has_friend` (face recognizer):
-- **PRESENT + has_friend** → sends `motion.activity` with activity groups only (e.g. `drink, break, sedentary, emotional`). No images attached — saves tokens.
+`MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
+- **PRESENT** → sends `motion.activity` with activity groups only (e.g. `drink, break, sedentary, emotional`). No images attached — saves tokens. Friend recognition is **not** required.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
 
 ### Wellbeing cron reset (LLM-driven)
@@ -361,7 +373,7 @@ The default response is light (brief remark). Context escalates the intensity:
 
 ### Logging
 
-- **Mood history** (agent logs): Agent calls `POST /api/mood/log` via Mood skill to record the user's emotional state (e.g. `{"mood":"happy","source":"camera","trigger":"laughing"}`).
+- **Mood history** (agent logs): On every cue the Mood skill writes a raw `signal` row, then immediately reads recent history and writes a synthesized `decision` row (e.g. `{"kind":"decision","mood":"happy","based_on":"...","reasoning":"..."}`). Music/Wellbeing read the latest `decision` (`?kind=decision&last=1`) for "current mood".
 - **Wellbeing history** (agent logs): Agent calls `POST /api/wellbeing/log` with `{"action":"emotional","notes":"yawning — afternoon slump","user":"{name}"}`. Same JSONL stream as hydration/break entries.
 
 ### Limitations (vs full UC-M1)
