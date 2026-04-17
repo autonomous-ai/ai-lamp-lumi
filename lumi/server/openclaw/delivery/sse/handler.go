@@ -26,6 +26,7 @@ import (
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -118,6 +119,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	// concurrent turn interleaving is not a concern in normal operation.
 	flow.Init(bus, config.LumiVersion)
 	mood.Init()
+	wellbeing.Init()
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
@@ -1344,6 +1346,32 @@ func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 		events = []mood.Event{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// WellbeingHistory returns wellbeing activity events for a user and day.
+// Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
+func (h *OpenClawHandler) WellbeingHistory(c *gin.Context) {
+	user := c.DefaultQuery("user", mood.CurrentUser())
+	user = wellbeing.NormalizeUser(user)
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 100
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 500 {
+		last = 500
+	}
+	events := wellbeing.Query(user, day, last)
+	if events == nil {
+		events = []wellbeing.Event{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"user":   user,
 		"date":   day,
 		"events": events,
 	}))
