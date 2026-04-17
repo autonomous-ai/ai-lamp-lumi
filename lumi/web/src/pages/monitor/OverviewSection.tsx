@@ -140,11 +140,24 @@ export function OverviewSection({
           {voice ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={voice.voice_available} />
+                <StatusDot ok={voice.voice_available && !voice.mic_muted} />
                 <span style={{ fontSize: 11.5, fontWeight: 600 }}>Mic</span>
-                {voice.voice_listening && (
+                {voice.mic_muted ? (
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                ) : voice.voice_listening ? (
                   <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
-                )}
+                ) : null}
+                <span role="button" title={voice.mic_muted ? "Unmute mic" : "Mute mic"} onClick={() => {
+                  fetch(`/hw/voice/${voice.mic_muted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
+                }} style={{
+                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                  background: voice.mic_muted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
+                  color: voice.mic_muted ? "var(--lm-green)" : "#f87171",
+                  border: `1px solid ${voice.mic_muted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  cursor: "pointer", fontWeight: 600,
+                }}>
+                  {voice.mic_muted ? "Unmute" : "Mute"}
+                </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <StatusDot ok={voice.tts_available} />
