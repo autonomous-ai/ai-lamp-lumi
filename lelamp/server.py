@@ -2733,7 +2733,7 @@ def unmute_mic():
         return {"status": "already_unmuted"}
     _mic_muted = False
     _mic_manual_override = False
-    if voice_service and not voice_service.available:
+    if voice_service:
         voice_service.start()
     logger.info("Mic unmuted")
     return {"status": "ok"}
