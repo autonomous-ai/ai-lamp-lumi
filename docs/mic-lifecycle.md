@@ -17,9 +17,9 @@ When muted, mic is **completely off** — no STT, no wake word, no sound percept
 
 ### Mute: Voice command (one-way in)
 
-User says "đừng nghe" / "stop listening" / "I'm in a meeting" → STT processes this last command → agent calls `[HW:/voice/mute:{}]` → mic off.
+User says "đừng nghe" / "stop listening" / "I'm in a meeting" → STT processes this last command → agent calls `[HW:/voice/mute:{}]` → TTS says "OK, I'll stop listening. Press the button when you need me." → mic off.
 
-This is the **last thing Lumi hears** until button press.
+This is the **last thing Lumi says** until button press.
 
 ### Unmute: Physical button (one-way out)
 
@@ -82,12 +82,14 @@ Manual override respected — if user explicitly muted via voice command, auto t
 2. **GPIO17 button handler** (`_on_stop_button`): Add mic mute check:
    ```python
    if _mic_muted:
-       unmute_mic()  # button press = unmute
+       unmute_mic()  # restart voice pipeline
+       tts_service.speak("I'm listening!")  # confirm to user
    elif tts_service and tts_service.speaking:
        stop_tts()
    else:
        audio_stop()
    ```
+   TTS confirmation is essential — user needs audible feedback that mic is back on. Without it, user doesn't know if button press worked.
 
 3. **Scene/emotion integration**: `_auto_mic_mute()` / `_auto_mic_unmute()` with `_mic_manual_override` flag (same pattern as camera).
 
