@@ -45,8 +45,10 @@ class SoundPerception(Perception):
             # Strip ALSA plugin prefix (e.g. "plug:lamp_micro1" → "lamp_micro1")
             search_name = input_device.split(":")[-1] if ":" in input_device else input_device
             resolved = None
-            for i, info in enumerate(sd.query_devices()):
-                if search_name in info['name']:
+            devices = sd.query_devices()
+            for i, info in enumerate(devices):
+                logging.getLogger(__name__).info("  device %d: name='%s' inputs=%d", i, info['name'], info.get('max_input_channels', 0))
+                if info['name'] == search_name or info['name'].startswith(search_name + ','):
                     resolved = i
                     break
             if resolved is not None:
