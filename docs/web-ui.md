@@ -237,7 +237,7 @@ Turn Pipeline grouping behavior:
 - Each panel streams via SSE (`GET /api/logs/stream?source=<source>`) with fallback polling.
 - Supports level filtering (ALL/DEBUG/INFO/WARN/ERROR) and text/regex search.
 
-> **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a 320px JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
+> **Note**: Camera serves a dual role — (1) live stream display for user viewing, (2) automatic sensing data source. Sensing service reads a frame from camera every 2s to detect motion, faces (Haar cascade), and light level. When significant events are detected (person appears, large motion), a full-resolution JPEG auto-snapshot is sent with the event to OpenClaw AI for vision analysis.
 
 ### 5.6 Chat Section
 
