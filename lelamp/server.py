@@ -2695,6 +2695,10 @@ def speak_text(req: SpeakRequest):
         raise HTTPException(
             503, "TTS not available — missing openai SDK or sounddevice"
         )
+    # Suppress TTS when speaker is muted
+    if _speaker_muted:
+        logger.info("POST /voice/speak: suppressed — speaker muted (text='%s')", req.text[:80])
+        return {"status": "suppressed"}
     # Reject TTS while music is playing — shared speaker, TTS would kill the music
     if music_service and music_service.playing:
         logger.info(
@@ -2825,6 +2829,9 @@ def _detect_music_style(query: str) -> str:
 @app.post("/audio/play", response_model=StatusResponse, tags=["Audio"])
 def audio_play(req: MusicPlayRequest):
     """Search YouTube and play audio through the speaker."""
+    if _speaker_muted:
+        logger.info("POST /audio/play: suppressed — speaker muted (query='%s')", req.query[:80])
+        return {"status": "suppressed"}
     if not music_service:
         raise HTTPException(503, "Music service not available")
     if not music_service.available:
@@ -2913,6 +2920,36 @@ def audio_stop():
     return {"status": "ok"}
 
 
+_speaker_muted = False
+
+
+@app.post("/speaker/mute", response_model=StatusResponse, tags=["Audio"])
+def mute_speaker():
+    """Mute all audio output — TTS, music, backchannel suppressed."""
+    global _speaker_muted
+    if _speaker_muted:
+        return {"status": "already_muted"}
+    _speaker_muted = True
+    # Stop any current playback
+    if tts_service and tts_service.speaking:
+        tts_service.stop()
+    if music_service and music_service.playing:
+        music_service.stop()
+    logger.info("Speaker muted")
+    return {"status": "ok"}
+
+
+@app.post("/speaker/unmute", response_model=StatusResponse, tags=["Audio"])
+def unmute_speaker():
+    """Unmute audio output."""
+    global _speaker_muted
+    if not _speaker_muted:
+        return {"status": "already_unmuted"}
+    _speaker_muted = False
+    logger.info("Speaker unmuted")
+    return {"status": "ok"}
+
+
 @app.get("/audio/status", response_model=MusicStatusResponse, tags=["Audio"])
 def audio_status():
     """Get music playback status."""
@@ -2920,6 +2957,7 @@ def audio_status():
         "available": music_service is not None and music_service.available,
         "playing": music_service.playing if music_service else False,
         "title": music_service.current_title if music_service else None,
+        "speaker_muted": _speaker_muted,
     }
 
 

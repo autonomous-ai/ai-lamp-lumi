@@ -157,6 +157,7 @@ export default function Monitor() {
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [audio, setAudio] = useState<AudioVolume | null>(null);
   const [musicPlaying, setMusicPlaying] = useState(false);
+  const [speakerMuted, setSpeakerMuted] = useState(false);
   const [ledColor, setLedColor] = useState<LEDColor | null>(null);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
   const [lelampVersion, setLelampVersion] = useState<string | null>(null);
@@ -251,6 +252,7 @@ export default function Monitor() {
           setDisplayState(dispR);
           setAudio(audioR);
           if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
+          if (musicR.speaker_muted !== undefined) setSpeakerMuted(musicR.speaker_muted);
           if (ledR.hex) setLedColor(ledR);
           setDisplayTs(Date.now());
         } catch {}
@@ -376,6 +378,7 @@ export default function Monitor() {
               displayState={displayState}
               audio={audio}
               musicPlaying={musicPlaying}
+              speakerMuted={speakerMuted}
               ledColor={ledColor}
               sceneInfo={sceneInfo}
               onSceneActivate={(scene) => {
