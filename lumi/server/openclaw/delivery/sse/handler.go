@@ -430,6 +430,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					h.cronFireRuns[payload.RunID] = true
 					h.cronFireRunsMu.Unlock()
 					slog.Info("cron fire correlated — will force TTS", "component", "agent", "run_id", payload.RunID, "session", payload.SessionKey, "delta_ms", now-startedAt)
+					// Emit a cron_fire flow event so the web monitor can classify
+					// this turn as cron without re-deriving via string match on
+					// the systemEvent wrapper template.
+					flow.Log("cron_fire", map[string]any{"run_id": payload.RunID, "delta_ms": now - startedAt}, payload.RunID)
 				} else {
 					h.cronFireExpectedMu.Unlock()
 				}
@@ -439,8 +443,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// with a UUID run_id (not lumi-chat-* prefix). This covers:
 			// 1. No active trace (original case)
 			// 2. Active trace from a different turn (sensing trace still active when Telegram arrives)
+			//
+			// Cron-fire turns also have UUID runIds but are NOT channel input —
+			// the cron_fire flow event represents them in the monitor, so skip
+			// the chat_input emit here to keep the CH IN node from lighting up
+			// for scheduled reminders.
+			h.cronFireRunsMu.Lock()
+			isCronFireTurn := h.cronFireRuns[payload.RunID]
+			h.cronFireRunsMu.Unlock()
 			isChannelTurn := payload.Data.Phase == "start" && payload.RunID != "" &&
-				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID) &&
+				!isCronFireTurn
 			if isChannelTurn {
 				// Emit chat_input immediately (no message text yet).
 				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)

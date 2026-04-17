@@ -66,7 +66,6 @@ export function FlowDiagram({
     // Lumi — top row
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
-    schedule_trigger:  { x: 950, y: 50 },
     lumi_gate:         { x: 467, y: 795 },
     // LeLamp — input row (MIC/CAM)
     mic_input:         { x: -40, y: 240 },
@@ -77,7 +76,8 @@ export function FlowDiagram({
     hw_servo:          { x: 200, y: 660 },
     hw_audio:          { x: 200, y: 795 },
     tts_speak:         { x: 200, y: 930 },
-    // OpenClaw — agent core
+    // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
+    schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
     tool_exec:         { x: 750, y: 390 },
     agent_thinking:    { x: 950, y: 390 },

@@ -137,8 +137,8 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "schedule_trigger",
-    label: "Schedule", short: "CRON", icon: "⏰", color: "#f97316", path: "main",
-    desc: "Cron/timer fired · agent turn triggered by schedule",
+    label: "Schedule", short: "CRON", icon: "⏰", color: "#f97316", path: "agent",
+    desc: "Cron/timer fired by OpenClaw · agent turn triggered by schedule",
     triggers: [
       "schedule_trigger", "flow_event:schedule_trigger",
       "flow_enter:schedule_trigger", "flow_exit:schedule_trigger",
