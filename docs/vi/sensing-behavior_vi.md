@@ -207,28 +207,9 @@ Khi phát hiện hoạt động tĩnh (`motion.activity`), agent:
 
 > **Ghi chú:** Wellbeing là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `motion.activity` events nhắc agent follow Wellbeing và Music skill khi phát hiện hoạt động tĩnh.
 
-### Quy tắc sessionTarget cho cron
-
-OpenClaw cron nhận 4 giá trị `sessionTarget`:
-
-| sessionTarget | Ý nghĩa | Payload thường dùng |
-|---|---|---|
-| `main` | Luôn route vào main (voice) session | `systemEvent` + `text` |
-| `current` | Bind vào session đang active **tại thời điểm tạo cron** — fire route về đúng session đó | `systemEvent` + `text` |
-| `isolated` | Spawn session isolated mới mỗi lần fire | `agentTurn` + `message` |
-| `session:<id>` | Persistent session explicit theo id | `agentTurn` + `message` |
-
-Wellbeing và music dùng `current` để cron tạo từ Telegram sẽ fire về lại chat Telegram đó (thuận cho reactive test), đồng thời vẫn TTS loa qua `[HW:/speak]`. KHÔNG thêm field `delivery` — gây lỗi.
-
-**TTS từ cron fire khi origin là channel:** Khi `current` bind vào session Telegram/channel, TTS trên loa bị suppress mặc định (channel run chỉ đi text). Ép TTS bằng cách include `[HW:/speak]` trong reply — payload của wellbeing và music cron đã hướng dẫn sẵn. KHÔNG dùng `[HW:/broadcast]` cho proactive crons: nó đồng thời fan-out tới tất cả chat Telegram, là hành vi dành riêng cho guard mode.
-
-**Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — khiến agent NO_REPLY. **Workaround:** Prefix payload text với `[MUST-SPEAK]` để force agent phải reply dù có wrapper. Tất cả wellbeing và music cron payload phải bắt đầu bằng `[MUST-SPEAK]`.
-
 ### Ưu tiên: Skills > Knowledge > History
 
 AGENTS.md quy định thứ tự ưu tiên: **SKILL.md luôn override KNOWLEDGE.md và conversation history**. Điều này rất quan trọng vì agent tự tích lũy "kinh nghiệm" vào KNOWLEDGE.md qua heartbeat, và những ghi chú này có thể chứa rules sai xung đột với skills do developer duy trì. Nếu agent phát hiện xung đột, nó phải cập nhật KNOWLEDGE.md cho khớp với skill, không phải ngược lại.
-
-Rule này được thêm sau khi phát hiện agent đã ghi sai rules về cron format vào KNOWLEDGE.md ("NEVER use systemEvent") và override hướng dẫn đúng trong Scheduling SKILL.
 
 **Dọn dẹp:**
 - **Người quen rời** (`presence.leave`) → cancel cron của họ, append tóm tắt vào daily log, cập nhật `wellbeing.md` nếu phát hiện pattern mới.
@@ -297,7 +278,7 @@ Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl
 | Source | Cách hoạt động |
 |---|---|
 | **Camera** (`source: "camera"`) | `motion.activity` detect action cảm xúc (laughing, crying, yawning, singing) → Emotion Detection skill trigger → agent log mood |
-| **Conversation** (`source: "conversation"`) | Agent detect mood từ lời user — explicit ("I'm tired") hoặc implied ("work is killing me" → stressed). Thiết kế lightweight: agent tin vào nhận định của mình và log ngay, không cần phân tích sâu. Hoạt động trên mọi channel (Telegram, voice, web). |
+| **Conversation** (`source: "conversation"`) | Agent detect mood theo 2 cách: (1) **single message** — explicit ("I'm tired") hoặc implied ("work is killing me" → stressed); (2) **conversation flow** — sau khi nói chuyện một lúc, đọc vibe tổng thể (tone shift, reply ngắn cộc lốc, topic lặp lại, năng lượng tăng/giảm). Agent tin trực giác và mạnh dạn suy luận: chỉ cần một gợi ý nhỏ là đủ, log nhầm còn hơn bỏ sót. Hoạt động trên mọi channel (Telegram, voice, web). |
 
 #### Voice mood nudge
 
