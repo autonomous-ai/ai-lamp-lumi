@@ -90,7 +90,7 @@ LeLamp sensing loop (mỗi 2s) → Đọc 1 frame camera, chạy tất cả dete
     ├─ Light level (mean brightness, mỗi 30s) → event nếu thay đổi >30/255
     └─ Sound detection (mic RMS) → event nếu > threshold
 
-Event có ảnh? (large motion, face enter) → encode frame 320px JPEG base64
+Event có ảnh? (large motion, face enter) → encode frame full-resolution JPEG q85
 Ảnh face enter: frame gốc được vẽ bounding box + nhãn friend/stranger
 
 POST /api/sensing/event {type, message, image?}

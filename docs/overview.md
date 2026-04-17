@@ -90,7 +90,7 @@ LeLamp sensing loop (every 2s) → Read 1 camera frame, run all detectors:
     ├─ Light level (mean brightness, every 30s) → event if change >30/255
     └─ Sound detection (mic RMS) → event if > threshold
 
-Event has image? (large motion, face enter) → encode frame 320px JPEG base64
+Event has image? (large motion, face enter) → encode frame full-resolution JPEG q85
 Face enter image: original frame annotated with bounding boxes + labels
 
 POST /api/sensing/event {type, message, image?}

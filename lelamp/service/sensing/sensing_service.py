@@ -207,7 +207,7 @@ class SensingService:
     # Persist: survives reboot, agent can look back (TTL + size rotation)
 
     def _save_frame(self, frame) -> Optional[str]:
-        """Resize and save a camera frame as a JPEG to the tmp snapshot dir.
+        """Save a camera frame as a JPEG to the tmp snapshot dir at original resolution.
 
         Keeps at most SNAPSHOT_TMP_MAX_COUNT files; deletes the oldest when exceeded.
         Returns the saved file path, or None on failure.
@@ -216,10 +216,7 @@ class SensingService:
         try:
             os.makedirs(config.SNAPSHOT_TMP_DIR, exist_ok=True)
 
-            h, w = frame.shape[:2]
-            scale = 320 / w
-            small = cv2.resize(frame, (320, int(h * scale)))
-            _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
             filename = f"sensing_{int(time.time() * 1000)}.jpg"
             filepath = os.path.join(config.SNAPSHOT_TMP_DIR, filename)
