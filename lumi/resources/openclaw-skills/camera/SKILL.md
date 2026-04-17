@@ -22,7 +22,7 @@ Returns JSON: `{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}`.
 No need to aim servo or sleep before snapshot — the server freezes servos automatically for a stable frame.
 
 ## Workflow
-1. Call `GET /camera/snapshot?save=true`.
+1. Call `GET /camera/snapshot?save=true` — **always call directly, never check /camera first**. The endpoint auto-enables camera if disabled.
 2. Analyze the image and describe what you see.
 3. Respond helpfully and specifically to the user's question.
 
@@ -105,13 +105,14 @@ Any phrase meaning "stop looking" or "camera off" MUST trigger `[HW:/camera/disa
 **Input:** "Lumi, nhìn xem"
 **Output:** `[HW:/camera/enable:{}]` Camera back on!
 
-### Auto-enable on snapshot
+### Auto-enable on snapshot (IMPORTANT)
 
-The snapshot endpoint auto-enables the camera if it was disabled, captures the frame, then re-disables it. You do NOT need to call `[HW:/camera/enable:{}]` before taking a snapshot — just call the snapshot endpoint directly.
+**NEVER refuse a snapshot because camera is disabled.** The `/camera/snapshot` endpoint auto-enables the camera, captures the frame, then re-disables it automatically. Do NOT check `/camera` status before snapshot. Do NOT ask the user to enable camera first. Just call the endpoint.
 
 ## Error Handling
-- If `GET /camera` returns `{"available": false}`, tell the user: "The camera is not connected right now."
+- If `/camera/snapshot` returns 503, tell the user: "The camera is not connected right now."
 - If the API is unreachable, inform the user that the camera is temporarily unavailable.
+- **Never check `/camera` status before snapshot** — just call `/camera/snapshot` directly.
 - If a sensing event already included an image, do not call the camera API again.
 
 ## Rules
