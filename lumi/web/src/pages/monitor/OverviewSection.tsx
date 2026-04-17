@@ -65,174 +65,194 @@ export function OverviewSection({
 
       {/* Row 1: 4 status cards in one row */}
       <div className="lm-grid-4">
-        {/* OpenClaw */}
+        {/* Agent Gateway */}
         <div style={S.card}>
-          <div style={S.cardLabel}>OpenClaw AI</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <StatusDot ok={oc?.connected ?? false} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)" }}>
-              {oc?.connected ? "Connected" : "Disconnected"}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Agent Gateway</div>
+            <span style={{
+              fontSize: 10, padding: "3px 9px", borderRadius: 4, fontWeight: 700,
+              background: oc?.connected ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.1)",
+              color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)",
+              border: `1px solid ${oc?.connected ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
+            }}>
+              {oc?.connected ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
-          {oc && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Agent: <span style={{ color: "var(--lm-text)" }}>{oc.name}</span>
+          {oc ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Agent</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>{oc.name}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Key:
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Session</span>
                 <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 4,
+                  fontSize: 10, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
                   background: oc.sessionKey ? "rgba(52,211,153,0.1)" : "rgba(80,74,60,0.4)",
                   color: oc.sessionKey ? "var(--lm-green)" : "var(--lm-text-muted)",
-                  border: `1px solid ${oc.sessionKey ? "rgba(52,211,153,0.3)" : "var(--lm-border)"}`,
-                  fontWeight: 600,
                 }}>
-                  {oc.sessionKey ? "Acquired" : "Pending"}
+                  {oc.sessionKey ? "Active" : "Pending"}
                 </span>
               </div>
+              {oc.emotion && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Emotion</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-amber)" }}>{oc.emotion}</span>
+                </div>
+              )}
             </div>
-          )}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
         {/* Network */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Network</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Network</div>
+            {net && <SignalBars value={net.signal} />}
+          </div>
           {net ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <StatusDot ok={net.internet} />
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--lm-text)" }}>{net.ssid || "—"}</span>
-                </div>
-                <SignalBars value={net.signal} />
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>SSID</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>{net.ssid || "—"}</span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span>{net.publicIp && <span style={{ color: "var(--lm-text-dim)" }}> · Public: <span style={{ color: "var(--lm-teal)" }}>{net.publicIp}</span></span>}</div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                {net.signal} dBm · Internet: <span style={{ color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>{net.internet ? "OK" : "No"}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>IP</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-teal)" }}>{net.ip}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Internet</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>
+                  {net.internet ? "Connected" : "No"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Signal</span>
+                <span style={{ fontSize: 11, color: "var(--lm-text)" }}>{net.signal} dBm</span>
               </div>
             </div>
-          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
         {/* Presence */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Presence</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Presence</div>
+            <span style={{
+              fontSize: 10, padding: "3px 9px", borderRadius: 4, fontWeight: 700,
+              background: presence?.state === "active" ? "rgba(245,158,11,0.1)" : "rgba(80,74,60,0.4)",
+              color: presence?.state === "active" ? "var(--lm-amber)" : "var(--lm-text-muted)",
+              border: `1px solid ${presence?.state === "active" ? "rgba(245,158,11,0.3)" : "var(--lm-border)"}`,
+            }}>
+              {(presence?.state ?? "—").toUpperCase()}
+            </span>
+          </div>
           {presence ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={presence.state === "active"} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: presence.state === "active" ? "var(--lm-amber)" : "var(--lm-text-dim)" }}>
-                  {presence.state}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Sensing</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: presence.enabled ? "var(--lm-green)" : "var(--lm-red)" }}>
+                  {presence.enabled ? "On" : "Off"}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Sensing: <span style={{ color: presence.enabled ? "var(--lm-green)" : "var(--lm-red)" }}>{presence.enabled ? "On" : "Off"}</span>
-              </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Motion: <span style={{ color: "var(--lm-text)" }}>{presence.seconds_since_motion}s ago</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Last motion</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>{presence.seconds_since_motion}s ago</span>
               </div>
             </div>
-          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
-        {/* Voice */}
+        {/* Audio */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Voice & TTS</div>
+          <div style={S.cardLabel}>Audio</div>
           {voice ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={voice.voice_available && !voice.mic_muted} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>Mic</span>
-                {voice.mic_muted ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
-                ) : voice.voice_listening ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
-                ) : null}
-                <span role="button" title={voice.mic_muted ? "Unmute mic" : "Mute mic"} onClick={() => {
-                  fetch(`/hw/voice/${voice.mic_muted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
-                }} style={{
-                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                  background: voice.mic_muted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Mic row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={voice.voice_available && !voice.mic_muted} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Mic</span>
+                  {voice.mic_muted ? (
+                    <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                  ) : voice.voice_listening ? (
+                    <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
+                  ) : null}
+                </div>
+                <button onClick={() => fetch(`/hw/voice/${voice.mic_muted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
+                  fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                  background: voice.mic_muted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${voice.mic_muted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
                   color: voice.mic_muted ? "var(--lm-green)" : "#f87171",
-                  border: `1px solid ${voice.mic_muted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
-                  cursor: "pointer", fontWeight: 600,
                 }}>
                   {voice.mic_muted ? "Unmute" : "Mute"}
-                </span>
+                </button>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={voice.tts_available} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>Speaker</span>
-                {speakerMuted ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
-                ) : voice.tts_speaking ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
-                ) : musicPlaying ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
-                ) : null}
-                <span role="button" title={speakerMuted ? "Unmute speaker" : "Mute speaker"} onClick={() => {
-                  fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
-                }} style={{
-                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                  background: speakerMuted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
-                  color: speakerMuted ? "var(--lm-green)" : "#f87171",
-                  border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
-                  cursor: "pointer", fontWeight: 600,
-                }}>
-                  {speakerMuted ? "Unmute" : "Mute"}
-                </span>
-                {!speakerMuted && (voice.tts_speaking || musicPlaying) && (
-                  <span role="button" title="Stop speaker" onClick={() => {
-                    fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
-                  }} style={{
-                    fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                    background: "rgba(239,68,68,0.12)", color: "#f87171",
-                    border: "1px solid rgba(239,68,68,0.3)",
-                    cursor: "pointer", fontWeight: 600,
-                  }}>
-                    Stop
-                  </span>
+
+              {/* TTS row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={voice.tts_available} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>TTS</span>
+                  {voice.tts_speaking && (
+                    <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                  )}
+                  {musicPlaying && !voice.tts_speaking && (
+                    <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
+                  )}
+                </div>
+                {(voice.tts_speaking || musicPlaying) && (
+                  <button onClick={() => fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {})} style={{
+                    fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171",
+                  }}>Stop</button>
                 )}
               </div>
-              <div style={{ marginTop: 2 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-                  <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>Vol</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--lm-amber)", fontFamily: "monospace" }}>
+
+              {/* Speaker row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={!speakerMuted} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Speaker</span>
+                  {speakerMuted && (
+                    <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                  )}
+                </div>
+                <button onClick={() => fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
+                  fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                  background: speakerMuted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
+                  color: speakerMuted ? "var(--lm-green)" : "#f87171",
+                }}>
+                  {speakerMuted ? "Unmute" : "Mute"}
+                </button>
+              </div>
+
+              {/* Volume slider */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text-dim)" }}>Volume</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--lm-amber)", fontFamily: "monospace" }}>
                     {audio?.volume ?? "—"}%
                   </span>
                 </div>
-                <div
-                  title="Click to set volume"
-                  onClick={(e) => {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={audio?.volume ?? 50}
+                  onChange={(e) => {
                     fetch("/hw/audio/volume", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ volume: Math.max(0, Math.min(100, pct)) }),
+                      body: JSON.stringify({ volume: Number(e.target.value) }),
                     }).catch(() => {});
                   }}
                   style={{
-                    height: 5, borderRadius: 3,
-                    background: "var(--lm-surface)",
-                    border: "1px solid var(--lm-border)",
-                    cursor: "pointer", overflow: "hidden",
-                    position: "relative",
+                    width: "100%", height: 6, cursor: "pointer",
+                    accentColor: "var(--lm-amber)",
                   }}
-                >
-                  <div style={{
-                    height: "100%",
-                    width: `${audio?.volume ?? 0}%`,
-                    background: (audio?.volume ?? 0) > 80
-                      ? "var(--lm-red)"
-                      : (audio?.volume ?? 0) > 50
-                        ? "var(--lm-amber)"
-                        : "var(--lm-green)",
-                    borderRadius: 3,
-                    transition: "width 0.4s ease",
-                  }} />
-                </div>
+                />
               </div>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
@@ -372,7 +392,7 @@ export function OverviewSection({
           <div style={S.cardLabel}>Servo Pose</div>
           {servo ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-amber)" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber)" }}>
                 {servo.current || "idle"}
                 {(servo.bus_connected === false || servo.robot_connected === false) && (
                   <span style={{ fontSize: 10, color: "var(--lm-danger, #c44)", marginLeft: 6 }}>
@@ -415,7 +435,7 @@ export function OverviewSection({
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <StatusDot ok={displayState.hardware} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal)" }}>{displayState.mode}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-teal)" }}>{displayState.mode}</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
                 {(displayState.available_expressions ?? []).map((e) => (
