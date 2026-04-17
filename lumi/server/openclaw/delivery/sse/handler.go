@@ -64,20 +64,20 @@ type OpenClawHandler struct {
 	channelRuns   map[string]bool
 
 	// cronFireRuns tracks runs initiated by an OpenClaw scheduled cron fire.
-	// Populated when a lifecycle_start arrives shortly after an event:"cron"
-	// (action:"started") on the same sessionKey — the cron event lacks the
-	// upcoming runId so we correlate by sessionKey within a short window.
-	// Cron fires get UUID runIds (no lumi- prefix) → isChannelRun would
-	// otherwise suppress TTS. Membership forces isChannelRun=false so the
-	// lamp speaker fires.
+	// Populated when a lifecycle_start (UUID runId, no lumi- prefix) arrives
+	// shortly after an event:"cron" (action:"started") — OpenClaw's cron
+	// event omits sessionKey for sessionTarget="main" jobs, so we can't
+	// correlate by session and instead consume from a FIFO timestamp queue.
+	// Membership forces isChannelRun=false so the lamp speaker fires.
 	cronFireRunsMu sync.Mutex
 	cronFireRuns   map[string]bool
 
-	// cronFireExpected tracks sessionKey → unix-ms-timestamp of the most recent
-	// cron "started" event. Consumed by the next lifecycle_start on that
-	// sessionKey if within cronFireWindowMs.
+	// cronFireExpected is a FIFO queue of unix-ms timestamps from recent
+	// cron "started" events. Each lifecycle_start with a UUID runId
+	// consumes the oldest entry if it falls within cronFireWindowMs.
+	// Stale entries (older than the window) are pruned on each access.
 	cronFireExpectedMu sync.Mutex
-	cronFireExpected   map[string]int64
+	cronFireExpected   []int64
 
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
@@ -127,7 +127,6 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		runIDMap:           make(map[string]string),
 		channelRuns:        make(map[string]bool),
 		cronFireRuns:       make(map[string]bool),
-		cronFireExpected:   make(map[string]int64),
 	}
 }
 
@@ -348,21 +347,28 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	// matching that sessionKey within cronFireWindowMs gets marked as a cron
 	// fire so isChannelRun is overridden and TTS reaches the lamp speaker.
 	if evt.Event == "cron" {
-		// Diagnostic: dump the raw cron payload so we can see exactly what
-		// OpenClaw sends (action value, whether sessionKey is present, etc.).
-		// Temporary — remove once correlation is proven stable.
+		// Diagnostic: dump raw cron payload — keep until correlation is proven
+		// stable across all sessionTarget variants.
 		slog.Info("cron event raw payload", "component", "agent", "payload", string(evt.Payload))
 		var cronEvt struct {
-			Action     string `json:"action"`
-			SessionKey string `json:"sessionKey"`
-			JobID      string `json:"jobId"`
-			RunAtMs    int64  `json:"runAtMs"`
+			Action  string `json:"action"`
+			JobID   string `json:"jobId"`
+			RunAtMs int64  `json:"runAtMs"`
 		}
-		if err := json.Unmarshal(evt.Payload, &cronEvt); err == nil && cronEvt.Action == "started" && cronEvt.SessionKey != "" {
+		if err := json.Unmarshal(evt.Payload, &cronEvt); err == nil && cronEvt.Action == "started" {
+			now := time.Now().UnixMilli()
 			h.cronFireExpectedMu.Lock()
-			h.cronFireExpected[cronEvt.SessionKey] = time.Now().UnixMilli()
+			// Prune stale entries before pushing — bounds queue growth.
+			cutoff := now - cronFireWindowMs
+			pruned := h.cronFireExpected[:0]
+			for _, ts := range h.cronFireExpected {
+				if ts >= cutoff {
+					pruned = append(pruned, ts)
+				}
+			}
+			h.cronFireExpected = append(pruned, now)
 			h.cronFireExpectedMu.Unlock()
-			slog.Info("cron started — expecting lifecycle_start", "component", "agent", "session", cronEvt.SessionKey, "job_id", cronEvt.JobID, "run_at_ms", cronEvt.RunAtMs)
+			slog.Info("cron started — expecting lifecycle_start", "component", "agent", "job_id", cronEvt.JobID, "run_at_ms", cronEvt.RunAtMs)
 		}
 	}
 
@@ -400,19 +406,30 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
-			// Correlate with the most recent cron "started" event on this
-			// sessionKey: if it arrived within cronFireWindowMs, this turn is
-			// a cron fire and must TTS regardless of channel_run heuristic.
-			if payload.Data.Phase == "start" && payload.RunID != "" && payload.SessionKey != "" {
+			// Correlate with the FIFO queue of recent cron "started" events:
+			// the cron event lacks the upcoming runId AND (for sessionTarget=
+			// "main" jobs) lacks sessionKey too, so we consume the oldest
+			// timestamp within cronFireWindowMs. Restricted to UUID runIds
+			// (no lumi- prefix) so chat.send/sensing turns can't accidentally
+			// claim a queued cron slot.
+			if payload.Data.Phase == "start" && payload.RunID != "" && !isLumiOutboundChatRunID(payload.RunID) {
+				now := time.Now().UnixMilli()
+				cutoff := now - cronFireWindowMs
 				h.cronFireExpectedMu.Lock()
-				startedAt, ok := h.cronFireExpected[payload.SessionKey]
-				if ok && time.Now().UnixMilli()-startedAt <= cronFireWindowMs {
-					delete(h.cronFireExpected, payload.SessionKey)
+				// Drop stale entries from the head.
+				idx := 0
+				for idx < len(h.cronFireExpected) && h.cronFireExpected[idx] < cutoff {
+					idx++
+				}
+				h.cronFireExpected = h.cronFireExpected[idx:]
+				if len(h.cronFireExpected) > 0 {
+					startedAt := h.cronFireExpected[0]
+					h.cronFireExpected = h.cronFireExpected[1:]
 					h.cronFireExpectedMu.Unlock()
 					h.cronFireRunsMu.Lock()
 					h.cronFireRuns[payload.RunID] = true
 					h.cronFireRunsMu.Unlock()
-					slog.Info("cron fire correlated — will force TTS", "component", "agent", "run_id", payload.RunID, "session", payload.SessionKey, "delta_ms", time.Now().UnixMilli()-startedAt)
+					slog.Info("cron fire correlated — will force TTS", "component", "agent", "run_id", payload.RunID, "session", payload.SessionKey, "delta_ms", now-startedAt)
 				} else {
 					h.cronFireExpectedMu.Unlock()
 				}
