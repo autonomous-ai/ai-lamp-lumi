@@ -12,15 +12,12 @@ import (
 )
 
 const skillWatchInterval = 5 * time.Minute
+const defaultOTAMetadataURL = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/ota/metadata.json"
 
 // StartSkillWatcher polls OTA metadata for per-skill version changes.
 // When any skill version changes, downloads that skill from CDN and notifies
 // the agent to re-read it.
 func (s *Service) StartSkillWatcher(ctx context.Context) {
-	if s.config.OTAMetadataURL == "" {
-		slog.Info("skill watcher disabled — no OTA metadata URL", "component", "skill-watcher")
-		return
-	}
 
 	slog.Info("skill watcher started", "component", "skill-watcher", "interval", skillWatchInterval)
 
@@ -108,7 +105,11 @@ func (s *Service) notifySkillChanges(changedSkills []string) {
 // fetchSkillVersions gets per-skill versions from OTA metadata.
 // Returns map[skillName]version.
 func (s *Service) fetchSkillVersions() (map[string]string, error) {
-	resp, err := http.Get(s.config.OTAMetadataURL)
+	url := s.config.OTAMetadataURL
+	if url == "" {
+		url = defaultOTAMetadataURL
+	}
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
