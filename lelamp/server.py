@@ -630,7 +630,14 @@ async def lifespan(app: FastAPI):
         _h = _lgpio.gpiochip_open(0)
         _lgpio.gpio_claim_alert(_h, 17, _lgpio.FALLING_EDGE, _lgpio.SET_PULL_UP)
 
+        _last_button_tick = [0]
+
         def _on_stop_button(chip, gpio, level, tick):
+            # Debounce — ignore presses within 500ms
+            if tick - _last_button_tick[0] < 500_000:
+                return
+            _last_button_tick[0] = tick
+
             if _mic_muted:
                 logger.info("GPIO17 button pressed — unmuting mic")
                 unmute_mic()
