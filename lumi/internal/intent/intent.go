@@ -209,7 +209,7 @@ var rules = []rule{
 	// --- TTS stop (interrupt Lumi speaking) ---
 	{
 		name:  "stop_talking",
-		match: anyOf("stop talking", "be quiet", "ok stop", "shut up"),
+		match: anyOf("stop talking", "ok stop"),
 		exec: func(string) *Result {
 			post("/tts/stop", "")
 			return &Result{TTSText: "", Actions: []string{"POST /tts/stop"}}
