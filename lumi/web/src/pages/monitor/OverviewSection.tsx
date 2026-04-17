@@ -36,6 +36,7 @@ export function OverviewSection({
   displayState,
   audio,
   musicPlaying,
+  speakerMuted,
   ledColor,
   sceneInfo,
   onSceneActivate,
@@ -50,6 +51,7 @@ export function OverviewSection({
   displayState: DisplayState | null;
   audio: AudioVolume | null;
   musicPlaying: boolean;
+  speakerMuted: boolean;
   ledColor: LEDColor | null;
   sceneInfo: SceneInfo | null;
   onSceneActivate: (scene: string) => void;
@@ -161,14 +163,26 @@ export function OverviewSection({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <StatusDot ok={voice.tts_available} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>TTS</span>
-                {voice.tts_speaking && (
+                <span style={{ fontSize: 11.5, fontWeight: 600 }}>Speaker</span>
+                {speakerMuted ? (
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                ) : voice.tts_speaking ? (
                   <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
-                )}
-                {musicPlaying && !voice.tts_speaking && (
+                ) : musicPlaying ? (
                   <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
-                )}
-                {(voice.tts_speaking || musicPlaying) && (
+                ) : null}
+                <span role="button" title={speakerMuted ? "Unmute speaker" : "Mute speaker"} onClick={() => {
+                  fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
+                }} style={{
+                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                  background: speakerMuted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
+                  color: speakerMuted ? "var(--lm-green)" : "#f87171",
+                  border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  cursor: "pointer", fontWeight: 600,
+                }}>
+                  {speakerMuted ? "Unmute" : "Mute"}
+                </span>
+                {!speakerMuted && (voice.tts_speaking || musicPlaying) && (
                   <span role="button" title="Stop speaker" onClick={() => {
                     fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
                   }} style={{
