@@ -7,171 +7,116 @@
 ## Tổng quan
 
 Tính năng này cho phép Lumi **tự quyết định thời điểm** gợi ý nhạc dựa trên:
-- Mood hiện tại (qua mood history + conversation context)
-- Thói quen nghe nhạc (lịch sử play)
-- Lịch sử gợi ý trước đó (accepted/rejected)
-- Thời gian trong ngày
+- **Mood trigger** — khi mood được log (sad, stressed, tired, excited, happy), agent dùng mood đó để suggest nhạc ngay
+- **Activity trigger** — khi camera phát hiện hoạt động tĩnh (ngồi máy tính, đọc sách), agent suggest background music
+- **Suggestion history** — lưu lại mỗi lần suggest, user accept/reject, để AI learn pattern
 
-Toàn bộ logic quyết định nằm trong LLM (OpenClaw agent). Go server chỉ cung cấp data và relay commands.
+Hoàn toàn **AI-driven** — agent tự quyết định dựa trên SKILL.md instructions. Backend chỉ cung cấp API để lưu/đọc history.
 
 ---
 
-## Timeline
+## Triggers
+
+### 1. Mood Trigger
 
 ```
-         User ngồi vào bàn
-              │
-T+0 min ─────┤  LeLamp detect face → [sensing:presence.enter]
-              │  Agent greet user (KHÔNG tạo cron ở đây)
-              │
-T+~6 min ────┤  Camera detect motion → [sensing:motion.activity] — "using computer"
-              │  Agent: hoạt động tĩnh → bootstrap cron (per-user):
-              │    cron.list() → có "Music: {name}" job chưa?
-              │    ├── Chưa có → cron.add("Music: {name}", everyMs: 1200000, [person:{name}])
-              │    └── Đã có   → giữ nguyên (hoặc cron.update nếu đã learn interval mới)
-              │
-              │          ⏳ 20 phút chờ...
-              │
-T+~26 min ───┤  Cron fire lần đầu → [music-proactive]
-              │  AI gather data:
-              │    ├── GET /audio/status    → nhạc đang phát?
-              │    ├── GET /mood-history    → mood mới nhất
-              │    ├── GET /audio/history   → genre hay nghe
-              │    └── Conversation context → mood cues
-              │
-              ├── ✅ Suggest → TTS nói + broadcast Telegram
-              │       User confirm → play music
-              │
-              └── ⏭️  Skip → NO_REPLY, chờ lần sau
+Agent detect mood (camera/conversation)
+    ↓
+POST /api/mood/log → ghi mood xuống
+    ↓
+Mood SKILL.md: mood thuộc [sad, stressed, tired, excited, happy]?
+    ↓ (yes)
+Follow Music skill "AI-Driven Music Suggestion" với mood vừa log
+    ↓
+Agent check:
+  ├── Audio đang play? (GET /audio/status) → skip nếu playing
+  └── Music suggestion gần đây? (GET /music-suggestion-history) → skip nếu < 30 phút
+    ↓ (all pass)
+Agent suggest nhạc → POST /api/music-suggestion/log
 ```
 
-> Cron chỉ tạo khi phát hiện **hoạt động tĩnh** trong `motion.activity` — không tạo khi `presence.enter`.
-> Áp dụng cho tất cả (friend + stranger). Stranger dùng `"unknown"` làm tên.
-> Tất cả đều là **LLM-decided** — Go server không enforce thời gian.
+### 2. Activity Trigger (Sedentary)
 
-### Timing rules
+```
+Camera detect "using computer" → [sensing:motion.activity] sedentary group
+    ↓
+Sensing SKILL.md: sedentary → follow Music skill sedentary suggestion
+    ↓
+Agent check audio status + suggestion history (same as mood trigger)
+    ↓ (all pass)
+Agent suggest background music (lo-fi, ambient, instrumental)
+    ↓
+POST /api/music-suggestion/log
+```
 
-| Yếu tố | Giá trị | Enforce |
-|---------|---------|---------|
-| Cron interval mặc định | **420000ms** (7 phút) | SKILL.md — AI gọi `cron.add` |
-| "Just arrived" | < 10 phút → prefer chờ, nhưng nếu có listening history ở giờ này → suggest luôn | SKILL.md — AI tự judge |
-| "Long session" boost | > 120 phút ngồi liên tục | SKILL.md — AI tự judge |
-| Reject backoff | 2+ lần reject liên tiếp | SKILL.md — AI tự judge |
+### Unknown Users
+
+Unknown users (strangers) vẫn được suggest nhạc. Data lưu trong `/root/local/users/unknown/`. Khác biệt duy nhất: chỉ speak qua loa (`[HW:/speak]`), không DM vì không có telegram_id.
+
+### Cooldown
+
+- **30 phút** giữa các lần suggestion
+- Agent tự check bằng `GET /api/openclaw/music-suggestion-history?user={name}&last=1`
+- Áp dụng cho cả mood trigger và activity trigger
+
+---
+
+## Suggestion History
+
+### Storage
+
+`/root/local/users/{user}/music-suggestions/{YYYY-MM-DD}.jsonl`
+
+Mỗi record:
+```json
+{"ts":1713359400.5,"seq":1713359400500000000,"hour":14,"trigger":"mood:tired","query":"","message":"How about some calm piano?","status":"pending","user":"gray"}
+```
+
+| Field | Ý nghĩa |
+|-------|---------|
+| `seq` | Unix nanoseconds — unique ID cho mỗi suggestion |
+| `trigger` | Nguồn trigger: `mood:tired`, `activity:sedentary` |
+| `query` | YouTube search query (empty nếu chỉ text suggestion) |
+| `message` | Text suggestion gửi cho user |
+| `status` | `pending` → `accepted` / `rejected` / `expired` |
+
+### API
+
+| Endpoint | Method | Mục đích |
+|----------|--------|----------|
+| `/api/music-suggestion/log` | POST | Agent ghi music suggestion event |
+| `/api/music-suggestion/status` | POST | Agent update status (accepted/rejected) |
+| `/api/openclaw/music-suggestion-history` | GET | Query history (params: `user`, `date`, `last`) |
+
+### Retention
+
+7 ngày — tự động xóa files cũ hơn.
 
 ---
 
 ## Luồng hoạt động chi tiết
 
-### 1. Bootstrap — Khi user ngồi vào bàn
-
-```
-Camera detect face
-    ↓
-LeLamp gửi POST /api/sensing/event {type: "presence.enter"}
-    ↓
-Lumi Go server forward đến OpenClaw agent
-    ↓
-Agent đọc sensing SKILL → thấy instruction:
-  "On first presence.enter of the day, bootstrap music cron"
-    ↓
-Agent gọi cron.list() → không thấy "Music: gray" job
-    ↓
-Agent gọi cron.add:
-  name: "Music: gray"
-  interval: 420000ms (7 phút, default)
-  message: "[music-proactive][person:gray] ..."
-```
-
-**Kết quả:** Mỗi friend có cron job riêng, chạy mỗi 7 phút, mỗi lần fire tạo 1 agent turn mới.
-
-### 2. Cron fire — AI quyết định có suggest không
-
-```
-Cron fire → agent turn mới với message "[music-proactive]"
-    ↓
-Go SSE handler detect "[music-proactive]" trong message
-  → mood.TrackRun(runID, "music.proactive")      // để log assessment sau
-  → agentGateway.MarkBroadcastRun(runID)          // để gửi Telegram
-    ↓
-Agent chạy theo music SKILL workflow:
-
-  Step 1: GET /presence → user present?
-          → Không present → skip, NO_REPLY
-    ↓
-  Step 2: GET /api/openclaw/mood-history → xem pattern
-          → presence.enter lúc mấy giờ
-          → lần suggest trước bị reject không
-          → music.play events ở giờ nào
-    ↓
-  Step 3: GET /audio/history?person={name} → genre hay nghe, duration, stopped_by
-    ↓
-  Step 4: AI quyết định 1 trong 3:
-    A) Suggest → trả lời kèm emotion marker + gợi ý 1-2 bài
-    B) Skip   → NO_REPLY (bad timing, user đang bận)
-    C) Adjust → cron.update thay đổi interval cho phù hợp hơn
-```
-
-### 3. Lifecycle end — TTS + Broadcast Telegram
-
-```
-Agent trả lời xong → SSE lifecycle phase="end"
-    ↓
-Go handler xử lý:
-
-  1. flushAssistantText() → lấy text + extract HW markers
-     VD: "[HW:/emotion:{...}] Nghe chút nhạc jazz không?"
-    ↓
-  2. fireHWCalls() → POST /emotion đến LeLamp
-    ↓
-  3. mood.CompleteRun() → log "mood.assessed" vào mood history
-     ghi lại: emotion, response text, no_reply flag, source="music.proactive"
-    ↓
-  4. Kiểm tra kết quả:
-     - NO_REPLY     → skip TTS, log no_reply
-     - Có text      → gửi TTS → LeLamp nói suggestion bằng giọng
-     - Broadcast run → gửi text lên Telegram (user thấy trên điện thoại)
-```
-
-### 4. User confirm → Play music
+### User confirm → Play music
 
 ```
 User nói "ừ phát đi" (voice hoặc Telegram reply)
     ↓
-Agent match music SKILL trigger → trả lời:
-  [HW:/audio/play:{"query":"Take Five Dave Brubeck","person":"alice"}]
-  [HW:/emotion:{"emotion":"happy","intensity":0.8}]
-  Great choice!
+Agent:
+  1. POST /api/music-suggestion/status → status="accepted"
+  2. [HW:/audio/play:{"query":"...","person":"gray"}]
     ↓
-Go handler intercept HW markers:
-  → POST http://127.0.0.1:5001/audio/play → LeLamp
-  → POST http://127.0.0.1:5001/emotion → LeLamp
-  → mood.Log("music.play") → ghi vào mood history
-  → suppressTTS(runID, "music_playing") → chặn TTS đè lên nhạc
+Go handler intercept HW markers → POST /audio/play → LeLamp
     ↓
-LeLamp nhận /audio/play:
-  → MusicService.play("Take Five Dave Brubeck", person="alice")
-  → yt-dlp search YouTube → ffmpeg stream → ALSA speaker
-  → _log_play_event() → ghi vào /root/local/users/{person}/audio_history/music_YYYY-MM-DD.jsonl
+LeLamp: yt-dlp search → ffmpeg → ALSA speaker
 ```
 
-### 5. Learning loop — Lần cron tiếp theo
-
-Lần cron tiếp theo, AI query lại mood history + audio history và so sánh:
+### User reject → Log rejection
 
 ```
-Mood history:
-  11:00  mood.assessed  source=music.proactive  response="jazz suggestion"
-  11:02  music.play     "Take Five Dave Brubeck"
-  → Khoảng cách 2 phút → ACCEPTED
-
-Audio history:
-  query: "Take Five Dave Brubeck"
-  duration_s: 324    → nghe gần hết bài
-  stopped_by: "end"  → không skip
-  → User THÍCH bài này
+User nói "không" hoặc "not now"
+    ↓
+Agent: POST /api/music-suggestion/status → status="rejected"
 ```
-
-AI rút ra: suggest jazz buổi sáng → accepted, nghe hết bài → reinforce pattern.
 
 ---
 
@@ -181,283 +126,100 @@ AI rút ra: suggest jazz buổi sáng → accepted, nghe hết bài → reinforc
 
 | File | Vai trò |
 |------|---------|
-| `lumi/server/openclaw/delivery/sse/handler.go` | Detect `[music-proactive]`, intercept HW markers, log mood events, suppress TTS khi play music, broadcast qua Telegram |
-| `lumi/lib/mood/mood.go` | Logger JSONL per-user per-day. Log `music.play`, `music.proactive`, `mood.assessed`. API `Query()` cho AI đọc |
-| `lumi/server/openclaw/delivery/sse/handler.go → MoodHistory()` | Endpoint `GET /api/openclaw/mood-history` — AI query để learn pattern |
+| `lumi/lib/musicsuggestion/suggestion.go` | Logger JSONL per-user per-day. Log, Query, UpdateStatus, LastSuggestion, Days |
+| `lumi/lib/mood/mood.go` | Logger mood events |
+| `lumi/server/sensing/delivery/http/handler.go` | PostSuggestionLog/PostSuggestionStatus: API handlers. Motion.activity sedentary nudge agent follow Music skill |
+| `lumi/server/openclaw/delivery/sse/handler.go` | SuggestionHistory: GET endpoint |
+| `lumi/server/server.go` | Routes: /api/music-suggestion/*, /api/openclaw/music-suggestion-history |
 
 ### OpenClaw Skills
 
 | File | Vai trò |
 |------|---------|
-| `lumi/resources/openclaw-skills/music/SKILL.md` | Toàn bộ logic: bootstrap cron, decision process, mood→music mapping, learning rules, suggestion rules |
-| `lumi/resources/openclaw-skills/sensing/SKILL.md` | Trigger bootstrap music cron khi `presence.enter`. Bỏ reference đến timer `music.mood` cũ |
+| `lumi/resources/openclaw-skills/music/SKILL.md` | AI-driven suggestion logic, mood→music mapping, suggestion logging, cooldown check |
+| `lumi/resources/openclaw-skills/mood/SKILL.md` | Mood logging → follow Music skill suggestion |
+| `lumi/resources/openclaw-skills/sensing/SKILL.md` | Activity groups, sedentary → follow Music skill suggestion |
 
 ### LeLamp (Python)
 
 | File | Vai trò |
 |------|---------|
-| `lelamp/service/voice/music_service.py` | yt-dlp search → ffmpeg stream → ALSA. Log per-user play history vào `/root/local/users/{person}/audio_history/` |
-| `lelamp/server.py` | `POST /audio/play` (có `person`), `POST /audio/stop`, `GET /audio/status`, `GET /audio/history?person={name}` |
+| `lelamp/models.py` | FacePersonDetail: includes music_suggestion_days |
+| `lelamp/server.py` | /face/owners endpoint: reads music_suggestion_days from JSONL files |
+
+### Frontend (React)
+
+| File | Vai trò |
+|------|---------|
+| `lumi/web/src/pages/monitor/types.ts` | FaceOwnerDetail: music_suggestion_days field |
+| `lumi/web/src/pages/monitor/FaceOwnersSection.tsx` | Hiển thị music_suggestion_days badge + folder tree |
 
 ---
 
 ## Dữ liệu AI sử dụng
 
-### Mood history (`GET /api/openclaw/mood-history?date=YYYY-MM-DD&last=N`)
+### Music suggestion history (`GET /api/openclaw/music-suggestion-history`)
 
-Lưu tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl`. Các event type liên quan:
-
-| Event | Ý nghĩa |
+| Field | Dùng để |
 |-------|---------|
-| `music.proactive` | Cron đã fire, AI bắt đầu evaluate |
-| `mood.assessed` (source=`music.proactive`) | AI đã quyết định: suggest hay skip. Có field `emotion`, `response`, `no_reply` |
-| `music.play` | User thực sự play nhạc (qua HW marker hoặc tool call) |
-| `presence.enter` + `hour` | Khi user đến → pattern giờ nào hay ngồi |
+| `trigger` | Biết suggestion từ mood hay activity |
+| `status` | Learn accept/reject pattern |
+| `hour` | Pattern thời gian nào user hay accept |
+| `message` | Tránh suggest trùng lặp |
 
-### Audio history (`GET /audio/history?person={name}&date=YYYY-MM-DD&last=N`)
+### Audio history (`GET /audio/history?person={name}&last=1`)
 
-Lưu per-user tại `/root/local/users/{person}/audio_history/music_YYYY-MM-DD.jsonl`. Nếu không có person → fallback `unknown`:
-
-| Field | Ý nghĩa |
+| Field | Dùng để |
 |-------|---------|
-| `query` | YouTube search string → genre/artist signal |
-| `title` | Bài thực sự play |
-| `duration_s` | Nghe bao lâu → mức hài lòng |
-| `stopped_by` | `"user"` = skip thủ công, `"end"` = nghe hết, `"tts"` = bị TTS cắt |
-| `hour` | Giờ trong ngày → pattern thời gian |
-| `person` | Ai yêu cầu play (từ face recognition) |
+| `query` | Genre/artist signal |
+| `duration_s` | Satisfaction: > 180s = enjoyed |
+| `stopped_by` | `"end"` = liked, `"user"` < 30s = disliked |
 
-### Accept/Reject logic
+### Learning Rules
 
-AI so sánh timestamp:
-- `mood.assessed` (suggestion) → `music.play` **trong vòng 5 phút** = **accepted**
-- `mood.assessed` → **không có** `music.play` trong 15 phút = **rejected**
-- 3+ rejected liên tiếp ở cùng khung giờ → ngừng suggest ở giờ đó
+- `stopped_by: "end"` + `duration_s` > 180s → suggest similar artist/genre
+- `stopped_by: "user"` + `duration_s` < 30s → try different direction
+- Multiple `rejected` in suggestion history → reduce frequency / change approach
 
 ---
 
 ## Speaker conflict
 
-Lumi chỉ có 1 speaker chia sẻ giữa TTS và music. Handler xử lý bằng `suppressTTS`:
+Lumi chỉ có 1 speaker chia sẻ giữa TTS và music:
 
 | Tình huống | Hành vi |
 |-----------|---------|
-| AI suggest bằng text (không play) | TTS nói suggestion → user nghe bằng giọng |
-| AI suggest + user confirm → play | `suppressTTS("music_playing")` → TTS không nói đè lên nhạc |
-| Music đang play + TTS request | LeLamp trả HTTP 409 — music giữ priority |
+| AI suggest bằng text | TTS nói suggestion → user nghe |
+| User confirm → play | suppressTTS → TTS không đè lên nhạc |
+| Music đang play + TTS | LeLamp trả 409 — music giữ priority |
 | User nói "stop" | `[HW:/audio/stop:{}]` → dừng music |
-
----
-
-## Cách test
-
-### Điều kiện tiên quyết
-
-- Lumi Go server đang chạy (port 5000)
-- LeLamp đang chạy (port 5001) với audio device
-- OpenClaw agent connected
-- Camera hoạt động (cho presence detection)
-- Có kết nối internet (yt-dlp cần YouTube)
-
-### Test 1: Bootstrap cron khi presence.enter
-
-**Mục tiêu:** Verify AI tạo music cron job khi user ngồi vào.
-
-**Bước thực hiện:**
-1. Ngồi trước camera → chờ `presence.enter` event
-2. Chờ agent xử lý xong (greeting)
-3. Kiểm tra cron đã tạo:
-   ```bash
-   # Qua OpenClaw API hoặc xem agent log
-   # Tìm log: "Music: {name}" trong cron list (vd: "Music: gray")
-   ```
-
-**Kết quả mong đợi:**
-- Agent tạo cron job tên "Music: {name}" (vd: "Music: gray") với interval 420000ms
-- Mỗi friend có cron riêng, không trùng lặp
-
-**Verify trên Flow Monitor:**
-- Mở web UI → Monitor page
-- Xem flow: `sensing_input` → `chat_response` (greeting) + cron.add call
-
-### Test 2: Cron fire → AI suggest
-
-**Mục tiêu:** Verify AI gợi ý nhạc khi cron fire và user present.
-
-**Bước thực hiện:**
-1. Ngồi trước camera (presence = present)
-2. Chờ cron fire (7 phút sau bootstrap, hoặc theo interval đã set)
-3. Quan sát response
-
-**Kết quả mong đợi:**
-- Agent query presence, mood history, audio history
-- Agent trả lời gợi ý 1-2 bài (hoặc NO_REPLY nếu judge không phù hợp)
-- TTS nói suggestion bằng giọng
-- Telegram nhận được cùng text (broadcast)
-- Mood history ghi `mood.assessed` với `source: "music.proactive"`
-
-**Verify:**
-```bash
-# Xem mood history hôm nay
-curl -s "http://<LUMI_IP>:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=50" | jq '.data.events[] | select(.event == "mood.assessed" and .source == "music.proactive")'
-```
-
-### Test 3: Cron fire → user vắng → skip
-
-**Mục tiêu:** Verify AI không suggest khi user không present.
-
-**Bước thực hiện:**
-1. Rời khỏi camera (presence = away)
-2. Chờ cron fire
-
-**Kết quả mong đợi:**
-- Agent query presence → not present → NO_REPLY
-- Không có TTS, không broadcast
-- Flow Monitor hiển thị `[no reply]`
-
-### Test 4: User confirm → play music
-
-**Mục tiêu:** Verify nhạc play sau khi user đồng ý.
-
-**Bước thực hiện:**
-1. Chờ AI suggest (Test 2)
-2. Nói "ừ phát đi" hoặc reply trên Telegram "play that"
-3. Quan sát speaker
-
-**Kết quả mong đợi:**
-- Agent trả lời với `[HW:/audio/play:{"query":"...","person":"..."}]` marker
-- Speaker phát nhạc từ YouTube
-- TTS bị suppress (không nói đè lên nhạc)
-- Mood history ghi `music.play`
-- Audio history ghi play event (query, title, duration)
-
-**Verify:**
-```bash
-# Xem audio status
-curl -s "http://<LUMI_IP>:5001/audio/status"
-# → {"playing": true}
-
-# Xem mood history có music.play
-curl -s "http://<LUMI_IP>:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=10" | jq '.data.events[] | select(.event == "music.play")'
-
-# Xem audio history
-curl -s "http://<LUMI_IP>:5001/audio/history?person=alice&last=5"
-```
-
-### Test 5: User reject → AI adapt
-
-**Mục tiêu:** Verify AI điều chỉnh khi user từ chối.
-
-**Bước thực hiện:**
-1. Chờ AI suggest
-2. Nói "không" hoặc im lặng (không play)
-3. Chờ lần suggest tiếp theo
-4. Lặp lại 2-3 lần reject liên tiếp
-
-**Kết quả mong đợi:**
-- Mood history ghi `mood.assessed` nhưng không có `music.play` sau đó
-- Sau 2-3 lần reject, AI có thể:
-  - Tăng interval (cron.update)
-  - Thay đổi genre suggest
-  - Skip suggest ở khung giờ này
-
-**Lưu ý:** Hành vi adapt phụ thuộc LLM judgment — không deterministic. Kiểm tra bằng cách xem cron interval có thay đổi không.
-
-### Test 6: Speaker conflict — TTS vs Music
-
-**Mục tiêu:** Verify TTS không đè lên music đang play.
-
-**Bước thực hiện:**
-1. Play nhạc (nói "play some jazz")
-2. Trong khi nhạc đang chạy, trigger một sensing event (ví dụ: motion)
-3. Quan sát speaker
-
-**Kết quả mong đợi:**
-- Music tiếp tục play
-- Agent response không bị TTS phát ra (suppressed)
-- Flow Monitor hiển thị `tts_suppressed` với reason `music_playing`
-
-### Test 7: Stop music
-
-**Bước thực hiện:**
-1. Đang play nhạc
-2. Nói "stop" hoặc "tắt nhạc"
-
-**Kết quả mong đợi:**
-- Agent gửi `[HW:/audio/stop:{}]`
-- Music dừng ngay
-- Audio history ghi `stopped_by: "user"`
-
-### Test 8: Reactive — User hỏi trực tiếp
-
-**Mục tiêu:** Verify music suggestion cũng hoạt động khi user chủ động hỏi.
-
-**Bước thực hiện:**
-1. Nói "gợi ý nhạc đi" hoặc "suggest some music"
-
-**Kết quả mong đợi:**
-- Agent query audio history → gợi ý dựa trên genre user hay nghe
-- Nếu chưa có history → gợi ý theo mood từ mood history + conversation context
-- Không auto-play, chờ confirm
 
 ---
 
 ## Monitoring & Debug
 
-### Flow Monitor (Web UI)
-
-Mở `http://<LUMI_IP>:5000` → Monitor page. Các event liên quan:
-
-| Event type | Ý nghĩa |
-|-----------|---------|
-| `sensing_input` | Sensing event đến (presence, motion...) |
-| `hw_audio` | Music play/stop command |
-| `hw_emotion` | Emotion marker fired |
-| `tts_send` | Text gửi đến TTS |
-| `tts_suppressed` | TTS bị chặn (reason: music_playing) |
-| `no_reply` | Agent quyết định im lặng |
-
-### Logs quan trọng (Go server)
+### API kiểm tra
 
 ```bash
-# Xem music-related logs
-journalctl -u lamp-server | grep -i "music\|audio/play\|suppress\|broadcast"
+# Suggestion history hôm nay
+curl -s "http://<LUMI_IP>:5000/api/openclaw/music-suggestion-history?user=gray&date=$(date +%Y-%m-%d)&last=50"
+
+# Mood history
+curl -s "http://<LUMI_IP>:5000/api/openclaw/mood-history?user=gray&date=$(date +%Y-%m-%d)&last=50"
+
+# Audio status
+curl -s "http://<LUMI_IP>:5001/audio/status"
+
+# Audio history
+curl -s "http://<LUMI_IP>:5001/audio/history?person=gray&last=10"
 ```
 
-| Log message | Ý nghĩa |
-|------------|---------|
-| `music tool detected, TTS will be suppressed` | Detect /audio/play, sẽ chặn TTS |
-| `broadcast run response to channels` | Gửi suggestion text lên Telegram |
-| `agent replied NO_REPLY, skipping TTS` | AI quyết định không suggest |
-| `assistant turn done, TTS suppressed` | TTS bị chặn (music đang play) |
+### Web UI
 
-### Mood history trực tiếp
+Monitor page → Users section → click vào user → xem `music-suggestions/` folder → click ngày để xem chi tiết.
+
+### Logs
 
 ```bash
-# Xem raw JSONL trên Pi
-cat /root/local/users/<username>/mood/$(date +%Y-%m-%d).jsonl | jq .
-
-# Qua API
-curl -s "http://<LUMI_IP>:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=200" | jq '.data.events'
+journalctl -u lamp-server | grep -i "suggestion\|music"
 ```
-
-### Audio history trực tiếp
-
-```bash
-# Qua API
-curl -s "http://<LUMI_IP>:5001/audio/history?person=alice&last=20"
-```
-
----
-
-## Hạn chế hiện tại
-
-1. **Toàn bộ intelligence nằm trong LLM** — Go server không validate timing, interval, hay quyết định suggest. Nếu LLM "quên" tạo cron hoặc bỏ qua rules → không có safety net.
-
-2. **Không có server-side rate limit** — Nếu AI set interval quá ngắn hoặc suggest liên tục, không có hard code chặn.
-
-3. **Learning phụ thuộc LLM context** — AI đọc mood history mỗi lần cron fire để learn. Nhưng nếu history dài hoặc pattern phức tạp, LLM có thể miss.
-
-4. **Cần internet** — yt-dlp search YouTube cần kết nối mạng. Không có offline fallback.
-
-5. **Single speaker** — TTS và music chia sẻ 1 speaker. Không thể vừa nói vừa phát nhạc.

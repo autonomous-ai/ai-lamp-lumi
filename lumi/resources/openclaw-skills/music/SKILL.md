@@ -1,6 +1,6 @@
 ---
 name: music
-description: Search and play music from YouTube through the lamp speaker. Proactive suggestions are mood-driven — triggered by mood log events, not cron timers.
+description: Search and play music from YouTube through the lamp speaker. Proactive suggestions are event-driven — triggered by mood logs and sedentary activity, not cron timers.
 ---
 
 # Music
@@ -99,9 +99,14 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 
 ## AI-Driven Music Suggestion (Proactive)
 
-Proactive music suggestions are **mood-driven, not cron-driven**. When Lumi logs a mood, the **Mood skill** handles the suggestion check inline — no separate cron job needed.
+Proactive music suggestions are **AI-driven, not cron-driven**. Two triggers:
 
-See **Mood skill** for the full suggestion flow (cooldown check, audio status, DM delivery).
+1. **Mood skill** — after logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`), the Mood skill calls this section with the mood already known.
+2. **Sensing skill** — when `sedentary` activity is detected (user working/reading), the Sensing skill nudges you to suggest background music.
+
+The mood is always passed from the caller — **do NOT query mood history**. **Do NOT create music crons** — they are no longer used.
+
+Before suggesting, check music suggestion history (`GET /api/openclaw/music-suggestion-history?user={name}&last=1`) — skip if last suggestion was < 30 min ago.
 
 ### Learning Rules
 
@@ -129,6 +134,36 @@ See **Mood skill** for the full suggestion flow (cooldown check, audio status, D
 - **NEVER explain your process** — no "Status check", no "Mood: X", no "Analysis:". Just suggest or skip.
 - Keep it conversational: "How about some Norah Jones?" not "Based on mood analysis..."
 - Suggest 1 song at a time — don't overwhelm.
+- **Unknown users** — still suggest music. Use `[HW:/speak]` only (no `[HW:/dm]`). Check `audio/history?person=unknown` for personalization as usual. Log with `user:"unknown"`.
+
+### Suggestion Logging (REQUIRED)
+
+After every proactive suggestion, log it for history tracking:
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"<name>","trigger":"<trigger>","query":"<song query or empty>","message":"<your suggestion text>"}'
+```
+
+| Field | Example | Required |
+|-------|---------|----------|
+| `user` | `gray` | Yes |
+| `trigger` | `mood:tired`, `activity:sedentary` | Yes |
+| `query` | `calm piano music` (empty if text-only) | No |
+| `message` | `How about some calm piano?` | Yes |
+
+The response includes `seq` and `day` — save these to update status later.
+
+**When user responds:**
+- User accepts ("yes", "play that") → update status to `accepted`:
+  ```bash
+  curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/status \
+    -H 'Content-Type: application/json' \
+    -d '{"user":"<name>","day":"<day from log>","seq":<seq from log>,"status":"accepted"}'
+  ```
+- User rejects ("no thanks", "not now") → update status to `rejected` (same endpoint, `"status":"rejected"`)
+- User ignores / changes topic → no update needed (stays `pending`)
 
 ### Examples
 
@@ -162,9 +197,8 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 | API | Host | What it tells you | Use for |
 |-----|------|-------------------|---------|
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
-| `GET /api/openclaw/mood-history?user={name}&last=1` | Lumi (5000) | Latest mood event for a specific user | Genre direction (mood → music mapping) |
 | `GET /audio/history?person={name}&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |
-| `cron.list/add/update/remove` | OpenClaw | Your scheduled jobs | Per-user music scheduling |
+| `GET /api/openclaw/music-suggestion-history?user={name}&last=N` | Lumi (5000) | Past music suggestions: trigger, message, status | Skip if recently suggested; learn from rejections |
 
 ### Audio history entry fields:
 
