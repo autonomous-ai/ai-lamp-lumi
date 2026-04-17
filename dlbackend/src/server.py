@@ -32,6 +32,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from core.actionanalysis.videomae import VideoMAEModel
 from core.models import ActionRequest, ConfigRequest, FrameRequest
+from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 
 _ = load_dotenv()
 
@@ -159,6 +160,7 @@ async def health():
 
 app.include_router(router)
 app.include_router(ws_router)
+app.include_router(audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
 
 
 def parse_args() -> argparse.Namespace:
