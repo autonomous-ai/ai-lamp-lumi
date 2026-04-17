@@ -84,7 +84,7 @@ Users can mute the mic for privacy (meetings, calls). Use HW markers — no curl
 [HW:/voice/mute:{}]
 ```
 
-Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf. Only physical button press or web toggle can unmute.
+Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf. Unmute via physical button, web toggle, or Telegram command.
 
 ### Trigger phrases (MANDATORY — must call HW marker)
 
