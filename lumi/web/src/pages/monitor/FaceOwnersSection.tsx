@@ -59,6 +59,7 @@ export function FaceOwnersSection() {
 
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deletingPhoto, setDeletingPhoto] = useState<string | null>(null); // "label/filename"
 
   // Audio history per user: { "gray": [...entries] }
   const [audioHistory, setAudioHistory] = useState<Record<string, AudioHistoryEntry[]>>({});
@@ -215,6 +216,24 @@ export function FaceOwnersSection() {
       // ignore
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleRemovePhoto = async (label: string, filename: string) => {
+    if (!confirm(`Remove photo "${filename}" from ${label}?`)) return;
+    const key = `${label}/${filename}`;
+    setDeletingPhoto(key);
+    try {
+      await fetch(`${HW}/face/photo/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label, filename }),
+      });
+      refresh();
+    } catch {
+      // ignore
+    } finally {
+      setDeletingPhoto(null);
     }
   };
 
@@ -693,7 +712,7 @@ export function FaceOwnersSection() {
                             textUnderlineOffset: 3,
                           }}>{item.name}</span>
                         </span>
-                        {isImg && (
+                        {isImg && (<>
                           <img
                             src={`${HW}/face/photo/${person.label}/${item.name}`}
                             style={{
@@ -705,7 +724,18 @@ export function FaceOwnersSection() {
                             }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
-                        )}
+                          <span
+                            onClick={() => handleRemovePhoto(person.label, item.name)}
+                            style={{
+                              cursor: deletingPhoto === `${person.label}/${item.name}` ? "wait" : "pointer",
+                              fontSize: 10,
+                              color: "rgb(239,68,68)",
+                              opacity: deletingPhoto === `${person.label}/${item.name}` ? 0.5 : 0.6,
+                              fontWeight: 600,
+                            }}
+                            title={`Remove ${item.name}`}
+                          >✕</span>
+                        </>)}
                       </div>
                     );
                   });

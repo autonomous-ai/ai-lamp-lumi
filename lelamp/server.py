@@ -58,6 +58,7 @@ from lelamp.models import (
     FaceEnrollResponse,
     FaceOwnersDetailResponse,
     FacePersonDetail,
+    FacePhotoRemoveRequest,
     FaceRemoveRequest,
     FaceRemoveResponse,
     FaceResetResponse,
@@ -2414,6 +2415,15 @@ def face_remove(req: FaceRemoveRequest):
         label=norm,
         enrolled_count=fr.enrolled_count(),
     )
+
+
+@app.post("/face/photo/remove", response_model=StatusResponse, tags=["Face"])
+def face_photo_remove(req: FacePhotoRemoveRequest):
+    """Remove a single photo from a person and re-train from remaining photos."""
+    fr = _require_face_recognizer()
+    if not fr.remove_photo(req.label, req.filename):
+        raise HTTPException(404, "photo not found")
+    return {"status": "ok"}
 
 
 @app.post("/face/reset", response_model=FaceResetResponse, tags=["Face"])
