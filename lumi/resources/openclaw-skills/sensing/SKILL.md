@@ -98,7 +98,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Movement detected while user is present — analyze what user is doing | Yes |
+| `motion.activity` | `[sensing:motion.activity]` | Activity group detected while user is present (`sedentary`, `drink`, `break`, `emotional`) | No |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
@@ -125,7 +125,7 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 - **Always respond to presence.enter** — MUST emit emotion marker AND respond with text. Behavior differs by person type:
   - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
   - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
-- **motion.activity (sedentary) triggers cron setup** — when you see sedentary activity, create wellbeing/music crons per those skills. Do NOT create crons on presence.enter.
+- **motion.activity (`sedentary` group) triggers cron setup** — when you see the `sedentary` group, create wellbeing/music crons per those skills. Do NOT create crons on presence.enter.
 - **presence.leave triggers cron cleanup** — cancel this person's wellbeing/music crons. For strangers, cancel `"unknown"` crons only on `presence.away`.
 - **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
 - **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
@@ -215,13 +215,16 @@ Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 ### Motion activity analysis (while present)
 When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (~6 min cooldown) with a snapshot.
 
-**`[sensing:motion.activity]`** — fires when motion detected while PRESENT:
-1. Look at the image — describe what the user appears to be doing (working, stretching, eating, talking on phone, fidgeting, getting up, etc.).
-2. Follow the **Wellbeing** skill for cron timer resets based on what you see.
-3. If the action is an **emotional action** (laughing, crying, yawning, singing) → follow the **Emotion Detection** skill for empathetic response and logging.
-4. If the activity is noteworthy (stretching after long sitting, eating, leaving desk), make a brief contextual comment or weave it into the conversation.
-5. If nothing interesting (just typing, same posture as before) → reply NO_REPLY.
-6. Keep it natural and non-intrusive. Don't narrate every small movement.
+**`[sensing:motion.activity]`** — fires when activity detected while PRESENT. Message contains activity groups (`sedentary`, `drink`, `break`, `emotional`):
+1. From the group(s) in the message, follow the appropriate skill:
+   - `sedentary` → **Wellbeing** skill (create crons) + **Music** skill (bootstrap cron)
+   - `drink` → **Wellbeing** skill (reset hydration timer)
+   - `break` → **Wellbeing** skill (reset break timer)
+   - `emotional` → **Emotion Detection** skill (empathetic response + mood logging)
+2. Multiple groups can appear in one event (e.g. `drink, break`) — handle all of them.
+3. If the group triggers something noteworthy, make a brief contextual comment.
+4. If nothing interesting → reply NO_REPLY.
+5. Keep it natural and non-intrusive.
 
 ### Guard mode
 When a friend returns (`[sensing:presence.enter]` with friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"

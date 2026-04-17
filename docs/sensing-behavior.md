@@ -192,9 +192,11 @@ The agent maintains **per-person wellbeing data** under `/root/local/users/{name
 
 The agent reads the summary + today's daily log on `presence.enter` to quickly recall the person and know what happened earlier today (e.g. if the user left and came back). Daily log is updated continuously during `motion.activity` and finalized on `presence.leave`.
 
-Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with sedentary action** (using computer, reading, writing, gaming, etc.). This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
+Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with `sedentary` group**. This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
 
-When sedentary activity is detected (`motion.activity`), the agent:
+LeLamp groups raw action labels into 4 categories before sending to Lumi: `drink` (reset hydration), `break` (reset break — includes eating, stretching, movement), `sedentary` (create crons), `emotional` (mood logging). The agent receives only the group name, not the raw Kinetics label.
+
+When `sedentary` group is detected (`motion.activity`), the agent:
 
 1. **Reads their notebook** (`wellbeing.md`) to recall what it has learned about their patterns.
 2. **Reads today's daily log** (`wellbeing/YYYY-MM-DD.md`) to know what happened earlier today — how many times they drank, took breaks, etc. Used to adjust cron intervals.
@@ -209,14 +211,18 @@ When sedentary activity is detected (`motion.activity`), the agent:
 
 ### Cron sessionTarget rules
 
-OpenClaw cron has two valid combos — do NOT mix:
+OpenClaw cron accepts four `sessionTarget` values:
 
-| sessionTarget | payload.kind | payload field | Use case |
-|---|---|---|---|
-| `main` | `systemEvent` | `text` | Needs conversation context (music, wellbeing) |
-| `isolated` | `agentTurn` | `message` | Fresh session each fire |
+| sessionTarget | Meaning | Typical payload |
+|---|---|---|
+| `main` | Always routes into the main (voice) session | `systemEvent` + `text` |
+| `current` | Binds to the session active at **cron creation** time — fire routes back there | `systemEvent` + `text` |
+| `isolated` | Spawns a fresh isolated session per fire | `agentTurn` + `message` |
+| `session:<id>` | Explicit persistent session by id | `agentTurn` + `message` |
 
-`main` + `agentTurn` is **rejected** by OpenClaw. Do NOT add a `delivery` field — it causes errors.
+Wellbeing and music use `current` so crons created during a Telegram test fire back into that same Telegram chat (reactive) while still TTS'ing via `[HW:/broadcast]`. Do NOT add a `delivery` field — it causes errors.
+
+**TTS from channel-origin cron fires:** When `current` binds to a Telegram/channel session, TTS on the speaker is suppressed by default (channel runs go as text). Force TTS by including `[HW:/broadcast]` in the reply — wellbeing and music cron payloads already instruct this.
 
 **Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — causing the agent to NO_REPLY. **Workaround:** Prefix payload text with `[MUST-SPEAK]` to force the agent to reply out loud despite the wrapper. All wellbeing and music cron payloads must start with `[MUST-SPEAK]`.
 
@@ -247,7 +253,7 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the AI agent **self-schedules** music checks via OpenClaw cron jobs and **learns** the user's habits over time:
 
-- **Self-scheduling:** On first **sedentary `motion.activity`** of the session (not `presence.enter`), the AI creates a cron job (default: every 20 min / 1200000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
+- **Self-scheduling:** On first **sedentary `motion.activity`** of the session (not `presence.enter`), the AI creates a cron job (default: every 20 min / 1200000ms, `sessionTarget: "current"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
 - **Data-driven decisions:** Before suggesting, the AI queries:
   - `GET /audio/status` — is music already playing?
   - `GET /api/openclaw/mood-history` — latest mood for genre selection
@@ -312,20 +318,21 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 ### How it works
 
 `MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state` and `has_friend` (face recognizer):
-- **PRESENT + has_friend** → sends `motion.activity` with action names only (e.g. `'drinking', 'stretching'`). No images attached — saves tokens.
+- **PRESENT + has_friend** → sends `motion.activity` with activity groups only (e.g. `drink, break, sedentary, emotional`). No images attached — saves tokens.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
 
 ### Wellbeing cron reset (LLM-driven)
 
-The agent infers from the **action name** (not images) whether to reset wellbeing crons:
+The agent receives **activity groups** (`drink`, `break`, `sedentary`, `emotional`) from LeLamp — no inference needed:
 
 1. **Read today's daily log** for context (how many times they drank, took breaks today)
-2. **Infer from action name:**
-   - User drinking something (water, beer, coffee, etc.) → reset hydration cron
-   - User NOT sedentary (standing, stretching, walking, etc.) → reset break cron
-   - Both apply → reset both
-   - Sedentary (sitting, typing, etc.) → NO_REPLY
-3. **Append to daily log:** `HH:MM — [action] (hydration reset / break reset / both reset)`
+2. **By group:**
+   - `drink` → reset hydration cron
+   - `break` → reset break cron (eating, stretching, movement)
+   - `sedentary` → create hydration + break + music crons if missing
+   - `emotional` → Emotion Detection skill, no cron changes
+   - Multiple groups in one event → handle all
+3. **Append to daily log:** `HH:MM — [group] (hydration reset / break reset / crons created)`
 4. **Respond with caring observation** using context from log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ### Agent behavior

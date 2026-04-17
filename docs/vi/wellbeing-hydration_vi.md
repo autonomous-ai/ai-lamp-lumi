@@ -48,14 +48,14 @@ Step 3: Schedule 2 cron jobs (nếu chưa có)
   cron.add:
     name: "Wellbeing: {name} hydration"
     schedule: {kind: "every", everyMs: 2700000}  (45 phút)
-    sessionTarget: "main", payload.kind: "systemEvent"
-    text: "[MUST-SPEAK] Wellbeing hydration check. Remind water..."
+    sessionTarget: "current", payload.kind: "systemEvent"
+    text: "[MUST-SPEAK] Wellbeing hydration check. Remind water... prefix [HW:/broadcast][HW:/emotion]..."
 
   cron.add:
     name: "Wellbeing: {name} break"
     schedule: {kind: "every", everyMs: 1800000}  (30 phút)
-    sessionTarget: "main", payload.kind: "systemEvent"
-    text: "[MUST-SPEAK] Wellbeing break check. Suggest stretch..."
+    sessionTarget: "current", payload.kind: "systemEvent"
+    text: "[MUST-SPEAK] Wellbeing break check. Suggest stretch... prefix [HW:/broadcast][HW:/emotion]..."
 ```
 
 **{name}** = tên người quen từ `presence.enter` trước đó, hoặc `"unknown"` nếu là người lạ.
