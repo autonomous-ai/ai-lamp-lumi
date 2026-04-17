@@ -1674,14 +1674,12 @@ _camera_manual_override = False
 @app.get("/camera", response_model=CameraInfoResponse, tags=["Camera"])
 def get_camera_info():
     """Get camera availability and resolution."""
-    if not camera_capture or cv2 is None or _camera_disabled:
-        return {"available": False, "width": None, "height": None, "disabled": _camera_disabled, "manual_override": _camera_manual_override}
-
+    available = camera_capture is not None and cv2 is not None
     return {
-        "available": True,
-        "width": CAMERA_WIDTH,
-        "height": CAMERA_HEIGHT,
-        "disabled": False,
+        "available": available,
+        "width": CAMERA_WIDTH if available else None,
+        "height": CAMERA_HEIGHT if available else None,
+        "disabled": _camera_disabled,
         "manual_override": _camera_manual_override,
     }
 
