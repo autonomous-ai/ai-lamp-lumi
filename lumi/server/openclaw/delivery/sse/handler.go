@@ -63,9 +63,30 @@ type OpenClawHandler struct {
 	channelRunsMu sync.Mutex
 	channelRuns   map[string]bool
 
+	// cronFireRuns tracks runs initiated by an OpenClaw scheduled cron fire.
+	// Populated when a lifecycle_start arrives shortly after an event:"cron"
+	// (action:"started") on the same sessionKey — the cron event lacks the
+	// upcoming runId so we correlate by sessionKey within a short window.
+	// Cron fires get UUID runIds (no lumi- prefix) → isChannelRun would
+	// otherwise suppress TTS. Membership forces isChannelRun=false so the
+	// lamp speaker fires.
+	cronFireRunsMu sync.Mutex
+	cronFireRuns   map[string]bool
+
+	// cronFireExpected tracks sessionKey → unix-ms-timestamp of the most recent
+	// cron "started" event. Consumed by the next lifecycle_start on that
+	// sessionKey if within cronFireWindowMs.
+	cronFireExpectedMu sync.Mutex
+	cronFireExpected   map[string]int64
+
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
 }
+
+// cronFireWindowMs is the max delay between an OpenClaw cron "started" event
+// and the lifecycle_start it precedes. Observed ~2s in practice; 10s leaves
+// generous headroom for slow/loaded runs without false-positive correlations.
+const cronFireWindowMs int64 = 10_000
 
 var emotionRe = regexp.MustCompile(`(?:\\"|")emotion(?:\\"|")\s*:\s*(?:\\"|")([a-zA-Z_]+)(?:\\"|")`)
 
@@ -105,6 +126,8 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		ttsSuppressReasons: make(map[string]string),
 		runIDMap:           make(map[string]string),
 		channelRuns:        make(map[string]bool),
+		cronFireRuns:       make(map[string]bool),
+		cronFireExpected:   make(map[string]int64),
 	}
 }
 
@@ -318,6 +341,27 @@ func (h *OpenClawHandler) mapRunID(openclawID, deviceID string) {
 func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) error {
 	slog.Debug("event received", "component", "agent", "event", evt.Event)
 
+	// OpenClaw cron events: action="started" fires immediately before the
+	// agent lifecycle_start for a cron-triggered turn. Payload schema (from
+	// src/cron/service/state.ts CronEvent): { jobId, action, sessionKey,
+	// runAtMs, ... }. We cache sessionKey → timestamp; the next lifecycle_start
+	// matching that sessionKey within cronFireWindowMs gets marked as a cron
+	// fire so isChannelRun is overridden and TTS reaches the lamp speaker.
+	if evt.Event == "cron" {
+		var cronEvt struct {
+			Action     string `json:"action"`
+			SessionKey string `json:"sessionKey"`
+			JobID      string `json:"jobId"`
+			RunAtMs    int64  `json:"runAtMs"`
+		}
+		if err := json.Unmarshal(evt.Payload, &cronEvt); err == nil && cronEvt.Action == "started" && cronEvt.SessionKey != "" {
+			h.cronFireExpectedMu.Lock()
+			h.cronFireExpected[cronEvt.SessionKey] = time.Now().UnixMilli()
+			h.cronFireExpectedMu.Unlock()
+			slog.Info("cron started — expecting lifecycle_start", "component", "agent", "session", cronEvt.SessionKey, "job_id", cronEvt.JobID, "run_at_ms", cronEvt.RunAtMs)
+		}
+	}
+
 	switch evt.Event {
 	case "agent":
 		var payload domain.AgentPayload
@@ -352,6 +396,24 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		case "lifecycle":
 			slog.Info("lifecycle event", "component", "agent", "phase", payload.Data.Phase, "runId", payload.RunID, "flowRunId", flowRunID, "session", payload.SessionKey)
 
+			// Correlate with the most recent cron "started" event on this
+			// sessionKey: if it arrived within cronFireWindowMs, this turn is
+			// a cron fire and must TTS regardless of channel_run heuristic.
+			if payload.Data.Phase == "start" && payload.RunID != "" && payload.SessionKey != "" {
+				h.cronFireExpectedMu.Lock()
+				startedAt, ok := h.cronFireExpected[payload.SessionKey]
+				if ok && time.Now().UnixMilli()-startedAt <= cronFireWindowMs {
+					delete(h.cronFireExpected, payload.SessionKey)
+					h.cronFireExpectedMu.Unlock()
+					h.cronFireRunsMu.Lock()
+					h.cronFireRuns[payload.RunID] = true
+					h.cronFireRunsMu.Unlock()
+					slog.Info("cron fire correlated — will force TTS", "component", "agent", "run_id", payload.RunID, "session", payload.SessionKey, "delta_ms", time.Now().UnixMilli()-startedAt)
+				} else {
+					h.cronFireExpectedMu.Unlock()
+				}
+			}
+
 			// Detect external channel-initiated turns: lifecycle_start arrives from OpenClaw
 			// with a UUID run_id (not lumi-chat-* prefix). This covers:
 			// 1. No active trace (original case)
@@ -383,6 +445,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						return
 					}
 					slog.Info("chat.history for channel turn", "component", "agent", "run_id", capturedRunID, "history_bytes", len(historyPayload))
+					// Dump the last message raw JSON — helps identify a cleaner cron-fire
+					// signal (e.g. role:"system", kind:"systemEvent") than string matching.
+					// Temporary — remove once schema is confirmed.
+					if len(historyPayload) < 8000 {
+						slog.Info("chat.history raw payload", "component", "agent", "run_id", capturedRunID, "payload", string(historyPayload))
+					}
 
 					// Extract last user message from history.
 					var userMsg string
@@ -428,6 +496,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						h.channelRuns[capturedRunID] = true
 						h.channelRunsMu.Unlock()
 					}
+					// Cron-fire detection happens at lifecycle_start (see correlation
+					// against cronFireExpected) — no need to inspect userMsg here.
 					if userMsg != "" {
 						// Detect music-proactive cron turns — broadcast to Telegram for remote confirmation.
 						if strings.Contains(userMsg, "[music-proactive]") {
@@ -860,6 +930,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
 					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+					// Cron-fire turns always TTS on the lamp speaker even though their
+					// UUID runIds look like channel runs. Detected from chat.history
+					// systemEvent template at lifecycle_start (see cronFireRuns map).
+					h.cronFireRunsMu.Lock()
+					isCronFire := h.cronFireRuns[payload.RunID] || h.cronFireRuns[flowRunID]
+					delete(h.cronFireRuns, payload.RunID)
+					delete(h.cronFireRuns, flowRunID)
+					h.cronFireRunsMu.Unlock()
+					if isCronFire {
+						isChannelRun = false
+					}
 					// [HW:/broadcast] (guard) or [HW:/speak] (proactive crons) force TTS
 					// even for channel-origin runs.
 					if isBroadcastRun || forceTTS {
@@ -878,9 +959,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					delete(h.channelRuns, payload.RunID)
 					delete(h.channelRuns, flowRunID)
 					h.channelRunsMu.Unlock()
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "force_tts", forceTTS, "heartbeat", isHeartbeatRun)
-					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
-					if !isChannelRun {
+					if isChannelRun {
+						// TTS would be gated by channel_run — log suppression so the
+						// monitor doesn't misleadingly show a "tts_send" event when the
+						// speaker stays silent. Channel/Telegram users still receive
+						// the text via OpenClaw's own session fan-out.
+						slog.Info("assistant turn done, TTS suppressed (channel run)", "component", "agent", "text", text[:min(len(text), 100)], "broadcast", isBroadcastRun, "force_tts", forceTTS, "cron_fire", isCronFire, "heartbeat", isHeartbeatRun)
+						flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "channel_run", "text": text}, flowRunID)
+					} else {
+						slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "broadcast", isBroadcastRun, "force_tts", forceTTS, "cron_fire", isCronFire, "heartbeat", isHeartbeatRun)
+						flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 						go func(t string) {
 							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
 								slog.Error("TTS delivery failed", "component", "agent", "error", err)
