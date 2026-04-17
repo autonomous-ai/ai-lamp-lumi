@@ -162,35 +162,43 @@ export function OverviewSection({
                 </button>
               </div>
 
+              {/* TTS row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={voice.tts_available} />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>TTS</span>
+                  {voice.tts_speaking && (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
+                  )}
+                  {musicPlaying && !voice.tts_speaking && (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
+                  )}
+                </div>
+                {(voice.tts_speaking || musicPlaying) && (
+                  <button onClick={() => fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {})} style={{
+                    fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171",
+                  }}>Stop</button>
+                )}
+              </div>
+
               {/* Speaker row */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <StatusDot ok={!speakerMuted} />
                   <span style={{ fontSize: 12, fontWeight: 600 }}>Speaker</span>
-                  {speakerMuted ? (
+                  {speakerMuted && (
                     <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
-                  ) : voice.tts_speaking ? (
-                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>TTS</span>
-                  ) : musicPlaying ? (
-                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
-                  ) : null}
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {!speakerMuted && (voice.tts_speaking || musicPlaying) && (
-                    <button onClick={() => fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {})} style={{
-                      fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
-                      background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171",
-                    }}>Stop</button>
                   )}
-                  <button onClick={() => fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
-                    fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
-                    background: speakerMuted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
-                    border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
-                    color: speakerMuted ? "var(--lm-green)" : "#f87171",
-                  }}>
-                    {speakerMuted ? "Unmute" : "Mute"}
-                  </button>
                 </div>
+                <button onClick={() => fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
+                  fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                  background: speakerMuted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
+                  color: speakerMuted ? "var(--lm-green)" : "#f87171",
+                }}>
+                  {speakerMuted ? "Unmute" : "Mute"}
+                </button>
               </div>
 
               {/* Volume slider */}
