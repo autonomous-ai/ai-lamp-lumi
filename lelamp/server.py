@@ -88,8 +88,6 @@ from lelamp.models import (
     SpeakRequest,
     StatusResponse,
     UserInfoResponse,
-    WellbeingLogRequest,
-    WellbeingSummaryUpdateRequest,
     VoiceStatusResponse,
     VolumeRequest,
     VolumeResponse,
@@ -2356,7 +2354,7 @@ def face_owners_detail():
             mood_dir = d / "mood"
             mood_days = sorted(f.stem for f in mood_dir.iterdir() if f.suffix == ".jsonl") if mood_dir.is_dir() else []
             wb_dir = d / "wellbeing"
-            wellbeing_days = sorted(f.stem for f in wb_dir.iterdir() if f.suffix == ".md") if wb_dir.is_dir() else []
+            wellbeing_days = sorted(f.stem for f in wb_dir.iterdir() if f.suffix == ".jsonl") if wb_dir.is_dir() else []
             meta = FaceRecognizer._read_metadata(d)
             persons.append(
                 FacePersonDetail(
@@ -2485,50 +2483,6 @@ def user_info(name: str = DEFAULT_USER):
         telegram_id=meta.get("telegram_id"),
         telegram_username=meta.get("telegram_username"),
     )
-
-
-@app.get("/user/wellbeing/summary", tags=["User"])
-def user_wellbeing_summary_read(name: str = DEFAULT_USER):
-    """Read the user's wellbeing.md summary."""
-    norm, user_dir = _resolve_user_dir(name)
-    wb_file = user_dir / "wellbeing.md"
-    if not wb_file.is_file():
-        return {"name": norm, "summary": None}
-    return {"name": norm, "summary": wb_file.read_text().strip()}
-
-
-@app.get("/user/wellbeing/today", tags=["User"])
-def user_wellbeing_today(name: str = DEFAULT_USER):
-    """Read today's wellbeing daily log."""
-    norm, user_dir = _resolve_user_dir(name)
-    today = time.strftime("%Y-%m-%d")
-    log_file = user_dir / "wellbeing" / f"{today}.md"
-    if not log_file.is_file():
-        return {"name": norm, "date": today, "log": None}
-    return {"name": norm, "date": today, "log": log_file.read_text().strip()}
-
-
-@app.post("/user/wellbeing/log", response_model=StatusResponse, tags=["User"])
-def user_wellbeing_log(req: WellbeingLogRequest):
-    """Append a line to today's wellbeing daily log."""
-    norm, user_dir = _resolve_user_dir(req.name)
-    wb_dir = user_dir / "wellbeing"
-    wb_dir.mkdir(exist_ok=True)
-    today = time.strftime("%Y-%m-%d")
-    log_file = wb_dir / f"{today}.md"
-    with open(log_file, "a") as f:
-        f.write(req.line.rstrip("\n") + "\n")
-    return {"status": "ok"}
-
-
-@app.post("/user/wellbeing/summary", response_model=StatusResponse, tags=["User"])
-def user_wellbeing_summary_write(req: WellbeingSummaryUpdateRequest):
-    """Overwrite the user's wellbeing.md summary."""
-    norm, user_dir = _resolve_user_dir(req.name)
-
-    wb_file = user_dir / "wellbeing.md"
-    wb_file.write_text(req.summary)
-    return {"status": "ok"}
 
 
 # --- Display endpoints ---

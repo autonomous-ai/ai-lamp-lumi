@@ -191,10 +191,8 @@ Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | GET | `/user/info?name=X` | Metadata user: `name`, `is_friend`, `telegram_id`, `telegram_username`. Mặc định `"unknown"` nếu thiếu name. Tự tạo folder. |
-| GET | `/user/wellbeing/summary?name=X` | Đọc wellbeing summary. Trả `{"name","summary"}` (null nếu chưa có). |
-| GET | `/user/wellbeing/today?name=X` | Đọc daily log hôm nay. Trả `{"name","date","log"}` (null nếu chưa có). |
-| POST | `/user/wellbeing/log` | Thêm dòng vào daily log. Body: `{"name","line"}`. |
-| POST | `/user/wellbeing/summary` | Ghi đè wellbeing summary. Body: `{"name","summary"}`. |
+
+> Wellbeing activity history giờ nằm trên Lumi HTTP API (port 5000). Xem `POST /api/wellbeing/log` và `GET /api/openclaw/wellbeing-history` — entries ghi JSONL tại `/root/local/users/{user}/wellbeing/YYYY-MM-DD.jsonl` với schema `{ts, seq, hour, action, notes}` (action ∈ `drink`/`break`/`sedentary`/`emotional`). LeLamp không còn host endpoint wellbeing.
 
 ### Display (GC9A01 1.28" LCD tròn)
 

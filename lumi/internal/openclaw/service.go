@@ -226,7 +226,7 @@ func (s *Service) drainPendingEvents() {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
 			switch ev.eventType {
 			case "presence.leave":
-				msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons + append summary to daily log + update wellbeing.md. For strangers, cancel \"unknown\" crons. Do this silently.]"
+				msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
 			case "presence.away":
 				msg += "\n[Cancel ALL remaining wellbeing/music crons (including \"unknown\"). Do this silently.]"
 			case "motion.activity":

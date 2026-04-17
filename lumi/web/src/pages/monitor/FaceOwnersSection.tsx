@@ -654,7 +654,7 @@ export function FaceOwnersSection() {
                     items.push({ name: "mood", isDir: true, dirKey: `${person.label}:mood`, children: person.mood_days.map((d) => `${d}.jsonl`) });
                   }
                   if (person.wellbeing_days && person.wellbeing_days.length > 0) {
-                    items.push({ name: "wellbeing", isDir: true, dirKey: `${person.label}:wellbeing`, children: person.wellbeing_days.map((d) => `${d}.md`) });
+                    items.push({ name: "wellbeing", isDir: true, dirKey: `${person.label}:wellbeing`, children: person.wellbeing_days.map((d) => `${d}.jsonl`) });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
