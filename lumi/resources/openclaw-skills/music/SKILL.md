@@ -106,7 +106,7 @@ Lumi **proactively suggests music** based on the user's mood, habits, and contex
 There is NO hardcoded timer for music suggestions. **You** control when to check using OpenClaw's `cron.add` tool. You analyze mood history and listening history to decide timing, genre, and whether to suggest at all.
 
 ```
-[motion.activity: sedentary detected for "gray"]
+[motion.activity: "sedentary" detected for "gray"]
         ↓
 You: cron.list() → check if "Music: gray" job exists
         ↓ (if not)
@@ -124,7 +124,7 @@ You: Analyze → suggest or skip
 
 ### Bootstrap: Setting Up Per-User Music Schedule
 
-Each person gets their own music cron job. Created on `motion.activity` when **sedentary activity** is detected (using computer, reading, gaming, etc.) — NOT on `presence.enter`.
+Each person gets their own music cron job. Created on `motion.activity` when the **`sedentary`** group is detected — NOT on `presence.enter`.
 
 **Default interval: 1200000 ms (20 minutes).** Always use this interval unless you have learned a better one from mood + listening history.
 
@@ -136,12 +136,12 @@ Each person gets their own music cron job. Created on `motion.activity` when **s
    - `cron.add` with:
      - Name: `"Music: {name}"` (e.g. `"Music: gray"`)
      - Schedule: `every 1200000ms` (20 min)
-     - `sessionTarget: "main"`, `payload.kind: "systemEvent"`
-     - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix, or reply only NO_REPLY."`
-     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction.
-   - Do NOT use `agentTurn` with `main` — it will be rejected. Do NOT add a `delivery` field.
+     - `sessionTarget: "current"`, `payload.kind: "systemEvent"`
+     - Text: `"[MUST-SPEAK][music-proactive][person:{name}] Proactive music check for {name}. Do NOT explain your process — no status checks, no analysis. Either suggest a song (short, 1 sentence) with [HW:/broadcast][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] prefix (broadcast forces TTS on speaker, dm sends to Telegram), or reply only NO_REPLY."`
+     - Replace `{name}` with the person's lowercase name and `<THEIR_TELEGRAM_ID>` with their telegram_id from `/user/info`. If telegram_id is null, omit the `/dm` instruction (keep `[HW:/broadcast]`).
+   - `sessionTarget: "current"` binds the cron to the session active at creation time — fire routes back into that same session so TTS + channel reply both work. Do NOT add a `delivery` field.
 
-**When to bootstrap:** On `motion.activity` with sedentary action. Each recognized person gets their own cron — gray creates `"Music: gray"`, henry creates `"Music: henry"`. For unrecognized people, use `"unknown"` as the name — all strangers share one cron (`"Music: unknown"`).
+**When to bootstrap:** On `motion.activity` with `sedentary` group. Each recognized person gets their own cron — gray creates `"Music: gray"`, henry creates `"Music: henry"`. For unrecognized people, use `"unknown"` as the name — all strangers share one cron (`"Music: unknown"`).
 **Cleanup:** Friend crons cancel on `presence.leave`. `"unknown"` crons cancel on `presence.away`.
 
 ### When Cron Fires: The Decision Process
@@ -189,7 +189,7 @@ From the last played song + latest mood, decide what to suggest:
 Based on your analysis, decide one of:
 
 **A. Suggest now** — User is present, mood is right, timing matches their pattern.
-- **MUST** prefix reply with `[HW:/dm:{"telegram_id":"..."}]` if you have the person's telegram_id — this is NOT optional
+- **MUST** prefix reply with `[HW:/broadcast][HW:/dm:{"telegram_id":"..."}]` — broadcast forces TTS on the speaker, dm routes text to Telegram. Both are required when the person has a telegram_id. If no telegram_id, keep `[HW:/broadcast]` alone so the speaker still speaks.
 - Suggest 1-2 songs matching their mood AND past preferences
 - Keep it conversational and SHORT (1-2 sentences), never say "based on analysis"
 - Do NOT output your analysis or reasoning — only the suggestion
@@ -245,18 +245,18 @@ Based on your analysis, decide one of:
 [music-proactive] Time for a proactive music check...
 ```
 *You query: presence=present, mood=focused, last song="lofi hip hop radio"(ended, 25min)*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Want some more lo-fi beats?
+Output: `[HW:/broadcast][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` Want some more lo-fi beats?
 
 **Cron fires — last song was skipped quickly:**
 *You query: last song="heavy metal compilation"(stopped_by: user, 15s) → didn't like it*
-Output: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` How about something different — some chill jazz?
+Output: `[HW:/broadcast][HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` How about something different — some chill jazz?
 
 **Cron fires — user just arrived, no history:**
 *You query: presence.enter was 5 min ago, no audio/history*
 Output: (skip — let them settle in first)
 
 **First sedentary activity of the day — bootstrap:**
-*You receive `[sensing:motion.activity]` — gray is using computer*
+*You receive `[sensing:motion.activity] Activity detected: sedentary.`*
 Action: `cron.list()` → no `"Music: gray"` job → `cron.add("Music: gray", every 1200000ms, [person:gray])`
 
 **Reactive — user asks directly:**

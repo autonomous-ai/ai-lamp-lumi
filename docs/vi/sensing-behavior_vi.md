@@ -209,14 +209,18 @@ Khi phát hiện hoạt động tĩnh (`motion.activity`), agent:
 
 ### Quy tắc sessionTarget cho cron
 
-OpenClaw cron có 2 combo hợp lệ — KHÔNG được trộn:
+OpenClaw cron nhận 4 giá trị `sessionTarget`:
 
-| sessionTarget | payload.kind | payload field | Use case |
-|---|---|---|---|
-| `main` | `systemEvent` | `text` | Cần conversation context (music, wellbeing) |
-| `isolated` | `agentTurn` | `message` | Session mới mỗi lần fire |
+| sessionTarget | Ý nghĩa | Payload thường dùng |
+|---|---|---|
+| `main` | Luôn route vào main (voice) session | `systemEvent` + `text` |
+| `current` | Bind vào session đang active **tại thời điểm tạo cron** — fire route về đúng session đó | `systemEvent` + `text` |
+| `isolated` | Spawn session isolated mới mỗi lần fire | `agentTurn` + `message` |
+| `session:<id>` | Persistent session explicit theo id | `agentTurn` + `message` |
 
-`main` + `agentTurn` **bị reject** bởi OpenClaw. KHÔNG thêm field `delivery` — gây lỗi.
+Wellbeing và music dùng `current` để cron tạo từ Telegram sẽ fire về lại chat Telegram đó (thuận cho reactive test), đồng thời vẫn TTS loa qua `[HW:/broadcast]`. KHÔNG thêm field `delivery` — gây lỗi.
+
+**TTS từ cron fire khi origin là channel:** Khi `current` bind vào session Telegram/channel, TTS trên loa bị suppress mặc định (channel run chỉ đi text). Ép TTS bằng cách include `[HW:/broadcast]` trong reply — payload của wellbeing và music cron đã hướng dẫn sẵn.
 
 **Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — khiến agent NO_REPLY. **Workaround:** Prefix payload text với `[MUST-SPEAK]` để force agent phải reply dù có wrapper. Tất cả wellbeing và music cron payload phải bắt đầu bằng `[MUST-SPEAK]`.
 
@@ -247,7 +251,7 @@ Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nó
 
 Gợi ý nhạc **không còn** được kích hoạt bởi timer cứng. Thay vào đó, AI agent **tự schedule** music check qua OpenClaw cron jobs và **tự học** thói quen user theo thời gian:
 
-- **Tự schedule:** Khi phát hiện **hoạt động tĩnh đầu tiên** trong `motion.activity` (không phải `presence.enter`), AI tạo cron job (mặc định: mỗi 20 phút / 1200000ms, `sessionTarget: "main"`, `payload.kind: "systemEvent"`). AI tự điều chỉnh interval dựa trên phản hồi của user.
+- **Tự schedule:** Khi phát hiện **hoạt động tĩnh đầu tiên** trong `motion.activity` (không phải `presence.enter`), AI tạo cron job (mặc định: mỗi 20 phút / 1200000ms, `sessionTarget: "current"`, `payload.kind: "systemEvent"`). AI tự điều chỉnh interval dựa trên phản hồi của user.
 - **Quyết định dựa trên dữ liệu:** Trước khi gợi ý, AI query:
   - `GET /audio/status` — nhạc đang phát chưa?
   - `GET /api/openclaw/mood-history` — mood mới nhất để chọn genre
@@ -322,20 +326,21 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 ### Cách hoạt động
 
 `MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state` và `has_friend` (face recognizer):
-- **PRESENT + has_friend** → gửi `motion.activity` chỉ có tên action (ví dụ: `'drinking', 'stretching'`). Không gửi ảnh — tiết kiệm tokens.
+- **PRESENT + has_friend** → gửi `motion.activity` với **activity group** (`drink`, `break`, `sedentary`, `emotional`) thay vì raw action name. Không gửi ảnh — tiết kiệm tokens.
 - **Còn lại** → event bị **skip** (log, không gửi). Lumi chỉ expect `motion.activity` — plain `motion` từ X3D/pose không có handler và lãng phí agent tokens.
 
 ### Reset wellbeing cron (LLM-driven)
 
-Agent suy luận từ **tên action** (không cần ảnh) để quyết định reset cron nào:
+Agent nhận **activity group** (`drink`, `break`, `sedentary`, `emotional`) từ LeLamp — không cần suy luận từ raw action name:
 
 1. **Đọc daily log hôm nay** để có context — uống bao nhiêu lần, nghỉ mấy lần
-2. **Suy luận từ tên action:**
-   - User đang uống gì (nước, bia, cà phê, v.v.) → reset hydration cron
-   - User KHÔNG ngồi yên (đứng dậy, vươn vai, đi lại, v.v.) → reset break cron
-   - Cả hai → reset cả hai
-   - Ngồi yên (gõ phím, v.v.) → NO_REPLY
-3. **Ghi vào daily log:** `HH:MM — [action] (hydration reset / break reset / both reset)`
+2. **Theo group:**
+   - `drink` → reset hydration cron
+   - `break` → reset break cron (ăn, vươn vai, vận động)
+   - `sedentary` → tạo hydration + break + music crons nếu chưa có
+   - `emotional` → follow Emotion Detection skill, không đụng cron
+   - Nhiều groups cùng lúc → xử lý tất cả
+3. **Ghi vào daily log:** `HH:MM — [group] (hydration reset / break reset / crons created)`
 4. **Phản hồi caring** dựa trên context từ log (ví dụ: "ly thứ 3 hôm nay rồi á, tốt lắm!"). Quan sát, không chỉ dẫn. KHÔNG BAO GIỜ nhắc cron/timer/reminder.
 
 ### Hành vi Agent
