@@ -1749,18 +1749,37 @@ def camera_snapshot(save: bool = False):
     if not camera_capture or cv2 is None:
         raise HTTPException(503, "Camera not available")
 
-    # Freeze servos so camera stays still during capture
-    if animation_service:
-        animation_service.freeze()
-        time.sleep(0.3)
+    # Auto-enable camera if disabled (agent needs a frame)
+    was_disabled = _camera_disabled
+    if was_disabled:
+        camera_capture.start()
 
-    frame = camera_capture.last_frame
+    # Wake capture thread from idle mode so it grabs a fresh frame
+    camera_capture.acquire_consumer()
+    try:
+        # Wait for a fresh frame (thread may be in 2s idle sleep)
+        deadline = time.time() + 2.0
+        frame = None
+        while time.time() < deadline:
+            frame = camera_capture.last_frame
+            if frame is not None:
+                break
+            time.sleep(0.05)
 
-    if animation_service:
-        animation_service.unfreeze()
+        if frame is None:
+            raise HTTPException(500, "Failed to capture frame")
 
-    if frame is None:
-        raise HTTPException(500, "Failed to capture frame")
+        # Freeze servos for stability, grab one more clean frame
+        if animation_service:
+            animation_service.freeze()
+            time.sleep(0.3)
+            frame = camera_capture.last_frame or frame
+            animation_service.unfreeze()
+    finally:
+        camera_capture.release_consumer()
+        # Re-disable camera if it was off before snapshot
+        if was_disabled:
+            camera_capture.stop()
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
     if not save:
