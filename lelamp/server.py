@@ -1809,8 +1809,8 @@ def camera_snapshot(save: bool = False):
 @app.get("/camera/stream", tags=["Camera"])
 def camera_stream():
     """MJPEG stream from the camera (multipart/x-mixed-replace)."""
-    if not camera_capture or cv2 is None:
-        raise HTTPException(503, "Camera not available")
+    if not camera_capture or cv2 is None or _camera_disabled:
+        raise HTTPException(503, "Camera disabled" if _camera_disabled else "Camera not available")
 
     # MJPEG is CPU/bandwidth heavy: encode in this endpoint at a controlled rate
     # and downscale frames for smoother live viewing.
@@ -1825,7 +1825,7 @@ def camera_stream():
         camera_capture.acquire_consumer()
         try:
             last_sent_s = 0.0
-            while True:
+            while not _camera_disabled:
                 # Throttle encoding to avoid pegging CPU and causing buffering on the browser side.
                 if min_interval_s > 0:
                     now_s = time.time()
