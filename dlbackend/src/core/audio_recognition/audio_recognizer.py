@@ -34,7 +34,7 @@ AudioInput = Union[str, Path]
 ChunkType = Union[np.ndarray, Sequence[float]]
 
 AUDIO_RECOGNITION_BASE_DIR = Path(__file__).parent
-DEFAULT_LOCAL_MODEL_PATH = AUDIO_RECOGNITION_BASE_DIR / "models" / "wespeaker-voxceleb-resnet34-LM/" / "voxceleb_resnet34_LM.onnx"
+DEFAULT_LOCAL_MODEL_PATH = AUDIO_RECOGNITION_BASE_DIR / "models" / "wespeaker-voxceleb-resnet34/" / "voxceleb_resnet34_LM.onnx"
 DEFAULT_REMOTE_MODEL_PATH = "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx"
 DEFAULT_DB_PATH = AUDIO_RECOGNITION_BASE_DIR / "speaker_db.json"
 DEFAULT_SAMPLE_RATE = 16000
