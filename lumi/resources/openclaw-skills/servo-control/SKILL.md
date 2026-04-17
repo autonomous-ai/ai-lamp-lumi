@@ -1,6 +1,6 @@
 ---
 name: servo-control
-description: Use when the user asks to aim/point the lamp light in a direction, stop/freeze/hold movement ("đứng im", "stand still", "stop moving", "freeze"), resume movement, or when a specific servo animation is needed without LED/display changes.
+description: Use when the user asks to aim/point the lamp light in a direction, stop/freeze/hold movement ("stand still", "stop moving", "freeze", "hold still"), resume movement, or when a specific servo animation is needed without LED/display changes.
 ---
 
 # Servo Control
@@ -32,10 +32,10 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 **Input:** "Release the motors"
 **Output:** `[HW:/servo/release:{}]` Servos released — you can move the lamp by hand now.
 
-**Input:** "Đứng im đi" / "Stop moving" / "Hold still" / "Freeze"
+**Input:** "Stop moving" / "Hold still" / "Freeze" / "Stand still"
 **Output:** `[HW:/servo/hold:{}]` OK, holding still.
 
-**Input:** "Tiếp tục đi" / "Resume" / "Move again" / "You can move now"
+**Input:** "Resume" / "Move again" / "You can move now" / "Start moving"
 **Output:** `[HW:/servo/resume:{}]` Alright, back to normal!
 
 ## Tools
@@ -106,7 +106,7 @@ Available animations:
 
 Suppresses idle and ambient animations — lamp freezes in current pose. Emotions still play through (the lamp reacts when you talk, then holds still again). Call `/servo/resume` to return to normal.
 
-**Triggers:** "đứng im", "stop moving", "hold still", "freeze", "don't move"
+**Triggers:** "stop moving", "hold still", "freeze", "don't move", "stand still"
 
 ### Resume from hold
 
@@ -116,7 +116,7 @@ Suppresses idle and ambient animations — lamp freezes in current pose. Emotion
 
 Exits hold mode and resumes idle animations.
 
-**Triggers:** "tiếp tục", "resume", "move again", "you can move now"
+**Triggers:** "resume", "move again", "you can move now", "start moving"
 
 ### Release servos (disable motors)
 
