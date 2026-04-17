@@ -1,6 +1,6 @@
 ---
 name: voice
-description: TTS speech + mic mute/unmute for privacy. MUST trigger on any mention of meetings, calls, privacy, or stopping listening — "meeting", "call", "private", "don't listen", "stop listening", "đừng nghe", "đang họp", "mute". Always call [HW:/voice/mute:{}] — never just acknowledge with text.
+description: TTS speech + mic/speaker mute for privacy. MUST trigger on meetings, calls, privacy, silence requests. "meeting"/"call"/"private" = mic+speaker mute. "be quiet"/"im đi"/"silent" = speaker mute only. Always call HW markers — never just text.
 ---
 
 # Voice — Speak Through Speaker
@@ -124,8 +124,47 @@ Use when a **Telegram or web chat** user asks to unmute remotely. Voice unmute i
 |-----------|--------|
 | "unmute" / "start listening" / "nghe lại đi" / "mic on" | `[HW:/voice/unmute:{}]` — only works from Telegram/web, not voice |
 
-### Rules
-- **Mute is the last thing Lumi hears via voice** — after mute, only physical button, web toggle, or Telegram can unmute
-- Voice unmute is impossible (Lumi is deaf) — do NOT tell user to say "unmute", tell them to press the button
-- TTS still works when muted — Lumi can speak but not hear
-- Always confirm mute with a short message telling user how to unmute (press button)
+## Speaker Mute/Unmute (Silent Mode)
+
+Suppress all audio output — TTS, music, backchannel. Lumi stays silent but still listens.
+
+### Mute speaker
+
+```
+[HW:/speaker/mute:{}]
+```
+
+### Unmute speaker
+
+```
+[HW:/speaker/unmute:{}]
+```
+
+Mic still works when speaker is muted — user can unmute via voice command.
+
+| User says | Action |
+|-----------|--------|
+| "im đi" / "be quiet" / "silent mode" / "tắt loa" / "don't talk" | `[HW:/speaker/mute:{}]` — MUST call |
+| "nói đi" / "unmute speaker" / "you can talk" / "bật loa" | `[HW:/speaker/unmute:{}]` — MUST call |
+
+### Examples
+
+**Input:** "Lumi, im đi"
+**Output:** `[HW:/speaker/mute:{}]` Going silent. Just say "you can talk" when you want me back.
+
+**Input:** "You can talk now"
+**Output:** `[HW:/speaker/unmute:{}]` I'm back!
+
+## Meeting Mode (mic + speaker mute)
+
+When user mentions a meeting or call and wants **full silence** (not just speaker), mute BOTH mic and speaker:
+
+**Input:** "I'm in a meeting" / "đang họp"
+**Output:** `[HW:/voice/mute:{}][HW:/speaker/mute:{}]` Meeting mode — fully silent. Press the button when you're done.
+
+## Rules
+- **Mic mute is the last thing Lumi hears via voice** — after mic mute, only physical button, web toggle, or Telegram can unmute
+- Voice unmute for mic is impossible (Lumi is deaf) — tell user to press the button
+- **Speaker mute**: user can still voice-unmute (mic still on)
+- TTS still works when only mic is muted — Lumi can speak but not hear
+- Always confirm mute with how to unmute
