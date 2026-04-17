@@ -136,109 +136,88 @@ export function OverviewSection({
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
-        {/* Voice */}
+        {/* Audio */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Voice & TTS</div>
+          <div style={S.cardLabel}>Audio</div>
           {voice ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={voice.voice_available && !voice.mic_muted} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>Mic</span>
-                {voice.mic_muted ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
-                ) : voice.voice_listening ? (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
-                ) : null}
-                <span role="button" title={voice.mic_muted ? "Unmute mic" : "Mute mic"} onClick={() => {
-                  fetch(`/hw/voice/${voice.mic_muted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
-                }} style={{
-                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                  background: voice.mic_muted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Mic row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={voice.voice_available && !voice.mic_muted} />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>Mic</span>
+                  {voice.mic_muted ? (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                  ) : voice.voice_listening ? (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "var(--lm-amber-dim)", color: "var(--lm-amber)" }}>LIVE</span>
+                  ) : null}
+                </div>
+                <button onClick={() => fetch(`/hw/voice/${voice.mic_muted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
+                  fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                  background: voice.mic_muted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${voice.mic_muted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
                   color: voice.mic_muted ? "var(--lm-green)" : "#f87171",
-                  border: `1px solid ${voice.mic_muted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
-                  cursor: "pointer", fontWeight: 600,
                 }}>
                   {voice.mic_muted ? "Unmute" : "Mute"}
-                </span>
+                </button>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={voice.tts_available} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>TTS</span>
-                {voice.tts_speaking && (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>SPEAKING</span>
-                )}
-                {musicPlaying && !voice.tts_speaking && (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
-                )}
-                {(voice.tts_speaking || musicPlaying) && (
-                  <span role="button" title="Stop speaker" onClick={() => {
-                    fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {});
-                  }} style={{
-                    fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                    background: "rgba(239,68,68,0.12)", color: "#f87171",
-                    border: "1px solid rgba(239,68,68,0.3)",
-                    cursor: "pointer", fontWeight: 600,
+
+              {/* Speaker row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusDot ok={!speakerMuted} />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>Speaker</span>
+                  {speakerMuted ? (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
+                  ) : voice.tts_speaking ? (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(167,139,250,0.15)", color: "var(--lm-purple)" }}>TTS</span>
+                  ) : musicPlaying ? (
+                    <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.12)", color: "var(--lm-green)" }}>MUSIC</span>
+                  ) : null}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {!speakerMuted && (voice.tts_speaking || musicPlaying) && (
+                    <button onClick={() => fetch("/api/openclaw/tts/stop", { method: "POST" }).catch(() => {})} style={{
+                      fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                      background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171",
+                    }}>Stop</button>
+                  )}
+                  <button onClick={() => fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {})} style={{
+                    fontSize: 10, padding: "4px 12px", borderRadius: 6, fontWeight: 600, cursor: "pointer",
+                    background: speakerMuted ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.08)",
+                    border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.25)"}`,
+                    color: speakerMuted ? "var(--lm-green)" : "#f87171",
                   }}>
-                    Stop
-                  </span>
-                )}
+                    {speakerMuted ? "Unmute" : "Mute"}
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={!speakerMuted} />
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>Speaker</span>
-                {speakerMuted && (
-                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(239,68,68,0.12)", color: "#f87171" }}>MUTED</span>
-                )}
-                <span role="button" title={speakerMuted ? "Unmute speaker" : "Mute speaker"} onClick={() => {
-                  fetch(`/hw/speaker/${speakerMuted ? "unmute" : "mute"}`, { method: "POST" }).catch(() => {});
-                }} style={{
-                  fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                  background: speakerMuted ? "rgba(52,211,153,0.12)" : "rgba(239,68,68,0.12)",
-                  color: speakerMuted ? "var(--lm-green)" : "#f87171",
-                  border: `1px solid ${speakerMuted ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
-                  cursor: "pointer", fontWeight: 600,
-                }}>
-                  {speakerMuted ? "Unmute" : "Mute"}
-                </span>
-              </div>
-              <div style={{ marginTop: 2 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-                  <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>Vol</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--lm-amber)", fontFamily: "monospace" }}>
+
+              {/* Volume slider */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)" }}>Volume</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--lm-amber)", fontFamily: "monospace" }}>
                     {audio?.volume ?? "—"}%
                   </span>
                 </div>
-                <div
-                  title="Click to set volume"
-                  onClick={(e) => {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={audio?.volume ?? 50}
+                  onChange={(e) => {
                     fetch("/hw/audio/volume", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ volume: Math.max(0, Math.min(100, pct)) }),
+                      body: JSON.stringify({ volume: Number(e.target.value) }),
                     }).catch(() => {});
                   }}
                   style={{
-                    height: 5, borderRadius: 3,
-                    background: "var(--lm-surface)",
-                    border: "1px solid var(--lm-border)",
-                    cursor: "pointer", overflow: "hidden",
-                    position: "relative",
+                    width: "100%", height: 6, cursor: "pointer",
+                    accentColor: "var(--lm-amber)",
                   }}
-                >
-                  <div style={{
-                    height: "100%",
-                    width: `${audio?.volume ?? 0}%`,
-                    background: (audio?.volume ?? 0) > 80
-                      ? "var(--lm-red)"
-                      : (audio?.volume ?? 0) > 50
-                        ? "var(--lm-amber)"
-                        : "var(--lm-green)",
-                    borderRadius: 3,
-                    transition: "width 0.4s ease",
-                  }} />
-                </div>
+                />
               </div>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
