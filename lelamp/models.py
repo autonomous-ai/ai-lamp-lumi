@@ -305,6 +305,7 @@ class FacePersonDetail(BaseModel):
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
     mood_days: list[str] = []  # e.g. ["2026-04-09"]
     wellbeing_days: list[str] = []  # e.g. ["2026-04-10"]
+    music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
     files: list[str] = []  # all non-photo files
 
 

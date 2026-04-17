@@ -112,6 +112,14 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         )
         self._thread.start()
 
+    @staticmethod
+    def _try_open(device_id):
+        """Try opening camera with V4L2 backend, fallback to default."""
+        cap = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(device_id)
+        return cap
+
     def _video_capture_loop(self):
 
         device_id = self.device_info.device_id
@@ -119,10 +127,20 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         if isinstance(device_id, str) and device_id.isdigit():
             device_id = int(device_id)
 
-        video_capture = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
+        video_capture = self._try_open(device_id)
+
+        # Fallback: try /dev/cam symlink (udev rule), then scan index 0-5
         if not video_capture.isOpened():
-            # Fallback: try default backend in case hardware changes
-            video_capture = cv2.VideoCapture(device_id)
+            import os
+            fallbacks = ["/dev/cam"] + [i for i in range(6) if i != device_id]
+            for fb in fallbacks:
+                if isinstance(fb, str) and not os.path.exists(fb):
+                    continue
+                self._logger.info("Camera fallback: trying %s", fb)
+                video_capture = self._try_open(fb)
+                if video_capture.isOpened():
+                    self._logger.info("Camera fallback success: %s", fb)
+                    break
 
         if not video_capture.isOpened():
             raise ValueError(
