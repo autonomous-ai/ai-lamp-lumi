@@ -21,6 +21,8 @@ import (
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -269,14 +271,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Nudge agent to follow wellbeing/music skills on relevant events.
+		// Nudge agent to follow wellbeing skill on relevant events.
 		switch req.Type {
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons + append summary to daily log + update wellbeing.md. For strangers, cancel \"unknown\" crons. Do this silently.]"
+			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
 		case "presence.away":
-			msg += "\n[Cancel ALL remaining wellbeing/music crons (including \"unknown\"). Do this silently.]"
+			msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
 		case "motion.activity":
-			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing/music crons (for strangers use \"unknown\"). drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill, ALWAYS speak. Follow Wellbeing skill and Music skill accordingly.]"
+			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"), follow Music skill sedentary suggestion. drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill, ALWAYS speak. Follow Wellbeing skill accordingly.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
@@ -473,9 +475,43 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 
 	mood.LogMoodForUser(user, req.Mood, req.Source, req.Trigger)
 	slog.Info("mood logged", "component", "mood", "user", user, "mood", req.Mood, "source", req.Source, "trigger", req.Trigger)
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"user": user,
 		"mood": req.Mood,
+	}))
+}
+
+// WellbeingLogRequest is the payload for logging a wellbeing activity.
+type WellbeingLogRequest struct {
+	Action string `json:"action" validate:"required,oneof=drink break sedentary emotional"`
+	Notes  string `json:"notes"`
+	User   string `json:"user"`
+}
+
+// PostWellbeingLog appends a wellbeing activity entry for the given user.
+func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
+	var req WellbeingLogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := req.User
+	if strings.TrimSpace(user) == "" {
+		user = mood.CurrentUser()
+	}
+	user = wellbeing.NormalizeUser(user)
+
+	wellbeing.LogForUser(user, req.Action, req.Notes)
+	slog.Info("wellbeing logged", "component", "wellbeing", "user", user, "action", req.Action, "notes", req.Notes)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
+		"user":   user,
+		"action": req.Action,
 	}))
 }
 
@@ -502,4 +538,62 @@ func extractSnapshotPath(message string) string {
 		return ""
 	}
 	return strings.TrimSpace(m[1])
+}
+
+// --- Music Suggestion History API ---
+
+type MusicSuggestionLogRequest struct {
+	User    string `json:"user" validate:"required"`
+	Trigger string `json:"trigger" validate:"required"`
+	Query   string `json:"query"`
+	Message string `json:"message" validate:"required"`
+}
+
+// PostMusicSuggestionLog records a music suggestion event.
+func (h *SensingHandler) PostMusicSuggestionLog(c *gin.Context) {
+	var req MusicSuggestionLogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := strings.ToLower(strings.TrimSpace(req.User))
+	seq := musicsuggestion.Log(user, req.Trigger, req.Query, req.Message)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"user": user,
+		"seq":  seq,
+		"day":  time.Now().Format("2006-01-02"),
+	}))
+}
+
+type MusicSuggestionStatusRequest struct {
+	User   string `json:"user" validate:"required"`
+	Day    string `json:"day" validate:"required"`
+	Seq    int64  `json:"seq" validate:"required"`
+	Status string `json:"status" validate:"required,oneof=accepted rejected expired"`
+}
+
+// PostMusicSuggestionStatus updates the status of a previously logged music suggestion.
+func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
+	var req MusicSuggestionStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := strings.ToLower(strings.TrimSpace(req.User))
+	ok := musicsuggestion.UpdateStatus(user, req.Day, req.Seq, req.Status)
+	if !ok {
+		c.JSON(http.StatusNotFound, serializers.ResponseError("music suggestion not found"))
+		return
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
 }

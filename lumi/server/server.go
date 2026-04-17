@@ -266,6 +266,13 @@ func (s *Server) Serve(closeFn func()) error {
 	moodGroup := api.Group("mood")
 	moodGroup.POST("log", s.sensingHandler.PostMoodLog)
 
+	wellbeingGroup := api.Group("wellbeing")
+	wellbeingGroup.POST("log", s.sensingHandler.PostWellbeingLog)
+
+	musicSuggGroup := api.Group("music-suggestion")
+	musicSuggGroup.POST("log", s.sensingHandler.PostMusicSuggestionLog)
+	musicSuggGroup.POST("status", s.sensingHandler.PostMusicSuggestionStatus)
+
 	monitor := api.Group("monitor")
 	monitor.POST("event", s.sensingHandler.PostMonitorEvent)
 
@@ -277,6 +284,8 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("recent", s.openclawHandler.Recent)
 	oc.GET("flow-events", s.openclawHandler.FlowEvents)
 	oc.GET("mood-history", s.openclawHandler.MoodHistory)
+	oc.GET("wellbeing-history", s.openclawHandler.WellbeingHistory)
+	oc.GET("music-suggestion-history", s.openclawHandler.MusicSuggestionHistory)
 	oc.GET("flow-stream", s.openclawHandler.FlowStream)
 	oc.GET("flow-logs", s.openclawHandler.FlowLogs)
 	oc.DELETE("flow-logs", s.openclawHandler.ClearFlowLogs)

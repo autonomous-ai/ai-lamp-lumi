@@ -1,6 +1,6 @@
 ---
 name: wellbeing
-description: Manages hydration and break reminders for everyone present. Both crons start when sedentary activity group detected in motion.activity. Cancels on presence.leave (friends) or presence.away (strangers). Uses HTTP APIs for all data access — no direct file read/write.
+description: Manages hydration and break reminders for everyone present. Both crons start when sedentary activity group detected in motion.activity. Cancels on presence.leave (friends) or presence.away (strangers). Logs each observed user activity to a daily JSONL history via HTTP — no direct file read/write.
 ---
 
 # Wellbeing
@@ -15,18 +15,6 @@ When they leave, clean up. When you see `drink` or `break` group, reset the rele
 ## On `presence.leave` (recognized person)
 
 1. `cron.list` → `cron.remove` ONLY this person's wellbeing jobs (match by name containing this person's name)
-2. Append a summary to today's daily log:
-   ```bash
-   curl -s -X POST http://127.0.0.1:5001/user/wellbeing/log \
-     -H 'Content-Type: application/json' \
-     -d '{"name":"{name}","line":"HH:MM — session summary: X reminders sent, Y acknowledged"}'
-   ```
-3. Update wellbeing summary if you noticed new patterns:
-   ```bash
-   curl -s -X POST http://127.0.0.1:5001/user/wellbeing/summary \
-     -H 'Content-Type: application/json' \
-     -d '{"name":"{name}","summary":"Updated summary text..."}'
-   ```
 
 Do NOT cancel `"unknown"` crons on `presence.leave` — strangers share one set of crons, cancel only on `presence.away`.
 
@@ -36,9 +24,9 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
 
 ## On `motion.activity` — create crons & reset timers
 
-1. **Read** today's daily log for context:
+1. **Read** today's activity history for context (counts of drink/break/sedentary earlier today):
    ```bash
-   curl -s "http://127.0.0.1:5001/user/wellbeing/today?name={name}"
+   curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&last=100"
    ```
 2. From the activity group in the message (`sedentary`, `drink`, `break`, `emotional`), determine action:
    - **`sedentary`** group?
@@ -49,7 +37,7 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
          - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
          - `sessionTarget: "current"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
          - Text: `"[MUST-SPEAK] Wellbeing hydration check. Remind water (one short sentence). You MUST prefix reply with [HW:/speak][HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
-         - Adjust `everyMs` based on wellbeing summary if available.
+         - Adjust `everyMs` based on prior behaviour in history if useful.
        - **Break cron** (if missing):
          - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
          - Same session/payload format as hydration.
@@ -62,33 +50,31 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
    - Both `drink` + `break` in same event? → handle both
    - No wellbeing crons active and not `sedentary`? → skip
    - **`emotional`** group? → handled by **Emotion Detection** skill, do NOT touch any cron
-3. **Append** a line to today's daily log:
+3. **Log** the observed activity to wellbeing history (one entry per group in the event):
    ```bash
-   curl -s -X POST http://127.0.0.1:5001/user/wellbeing/log \
+   curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
      -H 'Content-Type: application/json' \
-     -d '{"name":"{name}","line":"HH:MM — [action name] (hydration reset / break created / break removed / etc.)"}'
+     -d '{"action":"drink","notes":"3rd today","user":"{name}"}'
    ```
-4. **Respond** with a short caring observation about what they're doing, using context from the log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
+4. **Respond** with a short caring observation about what they're doing, using context from the history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ## API Reference
 
-All on LeLamp (port 5001):
+Wellbeing history lives on Lumi (port 5000); user-identity lookup still lives on LeLamp (port 5001).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/user/info?name=X` | GET | Get telegram_id, is_friend |
-| `/user/wellbeing/summary?name=X` | GET | Read wellbeing.md summary |
-| `/user/wellbeing/today?name=X` | GET | Read today's daily log |
-| `/user/wellbeing/log` | POST | Append line to daily log `{"name","line"}` |
-| `/user/wellbeing/summary` | POST | Overwrite summary `{"name","summary"}` |
+| `http://127.0.0.1:5001/user/info?name=X` | GET | Get telegram_id, is_friend |
+| `http://127.0.0.1:5000/api/wellbeing/log` | POST | Append activity entry `{"action","notes","user"}` |
+| `http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=X&date=YYYY-MM-DD&last=N` | GET | Read activity history |
 
-All endpoints default to `"unknown"` user if name is omitted. Folder is auto-created.
+`action` must be one of: `drink`, `break`, `sedentary`, `emotional`. `user` defaults to current face-detected user if omitted. Folder is auto-created.
 
 ## Principles
 
 - You're a companion who cares, not an alarm clock
-- If the user says "don't remind me about X" → stop immediately, update summary via POST /user/wellbeing/summary
+- If the user says "don't remind me about X" → stop immediately (just don't create that cron, don't reset it)
 - If the user gives a specific schedule → follow it exactly
-- Adapt based on what you've learned — don't explain your reasoning
+- Adapt based on today's history — don't explain your reasoning
 - **Hydration and break are ALWAYS separate cron jobs** — never merge them into a single cron. Each has its own name, interval, and lifecycle.
-- For unrecognized people, use `"unknown"` as the name. Do NOT distinguish between different strangers — all share the same crons and data.
+- For unrecognized people, use `"unknown"` as the name. Do NOT distinguish between different strangers — all share the same crons and history.
