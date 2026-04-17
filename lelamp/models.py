@@ -333,6 +333,11 @@ class FaceRemoveRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=64)
 
 
+class FacePhotoRemoveRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=64)
+    filename: str = Field(..., min_length=1, max_length=128)
+
+
 class FaceRemoveResponse(BaseModel):
     status: str
     label: str

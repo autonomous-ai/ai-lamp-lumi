@@ -274,6 +274,25 @@ class FaceRecognizer(Perception):
         meta = self._read_metadata(person_dir)
         return meta.get("telegram_id") or None
 
+    def remove_photo(self, label: str, filename: str) -> bool:
+        """Remove a single photo from a person's directory and re-load from disk.
+        Returns True if the photo was found and deleted."""
+        norm = self.normalize_label(label)
+        person_dir = USERS_DIR / norm
+        photo_path = person_dir / filename
+        if not photo_path.is_file():
+            return False
+        photo_path.unlink()
+        logger.info("Removed photo %s for '%s'", filename, norm)
+        # If no images left, remove the person entirely
+        _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+        remaining = [f for f in person_dir.iterdir() if f.suffix.lower() in _IMG_EXTS]
+        if not remaining:
+            shutil.rmtree(person_dir)
+            logger.info("No photos left for '%s' — removed person directory", norm)
+        self.load_from_disk()
+        return True
+
     def remove_person(self, label: str) -> bool:
         """Remove one person's directory and re-load remaining persons from disk."""
         norm = self.normalize_label(label)
