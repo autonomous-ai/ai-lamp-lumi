@@ -100,17 +100,20 @@ Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf
 **Input:** "Stop listening"
 **Output:** `[HW:/voice/mute:{}]` Got it, mic off. Press my button to unmute.
 
-### Rules
-- **This is the last thing Lumi hears** — after mute, only physical button or web toggle can unmute
-- Agent cannot unmute via voice (Lumi is deaf)
-- TTS still works when muted — Lumi can speak but not hear
-- Always confirm with a short message telling user how to unmute (press button)
+### Unmute mic
 
-## Output Template
 ```
-[Voice] Spoke: "{text}" ({character_count} chars)
+[HW:/voice/unmute:{}]
 ```
-Examples:
-- `[Voice] Spoke: "Hello! I am Lumi." (23 chars)`
-- `[Voice] Skipped — TTS already speaking`
-- `[Voice] Auto-TTS — no explicit call needed`
+
+Use when a **Telegram or web chat** user asks to unmute remotely. Voice unmute is not possible (Lumi is deaf when muted). Physical button also unmutes.
+
+| User says (via Telegram/web) | Action |
+|-----------|--------|
+| "unmute" / "start listening" / "nghe lại đi" / "mic on" | `[HW:/voice/unmute:{}]` — only works from Telegram/web, not voice |
+
+### Rules
+- **Mute is the last thing Lumi hears via voice** — after mute, only physical button, web toggle, or Telegram can unmute
+- Voice unmute is impossible (Lumi is deaf) — do NOT tell user to say "unmute", tell them to press the button
+- TTS still works when muted — Lumi can speak but not hear
+- Always confirm mute with a short message telling user how to unmute (press button)
