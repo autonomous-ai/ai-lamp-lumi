@@ -1,8 +1,9 @@
-"""Tests for the action-analysis WebSocket endpoint using VideoMAE model."""
+"""Tests for the action-analysis WebSocket endpoint using the local VideoMAE model."""
 
 import base64
 import json
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -15,8 +16,15 @@ TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
 
+VIDEOMAE_MODEL_PATH = Path(__file__).parent / "local" / "videomae_fp32.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not VIDEOMAE_MODEL_PATH.exists(),
+    reason=f"Local VideoMAE model not found at {VIDEOMAE_MODEL_PATH}",
+)
+
+
 def _make_frame_b64(width: int = 320, height: int = 240) -> str:
-    """Create a base64-encoded JPEG of a random BGR image."""
     frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
     _, buf = cv2.imencode(".jpg", frame)
     return base64.b64encode(buf.tobytes()).decode()
@@ -24,18 +32,18 @@ def _make_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    """Load the real VideoMAEModel once for the entire test session."""
-    return VideoMAEModel()
+    m = VideoMAEModel(model_path=VIDEOMAE_MODEL_PATH)
+    m.start()
+    return m
 
 
 @pytest.fixture()
 def client(model):
-    """Create a TestClient with the real recognizer."""
+    import config
     import server
 
-    server.DL_API_KEY = TEST_API_KEY
+    config.settings.dl_api_key = TEST_API_KEY
     server.action_model = model
-
     return TestClient(server.app)
 
 
@@ -76,15 +84,13 @@ class TestHealthEndpoint:
 
 class TestActionAnalysisWebSocket:
     def test_frame_returns_detected_classes(self, client):
-        frame_b64 = _make_frame_b64()
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "frame_b64": frame_b64}))
+            ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
             resp = ws.receive_json()
             assert "detected_classes" in resp
             assert isinstance(resp["detected_classes"], list)
 
     def test_multiple_frames(self, client):
-        """Sending multiple frames should each produce a response."""
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
                 ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
@@ -94,28 +100,23 @@ class TestActionAnalysisWebSocket:
     def test_whitelist_update(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "config", "whitelist": ["walking", "running"]}))
-            resp = ws.receive_json()
-            assert resp["status"] == "config_updated"
+            assert ws.receive_json()["status"] == "config_updated"
 
     def test_threshold_update(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "config", "threshold": 0.2}))
-            resp = ws.receive_json()
-            assert resp["status"] == "config_updated"
+            assert ws.receive_json()["status"] == "config_updated"
 
     def test_whitelist_reset(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "config", "whitelist": None}))
-            resp = ws.receive_json()
-            assert resp["status"] == "config_updated"
+            assert ws.receive_json()["status"] == "config_updated"
 
     def test_whitelist_then_frame(self, client):
-        """Set a whitelist, then send a frame — response classes should be from whitelist."""
         allowed = {"applauding", "clapping"}
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "config", "whitelist": list(allowed)}))
-            resp = ws.receive_json()
-            assert resp["status"] == "config_updated"
+            assert ws.receive_json()["status"] == "config_updated"
 
             ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
             resp = ws.receive_json()
@@ -123,33 +124,28 @@ class TestActionAnalysisWebSocket:
             for class_name, _ in resp["detected_classes"]:
                 assert class_name in allowed
 
-            # Reset whitelist for other tests
             ws.send_text(json.dumps({"type": "config", "whitelist": None}))
             ws.receive_json()
 
     def test_invalid_json(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text("not json at all")
-            resp = ws.receive_json()
-            assert "error" in resp
+            assert "error" in ws.receive_json()
 
     def test_missing_type_field(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"frame_b64": "abc"}))
-            resp = ws.receive_json()
-            assert "error" in resp
+            assert "error" in ws.receive_json()
 
     def test_unknown_type(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "bogus"}))
-            resp = ws.receive_json()
-            assert "error" in resp
+            assert "error" in ws.receive_json()
 
     def test_frame_missing_frame_b64(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "frame"}))
-            resp = ws.receive_json()
-            assert "error" in resp
+            assert "error" in ws.receive_json()
 
     def test_recognizer_not_loaded_closes_ws(self, client):
         import server
