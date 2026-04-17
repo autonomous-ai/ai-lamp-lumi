@@ -42,9 +42,11 @@ class SoundPerception(Perception):
         self._np = np_module
         # Resolve ALSA device name to sounddevice index if needed
         if isinstance(input_device, str):
+            # Strip ALSA plugin prefix (e.g. "plug:lamp_micro1" → "lamp_micro1")
+            search_name = input_device.split(":")[-1] if ":" in input_device else input_device
             resolved = None
             for i, info in enumerate(sd.query_devices()):
-                if input_device in info['name']:
+                if search_name in info['name']:
                     resolved = i
                     break
             if resolved is not None:
