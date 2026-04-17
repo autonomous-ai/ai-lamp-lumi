@@ -232,15 +232,15 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 ### Music Suggestions (AI-Driven)
 
-Music suggestions are **no longer** triggered by a hardcoded timer. Instead, the AI agent **self-schedules** music checks via OpenClaw cron jobs and **learns** the user's habits over time:
+Music suggestions are **fully AI-driven** — no cron jobs, no backend triggers. The agent decides when to suggest based on two triggers:
 
-- **Self-scheduling:** On first **sedentary `motion.activity`** of the session (not `presence.enter`), the AI creates a cron job (default: every 20 min / 1200000ms, `sessionTarget: "current"`, `payload.kind: "systemEvent"`). It adjusts the interval based on user response patterns.
-- **Data-driven decisions:** Before suggesting, the AI queries:
+- **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`), the agent follows the Music skill to suggest music matching that mood.
+- **Sedentary trigger:** When `motion.activity` detects sedentary behavior (working, reading), the agent suggests background music (lo-fi, ambient, instrumental).
+- **Data-driven decisions:** Before suggesting, the agent queries:
   - `GET /audio/status` — is music already playing?
-  - `GET /api/openclaw/mood-history` — latest mood for genre selection
+  - `GET /api/openclaw/music-suggestion-history` — cooldown check (30 min between suggestions)
   - `GET /audio/history?person={name}` — per-user listening history (genre preference, duration, satisfaction)
-- **Learning loop:** The AI correlates suggestions with `music.play` events in mood history. Accepted suggestions reinforce timing/genre; rejected suggestions trigger schedule adjustments.
-- **Personalization:** Over time, the AI learns when the user prefers music, what genres they enjoy, and how long they typically listen — adapting its suggestions accordingly.
+- **Learning loop:** Accepted suggestions reinforce genre/timing; rejected suggestions trigger approach adjustments. All logged via `/api/music-suggestion/log`.
 
 See the Music skill (`resources/openclaw-skills/music/SKILL.md`) for full implementation details.
 
