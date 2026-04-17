@@ -39,9 +39,10 @@ func (s *Service) StartSkillWatcher(ctx context.Context) {
 		case <-ticker.C:
 			remote, err := s.fetchSkillVersions()
 			if err != nil {
-				slog.Debug("skill watcher: fetch failed", "component", "skill-watcher", "error", err)
+				slog.Info("skill watcher: fetch failed", "component", "skill-watcher", "error", err)
 				continue
 			}
+			slog.Info("skill watcher: checked", "component", "skill-watcher", "skills", len(remote))
 
 			// Find skills with changed versions
 			var toUpdate []string
