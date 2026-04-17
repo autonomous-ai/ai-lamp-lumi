@@ -39,7 +39,7 @@ def _history_path(person: str = "", date_str: str | None = None) -> Path:
     """Return path to daily history JSONL file."""
     if date_str is None:
         date_str = datetime.now().strftime("%Y-%m-%d")
-    return _history_dir(person) / f"music_{date_str}.jsonl"
+    return _history_dir(person) / f"{date_str}.jsonl"
 
 
 def _log_play_event(
@@ -79,7 +79,7 @@ def _cleanup_old_history() -> None:
         if not _USERS_DIR.exists():
             return
         cutoff = time.time() - (_HISTORY_MAX_DAYS * 86400)
-        for f in _USERS_DIR.rglob("audio_history/music_*.jsonl"):
+        for f in _USERS_DIR.rglob("audio_history/*.jsonl"):
             if f.stat().st_mtime < cutoff:
                 f.unlink()
                 logger.debug("Cleaned up old history: %s", f)
