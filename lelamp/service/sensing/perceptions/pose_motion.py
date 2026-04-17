@@ -212,13 +212,8 @@ class PoseMotionPerception(Perception):
 
         from ..presence_service import PresenceState
 
-        has_friend = (
-            self._face_recognizer is not None
-            and self._face_recognizer.has_friend_present()
-        )
-
-        if self._presence.state == PresenceState.PRESENT and has_friend:
-            logger.info("[pose_motion] activity analysis while PRESENT + friend")
+        if self._presence.state == PresenceState.PRESENT:
+            logger.info("[pose_motion] activity analysis while PRESENT")
             self._send_event(
                 "motion.activity",
                 "Body movement detected via pose estimation while user is present. "
@@ -230,8 +225,8 @@ class PoseMotionPerception(Perception):
         else:
             # Skip — Lumi only expects motion.activity, plain motion is not useful.
             logger.info(
-                "[pose_motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
-                self._presence.state, has_friend,
+                "[pose_motion] skipping event — no presence (presence=%s)",
+                self._presence.state,
             )
 
     def to_dict(self) -> dict:
