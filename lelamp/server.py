@@ -631,6 +631,16 @@ async def lifespan(app: FastAPI):
         _lgpio.gpio_claim_alert(_h, 17, _lgpio.FALLING_EDGE, _lgpio.SET_PULL_UP)
 
         def _on_stop_button(chip, gpio, level, tick):
+            if _mic_muted:
+                logger.info("GPIO17 button pressed — unmuting mic")
+                unmute_mic()
+                if tts_service and tts_service.available:
+                    threading.Thread(
+                        target=lambda: tts_service.speak("I'm listening!"),
+                        daemon=True,
+                        name="unmute-tts",
+                    ).start()
+                return
             logger.info("GPIO17 stop button pressed — stopping speaker")
             stop_tts()
             audio_stop()
@@ -2689,6 +2699,39 @@ def stop_tts():
     return {"status": "ok"}
 
 
+_mic_muted = False
+_mic_manual_override = False
+
+
+@app.post("/voice/mute", response_model=StatusResponse, tags=["Voice"])
+def mute_mic():
+    """Mute mic — stop voice pipeline and sound perception. Fully deaf.
+    Unmute via /voice/unmute, GPIO button, or web toggle."""
+    global _mic_muted, _mic_manual_override
+    if _mic_muted:
+        return {"status": "already_muted"}
+    _mic_muted = True
+    _mic_manual_override = True
+    if voice_service and voice_service.available:
+        voice_service.stop()
+    logger.info("Mic muted by user")
+    return {"status": "ok"}
+
+
+@app.post("/voice/unmute", response_model=StatusResponse, tags=["Voice"])
+def unmute_mic():
+    """Unmute mic — restart voice pipeline. Called by GPIO button or web toggle."""
+    global _mic_muted, _mic_manual_override
+    if not _mic_muted:
+        return {"status": "already_unmuted"}
+    _mic_muted = False
+    _mic_manual_override = False
+    if voice_service and not voice_service.available:
+        voice_service.start()
+    logger.info("Mic unmuted")
+    return {"status": "ok"}
+
+
 @app.get("/voice/status", response_model=VoiceStatusResponse, tags=["Voice"])
 def voice_status():
     """Get voice pipeline status."""
@@ -2709,6 +2752,7 @@ def voice_status():
         else False,
         "tts_speaking": tts_service.speaking if tts_service else False,
         "tts_detail": tts_detail,
+        "mic_muted": _mic_muted,
     }
 
 
