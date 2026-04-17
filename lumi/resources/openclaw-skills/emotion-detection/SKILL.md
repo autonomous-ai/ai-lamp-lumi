@@ -1,6 +1,6 @@
 ---
 name: emotion-detection
-description: Detects user emotional state from motion.activity actions (laughing, crying, yawning, singing). Maps detected actions to empathetic responses and logs to wellbeing daily log. Lightweight UC-M1 — no separate model needed, uses existing X3D action recognition.
+description: Detects user emotional state from the `emotional` activity group in motion.activity events. Maps to empathetic responses and logs to wellbeing daily log. Lightweight UC-M1 — no separate model needed, uses existing X3D action recognition.
 ---
 
 # Emotion Detection (User Emotion)
@@ -15,15 +15,15 @@ description: Detects user emotional state from motion.activity actions (laughing
 > **Lightweight UC-M1** — uses existing X3D action recognition (laughing, crying, yawning, singing) as a proxy for emotional state. No separate FER model needed. Covers ~80% of perceived "emotion detection" value. Full UC-M1 (facial expression classifier) can be added later on top of this.
 
 ## Quick Start
-When `motion.activity` reports an emotional action (laughing, crying, yawning, singing), respond with empathy as a caring companion who notices how the user feels. Log the observation to their wellbeing daily log.
+When `motion.activity` contains the `emotional` group, respond with empathy as a caring companion who notices how the user feels. Log the observation to their wellbeing daily log.
 
 ## Trigger
-`[sensing:motion.activity]` where the detected action is one of the emotional actions below.
+`[sensing:motion.activity]` where the activity group is `emotional`.
 
 This skill works **alongside** the Wellbeing skill on the same `motion.activity` event:
-- Wellbeing handles cron resets (hydration/break)
+- Wellbeing handles cron resets (drink/break/sedentary groups)
 - This skill handles emotional response and logging
-- Emotional actions do NOT reset any wellbeing cron — they are observations, not physical activities
+- The `emotional` group does NOT reset any wellbeing cron — they are observations, not physical activities
 
 ## Core Rule: Always Speak
 

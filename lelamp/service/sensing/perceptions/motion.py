@@ -20,6 +20,54 @@ logger.setLevel(logging.DEBUG)
 
 RESOURCES_DIR = Path(__file__).parent / "resources"
 
+# Map raw Kinetics action labels to high-level activity groups.
+# Lumi receives only the group name, not the raw label.
+ACTIVITY_GROUP: dict[str, str] = {
+    # drink — reset hydration timer
+    "drinking": "drink",
+    "drinking beer": "drink",
+    "drinking shots": "drink",
+    "tasting beer": "drink",
+    "opening bottle": "drink",
+    "making tea": "drink",
+    # break — reset break timer (eating, stretching, movement)
+    "tasting food": "break",
+    "stretching arm": "break",
+    "stretching leg": "break",
+    "dining": "break",
+    "eating burger": "break",
+    "eating cake": "break",
+    "eating carrots": "break",
+    "eating chips": "break",
+    "eating doughnuts": "break",
+    "eating hotdog": "break",
+    "eating ice cream": "break",
+    "eating spaghetti": "break",
+    "eating watermelon": "break",
+    "applauding": "break",
+    "clapping": "break",
+    "celebrating": "break",
+    "sneezing": "break",
+    "sniffing": "break",
+    "hugging": "break",
+    "kissing": "break",
+    "headbanging": "break",
+    "sticking tongue out": "break",
+    # sedentary — create wellbeing/music crons if missing
+    "using computer": "sedentary",
+    "writing": "sedentary",
+    "texting": "sedentary",
+    "reading book": "sedentary",
+    "reading newspaper": "sedentary",
+    "drawing": "sedentary",
+    "playing controller": "sedentary",
+    # emotional — always speak, log mood
+    "laughing": "emotional",
+    "crying": "emotional",
+    "yawning": "emotional",
+    "singing": "emotional",
+}
+
 
 class MoveEnum(Enum):
     BACKGROUND = (
@@ -182,24 +230,25 @@ class MotionPerception(Perception):
         if (cur_ts - self._last_flush_ts) < self._flush_interval:
             return
 
-        snapshots = list(self._snapshot_buffer)
         actions = list(self._actions_buffer)
         self._snapshot_buffer.clear()
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        unique_snapshots = []
-        unique_actions = set()
+        unique_groups: set[str] = set()
 
-        for s, a in zip(snapshots[::-1], actions[::-1]):
-            if a not in unique_actions:
-                unique_snapshots.append(s)
-                unique_actions.add(a)
+        for a in reversed(actions):
+            group = ACTIVITY_GROUP.get(a)
+            if group is not None:
+                unique_groups.add(group)
+            else:
+                logger.warning("[motion] unmapped action '%s', skipping", a)
 
-        actions_str = ", ".join(f"'{a}'" for a in unique_actions)
-        logger.info(
-            "[motion] flushing %d snapshot(s), actions: %s", len(unique_snapshots), actions_str
-        )
+        if not unique_groups:
+            return
+
+        groups_str = ", ".join(sorted(unique_groups))
+        logger.info("[motion] flushing groups: %s", groups_str)
 
         from ..presence_service import PresenceState
 
@@ -211,11 +260,10 @@ class MotionPerception(Perception):
         if self._presence.state == PresenceState.PRESENT and has_friend:
             self._send_event(
                 "motion.activity",
-                f"Actions detected via video recognition: {actions_str}. "
+                f"Activity detected: {groups_str}. "
                 "If nothing noteworthy, reply NO_REPLY.",
             )
         else:
-            # Skip — Lumi only expects motion.activity, plain motion is not useful.
             logger.info(
                 "[motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
                 self._presence.state, has_friend,
