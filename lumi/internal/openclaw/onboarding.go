@@ -37,7 +37,6 @@ const (
 
 **Memory:** After each turn on any channel (voice, Telegram, or others) that contains something worth remembering (decisions, bugs, insights, new preferences), write it immediately to ` + "`memory/YYYY-MM-DD.md`" + `. Do not wait for heartbeat — context may be dropped before then.
 
-**Cron format — ALWAYS read Scheduling skill before creating any cron job.** Two valid combos only: (1) ` + "`sessionTarget: \"main\"` + `payload.kind: \"systemEvent\"` + `payload.text`" + `, (2) ` + "`sessionTarget: \"isolated\"` + `payload.kind: \"agentTurn\"` + `payload.message`" + `. Do NOT mix. Do NOT add ` + "`delivery`" + ` field. Do NOT use conversation history as format reference — ONLY use the Scheduling skill.
 
 **Mood awareness (MANDATORY): Follow Mood skill.**
 
