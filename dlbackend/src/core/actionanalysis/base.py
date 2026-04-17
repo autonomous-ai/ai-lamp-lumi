@@ -239,14 +239,17 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             self._last_detected = self._model.predict(self._frame_buffer, self._class_mask)
             self._last_ts = cur_ts
 
+        detected_classes = [
+            (name, conf) for name, conf in self._last_detected if conf > self._threshold
+        ]
         self._logger.info(
-            "Detected top-5 :%s",
-            ", ".join([f"{name} ({conf:.2f})" for name, conf in self._last_detected[:5]]),
+            "Detected top-3 :%s",
+            ", ".join([f"{name} ({conf:.2f})" for name, conf in detected_classes[:3]]),
         )
 
-        return ActionResponse(detected_classes=self._last_detected)
+        return ActionResponse(detected_classes=detected_classes)
 
-    def set_config(self, whitelist: list[str] | None, threshold: float = 0.8) -> None:
+    def set_config(self, whitelist: list[str] | None, threshold: float = 0.3) -> None:
         """Set or clear the action whitelist."""
         if whitelist is None:
             self._class_mask = self._model.default_mask.copy()
