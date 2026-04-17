@@ -1328,7 +1328,11 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 }
 
 // MoodHistory returns mood-relevant sensing events for music suggestion context.
-// Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
+// Query params:
+//   user=<name>            (default: current user)
+//   date=YYYY-MM-DD        (default today)
+//   last=<n>               (default 100, max 500)
+//   kind=signal|decision   (optional filter; default: all kinds)
 func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 	user := strings.ToLower(strings.TrimSpace(c.DefaultQuery("user", mood.CurrentUser())))
 	if user == "" {
@@ -1344,12 +1348,18 @@ func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 	if last > 500 {
 		last = 500
 	}
-	events := mood.Query(user, day, last)
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	if kind != "" && kind != mood.KindSignal && kind != mood.KindDecision {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("kind must be signal, decision, or empty"))
+		return
+	}
+	events := mood.Query(user, day, kind, last)
 	if events == nil {
 		events = []mood.Event{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"date":   day,
+		"kind":   kind,
 		"events": events,
 	}))
 }

@@ -101,12 +101,20 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 
 Proactive music suggestions are **AI-driven, not cron-driven**. Two triggers:
 
-1. **Mood skill** — after logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`), the Mood skill calls this section with the mood already known.
-2. **Sensing skill** — when `sedentary` activity is detected (user working/reading), the Sensing skill nudges you to suggest background music.
+1. **Mood skill** — after writing a `decision` row whose mood is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`), Mood hands off to this section.
+2. **Sensing skill** — when `sedentary` activity is detected (user working/reading), Sensing nudges you to suggest background music.
 
-The mood is always passed from the caller — **do NOT query mood history**. **Do NOT create music crons** — they are no longer used.
+**Always read the latest decision before suggesting** — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
 
-Before suggesting, check music suggestion history (`GET /api/openclaw/music-suggestion-history?user={name}&last=1`) — skip if last suggestion was < 30 min ago.
+```bash
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&kind=decision&last=1"
+```
+
+Use the `mood` field of that decision row. If the row is older than ~30 min or there are no decision rows for today → treat the user's mood as `normal` and skip the proactive suggestion (no decision = no fresh evidence the user wants music).
+
+**Do NOT create music crons** — they are no longer used.
+
+Before suggesting, also check music suggestion history (`GET /api/openclaw/music-suggestion-history?user={name}&last=1`) — skip if last suggestion was < 30 min ago.
 
 ### Learning Rules
 
@@ -198,6 +206,8 @@ All APIs below are available and running. Lumi server = port 5000, LeLamp = port
 |-----|------|-------------------|---------|
 | `GET /audio/status` | LeLamp (5001) | `{available, playing, title}` — is music playing right now? | Skip suggestion if already playing |
 | `GET /audio/history?person={name}&last=1` | LeLamp (5001) | Last played song: query, title, duration, stopped_by, person | What to suggest next (similar genre/artist) |
+| `GET /api/openclaw/mood-history?user={name}&kind=decision&last=1` | Lumi (5000) | Latest agent-synthesized mood (the row Mood skill wrote) | Source of truth for "current mood" |
+| `GET /api/openclaw/mood-history?user={name}&last=15` | Lumi (5000) | Recent signals + decisions interleaved | Re-analyze when the latest decision looks stale |
 | `GET /api/openclaw/music-suggestion-history?user={name}&last=N` | Lumi (5000) | Past music suggestions: trigger, message, status | Skip if recently suggested; learn from rejections |
 
 ### Audio history entry fields:
