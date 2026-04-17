@@ -34,7 +34,7 @@ LeLamp gom raw action thành 4 nhóm trước khi gửi Lumi. Lumi/agent chỉ t
 - headbanging — lắc đầu theo nhạc
 - sticking tongue out — lè lưỡi
 
-## sedentary — create wellbeing/music crons / Ngồi yên, tạo crons nếu chưa có
+## sedentary — create wellbeing crons + trigger Music suggestion / Ngồi yên, tạo wellbeing crons + kích hoạt Music suggestion
 
 - using computer — dùng máy tính
 - writing — viết
