@@ -22,8 +22,10 @@ dependencies = [
     "pandas",
     "opencv-contrib-python",
     "onnxruntime",
-    "onnxruntime-gpu",
+    # "onnxruntime-gpu",
     "websockets",
+    "pydantic-settings",
+    "pydantic",
 ]
 
 [project.optional-dependencies]
