@@ -21,14 +21,14 @@ dependencies = [
     "scikit-learn",
     "pandas",
     "opencv-contrib-python",
-    "onnxruntime",
-    # "onnxruntime-gpu",
     "websockets",
     "pydantic-settings",
     "pydantic",
 ]
 
 [project.optional-dependencies]
+cpu = ["onnxruntime"]
+gpu = ["onnxruntime-gpu"]
 dev = ["ruff", "pytest", "pytest-asyncio", "httpx", "websockets"]
 
 [project.scripts]

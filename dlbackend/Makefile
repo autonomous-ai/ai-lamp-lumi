@@ -1,0 +1,52 @@
+.PHONY: install install-cpu install-gpu install-dev start start-runpod test test-action test-action-api test-action-local lint
+
+NGINX_CONF ?= /workspace/ai-lamp-openclaw/dlbackend/nginx.conf
+
+HOST ?= 0.0.0.0
+PORT ?= 8001
+
+# Auto-detect CUDA and install the right onnxruntime variant
+install:
+	@if command -v nvidia-smi > /dev/null 2>&1 && nvidia-smi > /dev/null 2>&1; then \
+		echo "CUDA detected — installing onnxruntime-gpu"; \
+		pip install -e ".[gpu]"; \
+	else \
+		echo "No CUDA detected — installing onnxruntime (CPU)"; \
+		pip install -e ".[cpu]"; \
+	fi
+
+install-cpu:
+	pip install -e ".[cpu]"
+
+install-gpu:
+	pip install -e ".[gpu]"
+
+install-dev:
+	pip install -e ".[cpu,dev]"
+
+start: install
+	python src/server.py --host $(HOST) --port $(PORT)
+
+# RunPod: install nginx if missing, start nginx proxy, then start uvicorn
+start-runpod: install
+	@if ! command -v nginx > /dev/null 2>&1; then \
+		apt-get update && apt-get install -y nginx; \
+	fi
+	nginx -s stop 2>/dev/null || true
+	pkill nginx 2>/dev/null || true
+	nginx -c $(NGINX_CONF)
+	python src/server.py --host 127.0.0.1 --port $(PORT)
+
+test:
+	python -m pytest tests/ -v
+
+test-action: test-action-api test-action-local
+
+test-action-api:
+	python -m pytest tests/action_api/ -v
+
+test-action-local:
+	python -m pytest tests/action_local/ -v
+
+lint:
+	ruff check src/ tests/
