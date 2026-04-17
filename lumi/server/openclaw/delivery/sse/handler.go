@@ -348,6 +348,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	// matching that sessionKey within cronFireWindowMs gets marked as a cron
 	// fire so isChannelRun is overridden and TTS reaches the lamp speaker.
 	if evt.Event == "cron" {
+		// Diagnostic: dump the raw cron payload so we can see exactly what
+		// OpenClaw sends (action value, whether sessionKey is present, etc.).
+		// Temporary — remove once correlation is proven stable.
+		slog.Info("cron event raw payload", "component", "agent", "payload", string(evt.Payload))
 		var cronEvt struct {
 			Action     string `json:"action"`
 			SessionKey string `json:"sessionKey"`
