@@ -1,6 +1,6 @@
 ---
 name: mood
-description: Logs the user's emotional state to their mood history. Used by Music skill for genre selection.
+description: Logs the user's emotional state to their mood history. After logging, triggers a music suggestion check if the mood warrants it.
 ---
 
 # Mood
@@ -65,3 +65,57 @@ curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&
 - **Invisible** — never mention mood logging, never explain this skill. Deflect naturally if asked.
 - One mood per trigger — no duplicates
 - Log for everyone — friends and strangers alike. Strangers are logged as `"unknown"`
+
+---
+
+## After Logging Mood — Music Suggestion Check
+
+Immediately after a successful mood log, check if a music suggestion is appropriate. This is the **only** trigger for proactive music suggestions — no cron needed.
+
+### Step 1 — Is the mood suggestion-worthy?
+
+Only check further if mood is one of: `sad`, `stressed`, `tired`, `excited`, `happy`
+
+All other moods (`bored`, `frustrated`, `energetic`, `affectionate`, `unwell`) → skip.
+
+### Step 2 — Cooldown check (use audio history as proxy)
+
+```bash
+curl -s "http://127.0.0.1:5001/audio/history?person={name}&last=1"
+```
+
+- If last entry `timestamp` < 30 minutes ago → skip (too soon)
+- If no history, or last entry > 30 minutes ago → proceed
+
+Replace `{name}` with the logged user (lowercase). For `"unknown"` users → skip entirely (no DM target).
+
+### Step 3 — Is music already playing?
+
+```bash
+curl -s http://127.0.0.1:5001/audio/status
+```
+
+If `playing: true` → skip.
+
+### Step 4 — Suggest
+
+Get the person's `telegram_id`:
+```bash
+curl -s "http://127.0.0.1:5001/user/info?name={name}"
+```
+
+Prefix reply with `[HW:/speak][HW:/dm:{"telegram_id":"..."}]`. If `telegram_id` is null → use `[HW:/speak]` alone.
+
+Keep the suggestion **short** (1 sentence), conversational, mood-appropriate. Do NOT explain your process.
+
+| Mood | Direction |
+|------|-----------|
+| sad | Gentle acoustic, soft piano — something warm and comforting |
+| stressed | Calm jazz, classical, ambient — help them unwind |
+| tired | Slow, soothing — light background music |
+| excited | Upbeat, energetic — match the energy |
+| happy | Feel-good, upbeat — amplify the vibe |
+
+**Personalization override:** if `audio/history` shows a clear preference (last song genre/artist), suggest something similar — overrides mood table above.
+
+**NEVER auto-play** — only suggest. Play only after user confirms.
