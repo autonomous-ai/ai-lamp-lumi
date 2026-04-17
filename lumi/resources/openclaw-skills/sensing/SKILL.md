@@ -127,8 +127,8 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 - **Always respond to presence.enter** — MUST emit emotion marker AND respond with text. Behavior differs by person type:
   - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
   - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
-- **motion.activity (`sedentary` group) triggers cron setup** — when you see the `sedentary` group, create wellbeing/music crons per those skills. Do NOT create crons on presence.enter.
-- **presence.leave triggers cron cleanup** — cancel this person's wellbeing/music crons. For strangers, cancel `"unknown"` crons only on `presence.away`.
+- **motion.activity (`sedentary` group) triggers cron setup** — when you see the `sedentary` group, create wellbeing crons per that skill. Do NOT create crons on presence.enter. Music suggestions are mood-driven (see Mood skill) — no music cron needed.
+- **presence.leave triggers cron cleanup** — cancel this person's wellbeing crons. For strangers, cancel `"unknown"` crons only on `presence.away`.
 - **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
 - **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
 - **Always express emotion** — every sensing event must have at least one `[HW:/emotion:...]` marker. No silent reactions.
@@ -219,7 +219,7 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 
 **`[sensing:motion.activity]`** — fires when activity detected while PRESENT. Message contains activity groups (`sedentary`, `drink`, `break`, `emotional`):
 1. From the group(s) in the message, follow the appropriate skill:
-   - `sedentary` → **Wellbeing** skill (create crons) + **Music** skill (bootstrap cron)
+   - `sedentary` → **Wellbeing** skill (create crons). Music suggestions are mood-driven — no music cron needed here.
    - `drink` → **Wellbeing** skill (reset hydration timer)
    - `break` → **Wellbeing** skill (reset break timer)
    - `emotional` → **Emotion Detection** skill (empathetic response + mood logging)
