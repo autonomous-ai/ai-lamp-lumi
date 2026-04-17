@@ -55,6 +55,7 @@ export interface VoiceStatus {
   voice_listening: boolean;
   tts_available: boolean;
   tts_speaking: boolean;
+  mic_muted?: boolean;
 }
 export interface ServoState {
   available_recordings: string[];

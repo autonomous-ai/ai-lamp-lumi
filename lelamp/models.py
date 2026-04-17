@@ -364,6 +364,7 @@ class VoiceStatusResponse(BaseModel):
     tts_available: bool
     tts_speaking: bool
     tts_detail: Optional[dict] = None
+    mic_muted: bool = False
 
 
 class HealthResponse(BaseModel):
