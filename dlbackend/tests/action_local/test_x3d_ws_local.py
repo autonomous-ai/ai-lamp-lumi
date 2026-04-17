@@ -26,15 +26,18 @@ def _make_frame_b64(width: int = 320, height: int = 240) -> str:
 def model():
     """Load the real X3DActionRecognizer once for the entire test session."""
 
-    return X3DModel()
+    model = X3DModel()
+    model.start()
+    return model
 
 
 @pytest.fixture()
 def client(model):
     """Create a TestClient with the real recognizer."""
+    import config
     import server
 
-    server.DL_API_KEY = TEST_API_KEY
+    config.settings.dl_api_key = TEST_API_KEY
     server.action_model = model
 
     return TestClient(server.app)

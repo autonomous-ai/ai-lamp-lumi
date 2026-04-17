@@ -175,7 +175,7 @@ var rules = []rule{
 		name:  "volume_up",
 		match: anyOf("volume up", "louder"),
 		exec: func(string) *Result {
-			post("/audio/volume", `{"volume":80}`)
+			post("/audio/volume", `{"volume":100}`)
 			return &Result{TTSText: "Volume up!", Actions: []string{`POST /audio/volume {"volume":80}`}}
 		},
 	},
@@ -188,11 +188,11 @@ var rules = []rule{
 		},
 	},
 	{
-		name:  "mute",
-		match: anyOf("mute", "shut up"),
+		name:  "mute_speaker",
+		match: anyOf("mute speaker", "mute the speaker"),
 		exec: func(string) *Result {
-			post("/audio/volume", `{"volume":0}`)
-			return &Result{TTSText: "", Actions: []string{`POST /audio/volume {"volume":0}`}}
+			post("/speaker/mute", "")
+			return &Result{TTSText: "", Actions: []string{`POST /speaker/mute`}}
 		},
 	},
 
@@ -209,7 +209,7 @@ var rules = []rule{
 	// --- TTS stop (interrupt Lumi speaking) ---
 	{
 		name:  "stop_talking",
-		match: anyOf("stop talking", "be quiet", "ok stop"),
+		match: anyOf("stop talking", "ok stop"),
 		exec: func(string) *Result {
 			post("/tts/stop", "")
 			return &Result{TTSText: "", Actions: []string{"POST /tts/stop"}}

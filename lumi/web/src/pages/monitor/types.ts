@@ -97,6 +97,7 @@ export interface FaceOwnerDetail {
   photos: string[];
   mood_days?: string[];
   wellbeing_days?: string[];
+  music_suggestion_days?: string[];
   files?: string[];
 }
 export interface FaceOwnersDetail {

@@ -1,0 +1,163 @@
+"""Tests for the action-analysis WebSocket endpoint using the local UniformerV2 model."""
+
+import base64
+import json
+import os
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from core.actionanalysis.uniformerv2 import UniformerV2Model
+
+TEST_API_KEY = "test-secret-key"
+os.environ["DL_API_KEY"] = TEST_API_KEY
+
+UNIFORMERV2_MODEL_PATH = Path(__file__).parent / "local" / "uniformerv2-b-224-k400_fp32.onnx"
+pytestmark = pytest.mark.skipif(
+    not UNIFORMERV2_MODEL_PATH.exists(),
+    reason=f"Local UniformerV2 model not found at {UNIFORMERV2_MODEL_PATH}",
+)
+
+
+def _make_frame_b64(width: int = 320, height: int = 240) -> str:
+    frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".jpg", frame)
+    return base64.b64encode(buf.tobytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def model():
+    m = UniformerV2Model(model_path=UNIFORMERV2_MODEL_PATH)
+    m.start()
+    return m
+
+
+@pytest.fixture()
+def client(model):
+    import config
+    import server
+
+    config.settings.dl_api_key = TEST_API_KEY
+    server.action_model = model
+    return TestClient(server.app)
+
+
+AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
+
+class TestApiKeyAuth:
+    def test_health_without_key_returns_401(self, client):
+        resp = client.get("/api/dl/health")
+        assert resp.status_code == 401
+
+    def test_health_with_wrong_key_returns_401(self, client):
+        resp = client.get("/api/dl/health", headers={"X-API-Key": "wrong"})
+        assert resp.status_code == 401
+
+    def test_health_with_valid_key(self, client):
+        resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+
+
+class TestHealthEndpoint:
+    def test_health_ok(self, client):
+        resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["action_model"] is True
+
+    def test_health_not_loaded(self, client):
+        import server
+
+        saved = server.action_model
+        server.action_model = None
+        resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
+        assert resp.json()["action_model"] is False
+        server.action_model = saved
+
+
+class TestActionAnalysisWebSocket:
+    def test_frame_returns_detected_classes(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+            resp = ws.receive_json()
+            assert "detected_classes" in resp
+            assert isinstance(resp["detected_classes"], list)
+
+    def test_multiple_frames(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            for _ in range(3):
+                ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+                resp = ws.receive_json()
+                assert "detected_classes" in resp
+
+    def test_whitelist_update(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "whitelist": ["walking", "running"]}))
+            assert ws.receive_json()["status"] == "config_updated"
+
+    def test_threshold_update(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "threshold": 0.2}))
+            assert ws.receive_json()["status"] == "config_updated"
+
+    def test_whitelist_reset(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "whitelist": None}))
+            assert ws.receive_json()["status"] == "config_updated"
+
+    def test_whitelist_then_frame(self, client):
+        allowed = {"applauding", "clapping"}
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "whitelist": list(allowed)}))
+            assert ws.receive_json()["status"] == "config_updated"
+
+            ws.send_text(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+            resp = ws.receive_json()
+            assert "detected_classes" in resp
+            for class_name, _ in resp["detected_classes"]:
+                assert class_name in allowed
+
+            ws.send_text(json.dumps({"type": "config", "whitelist": None}))
+            ws.receive_json()
+
+    def test_invalid_json(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text("not json at all")
+            assert "error" in ws.receive_json()
+
+    def test_missing_type_field(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"frame_b64": "abc"}))
+            assert "error" in ws.receive_json()
+
+    def test_unknown_type(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "bogus"}))
+            assert "error" in ws.receive_json()
+
+    def test_frame_missing_frame_b64(self, client):
+        with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame"}))
+            assert "error" in ws.receive_json()
+
+    def test_recognizer_not_loaded_closes_ws(self, client):
+        import server
+
+        saved = server.action_model
+        server.action_model = None
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
+                ws.send_text(json.dumps({"type": "frame", "frame_b64": "abc"}))
+                ws.receive_json()
+        server.action_model = saved
+
+    def test_ws_without_api_key_rejected(self, client):
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/dl/action-analysis/ws") as ws:
+                ws.send_text(json.dumps({"type": "config", "whitelist": None}))
+                ws.receive_json()
