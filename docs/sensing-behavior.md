@@ -220,9 +220,9 @@ OpenClaw cron accepts four `sessionTarget` values:
 | `isolated` | Spawns a fresh isolated session per fire | `agentTurn` + `message` |
 | `session:<id>` | Explicit persistent session by id | `agentTurn` + `message` |
 
-Wellbeing and music use `current` so crons created during a Telegram test fire back into that same Telegram chat (reactive) while still TTS'ing via `[HW:/broadcast]`. Do NOT add a `delivery` field — it causes errors.
+Wellbeing and music use `current` so crons created during a Telegram test fire back into that same Telegram chat (reactive) while still TTS'ing via `[HW:/speak]`. Do NOT add a `delivery` field — it causes errors.
 
-**TTS from channel-origin cron fires:** When `current` binds to a Telegram/channel session, TTS on the speaker is suppressed by default (channel runs go as text). Force TTS by including `[HW:/broadcast]` in the reply — wellbeing and music cron payloads already instruct this.
+**TTS from channel-origin cron fires:** When `current` binds to a Telegram/channel session, TTS on the speaker is suppressed by default (channel runs go as text). Force TTS by including `[HW:/speak]` in the reply — wellbeing and music cron payloads already instruct this. Do NOT use `[HW:/broadcast]` for proactive crons: it also fans out to every connected Telegram chat, which is guard-only behavior.
 
 **Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — causing the agent to NO_REPLY. **Workaround:** Prefix payload text with `[MUST-SPEAK]` to force the agent to reply out loud despite the wrapper. All wellbeing and music cron payloads must start with `[MUST-SPEAK]`.
 
@@ -269,9 +269,16 @@ Beyond scheduled reminders, the agent is encouraged to **notice things** when re
 
 Examples: "Morning! Had breakfast?" on early `presence.enter`, "It's past noon — grab some lunch?" on `motion.activity` at 12:20, "It's almost 11 PM..." on late-night `motion.activity`.
 
-### Broadcast marker (`[HW:/broadcast:{}]`)
+### Speak and broadcast markers
 
-A special HW marker that forces the agent's spoken text to also be sent to all Telegram channels. Used by wellbeing crons, music suggestions, and any cron-fired turn where the user should see the message on their phone. Also forces TTS for non-voice turns (e.g., cron-triggered agent turns that would otherwise be silent). Works like guard mode alerts.
+Two control markers on channel-origin turns:
+
+| Marker | Effect | When to use |
+|---|---|---|
+| `[HW:/speak:{}]` | Forces TTS on the speaker. No Telegram side-effect. | Proactive crons (wellbeing, music) running inside a Telegram/channel session so the reminder is also heard aloud. Usually combined with `[HW:/dm:{"telegram_id":"..."}]` for a targeted DM. |
+| `[HW:/broadcast:{}]` | Forces TTS **and** fans out the reply text to every connected Telegram chat. | Guard mode alerts only. Never use in wellbeing/music — it will notify every chat, not just the person being reminded. |
+
+By default, channel-origin turns (Telegram, webchat) suppress speaker TTS because the reply is routed as a channel message. `/speak` overrides that suppression without the fan-out side-effect.
 
 ### Per-user mood history
 

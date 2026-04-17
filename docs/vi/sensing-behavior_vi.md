@@ -218,9 +218,9 @@ OpenClaw cron nhận 4 giá trị `sessionTarget`:
 | `isolated` | Spawn session isolated mới mỗi lần fire | `agentTurn` + `message` |
 | `session:<id>` | Persistent session explicit theo id | `agentTurn` + `message` |
 
-Wellbeing và music dùng `current` để cron tạo từ Telegram sẽ fire về lại chat Telegram đó (thuận cho reactive test), đồng thời vẫn TTS loa qua `[HW:/broadcast]`. KHÔNG thêm field `delivery` — gây lỗi.
+Wellbeing và music dùng `current` để cron tạo từ Telegram sẽ fire về lại chat Telegram đó (thuận cho reactive test), đồng thời vẫn TTS loa qua `[HW:/speak]`. KHÔNG thêm field `delivery` — gây lỗi.
 
-**TTS từ cron fire khi origin là channel:** Khi `current` bind vào session Telegram/channel, TTS trên loa bị suppress mặc định (channel run chỉ đi text). Ép TTS bằng cách include `[HW:/broadcast]` trong reply — payload của wellbeing và music cron đã hướng dẫn sẵn.
+**TTS từ cron fire khi origin là channel:** Khi `current` bind vào session Telegram/channel, TTS trên loa bị suppress mặc định (channel run chỉ đi text). Ép TTS bằng cách include `[HW:/speak]` trong reply — payload của wellbeing và music cron đã hướng dẫn sẵn. KHÔNG dùng `[HW:/broadcast]` cho proactive crons: nó đồng thời fan-out tới tất cả chat Telegram, là hành vi dành riêng cho guard mode.
 
 **Hạn chế quan trọng:** Payload `systemEvent` bị OpenClaw wrap thành "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — khiến agent NO_REPLY. **Workaround:** Prefix payload text với `[MUST-SPEAK]` để force agent phải reply dù có wrapper. Tất cả wellbeing và music cron payload phải bắt đầu bằng `[MUST-SPEAK]`.
 
@@ -277,9 +277,16 @@ Ngoài nhắc nhở theo lịch, agent được khuyến khích **chú ý** khi 
 
 Ví dụ: "Ăn sáng chưa?" khi presence.enter sáng sớm, "Trưa rồi, ăn gì chưa?" khi motion.activity lúc 12:20, "Khuya rồi đó..." khi motion.activity khuya.
 
-### Broadcast marker (`[HW:/broadcast:{}]`)
+### Speak và broadcast markers
 
-HW marker đặc biệt — force text agent nói cũng được gửi lên tất cả Telegram channels. Dùng cho wellbeing crons, music suggestions, và bất kỳ cron turn nào cần user thấy trên điện thoại. Cũng force TTS cho non-voice turns. Hoạt động giống guard mode alerts.
+Hai control marker cho turn channel-origin:
+
+| Marker | Tác dụng | Khi nào dùng |
+|---|---|---|
+| `[HW:/speak:{}]` | Force TTS trên loa. Không ảnh hưởng Telegram. | Proactive crons (wellbeing, music) chạy trong Telegram/channel session để nhắc phát qua loa. Thường kèm `[HW:/dm:{"telegram_id":"..."}]` để DM đúng 1 người. |
+| `[HW:/broadcast:{}]` | Force TTS **và** fan-out text tới tất cả Telegram chat. | Chỉ dành cho guard mode alert. Không dùng cho wellbeing/music — sẽ notify mọi chat, không phải chỉ người được nhắc. |
+
+Mặc định turn channel-origin (Telegram, webchat) suppress TTS loa vì reply đi qua channel message. `/speak` override suppression đó mà không kèm fan-out.
 
 ### Mood history per-user
 
