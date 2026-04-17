@@ -65,9 +65,9 @@ export function OverviewSection({
 
       {/* Row 1: 4 status cards in one row */}
       <div className="lm-grid-4">
-        {/* OpenClaw */}
+        {/* Agent Gateway */}
         <div style={S.card}>
-          <div style={S.cardLabel}>OpenClaw AI</div>
+          <div style={S.cardLabel}>Agent Gateway</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <StatusDot ok={oc?.connected ?? false} />
             <span style={{ fontSize: 12, fontWeight: 600, color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)" }}>
