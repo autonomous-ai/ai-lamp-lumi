@@ -575,7 +575,7 @@ export function FaceOwnersSection() {
                     items.push({ name: "music-suggestions", isDir: true, dirKey: `${person.label}:music-suggestions`, children: person.music_suggestion_days.map((d) => `${d}.jsonl`) });
                   }
                   if (person.audio_history_days && person.audio_history_days.length > 0) {
-                    items.push({ name: "audio_history", isDir: true, dirKey: `${person.label}:audio_history`, children: person.audio_history_days.map((d) => `music_${d}.jsonl`) });
+                    items.push({ name: "audio_history", isDir: true, dirKey: `${person.label}:audio_history`, children: person.audio_history_days.map((d) => `${d}.jsonl`) });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
