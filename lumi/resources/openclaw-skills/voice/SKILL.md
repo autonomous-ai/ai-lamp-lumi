@@ -1,6 +1,6 @@
 ---
 name: voice
-description: Speak additional text through the lamp's speaker via TTS when you need to say something EXTRA beyond your normal chat reply. Normal replies are auto-spoken — only use this for parallel or supplementary speech.
+description: Speak additional text through the lamp's speaker via TTS, and mic mute/unmute for privacy. Trigger on "don't listen", "stop listening", "đừng nghe", "mute mic", "I'm in a meeting". MUST call [HW:/voice/mute:{}] when user asks to stop listening.
 ---
 
 # Voice — Speak Through Speaker
@@ -73,6 +73,38 @@ Response:
 - **Match the user's language** — if they speak Vietnamese, speak Vietnamese.
 - Text max 2000 characters.
 - For volume control, use the **Audio** skill, not this skill.
+
+## Mic Mute/Unmute (Privacy)
+
+Users can mute the mic for privacy (meetings, calls). Use HW markers — no curl needed.
+
+### Mute mic
+
+```
+[HW:/voice/mute:{}]
+```
+
+Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf. Only physical button press or web toggle can unmute.
+
+### Trigger phrases (MANDATORY — must call HW marker)
+
+| User says | Action |
+|-----------|--------|
+| "don't listen" / "stop listening" / "đừng nghe" / "mute mic" / "I'm in a meeting" / "đang họp" | `[HW:/voice/mute:{}]` — MUST call |
+
+### Examples
+
+**Input:** "Lumi, đừng nghe, tao đang họp"
+**Output:** `[HW:/voice/mute:{}]` OK, I'll stop listening. Press the button when you need me.
+
+**Input:** "Stop listening"
+**Output:** `[HW:/voice/mute:{}]` Got it, mic off. Press my button to unmute.
+
+### Rules
+- **This is the last thing Lumi hears** — after mute, only physical button or web toggle can unmute
+- Agent cannot unmute via voice (Lumi is deaf)
+- TTS still works when muted — Lumi can speak but not hear
+- Always confirm with a short message telling user how to unmute (press button)
 
 ## Output Template
 ```
