@@ -67,73 +67,100 @@ export function OverviewSection({
       <div className="lm-grid-4">
         {/* Agent Gateway */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Agent Gateway</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <StatusDot ok={oc?.connected ?? false} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)" }}>
-              {oc?.connected ? "Connected" : "Disconnected"}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Agent Gateway</div>
+            <span style={{
+              fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 700,
+              background: oc?.connected ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.1)",
+              color: oc?.connected ? "var(--lm-green)" : "var(--lm-red)",
+              border: `1px solid ${oc?.connected ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
+            }}>
+              {oc?.connected ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
-          {oc && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Agent: <span style={{ color: "var(--lm-text)" }}>{oc.name}</span>
+          {oc ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Agent</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text)" }}>{oc.name}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Key:
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Session</span>
                 <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 4,
+                  fontSize: 10, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
                   background: oc.sessionKey ? "rgba(52,211,153,0.1)" : "rgba(80,74,60,0.4)",
                   color: oc.sessionKey ? "var(--lm-green)" : "var(--lm-text-muted)",
-                  border: `1px solid ${oc.sessionKey ? "rgba(52,211,153,0.3)" : "var(--lm-border)"}`,
-                  fontWeight: 600,
                 }}>
-                  {oc.sessionKey ? "Acquired" : "Pending"}
+                  {oc.sessionKey ? "Active" : "Pending"}
                 </span>
               </div>
+              {oc.emotion && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Emotion</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-amber)" }}>{oc.emotion}</span>
+                </div>
+              )}
             </div>
-          )}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
         {/* Network */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Network</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Network</div>
+            {net && <SignalBars value={net.signal} />}
+          </div>
           {net ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <StatusDot ok={net.internet} />
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--lm-text)" }}>{net.ssid || "—"}</span>
-                </div>
-                <SignalBars value={net.signal} />
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>SSID</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text)" }}>{net.ssid || "—"}</span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP: <span style={{ color: "var(--lm-teal)" }}>{net.ip}</span>{net.publicIp && <span style={{ color: "var(--lm-text-dim)" }}> · Public: <span style={{ color: "var(--lm-teal)" }}>{net.publicIp}</span></span>}</div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                {net.signal} dBm · Internet: <span style={{ color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>{net.internet ? "OK" : "No"}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>IP</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-teal)" }}>{net.ip}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Internet</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>
+                  {net.internet ? "Connected" : "No"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Signal</span>
+                <span style={{ fontSize: 11, color: "var(--lm-text)" }}>{net.signal} dBm</span>
               </div>
             </div>
-          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
         {/* Presence */}
         <div style={S.card}>
-          <div style={S.cardLabel}>Presence</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Presence</div>
+            <span style={{
+              fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 700,
+              background: presence?.state === "active" ? "rgba(245,158,11,0.1)" : "rgba(80,74,60,0.4)",
+              color: presence?.state === "active" ? "var(--lm-amber)" : "var(--lm-text-muted)",
+              border: `1px solid ${presence?.state === "active" ? "rgba(245,158,11,0.3)" : "var(--lm-border)"}`,
+            }}>
+              {(presence?.state ?? "—").toUpperCase()}
+            </span>
+          </div>
           {presence ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={presence.state === "active"} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: presence.state === "active" ? "var(--lm-amber)" : "var(--lm-text-dim)" }}>
-                  {presence.state}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Sensing</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: presence.enabled ? "var(--lm-green)" : "var(--lm-red)" }}>
+                  {presence.enabled ? "On" : "Off"}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Sensing: <span style={{ color: presence.enabled ? "var(--lm-green)" : "var(--lm-red)" }}>{presence.enabled ? "On" : "Off"}</span>
-              </div>
-              <div style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>
-                Motion: <span style={{ color: "var(--lm-text)" }}>{presence.seconds_since_motion}s ago</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, color: "var(--lm-text-dim)" }}>Last motion</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text)" }}>{presence.seconds_since_motion}s ago</span>
               </div>
             </div>
-          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
 
         {/* Audio */}
