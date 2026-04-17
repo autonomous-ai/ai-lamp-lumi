@@ -9,20 +9,18 @@ Usage:
 import argparse
 import base64
 import logging
-import os
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import cv2
 import numpy as np
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import (
     APIRouter,
     Depends,
     FastAPI,
     HTTPException,
+    Path,
     Security,
     WebSocket,
     WebSocketDisconnect,
@@ -30,26 +28,23 @@ from fastapi import (
 from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
+from config import settings
+from core.actionanalysis.base import HumanActionRecognizerModel
+from core.actionanalysis.enums import HumanActionRecognizerEnum
+from core.actionanalysis.uniformerv2 import UniformerV2Model
 from core.actionanalysis.videomae import VideoMAEModel
+from core.actionanalysis.x3d import X3DModel
 from core.models import ActionRequest, ConfigRequest, FrameRequest
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
-
-_ = load_dotenv()
-
-DL_API_KEY = os.getenv("DL_API_KEY", "")
-action_recognition_model = os.getenv("ACTION_RECOGNITION_MODEL", None)
-ACTION_RECOGNITION_MODEL = (
-    Path(action_recognition_model) if action_recognition_model is not None else None
-)
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
     """Validate the X-API-Key header against DL_API_KEY."""
-    if not DL_API_KEY:
+    if not settings.dl_api_key:
         return
-    if not api_key or not secrets.compare_digest(api_key, DL_API_KEY):
+    if not api_key or not secrets.compare_digest(api_key, settings.dl_api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -59,7 +54,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-action_model: VideoMAEModel | None = None
+action_model: HumanActionRecognizerModel | None = None
 action_request_adapter = TypeAdapter(ActionRequest)
 
 
@@ -70,13 +65,30 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading VideoMAE action model...")
     try:
-        action_model = VideoMAEModel(ACTION_RECOGNITION_MODEL)
-        logger.info("VideoMAE action model ready")
+        if settings.action_recognition_ckpt_path is not None:
+            ckpt_path = Path(settings.action_recognition_ckpt_path)
+        else:
+            ckpt_path = None
+
+        if settings.action_recognition_model == HumanActionRecognizerEnum.VIDEOMAE:
+            action_model = VideoMAEModel(ckpt_path)
+        elif settings.action_recognition_model == HumanActionRecognizerEnum.UNIFORMERV2:
+            action_model = UniformerV2Model(ckpt_path)
+        elif settings.action_recognition_model == HumanActionRecognizerEnum.X3D:
+            action_model = X3DModel(ckpt_path)
+
+        if action_model is not None:
+            action_model.start()
+            logger.info("[%s] action model ready", settings.action_recognition_model)
     except Exception as e:
-        logger.warning(f"Failed to load VideoMAE action model: {e}")
+        logger.warning(
+            "Failed to load %s action model due to %s", settings.action_recognition_model, e
+        )
 
     yield
 
+    if action_model is not None:
+        action_model.stop()
     logger.info("Shutting down DL backend")
 
 
@@ -109,9 +121,9 @@ async def action_analysis_ws(websocket: WebSocket):
 
     API key is validated from the X-API-Key header on connect.
     """
-    if DL_API_KEY:
+    if settings.dl_api_key:
         api_key = websocket.headers.get("x-api-key", "")
-        if not api_key or not secrets.compare_digest(api_key, DL_API_KEY):
+        if not api_key or not secrets.compare_digest(api_key, settings.dl_api_key):
             await websocket.close(code=1008, reason="Invalid or missing API key")
             return
 
