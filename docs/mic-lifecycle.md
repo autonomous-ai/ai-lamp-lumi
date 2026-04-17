@@ -7,9 +7,13 @@ Mic mute for privacy — meetings, calls, or just don't want Lumi listening.
 - Voice pipeline (`VoiceService`) runs always-on: mic → VAD → wake word → STT → OpenClaw
 - Sound perception (`SoundPerception`) in sensing loop: mic → RMS → sound events
 - Wake word detection runs inside VoiceService
-- No mute/unmute API currently
-- `POST /voice/stop` tears down entire pipeline (too aggressive)
-- GPIO17 button currently stops TTS + music only
+- ✅ `POST /voice/mute` / `POST /voice/unmute` — stop/restart VoiceService
+- ✅ `GET /voice/status` includes `mic_muted` field
+- ✅ GPIO17 button: unmute when muted + debounce + TTS confirm
+- ✅ Web monitor: Mute/Unmute toggle on Overview
+- ✅ Voice skill: HW markers for mute/unmute
+- ❌ Sound perception not stopped on mute (still fires sound events)
+- ❌ No auto-mute from scene/emotion triggers yet
 
 ## Design: Fully Deaf When Muted
 
@@ -74,38 +78,32 @@ Manual override respected — if user explicitly muted via voice command, auto t
 
 ### LeLamp (Python)
 
-1. **`server.py`**: Add endpoints:
-   - `POST /voice/mute` — stop VoiceService, stop sound perception, set `_mic_muted = True`
-   - `POST /voice/unmute` — restart VoiceService, restart sound perception, clear flag
-   - `GET /voice/status` — include `muted` field
+1. ✅ **`server.py`**: Endpoints done:
+   - `POST /voice/mute` — stop VoiceService, set `_mic_muted = True`
+   - `POST /voice/unmute` — restart VoiceService, clear flag
+   - `GET /voice/status` — includes `mic_muted` field
+   - **TODO**: mute should also stop sound perception
 
-2. **GPIO17 button handler** (`_on_stop_button`): Add mic mute check:
-   ```python
-   if _mic_muted:
-       unmute_mic()  # restart voice pipeline
-       tts_service.speak("I'm listening!")  # confirm to user
-   elif tts_service and tts_service.speaking:
-       stop_tts()
-   else:
-       audio_stop()
-   ```
-   TTS confirmation is essential — user needs audible feedback that mic is back on. Without it, user doesn't know if button press worked.
+2. ✅ **GPIO17 button handler** (`_on_stop_button`): Done with debounce (500ms):
+   - Muted → unmute + TTS "I'm listening!"
+   - Not muted + TTS speaking → stop TTS
+   - Not muted + no TTS → stop music
 
-3. **Scene/emotion integration**: `_auto_mic_mute()` / `_auto_mic_unmute()` with `_mic_manual_override` flag (same pattern as camera).
+3. ❌ **Scene/emotion auto-mute/unmute**: Not implemented yet. Need `_auto_mic_mute()` / `_auto_mic_unmute()` with `_mic_manual_override` flag (same pattern as camera).
+
+4. ❌ **Sound perception stop on mute**: Not implemented. Currently mute only stops VoiceService, sound perception still fires events.
 
 ### OpenClaw Skills
 
-4. **Voice skill or camera skill**: Add mute/unmute HW markers:
-   - "đừng nghe" / "stop listening" / "mute mic" → `[HW:/voice/mute:{}]`
-   - Unmute handled by button, not voice (Lumi is deaf)
+5. ✅ **Voice skill**: Done + uploaded. Mute + unmute HW markers, trigger phrases, Telegram/web unmute.
 
 ### Web Monitor
 
-5. **Voice status section**: Mute/Unmute toggle button + muted state indicator.
+6. ✅ **Overview section**: Mute/Unmute toggle + MUTED badge on Mic line.
 
 ### Lumi (Go)
 
-6. **HW marker dispatch**: `[HW:/voice/mute:{}]` and `[HW:/voice/unmute:{}]` — already handled by generic parser.
+7. ✅ **HW marker dispatch**: `[HW:/voice/mute:{}]` and `[HW:/voice/unmute:{}]` — already handled by generic parser.
 
 ## Edge Cases
 
