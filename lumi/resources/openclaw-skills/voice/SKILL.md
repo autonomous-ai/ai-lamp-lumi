@@ -1,6 +1,6 @@
 ---
 name: voice
-description: Speak additional text through the lamp's speaker via TTS, and mic mute/unmute for privacy. Trigger on "don't listen", "stop listening", "đừng nghe", "mute mic", "I'm in a meeting". MUST call [HW:/voice/mute:{}] when user asks to stop listening.
+description: TTS speech + mic mute/unmute for privacy. MUST trigger on any mention of meetings, calls, privacy, or stopping listening — "meeting", "call", "private", "don't listen", "stop listening", "đừng nghe", "đang họp", "mute". Always call [HW:/voice/mute:{}] — never just acknowledge with text.
 ---
 
 # Voice — Speak Through Speaker
@@ -86,11 +86,17 @@ Users can mute the mic for privacy (meetings, calls). Use HW markers — no curl
 
 Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf. Unmute via physical button, web toggle, or Telegram command.
 
-### Trigger phrases (MANDATORY — must call HW marker)
+### Trigger phrases (MANDATORY — must call HW marker, not just reply with text)
+
+Any phrase about **privacy, meetings, calls, not wanting to be heard, or asking Lumi to stop listening** MUST trigger `[HW:/voice/mute:{}]`. Do NOT just acknowledge — you MUST include the HW marker.
 
 | User says | Action |
 |-----------|--------|
-| "don't listen" / "stop listening" / "đừng nghe" / "mute mic" / "I'm in a meeting" / "đang họp" | `[HW:/voice/mute:{}]` — MUST call |
+| "don't listen" / "stop listening" / "mute" / "mute mic" | `[HW:/voice/mute:{}]` — MUST call |
+| "I'm in a meeting" / "I have a meeting" / "I need a private meeting" / "meeting" | `[HW:/voice/mute:{}]` — MUST call |
+| "I'm on a call" / "I have a call" / "phone call" | `[HW:/voice/mute:{}]` — MUST call |
+| "privacy" / "private" / "give me privacy" / "need privacy" | `[HW:/voice/mute:{}]` — MUST call |
+| "đừng nghe" / "đang họp" / "tắt mic" / "im đi đừng nghe" | `[HW:/voice/mute:{}]` — MUST call |
 
 ### Examples
 
@@ -99,6 +105,12 @@ Stops all listening — STT, wake word, sound detection. Lumi becomes fully deaf
 
 **Input:** "Stop listening"
 **Output:** `[HW:/voice/mute:{}]` Got it, mic off. Press my button to unmute.
+
+**Input:** "I need a private meeting"
+**Output:** `[HW:/voice/mute:{}]` Got it, going silent. Press the button when you're done.
+
+**Input:** "I'm on a call"
+**Output:** `[HW:/voice/mute:{}]` Muting now. Press the button to unmute when you're done.
 
 ### Unmute mic
 
