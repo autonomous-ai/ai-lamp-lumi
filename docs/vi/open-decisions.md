@@ -34,7 +34,7 @@
 | LED driver ownership | LeLamp Python rpi_ws281x own toàn bộ LED. Go SPI driver đã xóa. |
 | SKILL.md (#1) | 9 skills: led-control, servo-control, camera, audio, emotion, sensing, scene, display, scheduling. Tất cả mô tả HTTP API tại `127.0.0.1:5001`. |
 | Event push (#2) | WebSocket RPC `chat.send` với `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. |
-| Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion, Haar cascade cho face detection, mean brightness cho light level. Auto-snapshot (320px JPEG base64) khi event đáng kể → forward OpenClaw vision. |
+| Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion, Haar cascade cho face detection, mean brightness cho light level. Auto-snapshot (full-resolution JPEG q85) khi event đáng kể → forward OpenClaw vision. |
 | AI Vision | Bật (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing event có ảnh gửi qua `SendChatMessageWithImage` → AI nhìn được camera snapshot. |
 | Face detection vs recognition | Face **detection** (có người không?) = P1, done (Haar cascade). Face **recognition** (ai đây?) = P2, cần face embedding + enrollment flow lúc setup. **Vấn đề privacy:** nếu không có recognition, bất kỳ ai lại gần Lumi đều có thể hỏi email, lịch, thông tin cá nhân. Recognition cần để gate sensitive actions chỉ cho người đã đăng ký. |
 | Voice/speaker identification | P2. Phân biệt giọng chủ nhân vs người lạ. Cùng vấn đề privacy — chặn người lạ truy cập data cá nhân qua giọng nói. |
