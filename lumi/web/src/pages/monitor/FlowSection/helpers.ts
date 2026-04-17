@@ -117,16 +117,28 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     }
     if (hasRealUser) return; // keep as channel type
     if (sensingType) { turn.type = sensingType; return; }
-    // Cron-fired turns: sender is empty + message contains "scheduled reminder" from OpenClaw systemEvent wrapper
+    // Cron-fired turns: primary signal is the cron_fire flow event emitted by
+    // Lumi at lifecycle_start when it correlates an OpenClaw event:"cron"
+    // (action:"started"). Fallback to the systemEvent wrapper string match if
+    // the event was dropped (OpenClaw broadcasts cron with dropIfSlow:true).
     let isCron = false;
     let cronLabel = "cron";
+    for (const ev of turn.events) {
+      if (ev.type === "cron_fire" || (ev.type === "flow_event" && ev.detail?.node === "cron_fire")) {
+        isCron = true;
+        break;
+      }
+    }
     for (const ev of turn.events) {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
         const sender = d?.sender ?? d?.data?.sender ?? "";
-        if ((!sender || sender === "") && /scheduled reminder/i.test(msg)) {
+        // Fallback signal + sub-label (hydration/break/music) parsed from text.
+        if (!isCron && (!sender || sender === "") && /scheduled reminder/i.test(msg)) {
           isCron = true;
+        }
+        if (isCron) {
           if (/hydration/i.test(msg)) cronLabel = "cron:hydration";
           else if (/break|stretch/i.test(msg)) cronLabel = "cron:break";
           else if (/music/i.test(msg)) cronLabel = "cron:music";
