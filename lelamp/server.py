@@ -1773,7 +1773,9 @@ def camera_snapshot(save: bool = False):
         if animation_service:
             animation_service.freeze()
             time.sleep(0.3)
-            frame = camera_capture.last_frame or frame
+            fresh = camera_capture.last_frame
+            if fresh is not None:
+                frame = fresh
             animation_service.unfreeze()
     finally:
         camera_capture.release_consumer()
