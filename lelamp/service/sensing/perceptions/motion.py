@@ -252,12 +252,7 @@ class MotionPerception(Perception):
 
         from ..presence_service import PresenceState
 
-        has_friend = (
-            self._face_recognizer is not None
-            and self._face_recognizer.has_friend_present()
-        )
-
-        if self._presence.state == PresenceState.PRESENT and has_friend:
+        if self._presence.state == PresenceState.PRESENT:
             self._send_event(
                 "motion.activity",
                 f"Activity detected: {groups_str}. "
@@ -265,8 +260,8 @@ class MotionPerception(Perception):
             )
         else:
             logger.info(
-                "[motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
-                self._presence.state, has_friend,
+                "[motion] skipping event — no presence (presence=%s)",
+                self._presence.state,
             )
 
     def to_dict(self) -> dict:
