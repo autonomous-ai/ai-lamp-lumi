@@ -261,6 +261,8 @@ Two control markers on channel-origin turns:
 
 By default, channel-origin turns (Telegram, webchat) suppress speaker TTS because the reply is routed as a channel message. `/speak` overrides that suppression without the fan-out side-effect.
 
+**Cron-fire turns auto-force TTS.** When OpenClaw emits an `event:"cron"` with `action:"started"`, Lumi caches the `sessionKey` and the next `lifecycle_start` on that session within 10 s is marked as a cron fire — `isChannelRun` is overridden to `false` so the lamp speaker fires without requiring `[HW:/speak]` in the reply. The marker is still useful as a defense-in-depth fallback if the cron event is dropped (`dropIfSlow: true` on the OpenClaw side).
+
 ### Per-user mood history
 
 Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
