@@ -2357,6 +2357,8 @@ def face_owners_detail():
             wellbeing_days = sorted(f.stem for f in wb_dir.iterdir() if f.suffix == ".jsonl") if wb_dir.is_dir() else []
             music_sugg_dir = d / "music-suggestions"
             music_suggestion_days = sorted(f.stem for f in music_sugg_dir.iterdir() if f.suffix == ".jsonl") if music_sugg_dir.is_dir() else []
+            audio_hist_dir = d / "audio_history"
+            audio_history_days = sorted(f.stem.removeprefix("music_") for f in audio_hist_dir.iterdir() if f.suffix == ".jsonl") if audio_hist_dir.is_dir() else []
             meta = FaceRecognizer._read_metadata(d)
             persons.append(
                 FacePersonDetail(
@@ -2368,6 +2370,7 @@ def face_owners_detail():
                     mood_days=mood_days,
                     wellbeing_days=wellbeing_days,
                     music_suggestion_days=music_suggestion_days,
+                    audio_history_days=audio_history_days,
                     files=other_files,
                 )
             )

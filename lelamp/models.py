@@ -306,6 +306,7 @@ class FacePersonDetail(BaseModel):
     mood_days: list[str] = []  # e.g. ["2026-04-09"]
     wellbeing_days: list[str] = []  # e.g. ["2026-04-10"]
     music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
+    audio_history_days: list[str] = []  # e.g. ["2026-04-17"]
     files: list[str] = []  # all non-photo files
 
 
