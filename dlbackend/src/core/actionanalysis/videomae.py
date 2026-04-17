@@ -10,7 +10,8 @@ maintains its own frame buffer, whitelist, and timing state.
 
 import logging
 from pathlib import Path
-from typing import Self, override
+from typing import Self
+from typing_extensions import override
 
 import numpy as np
 import numpy.typing as npt
