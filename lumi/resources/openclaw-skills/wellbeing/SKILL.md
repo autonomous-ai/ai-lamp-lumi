@@ -48,13 +48,13 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
        - **Hydration cron** (if missing):
          - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
          - `sessionTarget: "current"`, `payload.kind: "systemEvent"`, `payload.text: "..."`
-         - Text: `"[MUST-SPEAK] Wellbeing hydration check. Remind water (one short sentence). You MUST prefix reply with [HW:/broadcast][HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional. `/broadcast` forces TTS on the speaker, `/dm` sends to Telegram."`
+         - Text: `"[MUST-SPEAK] Wellbeing hydration check. Remind water (one short sentence). You MUST prefix reply with [HW:/speak][HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.5}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
          - Adjust `everyMs` based on wellbeing summary if available.
        - **Break cron** (if missing):
          - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
          - Same session/payload format as hydration.
-         - Text: `"[MUST-SPEAK] Wellbeing break check. Suggest stretch (one short sentence). You MUST prefix reply with [HW:/broadcast][HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional. `/broadcast` forces TTS on the speaker, `/dm` sends to Telegram."`
-       - Replace `<THEIR_TELEGRAM_ID>` with their Telegram ID. If no telegram_id, omit the `/dm` marker but keep `[HW:/broadcast]` so the speaker still speaks.
+         - Text: `"[MUST-SPEAK] Wellbeing break check. Suggest stretch (one short sentence). You MUST prefix reply with [HW:/speak][HW:/emotion:{\"emotion\":\"happy\",\"intensity\":0.6}][HW:/dm:{\"telegram_id\":\"<THEIR_TELEGRAM_ID>\"}] — this is NOT optional."`
+       - Replace `<THEIR_TELEGRAM_ID>` with their Telegram ID. If no telegram_id, omit the `/dm` marker but keep `[HW:/speak]` so the speaker still speaks.
      → If both crons already exist, do nothing (timers keep running).
      `sessionTarget: "current"` binds the cron to the session active at creation time — fire routes back into that same session. Do NOT add a `delivery` field.
    - **`drink`** group? → reset `"Wellbeing: {name} hydration"` cron (`cron.list` → `cron.remove` → `cron.add` with same params)

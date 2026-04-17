@@ -205,8 +205,8 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 	}
 	go func() {
 		for _, c := range calls {
-			// /broadcast is handled internally (not a LeLamp hardware call).
-			if c.path == "/broadcast" {
+			// /broadcast, /speak, /dm are internal control markers — not LeLamp endpoints.
+			if c.path == "/broadcast" || c.path == "/speak" || c.path == "/dm" {
 				continue
 			}
 			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
@@ -800,13 +800,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
 				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
 
-				// [HW:/broadcast] marker: agent requests broadcast to Telegram.
-				// Used by wellbeing crons, music suggestions, and proactive care.
-				// [HW:/dm:{"telegram_id":"123"}] marker: send to a specific Telegram user.
+				// [HW:/broadcast] marker: fan-out reply text to all Telegram chats (guard-only).
+				// [HW:/speak] marker: force TTS on the speaker without any channel fan-out —
+				// used by proactive crons (music, wellbeing) that run in a channel session.
+				// [HW:/dm:{"telegram_id":"123"}] marker: send reply to a specific Telegram user.
 				var dmTelegramID string
+				forceTTS := false
 				for _, c := range hwCalls {
 					if c.path == "/broadcast" {
 						isBroadcastRun = true
+					}
+					if c.path == "/speak" {
+						forceTTS = true
 					}
 					if c.path == "/dm" {
 						var dm struct {
@@ -855,8 +860,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
 					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
-					// [HW:/broadcast] forces TTS even for channel runs (like guard mode).
-					if isBroadcastRun {
+					// [HW:/broadcast] (guard) or [HW:/speak] (proactive crons) force TTS
+					// even for channel-origin runs.
+					if isBroadcastRun || forceTTS {
 						isChannelRun = false
 					}
 					// Heartbeat cron responses must never reach the speaker.
@@ -872,7 +878,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					delete(h.channelRuns, payload.RunID)
 					delete(h.channelRuns, flowRunID)
 					h.channelRunsMu.Unlock()
-					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "heartbeat", isHeartbeatRun)
+					slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "channel_run", isChannelRun, "broadcast", isBroadcastRun, "force_tts", forceTTS, "heartbeat", isHeartbeatRun)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
 					if !isChannelRun {
 						go func(t string) {

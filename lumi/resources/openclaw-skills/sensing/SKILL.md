@@ -18,7 +18,9 @@ Example — your reply text should look exactly like this:
 ```
 The system will: (1) fire the emotion + servo hardware, (2) speak "Welcome back!" via TTS.
 
-**`[HW:/broadcast:{}]`** — special marker: your spoken text will also be sent to Telegram (all channels). Use this in cron-fired turns (wellbeing, music) so the user sees it on their phone too. Also forces TTS even for non-voice turns. Works like guard mode alerts.
+**`[HW:/speak:{}]`** — forces TTS on the speaker even when the turn runs in a Telegram/channel session. Combine with `[HW:/dm:{"telegram_id":"..."}]` to also send the text to one person's Telegram.
+
+**`[HW:/broadcast:{}]`** — forces TTS and fans the text out to **all** Telegram chats. Used by guard mode alerts.
 
 **Fallback (old binary without HW support):** If `[HW:...]` markers appear in the spoken output, the system does not support them yet. Fall back to explicit `curl` tool calls instead:
 ```bash
