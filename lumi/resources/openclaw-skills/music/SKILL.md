@@ -16,12 +16,17 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 **IMPORTANT:** Do NOT try to sing or hum using TTS — always use this skill to play real music.
 
 ## Workflow
-1. User asks to play/sing/listen to a song or artist
-2. Prefix reply with `[HW:/audio/play:{"query":"song artist","person":"name"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+1. User asks to play/sing/listen to music
+2. **If user specified a song or artist** → play it directly with `[HW:/audio/play:{"query":"song artist","person":"name"}][HW:/emotion:{"emotion":"name","intensity":0.8}]`
+3. **If user is vague** ("play music", "sing something", "play a song") → **ask what they want or how they feel** before playing. Examples:
+   - "What are you in the mood for?"
+   - "Any song in mind, or should I pick based on your vibe?"
+   - "How are you feeling? I'll find something to match."
+4. Once you know what to play → prefix reply with HW markers
    - **`query` is REQUIRED** — a YouTube search string. NEVER use `track`, `artist`, `title`, or any other field name. Only `query` and optionally `person`.
    - `person`: the name of the person who requested (from face recognition / presence context). Omit if unknown.
-3. Confirm it's playing — keep reply to one short sentence
-4. User can stop at any time -> `[HW:/audio/stop:{}]`
+5. Confirm it's playing — keep reply to one short sentence
+6. User can stop at any time -> `[HW:/audio/stop:{}]`
 
 **CRITICAL — API schema (no other fields accepted, 422 error otherwise):**
 
@@ -50,7 +55,10 @@ Input: "Play Bohemian Rhapsody"
 Output: `[HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"alice"}][HW:/emotion:{"emotion":"excited","intensity":0.8}]` Playing Bohemian Rhapsody!
 
 Input: "Sing me a song"
-Output: `[HW:/audio/play:{"query":"happy upbeat pop song","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Playing something fun for you!
+Output: `[HW:/emotion:{"emotion":"curious","intensity":0.6}]` What kind of vibe are you feeling — chill, upbeat, or something specific?
+
+Input: "Something chill"
+Output: `[HW:/audio/play:{"query":"chill acoustic playlist","person":"alice"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Here's some chill vibes for you!
 
 Input: "Stop the music" / "Turn it off"
 Output: `[HW:/audio/stop:{}]` Music stopped.
@@ -79,8 +87,9 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 - **Your text reply MUST be empty or a single short sentence** (e.g., "Playing Bohemian Rhapsody!"). Do NOT include lyrics, humming, singing text, or long descriptions. The speaker is shared — any text you write becomes TTS audio that blocks music playback.
 - **Do NOT recite or write out lyrics** in your response. Never output song words, verses, or "la la la" — just call `/audio/play` and let the real music play.
 - When the user asks to "sing", play a song — do not attempt to generate singing via TTS.
+- **If the user is vague ("play music", "sing something"), ask what they want or how they feel before playing.** Don't guess blindly — a quick question makes the experience personal.
 - Include the artist name in the search query when known for better results.
-- If the user asks for a genre or mood ("play something relaxing"), pick a well-known song that fits.
+- If the user specifies a genre or mood ("play something relaxing"), pick a well-known song that fits — no need to ask further.
 - This skill is for music playback only. For volume control, use the **Audio** skill.
 - **Always include `[HW:/emotion:...]` marker after `[HW:/audio/play:...]`** — groove servo is automatic but LED and eye expression require the emotion marker.
 - Never skip the emotion marker even for short or casual music requests.
