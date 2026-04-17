@@ -53,7 +53,7 @@ SOUND_SAMPLE_DURATION_S = float(os.environ.get("LELAMP_SOUND_SAMPLE_DURATION_S",
 
 # --- Sensing: Light level detection ---
 LIGHT_LEVEL_INTERVAL_S = float(os.environ.get("LELAMP_LIGHT_LEVEL_INTERVAL_S", "300.0"))
-LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "50"))
+LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "100"))
 
 # --- Sensing: Face detection ---
 USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
