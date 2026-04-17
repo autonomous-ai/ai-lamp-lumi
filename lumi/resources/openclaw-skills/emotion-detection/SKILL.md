@@ -82,28 +82,22 @@ Default responses are light. When context matches, **escalate** — speak with m
 ### Mood history
 After responding to an emotional action, log the user's mood via the **Mood** skill. Use `source: "camera"` and the action name as trigger.
 
-### Wellbeing daily log (you write this)
-On every emotional action detected, append to the user's wellbeing daily log via API:
+### Wellbeing history (you write this)
+On every emotional action detected, append one entry to the user's wellbeing history via API:
 
 ```bash
-curl -s -X POST http://127.0.0.1:5001/user/wellbeing/log \
+curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -H 'Content-Type: application/json' \
-  -d '{"name":"{name}","line":"HH:MM — [emotion] {action} detected (your brief observation)"}'
+  -d '{"action":"emotional","notes":"yawning — afternoon slump, suggested break","user":"{name}"}'
 ```
 
-Example lines:
-```
-14:32 — [emotion] yawning detected (afternoon slump, suggested break)
-22:15 — [emotion] yawning detected (late night, suggested winding down)
-09:45 — [emotion] laughing detected (watching something funny on screen)
-```
+`action` is always `"emotional"` for this skill. Put the specific cue (laughing / crying / yawning / singing) and your brief observation into `notes`.
 
-Also update the user's wellbeing summary if you notice patterns over multiple days (e.g. "often yawns around 15:00", "tends to work late and get tired by 23:00"):
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/user/wellbeing/summary \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"{name}","summary":"Updated summary with new patterns..."}'
+Example notes:
+```
+yawning — afternoon slump, suggested break
+yawning — late night, suggested winding down
+laughing — watching something funny on screen
 ```
 
 ## Rules

@@ -320,16 +320,6 @@ class UserInfoResponse(BaseModel):
     telegram_username: Optional[str] = None
 
 
-class WellbeingLogRequest(BaseModel):
-    name: str = Field(default="", max_length=64)
-    line: str = Field(..., min_length=1, max_length=500)
-
-
-class WellbeingSummaryUpdateRequest(BaseModel):
-    name: str = Field(default="", max_length=64)
-    summary: str = Field(..., min_length=1)
-
-
 class FaceRemoveRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=64)
 

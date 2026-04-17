@@ -185,12 +185,9 @@ Lumi proactively cares for the user's health using AI-driven cron jobs managed b
 
 ### How it works
 
-The agent maintains **per-person wellbeing data** under `/root/local/users/{name}/`:
+The agent maintains **per-person wellbeing history** under `/root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl` — one JSONL line per observed activity (`{ts, seq, hour, action, notes}` where `action ∈ {drink, break, sedentary, emotional}`). Schema mirrors the mood log. Written via `POST /api/wellbeing/log`, read via `GET /api/openclaw/wellbeing-history`.
 
-- **`wellbeing.md`** — summary of accumulated habits and patterns (e.g., "ignores hydration before lunch", "responds well to break reminders after 15:00")
-- **`wellbeing/YYYY-MM-DD.md`** — daily log, appended throughout the day on `motion.activity` resets (e.g. `14:30 — drinking beer (hydration reset)`) and summarized on `presence.leave`
-
-The agent reads the summary + today's daily log on `presence.enter` to quickly recall the person and know what happened earlier today (e.g. if the user left and came back). Daily log is updated continuously during `motion.activity` and finalized on `presence.leave`.
+The agent reads today's history on `motion.activity` to know what happened earlier today (how many times they drank, took breaks, etc.). This is used to adjust cron intervals and to ground caring observations. There is no persistent prose "summary" file — if long-term patterns matter, the agent derives them by querying N days of history on demand.
 
 Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with `sedentary` group**. This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
 
@@ -198,10 +195,9 @@ LeLamp groups raw action labels into 4 categories before sending to Lumi: `drink
 
 When `sedentary` group is detected (`motion.activity`), the agent:
 
-1. **Reads their notebook** (`wellbeing.md`) to recall what it has learned about their patterns.
-2. **Reads today's daily log** (`wellbeing/YYYY-MM-DD.md`) to know what happened earlier today — how many times they drank, took breaks, etc. Used to adjust cron intervals.
-3. **Decides intervals and approach** based on its observations, time of day, and what activity was detected. First-time defaults are science-based (~45 min hydration, ~30 min break), but the agent adapts over sessions.
-4. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
+1. **Reads today's history** (`GET /api/openclaw/wellbeing-history?user={name}`) to know what happened earlier today — how many drinks, breaks, etc. Used to adjust cron intervals.
+2. **Decides intervals and approach** based on today's history, time of day, and what activity was detected. First-time defaults are science-based (~45 min hydration, ~30 min break), but the agent adapts over sessions.
+3. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
    - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
    - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
 
@@ -214,7 +210,7 @@ When `sedentary` group is detected (`motion.activity`), the agent:
 AGENTS.md enforces a strict priority: **SKILL.md instructions always override KNOWLEDGE.md and conversation history**. This is critical because the agent self-accumulates "learnings" in KNOWLEDGE.md via heartbeat, and these can contain incorrect rules that conflict with developer-maintained skills. If the agent notices a conflict, it must update KNOWLEDGE.md to match the skill, not the other way around.
 
 **Cleanup:**
-- **Recognized person leaves** (`presence.leave`) → cancel their crons, append session summary to daily log, update `wellbeing.md` if new patterns emerged.
+- **Recognized person leaves** (`presence.leave`) → cancel their crons. No summary file is written — the per-activity history already records what happened.
 - **No one around for 15 min** (`presence.away`) → cancel ALL remaining crons including `"unknown"`.
 
 ### Cron-fired behavior
@@ -315,15 +311,15 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 
 The agent receives **activity groups** (`drink`, `break`, `sedentary`, `emotional`) from LeLamp — no inference needed:
 
-1. **Read today's daily log** for context (how many times they drank, took breaks today)
+1. **Read today's history** via `GET /api/openclaw/wellbeing-history?user={name}` for context (counts of drink/break/sedentary earlier today)
 2. **By group:**
    - `drink` → reset hydration cron
    - `break` → reset break cron (eating, stretching, movement)
    - `sedentary` → create hydration + break + music crons if missing
    - `emotional` → Emotion Detection skill, no cron changes
    - Multiple groups in one event → handle all
-3. **Append to daily log:** `HH:MM — [group] (hydration reset / break reset / crons created)`
-4. **Respond with caring observation** using context from log (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
+3. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
+4. **Respond with caring observation** using context from history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ### Agent behavior
 
@@ -366,7 +362,7 @@ The default response is light (brief remark). Context escalates the intensity:
 ### Logging
 
 - **Mood history** (agent logs): Agent calls `POST /api/mood/log` via Mood skill to record the user's emotional state (e.g. `{"mood":"happy","source":"camera","trigger":"laughing"}`).
-- **Wellbeing daily log** (agent writes): Agent appends `HH:MM — [emotion] {action} detected (observation)` to the user's wellbeing daily log, alongside hydration/break entries.
+- **Wellbeing history** (agent logs): Agent calls `POST /api/wellbeing/log` with `{"action":"emotional","notes":"yawning — afternoon slump","user":"{name}"}`. Same JSONL stream as hydration/break entries.
 
 ### Limitations (vs full UC-M1)
 

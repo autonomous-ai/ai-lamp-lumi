@@ -21,6 +21,7 @@ import (
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -272,7 +273,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing/music skills on relevant events.
 		switch req.Type {
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons + append summary to daily log + update wellbeing.md. For strangers, cancel \"unknown\" crons. Do this silently.]"
+			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing/music crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
 		case "presence.away":
 			msg += "\n[Cancel ALL remaining wellbeing/music crons (including \"unknown\"). Do this silently.]"
 		case "motion.activity":
@@ -476,6 +477,39 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"user": user,
 		"mood": req.Mood,
+	}))
+}
+
+// WellbeingLogRequest is the payload for logging a wellbeing activity.
+type WellbeingLogRequest struct {
+	Action string `json:"action" validate:"required,oneof=drink break sedentary emotional"`
+	Notes  string `json:"notes"`
+	User   string `json:"user"`
+}
+
+// PostWellbeingLog appends a wellbeing activity entry for the given user.
+func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
+	var req WellbeingLogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := req.User
+	if strings.TrimSpace(user) == "" {
+		user = mood.CurrentUser()
+	}
+	user = wellbeing.NormalizeUser(user)
+
+	wellbeing.LogForUser(user, req.Action, req.Notes)
+	slog.Info("wellbeing logged", "component", "wellbeing", "user", user, "action", req.Action, "notes", req.Notes)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
+		"user":   user,
+		"action": req.Action,
 	}))
 }
 
