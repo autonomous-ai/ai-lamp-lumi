@@ -97,6 +97,14 @@ Chi tiết:
 
 OpenClaw agent trả `NO_REPLY` (hoặc dạng cắt ngắn `NO`, `NO_RE`, `NO_...`) khi quyết định không cần trả lời — thường cho passive sensing events (sound, motion). `isAgentNoReply()` trong `handler.go` suppress: không phát TTS, không hiện output. Match: `"NO"` chính xác, hoặc bắt đầu bằng `"NO_"` / `"NO_RE"` (case-insensitive).
 
+### TTS suppress event
+
+Khi `SendToLeLampTTS` thật sự bị skip (loa không phát), Lumi emit `tts_suppressed` thay vì `tts_send`. Field `data.reason` discriminate: `channel_run` (cron/Telegram-origin turn — speaker mặc định bị gate), `music_playing` (audio đang chiếm loa), `already_spoken` (built-in tts tool đã route trước). UI hiển thị 🔇 ở Lumi Gate column thay vì 🔊 — tránh case trước đây log nói "TTS" nhưng loa im.
+
+### Cron-fire auto-force TTS
+
+Khi OpenClaw emit `event:"cron"` với `action:"started"` (xem `src/cron/service/state.ts` của OpenClaw), Lumi cache `sessionKey` → mark `lifecycle_start` kế tiếp trên session đó (trong vòng 10 s) là cron fire → `isChannelRun` bị override thành `false` để loa lamp tự nói mà không cần marker `[HW:/speak]`. Marker vẫn giữ trong skill làm defense-in-depth fallback nếu cron event bị drop (`dropIfSlow: true` ở phía OpenClaw).
+
 ### Tool call display
 
 - Chỉ hiện tool events phase `"start"` (có args). Phase `update`/`result` không có args nên bỏ qua.

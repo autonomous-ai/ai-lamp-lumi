@@ -239,6 +239,7 @@ Node info extracted from turn events:
 - `tool_call` → Tool Exec node. Only `phase:"start"` events shown (has args). Displays full curl command from `args.command`. Each tool entry has a 📋 copy button for the curl command. OpenClaw sends tool name in `data.name` (not `data.tool`); args as object in `data.args` (e.g. `{"command":"curl ..."}`).
 - `lifecycle_end` → Response node
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)
+- `tts_suppressed` → 🔇 marker in Lumi gate column. `data.reason` discriminates: `channel_run` (cron/Telegram-origin turn, speaker gated by default), `music_playing` (audio shares the speaker), `already_spoken` (built-in tts tool already routed). Emitted *instead of* `tts_send` when the actual `SendToLeLampTTS` call is skipped — prevents the UI from misleadingly claiming TTS happened.
 - `token_usage` → Response node (token counts).
 
 ### NO_REPLY suppression
