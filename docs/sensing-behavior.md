@@ -209,28 +209,9 @@ When `sedentary` group is detected (`motion.activity`), the agent:
 
 > **Note:** Wellbeing is a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `motion.activity` events reminding the agent to follow the Wellbeing and Music skills for cron setup when sedentary activity is detected.
 
-### Cron sessionTarget rules
-
-OpenClaw cron accepts four `sessionTarget` values:
-
-| sessionTarget | Meaning | Typical payload |
-|---|---|---|
-| `main` | Always routes into the main (voice) session | `systemEvent` + `text` |
-| `current` | Binds to the session active at **cron creation** time — fire routes back there | `systemEvent` + `text` |
-| `isolated` | Spawns a fresh isolated session per fire | `agentTurn` + `message` |
-| `session:<id>` | Explicit persistent session by id | `agentTurn` + `message` |
-
-Wellbeing and music use `current` so crons created during a Telegram test fire back into that same Telegram chat (reactive) while still TTS'ing via `[HW:/speak]`. Do NOT add a `delivery` field — it causes errors.
-
-**TTS from channel-origin cron fires:** When `current` binds to a Telegram/channel session, TTS on the speaker is suppressed by default (channel runs go as text). Force TTS by including `[HW:/speak]` in the reply — wellbeing and music cron payloads already instruct this. Do NOT use `[HW:/broadcast]` for proactive crons: it also fans out to every connected Telegram chat, which is guard-only behavior.
-
-**Important limitation:** `systemEvent` payload is wrapped by OpenClaw as "Handle this reminder internally. Do not relay it to the user unless explicitly requested." — causing the agent to NO_REPLY. **Workaround:** Prefix payload text with `[MUST-SPEAK]` to force the agent to reply out loud despite the wrapper. All wellbeing and music cron payloads must start with `[MUST-SPEAK]`.
-
 ### Priority: Skills > Knowledge > History
 
 AGENTS.md enforces a strict priority: **SKILL.md instructions always override KNOWLEDGE.md and conversation history**. This is critical because the agent self-accumulates "learnings" in KNOWLEDGE.md via heartbeat, and these can contain incorrect rules that conflict with developer-maintained skills. If the agent notices a conflict, it must update KNOWLEDGE.md to match the skill, not the other way around.
-
-This rule was added after discovering that the agent had written incorrect cron format rules into KNOWLEDGE.md ("NEVER use systemEvent") that overrode the correct Scheduling SKILL instructions.
 
 **Cleanup:**
 - **Recognized person leaves** (`presence.leave`) → cancel their crons, append session summary to daily log, update `wellbeing.md` if new patterns emerged.
@@ -289,7 +270,7 @@ Mood history tracks the **user's emotional state** only — not system events or
 | Source | How it works |
 |---|---|
 | **Camera** (`source: "camera"`) | `motion.activity` detects emotional action (laughing, crying, yawning, singing) → Emotion Detection skill triggers → agent logs mood |
-| **Conversation** (`source: "conversation"`) | Agent detects mood from what the user says — explicit ("I'm tired") or implied ("work is killing me" → stressed). Designed to be lightweight: agent trusts its read and logs immediately without deep analysis. Works across all channels (Telegram, voice, web). |
+| **Conversation** (`source: "conversation"`) | Agent detects mood two ways: (1) **single message** — explicit ("I'm tired") or implied ("work is killing me" → stressed); (2) **conversation flow** — after chatting for a while, read the overall vibe (tone shifts, short/curt replies, repeated topics, rising/fading energy). Agent trusts its gut and infers boldly: a small hint is enough, better to log a maybe-mood than miss a real one. Works across all channels (Telegram, voice, web). |
 
 #### Voice mood nudge
 
