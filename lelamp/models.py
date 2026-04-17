@@ -305,6 +305,7 @@ class FacePersonDetail(BaseModel):
     photos: list[str]  # filenames, e.g. ["1711929600000.jpg"]
     mood_days: list[str] = []  # e.g. ["2026-04-09"]
     wellbeing_days: list[str] = []  # e.g. ["2026-04-10"]
+    music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
     files: list[str] = []  # all non-photo files
 
 
@@ -318,16 +319,6 @@ class UserInfoResponse(BaseModel):
     is_friend: bool
     telegram_id: Optional[str] = None
     telegram_username: Optional[str] = None
-
-
-class WellbeingLogRequest(BaseModel):
-    name: str = Field(default="", max_length=64)
-    line: str = Field(..., min_length=1, max_length=500)
-
-
-class WellbeingSummaryUpdateRequest(BaseModel):
-    name: str = Field(default="", max_length=64)
-    summary: str = Field(..., min_length=1)
 
 
 class FaceRemoveRequest(BaseModel):

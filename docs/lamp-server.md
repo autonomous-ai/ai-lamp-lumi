@@ -191,10 +191,8 @@ Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/user/info?name=X` | User metadata: `name`, `is_friend`, `telegram_id`, `telegram_username`. Defaults to `"unknown"` if name omitted. Auto-creates folder. |
-| GET | `/user/wellbeing/summary?name=X` | Read `wellbeing.md` summary. Returns `{"name","summary"}` (null if no file). |
-| GET | `/user/wellbeing/today?name=X` | Read today's wellbeing daily log. Returns `{"name","date","log"}` (null if no file). |
-| POST | `/user/wellbeing/log` | Append line to daily log. Body: `{"name","line"}`. |
-| POST | `/user/wellbeing/summary` | Overwrite wellbeing summary. Body: `{"name","summary"}`. |
+
+> Wellbeing activity history lives on the Lumi HTTP API (port 5000). See `POST /api/wellbeing/log` and `GET /api/openclaw/wellbeing-history` — entries are JSONL under `/root/local/users/{user}/wellbeing/YYYY-MM-DD.jsonl` with schema `{ts, seq, hour, action, notes}` (action ∈ `drink`/`break`/`sedentary`/`emotional`). LeLamp no longer hosts wellbeing endpoints.
 
 ### Display (GC9A01 1.28" round LCD)
 

@@ -26,6 +26,8 @@ import (
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -118,6 +120,8 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	// concurrent turn interleaving is not a concern in normal operation.
 	flow.Init(bus, config.LumiVersion)
 	mood.Init()
+	wellbeing.Init()
+	musicsuggestion.Init()
 	return OpenClawHandler{
 		agentGateway: gw,
 		monitorBus:   bus,
@@ -533,7 +537,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					// Cron-fire detection happens at lifecycle_start (see correlation
 					// against cronFireExpected) — no need to inspect userMsg here.
 					if userMsg != "" {
-						// Detect music-proactive cron turns — broadcast to Telegram for remote confirmation.
+						// Legacy: detect old music-proactive cron turns (before event-driven suggestion).
+						// Safe to remove once all devices have been updated and old crons are cleaned up.
 						if strings.Contains(userMsg, "[music-proactive]") {
 							resolved := h.resolveRunID(capturedRunID)
 							h.agentGateway.MarkBroadcastRun(resolved)
@@ -906,7 +911,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 				// [HW:/broadcast] marker: fan-out reply text to all Telegram chats (guard-only).
 				// [HW:/speak] marker: force TTS on the speaker without any channel fan-out —
-				// used by proactive crons (music, wellbeing) that run in a channel session.
+				// used by proactive triggers (music suggestion, wellbeing crons) that run in a channel session.
 				// [HW:/dm:{"telegram_id":"123"}] marker: send reply to a specific Telegram user.
 				var dmTelegramID string
 				forceTTS := false
@@ -1342,6 +1347,58 @@ func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 	events := mood.Query(user, day, last)
 	if events == nil {
 		events = []mood.Event{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// WellbeingHistory returns wellbeing activity events for a user and day.
+// Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
+func (h *OpenClawHandler) WellbeingHistory(c *gin.Context) {
+	user := c.DefaultQuery("user", mood.CurrentUser())
+	user = wellbeing.NormalizeUser(user)
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 100
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 500 {
+		last = 500
+	}
+	events := wellbeing.Query(user, day, last)
+	if events == nil {
+		events = []wellbeing.Event{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"user":   user,
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// MusicSuggestionHistory returns music suggestion events for a user.
+func (h *OpenClawHandler) MusicSuggestionHistory(c *gin.Context) {
+	user := strings.ToLower(strings.TrimSpace(c.DefaultQuery("user", mood.CurrentUser())))
+	if user == "" {
+		user = mood.DefaultUser
+	}
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 100
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 500 {
+		last = 500
+	}
+	events := musicsuggestion.Query(user, day, last)
+	if events == nil {
+		events = []musicsuggestion.Event{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"date":   day,
