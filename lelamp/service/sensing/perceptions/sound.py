@@ -40,6 +40,19 @@ class SoundPerception(Perception):
         super().__init__(send_event)
         self._sd = sd
         self._np = np_module
+        # Resolve ALSA device name to sounddevice index if needed
+        if isinstance(input_device, str):
+            resolved = None
+            for i, info in enumerate(sd.query_devices()):
+                if input_device in info['name']:
+                    resolved = i
+                    break
+            if resolved is not None:
+                logging.getLogger(__name__).info("Resolved sensing device '%s' → index %d", input_device, resolved)
+                input_device = resolved
+            else:
+                logging.getLogger(__name__).warning("Could not resolve sensing device '%s', falling back to default", input_device)
+                input_device = None
         self._input_device = input_device
         self._tts = tts_service
 
