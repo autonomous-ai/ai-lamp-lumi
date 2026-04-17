@@ -11,6 +11,7 @@ import base64
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -20,7 +21,6 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
-    Path,
     Security,
     WebSocket,
     WebSocketDisconnect,
@@ -172,7 +172,9 @@ async def health():
 
 app.include_router(router)
 app.include_router(ws_router)
-app.include_router(audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
+app.include_router(
+    audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)]
+)
 
 
 def parse_args() -> argparse.Namespace:
