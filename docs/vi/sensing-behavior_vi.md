@@ -269,6 +269,8 @@ Hai control marker cho turn channel-origin:
 
 Mặc định turn channel-origin (Telegram, webchat) suppress TTS loa vì reply đi qua channel message. `/speak` override suppression đó mà không kèm fan-out.
 
+**Cron-fire tự force TTS.** Khi OpenClaw emit `event:"cron"` với `action:"started"`, Lumi cache `sessionKey` và `lifecycle_start` kế tiếp trên session đó trong vòng 10 s sẽ bị mark là cron fire — `isChannelRun` bị override thành `false` nên loa lamp tự nói mà không cần `[HW:/speak]` trong reply. Marker vẫn hữu ích như defense-in-depth fallback nếu cron event bị drop (`dropIfSlow: true` ở phía OpenClaw).
+
 ### Mood history per-user
 
 Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó.
