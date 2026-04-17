@@ -25,9 +25,14 @@ happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate
 
 ## Conversation → Mood
 
-If the user's words or tone clearly show a mood, log it. Explicit ("I'm tired") or implied ("work is killing me" → stressed). Don't analyze — trust your gut.
+Two ways to detect:
 
-Skip if: quoting someone else, hypothetical, or mood is unclear.
+1. **Single message** — explicit ("I'm tired") or implied ("work is killing me" → stressed). Log right away.
+2. **Conversation flow** — after chatting for a while, read the overall vibe. Tone shifts, short/curt replies, repeated topics, energy rising or fading — all count. When the mood has clearly settled into something, log it.
+
+**Trust your gut. Infer boldly.** A small hint in word choice, tone, or rhythm is enough — don't wait for textbook signals. Better to log a maybe-mood than miss a real one.
+
+Skip only if: quoting someone else, or speaking purely hypothetically.
 
 ## API
 
