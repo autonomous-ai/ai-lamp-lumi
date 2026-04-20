@@ -290,7 +290,7 @@ Music suggestions are **fully AI-driven** — no cron jobs, no backend triggers.
 - **Sedentary trigger:** When `motion.activity` detects sedentary behavior (working, reading), the agent suggests background music (lo-fi, ambient, instrumental).
 - **Data-driven decisions:** Before suggesting, the agent queries:
   - `GET /audio/status` — is music already playing?
-  - `GET /api/openclaw/music-suggestion-history` — cooldown check (30 min between suggestions)
+  - `GET /api/openclaw/music-suggestion-history` — the last entry is the reset point; fire only when `minutes_since_last_suggestion >= SUGGESTION_INTERVAL_MIN` (7 min test / 30 min prod)
   - `GET /audio/history?person={name}` — per-user listening history (genre preference, duration, satisfaction)
 - **Learning loop:** Accepted suggestions reinforce genre/timing; rejected suggestions trigger approach adjustments. All logged via `/api/music-suggestion/log`.
 

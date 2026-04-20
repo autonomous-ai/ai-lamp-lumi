@@ -121,15 +121,17 @@ The two triggers use **different flows**. Sedentary does NOT require a mood deci
 **USE THESE EXACT VALUES — do not substitute anything else:**
 
 ```
-SUGGESTION_COOLDOWN_MIN = 7
+SUGGESTION_INTERVAL_MIN = 7
 ```
 
-> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `SUGGESTION_COOLDOWN_MIN` to `30`. Until that edit lands, the active value is **7**. Do not use 30 — that's the future value, not the current one.
+> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `SUGGESTION_INTERVAL_MIN` to `30`. Until that edit lands, the active value is **7**. Do not use 30 — that's the future value, not the current one.
+
+`SUGGESTION_INTERVAL_MIN` is the minimum gap between two proactive suggestions to the same user — same shape as the Wellbeing nudge pattern. The **last music-suggestion-history entry acts as a reset point**: fire a new suggestion only when `minutes_since_last_suggestion >= SUGGESTION_INTERVAL_MIN`. No separate "cooldown" variable — the entry itself IS the clock.
 
 #### Flow A — Mood trigger
 
 1. Check `GET /audio/status` → skip if playing.
-2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < `SUGGESTION_COOLDOWN_MIN` ago.
+2. `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → compute `minutes_since_last_suggestion`. If < `SUGGESTION_INTERVAL_MIN` → skip (still inside the current window).
 3. Read the latest mood decision — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
    ```bash
    curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&kind=decision&last=1"
@@ -143,7 +145,7 @@ SUGGESTION_COOLDOWN_MIN = 7
 
 1. **If the triggering `motion.activity` message contains `Emotional cue:` → skip Flow B for music.** The emotional cue will trigger Mood Skill → Flow A, which picks a more accurate genre. Sedentary still triggers Wellbeing as usual.
 2. Check `GET /audio/status` → skip if playing.
-3. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < `SUGGESTION_COOLDOWN_MIN` ago.
+3. `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → compute `minutes_since_last_suggestion`. If < `SUGGESTION_INTERVAL_MIN` → skip.
 4. **Skip mood check entirely.** The user is working — that alone is enough context.
 5. Check `GET /audio/history?person={name}&last=1` → personalize genre (see Learning Rules).
 6. Default genre: **lo-fi, ambient, instrumental, study beats**. Override with audio history if clear preference.
