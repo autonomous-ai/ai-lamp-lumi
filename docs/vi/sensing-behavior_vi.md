@@ -201,6 +201,17 @@ Khi phát hiện hoạt động tĩnh (`motion.activity`), agent:
 
 **Áp dụng cho tất cả — người quen và người lạ.** Người lạ dùng `{name}` = `"unknown"` (tất cả stranger share chung 1 bộ cron). Cron text không cần check presence — khi fire thì agent cứ nhắc.
 
+### User attribution — tag `[context: current_user=X]`
+
+Để chặn agent "tự đoán" tên người quen (ví dụ "Leo") khi face chỉ nhận ra stranger, sensing handler **inject tag `[context: current_user=X]`** vào mọi message `motion.activity`. `X` là tên friend gần nhất đã được nhận, hoặc `"unknown"` khi face chỉ thấy stranger.
+
+Wellbeing skill (và MANDATORY directive) bắt buộc agent dùng đúng giá trị này cho:
+- Tên cron wellbeing (`Wellbeing: {current_user} hydration`, `Wellbeing: {current_user} break`)
+- Field `user` trong `POST /api/wellbeing/log`
+- Field `user` trong `POST /api/mood/log`
+
+Agent **bị cấm** suy luận tên từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`. Nguồn duy nhất là presence tracker trong `mood.CurrentUser()` — giờ cũng set `"unknown"` khi stranger `presence.enter` (trước đây để stale tên friend cũ).
+
 > **Ghi chú:** Wellbeing là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `motion.activity` events nhắc agent follow Wellbeing và Music skill khi phát hiện hoạt động tĩnh.
 
 ### Ưu tiên: Skills > Knowledge > History
