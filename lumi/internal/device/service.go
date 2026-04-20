@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
@@ -326,27 +325,16 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	return nil
 }
 
-// RePushVoiceConfig sends current voice config to LeLamp via /voice/start.
+// RePushVoiceConfig restarts lumi-lelamp so it picks up new TTS config from config.json.
 func (s *Service) RePushVoiceConfig() {
 	go func() {
-		payload := map[string]string{
-			"deepgram_api_key": s.config.DeepgramAPIKey,
-			"llm_api_key":     s.config.LLMAPIKey,
-			"llm_base_url":    s.config.LLMBaseURL,
-			"tts_voice":       s.config.TTSVoice,
-			"tts_provider":    s.config.TTSProvider,
-		}
-		if s.config.TTSInstructions != "" {
-			payload["tts_instructions"] = s.config.TTSInstructions
-		}
-		body, _ := json.Marshal(payload)
-		resp, err := http.Post("http://127.0.0.1:5001/voice/start", "application/json", strings.NewReader(string(body)))
+		slog.Info("restarting lumi-lelamp for TTS config change", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
+		out, err := exec.Command("systemctl", "restart", "lumi-lelamp").CombinedOutput()
 		if err != nil {
-			slog.Warn("re-push voice config failed", "component", "device", "error", err)
-			return
+			slog.Warn("lumi-lelamp restart failed", "component", "device", "error", err, "output", string(out))
+		} else {
+			slog.Info("lumi-lelamp restarted for TTS config", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
 		}
-		resp.Body.Close()
-		slog.Info("voice config re-pushed to LeLamp", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
 	}()
 }
 
