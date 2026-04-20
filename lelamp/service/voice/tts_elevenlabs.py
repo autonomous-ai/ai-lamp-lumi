@@ -15,40 +15,35 @@ class ElevenLabsTTSBackend(TTSBackend):
     API_BASE = "https://api.elevenlabs.io"
 
     # Premade voice name -> voice_id mapping
-    # Top picks for companion/conversational AI marked with (*)
+    # Curated for companion AI — warm, friendly, expressive
+    # Top picks marked with (*)
     VOICE_IDS = {
-        # Female — warm, expressive
-        "Rachel": "21m00Tcm4TlvDq8ikWAM",   # (*) warm, natural
-        "Sarah": "EXAVITQu4vr4xnSDxMaL",    # (*) friendly, clear
+        # Female
+        "Rachel": "21m00Tcm4TlvDq8ikWAM",   # (*) warm, natural American
+        "Sarah": "EXAVITQu4vr4xnSDxMaL",    # (*) friendly, clear American
         "Grace": "oWAxZDx7w5VEj9dCyTzz",    # (*) sincere, feels like a friend
-        "Charlotte": "XB0fDUnXU5powFXDhCwa",
-        "Alice": "Xb7hH8MSUJpSbSDYk0k2",
-        "Lily": "pFZP5JQG7iQjIQuC4Bku",
-        "Matilda": "XrExE9yKIg1WjnnlVkGX",
         "Freya": "jsCqWAovK2LkecY7zXl4",    # (*) expressive
-        "Nicole": "piTKgcLEGmPE4e6mEKli",
-        "Glinda": "z9fAnlkpzviPz146aGWa",
+        "Matilda": "XrExE9yKIg1WjnnlVkGX",  # (*) nurturing, encouraging
+        "Emily": "LcfcDJNUP1GQjkzn1xUU",   # soft, calm, patient
+        "Alice": "Xb7hH8MSUJpSbSDYk0k2",   # young, vibrant
+        "Lily": "pFZP5JQG7iQjIQuC4Bku",    # youthful
+        "Charlotte": "XB0fDUnXU5powFXDhCwa",
+        "Nicole": "piTKgcLEGmPE4e6mEKli",   # soft, inspirational
+        "Glinda": "z9fAnlkpzviPz146aGWa",   # friendly, warm
         "Serena": "pMsXgVXv3BLzUgSXRplE",   # calm, soothing
-        "Emily": "LcfcDJNUP1GQjkzn1xUU",
-        "Dorothy": "ThT5KcBeYPX3keUQqHPh",
         "Jessie": "t0jbNlBVZ17f02VDIeMI",
-        # Male — conversational, warm
-        "Brian": "nPczCjzI2devNBz1zQrb",     # (*) cheerful, relatable
-        "Adam": "pNInz6obpgDQGcFmaJgB",      # (*) warm, emotional depth
-        "Daniel": "onwK4e9ZLuTAKqWW03F9",    # (*) well-paced
+        # Male
+        "Brian": "nPczCjzI2devNBz1zQrb",    # (*) cheerful, relatable American
+        "Adam": "pNInz6obpgDQGcFmaJgB",     # (*) warm, emotional depth
+        "Daniel": "onwK4e9ZLuTAKqWW03F9",   # (*) well-paced, clear
         "George": "JBFqnCBsd6RMkjVDRZzb",
-        "James": "ZQe5CZNOzWyzPSCn5a3c",     # calm British
-        "Liam": "TX3LPaxmHKxFdv7VOQHJ",
-        "Callum": "N2lVS1w4EtoT3dr4eOWO",    # gentle, confident
-        "Harry": "SOYHLrjzK2X1ezoPC6cr",     # versatile, balanced
+        "James": "ZQe5CZNOzWyzPSCn5a3c",    # calm British
+        "Liam": "TX3LPaxmHKxFdv7VOQHJ",    # energetic American
+        "Callum": "N2lVS1w4EtoT3dr4eOWO",   # gentle, confident
+        "Harry": "SOYHLrjzK2X1ezoPC6cr",    # versatile, balanced
         "Charlie": "IKne3meq5aSn9XLyUdCD",
         "Chris": "iP95p4xoKVk53GoZ742B",
-        "Drew": "29vD33N1CtxCmqQRPOHJ",
-        "Clyde": "2EiwWnXFnvU5JabPnv8n",
-        "Arnold": "VR6AewLTigWG4xSOukaG",
-        "Bill": "pqHfZKP75CvOlQylNhV4",
         "Sam": "yoZ06aMxZJJ28mfd3POQ",
-        "Patrick": "ODq5zmih8GrVes37Dizd",
     }
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
