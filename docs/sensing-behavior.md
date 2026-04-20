@@ -203,6 +203,17 @@ When `sedentary` group is detected (`motion.activity`), the agent:
 
 **Works for everyone — friends and strangers alike.** For unrecognized people, `{name}` = `"unknown"` (all strangers share one set of crons). Cron text no longer includes presence checks — when the cron fires, the agent simply speaks.
 
+### User attribution — `[context: current_user=X]`
+
+To stop the agent from hallucinating a friend's name (e.g. "Leo") when face recognition only saw a stranger, the sensing handler **injects a `[context: current_user=X]` tag** into every `motion.activity` message. `X` is the last recognized friend, or `"unknown"` when face saw only strangers.
+
+The Wellbeing skill (and the MANDATORY directive) require the agent to use this exact value for:
+- Wellbeing cron names (`Wellbeing: {current_user} hydration`, `Wellbeing: {current_user} break`)
+- `user` field in `POST /api/wellbeing/log`
+- `user` field in `POST /api/mood/log`
+
+The agent is explicitly forbidden from inferring the name from memory, KNOWLEDGE.md, chat history, or `senderLabel`. Source of truth is the presence tracker in `mood.CurrentUser()`, which now also sets `"unknown"` on stranger `presence.enter` (previously left the previous friend's name stale).
+
 > **Note:** Wellbeing is a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `motion.activity` events reminding the agent to follow the Wellbeing and Music skills for cron setup when sedentary activity is detected.
 
 ### Priority: Skills > Knowledge > History
