@@ -62,18 +62,20 @@ Lumi implement cùng protocol này nhưng là **smart buddy** — có camera, mi
 - Không cần Wire DI, không cần Gin — binary nhẹ, độc lập
 
 ```
-lumi/
-├── cmd/lamp/           # Lumi server (có sẵn)
-├── cmd/bootstrap/      # OTA worker (có sẵn)
-├── cmd/buddy/          # ← MỚI: Claude Desktop Buddy plugin
-│   └── main.go
-├── internal/buddy/     # ← MỚI: logic plugin
-│   ├── ble.go          # BLE GATT server (Nordic UART)
-│   ├── protocol.go     # Wire protocol parse/serialize
-│   ├── state.go        # State machine (sleep/idle/busy/attention/celebrate)
-│   ├── bridge.go       # Map state → LeLamp + Lumi calls
-│   ├── approval.go     # Voice approval flow
-│   └── httpserver.go   # GET /status endpoint cho OpenClaw skill
+ai-lamp-openclaw/
+├── lumi/                      # Lumi server (có sẵn, Go, port 5000)
+├── lelamp/                    # LeLamp runtime (có sẵn, Python, port 5001)
+├── claude-desktop-buddy/      # ← MỚI: Claude Desktop Buddy plugin (Go, port 5002)
+│   ├── main.go                # Entry point
+│   ├── ble.go                 # BLE GATT server (Nordic UART)
+│   ├── protocol.go            # Wire protocol parse/serialize
+│   ├── state.go               # State machine (sleep/idle/busy/attention/celebrate)
+│   ├── bridge.go              # Map state → LeLamp + Lumi HTTP calls
+│   ├── approval.go            # Voice approval flow
+│   ├── httpserver.go          # GET /status, POST /approve, /deny
+│   ├── go.mod                 # Go module riêng
+│   └── config/
+│       └── buddy.json         # Config plugin
 ```
 
 ### MỚI: OpenClaw Skill
@@ -81,7 +83,7 @@ lumi/
 File `SKILL.md` để OpenClaw agent biết về buddy và phối hợp:
 
 ```
-lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md
+lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md   # skill nằm trong lumi (deploy qua OTA)
 ```
 
 ---
@@ -602,7 +604,7 @@ Lưu ý: `idle` có `action: "none"` — buddy không set LED khi idle, để am
 
 ```bash
 # Build
-GOOS=linux GOARCH=arm64 go build -o buddy-plugin ./cmd/buddy/
+cd claude-desktop-buddy && GOOS=linux GOARCH=arm64 go build -o buddy-plugin .
 
 # Chạy như systemd service
 # File: /etc/systemd/system/lumi-buddy.service
