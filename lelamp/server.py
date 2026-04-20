@@ -2670,8 +2670,15 @@ def speak_text(req: SpeakRequest):
             "POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80]
         )
         raise HTTPException(409, "Speaker busy — music is playing")
-    logger.info("POST /voice/speak: text='%s' (len=%d, interruptible=%s)", req.text[:80], len(req.text), req.interruptible)
+    # Temporary voice override for testing
+    original_voice = None
+    if req.voice:
+        original_voice = tts_service._voice
+        tts_service._voice = req.voice
+    logger.info("POST /voice/speak: text='%s' (len=%d, voice=%s, interruptible=%s)", req.text[:80], len(req.text), tts_service._voice, req.interruptible)
     started = tts_service.speak(req.text, interruptible=req.interruptible)
+    if original_voice is not None:
+        tts_service._voice = original_voice
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
     return {"status": "ok"}
