@@ -41,6 +41,11 @@ class TTSBackend(ABC):
         return TTS_SAMPLE_RATE
 
     @property
+    def volume_boost(self) -> float:
+        """Volume multiplier applied to PCM samples. Override per provider."""
+        return 2.5
+
+    @property
     @abstractmethod
     def available(self) -> bool:
         ...

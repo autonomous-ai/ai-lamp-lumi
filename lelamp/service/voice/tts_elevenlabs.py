@@ -14,36 +14,38 @@ class ElevenLabsTTSBackend(TTSBackend):
     DEFAULT_MODEL = "eleven_v3"
     API_BASE = "https://api.elevenlabs.io"
 
-    # Premade voice name -> voice_id mapping
+    # Voice name -> voice_id mapping
     # Curated for companion AI — warm, friendly, expressive
     # Top picks marked with (*)
     VOICE_IDS = {
-        # Female
-        "Rachel": "21m00Tcm4TlvDq8ikWAM",   # (*) warm, natural American
-        "Sarah": "EXAVITQu4vr4xnSDxMaL",    # (*) friendly, clear American
-        "Grace": "oWAxZDx7w5VEj9dCyTzz",    # (*) sincere, feels like a friend
-        "Freya": "jsCqWAovK2LkecY7zXl4",    # (*) expressive
-        "Matilda": "XrExE9yKIg1WjnnlVkGX",  # (*) nurturing, encouraging
-        "Emily": "LcfcDJNUP1GQjkzn1xUU",   # soft, calm, patient
-        "Alice": "Xb7hH8MSUJpSbSDYk0k2",   # young, vibrant
-        "Lily": "pFZP5JQG7iQjIQuC4Bku",    # youthful
-        "Charlotte": "XB0fDUnXU5powFXDhCwa",
-        "Nicole": "piTKgcLEGmPE4e6mEKli",   # soft, inspirational
-        "Glinda": "z9fAnlkpzviPz146aGWa",   # friendly, warm
-        "Serena": "pMsXgVXv3BLzUgSXRplE",   # calm, soothing
-        "Jessie": "t0jbNlBVZ17f02VDIeMI",
-        # Male
-        "Brian": "nPczCjzI2devNBz1zQrb",    # (*) cheerful, relatable American
-        "Adam": "pNInz6obpgDQGcFmaJgB",     # (*) warm, emotional depth
-        "Daniel": "onwK4e9ZLuTAKqWW03F9",   # (*) well-paced, clear
+        # Female — premade
+        "Rachel": "21m00Tcm4TlvDq8ikWAM",       # (*) warm, natural American
+        "Sarah": "EXAVITQu4vr4xnSDxMaL",        # (*) friendly, clear American
+        "Nicole": "piTKgcLEGmPE4e6mEKli",       # soft, inspirational
+        # Female — community (conversational, young, American)
+        "Terra": "aFueGIISJUmscc05ZNfD",         # (*) bubbly, friendly — 14k clones
+        "Maria": "vZzlAds9NzvLsFSWp0qk",        # (*) soft, calm, expressive — 48k clones
+        "Sophie": "AEW6JTgnyoPaoB9zlK3S",       # (*) sparky, energetic, young
+        "Piper": "rzgrf9VyEb0LLa824k8Q",        # spirited, upbeat, dynamic
+        "Mia": "052jzHJceQiZr7ltnY0C",          # lively, warm, expressive
+        "Kimmy": "TmK7x2BFDD7TOVlR69J2",        # youthful, sweet, natural charm
+        "Brianna": "2NzqTfQARqdn4tcBKTSh",      # soft, sincere, intimate
+        "Ally": "qmm0vRXCIew16ilYAeiI",         # bubbly, fun, caring
+        "Tori": "lAxf5ma5HGtzxC434SWT",         # confident, warm, encouraging
+        # Male — premade
+        "Brian": "nPczCjzI2devNBz1zQrb",        # (*) cheerful, relatable American
+        "Adam": "pNInz6obpgDQGcFmaJgB",         # (*) warm, emotional depth
+        "Daniel": "onwK4e9ZLuTAKqWW03F9",       # (*) well-paced, clear
         "George": "JBFqnCBsd6RMkjVDRZzb",
-        "James": "ZQe5CZNOzWyzPSCn5a3c",    # calm British
-        "Liam": "TX3LPaxmHKxFdv7VOQHJ",    # energetic American
-        "Callum": "N2lVS1w4EtoT3dr4eOWO",   # gentle, confident
-        "Harry": "SOYHLrjzK2X1ezoPC6cr",    # versatile, balanced
+        "James": "ZQe5CZNOzWyzPSCn5a3c",        # calm British
+        "Liam": "TX3LPaxmHKxFdv7VOQHJ",        # energetic American
         "Charlie": "IKne3meq5aSn9XLyUdCD",
-        "Chris": "iP95p4xoKVk53GoZ742B",
         "Sam": "yoZ06aMxZJJ28mfd3POQ",
+        # Male — community (conversational, young, American)
+        "Sean": "FgARTjeugpFkVodK0Ovq",         # (*) casual, optimized for conversation — 1.9k clones
+        "Kael": "RxsTyZQJnPygpas5IyzL",         # (*) energetic, trendy, youthful — 1.8k clones
+        "Brooks": "sUzXYdokj3o9QQ91yPRF",       # (*) bright, affable, friendly smile — 1.5k clones
+        "Erion": "BSgaLWMIhbNhOCIH1apf",        # unique, friendly, casual — 1.3k clones
     }
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
@@ -60,6 +62,10 @@ class ElevenLabsTTSBackend(TTSBackend):
     @property
     def available(self) -> bool:
         return self._httpx is not None and bool(self._api_key)
+
+    @property
+    def volume_boost(self) -> float:
+        return 1.0
 
     def stream_pcm(
         self,
