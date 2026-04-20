@@ -1,9 +1,9 @@
 ---
-name: emotion-detection
-description: [CURRENTLY INACTIVE] Detects user emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it.
+name: user-emotion-detection
+description: [CURRENTLY INACTIVE] Detects the USER's emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it. This is NOT for Lumi's own emotion expression — that's emotion/SKILL.md.
 ---
 
-# Emotion Detection (User Emotion)
+# User Emotion Detection
 
 > **⚠ SKILL CURRENTLY INACTIVE.** Emotional X3D actions (laughing, crying, yawning, singing) are no longer forwarded by LeLamp on `motion.activity`. A dedicated `motion.emotional` event type will be added later; until then this skill has no trigger. **Do not invoke it from `motion.activity` — motion.activity no longer carries an `Emotional cue:` line.**
 

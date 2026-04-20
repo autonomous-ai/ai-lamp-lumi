@@ -1,6 +1,6 @@
 ---
 name: mood
-description: Two-step mood log. Step 1 records a raw signal from camera/voice/telegram. Step 2 reads recent history and writes the agent's synthesized "decision" mood. Music/wellbeing skills consume the latest decision.
+description: Tracks the USER's mood only — signals + synthesized decision from camera/voice/telegram. Do NOT use for emotion commands directed at Lumi ("show sad", "be happy", bare "sad now"); those go through emotion/SKILL.md and are never logged here. Music/wellbeing skills consume the latest decision.
 ---
 
 # Mood

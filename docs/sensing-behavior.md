@@ -446,7 +446,7 @@ The default response is light (brief remark). Context escalates the intensity:
 - Cannot detect micro-expressions or subtle stress
 - Full UC-M1 would require a dedicated FER (Facial Expression Recognition) ONNX model added to the face recognition pipeline
 
-See `emotion-detection/SKILL.md` for the agent's full response rules.
+See `user-emotion-detection/SKILL.md` for the agent's full response rules.
 
 ---
 
