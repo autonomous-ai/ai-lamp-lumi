@@ -78,7 +78,7 @@ _API_KEY = os.environ.get(
 _API_TIMEOUT_S = float(os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15"))
 
 # Cosine similarity above which a speaker is considered a match.
-_MATCH_THRESHOLD = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.6"))
+_MATCH_THRESHOLD = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7"))
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
@@ -102,14 +102,15 @@ def _normalize_label(name: str) -> str:
 
 
 def _cosine_similarity(e1: np.ndarray, e2: np.ndarray) -> float:
-    """Compute cosine similarity in range [-1, 1].
+    """Compute raw cosine similarity in range [-1, 1].
 
     Tolerates non-normalized inputs (unlike plain ``np.dot`` which requires
     pre-normalized vectors). The ``+ 1e-12`` guards against zero-norm inputs.
+    Returns the confidence in range [0, 1].
     """
-    # e1/e2: [D]
-    return float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
-
+    
+    raw_cos = float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
+    return (raw_cos + 1.0) / 2.0
 
 def _sample_origin(filename: str) -> str:
     """Parse the origin tag encoded in ``sample_<origin>_<ts>_<uuid>.wav``.
@@ -581,14 +582,14 @@ class SpeakerRecognizer:
         ``name``
             matched user's normalized label, or ``"unknown"``
         ``confidence``
-            best cosine similarity (clipped to [0, 1])
+            best match confidence in ``[0, 1]``
         ``match``
-            whether the best confidence exceeds the threshold
+            whether the best confidence exceeds ``match_threshold``
         ``unknown_audio_path``
             path to the audio saved under the unknown-audio dir (always set —
             so the skill can reuse the path for later enrollment)
         ``candidates``
-            top-3 (name, confidence) pairs for debugging
+            top-3 ``(name, confidence)`` pairs for debugging
         """
         if source_type not in ("base64", "filepath"):
             raise SpeakerRecognizerError(
@@ -645,20 +646,22 @@ class SpeakerRecognizer:
 
         scores: list[tuple[str, float]] = []
         for n, emb in known.items():
-            scores.append((n, _cosine_similarity(embedding, emb)))
+            
+            conf = _cosine_similarity(embedding, emb)
+            scores.append((n, conf))
         scores.sort(key=lambda t: t[1], reverse=True)
-        best_name, best_sim = scores[0]
+        best_name, best_conf = scores[0]
 
-        is_match = best_sim >= self._match_threshold
+        is_match = best_conf >= self._match_threshold
         resolved_name = best_name if is_match else "unknown"
         result: dict[str, Any] = {
             "name": resolved_name,
-            "confidence": round(max(best_sim, 0.0), 4),
+            "confidence": round(best_conf, 4),
             "match": is_match,
             "unknown_audio_path": saved_path,
             "candidates": [
-                {"name": n, "confidence": round(max(s, 0.0), 4)}
-                for n, s in scores[:3]
+                {"name": n, "confidence": round(c, 4)}
+                for n, c in scores[:3]
             ],
         }
         # Surface identity fields on match so callers can DM the user /
