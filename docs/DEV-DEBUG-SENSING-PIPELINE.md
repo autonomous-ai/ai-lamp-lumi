@@ -234,10 +234,13 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 **Diagnose:** grep `tts_send` nodes — look for "Need to…", "Now I'll…", "Since X, I should…" patterns before the caring line.
 **Fix path:** explicit rule in `SOUL.md` and `sensing/SKILL.md` — reply text is spoken verbatim, all planning MUST stay in `thinking`.
 
-### 6.5 Wellbeing nudge fires on fresh session (historical)
-**Was:** Original cron-based design created 2 cron jobs (hydration, break) on first sedentary and the agent frequently created only one of the two.
-**Now:** Wellbeing is event-driven (no cron). Bug class eliminated at the architecture level — see `docs/sensing-behavior.md` for the current design.
-**New failure mode to watch:** on a fresh day with no prior `drink` / `break` entry, the agent must NOT nudge (the SKILL has an explicit guard — "no prior entry today → no nudge"). If you see a nudge with an empty log, the guard is broken.
+### 6.5 Wellbeing nudge logic (historical evolution)
+**Original:** cron-based — the agent created 2 cron jobs on first sedentary and frequently created only one.
+**Interim:** event-driven with a "prior entry exists" guard — never nudged a user who sat down and never got up.
+**Now:** event-driven with `presence.enter` as the session baseline. `reset_ts = max(last <kind> entry, last enter entry)`, delta counts up from 0 after arrival. A fresh sit-down doesn't spam (delta = 0); a long sit-down without break/drink does nudge once the threshold passes.
+**Failure modes to watch:**
+- Nudge fires at t=0 with no `enter` or prior activity in the log → backend isn't writing the `enter` marker, or the agent is ignoring the reset rule and guessing from memory.
+- No nudge after a long sit without drink/break → the agent may have reintroduced a "prior entry exists" guard; re-read the SKILL Step 4.
 
 ### 6.6 Music suggestion didn't fire after sedentary
 **Symptom:** `sedentary` event but no new row in `users/<user>/music-suggestions/`.
