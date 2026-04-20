@@ -375,33 +375,27 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 ### Cách hoạt động
 
 `MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state`:
-- **PRESENT** → gửi 1 event `motion.activity` duy nhất. Message có tối đa 2 dòng:
-  - `Activity detected: <groups>.` — activity groups vật lý (`drink`, `break`, `sedentary`), cách nhau bởi dấu phẩy.
-  - `Emotional cue: <actions>.` — raw emotional action names (`laughing`, `crying`, `yawning`, `singing`), cách nhau bởi dấu phẩy. Giữ raw label (không gộp thành group) để agent map đúng emotion từng cái.
-  - Khi không có emotional cue, message kết thúc bằng `If nothing noteworthy, reply NO_REPLY.` (hint tiết kiệm token). Khi có emotional cue, hint này bị bỏ vì emotional luôn phải nói.
+- **PRESENT** → gửi 1 event `motion.activity` duy nhất. Format message:
+  - `Activity detected: <groups>. If nothing noteworthy, reply NO_REPLY.` — activity groups vật lý (`drink`, `break`, `sedentary`), cách nhau bởi dấu phẩy, kèm hint tiết kiệm token.
+  - Emotional X3D actions (`laughing`, `crying`, `yawning`, `singing`) **cố ý bị drop** ở đây. Một event type riêng `motion.emotional` sẽ được thêm sau; cho đến khi đó, detection emotional bị bỏ qua im lặng. `motion.activity` giữ thuần vật lý.
   - Không gửi ảnh — tiết kiệm tokens. **Không** yêu cầu nhận diện friend.
 - **Còn lại** → event bị **skip** (log, không gửi). Lumi chỉ expect `motion.activity` — plain `motion` từ X3D/pose không có handler và lãng phí agent tokens.
 
 Ví dụ message:
 ```
 Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.
-Activity detected: sedentary. Emotional cue: laughing.
-Emotional cue: yawning.
+Activity detected: break. If nothing noteworthy, reply NO_REPLY.
 ```
 
-### Reset wellbeing cron (LLM-driven)
+### Flow wellbeing nudge (event-driven)
 
-Agent nhận **activity group** (`drink`, `break`, `sedentary`) từ dòng `Activity detected:` — không cần suy luận. Emotional cue xử lý riêng qua dòng `Emotional cue:`:
+Agent nhận **activity group** (`drink`, `break`, `sedentary`) từ dòng `Activity detected:` — không cần suy luận.
 
-1. **Đọc history hôm nay** qua `GET /api/openclaw/wellbeing-history?user={name}` để có context — đã drink/break/sedentary mấy lần
-2. **Theo group ở dòng `Activity detected:`:**
-   - `drink` → reset hydration cron
-   - `break` → reset break cron (ăn, vươn vai, vận động)
-   - `sedentary` → tạo hydration + break crons nếu chưa có; kích hoạt Music skill sedentary suggestion (event-driven, không cron)
-   - Nhiều groups cùng lúc → xử lý tất cả
-3. **Có dòng `Emotional cue:`?** → follow Emotion Detection skill, không đụng cron
-4. **Log** từng group quan sát được qua `POST /api/wellbeing/log` với `{action, notes, user}` (mỗi group 1 entry)
-5. **Phản hồi caring** dựa trên context từ history (ví dụ: "ly thứ 3 hôm nay rồi á, tốt lắm!"). Quan sát, không chỉ dẫn. KHÔNG BAO GIỜ nhắc cron/timer/reminder.
+1. **Log** từng group qua `POST /api/wellbeing/log` với `{action, notes, user}` (mỗi group 1 entry). LeLamp đã dedup nên agent không phải check.
+2. **Đọc history** qua `GET /api/openclaw/wellbeing-history?user={name}&last=50`.
+3. **Tính delta** so với reset point gần nhất cho mỗi loại (xem Wellbeing SKILL Step 3).
+4. **Quyết định nudge** theo Wellbeing SKILL Step 4 — tối đa 1 hydration hoặc break nudge mỗi turn.
+5. **Phản hồi**: 1 câu chăm sóc ngắn nếu có nudge/suggestion, không thì `NO_REPLY`.
 
 ### Hành vi Agent
 
@@ -413,7 +407,9 @@ Agent nhận **activity group** (`drink`, `break`, `sedentary`) từ dòng `Acti
 
 ## Nhận diện cảm xúc người dùng — User Emotion (Lightweight UC-M1)
 
-Lumi nhận diện trạng thái cảm xúc **của người dùng** từ dòng `Emotional cue:` trong event `motion.activity` bằng model X3D có sẵn — không cần model nhận diện biểu cảm khuôn mặt riêng. Đây là phiên bản lightweight của UC-M1 (Facial Expression & Wellness Detection).
+> **⚠ Đang tạm ngưng.** Trước đây emotional X3D actions đi kèm `motion.activity` qua dòng `Emotional cue:`. Coupling đó đã bị gỡ — `motion.activity` giờ thuần vật lý (`sedentary` / `drink` / `break`). Một event type riêng `motion.emotional` là đích dự kiến cho tín hiệu này; tới khi nó được thêm, Emotion Detection skill không có trigger và không fire.
+
+Lumi nhận diện trạng thái cảm xúc **của người dùng** bằng model X3D có sẵn — không cần model nhận diện biểu cảm khuôn mặt riêng. Đây là phiên bản lightweight của UC-M1 (Facial Expression & Wellness Detection).
 
 > **Đừng nhầm lẫn với Emotion Expression** (`emotion/SKILL.md`) — cái đó điều khiển cảm xúc đầu ra của Lumi (servo + LED + eyes). Emotion Detection là cảm nhận *user* đang cảm thấy gì; Emotion Expression là cách *Lumi* thể hiện cảm xúc của chính nó.
 

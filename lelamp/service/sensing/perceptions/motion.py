@@ -189,11 +189,11 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
         # Dedup state for outbound motion.activity events.
-        # Key = (current_user, frozenset(activity_groups), tuple(sorted(emotional_cues))).
+        # Key = (current_user, frozenset(activity_groups)).
         # Same key within MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User
         # change flips the key immediately; different strangers collapse to
         # "unknown" so they don't break dedup on their own.
-        self._last_sent_key: tuple[str, frozenset[str], tuple[str, ...]] | None = None
+        self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
 
@@ -250,8 +250,6 @@ class MotionPerception(Perception):
             logger.info("[motion] raw X3D actions in window: %s", actions)
 
         activity_groups: set[str] = set()
-        emotional_cues: list[str] = []
-        seen_emotions: set[str] = set()
 
         for a in reversed(actions):
             group = ACTIVITY_GROUP.get(a)
@@ -259,13 +257,15 @@ class MotionPerception(Perception):
                 logger.warning("[motion] unmapped action '%s', skipping", a)
                 continue
             if group == "emotional":
-                if a not in seen_emotions:
-                    emotional_cues.append(a)
-                    seen_emotions.add(a)
-            else:
-                activity_groups.add(group)
+                # Emotional actions (laughing/crying/yawning/singing) are
+                # intentionally NOT emitted via motion.activity. A dedicated
+                # motion.emotional event will be added later to carry them;
+                # until then emotional X3D detections are silently ignored
+                # here so motion.activity stays purely about physical groups.
+                continue
+            activity_groups.add(group)
 
-        if not activity_groups and not emotional_cues:
+        if not activity_groups:
             return
 
         from ..presence_service import PresenceState
@@ -277,20 +277,16 @@ class MotionPerception(Perception):
             )
             return
 
-        parts: list[str] = []
-        if activity_groups:
-            parts.append(f"Activity detected: {', '.join(sorted(activity_groups))}.")
-        if emotional_cues:
-            parts.append(f"Emotional cue: {', '.join(emotional_cues)}.")
-        else:
-            parts.append("If nothing noteworthy, reply NO_REPLY.")
+        message = (
+            f"Activity detected: {', '.join(sorted(activity_groups))}. "
+            "If nothing noteworthy, reply NO_REPLY."
+        )
 
-        message = " ".join(parts)
-
-        # Dedup: drop if the outbound state (user + activity groups + emotional
-        # cues) hasn't changed since the last send AND we're still within the
-        # dedup window. A user change, an activity group change, or a different
-        # emotional cue all flip the key — those always pass through.
+        # Dedup: drop if the outbound state (user + activity groups) hasn't
+        # changed since the last send AND we're still within the dedup window.
+        # A user change or an activity group change flips the key — those
+        # always pass through. After 5 min the same key passes through anyway
+        # so Lumi agent wakes up and reruns the threshold check.
         current_user = ""
         if self._face_recognizer is not None:
             try:
@@ -300,7 +296,6 @@ class MotionPerception(Perception):
         key = (
             current_user,
             frozenset(activity_groups),
-            tuple(sorted(emotional_cues)),
         )
         if (
             self._last_sent_key == key

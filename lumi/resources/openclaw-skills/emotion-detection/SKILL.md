@@ -1,9 +1,11 @@
 ---
 name: emotion-detection
-description: Detects user emotional state from the `Emotional cue:` field in motion.activity events. Maps to empathetic responses and logs to wellbeing daily log. Lightweight UC-M1 — no separate model needed, uses existing X3D action recognition.
+description: [CURRENTLY INACTIVE] Detects user emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it.
 ---
 
 # Emotion Detection (User Emotion)
+
+> **⚠ SKILL CURRENTLY INACTIVE.** Emotional X3D actions (laughing, crying, yawning, singing) are no longer forwarded by LeLamp on `motion.activity`. A dedicated `motion.emotional` event type will be added later; until then this skill has no trigger. **Do not invoke it from `motion.activity` — motion.activity no longer carries an `Emotional cue:` line.**
 
 > **This skill detects the USER's emotional state** (input — what the user is feeling). It is NOT the same as the **Emotion Expression** skill (`emotion/SKILL.md`) which controls Lumi's own emotional output (servo + LED + eyes).
 >
