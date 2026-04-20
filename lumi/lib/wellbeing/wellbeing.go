@@ -32,27 +32,6 @@ type Event struct {
 	Notes  string  `json:"notes"`  // optional agent observation
 }
 
-// readLastAction returns the action of the most recent entry in today's file
-// for the user, or empty string if no entries. Used for dedup.
-func readLastAction(user, day string) string {
-	path := filePath(user, day)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	s := strings.TrimRight(string(data), "\n")
-	if s == "" {
-		return ""
-	}
-	idx := strings.LastIndexByte(s, '\n')
-	last := s[idx+1:]
-	var evt Event
-	if err := json.Unmarshal([]byte(last), &evt); err != nil {
-		return ""
-	}
-	return evt.Action
-}
-
 const (
 	usersDir         = "/root/local/users"
 	wellbeingSubdir  = "wellbeing"
@@ -129,24 +108,14 @@ func NormalizeUser(name string) string {
 	return s
 }
 
-// LogForUser appends an activity entry for the given user. If the previous
-// entry in today's file has the same action, the new entry is dropped
-// (dedup). This collapses continuous sedentary/drink/break streams into a
-// single entry per "session" — presence enter/leave entries break the
-// chain so the next same-action entry is kept.
+// LogForUser appends an activity entry for the given user. Dedup is handled
+// upstream at the lelamp sensing layer (before motion.activity is sent to
+// Lumi), so this function just appends — no same-action collapsing.
 func LogForUser(user, action, notes string) {
 	user = NormalizeUser(user)
 	now := time.Now()
-	day := now.Format("2006-01-02")
-
-	global.mu.Lock()
-	defer global.mu.Unlock()
-
-	if last := readLastAction(user, day); last == action {
-		return
-	}
-
 	seq := global.seqN.Add(1)
+
 	evt := Event{
 		TS:     float64(now.UnixNano()) / 1e9,
 		Seq:    seq,
@@ -154,7 +123,10 @@ func LogForUser(user, action, notes string) {
 		Action: action,
 		Notes:  notes,
 	}
+
+	global.mu.Lock()
 	global.writeJSONL(now, user, evt)
+	global.mu.Unlock()
 }
 
 // Query reads wellbeing events for a given user and day (YYYY-MM-DD).

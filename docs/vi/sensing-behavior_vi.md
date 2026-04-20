@@ -201,7 +201,13 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 | `enter`, `leave` | Backend (sensing handler) | Session boundary — phá dedup chain |
 | `nudge_hydration`, `nudge_break` | Agent (sau khi nhắc) | Ghi lại thời điểm Lumi nhắc — để hiện lên timeline (không ảnh hưởng logic nudge tiếp theo) |
 
-**Backend tự dedup.** `POST /api/wellbeing/log` so action mới với entry gần nhất trong file hôm nay. Nếu trùng → drop silently. Điều này gộp các chuỗi cùng action liên tiếp (ví dụ sedentary fire mỗi 3 phút) thành 1 entry duy nhất. Marker `presence.enter` / `presence.leave` (backend tự ghi) phá dedup chain — same-action entries ở 2 phía của presence boundary đều giữ lại, mỗi session phân biệt được.
+**Dedup nằm ở LeLamp.** `lelamp/service/sensing/perceptions/motion.py` giữ `_last_sent_key = (current_user, frozenset(activity_groups), tuple(emotional_cues))` và `_last_sent_ts`. Trước khi gửi `motion.activity`, nếu key không đổi **và** khoảng cách từ lần gửi cuối chưa vượt `MOTION_DEDUP_WINDOW_S = 300` giây (5 phút) → drop. Điều này chặn spam "1 event/phút" ngay tại nguồn, Lumi không tốn token.
+
+- Đổi user (owner→owner, owner→unknown, unknown→owner) lật key ngay → event pass qua.
+- Stranger khác nhau (`stranger_46` → `stranger_54`) đều collapse về `"unknown"` qua `FaceRecognizer.current_user()` → đổi stranger không phá dedup.
+- Sau 5 phút cùng state, event tiếp theo vẫn pass — để Lumi agent "thức dậy" định kỳ chạy threshold check.
+
+Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việc của lelamp.
 
 **Retention:** 7 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
 
