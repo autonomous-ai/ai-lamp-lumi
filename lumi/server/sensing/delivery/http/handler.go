@@ -114,16 +114,25 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		Detail:  monitorDetail,
 	})
 
-	// Track current user for per-user mood logging + wellbeing attribution.
-	// Strangers collapse to "unknown" so downstream (wellbeing crons, mood log)
-	// never has to guess a friend identity from memory/chat history.
+	// Track current user for per-user mood/wellbeing attribution.
+	// Strangers collapse to "unknown" so downstream never has to guess a
+	// friend identity from memory/chat history.
+	//
+	// Presence events also write enter/leave markers to the wellbeing log
+	// so the dedup chain is broken across sessions — same-action entries
+	// on either side of a presence boundary are kept (not collapsed).
 	if req.Type == "presence.enter" {
 		if name := extractUserName(req.Message); name != "" {
 			mood.SetCurrentUser(name)
+			wellbeing.LogForUser(name, "enter", "")
 		} else if strings.Contains(req.Message, "stranger") {
 			mood.SetCurrentUser("unknown")
+			wellbeing.LogForUser("unknown", "enter", "")
 		}
 	} else if req.Type == "presence.leave" || req.Type == "presence.away" {
+		if user := mood.CurrentUser(); user != "" {
+			wellbeing.LogForUser(user, "leave", "")
+		}
 		mood.ClearCurrentUser()
 	}
 
@@ -278,16 +287,17 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Nudge agent to follow wellbeing skill on relevant events.
 		switch req.Type {
 		case "presence.leave":
-			msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
+			// Backend already wrote a "leave" marker to the wellbeing log — no cron to cancel (event-driven).
+			msg += "\n[Wellbeing is event-driven — no crons to cancel. Backend has logged the leave marker. Reply NO_REPLY unless something is worth saying.]"
 		case "presence.away":
-			msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
+			msg += "\n[Wellbeing is event-driven — no crons to cancel. Reply NO_REPLY.]"
 		case "motion.activity":
 			currentUser := mood.CurrentUser()
 			if currentUser == "" {
 				currentUser = "unknown"
 			}
-			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing cron names, wellbeing log user field, and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
-			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons for current_user above, follow Music skill sedentary suggestion. drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak. Follow Wellbeing skill accordingly.]"
+			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing log user field and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
+			msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break from entries, speak a hydration/break nudge if over the Wellbeing skill thresholds. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user. Emotional cue: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
