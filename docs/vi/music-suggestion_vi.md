@@ -43,18 +43,25 @@ Agent check:
 Agent suggest nhạc → POST /api/music-suggestion/log
 ```
 
-### 2. Activity Trigger (Sedentary)
+### 2. Activity Trigger (Sedentary) — không cần mood
 
 ```
 Camera detect "using computer" → [sensing:motion.activity] sedentary group
     ↓
-Sensing SKILL.md: sedentary → follow Music skill sedentary suggestion
+Sensing SKILL.md: sedentary → follow Music skill Flow B (sedentary)
     ↓
-Agent check audio status + suggestion history (same as mood trigger)
+Agent check:
+  ├── Audio đang play? (GET /audio/status) → skip nếu playing
+  └── Music suggestion gần đây? (GET /music-suggestion-history) → skip nếu < 30 phút
     ↓ (all pass)
-Agent suggest background music (lo-fi, ambient, instrumental)
+    ↓ KHÔNG check mood — sedentary tự đủ context
     ↓
-POST /api/music-suggestion/log
+GET /audio/history?person={name}&last=1 → personalize genre
+    ↓
+Default: lo-fi, ambient, study beats (override nếu có audio history rõ preference)
+Optional: nếu có mood decision fresh → refine genre (tired + sedentary → calm piano)
+    ↓
+Agent suggest background music → POST /api/music-suggestion/log
 ```
 
 ### Unknown Users
