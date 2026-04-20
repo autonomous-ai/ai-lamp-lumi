@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/network"
+	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
@@ -101,9 +103,24 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
 }
 
-// GetVoices returns the list of available TTS voices for the setup page SelectBox.
-// Accepts optional ?provider= query param (default: openai).
+// GetVoices returns the list of available TTS voices.
+// Tries LeLamp /voice/voices first (source of truth), falls back to static list.
 func (h *DeviceHandler) GetVoices(c *gin.Context) {
+	resp, err := http.Get(lelamp.BaseURL + "/voice/voices")
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			var result struct {
+				Provider string   `json:"provider"`
+				Voices   []string `json:"voices"`
+			}
+			if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Voices) > 0 {
+				c.JSON(http.StatusOK, serializers.ResponseSuccess(result.Voices))
+				return
+			}
+		}
+	}
+	// Fallback to static list
 	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
 	voices, ok := domain.TTSVoicesByProvider[provider]
 	if !ok {
