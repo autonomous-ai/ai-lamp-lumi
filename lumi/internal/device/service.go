@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
@@ -319,7 +321,35 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 			slog.Error("refresh models config failed", "component", "device", "error", err)
 		}
 	}
+	// Re-push voice config to LeLamp when TTS settings change
+	if (data.TTSVoice != "" || data.TTSProvider != "") && s.config.DeepgramAPIKey != "" {
+		s.RePushVoiceConfig()
+	}
 	return nil
+}
+
+// RePushVoiceConfig sends current voice config to LeLamp via /voice/start.
+func (s *Service) RePushVoiceConfig() {
+	go func() {
+		payload := map[string]string{
+			"deepgram_api_key": s.config.DeepgramAPIKey,
+			"llm_api_key":     s.config.LLMAPIKey,
+			"llm_base_url":    s.config.LLMBaseURL,
+			"tts_voice":       s.config.TTSVoice,
+			"tts_provider":    s.config.TTSProvider,
+		}
+		if s.config.TTSInstructions != "" {
+			payload["tts_instructions"] = s.config.TTSInstructions
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post("http://127.0.0.1:5001/voice/start", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			slog.Warn("re-push voice config failed", "component", "device", "error", err)
+			return
+		}
+		resp.Body.Close()
+		slog.Info("voice config re-pushed to LeLamp", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
+	}()
 }
 
 // WaitForAgentReady polls agentGateway.IsReady until it returns true or the timeout elapses.
