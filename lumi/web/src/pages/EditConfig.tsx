@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { getDeviceConfig, updateDeviceConfig, getTTSVoices } from "@/lib/api";
+import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
@@ -163,6 +163,8 @@ export default function EditConfig() {
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [ttsProvider, setTtsProvider] = useState("openai");
+  const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
   const [ttsVoices, setTtsVoices] = useState<string[]>([]);
   const [channel, setChannel] = useState<ChannelType>("telegram");
@@ -260,6 +262,7 @@ export default function EditConfig() {
         setLlmModel(cfg.llm_model ?? "");
         setLlmDisableThinking(cfg.llm_disable_thinking ?? false);
         setDeepgramApiKey(cfg.deepgram_api_key ?? "");
+        setTtsProvider(cfg.tts_provider || "openai");
         setTtsVoice(cfg.tts_voice || "alloy");
         setChannel((cfg.channel as ChannelType) || "telegram");
         setTeleToken(cfg.telegram_bot_token ?? "");
@@ -279,8 +282,19 @@ export default function EditConfig() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCfg(false));
+    getTTSProviders().then(setTtsProviders).catch(() => {});
     getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
+
+  // Refetch voices when provider changes
+  useEffect(() => {
+    getTTSVoices(ttsProvider).then((voices) => {
+      setTtsVoices(voices);
+      if (voices.length > 0 && !voices.includes(ttsVoice)) {
+        setTtsVoice(voices[0]);
+      }
+    }).catch(() => {});
+  }, [ttsProvider]);
 
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
@@ -304,7 +318,7 @@ export default function EditConfig() {
         channel, ...channelCreds,
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
-        deepgram_api_key: deepgramApiKey, tts_voice: ttsVoice, device_id: deviceId,
+        deepgram_api_key: deepgramApiKey, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
@@ -587,6 +601,26 @@ export default function EditConfig() {
                 </SectionCard>
 
                 <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                  <div style={{ marginBottom: 12 }}>
+                    <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                      Provider
+                    </label>
+                    <select
+                      id="tts_provider"
+                      value={ttsProvider}
+                      onChange={(e) => setTtsProvider(e.target.value)}
+                      style={{
+                        width: "100%", boxSizing: "border-box",
+                        background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 7, padding: "8px 11px",
+                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                      }}
+                    >
+                      {(ttsProviders.length > 0 ? ttsProviders : ["openai"]).map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div style={{ marginBottom: 12 }}>
                     <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                       Voice
