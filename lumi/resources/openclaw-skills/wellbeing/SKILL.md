@@ -26,12 +26,14 @@ Every `user` field in this skill MUST come from the `[context: current_user=X]` 
 
 ## Thresholds
 
+**USE THESE EXACT VALUES — do not substitute anything else:**
+
 ```
-HYDRATION_THRESHOLD_MIN = 5   # test value — production: 45
-BREAK_THRESHOLD_MIN     = 5   # test value — production: 30
+HYDRATION_THRESHOLD_MIN = 5
+BREAK_THRESHOLD_MIN     = 5
 ```
 
-> ⚠ **Release checklist:** before shipping, change both thresholds to the production values (45 / 30). Test values are for rapid iteration during development.
+> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `HYDRATION_THRESHOLD_MIN` to `45` and `BREAK_THRESHOLD_MIN` to `30`. Until that edit lands, the active values are **5 and 5**. Do not use 45 or 30 — those are future values, not current ones.
 
 ## On `motion.activity`
 
@@ -96,7 +98,19 @@ Same for break → `action="nudge_break"`. This is purely for **timeline visibil
 
 ### Step 6 — Never narrate the mechanics
 
-Your reply is spoken aloud. Do NOT write things like *"Last drink was 47 min ago, over the threshold, so I should remind…"* — that belongs in `thinking` only. The reply is just the one caring sentence.
+Your reply is spoken aloud verbatim. The ONLY thing the user should hear is the one caring sentence — never the reasoning behind it.
+
+**FORBIDDEN in the reply text** (put these in `thinking` only):
+
+- Any number of minutes (e.g. *"76.7 min"*, *"over 45 min threshold"*, *"it's been 2 hours"*).
+- Any comparison to thresholds (e.g. *"way over"*, *"almost due"*, *"under the limit"*).
+- Any plan-talk (*"Need to nudge for both"*, *"Now I'll remind about…"*).
+- Any log/data references (*"Drink:"*, *"Break:"*, *"Last entry:"*).
+
+**Correct:** *"Hey, grab some water — it's been a while."*
+**Wrong:** *"Drink: 76.7 min — way over 45 min threshold! Hey, drink water!"*
+
+If you see yourself writing numbers, colons, or the word "threshold" in the reply, delete it and rewrite in natural caring language. One sentence. Nothing more.
 
 ## On `presence.enter` / `presence.leave` / `presence.away`
 
