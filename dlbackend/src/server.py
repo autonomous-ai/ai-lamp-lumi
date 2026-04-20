@@ -34,7 +34,15 @@ from core.actionanalysis.enums import HumanActionRecognizerEnum
 from core.actionanalysis.uniformerv2 import UniformerV2Model
 from core.actionanalysis.videomae import VideoMAEModel
 from core.actionanalysis.x3d import X3DModel
-from core.models import ActionRequest, ConfigRequest, FrameRequest
+from core.emotionanalysis.emotion import EmotionModel
+from core.models import (
+    ActionRequest,
+    ConfigRequest,
+    EmotionConfigRequest,
+    EmotionFrameRequest,
+    EmotionRequest,
+    FrameRequest,
+)
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -55,7 +63,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 action_model: HumanActionRecognizerModel | None = None
+emotion_model: EmotionModel | None = None
 action_request_adapter = TypeAdapter(ActionRequest)
+emotion_request_adapter = TypeAdapter(EmotionRequest)
 
 
 @asynccontextmanager
@@ -66,16 +76,16 @@ async def lifespan(app: FastAPI):
     logger.info("Loading VideoMAE action model...")
     try:
         if settings.action_recognition_ckpt_path is not None:
-            ckpt_path = Path(settings.action_recognition_ckpt_path)
+            action_ckpt_path = Path(settings.action_recognition_ckpt_path)
         else:
-            ckpt_path = None
+            action_ckpt_path = None
 
         if settings.action_recognition_model == HumanActionRecognizerEnum.VIDEOMAE:
-            action_model = VideoMAEModel(ckpt_path)
+            action_model = VideoMAEModel(action_ckpt_path)
         elif settings.action_recognition_model == HumanActionRecognizerEnum.UNIFORMERV2:
-            action_model = UniformerV2Model(ckpt_path)
+            action_model = UniformerV2Model(action_ckpt_path)
         elif settings.action_recognition_model == HumanActionRecognizerEnum.X3D:
-            action_model = X3DModel(ckpt_path)
+            action_model = X3DModel(action_ckpt_path)
 
         if action_model is not None:
             action_model.start()
@@ -85,10 +95,26 @@ async def lifespan(app: FastAPI):
             "Failed to load %s action model due to %s", settings.action_recognition_model, e
         )
 
+    global emotion_model
+    logger.info("Loading emotion model...")
+    try:
+        if settings.emotion_recognition_ckpt_path is not None:
+            emotion_ckpt_path = Path(settings.emotion_recognition_ckpt_path)
+        else:
+            emotion_ckpt_path = None
+
+        emotion_model = EmotionModel(fer_path=emotion_ckpt_path)
+        emotion_model.start()
+        logger.info("Emotion model ready")
+    except Exception as e:
+        logger.warning("Failed to load emotion model: %s", e)
+
     yield
 
     if action_model is not None:
         action_model.stop()
+    if emotion_model is not None:
+        emotion_model.stop()
     logger.info("Shutting down DL backend")
 
 
@@ -161,12 +187,63 @@ async def action_analysis_ws(websocket: WebSocket):
         logger.info("Action analysis WebSocket disconnected")
 
 
+@ws_router.websocket("/emotion-analysis/ws")
+async def emotion_analysis_ws(websocket: WebSocket):
+    """WebSocket endpoint for streaming emotion recognition.
+
+    Accepts JSON messages with a "type" field:
+    - {"type": "frame", "task": "emotion", "frame_b64": "<base64>"} — feed a frame
+    - {"type": "config", "task": "emotion", "threshold": 0.5} — update threshold
+
+    API key is validated from the X-API-Key header on connect.
+    """
+    if settings.dl_api_key:
+        api_key = websocket.headers.get("x-api-key", "")
+        if not api_key or not secrets.compare_digest(api_key, settings.dl_api_key):
+            await websocket.close(code=1008, reason="Invalid or missing API key")
+            return
+
+    await websocket.accept()
+
+    if emotion_model is None or not emotion_model.is_ready():
+        await websocket.close(code=1011, reason="Emotion model not loaded")
+        return
+
+    try:
+        session = emotion_model.create_session()
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                req = emotion_request_adapter.validate_json(raw)
+            except ValidationError as e:
+                await websocket.send_json({"error": e.errors()})
+                continue
+
+            match req:
+                case EmotionFrameRequest():
+                    frame = decode_image(req.frame_b64)
+                    result = session.update(frame)
+                    if result is not None:
+                        await websocket.send_json(result.model_dump())
+
+                case EmotionConfigRequest():
+                    session.set_config(req.threshold)
+                    await websocket.send_json({"status": "config_updated"})
+
+                case _:
+                    pass
+
+    except WebSocketDisconnect:
+        logger.info("Emotion analysis WebSocket disconnected")
+
+
 @router.get("/health")
 async def health():
     """Health check endpoint."""
     return {
         "status": "ok",
         "action_model": action_model is not None and action_model.is_ready(),
+        "emotion_model": emotion_model is not None and emotion_model.is_ready(),
     }
 
 

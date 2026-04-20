@@ -26,6 +26,7 @@ from typing import Optional
 import lelamp.config as config
 import requests
 from lelamp.service.sensing.perceptions import (
+    EmotionPerception,
     FaceRecognizer,
     LightLevelPerception,
     MotionPerception,
@@ -92,6 +93,14 @@ class SensingService:
             )
             if config.MOTION_ENABLED:
                 self._perceptions.append(MotionPerception(
+                    send_event=self._send_event,
+                    on_motion=self.presence.on_motion,
+                    capture_stable_frame=self._capture_stable_frame,
+                    presence_service=self.presence,
+                    face_recognizer=face_recognizer,
+                ))
+            if config.EMOTION_ENABLED:
+                self._perceptions.append(EmotionPerception(
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,

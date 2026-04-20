@@ -47,3 +47,40 @@ class ActionResponse(BaseModel):
     """Single human action analysis result."""
 
     detected_classes: list[tuple[str, float]]
+
+
+# --- Emotion analysis ---
+
+
+class EmotionFrameRequest(BaseModel):
+    type: Literal["frame"] = "frame"
+    task: Literal["emotion"] = "emotion"
+    frame_b64: str
+
+
+class EmotionConfigRequest(BaseModel):
+    type: Literal["config"] = "config"
+    task: Literal["emotion"] = "emotion"
+    threshold: float = 0.5
+
+
+EmotionRequest = Annotated[
+    Annotated[EmotionFrameRequest, Tag("frame")]
+    | Annotated[EmotionConfigRequest, Tag("config")],
+    Discriminator("type"),
+]
+
+
+class EmotionDetection(BaseModel):
+    """Single face emotion detection result."""
+
+    emotion: str
+    confidence: float
+    face_confidence: float
+    bbox: list[int]
+
+
+class EmotionResponse(BaseModel):
+    """Emotion analysis response."""
+
+    detections: list[EmotionDetection]
