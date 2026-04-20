@@ -203,8 +203,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
+		// motion.activity and emotion.detected get queued (not dropped) because
+		// LeLamp deduplicates both with a 5-min window at the source — if one
+		// reaches Lumi it's genuinely new. Dropping it here would make LeLamp's
+		// dedup think "sent" while the agent never saw the event, blocking the
+		// next real transition for 5 min.
 		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||
-			req.Type == "voice" || inVoiceWindow
+			req.Type == "voice" ||
+			req.Type == "motion.activity" || req.Type == "emotion.detected" ||
+			inVoiceWindow
 		if shouldQueue {
 			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
