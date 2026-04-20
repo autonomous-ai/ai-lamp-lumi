@@ -2,7 +2,10 @@ module claude-desktop-buddy
 
 go 1.24.0
 
-require tinygo.org/x/bluetooth v0.10.0
+require (
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	tinygo.org/x/bluetooth v0.10.0
+)
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
