@@ -224,8 +224,8 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
 
    `presence.enter` tính là 1 điểm reset — user vừa vào session → delta bắt đầu từ 0, đếm lên. Không spam ngay khi user ngồi xuống, nhưng sẽ nudge đúng khi user ngồi lâu chưa drink/break.
 4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
-   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → nhắc uống nước.
-   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
+   - Hydration: `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` **VÀ** `minutes_since_last_nudge_hydration >= NUDGE_COOLDOWN_MIN` → nhắc uống nước.
+   - Else break: `minutes_since_last_break >= BREAK_THRESHOLD_MIN` **VÀ** `minutes_since_last_nudge_break >= NUDGE_COOLDOWN_MIN` → nhắc nghỉ/stretch.
    - else → caring observation hoặc `NO_REPLY`.
 5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
@@ -236,9 +236,31 @@ Hardcode trong `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 | Threshold | Giá trị test | Giá trị production |
 |---|---|---|
 | `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
-| `BREAK_THRESHOLD_MIN` | **5** | 30 |
+| `BREAK_THRESHOLD_MIN` | **7** | 30 |
+| `NUDGE_COOLDOWN_MIN` | **3** | 15 |
 
-> ⚠ **Release checklist:** trước khi ship, đổi cả 2 ngưỡng từ 5 về production (45 / 30). Ngưỡng 5 phút chỉ để iterate nhanh khi dev.
+> ⚠ **Release checklist:** trước khi ship, đổi cả 3 constant về production (45 / 30 / 15). Hydration và break cố ý lệch nhau (5 vs 7) để test phân biệt nhánh nào fire.
+
+**`NUDGE_COOLDOWN_MIN` — khoảng lặng giữa 2 lần nhắc cùng loại.**
+
+Không có nó, motion.activity fire mỗi ~5 min (do lelamp dedup). Nếu user qua ngưỡng hydration mà chưa uống, mỗi wake-up agent lại nhắc — vì threshold delta chỉ reset khi user UỐNG hoặc `enter` mới, không reset khi agent nhắc:
+
+```
+10:45  hydration overdue → nhắc 💧 (1)
+10:50  wake-up → vẫn overdue → nhắc 💧 (2)
+10:55  wake-up → vẫn overdue → nhắc 💧 (3)  ← spam
+```
+
+Với `NUDGE_COOLDOWN_MIN = 15`:
+
+```
+10:45  nhắc 💧 → log nudge_hydration
+10:50  wake-up → overdue nhưng nudge mới 5 min trước < 15 → SKIP
+10:55  wake-up → 10 min < 15 → SKIP
+11:00  wake-up → 15 min ≥ 15 → nhắc 💧 lại (nếu user vẫn chưa uống)
+```
+
+Break nudge hoạt động y vậy, track riêng qua entry `nudge_break`. Nếu user uống/nghỉ trước khi hết cooldown, threshold delta tự reset → không cần nhắc nữa.
 
 ### User attribution — `[context: current_user=X]`
 
