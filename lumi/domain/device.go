@@ -37,6 +37,7 @@ type SetupRequest struct {
 
 	// voice pipeline (optional): Deepgram API key for STT
 	DeepgramAPIKey string `json:"deepgram_api_key"`
+	TTSProvider    string `json:"tts_provider"`
 	TTSVoice       string `json:"tts_voice"`
 
 	// optional
@@ -285,6 +286,7 @@ type ConfigResponse struct {
 	LLMBaseURL         string `json:"llm_base_url"`
 	LLMDisableThinking bool   `json:"llm_disable_thinking"`
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	TTSProvider        string `json:"tts_provider"`
 	TTSVoice           string `json:"tts_voice"`
 	DeviceID           string `json:"device_id"`
 	NetworkSSID        string `json:"network_ssid"`
@@ -330,7 +332,8 @@ type UpdateConfigRequest struct {
 	FAChannel    string `json:"fa_channel"`
 	FDChannel    string `json:"fd_channel"`
 
-	TTSVoice string `json:"tts_voice"`
+	TTSProvider string `json:"tts_provider"`
+	TTSVoice    string `json:"tts_voice"`
 }
 
 // TTS provider constants.
