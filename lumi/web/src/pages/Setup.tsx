@@ -700,7 +700,7 @@ export default function Setup() {
                         onClick={() => testTTSVoice(ttsVoice)}
                         style={{
                           marginTop: 8, width: "100%", padding: "8px 0",
-                          background: C.accent, color: "#fff", border: "none",
+                          background: C.amber, color: "#fff", border: "none",
                           borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
                         }}
                       >
