@@ -7,6 +7,7 @@ Supported providers:
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Iterator, Optional
 
@@ -62,6 +63,11 @@ class OpenAITTSBackend(TTSBackend):
     def available(self) -> bool:
         return self._client is not None
 
+    @staticmethod
+    def _strip_audio_tags(text: str) -> str:
+        """Remove ElevenLabs-style audio tags like [laugh], [sigh] etc."""
+        return re.sub(r'\[(?:laugh|sigh|whisper|gasp|gulp|nervous|excited|frustrated|sorrowful|calm)[^\]]*\]', '', text, flags=re.IGNORECASE).strip()
+
     def stream_pcm(
         self,
         text: str,
@@ -70,6 +76,9 @@ class OpenAITTSBackend(TTSBackend):
         speed: float,
         instructions: Optional[str] = None,
     ) -> Iterator[bytes]:
+        text = self._strip_audio_tags(text)
+        if not text:
+            return
         kwargs = dict(
             model=model,
             voice=voice,
@@ -87,7 +96,7 @@ class OpenAITTSBackend(TTSBackend):
 class ElevenLabsTTSBackend(TTSBackend):
     """ElevenLabs TTS backend with streaming support."""
 
-    DEFAULT_MODEL = "eleven_flash_v2_5"
+    DEFAULT_MODEL = "eleven_v3"
     API_BASE = "https://api.elevenlabs.io"
 
     # Premade voice name → voice_id mapping

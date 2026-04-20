@@ -122,7 +122,7 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 
 After writing a decision row, **immediately follow the Music skill's "AI-Driven Music Suggestion" section** using the decided mood you just wrote.
 
-Suggestion-worthy moods: `sad`, `stressed`, `tired`, `excited`, `happy`. For other moods (`bored`, `frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) — skip music suggestion.
+Suggestion-worthy moods: `sad`, `stressed`, `tired`, `excited`, `happy`, `bored`. For other moods (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) — skip music suggestion.
 
 For `unknown` users — still suggest (speak only, no DM). See Music skill for details.
 
