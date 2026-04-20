@@ -100,6 +100,8 @@ class RecognizeSpeakerRequest(BaseModel):
 
 
 class SpeakerMeta(BaseModel):
+    """Full metadata — used for enroll / identity confirmation responses."""
+
     name: str
     display_name: str
     telegram_username: Optional[str] = None
@@ -113,6 +115,23 @@ class SpeakerMeta(BaseModel):
     updated_at: Optional[str] = None
     sample_files: list[str] = []
     sample_origins: dict[str, str] = {}
+
+
+class SpeakerListItem(BaseModel):
+    """Trimmed public view for /speaker/list — identity-focused, no internals.
+
+    Drops internal bookkeeping fields (embedding_dim, sample_files,
+    sample_origins, enrolled_at, updated_at, last_enrollment_source) — those
+    belong in log/debug output, not the public API response.
+    """
+
+    name: str
+    display_name: str
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
+    has_telegram_identity: bool = False
+    enrollment_sources: list[str] = []
+    num_samples: int
 
 
 class EnrollResponse(BaseModel):
@@ -141,7 +160,8 @@ class RecognizeResponse(BaseModel):
 
 class ListResponse(BaseModel):
     total: int
-    speakers: list[SpeakerMeta]
+    enrolled_names: list[str]
+    speakers: list[SpeakerListItem]
 
 
 # ------------------------------------------------------------------ helpers
@@ -215,10 +235,17 @@ def speaker_reset() -> RemoveResponse:
 def speaker_remove(req: RemoveSpeakerRequest) -> RemoveResponse:
     """Delete the user's voice folder (embedding + samples + metadata).
 
-    Other per-user data (face photos, mood, wellbeing, ...) is preserved.
+    Returns 404 if the user has no voice profile — mirrors ``/face/remove``
+    behaviour so callers don't silently no-op on a typo. Other per-user data
+    (face photos, mood, wellbeing, ...) is preserved regardless.
     """
     sr = get_speaker_recognizer()
     removed = sr.remove(req.name)
+    if not removed:
+        raise HTTPException(
+            status_code=404,
+            detail=f"voice profile not found: {req.name}",
+        )
     return RemoveResponse(status="ok", name=req.name, removed=removed)
 
 
@@ -241,10 +268,28 @@ def speaker_recognize(req: RecognizeSpeakerRequest) -> RecognizeResponse:
 
 @router.get("/speaker/list", response_model=ListResponse)
 def speaker_list() -> ListResponse:
-    """List users with a registered voice (source of truth: on-disk embeddings)."""
+    """List users with a registered voice — public identity-focused view.
+
+    Internal bookkeeping (sample filenames, embedding dim, timestamps) is
+    computed by the service but intentionally not exposed here — see
+    :class:`SpeakerListItem` for the trimmed schema.
+    """
     sr = get_speaker_recognizer()
     speakers = sr.list_registered()
+    public_items = [
+        SpeakerListItem(
+            name=s["name"],
+            display_name=s.get("display_name") or s["name"],
+            telegram_username=s.get("telegram_username") or None,
+            telegram_id=s.get("telegram_id") or None,
+            has_telegram_identity=bool(s.get("has_telegram_identity", False)),
+            enrollment_sources=list(s.get("enrollment_sources", [])),
+            num_samples=int(s.get("num_samples", 0)),
+        )
+        for s in speakers
+    ]
     return ListResponse(
-        total=len(speakers),
-        speakers=[SpeakerMeta(**s) for s in speakers],
+        total=len(public_items),
+        enrolled_names=[item.name for item in public_items],
+        speakers=public_items,
     )
