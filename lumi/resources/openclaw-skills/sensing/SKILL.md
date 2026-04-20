@@ -100,7 +100,8 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Activity detected while user is present. Message has `Activity detected:` line (groups: `sedentary`, `drink`, `break`). Emotional actions (laughing/crying/yawning/singing) are **not** carried here — they will arrive via a separate `motion.emotional` event in a future version. | No |
+| `motion.activity` | `[sensing:motion.activity]` | Physical activity detected while user is present. Message has `Activity detected:` line (groups: `sedentary`, `drink`, `break`). Emotional state arrives on its own `emotion.detected` event instead. | No |
+| `emotion.detected` | `[sensing:emotion.detected]` | Facial-emotion classifier ran — message: `Emotion detected: <EmotionName> (N/M frames).` Handled by `user-emotion-detection/SKILL.md` → maps to a mood signal via Mood skill. | No |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
@@ -222,7 +223,7 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 
 - `Activity detected: <groups>.` — one or more of `sedentary`, `drink`, `break` (comma-separated), followed by the trailing hint `If nothing noteworthy, reply NO_REPLY.`
 
-Emotional actions (laughing, crying, yawning, singing) are **not** carried here — a dedicated `motion.emotional` event type will be added later. Until then, Emotion Detection has no trigger.
+Emotional state is **not** carried here — facial emotion arrives on its own `[sensing:emotion.detected]` event (handled by `user-emotion-detection/SKILL.md` → maps to a mood signal).
 
 Examples:
 - `Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.`

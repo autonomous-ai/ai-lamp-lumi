@@ -1,35 +1,46 @@
 ---
 name: user-emotion-detection
-description: Detects the USER's emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it. This is NOT for Lumi's own emotion expression — that's emotion/SKILL.md.
+description: Maps a detected user facial emotion (from emotion.detected events) into a mood signal logged via the Mood skill. This is about the USER's emotion (input), NOT Lumi's own expression — that's emotion/SKILL.md.
 ---
 
 # User Emotion Detection
 
-> **⚠ SKILL CURRENTLY INACTIVE.** Emotional X3D actions (laughing, crying, yawning, singing) are no longer forwarded by LeLamp on `motion.activity`. A dedicated `motion.emotional` event type will be added later; until then this skill has no trigger. **Do not invoke it from `motion.activity`.**
+## What this skill does
 
-## What this skill does (when it's active again)
-
-Turn a `motion.emotional` event (raw X3D action — `laughing` / `crying` / `yawning` / `singing`) into a mood signal. That's it. Log via the Mood skill, then stop.
+On every `[sensing:emotion.detected]` event, turn the detected facial emotion into a mood signal for the user. Log it via the Mood skill, then stop.
 
 This skill does NOT:
 
-- Fire `[HW:/emotion:…]` markers. Emotion expression is `emotion/SKILL.md`'s job, driven by conversational context — not auto-mapped from a detected cue.
+- Fire `[HW:/emotion:…]` markers. Emotion expression is `emotion/SKILL.md`'s job, driven by conversation context — not auto-mapped from a sensor reading.
 - Require a spoken reply. Whether to speak is decided by the normal reply rules (SOUL + sensing SKILL), not by this skill.
-- Write to the wellbeing activity log. Wellbeing is about physical activity groups (drink / break / sedentary); emotions live in the mood log.
+- Write to the wellbeing log. Wellbeing is for physical activity (drink/break/sedentary); emotions live in the mood log.
 
-## Action → mood (for the signal log only)
+## Trigger
 
-| X3D action | `mood` value to log |
+`[sensing:emotion.detected]` where the message looks like:
+
+```
+Emotion detected: <EmotionName> (<N>/<M> frames). If nothing noteworthy, reply NO_REPLY.
+```
+
+`<EmotionName>` is one of the standard FER labels: `Happy`, `Sad`, `Angry`, `Fear`, `Surprise`, `Disgust`, `Neutral`.
+
+## Emotion → mood (for the signal log)
+
+| Detected emotion | `mood` value to log |
 |---|---|
-| `laughing`, `singing` | `happy` |
-| `crying` | `sad` |
-| `yawning` | `tired` |
+| `Happy` | `happy` |
+| `Sad` | `sad` |
+| `Angry` | `frustrated` |
+| `Fear` | `stressed` |
+| `Surprise` | `excited` |
+| `Disgust` | `frustrated` |
+| `Neutral` | skip — no signal worth logging |
 
 ## Workflow
 
-1. Receive `motion.emotional` with one or more raw actions.
-2. For each action, map to a mood value using the table above.
-3. Log via Mood skill: `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<raw action>`, `mood=<mapped>`, `user=<current_user from context tag>`.
-4. Done. Mood skill will take over from there (synthesize decision, possibly chain to Music).
-
-No emotion markers, no mandatory speaking, no wellbeing log entry.
+1. Parse the detected emotion from the message.
+2. If it maps to a mood value (see table), POST a mood signal:
+   `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<EmotionName lowercase>`, `mood=<mapped>`, `user=<current_user from context tag>`.
+3. Let the Mood skill take over (synthesize decision, possibly chain to Music).
+4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`.
