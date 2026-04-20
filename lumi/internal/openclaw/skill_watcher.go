@@ -68,19 +68,35 @@ func (s *Service) downloadSkills() []string {
 	return s.downloadSkillsByName(skills)
 }
 
-// downloadSkillsByName downloads specific skills from CDN, returns names of changed ones.
+// downloadSkillsByName downloads specific skills from CDN, returns names of
+// skills that actually changed on disk. Each skill may have multiple .md
+// files (main SKILL.md plus optional siblings like "proactive-suggestion.md"
+// for detail the agent reads on demand). The authoritative file list per
+// skill comes from OTA metadata.json's "skills.<name>.files[]"; if that's
+// missing we fall back to just SKILL.md for backwards compatibility.
 func (s *Service) downloadSkillsByName(names []string) []string {
 	skillsDir := filepath.Join(s.config.OpenclawConfigDir, "workspace", "skills")
+	fileManifest := s.fetchSkillFiles()
 	var changed []string
 	for _, name := range names {
-		dst := filepath.Join(skillsDir, name, "SKILL.md")
-		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
-		updated, err := downloadFile(url, dst)
-		if err != nil {
-			slog.Warn("skill download failed", "component", "skill-watcher", "skill", name, "error", err)
-			continue
+		files := fileManifest[name]
+		if len(files) == 0 {
+			files = []string{"SKILL.md"}
 		}
-		if updated {
+		skillChanged := false
+		for _, fname := range files {
+			dst := filepath.Join(skillsDir, name, fname)
+			url := fmt.Sprintf("%s/%s/%s", skillsBaseURL, name, fname)
+			updated, err := downloadFile(url, dst)
+			if err != nil {
+				slog.Warn("skill file download failed", "component", "skill-watcher", "skill", name, "file", fname, "error", err)
+				continue
+			}
+			if updated {
+				skillChanged = true
+			}
+		}
+		if skillChanged {
 			changed = append(changed, name)
 		}
 	}
@@ -103,9 +119,18 @@ func (s *Service) notifySkillChanges(changedSkills []string) {
 	}
 }
 
-// fetchSkillVersions gets per-skill versions from OTA metadata.
-// Returns map[skillName]version.
-func (s *Service) fetchSkillVersions() (map[string]string, error) {
+// skillMetaEntry is the per-skill shape written by scripts/upload-skills.sh
+// into OTA metadata: version hash + the list of files that make up the skill.
+type skillMetaEntry struct {
+	Version string   `json:"version"`
+	Files   []string `json:"files"`
+}
+
+// fetchSkillMetadata reads the "skills" object from OTA metadata. Returns
+// map[skillName]skillMetaEntry. Older metadata that only has {"version":...}
+// still parses — Files will just be nil, and downloadSkillsByName falls back
+// to SKILL.md for those.
+func (s *Service) fetchSkillMetadata() (map[string]skillMetaEntry, error) {
 	url := s.config.OTAMetadataURL
 	if url == "" {
 		url = defaultOTAMetadataURL
@@ -130,15 +155,42 @@ func (s *Service) fetchSkillVersions() (map[string]string, error) {
 	if !ok {
 		return nil, nil
 	}
-	var skillMap map[string]struct {
-		Version string `json:"version"`
-	}
+	var skillMap map[string]skillMetaEntry
 	if err := json.Unmarshal(raw, &skillMap); err != nil {
 		return nil, err
 	}
-	result := make(map[string]string, len(skillMap))
-	for name, v := range skillMap {
-		result[name] = v.Version
+	return skillMap, nil
+}
+
+// fetchSkillVersions gets per-skill versions from OTA metadata.
+// Returns map[skillName]version.
+func (s *Service) fetchSkillVersions() (map[string]string, error) {
+	meta, err := s.fetchSkillMetadata()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(meta))
+	for name, entry := range meta {
+		result[name] = entry.Version
 	}
 	return result, nil
+}
+
+// fetchSkillFiles returns per-skill file lists from OTA metadata. If the
+// fetch fails or the metadata lacks file lists, returns nil and callers
+// fall back to just "SKILL.md". Never returns an error — a missing
+// manifest shouldn't block the main download loop.
+func (s *Service) fetchSkillFiles() map[string][]string {
+	meta, err := s.fetchSkillMetadata()
+	if err != nil {
+		slog.Warn("skill file manifest fetch failed — falling back to SKILL.md only", "component", "skill-watcher", "error", err)
+		return nil
+	}
+	result := make(map[string][]string, len(meta))
+	for name, entry := range meta {
+		if len(entry.Files) > 0 {
+			result[name] = entry.Files
+		}
+	}
+	return result
 }
