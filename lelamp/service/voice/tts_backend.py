@@ -12,6 +12,10 @@ from typing import Iterator, Optional
 
 logger = logging.getLogger("lelamp.voice.tts_backend")
 
+# Provider constants
+PROVIDER_OPENAI = "openai"
+PROVIDER_ELEVENLABS = "elevenlabs"
+
 # OpenAI TTS returns 24kHz 16-bit mono PCM
 TTS_SAMPLE_RATE = 24000
 STREAM_CHUNK_SIZE = 4096
@@ -138,8 +142,8 @@ def create_backend(
     base_url: str = "",
 ) -> TTSBackend:
     """Factory: create a TTS backend by provider name."""
-    provider = (provider or "openai").lower().strip()
-    if provider == "elevenlabs":
+    provider = (provider or PROVIDER_OPENAI).lower().strip()
+    if provider == PROVIDER_ELEVENLABS:
         return ElevenLabsTTSBackend(api_key=api_key, base_url=base_url or None)
     # Default: openai-compatible
     return OpenAITTSBackend(api_key=api_key, base_url=base_url)

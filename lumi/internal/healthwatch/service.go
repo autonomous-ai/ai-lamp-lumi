@@ -223,11 +223,15 @@ func (s *Service) restartVoice() {
 	time.Sleep(2 * time.Second)
 
 	// Always attempt restart — LeLamp falls back to AutonomousSTT if no Deepgram key.
-	body, _ := json.Marshal(map[string]string{
+	payload := map[string]string{
 		"deepgram_api_key": s.cfg.DeepgramAPIKey,
 		"llm_api_key":      s.cfg.LLMAPIKey,
 		"llm_base_url":     s.cfg.LLMBaseURL,
-	})
+	}
+	if s.cfg.TTSProvider != "" {
+		payload["tts_provider"] = s.cfg.TTSProvider
+	}
+	body, _ := json.Marshal(payload)
 	startResp, err := s.httpClient.Post(
 		lelamp.BaseURL+"/voice/start",
 		"application/json",

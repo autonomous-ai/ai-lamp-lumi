@@ -37,6 +37,7 @@ type SetupRequest struct {
 
 	// voice pipeline (optional): Deepgram API key for STT
 	DeepgramAPIKey string `json:"deepgram_api_key"`
+	TTSProvider    string `json:"tts_provider"`
 	TTSVoice       string `json:"tts_voice"`
 
 	// optional
@@ -285,6 +286,7 @@ type ConfigResponse struct {
 	LLMBaseURL         string `json:"llm_base_url"`
 	LLMDisableThinking bool   `json:"llm_disable_thinking"`
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	TTSProvider        string `json:"tts_provider"`
 	TTSVoice           string `json:"tts_voice"`
 	DeviceID           string `json:"device_id"`
 	NetworkSSID        string `json:"network_ssid"`
@@ -330,11 +332,27 @@ type UpdateConfigRequest struct {
 	FAChannel    string `json:"fa_channel"`
 	FDChannel    string `json:"fd_channel"`
 
-	TTSVoice string `json:"tts_voice"`
+	TTSProvider string `json:"tts_provider"`
+	TTSVoice    string `json:"tts_voice"`
 }
 
-// TTSVoices is the list of available OpenAI-compatible TTS voices.
-var TTSVoices = []string{"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
+// TTS provider constants.
+const (
+	TTSProviderOpenAI     = "openai"
+	TTSProviderElevenLabs = "elevenlabs"
+)
+
+// TTSProviders is the list of supported TTS providers.
+var TTSProviders = []string{TTSProviderOpenAI, TTSProviderElevenLabs}
+
+// TTSVoicesByProvider maps provider name to its available voices.
+var TTSVoicesByProvider = map[string][]string{
+	TTSProviderOpenAI:     {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"},
+	TTSProviderElevenLabs: {"Rachel", "Sarah", "Charlotte", "Alice", "Lily", "Matilda", "Brian", "Daniel", "George", "James", "Liam", "Callum", "Charlie", "Chris", "Dave", "Ethan", "Adam", "Bill", "Josh", "Sam"},
+}
+
+// TTSVoices is the default (OpenAI) voice list for backward compatibility.
+var TTSVoices = TTSVoicesByProvider[TTSProviderOpenAI]
 
 // DefaultTTSVoice is the default voice when none is configured.
 const DefaultTTSVoice = "alloy"

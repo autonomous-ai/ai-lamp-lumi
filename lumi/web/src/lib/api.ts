@@ -82,6 +82,7 @@ export interface DeviceConfig {
   llm_base_url: string;
   llm_disable_thinking: boolean;
   deepgram_api_key: string;
+  tts_provider: string;
   tts_voice: string;
   device_id: string;
   network_ssid: string;
@@ -94,8 +95,13 @@ export interface DeviceConfig {
   fd_channel: string;
 }
 
-export async function getTTSVoices(): Promise<string[]> {
-  return apiRequest<string[]>(`${API_BASE}/api/device/voices`);
+export async function getTTSVoices(provider?: string): Promise<string[]> {
+  const params = provider ? `?provider=${provider}` : "";
+  return apiRequest<string[]>(`${API_BASE}/api/device/voices${params}`);
+}
+
+export async function getTTSProviders(): Promise<string[]> {
+  return apiRequest<string[]>(`${API_BASE}/api/device/tts-providers`);
 }
 
 export async function getDeviceConfig(): Promise<DeviceConfig> {

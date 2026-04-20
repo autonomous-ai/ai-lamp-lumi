@@ -247,6 +247,7 @@ func (s *Server) Serve(closeFn func()) error {
 	device.GET("config", s.deviceHandler.GetConfig)
 	device.PUT("config", s.deviceHandler.UpdateConfig)
 	device.GET("voices", s.deviceHandler.GetVoices)
+	device.GET("tts-providers", s.deviceHandler.GetTTSProviders)
 
 	network := api.Group("network")
 	network.GET("", s.networkHandler.GetNetworks)
@@ -352,7 +353,7 @@ func (s *Server) runConfigChangeListener(ctx context.Context) {
 			s.handleSetUpCompleteChange(s.config.SetUpCompleted)
 			// Re-push voice config to LeLamp on any config change (e.g. TTS voice)
 			if s.config.SetUpCompleted && s.config.DeepgramAPIKey != "" {
-				if err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions); err != nil {
+				if err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions, s.config.TTSProvider); err != nil {
 					slog.Warn("re-push voice config failed", "component", "config", "error", err)
 				}
 			}
@@ -401,7 +402,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			// Retry because lumi-lelamp may not be running yet at setup time.
 			if s.config.DeepgramAPIKey != "" {
 				for attempt := 1; attempt <= 10; attempt++ {
-					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions)
+					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions, s.config.TTSProvider)
 					if err == nil {
 						break
 					}

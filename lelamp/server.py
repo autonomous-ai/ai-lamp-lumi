@@ -211,6 +211,7 @@ except ImportError as e:
 
 try:
     from lelamp.service.voice.tts_service import TTSService
+    from lelamp.service.voice.tts_backend import PROVIDER_OPENAI
 except ImportError as e:
     logger.warning(f"TTS service not available: {e}")
 
@@ -479,13 +480,11 @@ async def lifespan(app: FastAPI):
         llm_key = lumi_cfg.get("llm_api_key", "")
         llm_url = lumi_cfg.get("llm_base_url", "")
         voice = lumi_cfg.get("tts_voice", "") or TTS_VOICE
-        tts_provider = lumi_cfg.get("tts_provider", "openai")
-        tts_api_key = lumi_cfg.get("tts_api_key", "") or llm_key
-        tts_base_url = lumi_cfg.get("tts_base_url", "") or llm_url
-        if tts_api_key and TTSService and not tts_service:
+        tts_provider = lumi_cfg.get("tts_provider", PROVIDER_OPENAI)
+        if llm_key and llm_url and TTSService and not tts_service:
             tts_service = TTSService(
-                api_key=tts_api_key,
-                base_url=tts_base_url,
+                api_key=llm_key,
+                base_url=llm_url,
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
@@ -2553,11 +2552,12 @@ def start_voice(req: VoiceStartRequest):
     voice = req.tts_voice or TTS_VOICE
     instructions = req.tts_instructions or TTS_INSTRUCTIONS or None
 
-    # Start or re-init TTS (re-init when voice or instructions changed)
+    # Start or re-init TTS (re-init when voice, instructions, or provider changed)
     need_tts = TTSService and (
         not (tts_service and tts_service.available)
         or (tts_service and tts_service._voice != voice)
         or (tts_service and getattr(tts_service, "_instructions", None) != instructions)
+        or (tts_service and getattr(tts_service, "_provider", None) != req.tts_provider)
     )
     if need_tts:
         if tts_service and tts_service.speaking:
