@@ -62,18 +62,20 @@ Lumi implements the same protocol but as a **smart buddy** — with camera, mic,
 - No Wire DI, no Gin — lightweight standalone binary
 
 ```
-lumi/
-├── cmd/lamp/           # Lumi server (existing)
-├── cmd/bootstrap/      # OTA worker (existing)
-├── cmd/buddy/          # ← NEW: Claude Desktop Buddy plugin
-│   └── main.go
-├── internal/buddy/     # ← NEW: plugin logic
+ai-lamp-openclaw/
+├── lumi/               # Lumi server (existing, Go, port 5000)
+├── lelamp/             # LeLamp runtime (existing, Python, port 5001)
+├── claude-desktop-buddy/  # ← NEW: Claude Desktop Buddy plugin (Go, port 5002)
+│   ├── main.go         # Entry point
 │   ├── ble.go          # BLE GATT server (Nordic UART)
 │   ├── protocol.go     # Wire protocol parse/serialize
 │   ├── state.go        # State machine (sleep/idle/busy/attention/celebrate)
-│   ├── bridge.go       # Map state → LeLamp + Lumi calls
+│   ├── bridge.go       # Map state → LeLamp + Lumi HTTP calls
 │   ├── approval.go     # Voice approval flow
-│   └── httpserver.go   # GET /status endpoint for OpenClaw skill
+│   ├── httpserver.go   # GET /status, POST /approve, /deny
+│   ├── go.mod          # Separate Go module
+│   └── config/
+│       └── buddy.json  # Plugin config
 ```
 
 ### NEW: OpenClaw Skill
@@ -81,7 +83,7 @@ lumi/
 A `SKILL.md` file so the OpenClaw agent knows about buddy and coordinates:
 
 ```
-lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md
+lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md   # skill lives in lumi (deployed via OTA)
 ```
 
 ---
@@ -610,8 +612,8 @@ Note: `idle` has `action: "none"` — buddy does not set LED in idle state, lets
 ## 14. Deployment
 
 ```bash
-# Build
-GOOS=linux GOARCH=arm64 go build -o buddy-plugin ./cmd/buddy/
+# Build (from repo root)
+cd claude-desktop-buddy && GOOS=linux GOARCH=arm64 go build -o buddy-plugin .
 
 # Run as systemd service
 # File: /etc/systemd/system/lumi-buddy.service
