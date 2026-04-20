@@ -2681,15 +2681,11 @@ def speak_text(req: SpeakRequest):
             "POST /voice/speak: rejected — music is playing (text='%s')", req.text[:80]
         )
         raise HTTPException(409, "Speaker busy — music is playing")
-    # Temporary voice override for testing
-    original_voice = None
+    # Voice override for testing — persists until next call with a different voice
     if req.voice:
-        original_voice = tts_service._voice
         tts_service._voice = req.voice
     logger.info("POST /voice/speak: req=%s", req.model_dump_json())
     started = tts_service.speak(req.text, interruptible=req.interruptible)
-    if original_voice is not None:
-        tts_service._voice = original_voice
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
     return {"status": "ok"}
