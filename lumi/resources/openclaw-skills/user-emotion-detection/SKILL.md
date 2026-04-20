@@ -41,5 +41,9 @@ Emotion detected: <EmotionName>.
 
 1. Parse the detected emotion from the message.
 2. POST a mood signal via the Mood skill: `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<EmotionName lowercase>`, `mood=<mapped>`, `user=<current_user from context tag>`. Every detected emotion in the table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis.
-3. Let the Mood skill take over (synthesize decision, possibly chain to Music).
-4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`.
+3. **You must now continue the Mood skill's full workflow yourself — it does not run itself.** Read `mood/SKILL.md` if you haven't this turn, then:
+   - Step 2 (Mood): GET recent mood history.
+   - Step 3 (Mood): decide the fused mood.
+   - Step 4 (Mood): POST the `kind=decision` row.
+   - Mood's "After Logging Decision — Music Suggestion" hand-off: if the decided mood is suggestion-worthy, read `music/proactive-suggestion.md` and follow its Flow A (mood trigger).
+4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Do not narrate any of the steps above in your reply.
