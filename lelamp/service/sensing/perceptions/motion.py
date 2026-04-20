@@ -314,6 +314,18 @@ class MotionPerception(Perception):
 
         self._send_event("motion.activity", message)
 
+    def reset_dedup(self) -> None:
+        """Clear the outbound dedup state so the next motion.activity will
+        send regardless of whether the state (user + activity groups) matches
+        the previous send. Called by SensingService on presence.enter so the
+        agent sees a fresh sedentary event right after a new session starts,
+        instead of waiting out the 5-minute wake-up window.
+        """
+        if self._last_sent_key is not None:
+            logger.info("[motion] dedup reset (new presence session)")
+            self._last_sent_key = None
+            self._last_sent_ts = 0.0
+
     def to_dict(self) -> dict:
         seconds_since = (
             int(time.time() - self._last_motion_time)
