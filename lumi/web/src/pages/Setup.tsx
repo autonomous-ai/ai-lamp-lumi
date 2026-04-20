@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig } from "@/lib/api";
+import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
 import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
@@ -695,6 +695,17 @@ export default function Setup() {
                           <option key={v} value={v}>{v}</option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        onClick={() => testTTSVoice(ttsVoice)}
+                        style={{
+                          marginTop: 8, width: "100%", padding: "8px 0",
+                          background: C.accent, color: "#fff", border: "none",
+                          borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
+                        }}
+                      >
+                        Test Voice
+                      </button>
                     </div>
                   </SectionCard>
 

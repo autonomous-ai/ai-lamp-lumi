@@ -104,6 +104,14 @@ export async function getTTSProviders(): Promise<string[]> {
   return apiRequest<string[]>(`${API_BASE}/api/device/tts-providers`);
 }
 
+export async function testTTSVoice(voice: string, text?: string): Promise<void> {
+  await fetch("/hw/voice/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: text || "[laugh] Hey! How are you doing today?", voice }),
+  });
+}
+
 export async function getDeviceConfig(): Promise<DeviceConfig> {
   return apiRequest<DeviceConfig>(`${API_BASE}/api/device/config`);
 }
