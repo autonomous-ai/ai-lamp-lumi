@@ -41,6 +41,11 @@ class ElevenLabsTTSBackend(TTSBackend):
         "Liam": "TX3LPaxmHKxFdv7VOQHJ",        # energetic American
         "Charlie": "IKne3meq5aSn9XLyUdCD",
         "Sam": "yoZ06aMxZJJ28mfd3POQ",
+        # Male — community (conversational, young, American)
+        "Sean": "FgARTjeugpFkVodK0Ovq",         # (*) casual, optimized for conversation — 1.9k clones
+        "Kael": "RxsTyZQJnPygpas5IyzL",         # (*) energetic, trendy, youthful — 1.8k clones
+        "Brooks": "sUzXYdokj3o9QQ91yPRF",       # (*) bright, affable, friendly smile — 1.5k clones
+        "Erion": "BSgaLWMIhbNhOCIH1apf",        # unique, friendly, casual — 1.3k clones
     }
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
