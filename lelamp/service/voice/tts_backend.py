@@ -145,6 +145,7 @@ def create_backend(
     """Factory: create a TTS backend by provider name."""
     provider = (provider or PROVIDER_OPENAI).lower().strip()
     if provider == PROVIDER_ELEVENLABS:
-        return ElevenLabsTTSBackend(api_key=api_key, base_url=base_url or None)
+        # ElevenLabs uses its own API base, ignore proxy base_url
+        return ElevenLabsTTSBackend(api_key=api_key)
     # Default: openai-compatible
     return OpenAITTSBackend(api_key=api_key, base_url=base_url)
