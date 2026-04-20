@@ -218,16 +218,17 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
 3. **Compute deltas** from the log, using the most recent reset point for each:
 
    ```
-   hydration_reset = max(last drink entry ts, last enter entry ts)
-   break_reset     = max(last break entry ts, last enter entry ts)
+   hydration_reset = max(last drink entry, last enter entry, last nudge_hydration entry)
+   break_reset     = max(last break entry, last enter entry, last nudge_break entry)
    ```
 
-   `presence.enter` counts as a reset point — a fresh arrival means the delta starts at 0 and counts up, so no first-turn spam, but a real nudge once the user has been sitting long enough without drinking or taking a break.
+   Three reset points: the actual activity (`drink` / `break`), a fresh arrival (`enter`), or the last nudge of that kind (`nudge_*`). The nudge reset is the key: after Lumi reminds, the delta drops back to 0 so the next reminder only fires after another full threshold window — no separate cooldown variable needed.
 4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
-   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → hydration nudge.
-   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → break nudge.
-   - else → normal caring observation or `NO_REPLY`.
-5. **Never guess** time-since from memory — always compute from the log.
+   - Hydration delta ≥ hydration threshold → hydration nudge.
+   - Else break delta ≥ break threshold → break nudge.
+   - Else → normal caring observation or `NO_REPLY`.
+5. **After speaking a nudge**, log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
+6. **Never guess** time-since from memory — always compute from the log.
 
 ### Thresholds
 
