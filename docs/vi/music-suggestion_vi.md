@@ -7,7 +7,7 @@
 ## Tổng quan
 
 Tính năng này cho phép Lumi **tự quyết định thời điểm** gợi ý nhạc dựa trên:
-- **Mood trigger** — khi mood được log (sad, stressed, tired, excited, happy), agent dùng mood đó để suggest nhạc ngay
+- **Mood trigger** — khi mood được log (sad, stressed, tired, excited, happy, bored), agent dùng mood đó để suggest nhạc ngay
 - **Activity trigger** — khi camera phát hiện hoạt động tĩnh (ngồi máy tính, đọc sách), agent suggest background music
 - **Suggestion history** — lưu lại mỗi lần suggest, user accept/reject, để AI learn pattern
 
@@ -30,7 +30,7 @@ Agent tổng hợp mood (fuse signal mới + history + decision cũ)
     ↓
 POST /api/mood/log {kind:"decision", based_on, reasoning} → ghi decision
     ↓
-Mood SKILL.md: decision mood thuộc [sad, stressed, tired, excited, happy]?
+Mood SKILL.md: decision mood thuộc [sad, stressed, tired, excited, happy, bored]?
     ↓ (yes)
 Follow Music skill "AI-Driven Music Suggestion"
     ↓
