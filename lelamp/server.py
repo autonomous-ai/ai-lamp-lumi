@@ -211,6 +211,7 @@ except ImportError as e:
 
 try:
     from lelamp.service.voice.tts_service import TTSService
+    from lelamp.service.voice.tts_backend import PROVIDER_OPENAI
 except ImportError as e:
     logger.warning(f"TTS service not available: {e}")
 
@@ -479,13 +480,11 @@ async def lifespan(app: FastAPI):
         llm_key = lumi_cfg.get("llm_api_key", "")
         llm_url = lumi_cfg.get("llm_base_url", "")
         voice = lumi_cfg.get("tts_voice", "") or TTS_VOICE
-        tts_provider = lumi_cfg.get("tts_provider", "openai")
-        tts_api_key = lumi_cfg.get("tts_api_key", "") or llm_key
-        tts_base_url = lumi_cfg.get("tts_base_url", "") or llm_url
-        if tts_api_key and TTSService and not tts_service:
+        tts_provider = lumi_cfg.get("tts_provider", PROVIDER_OPENAI)
+        if llm_key and llm_url and TTSService and not tts_service:
             tts_service = TTSService(
-                api_key=tts_api_key,
-                base_url=tts_base_url,
+                api_key=llm_key,
+                base_url=llm_url,
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
