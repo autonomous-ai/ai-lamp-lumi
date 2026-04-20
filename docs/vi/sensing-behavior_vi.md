@@ -215,11 +215,18 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
 
 1. **Log từng Activity group** (`drink`, `break`, `sedentary`) qua `POST /api/wellbeing/log` với `user = current_user`. Backend dedup — agent không cần check "đã ở state này chưa?".
 2. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Tính delta** từ log: `minutes_since_last_drink`, `minutes_since_last_break`.
+3. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
+
+   ```
+   hydration_reset = max(ts last drink entry, ts last enter entry)
+   break_reset     = max(ts last break entry, ts last enter entry)
+   ```
+
+   `presence.enter` tính là 1 điểm reset — user vừa vào session → delta bắt đầu từ 0, đếm lên. Không spam ngay khi user ngồi xuống, nhưng sẽ nudge đúng khi user ngồi lâu chưa drink/break.
 4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
-   - Chưa có entry `drink` hay `break` hôm nay → **không nudge** (session mới, chưa đến lúc).
    - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → nhắc uống nước.
    - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
+   - else → caring observation hoặc `NO_REPLY`.
 5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
 ### Ngưỡng
