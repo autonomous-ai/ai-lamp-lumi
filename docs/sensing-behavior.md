@@ -265,7 +265,7 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 Music suggestions are **fully AI-driven** — no cron jobs, no backend triggers. The agent decides when to suggest based on two triggers:
 
-- **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`), the agent follows the Music skill to suggest music matching that mood.
+- **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), the agent follows the Music skill to suggest music matching that mood.
 - **Sedentary trigger:** When `motion.activity` detects sedentary behavior (working, reading), the agent suggests background music (lo-fi, ambient, instrumental).
 - **Data-driven decisions:** Before suggesting, the agent queries:
   - `GET /audio/status` — is music already playing?

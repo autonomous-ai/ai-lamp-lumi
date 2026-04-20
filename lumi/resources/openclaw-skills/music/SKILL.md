@@ -101,7 +101,7 @@ HW markers are intercepted by the Go server and forwarded to LeLamp's `/audio/pl
 
 Proactive music suggestions are **AI-driven, not cron-driven**. Two triggers:
 
-1. **Mood skill** — after writing a `decision` row whose mood is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`), Mood hands off to this section.
+1. **Mood skill** — after writing a `decision` row whose mood is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), Mood hands off to this section.
 2. **Sensing skill** — when `sedentary` activity is detected (user working/reading), Sensing nudges you to suggest background music.
 
 ### `{name}` — user attribution (hard rule)
@@ -139,6 +139,7 @@ Before suggesting, also check music suggestion history (`GET /api/openclaw/music
 | Tired / fatigued | Gentle acoustic, calm piano, nature sounds | "You look tired... how about some calm piano?" |
 | Happy / energetic | Upbeat pop, jazz, feel-good classics | "You're in a good mood! Want some upbeat jazz?" |
 | Stressed / tense | Soft jazz, classical, meditation | "Let me put on something to help you unwind" |
+| Bored / restless | Fun pop, disco, upbeat indie, sing-along hits | "Bored? Let me put on something fun!" |
 | Relaxed / chill | Chill R&B, bossa nova, acoustic | "Perfect vibe for some bossa nova, no?" |
 | Working quietly | Ambient, minimal electronica, study beats | "Some ambient music while you work?" |
 
