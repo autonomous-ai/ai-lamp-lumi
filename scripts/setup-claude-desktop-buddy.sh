@@ -78,7 +78,7 @@ retry "curl -fsSL -H 'Cache-Control: no-cache' -o '$ZIP_TMP' '$BUDDY_URL'" 5
 unzip -o -q "$ZIP_TMP" -d "$DIR_TMP"
 rm -f "$ZIP_TMP"
 
-mkdir -p "$BUDDY_DIR/config"
+mkdir -p "$BUDDY_DIR"
 
 # Binary
 if [ -f "$DIR_TMP/buddy-plugin" ]; then
@@ -91,8 +91,9 @@ else
 fi
 
 # Config (only copy if not already present — don't overwrite user config)
-if [ ! -f "$BUDDY_DIR/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ]; then
-  cp -f "$DIR_TMP/config/buddy.json" "$BUDDY_DIR/config/buddy.json"
+if [ ! -f "/root/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ]; then
+  mkdir -p /root/config
+  cp -f "$DIR_TMP/config/buddy.json" /root/config/buddy.json
 fi
 
 # Version file
@@ -115,7 +116,7 @@ Wants=bluetooth.target
 Type=simple
 User=root
 WorkingDirectory=$BUDDY_DIR
-ExecStart=$BUDDY_DIR/buddy-plugin -config $BUDDY_DIR/config/buddy.json
+ExecStart=$BUDDY_DIR/buddy-plugin -config /root/config/buddy.json
 Restart=always
 RestartSec=5
 StandardOutput=journal

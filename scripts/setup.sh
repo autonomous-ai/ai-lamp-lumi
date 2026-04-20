@@ -473,7 +473,7 @@ stage_buddy() {
   bluetoothctl power on 2>/dev/null || true
 
   BUDDY_DIR="/opt/claude-desktop-buddy"
-  mkdir -p "$BUDDY_DIR/config"
+  mkdir -p "$BUDDY_DIR"
 
   retry "curl -fsSL -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o /tmp/buddy.zip \"$BUDDY_URL\"" 5
   unzip -o -q /tmp/buddy.zip -d /tmp/buddy-extract
@@ -486,8 +486,9 @@ stage_buddy() {
   fi
 
   # Config (don't overwrite existing)
-  if [ ! -f "$BUDDY_DIR/config/buddy.json" ] && [ -f /tmp/buddy-extract/config/buddy.json ]; then
-    cp -f /tmp/buddy-extract/config/buddy.json "$BUDDY_DIR/config/buddy.json"
+  if [ ! -f /root/config/buddy.json ] && [ -f /tmp/buddy-extract/config/buddy.json ]; then
+    mkdir -p /root/config
+    cp -f /tmp/buddy-extract/config/buddy.json /root/config/buddy.json
   fi
 
   # Version file
@@ -505,7 +506,7 @@ Wants=bluetooth.target
 Type=simple
 User=root
 WorkingDirectory=$BUDDY_DIR
-ExecStart=$BUDDY_DIR/buddy-plugin -config $BUDDY_DIR/config/buddy.json
+ExecStart=$BUDDY_DIR/buddy-plugin -config /root/config/buddy.json
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -1145,10 +1146,10 @@ elif [ "$APP" = "claude-desktop-buddy" ]; then
   DIR_TMP=$(mktemp -d)
   curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download claude-desktop-buddy"; exit 1; }
   BUDDY_DIR="/opt/claude-desktop-buddy"
-  mkdir -p "$BUDDY_DIR/config"
+  mkdir -p "$BUDDY_DIR"
   unzip -o -q "$ZIP_TMP" -d "$DIR_TMP"
   [ -f "$DIR_TMP/buddy-plugin" ] && cp -f "$DIR_TMP/buddy-plugin" "$BUDDY_DIR/buddy-plugin" && chmod +x "$BUDDY_DIR/buddy-plugin"
-  [ ! -f "$BUDDY_DIR/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ] && cp -f "$DIR_TMP/config/buddy.json" "$BUDDY_DIR/config/buddy.json"
+  [ ! -f "/root/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ] && mkdir -p /root/config && cp -f "$DIR_TMP/config/buddy.json" /root/config/buddy.json
   echo "$VERSION" > "$BUDDY_DIR/VERSION_BUDDY"
   systemctl restart lumi-buddy
   echo "claude-desktop-buddy updated to $VERSION"
