@@ -28,8 +28,29 @@ type Event struct {
 	TS     float64 `json:"ts"`     // Unix seconds
 	Seq    int64   `json:"seq"`    // global sequence
 	Hour   int     `json:"hour"`   // hour of day (0-23)
-	Action string  `json:"action"` // drink, break, sedentary, emotional
+	Action string  `json:"action"` // drink, break, sedentary, emotional, enter, leave
 	Notes  string  `json:"notes"`  // optional agent observation
+}
+
+// readLastAction returns the action of the most recent entry in today's file
+// for the user, or empty string if no entries. Used for dedup.
+func readLastAction(user, day string) string {
+	path := filePath(user, day)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimRight(string(data), "\n")
+	if s == "" {
+		return ""
+	}
+	idx := strings.LastIndexByte(s, '\n')
+	last := s[idx+1:]
+	var evt Event
+	if err := json.Unmarshal([]byte(last), &evt); err != nil {
+		return ""
+	}
+	return evt.Action
 }
 
 const (
@@ -38,6 +59,7 @@ const (
 	fileSuffix       = ".jsonl"
 	DefaultUser      = "unknown"
 	maxNormalizedLen = 64
+	retentionDays    = 7
 )
 
 var reNonLabel = regexp.MustCompile(`[^a-z0-9_-]+`)
@@ -52,9 +74,43 @@ type logger struct {
 
 var global = &logger{}
 
-// Init creates the users directory. Call once at startup.
+// Init creates the users directory and starts the retention cleaner.
+// Call once at startup.
 func Init() {
 	_ = os.MkdirAll(usersDir, 0o755)
+	go cleanOldLogs()
+}
+
+// cleanOldLogs removes wellbeing JSONL files older than retentionDays.
+// Runs once at startup and daily after that.
+func cleanOldLogs() {
+	for {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02")
+		entries, err := os.ReadDir(usersDir)
+		if err == nil {
+			for _, userDir := range entries {
+				if !userDir.IsDir() {
+					continue
+				}
+				dir := filepath.Join(usersDir, userDir.Name(), wellbeingSubdir)
+				files, err := os.ReadDir(dir)
+				if err != nil {
+					continue
+				}
+				for _, f := range files {
+					name := f.Name()
+					if !strings.HasSuffix(name, fileSuffix) {
+						continue
+					}
+					day := strings.TrimSuffix(name, fileSuffix)
+					if day < cutoff {
+						_ = os.Remove(filepath.Join(dir, name))
+					}
+				}
+			}
+		}
+		time.Sleep(24 * time.Hour)
+	}
 }
 
 // NormalizeUser lowercases, replaces non [a-z0-9_-] with _, strips _,
@@ -73,12 +129,24 @@ func NormalizeUser(name string) string {
 	return s
 }
 
-// LogForUser appends an activity entry for the given user.
+// LogForUser appends an activity entry for the given user. If the previous
+// entry in today's file has the same action, the new entry is dropped
+// (dedup). This collapses continuous sedentary/drink/break streams into a
+// single entry per "session" — presence enter/leave entries break the
+// chain so the next same-action entry is kept.
 func LogForUser(user, action, notes string) {
 	user = NormalizeUser(user)
 	now := time.Now()
-	seq := global.seqN.Add(1)
+	day := now.Format("2006-01-02")
 
+	global.mu.Lock()
+	defer global.mu.Unlock()
+
+	if last := readLastAction(user, day); last == action {
+		return
+	}
+
+	seq := global.seqN.Add(1)
 	evt := Event{
 		TS:     float64(now.UnixNano()) / 1e9,
 		Seq:    seq,
@@ -86,10 +154,7 @@ func LogForUser(user, action, notes string) {
 		Action: action,
 		Notes:  notes,
 	}
-
-	global.mu.Lock()
 	global.writeJSONL(now, user, evt)
-	global.mu.Unlock()
 }
 
 // Query reads wellbeing events for a given user and day (YYYY-MM-DD).

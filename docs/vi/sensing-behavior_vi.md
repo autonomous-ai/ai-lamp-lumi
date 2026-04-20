@@ -183,55 +183,65 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 
 Lumi chủ động chăm sóc sức khỏe người dùng bằng cron jobs do AI agent tự quản lý qua OpenClaw. Thay vì timer cứng, agent tự quyết interval dựa trên khoa học và thói quen user.
 
-### Cơ chế hoạt động
+### Cơ chế hoạt động (event-driven — không cron)
 
-Agent duy trì **lịch sử wellbeing theo từng người** tại `/root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl` — mỗi dòng JSONL là một activity quan sát được (`{ts, seq, hour, action, notes}`, với `action ∈ {drink, break, sedentary, emotional}`). Schema mirror mood log. Ghi qua `POST /api/wellbeing/log`, đọc qua `GET /api/openclaw/wellbeing-history`.
+Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. Mỗi khi nhận `motion.activity`, agent log hoạt động và đọc lại history gần đây để quyết định có cần nhắc hay không.
 
-Agent đọc history hôm nay khi nhận `motion.activity` để biết user đã uống mấy lần, nghỉ mấy lần trong ngày — dùng điều chỉnh interval và làm ngữ cảnh cho caring observation. Không còn file "summary" dạng prose — nếu cần pattern dài ngày thì agent tự query nhiều ngày history theo yêu cầu.
+**Activity JSONL theo từng user** tại `/root/local/users/{user}/wellbeing/YYYY-MM-DD.jsonl` — mỗi dòng là 1 transition:
 
-Wellbeing crons **KHÔNG** tạo khi `presence.enter`. Thay vào đó, tạo khi **`motion.activity` detect hoạt động tĩnh** (ngồi xài máy tính, đọc sách, chơi game, v.v.). Tránh tạo/xóa cron liên tục khi người đi qua mà không ngồi xuống — đặc biệt trong môi trường nhiều người như văn phòng.
+```jsonc
+{"ts": 1776658657.23, "seq": 42, "hour": 11, "action": "sedentary", "notes": ""}
+```
 
-Khi phát hiện hoạt động tĩnh (`motion.activity`), agent:
+`action` values: `drink`, `break`, `sedentary`, `emotional`, `enter`, `leave`.
 
-1. **Đọc history hôm nay** (`GET /api/openclaw/wellbeing-history?user={name}`) để biết user đã drink/break/sedentary bao nhiêu lần.
-2. **Quyết định interval và cách tiếp cận** dựa trên history hôm nay, thời gian trong ngày, và hoạt động phát hiện được. Mặc định (~45 phút hydration, ~30 phút break), agent tự điều chỉnh qua các session.
-3. **Schedule 2 cron jobs** qua `cron.add` (kind: `every`), đặt tên theo user để tránh trùng:
-   - `"Wellbeing: {name} hydration"` — mỗi 2700000ms (45 phút)
-   - `"Wellbeing: {name} break"` — mỗi 1800000ms (30 phút)
+**Backend tự dedup.** `POST /api/wellbeing/log` so action mới với entry gần nhất trong file hôm nay. Nếu trùng → drop silently. Điều này gộp các chuỗi cùng action liên tiếp (ví dụ sedentary fire mỗi 3 phút) thành 1 entry duy nhất. Marker `presence.enter` / `presence.leave` (backend tự ghi) phá dedup chain — same-action entries ở 2 phía của presence boundary đều giữ lại, mỗi session phân biệt được.
 
-**Áp dụng cho tất cả — người quen và người lạ.** Người lạ dùng `{name}` = `"unknown"` (tất cả stranger share chung 1 bộ cron). Cron text không cần check presence — khi fire thì agent cứ nhắc.
+**Retention:** 7 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
 
-### User attribution — tag `[context: current_user=X]`
+### Khi nhận `motion.activity` — agent làm gì
 
-Để chặn agent "tự đoán" tên người quen (ví dụ "Leo") khi face chỉ nhận ra stranger, sensing handler **inject tag `[context: current_user=X]`** vào mọi message `motion.activity`. `X` là tên friend gần nhất đã được nhận, hoặc `"unknown"` khi face chỉ thấy stranger.
+1. **Log từng Activity group** (`drink`, `break`, `sedentary`) qua `POST /api/wellbeing/log` với `user = current_user`. Backend dedup — agent không cần check "đã ở state này chưa?".
+2. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
+3. **Tính delta** từ log: `minutes_since_last_drink`, `minutes_since_last_break`.
+4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
+   - Chưa có entry `drink` hay `break` hôm nay → **không nudge** (session mới, chưa đến lúc).
+   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → nhắc uống nước.
+   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
+5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
-Wellbeing skill (và MANDATORY directive) bắt buộc agent dùng đúng giá trị này cho:
-- Tên cron wellbeing (`Wellbeing: {current_user} hydration`, `Wellbeing: {current_user} break`)
-- Field `user` trong `POST /api/wellbeing/log`
-- Field `user` trong `POST /api/mood/log`
+### Ngưỡng
 
-Agent **bị cấm** suy luận tên từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`. Nguồn duy nhất là presence tracker trong `mood.CurrentUser()` — giờ cũng set `"unknown"` khi stranger `presence.enter` (trước đây để stale tên friend cũ).
+Hardcode trong `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 
-> **Ghi chú:** Wellbeing là skill riêng (`wellbeing/SKILL.md`). Sensing handler inject nudge message vào `motion.activity` events nhắc agent follow Wellbeing và Music skill khi phát hiện hoạt động tĩnh.
+| Threshold | Giá trị test | Giá trị production |
+|---|---|---|
+| `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
+| `BREAK_THRESHOLD_MIN` | **5** | 30 |
+
+> ⚠ **Release checklist:** trước khi ship, đổi cả 2 ngưỡng từ 5 về production (45 / 30). Ngưỡng 5 phút chỉ để iterate nhanh khi dev.
+
+### User attribution — `[context: current_user=X]`
+
+Sensing handler inject tag `[context: current_user=X]` vào mọi message `motion.activity`. `X` là tên friend gần nhất được nhận, hoặc `"unknown"` khi face chỉ thấy stranger. Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`. Nguồn duy nhất là `mood.CurrentUser()`, cũng set `"unknown"` khi stranger `presence.enter` (trước đây để stale tên friend cũ).
+
+### Marker presence do backend tự ghi
+
+Sensing handler ghi `enter` / `leave` vào cùng file wellbeing JSONL — **agent không cần làm gì**:
+
+- `presence.enter` (friend) → `{"action": "enter", "user": "<name>"}`
+- `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
+- `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_tại_thời_điểm_event>"}`
+
+Các marker này phá dedup chain nên ví dụ `sedentary → leave → enter → sedentary` cho ra 3 entry (sedentary, leave+enter, sedentary), không phải 1.
 
 ### Ưu tiên: Skills > Knowledge > History
 
 AGENTS.md quy định thứ tự ưu tiên: **SKILL.md luôn override KNOWLEDGE.md và conversation history**. Điều này rất quan trọng vì agent tự tích lũy "kinh nghiệm" vào KNOWLEDGE.md qua heartbeat, và những ghi chú này có thể chứa rules sai xung đột với skills do developer duy trì. Nếu agent phát hiện xung đột, nó phải cập nhật KNOWLEDGE.md cho khớp với skill, không phải ngược lại.
 
-**Dọn dẹp:**
-- **Người quen rời** (`presence.leave`) → cancel cron của họ. Không ghi summary — history theo activity đã ghi lại đầy đủ.
-- **Không ai 15 phút** (`presence.away`) → cancel TẤT CẢ cron còn lại bao gồm `"unknown"`.
+### Khi `presence.leave` / `presence.away`
 
-### Hành vi khi cron fire
-
-Mỗi lần cron fire, agent cứ nhắc (một câu ngắn) — không cần check presence (cron chỉ active khi có người). Luôn emit `[HW:/emotion:{...}]` marker.
-
-### Hành vi của agent
-
-| Nhắc nhở | Emotion | Nói |
-|---|---|---|
-| Hydration cron | `caring` (0.5) | CÓ (nhắc uống nước) hoặc im lặng |
-| Break cron | `caring` (0.6) | CÓ (nhắc stretch/đi bộ) hoặc im lặng |
+Backend ghi marker `leave` vào log. Không có gì khác để làm — **không có cron để cancel**. Directive yêu cầu agent im lặng (`NO_REPLY`).
 
 Agent dùng ảnh camera để đánh giá — KHÔNG phải lúc nào cũng nói. Tránh spam user khi họ trông ổn.
 
