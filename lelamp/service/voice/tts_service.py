@@ -49,6 +49,7 @@ class TTSService:
         self._sd = sound_device_module
         self._np = numpy_module
         self._output_device = output_device
+        self._provider = provider
         self._voice = voice
         self._model = model
         self._speed = max(0.25, min(4.0, speed))
