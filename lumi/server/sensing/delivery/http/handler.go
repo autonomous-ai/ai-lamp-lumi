@@ -533,8 +533,13 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 }
 
 // WellbeingLogRequest is the payload for logging a wellbeing activity.
+// Accepted actions:
+//   - User activity transitions (agent writes): drink, break, sedentary, emotional
+//   - Nudge records (agent writes after speaking): nudge_hydration, nudge_break
+//   - Presence markers (backend writes internally): enter, leave — accepted on the
+//     API too so the validator doesn't reject them if something posts them.
 type WellbeingLogRequest struct {
-	Action string `json:"action" validate:"required,oneof=drink break sedentary emotional"`
+	Action string `json:"action" validate:"required,oneof=drink break sedentary emotional nudge_hydration nudge_break enter leave"`
 	Notes  string `json:"notes"`
 	User   string `json:"user"`
 }

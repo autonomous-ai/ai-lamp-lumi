@@ -77,6 +77,10 @@ Apply in this order — nudge at most **one** thing per turn:
 3. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` **and a prior `break` entry exists** → speak a break nudge (stretch, stand up, walk).
 4. `else` → respond to the event normally (caring observation if natural) or `NO_REPLY` if nothing to add.
 
+**Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Do not say *"just nudged 1 min ago, no repeat"*, *"both over threshold but skipping"*, *"dedup applies"*, etc. These are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have said in a previous turn's thinking.
+
+**Also: trust the log, not memory.** If the wellbeing history response contains NO `nudge_hydration` entry, then no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
+
 The "prior entry exists" guard prevents spamming the user the moment they sit down. Once they've drunk or broken once today, the threshold-based nudges kick in normally.
 
 Example nudges (vary your wording each time — never repeat verbatim):

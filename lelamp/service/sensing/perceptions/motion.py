@@ -188,6 +188,15 @@ class MotionPerception(Perception):
         self._actions_buffer: list[str] = []
         self._last_flush_ts: float = 0.0
 
+        # Dedup state for outbound motion.activity events.
+        # Key = (current_user, frozenset(activity_groups), tuple(sorted(emotional_cues))).
+        # Same key within MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User
+        # change flips the key immediately; different strangers collapse to
+        # "unknown" so they don't break dedup on their own.
+        self._last_sent_key: tuple[str, frozenset[str], tuple[str, ...]] | None = None
+        self._last_sent_ts: float = 0.0
+        self._dedup_window_s: float = 300.0  # 5 min
+
     @staticmethod
     def _load_whitelist() -> list[str] | None:
         whitelist_path = RESOURCES_DIR / "white_list.txt"
@@ -271,6 +280,35 @@ class MotionPerception(Perception):
             parts.append("If nothing noteworthy, reply NO_REPLY.")
 
         message = " ".join(parts)
+
+        # Dedup: drop if the outbound state (user + activity groups + emotional
+        # cues) hasn't changed since the last send AND we're still within the
+        # dedup window. A user change, an activity group change, or a different
+        # emotional cue all flip the key — those always pass through.
+        current_user = ""
+        if self._face_recognizer is not None:
+            try:
+                current_user = self._face_recognizer.current_user() or ""
+            except Exception:
+                logger.exception("[motion] face_recognizer.current_user() failed")
+        key = (
+            current_user,
+            frozenset(activity_groups),
+            tuple(sorted(emotional_cues)),
+        )
+        if (
+            self._last_sent_key == key
+            and (cur_ts - self._last_sent_ts) < self._dedup_window_s
+        ):
+            logger.info(
+                "[motion] dedup drop: %s (same as last send %.1fs ago)",
+                message,
+                cur_ts - self._last_sent_ts,
+            )
+            return
+        self._last_sent_key = key
+        self._last_sent_ts = cur_ts
+
         logger.info("[motion] flushing: %s", message)
 
         self._send_event("motion.activity", message)

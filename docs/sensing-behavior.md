@@ -198,16 +198,22 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 | Action | Written by | Purpose |
 |---|---|---|
 | `drink`, `break`, `sedentary`, `emotional` | Agent | User activity transition from motion.activity groups |
-| `enter`, `leave` | Backend (sensing handler) | Session boundary — breaks the dedup chain |
-| `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — enables per-type cooldown and timeline visibility |
+| `enter`, `leave` | Backend (sensing handler) | Session boundary — written on every presence.enter / presence.leave / presence.away |
+| `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility |
 
-**Backend dedup.** `POST /api/wellbeing/log` compares the new action with the most recent entry in today's file. If identical, the new entry is silently dropped. This collapses continuous same-activity streams (e.g. a long sedentary session firing `motion.activity` every 3 min) into a single log entry. `presence.enter` / `presence.leave` markers (written automatically by the sensing handler) break the dedup chain — same-action entries on either side of a presence boundary are both kept, so each session is distinguishable.
+**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(activity_groups), tuple(emotional_cues))` and a `_last_sent_ts`. Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). This stops the 1-per-minute sedentary spam at the source so Lumi never spends tokens on it.
 
-**Retention:** 7 days. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
+- User change (owner→owner, owner→unknown, unknown→owner) flips the key immediately → event passes through.
+- Different strangers (e.g. `stranger_46` → `stranger_54`) collapse to `"unknown"` via `FaceRecognizer.current_user()`, so swapping strangers alone doesn't break dedup.
+- After 5 min on the same state, the next event passes through even if nothing changed — this keeps the Lumi agent "woken up" periodically so the wellbeing threshold check still runs.
+
+Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedup is the lelamp's job.
+
+**Retention:** 7 days on the Lumi side. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
 
 ### On `motion.activity` — what the agent does
 
-1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. Backend dedups, so the agent never has to check "am I already in this state?".
+1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
 2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
 3. **Compute deltas** from the log: `minutes_since_last_drink`, `minutes_since_last_break`.
 4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
@@ -242,7 +248,7 @@ The sensing handler writes `enter` / `leave` entries to the same wellbeing JSONL
 - `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
 - `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_at_time_of_event>"}`
 
-These markers also break the dedup chain, so e.g. `sedentary → leave → enter → sedentary` produces three log entries (sedentary, leave+enter, sedentary), not one.
+Presence events also reset the lelamp dedup key (since `current_user` changes), so a stranger leaving and a friend arriving will let the next sedentary event through immediately.
 
 ### Priority: Skills > Knowledge > History
 
