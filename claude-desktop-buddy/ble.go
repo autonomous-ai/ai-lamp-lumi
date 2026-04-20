@@ -28,16 +28,18 @@ var (
 
 // BLEServer manages the Nordic UART BLE GATT server.
 type BLEServer struct {
-	deviceName string
-	txChar     bluetooth.Characteristic
-	onMessage  func([]byte) // called for each complete JSON line received
-	rxBuf      bytes.Buffer // accumulates partial lines
+	deviceName  string
+	txChar      bluetooth.Characteristic
+	onMessage   func([]byte)                        // called for each complete JSON line received
+	onConnect   func(device bluetooth.Device, connected bool) // called on connect/disconnect
+	rxBuf       bytes.Buffer                        // accumulates partial lines
 }
 
-func NewBLEServer(deviceName string, onMessage func([]byte)) *BLEServer {
+func NewBLEServer(deviceName string, onMessage func([]byte), onConnect func(bluetooth.Device, bool)) *BLEServer {
 	return &BLEServer{
 		deviceName: deviceName,
 		onMessage:  onMessage,
+		onConnect:  onConnect,
 	}
 }
 
@@ -47,6 +49,18 @@ func (s *BLEServer) Start() error {
 	if err := adapter.Enable(); err != nil {
 		return err
 	}
+
+	// Set connect/disconnect handler
+	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
+		if connected {
+			log.Println("[ble] device connected")
+		} else {
+			log.Println("[ble] device disconnected")
+		}
+		if s.onConnect != nil {
+			s.onConnect(device, connected)
+		}
+	})
 
 	// Add Nordic UART Service
 	err := adapter.AddService(&bluetooth.Service{
