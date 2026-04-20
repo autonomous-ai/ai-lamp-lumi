@@ -40,6 +40,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -76,6 +77,8 @@ _API_KEY = os.environ.get(
     "SPEAKER_EMBEDDING_API_KEY", os.environ.get("DL_API_KEY", "")
 )
 _API_TIMEOUT_S = float(os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15"))
+_EMBED_MAX_SECONDS = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0"))
+_EMBED_TMP_DIR = Path(os.environ.get("SPEAKER_EMBED_TMP_DIR", "/tmp/lumi-voice-embed"))
 
 # Cosine similarity above which a speaker is considered a match.
 _MATCH_THRESHOLD = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7"))
@@ -108,7 +111,6 @@ def _cosine_similarity(e1: np.ndarray, e2: np.ndarray) -> float:
     pre-normalized vectors). The ``+ 1e-12`` guards against zero-norm inputs.
     Returns the confidence in range [0, 1].
     """
-    
     raw_cos = float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
     return (raw_cos + 1.0) / 2.0
 
@@ -164,8 +166,8 @@ def _read_bytes(path: str) -> bytes:
         return f.read()
 
 
-def _ensure_wav_16k_mono(raw: bytes) -> bytes:
-    """Decode WAV bytes, convert to 16kHz mono PCM_16, re-encode to WAV bytes."""
+def _wav_bytes_to_float32_16k_mono(raw: bytes) -> np.ndarray:
+    """Decode WAV bytes into float32 mono waveform at 16kHz."""
     try:
         import soundfile as sf  # type: ignore
     except ImportError as e:
@@ -193,10 +195,25 @@ def _ensure_wav_16k_mono(raw: bytes) -> bytes:
             ) from e
         g = gcd(_TARGET_SR, int(sr))
         arr = resample_poly(arr, _TARGET_SR // g, int(sr) // g).astype(np.float32)
+    return arr
 
+
+def _float32_waveform_to_wav_bytes(waveform: np.ndarray) -> bytes:
+    """Encode a float32 mono waveform into 16kHz PCM_16 WAV bytes."""
+    try:
+        import soundfile as sf  # type: ignore
+    except ImportError as e:
+        raise SpeakerRecognizerError(
+            "soundfile is required for WAV processing"
+        ) from e
     buf = io.BytesIO()
-    sf.write(buf, arr, _TARGET_SR, format="WAV", subtype="PCM_16")
+    sf.write(buf, np.asarray(waveform, dtype=np.float32), _TARGET_SR, format="WAV", subtype="PCM_16")
     return buf.getvalue()
+
+
+def _ensure_wav_16k_mono(raw: bytes) -> bytes:
+    """Normalize WAV bytes to 16kHz mono PCM_16 WAV bytes."""
+    return _float32_waveform_to_wav_bytes(_wav_bytes_to_float32_16k_mono(raw))
 
 
 def pcm16_bytes_to_wav(pcm_bytes: bytes, sample_rate: int = _TARGET_SR) -> bytes:
@@ -345,6 +362,74 @@ class SpeakerRecognizer:
             raise SpeakerRecognizerError("embedding has zero norm")
         return vec / norm
 
+    def _split_waveform_by_max_seconds(self, waveform: np.ndarray) -> list[np.ndarray]:
+        """Split waveform into max-duration chunks for robust embedding."""
+        wav = np.asarray(waveform, dtype=np.float32)
+        if wav.ndim != 1:
+            raise SpeakerRecognizerError("waveform must be 1-D")
+        if wav.size == 0:
+            return []
+
+        max_seconds = max(float(_EMBED_MAX_SECONDS), 0.1)
+        max_samples = max(1, int(max_seconds * _TARGET_SR))
+        if wav.shape[0] <= max_samples:
+            return [wav]
+
+        chunks: list[np.ndarray] = []
+        for start in range(0, wav.shape[0], max_samples):
+            seg = wav[start : start + max_samples]
+            if seg.size > 0:
+                chunks.append(seg.astype(np.float32))
+        return chunks
+
+    def _expand_wav_for_embedding(self, wav_bytes: bytes, *, stem: str) -> list[str]:
+        """Return base64 WAV inputs; long audios are chunked into tmp files."""
+        waveform = _wav_bytes_to_float32_16k_mono(wav_bytes)
+        chunks = self._split_waveform_by_max_seconds(waveform)
+        if not chunks:
+            raise SpeakerRecognizerError("empty audio after decoding")
+
+        if len(chunks) == 1:
+            return [base64.b64encode(_float32_waveform_to_wav_bytes(chunks[0])).decode("ascii")]
+
+        _EMBED_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f"{stem[:24]}_",
+                dir=str(_EMBED_TMP_DIR),
+            )
+        )
+
+        logger.info(
+            "split long audio for embedding: stem=%s chunks=%d max_seconds=%.2f",
+            stem,
+            len(chunks),
+            _EMBED_MAX_SECONDS,
+        )
+        out: list[str] = []
+        for i, chunk in enumerate(chunks):
+            chunk_bytes = _float32_waveform_to_wav_bytes(chunk)
+            chunk_path = tmp_dir / f"{stem}_chunk_{i:03d}.wav"
+            chunk_path.write_bytes(chunk_bytes)
+            out.append(base64.b64encode(chunk_bytes).decode("ascii"))
+        return out
+
+    def _compute_representative_embedding(self, audios_b64: list[str]) -> np.ndarray:
+        """Compute representative embedding by averaging per-sample embeddings."""
+        if not audios_b64:
+            raise SpeakerRecognizerError("no audio to embed")
+
+        emb_list: list[np.ndarray] = []
+        for audio_b64 in audios_b64:
+            emb_list.append(self._call_embedding_api([audio_b64]))
+
+        stacked = np.stack(emb_list, axis=0).astype(np.float32)
+        mean_vec = np.mean(stacked, axis=0).astype(np.float32)
+        norm = float(np.linalg.norm(mean_vec))
+        if norm == 0.0:
+            raise SpeakerRecognizerError("mean embedding has zero norm")
+        return mean_vec / norm
+
     # ------------------------------------------------------------- metadata
 
     def _read_metadata(self, norm: str) -> dict[str, Any]:
@@ -458,8 +543,7 @@ class SpeakerRecognizer:
         voice_dir = self._voice_dir(norm)
         voice_dir.mkdir(parents=True, exist_ok=True)
 
-        # Merge telegram identity into the SHARED metadata file up front so
-        # it's persisted even if embedding computation later fails.
+        # Persist shared identity early, even if embedding fails later.
         shared_identity = _merge_shared_metadata(
             user_dir,
             display_name=name.strip() or None,
@@ -481,34 +565,31 @@ class SpeakerRecognizer:
                 raise SpeakerRecognizerError("empty audio")
             new_wavs.append(_ensure_wav_16k_mono(raw))
 
-        # Persist new WAV samples to the user's voice/ folder. The origin
-        # (``mic`` / ``telegram`` / ``other``) is encoded in the filename so
-        # list_registered() can surface which channels have contributed
-        # without reading a separate index file.
-        saved_files: list[str] = []
+        # Persist original audios; origin is encoded in filename.
         for wb in new_wavs:
             fname = (
                 f"sample_{origin}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.wav"
             )
             (voice_dir / fname).write_bytes(wb)
-            saved_files.append(fname)
 
-        # Collect every WAV in the folder (old + new) and compute one embedding.
+        # Build representative embedding from all saved samples.
         all_samples = sorted(voice_dir.glob("sample_*.wav"))
-        audios_b64 = [
-            base64.b64encode(p.read_bytes()).decode("ascii") for p in all_samples
-        ]
-        embedding = self._call_embedding_api(audios_b64)
+        audios_b64: list[str] = []
+        for p in all_samples:
+            audios_b64.extend(
+                self._expand_wav_for_embedding(
+                    p.read_bytes(),
+                    stem=f"{norm}_{p.stem}",
+                )
+            )
+        embedding = self._compute_representative_embedding(audios_b64)
         np.save(self._embedding_path(norm), embedding)
 
-        # Update voice metadata + registry. Identity fields (display_name,
-        # telegram_*) are mirrored from the shared metadata.json for easy
-        # lookup, but the shared file remains the source of truth.
+        # Update voice metadata + registry.
         existing = self._read_metadata(norm)
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S%z") or time.strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
-        # Union of all origins ever contributing to this user's samples.
         enrollment_sources = sorted(
             {_sample_origin(p.name) for p in all_samples} | {origin}
         )
@@ -608,7 +689,6 @@ class SpeakerRecognizer:
 
         wav_bytes = _ensure_wav_16k_mono(raw)
 
-        # Persist the audio so the caller can enroll later if unknown.
         saved_path = self._save_incoming_audio(wav_bytes)
 
         if not self.available:
@@ -621,9 +701,12 @@ class SpeakerRecognizer:
                 "error": "embedding API not configured",
             }
 
-        audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
         try:
-            embedding = self._call_embedding_api([audio_b64])
+            input_audios = self._expand_wav_for_embedding(
+                wav_bytes,
+                stem="incoming",
+            )
+            embedding = self._compute_representative_embedding(input_audios)
         except SpeakerRecognizerError as e:
             return {
                 "name": "unknown",
@@ -646,7 +729,6 @@ class SpeakerRecognizer:
 
         scores: list[tuple[str, float]] = []
         for n, emb in known.items():
-            
             conf = _cosine_similarity(embedding, emb)
             scores.append((n, conf))
         scores.sort(key=lambda t: t[1], reverse=True)
@@ -664,8 +746,7 @@ class SpeakerRecognizer:
                 for n, c in scores[:3]
             ],
         }
-        # Surface identity fields on match so callers can DM the user /
-        # populate greetings without a second round-trip.
+        # Surface identity fields on match.
         if is_match:
             shared = self._read_shared_metadata(best_name)
             result["display_name"] = shared.get("display_name", best_name)
