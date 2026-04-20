@@ -224,8 +224,7 @@ func (s *Service) drainPendingEvents() {
 			msg = "[ambient] " + ev.msg
 		} else {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
-			// Keep aligned with the live path in sensing/http/handler.go.
-			msg += "\n[Reply rule: reply is spoken VERBATIM — reasoning and math stay in `thinking`. If nothing to say → NO_REPLY.]"
+			// Reply-hygiene rules live inside the respective SKILL.md files.
 			switch ev.eventType {
 			case "presence.leave", "presence.away":
 				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"

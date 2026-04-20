@@ -5,6 +5,18 @@ description: Search and play music from YouTube through the lamp speaker. Proact
 
 # Music
 
+> **OUTPUT RULE — read this before you type anything to the user.**
+>
+> When this skill is triggered as a proactive suggestion (from Mood or Sedentary), it's an internal workflow. **NEVER narrate it into your reply.** Forbidden in the reply text:
+> - Flow names or step numbers ("Flow A", "Flow B", "AI-Driven Music Suggestion", "Step 1").
+> - Phrases like *"Now I follow…"*, *"Let me check audio status…"*, *"Last suggestion was…"*, *"Mapping: sad → …"*.
+> - Cooldown / interval math or reasoning about why you're suggesting.
+> - Bullet lists recapping mood decisions or audio history.
+>
+> **Your reply text** to the user is ONE short caring sentence with the offer (e.g. *"[sigh] Want some calm piano?"*) — nothing else. All the checks and logging happen silently via tool calls.
+>
+> When the user explicitly ASKS for music ("play X", "sing something"), the reply is just the confirmation sentence (*"Playing it now!"*) — still one line, still no workflow narration.
+
 ## Quick Start
 Play music through the lamp speaker by searching YouTube. Use this when the user asks to play a song, sing, or listen to music.
 
