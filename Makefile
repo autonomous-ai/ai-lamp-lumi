@@ -1,11 +1,12 @@
 # AI Lamp (Lumi) — Makefile
-# 3 components: Go (lumi + bootstrap), Python (lelamp), TypeScript (web)
+# 4 components: Go (lumi + bootstrap + buddy), Python (lelamp), TypeScript (web)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Directories
 LUMI_DIR       := lumi
 LELAMP_DIR     := lelamp
+BUDDY_DIR      := claude-desktop-buddy
 WEB_DIR        := $(LUMI_DIR)/web
 
 # Go build
@@ -77,10 +78,19 @@ web-build:
 	cd $(WEB_DIR) && npm run build
 
 # ============================================================================
+# Claude Desktop Buddy (Go) — build
+# ============================================================================
+
+.PHONY: buddy-build
+
+buddy-build:
+	cd $(BUDDY_DIR) && GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o buddy-plugin .
+
+# ============================================================================
 # Upload (OTA to GCS) — unified format: make upload-<component>
 # ============================================================================
 
-.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-hooks upload-setup upload-setup-ap upload-all
+.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-claude-desktop-buddy upload-web upload-skills upload-hooks upload-setup upload-setup-ap upload-all
 
 upload-lumi:
 	bash scripts/upload-lumi.sh
@@ -90,6 +100,9 @@ upload-bootstrap:
 
 upload-lelamp:
 	bash scripts/upload-lelamp.sh
+
+upload-claude-desktop-buddy:
+	bash scripts/upload-claude-desktop-buddy.sh
 
 upload-web:
 	bash scripts/upload-web.sh
@@ -106,7 +119,7 @@ upload-setup:
 upload-setup-ap:
 	bash scripts/upload-setup-ap.sh
 
-upload-all: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills upload-hooks
+upload-all: upload-lumi upload-bootstrap upload-lelamp upload-claude-desktop-buddy upload-web upload-skills upload-hooks
 
 # ============================================================================
 # Clean
@@ -116,5 +129,6 @@ upload-all: upload-lumi upload-bootstrap upload-lelamp upload-web upload-skills 
 
 clean:
 	rm -f $(LUMI_DIR)/lumi-server $(LUMI_DIR)/bootstrap-server
+	rm -f $(BUDDY_DIR)/buddy-plugin
 	rm -rf $(LELAMP_DIR)/.venv $(LELAMP_DIR)/__pycache__
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/node_modules
