@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
+import { UserTimelineModal } from "./UserTimelineModal";
 
 interface CooldownEntry {
   person_id: string;
@@ -49,6 +50,9 @@ export function FaceOwnersSection() {
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState<string | null>(null); // "label/filename"
+
+  // Timeline modal state
+  const [timelineUser, setTimelineUser] = useState<string | null>(null);
 
   // Folder toggle state: "label:mood" => expanded
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -431,6 +435,18 @@ export function FaceOwnersSection() {
                     </span>
                   )}
                   <button
+                    onClick={() => setTimelineUser(person.label)}
+                    style={{
+                      ...btnStyle,
+                      padding: "2px 7px",
+                      background: "rgba(96,165,250,0.15)",
+                      color: "rgb(96,165,250)",
+                      border: "1px solid rgba(96,165,250,0.25)",
+                    }}
+                  >
+                    📊 Timeline
+                  </button>
+                  <button
                     onClick={() => handleRemove(person.label)}
                     disabled={deleting === person.label}
                     style={{
@@ -709,6 +725,10 @@ export function FaceOwnersSection() {
           </div>
         )}
       </div>
+
+      {timelineUser && (
+        <UserTimelineModal user={timelineUser} onClose={() => setTimelineUser(null)} />
+      )}
     </div>
   );
 }
