@@ -61,6 +61,10 @@ class ElevenLabsTTSBackend(TTSBackend):
     def available(self) -> bool:
         return self._httpx is not None and bool(self._api_key)
 
+    @property
+    def volume_boost(self) -> float:
+        return 1.0
+
     def stream_pcm(
         self,
         text: str,
