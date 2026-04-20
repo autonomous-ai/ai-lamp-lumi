@@ -112,24 +112,41 @@ Everywhere this skill writes `{name}` in a URL or payload, the value **MUST** co
 
 This matches the same rule used by the Wellbeing and Mood skills — all three must attribute to the same user for the per-user JSONLs (mood, wellbeing, music-suggestions) to stay in sync.
 
-**Always read the latest decision before suggesting** — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
-
-```bash
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&kind=decision&last=1"
-```
-
-Use the `mood` field of that decision row. If the row is older than ~30 min or there are no decision rows for today → treat the user's mood as `normal` and skip the proactive suggestion (no decision = no fresh evidence the user wants music).
-
 **Do NOT create music crons** — they are no longer used.
 
-Before suggesting, also check music suggestion history (`GET /api/openclaw/music-suggestion-history?user={name}&last=1`) — skip if last suggestion was < 30 min ago.
+### Two flows — mood vs sedentary
+
+The two triggers use **different flows**. Sedentary does NOT require a mood decision.
+
+#### Flow A — Mood trigger
+
+1. Check `GET /audio/status` → skip if playing.
+2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < 30 min ago.
+3. Read the latest mood decision — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
+   ```bash
+   curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&kind=decision&last=1"
+   ```
+   Use the `mood` field of that decision row. If the row is older than ~30 min or there are no decision rows for today → treat the user's mood as `normal` and skip.
+4. Check `GET /audio/history?person={name}&last=1` → personalize genre (see Learning Rules).
+5. Pick genre from **Mood → Music Mapping** table (override with audio history if clear preference).
+6. Suggest — speak only, do not auto-play.
+
+#### Flow B — Sedentary trigger (no mood required)
+
+1. Check `GET /audio/status` → skip if playing.
+2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < 30 min ago.
+3. **Skip mood check entirely.** The user is working — that alone is enough context.
+4. Check `GET /audio/history?person={name}&last=1` → personalize genre (see Learning Rules).
+5. Default genre: **lo-fi, ambient, instrumental, study beats**. Override with audio history if clear preference.
+6. Optionally read mood decision — if one is fresh and suggestion-worthy, use it to refine genre (e.g. `tired` + sedentary → calm piano instead of lo-fi). But a missing/stale/normal mood does NOT block the suggestion.
+7. Suggest — speak only, do not auto-play.
 
 ### Learning Rules
 
 **From last played song:**
 - `stopped_by: "end"` + `duration_s` > 180s → user enjoyed it → suggest similar artist/genre
 - `stopped_by: "user"` + `duration_s` < 30s → didn't like it → try a different direction
-- No history at all → fall back to mood-based suggestion
+- No history at all → fall back to mood-based or sedentary-default suggestion
 
 ### Mood → Music Mapping
 
@@ -141,9 +158,9 @@ Before suggesting, also check music suggestion history (`GET /api/openclaw/music
 | Stressed / tense | Soft jazz, classical, meditation | "Let me put on something to help you unwind" |
 | Bored / restless | Fun pop, disco, upbeat indie, sing-along hits | "Bored? Let me put on something fun!" |
 | Relaxed / chill | Chill R&B, bossa nova, acoustic | "Perfect vibe for some bossa nova, no?" |
-| Working quietly | Ambient, minimal electronica, study beats | "Some ambient music while you work?" |
+| Sedentary (no mood) | Lo-fi, ambient, study beats, minimal electronica | "Some background music while you work?" |
 
-**Personalization override:** If the last played song reveals a clear preference (e.g., K-pop, classical), **override the mood mapping** with that preference. The last song beats assumptions.
+**Personalization override:** If the last played song reveals a clear preference (e.g., K-pop, classical), **override the mood/sedentary mapping** with that preference. The last song beats assumptions.
 
 ### Suggestion Rules
 
