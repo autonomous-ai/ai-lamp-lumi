@@ -1,6 +1,6 @@
 ---
 name: user-emotion-detection
-description: [CURRENTLY INACTIVE] Detects the USER's emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it. This is NOT for Lumi's own emotion expression — that's emotion/SKILL.md.
+description: Detects the USER's emotional state from a dedicated motion.emotional event. That event type is not yet emitted — until it is, this skill has no trigger and never runs. Do not invoke it. This is NOT for Lumi's own emotion expression — that's emotion/SKILL.md.
 ---
 
 # User Emotion Detection
