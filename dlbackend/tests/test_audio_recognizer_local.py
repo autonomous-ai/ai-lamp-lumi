@@ -1,5 +1,6 @@
 from pathlib import Path
 import time
+import base64
 
 import numpy as np
 import pytest
@@ -61,6 +62,11 @@ def _timed_call(label: str, fn, *args, **kwargs):
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     print(f"[Timing] {label}: {elapsed_ms:.2f} ms")
     return out
+
+
+def _wav_file_to_b64(wav_path: Path) -> str:
+    with open(wav_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
 
 
 @pytest.mark.integration
@@ -272,3 +278,32 @@ def test_get_db():
     # Assert
     assert db is not None
     assert len(db) == 3
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not _deps_ready() or not _files_ready(),
+    reason="Missing runtime dependencies or required model/audio files.",
+)
+def test_embed_from_audio_b64_local():
+    print("==========================================test_embed_from_audio_b64_local==========================================")
+    recognizer = AudioRecognizer()
+    audios_b64 = [_wav_file_to_b64(BAO_1), _wav_file_to_b64(BAO_2)]
+
+    merged_chunks = []
+    last_sr = 16000
+    for item in audios_b64:
+        raw = base64.b64decode(item)
+        assert len(raw) > 0
+
+    wav_1, sr_1 = _wav_to_chunks(BAO_1)
+    wav_2, _ = _wav_to_chunks(BAO_2)
+    merged_chunks = [c.tolist() if hasattr(c, "tolist") else c for c in wav_1 + wav_2]
+    last_sr = sr_1
+
+    emb = recognizer._extract_embedding_from_chunks(merged_chunks, chunk_sample_rate=last_sr)
+    vec = np.asarray(emb, dtype=np.float32).flatten()
+
+    assert vec.ndim == 1
+    assert vec.shape[0] > 0
+    assert np.isclose(np.linalg.norm(vec), 1.0, atol=1e-3)
