@@ -321,8 +321,8 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 			slog.Error("refresh models config failed", "component", "device", "error", err)
 		}
 	}
-	// Re-push voice config to LeLamp when TTS settings change
-	if (data.TTSVoice != "" || data.TTSProvider != "") && s.config.DeepgramAPIKey != "" {
+	// Re-push voice config to LeLamp on any config change
+	if s.config.DeepgramAPIKey != "" {
 		s.RePushVoiceConfig()
 	}
 	return nil
