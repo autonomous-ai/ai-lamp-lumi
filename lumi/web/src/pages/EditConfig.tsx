@@ -151,7 +151,10 @@ export default function EditConfig() {
   const [loadingCfg, setLoadingCfg] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<SectionId>("wifi");
+  const [activeSection, setActiveSection] = useState<SectionId>(() => {
+    const hash = window.location.hash.replace("#", "") as SectionId;
+    return SECTIONS.some((s) => s.id === hash) ? hash : "wifi";
+  });
   const contentRef = useRef<HTMLDivElement>(null);
 
   // form state
@@ -300,6 +303,7 @@ export default function EditConfig() {
 
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
+    window.location.hash = id;
   };
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
