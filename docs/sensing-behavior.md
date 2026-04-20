@@ -237,30 +237,19 @@ Hardcoded in `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 |---|---|---|
 | `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
 | `BREAK_THRESHOLD_MIN` | **7** | 30 |
-| `NUDGE_COOLDOWN_MIN` | **3** | 15 |
 
-> ⚠ **Release checklist:** before shipping, change all three constants to the production values (45 / 30 / 15). Test values let us iterate within minutes instead of hours — hydration and break are intentionally offset (5 vs 7) so you can tell which path fired during testing.
+> ⚠ **Release checklist:** before shipping, change both constants to the production values (45 / 30). Test values let us iterate within minutes instead of hours — hydration and break are intentionally offset (5 vs 7) so you can tell which path fired during testing.
 
-**`NUDGE_COOLDOWN_MIN` — the quiet period between two nudges of the same kind.**
-
-Without it, a `motion.activity` wake-up fires every ~5 min (from lelamp dedup). If the hydration threshold is crossed and the user keeps sitting, every wake-up re-evaluates the threshold and re-nudges — because only drinking (or a fresh `enter`) resets the delta, not the nudge itself:
+**How re-nudge spam is prevented.** The `nudge_hydration` / `nudge_break` log entry the agent writes after speaking is also counted as a reset point for its threshold. After Lumi reminds, the delta drops back to 0 and the next reminder of that kind only fires after another full threshold window (45 min for hydration, 30 min for break in production).
 
 ```
-10:45  hydration overdue → nudge 💧 (1st)
-10:50  wake-up → still overdue → nudge 💧 (2nd)
-10:55  wake-up → still overdue → nudge 💧 (3rd) ← spam
+10:45  hydration overdue → nudge 💧 + log nudge_hydration → hydration delta = 0
+10:50  wake-up → delta = 5 min < 45 → SKIP
+11:20  wake-up → delta = 35 min < 45 → SKIP
+11:30  wake-up → delta = 45 min ≥ 45 → nudge 💧 again (user still hasn't drunk)
 ```
 
-With `NUDGE_COOLDOWN_MIN = 15`:
-
-```
-10:45  nudge 💧 → log nudge_hydration
-10:50  wake-up → overdue, but last nudge was 5 min ago < 15 → SKIP
-10:55  wake-up → 10 min < 15 → SKIP
-11:00  wake-up → 15 min ≥ 15 → nudge 💧 again (if user still hasn't drunk)
-```
-
-Break nudges work the same way, tracked independently via the `nudge_break` log entry. If the user drinks or takes a break before the cooldown expires, the threshold delta resets and there's nothing to nudge about anyway.
+If the user drinks or takes a break before the next window, the regular `drink` / `break` entry resets the delta and nothing needs nudging.
 
 ### User attribution — `[context: current_user=X]`
 
