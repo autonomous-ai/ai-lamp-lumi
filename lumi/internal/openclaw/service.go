@@ -224,18 +224,15 @@ func (s *Service) drainPendingEvents() {
 			msg = "[ambient] " + ev.msg
 		} else {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
-			// Replay path directives — keep aligned with the live path in
-			// lumi/server/sensing/delivery/http/handler.go. Wellbeing is
-			// event-driven (no crons); presence markers are written by the
-			// backend, not the agent.
-			msg += "\n[REPLY RULE: reply is spoken VERBATIM. All reasoning, log math, plan-talk, and bullet lists stay in `thinking` — never in the reply. If nothing real to say → NO_REPLY, don't narrate why.]"
+			// Keep aligned with the live path in sensing/http/handler.go.
+			msg += "\n[Reply rule: reply is spoken VERBATIM — reasoning and math stay in `thinking`. If nothing to say → NO_REPLY.]"
 			switch ev.eventType {
-			case "presence.leave":
-				msg += "\n[Wellbeing is event-driven — no crons to cancel. Backend has logged the leave marker. Reply NO_REPLY unless something is worth saying.]"
-			case "presence.away":
-				msg += "\n[Wellbeing is event-driven — no crons to cancel. Reply NO_REPLY.]"
+			case "presence.leave", "presence.away":
+				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
-				msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break — reset_ts is max(last activity entry, last enter entry, last nudge entry of same kind). Apply the Wellbeing skill's Step 4 rules (threshold) to decide whether to nudge. (3) If you spoke a nudge, POST back with action=nudge_hydration or nudge_break — this resets the delta so you don't re-nudge on every wake-up. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user.]"
+				msg += "\n[Follow wellbeing/SKILL.md, then music/SKILL.md for sedentary.]"
+			case "emotion.detected":
+				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 			}
 		}
 		var err error
