@@ -200,7 +200,7 @@ class SpeakRequest(BaseModel):
     interruptible: bool = Field(False, description="If True, can be interrupted by next speech")
 
     model_config = {
-        "json_schema_extra": {"examples": [{"text": "[laugh] Hi there! I am Lumi.", "voice": "Rachel"}]}
+        "json_schema_extra": {"examples": [{"text": "[laugh] Hey! How are you doing today? I missed you! [sigh] It has been so quiet around here.", "voice": "Rachel"}]}
     }
 
 

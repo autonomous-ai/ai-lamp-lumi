@@ -2675,7 +2675,7 @@ def speak_text(req: SpeakRequest):
     if req.voice:
         original_voice = tts_service._voice
         tts_service._voice = req.voice
-    logger.info("POST /voice/speak: text='%s' (len=%d, voice=%s, interruptible=%s)", req.text[:80], len(req.text), tts_service._voice, req.interruptible)
+    logger.info("POST /voice/speak: req=%s", req.model_dump_json())
     started = tts_service.speak(req.text, interruptible=req.interruptible)
     if original_voice is not None:
         tts_service._voice = original_voice
