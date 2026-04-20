@@ -24,6 +24,8 @@ dependencies = [
     "websockets",
     "pydantic-settings",
     "pydantic",
+    "soundfile",
+    "sounddevice",
 ]
 
 [project.optional-dependencies]

@@ -62,6 +62,15 @@ MAX_SESSION_DURATION_S = float(os.environ.get("LELAMP_MAX_SESSION_DURATION_S", "
 # Keep-alive mode: pre-connect STT WS before speech is detected so there's no connect delay.
 STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true"
 
+# Speaker recognition — prefix every transcript with "<Name>: " identified from
+# the session's buffered audio. Disabled if SPEAKER_EMBEDDING_API_URL is unset.
+SPEAKER_RECOGNITION_ENABLED = (
+    os.environ.get("LELAMP_SPEAKER_RECOGNITION_ENABLED", "true").lower() == "true"
+)
+# Minimum buffered audio duration (seconds) before attempting recognition —
+# short fragments are unreliable for speaker embeddings.
+SPEAKER_MIN_AUDIO_S = float(os.environ.get("LELAMP_SPEAKER_MIN_AUDIO_S", "0.8"))
+
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
@@ -144,6 +153,21 @@ class VoiceService:
         self._alsa_device: Optional[str] = alsa_device or None
 
         self._backchannel = Backchannel(tts_service)
+
+        # Speaker recognizer (optional). Lazy-initialized — if embedding API
+        # isn't configured the prefix is simply skipped.
+        self._speaker = None
+        if SPEAKER_RECOGNITION_ENABLED:
+            try:
+                from lelamp.service.voice.speaker_recognizer import SpeakerRecognizer
+                self._speaker = SpeakerRecognizer()
+                if not self._speaker.available:
+                    logger.info(
+                        "Speaker recognizer idle — SPEAKER_EMBEDDING_API_URL not set"
+                    )
+            except Exception as e:
+                logger.warning("Speaker recognizer init failed: %s", e)
+                self._speaker = None
 
         try:
             import numpy as np
@@ -601,8 +625,65 @@ class VoiceService:
         longest_partial = [""]
         final_segments = []
         final_sent = [False]
+        # Collect every resampled 16kHz int16 PCM chunk so we can identify the
+        # speaker at session end.
+        audio_buffer: list[bytes] = []
+
+        def _identify_and_decorate(transcript: str) -> str:
+            """Prefix transcript with ``<Name>: `` from speaker recognition.
+
+            For unknown speakers, also append ``(audio save at <path>)`` so the
+            LLM skill can pick the path up and enroll the voice later.
+            """
+            if not self._speaker or not audio_buffer:
+                return transcript
+            try:
+                from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
+                    pcm16_bytes_to_wav,
+                )
+            except Exception as e:
+                logger.debug("Speaker recognizer helper import failed: %s", e)
+                return transcript
+
+            total_bytes = sum(len(b) for b in audio_buffer)
+            duration_s = total_bytes / (STT_RATE * 2)  # int16 mono
+            if duration_s < SPEAKER_MIN_AUDIO_S:
+                logger.debug(
+                    "Skip speaker ID: only %.2fs of audio buffered (<%.2fs)",
+                    duration_s, SPEAKER_MIN_AUDIO_S,
+                )
+                return transcript
+
+            try:
+                wav_bytes = pcm16_bytes_to_wav(b"".join(audio_buffer), STT_RATE)
+                import base64 as _b64
+                audio_b64 = _b64.b64encode(wav_bytes).decode("ascii")
+                result = self._speaker.recognize(audio_b64, source_type="base64")
+            except Exception as e:
+                logger.warning("Speaker recognize failed: %s", e)
+                return transcript
+
+            name = result.get("name", "unknown")
+            confidence = result.get("confidence", 0.0)
+            if result.get("match") and name and name != "unknown":
+                # Prefer the display_name field (preserves original casing like
+                # "McDonald" or "chloe_92") — fallback to capitalize() of the
+                # normalized label only when the field is absent.
+                display = result.get("display_name") or name.capitalize()
+                logger.info("Speaker ID: %s (confidence=%.2f)", name, confidence)
+                return f"{display}: {transcript}"
+
+            audio_path = result.get("unknown_audio_path", "")
+            logger.info(
+                "Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path
+            )
+            if audio_path:
+                return f"Unknown: {transcript} (audio save at {audio_path})"
+            return f"Unknown: {transcript}"
 
         def _send_best(best: str):
+            # Run speaker recognition BEFORE wake word logic so the sent
+            # message preserves the prefix regardless of which branch fires.
             lower = best.lower()
             # Normalize: strip punctuation for wake word matching (Deepgram may add "hey, lumi.")
             normalized = re.sub(r"[^\w\s]", "", lower)
@@ -619,11 +700,14 @@ class VoiceService:
                         # normalized doesn't (e.g. "Hey, Lumi!" vs "hey lumi").
                         cmd = cmd[len(w):].strip()
                         break
-                logger.info("STT COMMAND: '%s' (wake word detected)", cmd or best)
-                self._send_to_lumi(cmd or best, event_type="voice_command")
+                command_text = cmd or best
+                final_msg = _identify_and_decorate(command_text)
+                logger.info("STT COMMAND: '%s' (wake word detected)", final_msg)
+                self._send_to_lumi(final_msg, event_type="voice_command")
             else:
-                logger.info("STT ambient: '%s'", best)
-                self._send_to_lumi(best, event_type="voice")
+                final_msg = _identify_and_decorate(best)
+                logger.info("STT ambient: '%s'", final_msg)
+                self._send_to_lumi(final_msg, event_type="voice")
 
         def on_transcript(text: str, is_final: bool):
             if not is_final:
@@ -685,6 +769,7 @@ class VoiceService:
                              len(all_pre), len(all_pre) * FRAME_DURATION_MS)
                 for frame in all_pre:
                     session.send_audio(frame)
+                    audio_buffer.append(frame)
 
             self._listening = True
             last_speech_time = time.time()
@@ -716,11 +801,13 @@ class VoiceService:
                 if overflowed:
                     continue
 
+                resampled = self._resample_to_stt(data, device_rate)
                 try:
-                    session.send_audio(self._resample_to_stt(data, device_rate))
+                    session.send_audio(resampled)
                 except Exception as e:
                     logger.warning("send_audio failed (connection dead?): %s", e)
                     break
+                audio_buffer.append(resampled)
 
                 rms = self._rms(data)
                 if rms >= RMS_THRESHOLD:
