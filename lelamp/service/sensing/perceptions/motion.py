@@ -235,39 +235,46 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        unique_groups: set[str] = set()
+        activity_groups: set[str] = set()
+        emotional_cues: list[str] = []
+        seen_emotions: set[str] = set()
 
         for a in reversed(actions):
             group = ACTIVITY_GROUP.get(a)
-            if group is not None:
-                unique_groups.add(group)
-            else:
+            if group is None:
                 logger.warning("[motion] unmapped action '%s', skipping", a)
+                continue
+            if group == "emotional":
+                if a not in seen_emotions:
+                    emotional_cues.append(a)
+                    seen_emotions.add(a)
+            else:
+                activity_groups.add(group)
 
-        if not unique_groups:
+        if not activity_groups and not emotional_cues:
             return
-
-        groups_str = ", ".join(sorted(unique_groups))
-        logger.info("[motion] flushing groups: %s", groups_str)
 
         from ..presence_service import PresenceState
 
-        has_friend = (
-            self._face_recognizer is not None
-            and self._face_recognizer.has_friend_present()
-        )
-
-        if self._presence.state == PresenceState.PRESENT and has_friend:
-            self._send_event(
-                "motion.activity",
-                f"Activity detected: {groups_str}. "
-                "If nothing noteworthy, reply NO_REPLY.",
-            )
-        else:
+        if self._presence.state != PresenceState.PRESENT:
             logger.info(
-                "[motion] skipping event — conditions not met (presence=%s, has_friend=%s)",
-                self._presence.state, has_friend,
+                "[motion] skipping event — no presence (presence=%s)",
+                self._presence.state,
             )
+            return
+
+        parts: list[str] = []
+        if activity_groups:
+            parts.append(f"Activity detected: {', '.join(sorted(activity_groups))}.")
+        if emotional_cues:
+            parts.append(f"Emotional cue: {', '.join(emotional_cues)}.")
+        else:
+            parts.append("If nothing noteworthy, reply NO_REPLY.")
+
+        message = " ".join(parts)
+        logger.info("[motion] flushing: %s", message)
+
+        self._send_event("motion.activity", message)
 
     def to_dict(self) -> dict:
         seconds_since = (

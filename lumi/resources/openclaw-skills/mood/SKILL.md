@@ -1,17 +1,35 @@
 ---
 name: mood
-description: Logs the user's emotional state to their mood history. After logging, follows Music skill to suggest music based on the mood.
+description: Two-step mood log. Step 1 records a raw signal from camera/voice/telegram. Step 2 reads recent history and writes the agent's synthesized "decision" mood. Music/wellbeing skills consume the latest decision.
 ---
 
 # Mood
 
-Log mood when you sense it — from camera actions or conversation. Don't overthink it. If you feel a mood, log it. Move on.
+Mood is stored as two kinds of rows:
+
+- **`signal`** — raw evidence from one source (camera action, voice tone, telegram message). Multiple per minute is fine.
+- **`decision`** — your synthesized mood after looking at the recent signals + the previous decision. This is the row downstream skills (Music, Wellbeing) read.
+
+**You are the synthesis.** The store does not fuse anything. Every time a signal comes in, you log it raw, then immediately read recent history and append a fresh decision row.
+
+---
 
 ## Mood Values
 
-happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate, unwell
+happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate, unwell, normal
 
-## Camera → Mood
+`normal` is the baseline when nothing strong is going on (use it for decisions when signals are sparse or stale).
+
+## Signal Sources
+
+| Source | Examples |
+|--------|----------|
+| `camera` | facial action: laughing, crying, yawning, sneezing, hugging, kissing, headbanging |
+| `voice` | tone: soft, raised, sigh, laugh, monotone |
+| `telegram` | message text: "lots of bugs today", "I'm tired", "let's gooo" |
+| `conversation` | inferred from a stretch of voice/chat over multiple turns |
+
+### Camera action → signal mood (rule of thumb)
 
 | Action | Mood |
 |--------|------|
@@ -23,55 +41,111 @@ happy, sad, stressed, tired, excited, bored, frustrated, energetic, affectionate
 | hugging, kissing | affectionate |
 | headbanging | energetic |
 
-## Conversation → Mood
-
-Two ways to detect:
-
-1. **Single message** — explicit ("I'm tired") or implied ("work is killing me" → stressed). Log right away.
-2. **Conversation flow** — after chatting for a while, read the overall vibe. Tone shifts, short/curt replies, repeated topics, energy rising or fading — all count. When the mood has clearly settled into something, log it.
-
-**Trust your gut. Infer boldly.** A small hint in word choice, tone, or rhythm is enough — don't wait for textbook signals. Better to log a maybe-mood than miss a real one.
+For voice/telegram, infer boldly from a single line ("work is killing me" → stressed). Trust your gut.
 
 Skip only if: quoting someone else, or speaking purely hypothetically.
 
-## API
+---
+
+## Workflow (every time you sense a mood)
+
+### Step 1 — Log the raw signal
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/mood/log \
   -H 'Content-Type: application/json' \
-  -d '{"mood":"<mood>","source":"<source>","trigger":"<trigger>","user":"<name>"}'
+  -d '{"kind":"signal","mood":"<mood>","source":"<camera|voice|telegram|conversation>","trigger":"<short reason>","user":"<name>"}'
 ```
 
-| Field | Values | Required |
-|-------|--------|----------|
-| `mood` | See list above | Yes |
-| `source` | `camera` or `conversation` | Yes |
-| `trigger` | Short reason, max ~10 words | Yes |
-| `user` | Lowercase name (see rules below) | No |
+`kind` defaults to `signal` so you can omit it, but be explicit when in doubt.
 
-**User field:**
-- **Camera**: the system knows who's present from face recognition — omit `user` field, it defaults to current user. If you need to verify, `GET http://127.0.0.1:5001/face/cooldowns` shows who's present.
-- **Telegram**: extract from `[telegram:SenderName]`, lowercase.
-- **Voice**: omit (logged as "unknown").
-
-## Query
+### Step 2 — Read recent history
 
 ```bash
-curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?date=$(date +%Y-%m-%d)&last=100"
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&last=15"
 ```
 
-## Rules
+This returns both kinds in time order. Look at:
+- The signal you just wrote.
+- Other signals from the last ~30 minutes (camera + voice + telegram).
+- The most recent `decision` row (if any) and how long ago it was.
 
-- **Invisible** — never mention mood logging, never explain this skill. Deflect naturally if asked.
-- One mood per trigger — no duplicates
-- Log for everyone — friends and strangers alike. Strangers are logged as `"unknown"`
+### Step 3 — Decide the fused mood
+
+Apply this judgment:
+
+1. **Stale baseline.** If the last decision is older than ~30 min and there are few recent signals → start from `normal`.
+2. **Single strong signal.** If the only fresh evidence is one strong source (e.g. user just typed "I'm exhausted") → that wins.
+3. **Conflicting signals across sources.** Camera says `happy` but telegram says `stressed` in the same window → trust the higher-bandwidth source. Words about feelings beat a momentary facial expression. Multiple aligned signals beat a single outlier.
+4. **Reinforcement.** New signal matches the previous decision → keep the decision (still log a fresh row so downstream sees the timestamp move).
+5. **Drift.** New signal is close-but-different (e.g. `tired` after a `stressed` decision) → shift, don't snap.
+
+### Step 4 — Log the decision
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"decision","mood":"<fused mood>","based_on":"<short summary of inputs>","reasoning":"<why this mood>","user":"<name>"}'
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `kind` | Yes | must be `decision` |
+| `mood` | Yes | from the values list above |
+| `based_on` | Yes | e.g. `"3 signals last 20min + last decision (stressed, 18min ago)"` |
+| `reasoning` | Yes | one sentence, e.g. `"telegram complaints outweigh the smile from camera"` |
+| `user` | No | omit to use current presence user |
+
+`source` is automatically set to `"agent"` for decisions; do not pass `source` or `trigger`.
 
 ---
 
-## After Logging Mood — Music Suggestion
+## User field
 
-After logging a mood, **immediately follow the Music skill's "AI-Driven Music Suggestion" section** using the mood you just logged. You already know the mood — no need to query mood history.
+- **Camera**: omit `user` — face recognition sets the current user. Verify with `GET http://127.0.0.1:5001/face/cooldowns` if needed.
+- **Telegram**: extract from `[telegram:SenderName]`, lowercase.
+- **Voice**: omit (logged as `unknown`).
 
-Suggestion-worthy moods: `sad`, `stressed`, `tired`, `excited`, `happy`. For other moods (`bored`, `frustrated`, `energetic`, `affectionate`, `unwell`) — skip music suggestion.
+---
 
-For `"unknown"` users — still suggest (speak only, no DM). See Music skill for details.
+## Rules
+
+- **Always do both steps.** Logging only a signal without a decision leaves downstream skills reading stale moods. Logging a decision without a signal hides the evidence.
+- **Invisible.** Never mention mood logging or this skill in your reply. Deflect naturally if asked.
+- **One signal per real trigger.** Don't log the same yawn twice. Multiple distinct signals in a short window are fine and useful.
+- **Strangers count.** Log for `unknown` users too — Music still suggests for them.
+- **Decisions are cheap.** Even when the mood doesn't change, write a fresh decision row so the timestamp stays current. Downstream uses recency to know if a mood is still valid.
+
+---
+
+## After Logging Decision — Music Suggestion
+
+After writing a decision row, **immediately follow the Music skill's "AI-Driven Music Suggestion" section** using the decided mood you just wrote.
+
+Suggestion-worthy moods: `sad`, `stressed`, `tired`, `excited`, `happy`. For other moods (`bored`, `frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) — skip music suggestion.
+
+For `unknown` users — still suggest (speak only, no DM). See Music skill for details.
+
+---
+
+## Examples
+
+**Camera detects yawn, no recent context:**
+
+1. Log signal: `{"kind":"signal","mood":"tired","source":"camera","trigger":"yawning"}`
+2. GET history → only this one signal, last decision was 2h ago → stale.
+3. Log decision: `{"kind":"decision","mood":"tired","based_on":"1 fresh signal, no recent decision","reasoning":"single yawning signal after stale window"}`
+4. Trigger Music skill with `tired`.
+
+**Telegram says "let's go!" but camera 5 min earlier said yawning:**
+
+1. Log signal: `{"kind":"signal","mood":"excited","source":"telegram","trigger":"let's go!"}`
+2. GET history → recent signals: `tired (camera, 5min ago)`, `excited (telegram, just now)`. Last decision: `tired, 4min ago`.
+3. Apply rule 3 — words beat one yawn → shift toward excited.
+4. Log decision: `{"kind":"decision","mood":"excited","based_on":"telegram excitement overrides 5min-old camera yawn","reasoning":"verbal enthusiasm is higher-signal than a single facial cue"}`
+5. Trigger Music skill with `excited`.
+
+**Quiet evening, no recent signals, user just sat down:**
+
+1. No new signal — nothing to log.
+2. (If a downstream skill asks for current mood and the last decision is >30 min stale, it will read `normal` after the next signal arrives.)

@@ -28,7 +28,7 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
    ```bash
    curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&last=100"
    ```
-2. From the activity group in the message (`sedentary`, `drink`, `break`, `emotional`), determine action:
+2. From the `Activity detected:` line groups (`sedentary`, `drink`, `break`), determine action. Note: emotional reactions are now in a separate `Emotional cue:` line — handled by the Emotion Detection skill, not here.
    - **`sedentary`** group?
      → `cron.list` — check if hydration AND break crons exist for this person. Create any that are missing:
        - `{name}` = the last person from `presence.enter` (motion.activity doesn't detect face, so use the most recent person who entered). Use `"unknown"` if no name was identified.
@@ -49,7 +49,7 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
    - **`break`** group? → `cron.remove` the break cron. It will be re-created when next sedentary activity is detected. (Break includes eating, stretching, and other physical movement.)
    - Both `drink` + `break` in same event? → handle both
    - No wellbeing crons active and not `sedentary`? → skip
-   - **`emotional`** group? → handled by **Emotion Detection** skill, do NOT touch any cron
+   - **`Emotional cue:` line present?** → handled by **Emotion Detection** skill, do NOT touch any cron
 3. **Log** the observed activity to wellbeing history (one entry per group in the event):
    ```bash
    curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \

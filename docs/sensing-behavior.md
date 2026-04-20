@@ -191,7 +191,7 @@ The agent reads today's history on `motion.activity` to know what happened earli
 
 Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with `sedentary` group**. This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
 
-LeLamp groups raw action labels into 4 categories before sending to Lumi: `drink` (reset hydration), `break` (reset break — includes eating, stretching, movement), `sedentary` (create crons), `emotional` (mood logging). The agent receives only the group name, not the raw Kinetics label.
+LeLamp categorises raw action labels into 3 physical groups (`drink` — reset hydration, `break` — reset break / eating / stretching / movement, `sedentary` — create crons) plus an emotional bucket (`laughing`, `crying`, `yawning`, `singing`). Physical groups are sent collapsed to the group name on the `Activity detected:` line; emotional cues keep their raw label on the `Emotional cue:` line so the agent can map each to the correct emotion + mood log entry.
 
 When `sedentary` group is detected (`motion.activity`), the agent:
 
@@ -281,15 +281,27 @@ JSONL (one JSON object per line) — chosen over JSON array for:
 - **Crash-safe**: worst case loses 1 line (array can corrupt entire file)
 - **Read last N**: `Query()` reads all lines then slices — fast enough for daily files (tens of entries)
 
-```bash
-# Write (agent calls this)
-POST /api/mood/log  {"mood":"happy","source":"camera","trigger":"laughing"}
+Each row carries a `kind` field — either a raw `signal` from one source or a
+`decision` synthesized by the agent from the recent signals + previous decision.
+The store never fuses anything; the Mood skill is responsible for writing both
+rows on every detection.
 
-# Read
+```bash
+# Write — raw signal (agent calls this on every camera/voice/telegram cue)
+POST /api/mood/log  {"kind":"signal","mood":"happy","source":"camera","trigger":"laughing"}
+
+# Write — synthesized decision (agent calls this right after, after reading recent history)
+POST /api/mood/log  {"kind":"decision","mood":"happy","based_on":"3 signals last 20min","reasoning":"laughing reinforces previous happy decision"}
+
+# Read — all kinds for a day (agent uses this to re-analyze)
 GET /api/openclaw/mood-history?user=gray&date=2026-04-09&last=100
+
+# Read — latest decision only (downstream skills use this for "current mood")
+GET /api/openclaw/mood-history?user=gray&kind=decision&last=1
 ```
 
-Each entry: `{"ts":...,"seq":1,"hour":10,"mood":"happy","source":"camera","trigger":"laughing"}`
+Each row: `{"ts":...,"seq":1,"hour":10,"kind":"signal","mood":"happy","source":"camera","trigger":"laughing"}` for signals,
+or `{"ts":...,"seq":2,"hour":10,"kind":"decision","mood":"happy","source":"agent","based_on":"...","reasoning":"..."}` for decisions.
 
 ### Cross-channel identity
 
@@ -303,23 +315,34 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 
 ### How it works
 
-`MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state` and `has_friend` (face recognizer):
-- **PRESENT + has_friend** → sends `motion.activity` with activity groups only (e.g. `drink, break, sedentary, emotional`). No images attached — saves tokens.
+`MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
+- **PRESENT** → sends a single `motion.activity` event. Message has up to two lines:
+  - `Activity detected: <groups>.` — physical activity groups (`drink`, `break`, `sedentary`), comma-separated.
+  - `Emotional cue: <actions>.` — raw emotional action names (`laughing`, `crying`, `yawning`, `singing`), comma-separated. Raw labels are preserved (not collapsed to a group) so the agent can map each to the correct emotion.
+  - When there is no emotional cue, the message ends with `If nothing noteworthy, reply NO_REPLY.` (token-saving hint). When an emotional cue is present, that hint is omitted because emotional cues always require a spoken response.
+  - No images attached — saves tokens. Friend recognition is **not** required.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
+
+Example messages:
+```
+Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.
+Activity detected: sedentary. Emotional cue: laughing.
+Emotional cue: yawning.
+```
 
 ### Wellbeing cron reset (LLM-driven)
 
-The agent receives **activity groups** (`drink`, `break`, `sedentary`, `emotional`) from LeLamp — no inference needed:
+The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the `Activity detected:` line — no inference needed. Emotional cues are handled separately via the `Emotional cue:` line:
 
 1. **Read today's history** via `GET /api/openclaw/wellbeing-history?user={name}` for context (counts of drink/break/sedentary earlier today)
-2. **By group:**
+2. **By group on `Activity detected:` line:**
    - `drink` → reset hydration cron
    - `break` → reset break cron (eating, stretching, movement)
    - `sedentary` → create hydration + break crons if missing; also trigger Music skill sedentary suggestion (event-driven, no cron)
-   - `emotional` → Emotion Detection skill, no cron changes
    - Multiple groups in one event → handle all
-3. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
-4. **Respond with caring observation** using context from history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
+3. **`Emotional cue:` line present?** → Emotion Detection skill, no cron changes
+4. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
+5. **Respond with caring observation** using context from history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
 
 ### Agent behavior
 
@@ -331,7 +354,7 @@ The agent receives **activity groups** (`drink`, `break`, `sedentary`, `emotiona
 
 ## Emotion Detection — User Emotion (Lightweight UC-M1)
 
-Lumi detects the **user's** emotional state from `motion.activity` actions using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
+Lumi detects the **user's** emotional state from the `Emotional cue:` line in `motion.activity` events using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
 
 > **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
 
@@ -361,7 +384,7 @@ The default response is light (brief remark). Context escalates the intensity:
 
 ### Logging
 
-- **Mood history** (agent logs): Agent calls `POST /api/mood/log` via Mood skill to record the user's emotional state (e.g. `{"mood":"happy","source":"camera","trigger":"laughing"}`).
+- **Mood history** (agent logs): On every cue the Mood skill writes a raw `signal` row, then immediately reads recent history and writes a synthesized `decision` row (e.g. `{"kind":"decision","mood":"happy","based_on":"...","reasoning":"..."}`). Music/Wellbeing read the latest `decision` (`?kind=decision&last=1`) for "current mood".
 - **Wellbeing history** (agent logs): Agent calls `POST /api/wellbeing/log` with `{"action":"emotional","notes":"yawning — afternoon slump","user":"{name}"}`. Same JSONL stream as hydration/break entries.
 
 ### Limitations (vs full UC-M1)

@@ -445,15 +445,22 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	c.File(tmpPath)
 }
 
-// MoodLogRequest is the payload for logging user mood.
+// MoodLogRequest is the payload for logging a user mood event.
+//
+// kind="signal" (default): raw evidence from one source. Source + Trigger required.
+// kind="decision": agent-synthesized mood. BasedOn + Reasoning recommended;
+//   Source defaults to "agent". Trigger is ignored.
 type MoodLogRequest struct {
-	Mood    string `json:"mood" validate:"required"`    // happy, sad, stressed, tired, excited, etc.
-	Source  string `json:"source" validate:"required"`  // camera, conversation
-	Trigger string `json:"trigger" validate:"required"` // what triggered: action name or context
-	User    string `json:"user"`                        // optional: agent passes when it knows (e.g. Telegram sender)
+	Mood      string `json:"mood" validate:"required"`                                  // happy, sad, stressed, tired, excited, etc.
+	Kind      string `json:"kind" validate:"omitempty,oneof=signal decision"`           // signal (default) or decision
+	Source    string `json:"source"`                                                    // signal: camera|voice|telegram|conversation. Required for signals.
+	Trigger   string `json:"trigger"`                                                   // signal: action/context. Required for signals.
+	BasedOn   string `json:"based_on"`                                                  // decision only: short summary of inputs
+	Reasoning string `json:"reasoning"`                                                 // decision only: why this mood
+	User      string `json:"user"`                                                      // optional: agent passes when it knows (e.g. Telegram sender)
 }
 
-// PostMoodLog records the user's current mood to their mood history.
+// PostMoodLog records a mood signal or decision row to the user's history.
 func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 	var req MoodLogRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -465,6 +472,15 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		return
 	}
 
+	kind := req.Kind
+	if kind == "" {
+		kind = mood.KindSignal
+	}
+	if kind == mood.KindSignal && (strings.TrimSpace(req.Source) == "" || strings.TrimSpace(req.Trigger) == "") {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("signal requires source and trigger"))
+		return
+	}
+
 	user := strings.ToLower(strings.TrimSpace(req.User))
 	if user == "" {
 		user = mood.CurrentUser()
@@ -473,11 +489,26 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		user = mood.DefaultUser
 	}
 
-	mood.LogMoodForUser(user, req.Mood, req.Source, req.Trigger)
-	slog.Info("mood logged", "component", "mood", "user", user, "mood", req.Mood, "source", req.Source, "trigger", req.Trigger)
+	evt := mood.Event{
+		Kind:      kind,
+		Mood:      req.Mood,
+		Source:    req.Source,
+		Trigger:   req.Trigger,
+		BasedOn:   req.BasedOn,
+		Reasoning: req.Reasoning,
+	}
+	if kind == mood.KindDecision {
+		evt.Trigger = ""
+		if evt.Source == "" {
+			evt.Source = "agent"
+		}
+	}
+	mood.LogEvent(user, evt)
+	slog.Info("mood logged", "component", "mood", "user", user, "kind", kind, "mood", req.Mood, "source", evt.Source, "trigger", evt.Trigger, "based_on", evt.BasedOn)
 
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 		"user": user,
+		"kind": kind,
 		"mood": req.Mood,
 	}))
 }
