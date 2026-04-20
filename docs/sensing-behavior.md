@@ -372,33 +372,27 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 ### How it works
 
 `MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
-- **PRESENT** → sends a single `motion.activity` event. Message has up to two lines:
-  - `Activity detected: <groups>.` — physical activity groups (`drink`, `break`, `sedentary`), comma-separated.
-  - `Emotional cue: <actions>.` — raw emotional action names (`laughing`, `crying`, `yawning`, `singing`), comma-separated. Raw labels are preserved (not collapsed to a group) so the agent can map each to the correct emotion.
-  - When there is no emotional cue, the message ends with `If nothing noteworthy, reply NO_REPLY.` (token-saving hint). When an emotional cue is present, that hint is omitted because emotional cues always require a spoken response.
+- **PRESENT** → sends a single `motion.activity` event. Message format:
+  - `Activity detected: <groups>. If nothing noteworthy, reply NO_REPLY.` — physical activity groups (`drink`, `break`, `sedentary`), comma-separated, followed by a token-saving hint.
+  - Emotional X3D actions (`laughing`, `crying`, `yawning`, `singing`) are **intentionally dropped** here. A dedicated `motion.emotional` event type will be added later; until then emotional detections are silently ignored. `motion.activity` stays purely physical.
   - No images attached — saves tokens. Friend recognition is **not** required.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
 
 Example messages:
 ```
 Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.
-Activity detected: sedentary. Emotional cue: laughing.
-Emotional cue: yawning.
+Activity detected: break. If nothing noteworthy, reply NO_REPLY.
 ```
 
-### Wellbeing cron reset (LLM-driven)
+### Wellbeing nudge flow (event-driven)
 
-The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the `Activity detected:` line — no inference needed. Emotional cues are handled separately via the `Emotional cue:` line:
+The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the `Activity detected:` line — no inference needed.
 
-1. **Read today's history** via `GET /api/openclaw/wellbeing-history?user={name}` for context (counts of drink/break/sedentary earlier today)
-2. **By group on `Activity detected:` line:**
-   - `drink` → reset hydration cron
-   - `break` → reset break cron (eating, stretching, movement)
-   - `sedentary` → create hydration + break crons if missing; also trigger Music skill sedentary suggestion (event-driven, no cron)
-   - Multiple groups in one event → handle all
-3. **`Emotional cue:` line present?** → Emotion Detection skill, no cron changes
-4. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
-5. **Respond with caring observation** using context from history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
+1. **Log** each group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group). Backend-side no-op; LeLamp already deduped.
+2. **Read history** via `GET /api/openclaw/wellbeing-history?user={name}&last=50`.
+3. **Compute deltas** against the latest reset point for each kind (see Wellbeing SKILL Step 3).
+4. **Decide nudge** per Wellbeing SKILL Step 4 — at most one hydration or break nudge per turn.
+5. **Respond**: a single short caring sentence if there's a nudge / suggestion, otherwise `NO_REPLY`.
 
 ### Agent behavior
 
@@ -410,7 +404,9 @@ The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the 
 
 ## Emotion Detection — User Emotion (Lightweight UC-M1)
 
-Lumi detects the **user's** emotional state from the `Emotional cue:` line in `motion.activity` events using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
+> **⚠ Currently inactive.** Emotional X3D actions used to ride along on `motion.activity` as an `Emotional cue:` line. That coupling was removed — `motion.activity` is now purely physical (`sedentary` / `drink` / `break`). A dedicated `motion.emotional` event type is the planned home for this signal; until that lands, the Emotion Detection skill has no trigger and does not fire.
+
+Lumi detects the **user's** emotional state using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
 
 > **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
 
