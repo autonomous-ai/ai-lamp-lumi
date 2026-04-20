@@ -87,7 +87,8 @@ class OpenAITTSBackend(TTSBackend):
 class ElevenLabsTTSBackend(TTSBackend):
     """ElevenLabs TTS backend with streaming support."""
 
-    DEFAULT_MODEL = "eleven_flash_v2_5"
+    # DEFAULT_MODEL = "eleven_flash_v2_5"
+    DEFAULT_MODEL = "eleven_multilingual_v2"
     API_BASE = "https://api.elevenlabs.io"
 
     # Premade voice name → voice_id mapping
