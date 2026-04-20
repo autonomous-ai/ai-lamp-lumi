@@ -43,7 +43,8 @@ type Config struct {
 	OTAPollInterval string `json:"ota_poll_interval" yaml:"otaPollInterval"`
 
 	DeepgramAPIKey string `json:"deepgram_api_key" yaml:"deepgramAPIKey"`
-	TTSVoice        string `json:"tts_voice" yaml:"ttsVoice"`
+	TTSProvider string `json:"tts_provider" yaml:"ttsProvider"`
+	TTSVoice    string `json:"tts_voice" yaml:"ttsVoice"`
 	TTSInstructions string `json:"tts_instructions" yaml:"ttsInstructions"`
 
 	// AgentRuntime selects which agentic backend to use: "openclaw" (default), "picoclaw", "claudecode", etc.
