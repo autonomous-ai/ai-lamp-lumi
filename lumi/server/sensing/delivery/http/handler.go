@@ -284,8 +284,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Short per-event hints. Detail lives in the respective SKILL.md files.
-		msg += "\n[Reply rule: reply is spoken VERBATIM — reasoning and math stay in `thinking`. If nothing to say → NO_REPLY.]"
+		// Reply-hygiene rules live inside the respective SKILL.md files.
 		switch req.Type {
 		case "presence.leave", "presence.away":
 			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
