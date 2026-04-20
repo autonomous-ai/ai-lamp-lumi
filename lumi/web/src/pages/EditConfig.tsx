@@ -151,7 +151,10 @@ export default function EditConfig() {
   const [loadingCfg, setLoadingCfg] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<SectionId>("wifi");
+  const [activeSection, setActiveSection] = useState<SectionId>(() => {
+    const hash = window.location.hash.replace("#", "") as SectionId;
+    return SECTIONS.some((s) => s.id === hash) ? hash : "wifi";
+  });
   const contentRef = useRef<HTMLDivElement>(null);
 
   // form state
@@ -286,18 +289,21 @@ export default function EditConfig() {
     getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
-  // Refetch voices when provider changes
+  // Refetch voices when provider changes — only reset voice if current voice is not in new list
+  const providerChangedByUser = useRef(false);
   useEffect(() => {
     getTTSVoices(ttsProvider).then((voices) => {
       setTtsVoices(voices);
-      if (voices.length > 0 && !voices.includes(ttsVoice)) {
+      if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
         setTtsVoice(voices[0]);
       }
+      providerChangedByUser.current = true;
     }).catch(() => {});
   }, [ttsProvider]);
 
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
+    window.location.hash = id;
   };
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {

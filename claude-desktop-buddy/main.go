@@ -50,8 +50,10 @@ func main() {
 	// State machine with bridge callback
 	sm := NewStateMachine(bridge.OnStateChange)
 
-	// BLE server
-	ble := NewBLEServer(cfg.DeviceName, func(data []byte) {
+	// BLE server — assign to package-level `ble` so the onMessage closure
+	// captures the same variable the closure body dereferences. Using `:=`
+	// here would shadow the package var and leave the closure seeing nil.
+	ble = NewBLEServer(cfg.DeviceName, func(data []byte) {
 		handleBLEMessage(data, sm, ble, cfg.DeviceName, startTime)
 	}, func(connected bool) {
 		sm.SetConnected(connected)

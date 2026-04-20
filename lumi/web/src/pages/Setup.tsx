@@ -298,13 +298,15 @@ export default function Setup() {
   }, [setupWorking]);
 
 
-  // Refetch voices when provider changes
+  // Refetch voices when provider changes — only reset voice if user changed provider
+  const providerChangedByUser = useRef(false);
   useEffect(() => {
     getTTSVoices(ttsProvider).then((voices) => {
       setTtsVoices(voices);
-      if (voices.length > 0 && !voices.includes(ttsVoice)) {
+      if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
         setTtsVoice(voices[0]);
       }
+      providerChangedByUser.current = true;
     }).catch(() => {});
   }, [ttsProvider]);
 
