@@ -35,11 +35,76 @@ Pi services:
 | `/root/.openclaw/cron/jobs.json.bak` | Previous state of jobs.json | |
 | `/var/log/lumi/snapshots/` | Camera snapshots per event | |
 
-`<user>` is `leo`, `gray`, or `unknown` (all strangers collapse to `unknown`).
+`<user>` is `alex`, `gray`, or `unknown` (all strangers collapse to `unknown`).
 
 ---
 
-## 3. Simulate an Event
+## 3. When `motion.activity` actually fires
+
+LeLamp dedups the outbound stream so Lumi only sees events that matter. Understanding the rule is essential before reading any log or running any test.
+
+### Dedup key
+
+```
+key = (current_user, frozenset(activity_groups), tuple(sorted(emotional_cues)))
+```
+
+- `current_user` comes from `FaceRecognizer.current_user()` — the most recent friend still within the forget window, else `"unknown"` if any stranger is visible, else empty (in which case the event isn't sent anyway — no presence).
+- `activity_groups` is the set of physical groups collapsed from raw X3D labels (`drink`, `break`, `sedentary`).
+- `emotional_cues` is the sorted tuple of raw cues (`laughing`, `crying`, `yawning`, `singing`).
+
+### Send / drop rule
+
+```
+SEND if:
+  key != last_sent_key                 # state changed (user / activity / cue)
+  OR (key == last_sent_key and now - last_sent_ts >= 5 min)   # wake-up
+
+DROP if:
+  key == last_sent_key and gap < 5 min
+```
+
+A user change always flips the key. Different strangers collapse to `"unknown"` so swapping strangers alone does **not** flip the key — the dedup keeps holding.
+
+### Basic timeline (user Alex sits down and works)
+
+| Time | State | Result |
+|---|---|---|
+| 09:00 | Alex enters → sedentary | SEND (first) |
+| 09:01 | Alex still sedentary | DROP (key same, <5 min) |
+| 09:04 | Alex still sedentary | DROP |
+| 09:05 | Alex still sedentary | **SEND** (≥5 min wake-up) |
+| 09:06 | Alex + laughing | SEND (emotional cue added) |
+| 09:07 | Alex + laughing | DROP |
+| 09:10 | Alex + drink | SEND (activity group changed) |
+| 09:15 | Alex gone, stranger arrives | SEND (current_user flipped to "unknown") |
+
+### Sedentary + emotional variations
+
+Each cue add/remove/swap flips the key.
+
+| Time | Key (`user`, `groups`, `cues`) | Result |
+|---|---|---|
+| 09:00 | alex, `{sedentary}`, `()` | SEND (first) |
+| 09:02 | alex, `{sedentary}`, `(laughing)` | SEND (cue appeared) |
+| 09:03 | alex, `{sedentary}`, `(laughing)` | DROP (same, <5 min) |
+| 09:05 | alex, `{sedentary}`, `(laughing, yawning)` | SEND (cue added) |
+| 09:06 | alex, `{sedentary}`, `(laughing)` | SEND (yawning removed) |
+| 09:07 | alex, `{sedentary}`, `()` | SEND (no cues left) |
+| 09:10 | alex, `{sedentary}`, `()` | DROP (same, <5 min from 09:07) |
+| 09:12 | alex, `{sedentary}`, `()` | **SEND** (≥5 min wake-up) |
+
+### Quick mental model
+
+- Cue appears, changes, or disappears → SEND.
+- Activity group appears, changes, or disappears → SEND.
+- User changes (friend↔friend, friend↔unknown, unknown↔friend) → SEND.
+- Everything identical for 5 min straight → SEND anyway (so the wellbeing threshold check still runs).
+- Otherwise → DROP.
+
+---
+
+## 4. Simulate an Event
 
 The backend accepts fake sensing events on `POST /api/sensing/event`. You don't need real camera input — just craft the message and curl it.
 
@@ -79,7 +144,7 @@ Common test payloads:
 
 ---
 
-## 4. Trace a Specific Run
+## 5. Trace a Specific Run
 
 ### 4.1 Raw flow trace (structured)
 
@@ -124,7 +189,7 @@ $SSH "curl -s 'http://127.0.0.1:5000/api/openclaw/flow-events?last=200'" \
 
 ---
 
-## 5. Verify Each Stage
+## 6. Verify Each Stage
 
 For a single motion.activity event, the expected chain is:
 
@@ -144,7 +209,7 @@ For a single motion.activity event, the expected chain is:
 
 ---
 
-## 6. Common Compliance Failures We've Hit
+## 7. Common Compliance Failures We've Hit
 
 The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent complies". These are real bugs we diagnosed via this playbook (see commit history around 2026-04-20 for fixes).
 
@@ -180,7 +245,7 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 
 ---
 
-## 7. Cleanup After Testing
+## 8. Cleanup After Testing
 
 ```bash
 # Remove a specific cron by ID
@@ -195,7 +260,7 @@ $SSH "echo $PASS | sudo -S systemctl restart lumi"
 
 ---
 
-## 8. When to Just Ask the User
+## 9. When to Just Ask the User
 
 - Anything that changes production state outside this pipeline (face enrollments, config edits, telegram bindings) — ask first.
 - Before rebuilding + pushing a new binary — confirm deploy path (OTA vs scp vs make).
@@ -203,7 +268,7 @@ $SSH "echo $PASS | sudo -S systemctl restart lumi"
 
 ---
 
-## 9. Reference: Agent Compliance is the Fragile Part
+## 10. Reference: Agent Compliance is the Fragile Part
 
 The Go backend is deterministic. The Python sensing layer is deterministic. The **agent layer** (OpenClaw → LLM) is where behavior drifts. When a pipeline stops working end-to-end despite no code change:
 
