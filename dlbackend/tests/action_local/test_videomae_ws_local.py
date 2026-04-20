@@ -16,7 +16,7 @@ TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
 
-VIDEOMAE_MODEL_PATH = Path(__file__).parent / "local" / "videomae_fp32.onnx"
+VIDEOMAE_MODEL_PATH = Path.cwd() / "local" / "videomae_fp32.onnx"
 
 pytestmark = pytest.mark.skipif(
     not VIDEOMAE_MODEL_PATH.exists(),
