@@ -110,24 +110,24 @@ class Backchannel:
     def _play(self, text: str) -> None:
         """Play a short TTS cue directly, bypassing tts_service.speak()."""
         tts = self._tts
-        if tts is None or tts._client is None or tts._sd is None:
+        if tts is None or tts._backend is None or not tts._backend.available or tts._sd is None:
             return
         try:
             import numpy as np
             dst_rate = tts._device_rate or 24000
-            with tts._client.audio.speech.with_streaming_response.create(
-                model=tts._model,
+            src_rate = tts._backend.sample_rate
+            raw = b""
+            for chunk in tts._backend.stream_pcm(
+                text=text,
                 voice=tts._voice,
-                input=text,
-                response_format="pcm",
+                model=tts._model,
                 speed=tts._speed,
-            ) as response:
-                raw = response.read()
+            ):
+                raw += chunk
             if len(raw) < 2:
                 return
             samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
             samples *= max(0.0, min(1.0, VOLUME))
-            src_rate = 24000
             if dst_rate != src_rate:
                 ratio = dst_rate / src_rate
                 n_out = math.ceil(len(samples) * ratio)
