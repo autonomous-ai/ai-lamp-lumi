@@ -222,6 +222,54 @@ func extractHWCalls(text string) ([]hwCall, string) {
 	return calls, strings.TrimSpace(hwMarkerRe.ReplaceAllString(text, ""))
 }
 
+// narrationPatterns match lines/paragraphs that are clearly the agent's
+// internal reasoning leaking into the reply (e.g. wellbeing threshold
+// narration, log references, plan-talk). Any paragraph that matches any
+// pattern is dropped from the TTS text.
+var narrationPatterns = []*regexp.Regexp{
+	// Debug vocabulary that doesn't belong in caring speech.
+	regexp.MustCompile(`(?i)\b(threshold|dedup|deduped|NO_REPLY|prior entry|entries|logged|successfully)\b`),
+	// Concrete time deltas like "109.4 min", "30 sec ago", "5 min over".
+	regexp.MustCompile(`(?i)\b\d+(\.\d+)?\s*(min|sec|hour|hr)s?\b`),
+	// Backtick code references like `nudge_hydration`.
+	regexp.MustCompile("`[a-zA-Z_][a-zA-Z0-9_]*`"),
+	// Label-colon lines like "Drink:", "Break:", "Status:", "Key change:".
+	regexp.MustCompile(`^(Drink|Break|Status|Thresholds?|Key change|Current|Check|Log)\s*:`),
+	// Plan-talk phrases.
+	regexp.MustCompile(`(?i)\b(need to (nudge|log|check|skip)|now i'?ll|i should|will (skip|nudge|log|check)|just nudged|no repeat|not overdue)\b`),
+	// "Skill updated" / narrative about the skill itself.
+	regexp.MustCompile(`(?i)\b(skill updated|both over|over the threshold|under threshold)\b`),
+}
+
+// sanitizeForTTS strips narration paragraphs from the agent's reply before
+// TTS. The agent occasionally mixes thinking ("Drink: 109 min over
+// threshold") with actual caring speech ("Hey, grab some water!"). The
+// thinking paragraphs must not be spoken aloud. Split on blank lines and
+// newlines, drop any paragraph that matches a narration pattern, rejoin.
+// If the result is empty, the caller should suppress TTS entirely.
+func sanitizeForTTS(text string) string {
+	parts := strings.Split(text, "\n")
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		dropped := false
+		for _, re := range narrationPatterns {
+			if re.MatchString(trimmed) {
+				dropped = true
+				break
+			}
+		}
+		if dropped {
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+	return strings.TrimSpace(strings.Join(kept, " "))
+}
+
 // fireHWCalls fires hardware calls to LeLamp sequentially in a goroutine,
 // with full flow tracking, lastEmotion update, and monitorBus events.
 // Sequential order matters (e.g. emotion sequences must fire in order).
@@ -1006,13 +1054,22 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						slog.Info("assistant turn done, TTS suppressed (channel run)", "component", "agent", "text", text[:min(len(text), 100)], "broadcast", isBroadcastRun, "force_tts", forceTTS, "cron_fire", isCronFire, "heartbeat", isHeartbeatRun)
 						flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "channel_run", "text": text}, flowRunID)
 					} else {
-						slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", text[:min(len(text), 100)], "broadcast", isBroadcastRun, "force_tts", forceTTS, "cron_fire", isCronFire, "heartbeat", isHeartbeatRun)
-						flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": text}, flowRunID)
-						go func(t string) {
-							if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
-								slog.Error("TTS delivery failed", "component", "agent", "error", err)
+						ttsText := sanitizeForTTS(text)
+						if ttsText == "" {
+							slog.Info("assistant turn done, TTS suppressed (all narration)", "component", "agent", "original_text", text[:min(len(text), 200)])
+							flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": "narration_only", "text": text}, flowRunID)
+						} else {
+							if ttsText != text {
+								slog.Info("TTS sanitized — narration stripped", "component", "agent", "original", text[:min(len(text), 200)], "cleaned", ttsText[:min(len(ttsText), 200)])
 							}
-						}(text)
+							slog.Info("assistant turn done, sending to TTS", "component", "agent", "text", ttsText[:min(len(ttsText), 100)], "broadcast", isBroadcastRun, "force_tts", forceTTS, "cron_fire", isCronFire, "heartbeat", isHeartbeatRun)
+							flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText}, flowRunID)
+							go func(t string) {
+								if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+									slog.Error("TTS delivery failed", "component", "agent", "error", err)
+								}
+							}(ttsText)
+						}
 					}
 					// Guard broadcast is handled above (before the if/else) to ensure
 					// it fires even on NO_REPLY / empty / suppressed paths.
