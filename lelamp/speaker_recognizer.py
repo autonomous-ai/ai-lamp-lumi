@@ -1,0 +1,250 @@
+"""FastAPI router for the speaker recognition service.
+
+Exposes 4 endpoints under ``/speaker/*`` that accept local WAV filepaths only
+(no base64 — keeps the HTTP surface minimal; internally the service handles
+both). Mounted by :mod:`lelamp.server` on application startup.
+
+Routes:
+    POST   /speaker/enroll      — enroll / re-enroll a user from WAV paths
+    POST   /speaker/remove      — delete a user's voice folder
+    POST   /speaker/recognize   — identify the speaker of a WAV file
+    GET    /speaker/list        — list users with registered voice
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from lelamp.service.voice.speaker_recognizer import (
+    SpeakerRecognizer,
+    SpeakerRecognizerError,
+)
+
+logger = logging.getLogger("lelamp.speaker_router")
+
+router = APIRouter(tags=["Speaker"])
+
+# Module-level singleton. Built lazily so import of this module never fails
+# (e.g. when SPEAKER_EMBEDDING_API_URL is unset at import time).
+_recognizer: Optional[SpeakerRecognizer] = None
+
+
+def get_speaker_recognizer() -> SpeakerRecognizer:
+    """Lazy accessor — raises 503 if unusable.
+
+    Exposed so :mod:`lelamp.server` and :mod:`lelamp.service.voice.voice_service`
+    can share the same instance.
+    """
+    global _recognizer
+    if _recognizer is None:
+        try:
+            _recognizer = SpeakerRecognizer()
+        except Exception as exc:
+            logger.warning("SpeakerRecognizer unavailable: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Speaker recognizer unavailable: {exc}",
+            ) from exc
+    return _recognizer
+
+
+# ----------------------------------------------------------------- Pydantic
+
+
+class EnrollSpeakerRequest(BaseModel):
+    """Enroll one speaker from 1+ local WAV filepaths."""
+
+    name: str = Field(min_length=1, description="Display name to enroll as.")
+    wav_paths: list[str] = Field(
+        min_length=1,
+        description="Local filepaths of WAV files (any sample rate — will be "
+        "normalized to 16kHz mono).",
+    )
+    telegram_username: Optional[str] = Field(
+        default=None,
+        description="Optional Telegram @handle (e.g. 'chloe_92'). Merged into "
+        "/root/local/users/<name>/metadata.json — same file face-enroll writes.",
+    )
+    telegram_id: Optional[str] = Field(
+        default=None,
+        description="Optional numeric Telegram user ID (for DM targeting).",
+    )
+    origin: Optional[str] = Field(
+        default=None,
+        description="Channel the audio came from: 'mic' | 'telegram' | "
+        "'other'. Auto-inferred from presence of telegram_* fields if "
+        "omitted. Encoded in the stored sample filename so list_registered "
+        "can show which channels contributed.",
+    )
+
+
+class UpdateIdentityRequest(BaseModel):
+    """Attach / update Telegram identity on an existing voice profile."""
+
+    name: str = Field(min_length=1)
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
+
+
+class RemoveSpeakerRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class RecognizeSpeakerRequest(BaseModel):
+    wav_path: str = Field(min_length=1, description="Local filepath of WAV file.")
+
+
+class SpeakerMeta(BaseModel):
+    name: str
+    display_name: str
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
+    has_telegram_identity: bool = False
+    enrollment_sources: list[str] = []
+    last_enrollment_source: Optional[str] = None
+    num_samples: int
+    embedding_dim: int
+    enrolled_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    sample_files: list[str] = []
+    sample_origins: dict[str, str] = {}
+
+
+class EnrollResponse(BaseModel):
+    status: str
+    meta: SpeakerMeta
+
+
+class RemoveResponse(BaseModel):
+    status: str
+    name: str
+    removed: bool
+
+
+class RecognizeResponse(BaseModel):
+    name: str
+    confidence: float
+    match: bool
+    display_name: Optional[str] = None
+    telegram_username: Optional[str] = None
+    telegram_id: Optional[str] = None
+    has_telegram_identity: bool = False
+    unknown_audio_path: Optional[str] = None
+    candidates: list[dict[str, Any]] = []
+    error: Optional[str] = None
+
+
+class ListResponse(BaseModel):
+    total: int
+    speakers: list[SpeakerMeta]
+
+
+# ------------------------------------------------------------------ helpers
+
+
+def _validate_paths(paths: list[str]) -> None:
+    for p in paths:
+        if not p or not Path(p).is_file():
+            raise HTTPException(status_code=400, detail=f"wav file not found: {p}")
+
+
+# ------------------------------------------------------------------- routes
+
+
+@router.post("/speaker/enroll", response_model=EnrollResponse)
+def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
+    """Enroll or re-enroll a speaker from 1+ local WAV filepaths.
+
+    New samples are appended to the user's voice folder and the embedding is
+    recomputed from all samples in the folder (old + new).
+    """
+    _validate_paths(req.wav_paths)
+    sr = get_speaker_recognizer()
+    try:
+        meta = sr.enroll(
+            req.name,
+            req.wav_paths,
+            source_type="filepath",
+            telegram_username=req.telegram_username or "",
+            telegram_id=req.telegram_id or "",
+            origin=req.origin or "",
+        )
+    except SpeakerRecognizerError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
+
+
+@router.post("/speaker/identity", response_model=EnrollResponse)
+def speaker_update_identity(req: UpdateIdentityRequest) -> EnrollResponse:
+    """Attach / update Telegram identity on an existing voice profile.
+
+    Use when a user was first enrolled via mic (no Telegram info) and later
+    introduces themselves via Telegram — we can link the two without
+    re-uploading audio.
+    """
+    sr = get_speaker_recognizer()
+    try:
+        meta = sr.update_identity(
+            req.name,
+            telegram_username=req.telegram_username or "",
+            telegram_id=req.telegram_id or "",
+        )
+    except SpeakerRecognizerError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
+
+
+@router.post("/speaker/reset", response_model=RemoveResponse)
+def speaker_reset() -> RemoveResponse:
+    """Delete every voice profile (mirrors /face/reset).
+
+    Shared identity (``metadata.json``) is preserved — face / mood /
+    wellbeing still depend on it.
+    """
+    sr = get_speaker_recognizer()
+    n = sr.reset_all()
+    return RemoveResponse(status="ok", name="*", removed=n > 0)
+
+
+@router.post("/speaker/remove", response_model=RemoveResponse)
+def speaker_remove(req: RemoveSpeakerRequest) -> RemoveResponse:
+    """Delete the user's voice folder (embedding + samples + metadata).
+
+    Other per-user data (face photos, mood, wellbeing, ...) is preserved.
+    """
+    sr = get_speaker_recognizer()
+    removed = sr.remove(req.name)
+    return RemoveResponse(status="ok", name=req.name, removed=removed)
+
+
+@router.post("/speaker/recognize", response_model=RecognizeResponse)
+def speaker_recognize(req: RecognizeSpeakerRequest) -> RecognizeResponse:
+    """Recognize the speaker of a single WAV file.
+
+    Returns ``{name: "unknown"}`` when no registered speaker exceeds the match
+    threshold, along with ``unknown_audio_path`` so the skill can reuse that
+    path for a later enrollment call.
+    """
+    _validate_paths([req.wav_path])
+    sr = get_speaker_recognizer()
+    try:
+        result = sr.recognize(req.wav_path, source_type="filepath")
+    except SpeakerRecognizerError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return RecognizeResponse(**result)
+
+
+@router.get("/speaker/list", response_model=ListResponse)
+def speaker_list() -> ListResponse:
+    """List users with a registered voice (source of truth: on-disk embeddings)."""
+    sr = get_speaker_recognizer()
+    speakers = sr.list_registered()
+    return ListResponse(
+        total=len(speakers),
+        speakers=[SpeakerMeta(**s) for s in speakers],
+    )
