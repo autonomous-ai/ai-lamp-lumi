@@ -31,7 +31,7 @@ HYDRATION_THRESHOLD_MIN = 5   # test value — production: 45
 BREAK_THRESHOLD_MIN     = 5   # test value — production: 30
 ```
 
-> ⚠ **Release checklist:** before shipping, change both thresholds to production values (45 / 30). The test value of 5 minutes is for rapid iteration during development.
+> ⚠ **Release checklist:** before shipping, change both thresholds to the production values (45 / 30). Test values are for rapid iteration during development.
 
 ## On `motion.activity`
 
@@ -82,7 +82,19 @@ Example nudges (vary your wording each time — never repeat verbatim):
 - Hydration: *"Been a while since you drank — grab some water?"*, *"Hydration check — time for a glass?"*
 - Break: *"You've been at it for a while — stretch break?"*, *"Quick stand-up? Your back will thank you."*
 
-### Step 5 — Never narrate the mechanics
+### Step 5 — Log the nudge after speaking (for timeline only)
+
+If you spoke a hydration nudge, immediately POST:
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"nudge_hydration","notes":"<your nudge text>","user":"<current_user>"}'
+```
+
+Same for break → `action="nudge_break"`. This is purely for **timeline visibility** — so the user's activity log shows when Lumi actually reminded them. It does NOT affect the next nudge decision (threshold check stays based on `drink`/`break` entries only).
+
+### Step 6 — Never narrate the mechanics
 
 Your reply is spoken aloud. Do NOT write things like *"Last drink was 47 min ago, over the threshold, so I should remind…"* — that belongs in `thinking` only. The reply is just the one caring sentence.
 
@@ -103,7 +115,13 @@ There are NO crons to cancel. Wellbeing is stateless at the timer level — the 
 | `http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=X&date=YYYY-MM-DD&last=N` | GET | Read activity history |
 | `http://127.0.0.1:5001/user/info?name=X` | GET | Get telegram_id, is_friend (only needed if you DM via Telegram) |
 
-`action` values: `drink`, `break`, `sedentary`, `emotional`, `enter`, `leave`. Agent writes the first four; backend writes `enter`/`leave`.
+`action` values:
+
+| Action | Written by | Meaning |
+|---|---|---|
+| `drink`, `break`, `sedentary`, `emotional` | Agent (from motion.activity groups) | User activity transition |
+| `enter`, `leave` | Backend (on presence.* events) | Session boundary — breaks dedup chain |
+| `nudge_hydration`, `nudge_break` | Agent (after speaking a nudge) | Records when Lumi actually reminded the user — powers cooldown + timeline visibility |
 
 ## Principles
 

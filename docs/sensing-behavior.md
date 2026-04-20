@@ -193,7 +193,13 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 {"ts": 1776658657.23, "seq": 42, "hour": 11, "action": "sedentary", "notes": ""}
 ```
 
-`action` values: `drink`, `break`, `sedentary`, `emotional`, `enter`, `leave`.
+`action` values:
+
+| Action | Written by | Purpose |
+|---|---|---|
+| `drink`, `break`, `sedentary`, `emotional` | Agent | User activity transition from motion.activity groups |
+| `enter`, `leave` | Backend (sensing handler) | Session boundary — breaks the dedup chain |
+| `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — enables per-type cooldown and timeline visibility |
 
 **Backend dedup.** `POST /api/wellbeing/log` compares the new action with the most recent entry in today's file. If identical, the new entry is silently dropped. This collapses continuous same-activity streams (e.g. a long sedentary session firing `motion.activity` every 3 min) into a single log entry. `presence.enter` / `presence.leave` markers (written automatically by the sensing handler) break the dedup chain — same-action entries on either side of a presence boundary are both kept, so each session is distinguishable.
 
@@ -218,8 +224,11 @@ Hardcoded in `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 |---|---|---|
 | `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
 | `BREAK_THRESHOLD_MIN` | **5** | 30 |
+| `NUDGE_COOLDOWN_MIN` | **3** | 15 |
 
-> ⚠ **Release checklist:** before shipping, change both thresholds from 5 to the production values (45 / 30). Test values let us iterate within minutes instead of hours.
+> ⚠ **Release checklist:** before shipping, change all three constants to the production values (45 / 30 / 15). Test values let us iterate within minutes instead of hours.
+
+`NUDGE_COOLDOWN_MIN` is the minimum gap between two nudges of the same type. After Lumi speaks a hydration nudge, it stays silent on hydration for this many minutes (break nudges work the same way, tracked separately). Without this guard the agent would re-nudge every `motion.activity` event (~3 min cooldown).
 
 ### User attribution — `[context: current_user=X]`
 
