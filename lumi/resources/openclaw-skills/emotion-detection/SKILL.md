@@ -80,8 +80,16 @@ Default responses are light. When context matches, **escalate** — speak with m
 
 ## Logging
 
-### Mood history
-After responding to an emotional action, log the user's mood via the **Mood** skill. Use `source: "camera"` and the action name as trigger.
+### Mood history — MANDATORY
+
+After speaking, you **MUST** follow the **Mood** skill end-to-end — both Step 1 (`signal`) and Step 4 (`decision`). Skipping this leaves mood history empty and breaks Music/Wellbeing downstream.
+
+- `source`: `"camera"`
+- `trigger`: the raw action name (`laughing`, `crying`, `yawning`, `singing`)
+- `mood`: `laughing`/`singing` → `happy`, `crying` → `sad`, `yawning` → `tired` (see Mood skill table for full mapping)
+- `user`: omit — face recognition sets the current user
+
+This is not optional. Wellbeing log below is separate and does **not** replace mood logging.
 
 ### Wellbeing history (you write this)
 On every emotional action detected, append one entry to the user's wellbeing history via API:
