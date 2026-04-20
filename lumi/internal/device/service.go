@@ -322,9 +322,7 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 		}
 	}
 	// Re-push voice config to LeLamp on any config change
-	if s.config.DeepgramAPIKey != "" {
-		s.RePushVoiceConfig()
-	}
+	s.RePushVoiceConfig()
 	return nil
 }
 
