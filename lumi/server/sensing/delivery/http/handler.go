@@ -284,8 +284,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Reply shape — strict binary, re-stated every turn.
-		msg += "\n[REPLY SHAPE: ONE short caring sentence OR the literal token NO_REPLY. Nothing else — no math, labels, bullets, markdown, \"No nudge needed\". If no real thing to say → NO_REPLY.]"
+		// Reply hygiene — reasoning stays in thinking, reply is spoken VERBATIM.
+		msg += "\n[REPLY RULE: reply is spoken VERBATIM. All reasoning, log math, plan-talk, and bullet lists stay in `thinking` — never in the reply. If nothing real to say → NO_REPLY, don't narrate why.]"
 		// Nudge agent to follow wellbeing skill on relevant events.
 		switch req.Type {
 		case "presence.leave":
