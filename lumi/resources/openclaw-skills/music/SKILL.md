@@ -104,6 +104,14 @@ Proactive music suggestions are **AI-driven, not cron-driven**. Two triggers:
 1. **Mood skill** — after writing a `decision` row whose mood is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`), Mood hands off to this section.
 2. **Sensing skill** — when `sedentary` activity is detected (user working/reading), Sensing nudges you to suggest background music.
 
+### `{name}` — user attribution (hard rule)
+
+Everywhere this skill writes `{name}` in a URL or payload, the value **MUST** come from the `[context: current_user=X]` tag that the backend injects into the triggering `motion.activity` message. If no context tag is present (e.g. triggered by cron heartbeat), use `"unknown"`.
+
+**NEVER infer `{name}` from memory, KNOWLEDGE.md, chat history, or `senderLabel`.** Strangers collapse to `"unknown"` — do not guess Leo or any other friend name when face recognition only saw a stranger.
+
+This matches the same rule used by the Wellbeing and Mood skills — all three must attribute to the same user for the per-user JSONLs (mood, wellbeing, music-suggestions) to stay in sync.
+
 **Always read the latest decision before suggesting** — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
 
 ```bash
