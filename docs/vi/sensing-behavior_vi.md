@@ -218,16 +218,17 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
 3. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
 
    ```
-   hydration_reset = max(ts last drink entry, ts last enter entry)
-   break_reset     = max(ts last break entry, ts last enter entry)
+   hydration_reset = max(last drink entry, last enter entry, last nudge_hydration entry)
+   break_reset     = max(last break entry, last enter entry, last nudge_break entry)
    ```
 
-   `presence.enter` tính là 1 điểm reset — user vừa vào session → delta bắt đầu từ 0, đếm lên. Không spam ngay khi user ngồi xuống, nhưng sẽ nudge đúng khi user ngồi lâu chưa drink/break.
+   Ba điểm reset: hoạt động thực tế (`drink`/`break`), mới vào session (`enter`), hoặc lần nhắc gần nhất (`nudge_*`). Nudge reset là điểm mấu chốt: sau khi Lumi nhắc, delta về 0 → lần nhắc tiếp theo chỉ fire sau 1 threshold window nữa — không cần cooldown constant riêng.
 4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
-   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → nhắc uống nước.
-   - `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
-   - else → caring observation hoặc `NO_REPLY`.
-5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
+   - Hydration delta ≥ hydration threshold → nhắc uống nước.
+   - Else break delta ≥ break threshold → nhắc nghỉ/stretch.
+   - Else → caring observation hoặc `NO_REPLY`.
+5. **Sau khi nhắc**, log entry `nudge_hydration` hoặc `nudge_break` — đây là cái reset delta cho window tiếp theo (và hiện lên timeline user).
+6. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
 ### Ngưỡng
 
