@@ -1,16 +1,22 @@
 // Package mood provides a per-user mood history logger.
 //
-// Tracks the user's emotional state over time. Mood is logged when:
-// - Camera detects emotional actions (laughing, crying, yawning, etc.)
-// - Agent infers mood from conversation context
+// Tracks the user's emotional state over time. Each row is one of two kinds:
+//   - "signal"   — raw evidence from a single source (camera/voice/telegram).
+//   - "decision" — agent-synthesized mood derived from recent signals + last
+//     decision. Carries BasedOn and Reasoning for traceability.
+//
+// The agent owns mood synthesis. The store only persists rows; consumers query
+// `kind=decision&last=1` for the current mood, or `kind=signal` to re-analyze.
 //
 // Usage:
 //
-//	mood.Init()                                      // once at startup
-//	mood.SetCurrentUser("gray")                      // on presence.enter
-//	mood.LogMood("happy", "camera", "laughing")       // log user mood
-//	events := mood.Query("gray", "2026-04-07", 100)  // query user's history
-//	mood.ClearCurrentUser()                          // on presence.leave
+//	mood.Init()                                                   // once at startup
+//	mood.SetCurrentUser("gray")                                   // on presence.enter
+//	mood.LogSignal("gray", "happy", "camera", "laughing")         // raw signal
+//	mood.LogDecision("gray", "stressed", "5 signals last 30min", "yawning + work complaints")
+//	events := mood.Query("gray", "2026-04-07", "", 100)           // all kinds
+//	last := mood.Query("gray", "2026-04-07", "decision", 1)       // latest decision
+//	mood.ClearCurrentUser()                                       // on presence.leave
 package mood
 
 import (
@@ -26,13 +32,22 @@ import (
 
 // Event is one mood history record persisted to JSONL.
 type Event struct {
-	TS      float64 `json:"ts"`              // Unix seconds
-	Seq     int64   `json:"seq"`             // global sequence
-	Hour    int     `json:"hour"`            // hour of day (0-23)
-	Mood    string  `json:"mood"`            // user mood: happy, sad, stressed, tired, excited, etc.
-	Source  string  `json:"source"`          // how mood was detected: camera, conversation
-	Trigger string  `json:"trigger"`         // what triggered: action name or conversation context
+	TS        float64 `json:"ts"`                  // Unix seconds
+	Seq       int64   `json:"seq"`                 // global sequence
+	Hour      int     `json:"hour"`                // hour of day (0-23)
+	Kind      string  `json:"kind"`                // "signal" (raw) or "decision" (agent-synthesized)
+	Mood      string  `json:"mood"`                // user mood: happy, sad, stressed, tired, excited, etc.
+	Source    string  `json:"source,omitempty"`    // signal: camera|voice|telegram|conversation. decision: "agent"
+	Trigger   string  `json:"trigger,omitempty"`   // signal: action/context. decision: omit.
+	BasedOn   string  `json:"based_on,omitempty"`  // decision only: short summary of inputs (e.g. "5 signals last 30min")
+	Reasoning string  `json:"reasoning,omitempty"` // decision only: why this mood was chosen
 }
+
+// Event kinds.
+const (
+	KindSignal   = "signal"
+	KindDecision = "decision"
+)
 
 const (
 	usersDir      = "/root/local/users"
@@ -87,7 +102,7 @@ func CurrentUser() string {
 	return global.currentUser
 }
 
-// LogMood records a user mood event to the current user's mood directory.
+// LogMood records a raw mood signal for the current user (presence-detected).
 // Falls back to "unknown" when no user is detected via presence.
 func LogMood(moodStr, source, trigger string) {
 	user := CurrentUser()
@@ -97,19 +112,50 @@ func LogMood(moodStr, source, trigger string) {
 	LogMoodForUser(user, moodStr, source, trigger)
 }
 
-// LogMoodForUser records a user mood event for a specific user.
+// LogMoodForUser records a raw mood signal for a specific user.
+// Equivalent to LogSignal — kept for backward compatibility.
 func LogMoodForUser(user, moodStr, source, trigger string) {
-	now := time.Now()
-	seq := global.seqN.Add(1)
+	LogSignal(user, moodStr, source, trigger)
+}
 
-	evt := Event{
-		TS:      float64(now.UnixNano()) / 1e9,
-		Seq:     seq,
-		Hour:    now.Hour(),
+// LogSignal appends a raw signal row.
+func LogSignal(user, moodStr, source, trigger string) {
+	writeEvent(user, Event{
+		Kind:    KindSignal,
 		Mood:    moodStr,
 		Source:  source,
 		Trigger: trigger,
+	})
+}
+
+// LogDecision appends an agent-synthesized decision row.
+// basedOn is a short summary of the inputs the agent considered.
+// reasoning explains why this mood was chosen.
+func LogDecision(user, moodStr, basedOn, reasoning string) {
+	writeEvent(user, Event{
+		Kind:      KindDecision,
+		Mood:      moodStr,
+		Source:    "agent",
+		BasedOn:   basedOn,
+		Reasoning: reasoning,
+	})
+}
+
+// LogEvent appends a fully-formed event. Use this from HTTP handlers that
+// already know all fields. TS/Seq/Hour are filled if zero. Kind defaults to
+// "signal" when blank.
+func LogEvent(user string, evt Event) {
+	if evt.Kind == "" {
+		evt.Kind = KindSignal
 	}
+	writeEvent(user, evt)
+}
+
+func writeEvent(user string, evt Event) {
+	now := time.Now()
+	evt.TS = float64(now.UnixNano()) / 1e9
+	evt.Seq = global.seqN.Add(1)
+	evt.Hour = now.Hour()
 
 	global.mu.Lock()
 	global.writeJSONL(now, user, evt)
@@ -117,8 +163,9 @@ func LogMoodForUser(user, moodStr, source, trigger string) {
 }
 
 // Query reads mood events for a given user and day (YYYY-MM-DD format).
-// Returns up to last n events. If n <= 0, returns all.
-func Query(user string, day string, n int) []Event {
+// kind filters by Event.Kind ("signal" or "decision"). Empty string returns all.
+// Returns up to last n events (after filtering). If n <= 0, returns all.
+func Query(user string, day string, kind string, n int) []Event {
 	path := moodFilePath(user, day)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -130,19 +177,27 @@ func Query(user string, day string, n int) []Event {
 		return nil
 	}
 
-	if n > 0 && len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-
 	events := make([]Event, 0, len(lines))
 	for _, line := range lines {
 		if line == "" {
 			continue
 		}
 		var evt Event
-		if err := json.Unmarshal([]byte(line), &evt); err == nil {
-			events = append(events, evt)
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			continue
 		}
+		// Backfill Kind for legacy rows written before the field existed.
+		if evt.Kind == "" {
+			evt.Kind = KindSignal
+		}
+		if kind != "" && evt.Kind != kind {
+			continue
+		}
+		events = append(events, evt)
+	}
+
+	if n > 0 && len(events) > n {
+		events = events[len(events)-n:]
 	}
 	return events
 }

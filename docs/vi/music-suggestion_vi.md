@@ -20,13 +20,21 @@ Hoàn toàn **AI-driven** — agent tự quyết định dựa trên SKILL.md in
 ### 1. Mood Trigger
 
 ```
-Agent detect mood (camera/conversation)
+Agent detect mood signal (camera/voice/telegram)
     ↓
-POST /api/mood/log → ghi mood xuống
+POST /api/mood/log {kind:"signal", ...} → ghi raw signal
     ↓
-Mood SKILL.md: mood thuộc [sad, stressed, tired, excited, happy]?
+GET /api/openclaw/mood-history?last=15 → đọc signal + decision gần đây
+    ↓
+Agent tổng hợp mood (fuse signal mới + history + decision cũ)
+    ↓
+POST /api/mood/log {kind:"decision", based_on, reasoning} → ghi decision
+    ↓
+Mood SKILL.md: decision mood thuộc [sad, stressed, tired, excited, happy]?
     ↓ (yes)
-Follow Music skill "AI-Driven Music Suggestion" với mood vừa log
+Follow Music skill "AI-Driven Music Suggestion"
+    ↓
+Music skill: GET /api/openclaw/mood-history?kind=decision&last=1 → đọc lại decision mới nhất
     ↓
 Agent check:
   ├── Audio đang play? (GET /audio/status) → skip nếu playing
