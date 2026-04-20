@@ -644,6 +644,31 @@ class FaceRecognizer(Perception):
             for ts in self._owners_last_seen.values()
         )
 
+    def current_user(self) -> str:
+        """Return the name of the person currently "in front" of the lamp:
+        - Most recently seen friend if any friend is still within the forget window
+          (lowercased to match the Lumi per-user folder convention).
+        - "unknown" if no friend is visible but any stranger was seen within
+          the stranger forget window (all strangers collapse to one bucket).
+        - Empty string if nobody has been seen recently.
+        Used by motion dedup to reset the chain when the visible user changes.
+        """
+        now = time.time()
+        best_friend: tuple[float, str] | None = None
+        for person_id, last_seen in self._owners_last_seen.items():
+            if (now - last_seen) > self._owners_forget_ts:
+                continue
+            if self._known_face_kinds.get(person_id, "friend") != "friend":
+                continue
+            if best_friend is None or last_seen > best_friend[0]:
+                best_friend = (last_seen, person_id)
+        if best_friend is not None:
+            return self.normalize_label(best_friend[1])
+        for last_seen in self._strangers_last_seen.values():
+            if (now - last_seen) <= self._strangers_forget_ts:
+                return "unknown"
+        return ""
+
     # -- Cooldown state / reset -------------------------------------------------
 
     def cooldown_state(self) -> dict:
