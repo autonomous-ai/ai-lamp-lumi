@@ -90,9 +90,33 @@ class ElevenLabsTTSBackend(TTSBackend):
     DEFAULT_MODEL = "eleven_flash_v2_5"
     API_BASE = "https://api.elevenlabs.io"
 
+    # Premade voice name → voice_id mapping
+    VOICE_IDS = {
+        "Rachel": "21m00Tcm4TlvDq8ikWAM",
+        "Sarah": "EXAVITQu4vr4xnSDxMaL",
+        "Charlotte": "XB0fDUnXU5powFXDhCwa",
+        "Alice": "Xb7hH8MSUJpSbSDYk0k2",
+        "Lily": "pFZP5JQG7iQjIQuC4Bku",
+        "Matilda": "XrExE9yKIg1WjnnlVkGX",
+        "Brian": "nPczCjzI2devNBz1zQrb",
+        "Daniel": "onwK4e9ZLuTAKqWW03F9",
+        "George": "JBFqnCBsd6RMkjVDRZzb",
+        "James": "ZQe5CZNOzWyzPSCn5a3c",
+        "Liam": "TX3LPaxmHKxFdv7VOQHJ",
+        "Callum": "N2lVS1w4EtoT3dr4eOWO",
+        "Charlie": "IKne3meq5aSn9XLyUdCD",
+        "Chris": "iP95p4xoKVk53GoZ742B",
+        "Dave": "CYw3kZ02Hs0563khs1Fj",
+        "Ethan": "g5CIjZEefAph4nQFvHAz",
+        "Adam": "pNInz6obpgDQGcFmaJgB",
+        "Bill": "pqHfZKP75CvOlQylNhV4",
+        "Josh": "TxGEqnHWrfWFTfGW9XjX",
+        "Sam": "yoZ06aMxZJJ28mfd3POQ",
+    }
+
     def __init__(self, api_key: str, base_url: Optional[str] = None):
-        self._api_key = api_key
-        self._base_url = (base_url or self.API_BASE).rstrip("/")
+        self._api_key = "sk_ad049bfc2b626d950d9f2f969e14a1f19df93fbb7c494268"#api_key
+        self._base_url = self.API_BASE #(base_url or self.API_BASE).rstrip("/")
         self._httpx = None
         try:
             import httpx
@@ -114,8 +138,10 @@ class ElevenLabsTTSBackend(TTSBackend):
         instructions: Optional[str] = None,
     ) -> Iterator[bytes]:
         el_model = model if model.startswith("eleven_") else self.DEFAULT_MODEL
-        # Use pcm_24000 to match OpenAI TTS sample rate (24kHz 16-bit mono)
-        url = f"{self._base_url}/v1/text-to-speech/{voice}/stream"
+        # Resolve voice name to voice_id (pass through if already an ID)
+        voice_id = self.VOICE_IDS.get(voice, voice)
+        # output_format is a query param, not body — pcm_24000 = 24kHz 16-bit mono
+        url = f"{self._base_url}/v1/text-to-speech/{voice_id}/stream?output_format=pcm_24000"
         headers = {
             "xi-api-key": self._api_key,
             "Content-Type": "application/json",
@@ -123,7 +149,6 @@ class ElevenLabsTTSBackend(TTSBackend):
         body = {
             "text": text,
             "model_id": el_model,
-            "output_format": "pcm_24000",
         }
         if speed != 1.0:
             body["voice_settings"] = {"speed": max(0.7, min(1.2, speed))}
