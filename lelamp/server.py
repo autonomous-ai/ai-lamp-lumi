@@ -479,10 +479,13 @@ async def lifespan(app: FastAPI):
         llm_key = lumi_cfg.get("llm_api_key", "")
         llm_url = lumi_cfg.get("llm_base_url", "")
         voice = lumi_cfg.get("tts_voice", "") or TTS_VOICE
-        if llm_key and llm_url and TTSService and not tts_service:
+        tts_provider = lumi_cfg.get("tts_provider", "openai")
+        tts_api_key = lumi_cfg.get("tts_api_key", "") or llm_key
+        tts_base_url = lumi_cfg.get("tts_base_url", "") or llm_url
+        if tts_api_key and TTSService and not tts_service:
             tts_service = TTSService(
-                api_key=llm_key,
-                base_url=llm_url,
+                api_key=tts_api_key,
+                base_url=tts_base_url,
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=audio_output_device,
@@ -491,10 +494,11 @@ async def lifespan(app: FastAPI):
                 instructions=lumi_cfg.get("tts_instructions", "") or TTS_INSTRUCTIONS or None,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
+                provider=tts_provider,
             )
             logger.info(
-                "TTSService auto-started from lumi config (base_url=%s, output_device=%s, available=%s)",
-                llm_url,
+                "TTSService auto-started (provider=%s, output_device=%s, available=%s)",
+                tts_provider,
                 audio_output_device,
                 tts_service.available,
             )
@@ -2570,8 +2574,9 @@ def start_voice(req: VoiceStartRequest):
                 instructions=instructions,
                 on_speak_start=_on_tts_speak_start,
                 on_speak_end=_on_tts_speak_end,
+                provider=req.tts_provider,
             )
-            logger.info("TTSService started (voice=%s)", voice)
+            logger.info("TTSService started (provider=%s, voice=%s)", req.tts_provider, voice)
             # Wire TTS to MusicService so music pauses during speech
             if music_service:
                 music_service._tts_service = tts_service
