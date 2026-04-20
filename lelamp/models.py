@@ -478,6 +478,9 @@ class VoiceStartRequest(BaseModel):
     tts_instructions: str = Field(
         "", description="TTS style/vibe instructions (optional, e.g. 'Speak warmly')"
     )
+    tts_provider: str = Field(
+        "openai", description="TTS provider: 'openai' (default) or 'elevenlabs'"
+    )
 
 
 class VoiceConfigRequest(BaseModel):
