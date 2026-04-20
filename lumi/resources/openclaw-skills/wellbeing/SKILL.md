@@ -30,10 +30,12 @@ Every `user` field in this skill MUST come from the `[context: current_user=X]` 
 
 ```
 HYDRATION_THRESHOLD_MIN = 5
-BREAK_THRESHOLD_MIN     = 5
+BREAK_THRESHOLD_MIN     = 7
 ```
 
-> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `HYDRATION_THRESHOLD_MIN` to `45` and `BREAK_THRESHOLD_MIN` to `30`. Until that edit lands, the active values are **5 and 5**. Do not use 45 or 30 — those are future values, not current ones.
+> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `HYDRATION_THRESHOLD_MIN` to `45` and `BREAK_THRESHOLD_MIN` to `30`. Until that edit lands, the active values are **5 / 7**. Do not use 45 or 30 — those are future values, not current ones.
+
+`HYDRATION_THRESHOLD_MIN` and `BREAK_THRESHOLD_MIN` are intentionally different in test so you can tell which path fired. There is no separate nudge cooldown — nudging itself counts as a "reset", so after Lumi reminds, the delta goes back to 0 and the next nudge of the same kind only fires after another full threshold window.
 
 ## On `motion.activity`
 
@@ -61,29 +63,38 @@ Response is a time-ordered list of events with `{ts, action, notes, hour}`.
 
 ### Step 3 — Compute deltas
 
-For each of hydration and break, the delta is measured from the **most recent reset point**. A "reset point" is either:
-- The last actual activity of that type (`drink` for hydration, `break` for break), OR
+For each of hydration and break, the delta is measured from the **most recent reset point**. A "reset point" is any of:
+- The last actual activity of that type (`drink` for hydration, `break` for break).
 - The last `enter` entry — a fresh session counts as a reset because the user just arrived.
+- The last nudge of that type (`nudge_hydration` / `nudge_break`) — after reminding, the clock resets as if the user had acted. This avoids re-nudging every wake-up event while the user hasn't drunk/broken yet; they'll get reminded again after another full threshold window.
 
 ```
-hydration_reset_ts = max(last drink entry ts, last enter entry ts)   # whichever is more recent
+hydration_reset_ts = max(
+    last drink entry ts,
+    last enter entry ts,
+    last nudge_hydration entry ts,
+)
 minutes_since_last_drink = (now - hydration_reset_ts) / 60
 
-break_reset_ts = max(last break entry ts, last enter entry ts)
+break_reset_ts = max(
+    last break entry ts,
+    last enter entry ts,
+    last nudge_break entry ts,
+)
 minutes_since_last_break = (now - break_reset_ts) / 60
 ```
 
-If neither reset point exists (no `drink` / `break` / `enter` entry today at all), treat the delta as 0 — nothing to nudge yet.
+If none of these entries exist for the user today, treat the delta as 0 — nothing to nudge yet.
 
 ### Step 4 — Decide whether to nudge
 
 Apply in this order — nudge at most **one** thing per turn:
 
-1. `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → speak a hydration nudge (one short sentence, caring, varied).
-2. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → speak a break nudge (stretch, stand up, walk).
+1. `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
+2. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → speak a break nudge.
 3. `else` → respond to the event normally (caring observation if natural) or `NO_REPLY` if nothing to add.
 
-Notice: the old "prior entry exists" guard is gone. With `enter` acting as the session baseline, a fresh arrival just means the delta resets to zero and counts up — no spam at t=0, but a real nudge once the user has been sitting long enough.
+The reset rules in Step 3 are what prevent spam: after Lumi nudges, the `nudge_hydration` (or `nudge_break`) entry counts as a reset, so the delta drops back to 0 and the next nudge of that kind only fires after another full threshold window. A fresh arrival (`enter`) works the same way — the delta starts at 0 and counts up.
 
 **Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Do not say *"just nudged 1 min ago, no repeat"*, *"both over threshold but skipping"*, *"dedup applies"*, etc. These are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have said in a previous turn's thinking.
 
