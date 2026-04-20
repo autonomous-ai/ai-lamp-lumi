@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getNetworks, setupDevice, getTTSVoices, getDeviceConfig } from "@/lib/api";
+import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
 import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
@@ -195,6 +195,8 @@ export default function Setup() {
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "claude-haiku-4-5");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [ttsProvider, setTtsProvider] = useState("openai");
+  const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
   const [ttsVoices, setTtsVoices] = useState<string[]>([]);
   const [teleToken, setTeleToken] = useState("");
@@ -276,8 +278,10 @@ export default function Setup() {
         .catch(() => { if (attempt < maxAttempts) return fetchNetworks(); setNetworks([]); });
     }
     fetchNetworks().finally(() => setLoadingList(false));
+    getTTSProviders().then(setTtsProviders).catch(() => {});
     getTTSVoices().then(setTtsVoices).catch(() => {});
     getDeviceConfig().then((cfg) => {
+      if (cfg.tts_provider) setTtsProvider(cfg.tts_provider);
       if (cfg.tts_voice) setTtsVoice(cfg.tts_voice);
     }).catch(() => {});
   }, []);
@@ -293,6 +297,16 @@ export default function Setup() {
     return () => clearInterval(id);
   }, [setupWorking]);
 
+
+  // Refetch voices when provider changes
+  useEffect(() => {
+    getTTSVoices(ttsProvider).then((voices) => {
+      setTtsVoices(voices);
+      if (voices.length > 0 && !voices.includes(ttsVoice)) {
+        setTtsVoice(voices[0]);
+      }
+    }).catch(() => {});
+  }, [ttsProvider]);
 
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
@@ -338,6 +352,7 @@ export default function Setup() {
         llm_model: urlParams.llmModel || llmModel,
         llm_disable_thinking: llmDisableThinking || undefined,
         deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
+        tts_provider: ttsProvider || undefined,
         tts_voice: ttsVoice || undefined,
         device_id: urlParams.deviceId || deviceId,
       };
@@ -641,6 +656,26 @@ export default function Setup() {
 
                   {/* TTS */}
                   <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Provider
+                      </label>
+                      <select
+                        id="tts_provider"
+                        value={ttsProvider}
+                        onChange={(e) => setTtsProvider(e.target.value)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        {(ttsProviders.length > 0 ? ttsProviders : ["openai"]).map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         Voice
