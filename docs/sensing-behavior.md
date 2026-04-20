@@ -183,50 +183,65 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 
 Lumi proactively cares for the user's health using AI-driven cron jobs managed by the OpenClaw agent. Instead of hardcoded timers, the agent decides reminder intervals based on scientific recommendations and the user's historical patterns.
 
-### How it works
+### How it works (event-driven — no cron)
 
-The agent maintains **per-person wellbeing history** under `/root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl` — one JSONL line per observed activity (`{ts, seq, hour, action, notes}` where `action ∈ {drink, break, sedentary, emotional}`). Schema mirrors the mood log. Written via `POST /api/wellbeing/log`, read via `GET /api/openclaw/wellbeing-history`.
+Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motion.activity`, the agent logs what happened and reads back recent history to decide whether to nudge.
 
-The agent reads today's history on `motion.activity` to know what happened earlier today (how many times they drank, took breaks, etc.). This is used to adjust cron intervals and to ground caring observations. There is no persistent prose "summary" file — if long-term patterns matter, the agent derives them by querying N days of history on demand.
+**Per-user activity JSONL** at `/root/local/users/{user}/wellbeing/YYYY-MM-DD.jsonl` — one line per activity transition:
 
-Wellbeing crons are **NOT** created on `presence.enter`. Instead, they are created on the first **`motion.activity` with `sedentary` group**. This avoids unnecessary cron thrashing when people walk by without sitting down — especially in multi-person environments like offices.
+```jsonc
+{"ts": 1776658657.23, "seq": 42, "hour": 11, "action": "sedentary", "notes": ""}
+```
 
-LeLamp categorises raw action labels into 3 physical groups (`drink` — reset hydration, `break` — reset break / eating / stretching / movement, `sedentary` — create crons) plus an emotional bucket (`laughing`, `crying`, `yawning`, `singing`). Physical groups are sent collapsed to the group name on the `Activity detected:` line; emotional cues keep their raw label on the `Emotional cue:` line so the agent can map each to the correct emotion + mood log entry.
+`action` values: `drink`, `break`, `sedentary`, `emotional`, `enter`, `leave`.
 
-When `sedentary` group is detected (`motion.activity`), the agent:
+**Backend dedup.** `POST /api/wellbeing/log` compares the new action with the most recent entry in today's file. If identical, the new entry is silently dropped. This collapses continuous same-activity streams (e.g. a long sedentary session firing `motion.activity` every 3 min) into a single log entry. `presence.enter` / `presence.leave` markers (written automatically by the sensing handler) break the dedup chain — same-action entries on either side of a presence boundary are both kept, so each session is distinguishable.
 
-1. **Reads today's history** (`GET /api/openclaw/wellbeing-history?user={name}`) to know what happened earlier today — how many drinks, breaks, etc. Used to adjust cron intervals.
-2. **Decides intervals and approach** based on today's history, time of day, and what activity was detected. First-time defaults are science-based (~45 min hydration, ~30 min break), but the agent adapts over sessions.
-3. **Schedules two cron jobs** via `cron.add` (kind: `every`), named per-user to avoid collisions:
-   - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)
-   - `"Wellbeing: {name} break"` — every 1800000ms (30 min)
+**Retention:** 7 days. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
 
-**Works for everyone — friends and strangers alike.** For unrecognized people, `{name}` = `"unknown"` (all strangers share one set of crons). Cron text no longer includes presence checks — when the cron fires, the agent simply speaks.
+### On `motion.activity` — what the agent does
+
+1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. Backend dedups, so the agent never has to check "am I already in this state?".
+2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
+3. **Compute deltas** from the log: `minutes_since_last_drink`, `minutes_since_last_break`.
+4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
+   - No prior `drink` or `break` entry today → **no nudge** (fresh session is not overdue).
+   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → hydration nudge.
+   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → break nudge.
+5. **Never guess** time-since from memory — always compute from the log.
+
+### Thresholds
+
+Hardcoded in `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
+
+| Threshold | Test value | Production value |
+|---|---|---|
+| `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
+| `BREAK_THRESHOLD_MIN` | **5** | 30 |
+
+> ⚠ **Release checklist:** before shipping, change both thresholds from 5 to the production values (45 / 30). Test values let us iterate within minutes instead of hours.
 
 ### User attribution — `[context: current_user=X]`
 
-To stop the agent from hallucinating a friend's name (e.g. "Leo") when face recognition only saw a stranger, the sensing handler **injects a `[context: current_user=X]` tag** into every `motion.activity` message. `X` is the last recognized friend, or `"unknown"` when face saw only strangers.
+The sensing handler injects a `[context: current_user=X]` tag into every `motion.activity` message. `X` is the last recognized friend, or `"unknown"` when face saw only strangers. The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`. Source of truth is `mood.CurrentUser()`, which sets `"unknown"` on stranger `presence.enter` (previously left the previous friend's name stale).
 
-The Wellbeing skill (and the MANDATORY directive) require the agent to use this exact value for:
-- Wellbeing cron names (`Wellbeing: {current_user} hydration`, `Wellbeing: {current_user} break`)
-- `user` field in `POST /api/wellbeing/log`
-- `user` field in `POST /api/mood/log`
+### Presence markers written by backend
 
-The agent is explicitly forbidden from inferring the name from memory, KNOWLEDGE.md, chat history, or `senderLabel`. Source of truth is the presence tracker in `mood.CurrentUser()`, which now also sets `"unknown"` on stranger `presence.enter` (previously left the previous friend's name stale).
+The sensing handler writes `enter` / `leave` entries to the same wellbeing JSONL — the agent is not involved:
 
-> **Note:** Wellbeing is a standalone skill (`wellbeing/SKILL.md`). The sensing handler injects a nudge message into `motion.activity` events reminding the agent to follow the Wellbeing and Music skills for cron setup when sedentary activity is detected.
+- `presence.enter` (friend) → `{"action": "enter", "user": "<name>"}`
+- `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
+- `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_at_time_of_event>"}`
+
+These markers also break the dedup chain, so e.g. `sedentary → leave → enter → sedentary` produces three log entries (sedentary, leave+enter, sedentary), not one.
 
 ### Priority: Skills > Knowledge > History
 
 AGENTS.md enforces a strict priority: **SKILL.md instructions always override KNOWLEDGE.md and conversation history**. This is critical because the agent self-accumulates "learnings" in KNOWLEDGE.md via heartbeat, and these can contain incorrect rules that conflict with developer-maintained skills. If the agent notices a conflict, it must update KNOWLEDGE.md to match the skill, not the other way around.
 
-**Cleanup:**
-- **Recognized person leaves** (`presence.leave`) → cancel their crons. No summary file is written — the per-activity history already records what happened.
-- **No one around for 15 min** (`presence.away`) → cancel ALL remaining crons including `"unknown"`.
+### On `presence.leave` / `presence.away`
 
-### Cron-fired behavior
-
-Each cron fires an agent turn. The agent simply speaks a short reminder — no presence check needed (crons are only active while someone is present). Always emits `[HW:/emotion:{...}]` marker.
+Backend writes the `leave` marker to the log. Nothing else to do — there are no crons to cancel. The directive instructs the agent to stay quiet (`NO_REPLY`).
 
 ### Agent behavior
 

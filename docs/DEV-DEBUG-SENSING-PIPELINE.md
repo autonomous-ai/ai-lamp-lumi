@@ -56,11 +56,17 @@ Common test payloads:
 // Emotional cue only (no sedentary) — should trigger Emotion Detection + Mood
 {"type":"motion.activity","message":"Emotional cue: laughing."}
 
-// Sedentary + emotional — should trigger wellbeing cron creation + mood log
+// Sedentary + emotional — should append "sedentary" to wellbeing JSONL (dedup'd if previous was also sedentary), plus mood log from emotional cue
 {"type":"motion.activity","message":"Activity detected: sedentary. Emotional cue: laughing."}
 
-// Sedentary only — should trigger wellbeing cron creation silently (NO_REPLY OK)
+// Sedentary only — should append "sedentary" (dedup'd), possibly nudge if drink/break threshold elapsed
 {"type":"motion.activity","message":"Activity detected: sedentary. If nothing noteworthy, reply NO_REPLY."}
+
+// Drink action — appends "drink" entry (dedup'd if already last action)
+{"type":"motion.activity","message":"Activity detected: drink."}
+
+// Break action — appends "break" entry
+{"type":"motion.activity","message":"Activity detected: break."}
 
 // Friend enters — should set current_user to their name
 {"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (leo))"}
@@ -130,8 +136,9 @@ For a single motion.activity event, the expected chain is:
 | Mood signal log | POST to `/api/mood/log` with `kind=signal` | check `tool_call` with `curl .*mood/log` in args |
 | Mood decision log | POST to `/api/mood/log` with `kind=decision` | same (should see 2 separate POSTs) |
 | Mood file updated | new lines in `/root/local/users/<current_user>/mood/YYYY-MM-DD.jsonl` | `sudo tail` the file |
-| Wellbeing cron (sedentary only) | 2 new crons in `jobs.json` named `Wellbeing: <current_user> hydration/break` | `sudo cat jobs.json` |
-| Wellbeing log | POST to `/api/wellbeing/log` → new line in `/root/local/users/<current_user>/wellbeing/YYYY-MM-DD.jsonl` | same |
+| Wellbeing log (sedentary/drink/break) | POST to `/api/wellbeing/log` per group → new line in `/root/local/users/<current_user>/wellbeing/YYYY-MM-DD.jsonl`. Backend dedups consecutive same-action entries silently. | `sudo tail <jsonl>` |
+| Wellbeing nudge (threshold) | If prior drink/break exists and delta > threshold, `tts_send` contains a one-sentence nudge. No cron involved. | grep `tts_send` + inspect wellbeing log deltas |
+| Presence markers | `presence.enter` / `presence.leave` / `presence.away` each write an `enter` or `leave` line to the same wellbeing JSONL (backend auto — agent not involved) | `sudo tail <jsonl>` |
 | TTS | `tts_send` node with **only** the caring observation (1 sentence). No plan narration. | filter `tts_send` |
 | HW marker | `hw_emotion` node with args matching the emotion mapping | same |
 
@@ -162,10 +169,10 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 **Diagnose:** grep `tts_send` nodes — look for "Need to…", "Now I'll…", "Since X, I should…" patterns before the caring line.
 **Fix path:** explicit rule in `SOUL.md` and `sensing/SKILL.md` — reply text is spoken verbatim, all planning MUST stay in `thinking`.
 
-### 6.5 Agent creates only 1 of 2 wellbeing crons
-**Symptom:** `Wellbeing: <user> break` exists but `Wellbeing: <user> hydration` is missing.
-**Diagnose:** `cat jobs.json | python3 -c 'import json,sys; [print(j["name"]) for j in json.load(sys.stdin)["jobs"]]'`
-**Fix path:** harden Wellbeing SKILL — "create ANY missing crons" must become an explicit checklist the agent follows.
+### 6.5 Wellbeing nudge fires on fresh session (historical)
+**Was:** Original cron-based design created 2 cron jobs (hydration, break) on first sedentary and the agent frequently created only one of the two.
+**Now:** Wellbeing is event-driven (no cron). Bug class eliminated at the architecture level — see `docs/sensing-behavior.md` for the current design.
+**New failure mode to watch:** on a fresh day with no prior `drink` / `break` entry, the agent must NOT nudge (the SKILL has an explicit guard — "no prior entry today → no nudge"). If you see a nudge with an empty log, the guard is broken.
 
 ### 6.6 Music suggestion didn't fire after sedentary
 **Symptom:** `sedentary` event but no new row in `users/<user>/music-suggestions/`.
