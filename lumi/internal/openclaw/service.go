@@ -224,13 +224,18 @@ func (s *Service) drainPendingEvents() {
 			msg = "[ambient] " + ev.msg
 		} else {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
+			// Replay path directives — keep aligned with the live path in
+			// lumi/server/sensing/delivery/http/handler.go. Wellbeing is
+			// event-driven (no crons); presence markers are written by the
+			// backend, not the agent.
+			msg += "\n[REPLY RULE: reply is spoken VERBATIM. All reasoning, log math, plan-talk, and bullet lists stay in `thinking` — never in the reply. If nothing real to say → NO_REPLY, don't narrate why.]"
 			switch ev.eventType {
 			case "presence.leave":
-				msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
+				msg += "\n[Wellbeing is event-driven — no crons to cancel. Backend has logged the leave marker. Reply NO_REPLY unless something is worth saying.]"
 			case "presence.away":
-				msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
+				msg += "\n[Wellbeing is event-driven — no crons to cancel. Reply NO_REPLY.]"
 			case "motion.activity":
-				msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"). drink: reset hydration timer. break: reset break timer. Follow Wellbeing skill accordingly.]"
+				msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break — reset_ts is max(last activity entry, last enter entry, last nudge entry of same kind). Apply the Wellbeing skill's Step 4 rules (threshold) to decide whether to nudge. (3) If you spoke a nudge, POST back with action=nudge_hydration or nudge_break — this resets the delta so you don't re-nudge on every wake-up. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user.]"
 			}
 		}
 		var err error
