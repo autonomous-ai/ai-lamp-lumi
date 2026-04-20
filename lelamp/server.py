@@ -2552,11 +2552,12 @@ def start_voice(req: VoiceStartRequest):
     voice = req.tts_voice or TTS_VOICE
     instructions = req.tts_instructions or TTS_INSTRUCTIONS or None
 
-    # Start or re-init TTS (re-init when voice or instructions changed)
+    # Start or re-init TTS (re-init when voice, instructions, or provider changed)
     need_tts = TTSService and (
         not (tts_service and tts_service.available)
         or (tts_service and tts_service._voice != voice)
         or (tts_service and getattr(tts_service, "_instructions", None) != instructions)
+        or (tts_service and getattr(tts_service, "_provider", None) != req.tts_provider)
     )
     if need_tts:
         if tts_service and tts_service.speaking:
