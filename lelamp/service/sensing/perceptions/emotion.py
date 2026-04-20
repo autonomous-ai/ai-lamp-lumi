@@ -190,11 +190,7 @@ class EmotionPerception(Perception):
             )
             return
 
-        message = (
-            f"Emotion detected: {dominant_emotion} "
-            f"({count}/{len(emotions)} frames). "
-            "If nothing noteworthy, reply NO_REPLY."
-        )
+        message = f"Emotion detected: {dominant_emotion}."
 
         # Dedup
         current_user = ""

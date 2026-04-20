@@ -20,7 +20,7 @@ This skill does NOT:
 `[sensing:emotion.detected]` where the message looks like:
 
 ```
-Emotion detected: <EmotionName> (<N>/<M> frames). If nothing noteworthy, reply NO_REPLY.
+Emotion detected: <EmotionName>.
 ```
 
 `<EmotionName>` is one of the standard FER labels: `Happy`, `Sad`, `Angry`, `Fear`, `Surprise`, `Disgust`, `Neutral`.
@@ -35,12 +35,11 @@ Emotion detected: <EmotionName> (<N>/<M> frames). If nothing noteworthy, reply N
 | `Fear` | `stressed` |
 | `Surprise` | `excited` |
 | `Disgust` | `frustrated` |
-| `Neutral` | skip — no signal worth logging |
+| `Neutral` | `normal` |
 
 ## Workflow
 
 1. Parse the detected emotion from the message.
-2. If it maps to a mood value (see table), POST a mood signal:
-   `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<EmotionName lowercase>`, `mood=<mapped>`, `user=<current_user from context tag>`.
+2. POST a mood signal via the Mood skill: `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<EmotionName lowercase>`, `mood=<mapped>`, `user=<current_user from context tag>`. Every detected emotion in the table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis.
 3. Let the Mood skill take over (synthesize decision, possibly chain to Music).
 4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`.
