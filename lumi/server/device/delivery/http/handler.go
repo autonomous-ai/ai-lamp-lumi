@@ -102,8 +102,19 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 }
 
 // GetVoices returns the list of available TTS voices for the setup page SelectBox.
+// Accepts optional ?provider= query param (default: openai).
 func (h *DeviceHandler) GetVoices(c *gin.Context) {
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(domain.TTSVoices))
+	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
+	voices, ok := domain.TTSVoicesByProvider[provider]
+	if !ok {
+		voices = domain.TTSVoices
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(voices))
+}
+
+// GetTTSProviders returns the list of supported TTS providers.
+func (h *DeviceHandler) GetTTSProviders(c *gin.Context) {
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(domain.TTSProviders))
 }
 
 // ChangeChannel godoc
