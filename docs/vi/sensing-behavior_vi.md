@@ -215,11 +215,18 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
 
 1. **Log từng Activity group** (`drink`, `break`, `sedentary`) qua `POST /api/wellbeing/log` với `user = current_user`. Backend dedup — agent không cần check "đã ở state này chưa?".
 2. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Tính delta** từ log: `minutes_since_last_drink`, `minutes_since_last_break`.
+3. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
+
+   ```
+   hydration_reset = max(ts last drink entry, ts last enter entry)
+   break_reset     = max(ts last break entry, ts last enter entry)
+   ```
+
+   `presence.enter` tính là 1 điểm reset — user vừa vào session → delta bắt đầu từ 0, đếm lên. Không spam ngay khi user ngồi xuống, nhưng sẽ nudge đúng khi user ngồi lâu chưa drink/break.
 4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
-   - Chưa có entry `drink` hay `break` hôm nay → **không nudge** (session mới, chưa đến lúc).
    - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → nhắc uống nước.
-   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
+   - `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → nhắc nghỉ/stretch.
+   - else → caring observation hoặc `NO_REPLY`.
 5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
 ### Ngưỡng
@@ -229,9 +236,20 @@ Hardcode trong `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 | Threshold | Giá trị test | Giá trị production |
 |---|---|---|
 | `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
-| `BREAK_THRESHOLD_MIN` | **5** | 30 |
+| `BREAK_THRESHOLD_MIN` | **7** | 30 |
 
-> ⚠ **Release checklist:** trước khi ship, đổi cả 2 ngưỡng từ 5 về production (45 / 30). Ngưỡng 5 phút chỉ để iterate nhanh khi dev.
+> ⚠ **Release checklist:** trước khi ship, đổi cả 2 ngưỡng về production (45 / 30). Hydration và break cố ý lệch nhau (5 vs 7) để test phân biệt nhánh nào fire.
+
+**Cách chặn spam re-nudge.** Entry `nudge_hydration` / `nudge_break` mà agent log sau khi nhắc cũng tính là reset point cho threshold. Sau khi Lumi nhắc, delta về 0 → lần nhắc tiếp theo cùng loại chỉ fire sau một threshold window nữa (45 min cho hydration, 30 min cho break trong production).
+
+```
+10:45  hydration overdue → nhắc 💧 + log nudge_hydration → hydration delta = 0
+10:50  wake-up → delta = 5 min < 45 → SKIP
+11:20  wake-up → delta = 35 min < 45 → SKIP
+11:30  wake-up → delta = 45 min ≥ 45 → nhắc 💧 lại (user vẫn chưa uống)
+```
+
+Nếu user uống hoặc nghỉ trước window tiếp theo, entry `drink`/`break` tự reset delta → không cần nhắc nữa.
 
 ### User attribution — `[context: current_user=X]`
 

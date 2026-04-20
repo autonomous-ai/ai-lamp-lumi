@@ -97,7 +97,7 @@ func (s *Service) notifySkillChanges(changedSkills []string) {
 	for _, name := range changedSkills {
 		list += fmt.Sprintf("\n- skills/%s/SKILL.md", name)
 	}
-	msg := fmt.Sprintf("[system] The following skills have been updated. Re-read them now — files on disk have changed. Follow the updated instructions strictly.%s", list)
+	msg := fmt.Sprintf("[system] The following skills have been updated. Re-read them now — files on disk have changed. Follow the updated instructions strictly. Keep your reply under 5 words.%s", list)
 	if _, err := s.SendChatMessage(msg); err != nil {
 		slog.Warn("notify agent failed", "component", "skill-watcher", "error", err)
 	}

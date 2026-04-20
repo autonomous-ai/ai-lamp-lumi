@@ -215,11 +215,18 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
 
 1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
 2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Compute deltas** from the log: `minutes_since_last_drink`, `minutes_since_last_break`.
+3. **Compute deltas** from the log, using the most recent reset point for each:
+
+   ```
+   hydration_reset = max(last drink entry ts, last enter entry ts)
+   break_reset     = max(last break entry ts, last enter entry ts)
+   ```
+
+   `presence.enter` counts as a reset point — a fresh arrival means the delta starts at 0 and counts up, so no first-turn spam, but a real nudge once the user has been sitting long enough without drinking or taking a break.
 4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
-   - No prior `drink` or `break` entry today → **no nudge** (fresh session is not overdue).
    - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → hydration nudge.
    - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → break nudge.
+   - else → normal caring observation or `NO_REPLY`.
 5. **Never guess** time-since from memory — always compute from the log.
 
 ### Thresholds
@@ -229,12 +236,20 @@ Hardcoded in `lumi/resources/openclaw-skills/wellbeing/SKILL.md`:
 | Threshold | Test value | Production value |
 |---|---|---|
 | `HYDRATION_THRESHOLD_MIN` | **5** | 45 |
-| `BREAK_THRESHOLD_MIN` | **5** | 30 |
-| `NUDGE_COOLDOWN_MIN` | **3** | 15 |
+| `BREAK_THRESHOLD_MIN` | **7** | 30 |
 
-> ⚠ **Release checklist:** before shipping, change all three constants to the production values (45 / 30 / 15). Test values let us iterate within minutes instead of hours.
+> ⚠ **Release checklist:** before shipping, change both constants to the production values (45 / 30). Test values let us iterate within minutes instead of hours — hydration and break are intentionally offset (5 vs 7) so you can tell which path fired during testing.
 
-`NUDGE_COOLDOWN_MIN` is the minimum gap between two nudges of the same type. After Lumi speaks a hydration nudge, it stays silent on hydration for this many minutes (break nudges work the same way, tracked separately). Without this guard the agent would re-nudge every `motion.activity` event (~3 min cooldown).
+**How re-nudge spam is prevented.** The `nudge_hydration` / `nudge_break` log entry the agent writes after speaking is also counted as a reset point for its threshold. After Lumi reminds, the delta drops back to 0 and the next reminder of that kind only fires after another full threshold window (45 min for hydration, 30 min for break in production).
+
+```
+10:45  hydration overdue → nudge 💧 + log nudge_hydration → hydration delta = 0
+10:50  wake-up → delta = 5 min < 45 → SKIP
+11:20  wake-up → delta = 35 min < 45 → SKIP
+11:30  wake-up → delta = 45 min ≥ 45 → nudge 💧 again (user still hasn't drunk)
+```
+
+If the user drinks or takes a break before the next window, the regular `drink` / `break` entry resets the delta and nothing needs nudging.
 
 ### User attribution — `[context: current_user=X]`
 
