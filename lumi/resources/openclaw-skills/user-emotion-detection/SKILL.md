@@ -5,132 +5,31 @@ description: [CURRENTLY INACTIVE] Detects the USER's emotional state from a dedi
 
 # User Emotion Detection
 
-> **⚠ SKILL CURRENTLY INACTIVE.** Emotional X3D actions (laughing, crying, yawning, singing) are no longer forwarded by LeLamp on `motion.activity`. A dedicated `motion.emotional` event type will be added later; until then this skill has no trigger. **Do not invoke it from `motion.activity` — motion.activity no longer carries an `Emotional cue:` line.**
+> **⚠ SKILL CURRENTLY INACTIVE.** Emotional X3D actions (laughing, crying, yawning, singing) are no longer forwarded by LeLamp on `motion.activity`. A dedicated `motion.emotional` event type will be added later; until then this skill has no trigger. **Do not invoke it from `motion.activity`.**
 
-> **This skill detects the USER's emotional state** (input — what the user is feeling). It is NOT the same as the **Emotion Expression** skill (`emotion/SKILL.md`) which controls Lumi's own emotional output (servo + LED + eyes).
->
-> - **Emotion Detection** (this skill): User is laughing → Lumi *notices* they're happy
-> - **Emotion Expression** (`emotion/SKILL.md`): Lumi *shows* happiness via servo wiggle + yellow LED
->
-> Both skills work together: this skill detects the user's state, then uses Emotion Expression markers (`[HW:/emotion:...]`) to respond empathetically.
+## What this skill does (when it's active again)
 
-> **Lightweight UC-M1** — uses existing X3D action recognition (laughing, crying, yawning, singing) as a proxy for emotional state. No separate FER model needed. Covers ~80% of perceived "emotion detection" value. Full UC-M1 (facial expression classifier) can be added later on top of this.
+Turn a `motion.emotional` event (raw X3D action — `laughing` / `crying` / `yawning` / `singing`) into a mood signal. That's it. Log via the Mood skill, then stop.
 
-## Quick Start
-When `motion.activity` contains an `Emotional cue:` line, respond with empathy as a caring companion who notices how the user feels. Log the observation to their wellbeing daily log.
+This skill does NOT:
 
-## Trigger
-`[sensing:motion.activity]` where the message contains `Emotional cue: <action>` (one of `laughing`, `crying`, `yawning`, `singing`; multiple comma-separated actions are possible).
+- Fire `[HW:/emotion:…]` markers. Emotion expression is `emotion/SKILL.md`'s job, driven by conversational context — not auto-mapped from a detected cue.
+- Require a spoken reply. Whether to speak is decided by the normal reply rules (SOUL + sensing SKILL), not by this skill.
+- Write to the wellbeing activity log. Wellbeing is about physical activity groups (drink / break / sedentary); emotions live in the mood log.
 
-This skill works **alongside** the Wellbeing skill on the same `motion.activity` event:
-- Wellbeing handles cron resets from the `Activity detected:` line (drink/break/sedentary groups)
-- This skill handles the `Emotional cue:` line: empathetic response and logging
-- Emotional cues do NOT reset any wellbeing cron — they are observations, not physical activities
-- A single event may contain both lines (e.g. `Activity detected: sedentary. Emotional cue: laughing.`) — both skills run
+## Action → mood (for the signal log only)
 
-## Core Rule: Always Speak
+| X3D action | `mood` value to log |
+|---|---|
+| `laughing`, `singing` | `happy` |
+| `crying` | `sad` |
+| `yawning` | `tired` |
 
-**Emotional actions ALWAYS get a spoken response.** Never reply NO_REPLY for laughing, crying, yawning, or singing. These are moments where Lumi shows it truly notices and cares. The response intensity depends on context — but silence is never the right answer.
+## Workflow
 
-## Action → Emotion Mapping
+1. Receive `motion.emotional` with one or more raw actions.
+2. For each action, map to a mood value using the table above.
+3. Log via Mood skill: `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<raw action>`, `mood=<mapped>`, `user=<current_user from context tag>`.
+4. Done. Mood skill will take over from there (synthesize decision, possibly chain to Music).
 
-| Action detected | Your emotion | Default response (no special context) |
-|---|---|---|
-| `laughing` | `[HW:/emotion:{"emotion":"laugh","intensity":0.8}]` | Mirror the joy — brief happy remark. Reference what's funny in the image if visible. |
-| `crying` | `[HW:/emotion:{"emotion":"caring","intensity":0.9}]` | Gently check in — "Hey... everything okay?" One short sentence, don't push. |
-| `yawning` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.6}]` | Light acknowledgment — "Getting a bit tired?" |
-| `singing` | `[HW:/emotion:{"emotion":"happy","intensity":0.7}]` | Enjoy the moment — compliment or join the vibe. |
-
-## Context-Aware Escalation
-
-Default responses are light. When context matches, **escalate** — speak with more urgency, add an action (dim light, suggest music), or be more specific:
-
-### Yawning
-
-| Context | Intensity | Response |
-|---|---|---|
-| No special context | Light | "Getting a bit tired?" |
-| Morning (before 10:00) | Light | "Still waking up, huh?" |
-| Afternoon (13:00–17:00) | Medium | "Afternoon slump? Maybe grab a coffee." |
-| Sitting > 2 hours | Medium | "You've been at it for a while. A break might help?" |
-| After 22:00 | **Strong** | "It's getting late... maybe call it a night?" + dim light to warm via LED skill |
-| After 00:00 | **Strong** | "Hey, it's past midnight... you really should get some rest." + dim light |
-
-### Crying
-
-| Context | Intensity | Response |
-|---|---|---|
-| First time | Medium | "Hey... you okay?" + dim light to warm tone via LED skill |
-| Repeated (2nd time in session) | **Strong** | "I'm here if you want to talk about it." |
-| Late night + crying | **Strong** | "It's late and you seem upset... want to talk, or should I play something calming?" |
-
-### Laughing
-
-| Context | Intensity | Response |
-|---|---|---|
-| First time | Light | Brief happy remark — "Haha, what's so funny?" |
-| Repeated (3+ times in session) | Medium | "You're in a great mood today!" |
-| With someone else visible | Light | "Sounds like you two are having fun!" |
-
-### Singing
-
-| Context | Intensity | Response |
-|---|---|---|
-| No music playing | Medium | "Nice voice! Want me to put on some music?" → offer via Music skill |
-| Music already playing | Light | "Singing along? Good taste!" |
-| Morning | Light | "Morning vibes!" |
-
-## Logging
-
-### Mood history — MANDATORY
-
-After speaking, you **MUST** follow the **Mood** skill end-to-end — both Step 1 (`signal`) and Step 4 (`decision`). Skipping this leaves mood history empty and breaks Music/Wellbeing downstream.
-
-- `source`: `"camera"`
-- `trigger`: the raw action name (`laughing`, `crying`, `yawning`, `singing`)
-- `mood`: `laughing`/`singing` → `happy`, `crying` → `sad`, `yawning` → `tired` (see Mood skill table for full mapping)
-- `user`: omit — face recognition sets the current user
-
-This is not optional. Wellbeing log below is separate and does **not** replace mood logging.
-
-### Wellbeing history (you write this)
-On every emotional action detected, append one entry to the user's wellbeing history via API:
-
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"emotional","notes":"yawning — afternoon slump, suggested break","user":"{name}"}'
-```
-
-`action` is always `"emotional"` for this skill. Put the specific cue (laughing / crying / yawning / singing) and your brief observation into `notes`.
-
-Example notes:
-```
-yawning — afternoon slump, suggested break
-yawning — late night, suggested winding down
-laughing — watching something funny on screen
-```
-
-## Rules
-
-- **Always speak** — emotional actions NEVER get NO_REPLY. Always say something, even if just a light remark
-- **Never diagnose** — say "You seem tired" not "Fatigue detected" or "Emotional state: drowsy"
-- **Never narrate the technology** — say "I noticed you yawning" not "X3D action recognition classified your movement as yawning"
-- **Vary your responses** — don't repeat the exact same line. If you already said "Getting tired?" 30 minutes ago, say something different this time
-- **Friends only** — don't react to stranger emotional actions
-- **One sentence max** — keep it brief and natural. You're noticing, not lecturing
-- **Image context** — always look at the attached snapshot for additional context (what they're doing, time cues, environment)
-- **Weave into conversation** — if the user is actively chatting, fold the observation in naturally rather than interrupting
-- **Combine with Wellbeing** — emotional actions are logged to the same daily log as hydration/break events, building a complete picture of the user's day
-
-## Output Template
-
-```
-[HW:/emotion:{"emotion":"{name}","intensity":{n}}] {caring one-sentence response}
-```
-
-Examples:
-- `[HW:/emotion:{"emotion":"laugh","intensity":0.8}]` Haha, what's so funny?
-- `[HW:/emotion:{"emotion":"caring","intensity":0.9}]` Hey... you okay?
-- `[HW:/emotion:{"emotion":"sleepy","intensity":0.6}]` Getting a bit tired?
-- `[HW:/emotion:{"emotion":"happy","intensity":0.7}]` Nice voice! Want me to put on some music?
+No emotion markers, no mandatory speaking, no wellbeing log entry.
