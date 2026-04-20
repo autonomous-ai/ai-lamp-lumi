@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "device_name": "Claude-Lumi",
+  "http_port": 5002,
+  "lelamp_url": "http://127.0.0.1:5001",
+  "lumi_url": "http://127.0.0.1:5000",
+  "approval_timeout_sec": 30,
+  "led_mapping": {
+    "sleep": { "action": "off" },
+    "idle": { "action": "none" },
+    "busy": { "effect": "pulse", "color": [0, 100, 255], "speed": 0.8 },
+    "attention": { "effect": "blink", "color": [255, 80, 0], "speed": 1.5 },
+    "heart": { "action": "solid", "color": [255, 200, 100], "duration_ms": 3000 },
+    "celebrate": { "effect": "rainbow", "speed": 2.0, "duration_ms": 3000 }
+  }
+}
