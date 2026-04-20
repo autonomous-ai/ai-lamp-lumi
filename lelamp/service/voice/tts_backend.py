@@ -91,9 +91,8 @@ class ElevenLabsTTSBackend(TTSBackend):
     API_BASE = "https://api.elevenlabs.io"
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
-        self._api_key = "sk_ad049bfc2b626d950d9f2f969e14a1f19df93fbb7c494268" #api_key
-        # Always use ElevenLabs API directly — ignore proxy base_url
-        self._base_url = self.API_BASE
+        self._api_key = api_key
+        self._base_url = (base_url or self.API_BASE).rstrip("/")
         self._httpx = None
         try:
             import httpx
@@ -145,7 +144,6 @@ def create_backend(
     """Factory: create a TTS backend by provider name."""
     provider = (provider or PROVIDER_OPENAI).lower().strip()
     if provider == PROVIDER_ELEVENLABS:
-        # ElevenLabs uses its own API base, ignore proxy base_url
-        return ElevenLabsTTSBackend(api_key=api_key)
+        return ElevenLabsTTSBackend(api_key=api_key, base_url=base_url or None)
     # Default: openai-compatible
     return OpenAITTSBackend(api_key=api_key, base_url=base_url)
