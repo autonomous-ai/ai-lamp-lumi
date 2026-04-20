@@ -9,12 +9,12 @@ description: Event-driven hydration and break reminders. Reads the per-user acti
 
 Wellbeing is **event-driven**, not cron-driven. There are no wellbeing cron jobs. On every `motion.activity` event, you:
 
-1. Log the activity (drink/break/sedentary) — backend dedups consecutive same-action entries automatically.
+1. Log each activity group present (drink/break/sedentary). LeLamp already deduped upstream, so you just POST and move on.
 2. Read the recent history.
-3. Compute `minutes_since_last_drink` and `minutes_since_last_break` from the log (NEVER guess from memory or vibes).
-4. If either is over its threshold, speak a short caring nudge. Otherwise stay quiet.
+3. Figure out silently how long it's been since the last reset point for hydration and for break (never guess from memory).
+4. If either delta is over its threshold, speak a short caring nudge. Otherwise stay quiet.
 
-Presence `enter` / `leave` events are logged automatically by the backend — they break the dedup chain so same-action entries across different sittings are preserved.
+Presence `enter` / `leave` markers are written automatically by the backend when people arrive or leave — agent never posts those.
 
 ## User attribution — hard rule
 
@@ -49,7 +49,7 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -d '{"action":"<group>","notes":"<optional>","user":"<current_user>"}'
 ```
 
-One POST per group. Backend dedups automatically — if the previous entry has the same action, the new POST is silently dropped. You don't need to check before posting.
+One POST per group. LeLamp already deduped the incoming `motion.activity` (same user + same groups within 5 min won't reach you), so by the time you see the event it's "new enough to log" — just POST and move on.
 
 > `motion.activity` no longer carries emotional cues — emotional actions will arrive via a separate `motion.emotional` event in a future version. This skill handles only the physical activity groups (`drink`, `break`, `sedentary`).
 
@@ -61,44 +61,32 @@ curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user
 
 Response is a time-ordered list of events with `{ts, action, notes, hour}`.
 
-### Step 3 — Compute deltas
+### Step 3 — Compute deltas (in your head, silently)
 
-For each of hydration and break, the delta is measured from the **most recent reset point**. A "reset point" is any of:
-- The last actual activity of that type (`drink` for hydration, `break` for break).
-- The last `enter` entry — a fresh session counts as a reset because the user just arrived.
-- The last nudge of that type (`nudge_hydration` / `nudge_break`) — after reminding, the clock resets as if the user had acted. This avoids re-nudging every wake-up event while the user hasn't drunk/broken yet; they'll get reminded again after another full threshold window.
+**Do NOT output any of this math. All computation stays in `thinking`.** These instructions tell you WHAT to compute, not what to write in the reply.
 
-```
-hydration_reset_ts = max(
-    last drink entry ts,
-    last enter entry ts,
-    last nudge_hydration entry ts,
-)
-minutes_since_last_drink = (now - hydration_reset_ts) / 60
+For hydration, find the most recent of these three log entries: a `drink`, an `enter`, or a `nudge_hydration`. The time since that entry (in minutes) is your hydration delta. The same method applies to break, using `break`, `enter`, and `nudge_break` as the reset candidates.
 
-break_reset_ts = max(
-    last break entry ts,
-    last enter entry ts,
-    last nudge_break entry ts,
-)
-minutes_since_last_break = (now - break_reset_ts) / 60
-```
+Why all three count as resets:
+- A `drink` / `break` entry means the user actually acted.
+- An `enter` entry means this is a fresh session (just arrived — zero the clock).
+- A `nudge_*` entry means Lumi already reminded them; don't re-nudge until another full threshold window passes.
 
-If none of these entries exist for the user today, treat the delta as 0 — nothing to nudge yet.
+If none of those entries exist yet for today, treat the delta as 0 — there's nothing to nudge about.
 
-### Step 4 — Decide whether to nudge
+### Step 4 — Decide whether to nudge (silently)
 
-Apply in this order — nudge at most **one** thing per turn:
+Nudge at most one thing per turn. Hydration takes priority over break.
 
-1. `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
-2. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → speak a break nudge.
-3. `else` → respond to the event normally (caring observation if natural) or `NO_REPLY` if nothing to add.
+- If the hydration delta is at or over the hydration threshold, speak a hydration nudge.
+- Otherwise, if the break delta is at or over the break threshold, speak a break nudge.
+- Otherwise, respond to the event normally (a caring observation if it feels natural) or reply `NO_REPLY`.
 
-The reset rules in Step 3 are what prevent spam: after Lumi nudges, the `nudge_hydration` (or `nudge_break`) entry counts as a reset, so the delta drops back to 0 and the next nudge of that kind only fires after another full threshold window. A fresh arrival (`enter`) works the same way — the delta starts at 0 and counts up.
+The reset rules in Step 3 keep this from spamming — once you nudge, the `nudge_*` entry resets the delta and the next reminder of that kind only fires after another full threshold window.
 
-**Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Do not say *"just nudged 1 min ago, no repeat"*, *"both over threshold but skipping"*, *"dedup applies"*, etc. These are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have said in a previous turn's thinking.
+**Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Don't say "just nudged N min ago, no repeat", "both over threshold but skipping", "dedup applies", etc. Those are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have thought on a previous turn.
 
-**Also: trust the log, not memory.** If the wellbeing history response contains NO `nudge_hydration` entry, then no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
+**Trust the log, not memory.** If the wellbeing history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
 
 Example nudges (vary your wording each time — never repeat verbatim):
 
@@ -115,7 +103,7 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -d '{"action":"nudge_hydration","notes":"<your nudge text>","user":"<current_user>"}'
 ```
 
-Same for break → `action="nudge_break"`. This is purely for **timeline visibility** — so the user's activity log shows when Lumi actually reminded them. It does NOT affect the next nudge decision (threshold check stays based on `drink`/`break` entries only).
+Same for break → `action="nudge_break"`. This entry serves two purposes: timeline visibility (the user's log shows when Lumi actually reminded them) AND delta reset (Step 3 treats the nudge entry as a reset point, so the next reminder of that kind waits a full threshold window).
 
 ### Step 6 — Never narrate the mechanics
 
@@ -155,8 +143,8 @@ There are NO crons to cancel. Wellbeing is stateless at the timer level — the 
 | Action | Written by | Meaning |
 |---|---|---|
 | `drink`, `break`, `sedentary`, `emotional` | Agent (from motion.activity groups) | User activity transition |
-| `enter`, `leave` | Backend (on presence.* events) | Session boundary — breaks dedup chain |
-| `nudge_hydration`, `nudge_break` | Agent (after speaking a nudge) | Records when Lumi actually reminded the user — powers cooldown + timeline visibility |
+| `enter`, `leave` | Backend (on presence.* events) | Session boundary; backend collapses consecutive same-action (so stranger → stranger stays as one `enter`) |
+| `nudge_hydration`, `nudge_break` | Agent (after speaking a nudge) | Records when Lumi actually reminded the user — serves as the reset point for the next threshold window AND gives timeline visibility |
 
 ## Principles
 
