@@ -445,6 +445,7 @@ var allowedLogs = map[string]string{
 	"lumi":             "/var/log/lumi.log",
 	"openclaw":         "/var/log/openclaw/lumi.log",
 	"openclaw-service": "journal:openclaw.service",
+	"buddy":            "/var/log/lumi-buddy.log",
 }
 
 // resolveOpenclawLog returns the openclaw log path, falling back to the newest

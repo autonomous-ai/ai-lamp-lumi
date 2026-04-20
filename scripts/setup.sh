@@ -156,12 +156,14 @@ stage_ota_metadata() {
   BOOTSTRAP_URL=$(jq -r '.bootstrap.url // empty' "$METADATA_TMP")
   LELAMP_VERSION=$(jq -r '.lelamp.version // empty' "$METADATA_TMP")
   LELAMP_URL=$(jq -r '.lelamp.url // empty' "$METADATA_TMP")
+  BUDDY_VERSION=$(jq -r '."claude-desktop-buddy".version // empty' "$METADATA_TMP")
+  BUDDY_URL=$(jq -r '."claude-desktop-buddy".url // empty' "$METADATA_TMP")
   rm -f "$METADATA_TMP"
   if [ -z "$WEB_URL" ] || [ -z "$LUMI_URL" ] || [ -z "$BOOTSTRAP_URL" ]; then
     echo "ERROR: OTA metadata missing web.url, lumi.url or bootstrap.url. Check $OTA_METADATA_URL"
     exit 1
   fi
-  echo "[stage] OTA versions: web=$WEB_VERSION lumi=$LUMI_VERSION bootstrap=$BOOTSTRAP_VERSION lelamp=$LELAMP_VERSION"
+  echo "[stage] OTA versions: web=$WEB_VERSION lumi=$LUMI_VERSION bootstrap=$BOOTSTRAP_VERSION lelamp=$LELAMP_VERSION buddy=$BUDDY_VERSION"
 }
 
 # Download zip from URL, unzip, copy single binary to dest path (handles lumi-server, bootstrap-server in zip)
@@ -453,6 +455,71 @@ EOF
   systemctl daemon-reload
   systemctl enable lumi-lelamp
   systemctl restart lumi-lelamp
+}
+
+# ----------------------------------------------------------
+# Stage 1c: Claude Desktop Buddy (BLE plugin, optional)
+# ----------------------------------------------------------
+stage_buddy() {
+  echo "[stage] Install Claude Desktop Buddy"
+
+  if [ -z "$BUDDY_URL" ]; then
+    echo "[stage] WARN: No claude-desktop-buddy URL in OTA metadata, skipping"
+    return
+  fi
+
+  # Ensure Bluetooth is available
+  apt install -y bluez 2>/dev/null || true
+  bluetoothctl power on 2>/dev/null || true
+
+  BUDDY_DIR="/opt/claude-desktop-buddy"
+  mkdir -p "$BUDDY_DIR"
+
+  retry "curl -fsSL -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o /tmp/buddy.zip \"$BUDDY_URL\"" 5
+  unzip -o -q /tmp/buddy.zip -d /tmp/buddy-extract
+  rm -f /tmp/buddy.zip
+
+  # Binary
+  if [ -f /tmp/buddy-extract/buddy-plugin ]; then
+    cp -f /tmp/buddy-extract/buddy-plugin "$BUDDY_DIR/buddy-plugin"
+    chmod +x "$BUDDY_DIR/buddy-plugin"
+  fi
+
+  # Config (don't overwrite existing)
+  if [ ! -f /root/config/buddy.json ] && [ -f /tmp/buddy-extract/config/buddy.json ]; then
+    mkdir -p /root/config
+    cp -f /tmp/buddy-extract/config/buddy.json /root/config/buddy.json
+  fi
+
+  # Version file
+  echo "$BUDDY_VERSION" > "$BUDDY_DIR/VERSION_BUDDY"
+
+  rm -rf /tmp/buddy-extract
+
+  cat >/etc/systemd/system/lumi-buddy.service <<EOF
+[Unit]
+Description=Lumi Claude Desktop Buddy (BLE)
+After=bluetooth.target lumi.service
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$BUDDY_DIR
+ExecStart=$BUDDY_DIR/buddy-plugin -config /root/config/buddy.json
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lumi-buddy
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable lumi-buddy
+  # Don't start yet — starts on reboot
 }
 
 # ----------------------------------------------------------
@@ -1005,8 +1072,8 @@ OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomo
 [ $# -ne 1 ] && { echo "Usage: software-update <lumi|openclaw|web>"; exit 1; }
 APP="$1"
 case "$APP" in
-  lumi|openclaw|bootstrap|web|lelamp) ;;
-  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, web, or lelamp."; exit 1 ;;
+  lumi|openclaw|bootstrap|web|lelamp|lumi-buddy) ;;
+  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, web, lelamp, or lumi-buddy."; exit 1 ;;
 esac
 
 METADATA_TMP=$(mktemp)
@@ -1014,8 +1081,11 @@ ZIP_TMP=""
 DIR_TMP=""
 trap 'rm -f "$METADATA_TMP" "$ZIP_TMP"; rm -rf "$DIR_TMP"' EXIT
 curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$METADATA_TMP" "$OTA_METADATA_URL" || { echo "Failed to fetch metadata from $OTA_METADATA_URL"; exit 1; }
-VERSION=$(jq -r --arg a "$APP" '.[$a].version // empty' "$METADATA_TMP")
-URL=$(jq -r --arg a "$APP" '.[$a].url // empty' "$METADATA_TMP")
+# Map command name to metadata key (lumi-buddy → claude-desktop-buddy)
+META_KEY="$APP"
+[ "$APP" = "lumi-buddy" ] && META_KEY="claude-desktop-buddy"
+VERSION=$(jq -r --arg a "$META_KEY" '.[$a].version // empty' "$METADATA_TMP")
+URL=$(jq -r --arg a "$META_KEY" '.[$a].url // empty' "$METADATA_TMP")
 [ -z "$VERSION" ] && { echo "Metadata has no version for $APP"; exit 1; }
 
 if [ "$APP" = "lumi" ]; then
@@ -1073,6 +1143,19 @@ elif [ "$APP" = "lelamp" ]; then
   cd /
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
+elif [ "$APP" = "lumi-buddy" ]; then
+  [ -z "$URL" ] && { echo "Metadata has no url for claude-desktop-buddy"; exit 1; }
+  ZIP_TMP=$(mktemp)
+  DIR_TMP=$(mktemp -d)
+  curl -fsSL -H "Cache-Control: no-cache" -o "$ZIP_TMP" "$URL" || { echo "Failed to download claude-desktop-buddy"; exit 1; }
+  BUDDY_DIR="/opt/claude-desktop-buddy"
+  mkdir -p "$BUDDY_DIR"
+  unzip -o -q "$ZIP_TMP" -d "$DIR_TMP"
+  [ -f "$DIR_TMP/buddy-plugin" ] && cp -f "$DIR_TMP/buddy-plugin" "$BUDDY_DIR/buddy-plugin" && chmod +x "$BUDDY_DIR/buddy-plugin"
+  [ ! -f "/root/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ] && mkdir -p /root/config && cp -f "$DIR_TMP/config/buddy.json" /root/config/buddy.json
+  echo "$VERSION" > "$BUDDY_DIR/VERSION_BUDDY"
+  systemctl restart lumi-buddy
+  echo "lumi-buddy updated to $VERSION"
 fi
 SOFTWAREUPDATE
   chmod +x /usr/local/bin/software-update
@@ -1097,6 +1180,7 @@ stage_enable_spi
 stage_ota_metadata
 stage_backend
 stage_lelamp
+stage_buddy
 stage_openclaw
 stage_nginx
 stage_ap
@@ -1111,8 +1195,8 @@ echo "======================================"
 echo "Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
-echo "Backends: systemctl status bootstrap lumi lumi-lelamp"
-echo "Updates:  software-update <bootstrap|lumi|lelamp|web> [version]"
+echo "Backends: systemctl status bootstrap lumi lumi-lelamp lumi-buddy"
+echo "Updates:  software-update <bootstrap|lumi|lelamp|lumi-buddy|web> [version]"
 echo "======================================"
 
 echo ""
