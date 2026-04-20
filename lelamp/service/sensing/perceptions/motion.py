@@ -243,6 +243,12 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
+        # Log raw X3D detections in this flush window — useful for tuning
+        # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
+        # particular flush did/didn't produce an event.
+        if actions:
+            logger.info("[motion] raw X3D actions in window: %s", actions)
+
         activity_groups: set[str] = set()
         emotional_cues: list[str] = []
         seen_emotions: set[str] = set()
