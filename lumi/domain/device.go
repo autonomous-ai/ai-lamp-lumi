@@ -348,7 +348,7 @@ var TTSProviders = []string{TTSProviderOpenAI, TTSProviderElevenLabs}
 // TTSVoicesByProvider maps provider name to its available voices.
 var TTSVoicesByProvider = map[string][]string{
 	TTSProviderOpenAI:     {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"},
-	TTSProviderElevenLabs: {"Rachel", "Sarah", "Charlotte", "Alice", "Lily", "Matilda", "Brian", "Daniel", "George", "James", "Liam", "Callum", "Charlie", "Chris", "Dave", "Ethan", "Adam", "Bill", "Josh", "Sam"},
+	TTSProviderElevenLabs: {"Rachel", "Sarah", "Grace", "Charlotte", "Alice", "Lily", "Matilda", "Freya", "Nicole", "Glinda", "Serena", "Emily", "Dorothy", "Jessie", "Brian", "Adam", "Daniel", "George", "James", "Liam", "Callum", "Harry", "Charlie", "Chris", "Drew", "Clyde", "Arnold", "Bill", "Sam", "Patrick"},
 }
 
 // TTSVoices is the default (OpenAI) voice list for backward compatibility.
