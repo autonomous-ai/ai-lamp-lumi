@@ -2587,7 +2587,9 @@ def start_voice(req: VoiceStartRequest):
     if voice_service and voice_service.available:
         # Wire updated TTS into running voice service (e.g. voice changed)
         if need_tts and tts_service:
-            voice_service._tts_service = tts_service
+            voice_service._tts = tts_service
+            if hasattr(voice_service, '_backchannel') and voice_service._backchannel:
+                voice_service._backchannel._tts = tts_service
             logger.info("Updated TTS in running voice service (voice=%s)", voice)
         return {"status": "already_running"}
     if not VoiceService:
