@@ -2642,6 +2642,17 @@ def update_voice_config(req: VoiceConfigRequest):
     return {"status": "ok"}
 
 
+@app.get("/voice/voices", tags=["Voice"])
+def get_voices():
+    """Return available TTS voices for the current provider."""
+    from lelamp.service.voice.tts_elevenlabs import ElevenLabsTTSBackend
+    from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS, PROVIDER_OPENAI
+    provider = getattr(tts_service, "_provider", PROVIDER_OPENAI) if tts_service else PROVIDER_OPENAI
+    if provider == PROVIDER_ELEVENLABS:
+        return {"provider": provider, "voices": list(ElevenLabsTTSBackend.VOICE_IDS.keys())}
+    return {"provider": provider, "voices": ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]}
+
+
 @app.post("/voice/speak", response_model=StatusResponse, tags=["Voice"])
 def speak_text(req: SpeakRequest):
     """Synthesize text to speech and play through the speaker."""
