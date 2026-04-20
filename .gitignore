@@ -7,6 +7,7 @@
 .cursor/
 .claude/settings.local.json
 *.log
+dlbackend/local
 
 # Go build artifacts
 *.exe
