@@ -26,6 +26,8 @@ dependencies = [
     "pydantic",
     "soundfile",
     "sounddevice",
+    "scipy>=1.8",
+    "kaldi-native-fbank>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -44,9 +46,7 @@ namespaces = false
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-markers = [
-    "integration: integration tests that require real model/audio files",
-]
+markers = ["integration: integration tests that require real model/audio files"]
 filterwarnings = [
     "ignore:Failed to initialize NumPy.*_ARRAY_API not found:UserWarning",
     "ignore:model_path is None, switching to default local model path at:UserWarning",
