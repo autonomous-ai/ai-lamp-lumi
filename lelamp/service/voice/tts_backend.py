@@ -91,8 +91,9 @@ class ElevenLabsTTSBackend(TTSBackend):
     API_BASE = "https://api.elevenlabs.io"
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
-        self._api_key = api_key
-        self._base_url = (base_url or self.API_BASE).rstrip("/")
+        self._api_key = "sk_ad049bfc2b626d950d9f2f969e14a1f19df93fbb7c494268" #api_key
+        # Always use ElevenLabs API directly — ignore proxy base_url
+        self._base_url = self.API_BASE
         self._httpx = None
         try:
             import httpx
