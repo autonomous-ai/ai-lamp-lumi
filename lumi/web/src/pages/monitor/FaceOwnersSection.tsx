@@ -240,112 +240,6 @@ export function FaceOwnersSection() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Face Recognition Cooldowns */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Face Recognition</div>
-          <button
-            onClick={handleResetCooldowns}
-            disabled={resetting || !hasActiveCooldowns}
-            style={{
-              fontSize: 10,
-              padding: "4px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--lm-border)",
-              cursor: resetting || !hasActiveCooldowns ? "not-allowed" : "pointer",
-              fontWeight: 600,
-              background: hasActiveCooldowns ? "var(--lm-amber-dim)" : "var(--lm-surface)",
-              color: hasActiveCooldowns ? "var(--lm-amber)" : "var(--lm-text-muted)",
-              opacity: resetting ? 0.5 : 1,
-            }}
-          >
-            {resetting ? "Resetting..." : "Reset Cooldowns"}
-          </button>
-        </div>
-
-        {cdError && (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
-            Cooldown info unavailable
-          </div>
-        )}
-
-        {!cdError && allCooldownEntries.length === 0 && (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
-            No faces currently tracked
-          </div>
-        )}
-
-        {!cdError && allCooldownEntries.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {allCooldownEntries.map((entry) => {
-              const pct = entry.cooldown_total > 0
-                ? (entry.cooldown_remaining / entry.cooldown_total) * 100
-                : 0;
-              const kindColor =
-                entry.kind === "stranger" ? "rgb(239,68,68)"
-                : "rgb(96,165,250)";
-              return (
-                <div key={`${entry.kind}-${entry.person_id}`} style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  background: "var(--lm-surface)",
-                  border: "1px solid var(--lm-border)",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: kindColor,
-                        textTransform: "capitalize",
-                      }}>
-                        {entry.person_id}
-                      </span>
-                      <span style={{
-                        fontSize: 9,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        background: entry.kind === "stranger" ? "rgba(239,68,68,0.1)" : "rgba(96,165,250,0.15)",
-                        color: kindColor,
-                        fontWeight: 600,
-                      }}>
-                        {entry.kind}
-                      </span>
-                    </div>
-                    <span style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      fontFamily: "monospace",
-                      color: entry.cooldown_remaining > 0 ? "var(--lm-text)" : "rgb(74,222,128)",
-                    }}>
-                      {fmtCountdown(entry.cooldown_remaining)}
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div style={{
-                    height: 4,
-                    borderRadius: 2,
-                    background: "var(--lm-border)",
-                    overflow: "hidden",
-                  }}>
-                    <div style={{
-                      height: "100%",
-                      width: `${pct}%`,
-                      borderRadius: 2,
-                      background: kindColor,
-                      transition: "width 1.5s linear",
-                    }} />
-                  </div>
-                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4 }}>
-                    seen {Math.round(entry.last_seen_ago)}s ago · next event in {fmtCountdown(entry.cooldown_remaining)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* Summary */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -709,6 +603,112 @@ export function FaceOwnersSection() {
           </div>
         </div>
       )}
+
+      {/* Face Recognition Cooldowns */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.cardLabel}>Face Recognition</div>
+          <button
+            onClick={handleResetCooldowns}
+            disabled={resetting || !hasActiveCooldowns}
+            style={{
+              fontSize: 10,
+              padding: "4px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--lm-border)",
+              cursor: resetting || !hasActiveCooldowns ? "not-allowed" : "pointer",
+              fontWeight: 600,
+              background: hasActiveCooldowns ? "var(--lm-amber-dim)" : "var(--lm-surface)",
+              color: hasActiveCooldowns ? "var(--lm-amber)" : "var(--lm-text-muted)",
+              opacity: resetting ? 0.5 : 1,
+            }}
+          >
+            {resetting ? "Resetting..." : "Reset Cooldowns"}
+          </button>
+        </div>
+
+        {cdError && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            Cooldown info unavailable
+          </div>
+        )}
+
+        {!cdError && allCooldownEntries.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            No faces currently tracked
+          </div>
+        )}
+
+        {!cdError && allCooldownEntries.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allCooldownEntries.map((entry) => {
+              const pct = entry.cooldown_total > 0
+                ? (entry.cooldown_remaining / entry.cooldown_total) * 100
+                : 0;
+              const kindColor =
+                entry.kind === "stranger" ? "rgb(239,68,68)"
+                : "rgb(96,165,250)";
+              return (
+                <div key={`${entry.kind}-${entry.person_id}`} style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: "var(--lm-surface)",
+                  border: "1px solid var(--lm-border)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: kindColor,
+                        textTransform: "capitalize",
+                      }}>
+                        {entry.person_id}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        background: entry.kind === "stranger" ? "rgba(239,68,68,0.1)" : "rgba(96,165,250,0.15)",
+                        color: kindColor,
+                        fontWeight: 600,
+                      }}>
+                        {entry.kind}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      fontFamily: "monospace",
+                      color: entry.cooldown_remaining > 0 ? "var(--lm-text)" : "rgb(74,222,128)",
+                    }}>
+                      {fmtCountdown(entry.cooldown_remaining)}
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{
+                    height: 4,
+                    borderRadius: 2,
+                    background: "var(--lm-border)",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${pct}%`,
+                      borderRadius: 2,
+                      background: kindColor,
+                      transition: "width 1.5s linear",
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 4 }}>
+                    seen {Math.round(entry.last_seen_ago)}s ago · next event in {fmtCountdown(entry.cooldown_remaining)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
