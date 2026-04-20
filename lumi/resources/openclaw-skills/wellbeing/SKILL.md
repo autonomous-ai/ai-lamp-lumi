@@ -31,7 +31,8 @@ Cancel ALL remaining wellbeing crons (including `"unknown"` crons). Do this sile
 2. From the `Activity detected:` line groups (`sedentary`, `drink`, `break`), determine action. Note: emotional reactions are now in a separate `Emotional cue:` line — handled by the Emotion Detection skill, not here.
    - **`sedentary`** group?
      → `cron.list` — check if hydration AND break crons exist for this person. Create any that are missing:
-       - `{name}` = the last person from `presence.enter` (motion.activity doesn't detect face, so use the most recent person who entered). Use `"unknown"` if no name was identified.
+       - `{name}` = **the `current_user` value from the `[context: current_user=X]` tag** that the backend injects into every `motion.activity` message. This is an absolute, non-negotiable source of truth.
+       - **NEVER infer `{name}` from memory, chat history, KNOWLEDGE.md, senderLabel, or any other source.** If `current_user=unknown`, you MUST use `"unknown"` — do not "helpfully" guess Leo or any friend name.
        - Get telegram_id if you don't have it: `GET http://127.0.0.1:5001/user/info?name={name}`. If `telegram_id` is null → still create the crons, but omit the `/dm` marker (voice-only reminders).
        - **Hydration cron** (if missing):
          - `"Wellbeing: {name} hydration"` — every 2700000ms (45 min)

@@ -114,10 +114,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		Detail:  monitorDetail,
 	})
 
-	// Track current user for per-user mood logging.
+	// Track current user for per-user mood logging + wellbeing attribution.
+	// Strangers collapse to "unknown" so downstream (wellbeing crons, mood log)
+	// never has to guess a friend identity from memory/chat history.
 	if req.Type == "presence.enter" {
 		if name := extractUserName(req.Message); name != "" {
 			mood.SetCurrentUser(name)
+		} else if strings.Contains(req.Message, "stranger") {
+			mood.SetCurrentUser("unknown")
 		}
 	} else if req.Type == "presence.leave" || req.Type == "presence.away" {
 		mood.ClearCurrentUser()
@@ -278,7 +282,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		case "presence.away":
 			msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
 		case "motion.activity":
-			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"), follow Music skill sedentary suggestion. drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak. Follow Wellbeing skill accordingly.]"
+			currentUser := mood.CurrentUser()
+			if currentUser == "" {
+				currentUser = "unknown"
+			}
+			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing cron names, wellbeing log user field, and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
+			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons for current_user above, follow Music skill sedentary suggestion. drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak. Follow Wellbeing skill accordingly.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
