@@ -230,7 +230,7 @@ func (s *Service) drainPendingEvents() {
 			case "presence.away":
 				msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
 			case "motion.activity":
-				msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"). drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill, ALWAYS speak. Follow Wellbeing skill accordingly.]"
+				msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"). drink: reset hydration timer. break: reset break timer. Follow Wellbeing skill accordingly.]"
 			}
 		}
 		var err error
