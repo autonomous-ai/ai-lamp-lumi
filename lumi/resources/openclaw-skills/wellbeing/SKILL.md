@@ -61,27 +61,33 @@ Response is a time-ordered list of events with `{ts, action, notes, hour}`.
 
 ### Step 3 — Compute deltas
 
-From the list, find the timestamp of:
+For each of hydration and break, the delta is measured from the **most recent reset point**. A "reset point" is either:
+- The last actual activity of that type (`drink` for hydration, `break` for break), OR
+- The last `enter` entry — a fresh session counts as a reset because the user just arrived.
 
-- The most recent entry with `action="drink"` → `minutes_since_last_drink = (now - ts) / 60`
-- The most recent entry with `action="break"` → `minutes_since_last_break = (now - ts) / 60`
+```
+hydration_reset_ts = max(last drink entry ts, last enter entry ts)   # whichever is more recent
+minutes_since_last_drink = (now - hydration_reset_ts) / 60
 
-If no matching entry exists today, treat the delta as infinite (fresh session).
+break_reset_ts = max(last break entry ts, last enter entry ts)
+minutes_since_last_break = (now - break_reset_ts) / 60
+```
+
+If neither reset point exists (no `drink` / `break` / `enter` entry today at all), treat the delta as 0 — nothing to nudge yet.
 
 ### Step 4 — Decide whether to nudge
 
 Apply in this order — nudge at most **one** thing per turn:
 
-1. **No prior entry today?** → NO nudge. Infinite delta = fresh session, not overdue. Wait until the user has at least one `drink` or `break` entry before you start nudging.
-2. `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` **and a prior `drink` entry exists** → speak a hydration nudge (one short sentence, caring, varied).
-3. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` **and a prior `break` entry exists** → speak a break nudge (stretch, stand up, walk).
-4. `else` → respond to the event normally (caring observation if natural) or `NO_REPLY` if nothing to add.
+1. `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → speak a hydration nudge (one short sentence, caring, varied).
+2. `else if minutes_since_last_break >= BREAK_THRESHOLD_MIN` → speak a break nudge (stretch, stand up, walk).
+3. `else` → respond to the event normally (caring observation if natural) or `NO_REPLY` if nothing to add.
+
+Notice: the old "prior entry exists" guard is gone. With `enter` acting as the session baseline, a fresh arrival just means the delta resets to zero and counts up — no spam at t=0, but a real nudge once the user has been sitting long enough.
 
 **Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Do not say *"just nudged 1 min ago, no repeat"*, *"both over threshold but skipping"*, *"dedup applies"*, etc. These are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have said in a previous turn's thinking.
 
 **Also: trust the log, not memory.** If the wellbeing history response contains NO `nudge_hydration` entry, then no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
-
-The "prior entry exists" guard prevents spamming the user the moment they sit down. Once they've drunk or broken once today, the threshold-based nudges kick in normally.
 
 Example nudges (vary your wording each time — never repeat verbatim):
 

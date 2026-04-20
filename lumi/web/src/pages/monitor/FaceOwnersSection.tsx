@@ -359,13 +359,27 @@ export function FaceOwnersSection() {
             <div key={person.label} style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div>
-                  <div style={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: "var(--lm-amber)",
-                    textTransform: "capitalize",
-                  }}>
-                    {person.label}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "var(--lm-amber)",
+                      textTransform: "capitalize",
+                    }}>
+                      {person.label}
+                    </div>
+                    <button
+                      onClick={() => setTimelineUser(person.label)}
+                      style={{
+                        ...btnStyle,
+                        padding: "2px 7px",
+                        background: "rgba(96,165,250,0.15)",
+                        color: "rgb(96,165,250)",
+                        border: "1px solid rgba(96,165,250,0.25)",
+                      }}
+                    >
+                      📊 Timeline
+                    </button>
                   </div>
                   {(person.telegram_username || person.telegram_id) && (
                     <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 2 }}>
@@ -434,18 +448,6 @@ export function FaceOwnersSection() {
                       {person.audio_history_days.length} audio history day{person.audio_history_days.length !== 1 ? "s" : ""}
                     </span>
                   )}
-                  <button
-                    onClick={() => setTimelineUser(person.label)}
-                    style={{
-                      ...btnStyle,
-                      padding: "2px 7px",
-                      background: "rgba(96,165,250,0.15)",
-                      color: "rgb(96,165,250)",
-                      border: "1px solid rgba(96,165,250,0.25)",
-                    }}
-                  >
-                    📊 Timeline
-                  </button>
                   <button
                     onClick={() => handleRemove(person.label)}
                     disabled={deleting === person.label}
