@@ -165,7 +165,7 @@ class MotionPerception(Perception):
         capture_stable_frame: Callable,
         presence_service,
         face_recognizer=None,
-        base_url: str = config.DL_BACKEND_URL,
+        base_url: str = config.DL_MOTION_BACKEND_URL,
         api_key: str = config.DL_API_KEY,
     ):
         super().__init__(send_event)
