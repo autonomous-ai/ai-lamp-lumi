@@ -2651,8 +2651,8 @@ def speak_text(req: SpeakRequest):
         )
     if not tts_service.available:
         logger.error(
-            "POST /voice/speak: tts_service not available — client=%s, sd=%s",
-            tts_service._client is not None,
+            "POST /voice/speak: tts_service not available — backend=%s, sd=%s",
+            tts_service._backend is not None and tts_service._backend.available,
             tts_service._sd is not None,
         )
         raise HTTPException(
@@ -2722,9 +2722,9 @@ def voice_status():
     tts_detail = None
     if tts_service:
         tts_detail = {
-            "has_client": tts_service._client is not None,
+            "has_backend": tts_service._backend is not None and tts_service._backend.available,
             "has_sd": tts_service._sd is not None,
-            "base_url": getattr(tts_service, "_base_url", "unknown"),
+            "provider": getattr(tts_service, "_provider", "unknown"),
         }
     return {
         "voice_available": voice_service is not None and voice_service.available
