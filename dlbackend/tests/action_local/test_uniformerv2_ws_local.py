@@ -15,7 +15,7 @@ from core.actionanalysis.uniformerv2 import UniformerV2Model
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
-UNIFORMERV2_MODEL_PATH = Path(__file__).parent / "local" / "uniformerv2-b-224-k400_fp32.onnx"
+UNIFORMERV2_MODEL_PATH = Path.cwd() / "local" / "uniformerv2-b-224-k400_fp32.onnx"
 pytestmark = pytest.mark.skipif(
     not UNIFORMERV2_MODEL_PATH.exists(),
     reason=f"Local UniformerV2 model not found at {UNIFORMERV2_MODEL_PATH}",
