@@ -215,11 +215,18 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
 
 1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
 2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Compute deltas** from the log: `minutes_since_last_drink`, `minutes_since_last_break`.
+3. **Compute deltas** from the log, using the most recent reset point for each:
+
+   ```
+   hydration_reset = max(last drink entry ts, last enter entry ts)
+   break_reset     = max(last break entry ts, last enter entry ts)
+   ```
+
+   `presence.enter` counts as a reset point — a fresh arrival means the delta starts at 0 and counts up, so no first-turn spam, but a real nudge once the user has been sitting long enough without drinking or taking a break.
 4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
-   - No prior `drink` or `break` entry today → **no nudge** (fresh session is not overdue).
    - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → hydration nudge.
    - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → break nudge.
+   - else → normal caring observation or `NO_REPLY`.
 5. **Never guess** time-since from memory — always compute from the log.
 
 ### Thresholds
