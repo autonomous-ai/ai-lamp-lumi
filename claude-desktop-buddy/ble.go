@@ -28,14 +28,14 @@ var (
 
 // BLEServer manages the Nordic UART BLE GATT server.
 type BLEServer struct {
-	deviceName  string
-	txChar      bluetooth.Characteristic
-	onMessage   func([]byte)                        // called for each complete JSON line received
-	onConnect   func(device bluetooth.Device, connected bool) // called on connect/disconnect
-	rxBuf       bytes.Buffer                        // accumulates partial lines
+	deviceName string
+	txChar     bluetooth.Characteristic
+	onMessage  func([]byte)
+	onConnect  func(connected bool)
+	rxBuf      bytes.Buffer
 }
 
-func NewBLEServer(deviceName string, onMessage func([]byte), onConnect func(bluetooth.Device, bool)) *BLEServer {
+func NewBLEServer(deviceName string, onMessage func([]byte), onConnect func(connected bool)) *BLEServer {
 	return &BLEServer{
 		deviceName: deviceName,
 		onMessage:  onMessage,
@@ -58,7 +58,7 @@ func (s *BLEServer) Start() error {
 			log.Println("[ble] device disconnected")
 		}
 		if s.onConnect != nil {
-			s.onConnect(device, connected)
+			s.onConnect(connected)
 		}
 	})
 
@@ -101,14 +101,14 @@ func (s *BLEServer) Start() error {
 func (s *BLEServer) handleRX(data []byte) {
 	s.rxBuf.Write(data)
 
-	scanner := bufio.NewScanner(&s.rxBuf)
-	var remaining []byte
+	scanner := bufio.NewScanner(bytes.NewReader(s.rxBuf.Bytes()))
+	var consumed int
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		consumed += len(line) + 1
 		if len(line) == 0 {
 			continue
 		}
-		// Make a copy since scanner reuses buffer
 		msg := make([]byte, len(line))
 		copy(msg, line)
 		if s.onMessage != nil {
@@ -116,13 +116,9 @@ func (s *BLEServer) handleRX(data []byte) {
 		}
 	}
 
-	// Keep any incomplete data in buffer
-	if s.rxBuf.Len() > 0 {
-		remaining = make([]byte, s.rxBuf.Len())
-		copy(remaining, s.rxBuf.Bytes())
-	}
+	remaining := s.rxBuf.Bytes()[consumed:]
 	s.rxBuf.Reset()
-	if remaining != nil {
+	if len(remaining) > 0 {
 		s.rxBuf.Write(remaining)
 	}
 }
@@ -143,3 +139,6 @@ func (s *BLEServer) Send(data []byte) error {
 	}
 	return nil
 }
+
+// Close is a no-op for tinygo bluetooth.
+func (s *BLEServer) Close() {}

@@ -8,6 +8,8 @@ from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
+from lelamp.service.voice.tts_backend import PROVIDER_OPENAI, PROVIDER_ELEVENLABS
+
 
 class ServoRequest(BaseModel):
     recording: str
@@ -479,7 +481,7 @@ class VoiceStartRequest(BaseModel):
         "", description="TTS style/vibe instructions (optional, e.g. 'Speak warmly')"
     )
     tts_provider: str = Field(
-        "openai", description="TTS provider: 'openai' (default) or 'elevenlabs'"
+        PROVIDER_OPENAI, description=f"TTS provider: '{PROVIDER_OPENAI}' (default) or '{PROVIDER_ELEVENLABS}'"
     )
 
 
