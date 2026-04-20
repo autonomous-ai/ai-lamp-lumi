@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"log"
+	"time"
 
 	"tinygo.org/x/bluetooth"
 )
@@ -28,11 +29,13 @@ var (
 
 // BLEServer manages the Nordic UART BLE GATT server.
 type BLEServer struct {
-	deviceName string
-	txChar     bluetooth.Characteristic
-	onMessage  func([]byte)
-	onConnect  func(connected bool)
-	rxBuf      bytes.Buffer
+	deviceName    string
+	txChar        bluetooth.Characteristic
+	onMessage     func([]byte)
+	onConnect     func(connected bool)
+	rxBuf         bytes.Buffer
+	connected     bool      // debounce: track actual connection state
+	lastDisconnect time.Time // debounce: ignore rapid disconnect spam
 }
 
 func NewBLEServer(deviceName string, onMessage func([]byte), onConnect func(connected bool)) *BLEServer {
@@ -50,15 +53,27 @@ func (s *BLEServer) Start() error {
 		return err
 	}
 
-	// Set connect/disconnect handler
+	// Set connect/disconnect handler with debounce
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
 		if connected {
-			log.Println("[ble] device connected")
+			if !s.connected {
+				s.connected = true
+				log.Println("[ble] device connected")
+				if s.onConnect != nil {
+					s.onConnect(true)
+				}
+			}
 		} else {
-			log.Println("[ble] device disconnected")
-		}
-		if s.onConnect != nil {
-			s.onConnect(connected)
+			// Debounce: ignore disconnect spam (tinygo fires multiple times)
+			now := time.Now()
+			if s.connected && now.Sub(s.lastDisconnect) > 2*time.Second {
+				s.connected = false
+				s.lastDisconnect = now
+				log.Println("[ble] device disconnected")
+				if s.onConnect != nil {
+					s.onConnect(false)
+				}
+			}
 		}
 	})
 
