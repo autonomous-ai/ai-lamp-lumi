@@ -3,9 +3,12 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"time"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Config is loaded from buddy.json.
@@ -19,8 +22,21 @@ type Config struct {
 }
 
 func main() {
-	configPath := flag.String("config", "config/buddy.json", "path to config file")
+	configPath := flag.String("config", "/root/config/buddy.json", "path to config file")
+	logPath := flag.String("log", "/var/log/lumi-buddy.log", "path to log file")
 	flag.Parse()
+
+	// Rotating log file: 2 MB per file, keep 10 backups (same as lumi)
+	rotatingWriter := &lumberjack.Logger{
+		Filename:   *logPath,
+		MaxSize:    2, // MB
+		MaxBackups: 10,
+		MaxAge:     0,
+		Compress:   false,
+	}
+	defer rotatingWriter.Close()
+	log.SetOutput(io.MultiWriter(os.Stdout, rotatingWriter))
+	log.SetFlags(log.Ldate | log.Ltime)
 
 	cfg := loadConfig(*configPath)
 	if !cfg.Enabled {
