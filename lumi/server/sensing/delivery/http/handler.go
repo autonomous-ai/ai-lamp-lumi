@@ -287,7 +287,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing cron names, wellbeing log user field, and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
-			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons for current_user above, follow Music skill sedentary suggestion. drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak. Follow Wellbeing skill accordingly.]"
+			msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons for current_user above, MUST follow Music skill AI-Driven Music Suggestion workflow for current_user (read mood decision, check suggestion history cooldown, then suggest if worthy). drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak. Follow Wellbeing skill accordingly.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
