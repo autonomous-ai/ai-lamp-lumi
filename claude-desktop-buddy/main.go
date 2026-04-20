@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
+	"tinygo.org/x/bluetooth"
 )
 
 // Config is loaded from buddy.json.
@@ -53,6 +54,8 @@ func main() {
 	// BLE server
 	ble := NewBLEServer(cfg.DeviceName, func(data []byte) {
 		handleBLEMessage(data, sm, ble, cfg.DeviceName, startTime)
+	}, func(device bluetooth.Device, connected bool) {
+		sm.SetConnected(connected)
 	})
 
 	// Transient state expiry ticker
