@@ -1072,8 +1072,8 @@ OTA_METADATA_URL="${OTA_METADATA_URL:-https://storage.googleapis.com/s3-autonomo
 [ $# -ne 1 ] && { echo "Usage: software-update <lumi|openclaw|web>"; exit 1; }
 APP="$1"
 case "$APP" in
-  lumi|openclaw|bootstrap|web|lelamp|claude-desktop-buddy) ;;
-  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, web, lelamp, or claude-desktop-buddy."; exit 1 ;;
+  lumi|openclaw|bootstrap|web|lelamp|lumi-buddy) ;;
+  *) echo "Unknown app: $APP. Use lumi, openclaw, bootstrap, web, lelamp, or lumi-buddy."; exit 1 ;;
 esac
 
 METADATA_TMP=$(mktemp)
@@ -1081,8 +1081,11 @@ ZIP_TMP=""
 DIR_TMP=""
 trap 'rm -f "$METADATA_TMP" "$ZIP_TMP"; rm -rf "$DIR_TMP"' EXIT
 curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" -o "$METADATA_TMP" "$OTA_METADATA_URL" || { echo "Failed to fetch metadata from $OTA_METADATA_URL"; exit 1; }
-VERSION=$(jq -r --arg a "$APP" '.[$a].version // empty' "$METADATA_TMP")
-URL=$(jq -r --arg a "$APP" '.[$a].url // empty' "$METADATA_TMP")
+# Map command name to metadata key (lumi-buddy → claude-desktop-buddy)
+META_KEY="$APP"
+[ "$APP" = "lumi-buddy" ] && META_KEY="claude-desktop-buddy"
+VERSION=$(jq -r --arg a "$META_KEY" '.[$a].version // empty' "$METADATA_TMP")
+URL=$(jq -r --arg a "$META_KEY" '.[$a].url // empty' "$METADATA_TMP")
 [ -z "$VERSION" ] && { echo "Metadata has no version for $APP"; exit 1; }
 
 if [ "$APP" = "lumi" ]; then
@@ -1140,7 +1143,7 @@ elif [ "$APP" = "lelamp" ]; then
   cd /
   systemctl restart lumi-lelamp
   echo "lelamp updated to $VERSION"
-elif [ "$APP" = "claude-desktop-buddy" ]; then
+elif [ "$APP" = "lumi-buddy" ]; then
   [ -z "$URL" ] && { echo "Metadata has no url for claude-desktop-buddy"; exit 1; }
   ZIP_TMP=$(mktemp)
   DIR_TMP=$(mktemp -d)
@@ -1152,7 +1155,7 @@ elif [ "$APP" = "claude-desktop-buddy" ]; then
   [ ! -f "/root/config/buddy.json" ] && [ -f "$DIR_TMP/config/buddy.json" ] && mkdir -p /root/config && cp -f "$DIR_TMP/config/buddy.json" /root/config/buddy.json
   echo "$VERSION" > "$BUDDY_DIR/VERSION_BUDDY"
   systemctl restart lumi-buddy
-  echo "claude-desktop-buddy updated to $VERSION"
+  echo "lumi-buddy updated to $VERSION"
 fi
 SOFTWAREUPDATE
   chmod +x /usr/local/bin/software-update
@@ -1193,7 +1196,7 @@ echo "Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
 echo "Backends: systemctl status bootstrap lumi lumi-lelamp lumi-buddy"
-echo "Updates:  software-update <bootstrap|lumi|lelamp|claude-desktop-buddy|web> [version]"
+echo "Updates:  software-update <bootstrap|lumi|lelamp|lumi-buddy|web> [version]"
 echo "======================================"
 
 echo ""
