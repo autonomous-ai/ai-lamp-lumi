@@ -216,7 +216,7 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 ### 6.1 Agent skips mood logging entirely
 **Symptom:** `tool_call` trace contains no `/api/mood/log` call. Mood JSONL empty despite events firing.
 **Diagnose:** grep `tool_call` for `mood/log` — zero hits.
-**Fix path:** strengthen MANDATORY directive in `lumi/server/sensing/delivery/http/handler.go` and `emotion-detection/SKILL.md` to explicitly chain to Mood skill.
+**Fix path:** strengthen MANDATORY directive in `lumi/server/sensing/delivery/http/handler.go` and `user-emotion-detection/SKILL.md` to explicitly chain to Mood skill.
 
 ### 6.2 Agent bijas mood payload schema
 **Symptom:** `POST /api/mood/log` returns `Field validation for 'Mood' failed on the 'required' tag`.
