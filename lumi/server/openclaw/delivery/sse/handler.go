@@ -911,7 +911,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 				// [HW:/broadcast] marker: fan-out reply text to all Telegram chats (guard-only).
 				// [HW:/speak] marker: force TTS on the speaker without any channel fan-out —
-				// used by proactive triggers (music suggestion, wellbeing crons) that run in a channel session.
+				// used by proactive triggers (e.g. music suggestions) that run inside a
+				// channel session but need to speak out loud anyway.
 				// [HW:/dm:{"telegram_id":"123"}] marker: send reply to a specific Telegram user.
 				var dmTelegramID string
 				forceTTS := false
