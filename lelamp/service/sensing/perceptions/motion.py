@@ -122,10 +122,12 @@ class RemoteMotionChecker:
         _, buf = cv2.imencode(".jpg", frame)
         return base64.b64encode(buf.tobytes()).decode()
 
-    def update(self, frame: npt.NDArray[np.uint8]) -> str | None:
-        """Buffer a frame and run X3D inference when the interval elapses.
+    def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
+        """Send a frame for X3D inference and return all detected action names.
 
-        Returns the predicted action name, or None if not enough time has passed.
+        Returns every detected whitelist action (sorted by confidence desc),
+        or None if the connection is unavailable. Returns [] if nothing
+        passes the backend threshold for this frame.
         """
 
         if self._ws_session is not None:
@@ -137,10 +139,7 @@ class RemoteMotionChecker:
                 detected_classes = sorted(
                     resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
                 )
-                try:
-                    return detected_classes[0][0]
-                except IndexError:
-                    return None
+                return [name for name, _score in detected_classes]
             except ConnectionClosedError:
                 logger.warning("[%s] connection closed", self.__class__.__name__)
                 self._ws_session = None
@@ -206,19 +205,19 @@ class MotionPerception(Perception):
             return
 
         try:
-            action = self._checker.update(frame)
+            actions = self._checker.update(frame)
         except Exception:
             logger.exception("[motion] X3D inference error")
             return
 
-        if action is not None:
+        if actions:
             self._last_motion_time = time.time()
             self._on_motion()
 
             stable = self._capture_stable_frame()
             image = stable if stable is not None else frame
             self._snapshot_buffer.append(image)
-            self._actions_buffer.append(action)
+            self._actions_buffer.extend(actions)
 
         self._flush_buffer()
 
