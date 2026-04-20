@@ -118,10 +118,18 @@ This matches the same rule used by the Wellbeing and Mood skills — all three m
 
 The two triggers use **different flows**. Sedentary does NOT require a mood decision.
 
+**USE THESE EXACT VALUES — do not substitute anything else:**
+
+```
+SUGGESTION_COOLDOWN_MIN = 7
+```
+
+> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `SUGGESTION_COOLDOWN_MIN` to `30`. Until that edit lands, the active value is **7**. Do not use 30 — that's the future value, not the current one.
+
 #### Flow A — Mood trigger
 
 1. Check `GET /audio/status` → skip if playing.
-2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < 30 min ago.
+2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < `SUGGESTION_COOLDOWN_MIN` ago.
 3. Read the latest mood decision — do not trust whatever mood the caller may have mentioned, since signals can have shifted since then:
    ```bash
    curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&kind=decision&last=1"
@@ -133,13 +141,14 @@ The two triggers use **different flows**. Sedentary does NOT require a mood deci
 
 #### Flow B — Sedentary trigger (no mood required)
 
-1. Check `GET /audio/status` → skip if playing.
-2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < 30 min ago.
-3. **Skip mood check entirely.** The user is working — that alone is enough context.
-4. Check `GET /audio/history?person={name}&last=1` → personalize genre (see Learning Rules).
-5. Default genre: **lo-fi, ambient, instrumental, study beats**. Override with audio history if clear preference.
-6. Optionally read mood decision — if one is fresh and suggestion-worthy, use it to refine genre (e.g. `tired` + sedentary → calm piano instead of lo-fi). But a missing/stale/normal mood does NOT block the suggestion.
-7. Suggest — speak only, do not auto-play.
+1. **If the triggering `motion.activity` message contains `Emotional cue:` → skip Flow B for music.** The emotional cue will trigger Mood Skill → Flow A, which picks a more accurate genre. Sedentary still triggers Wellbeing as usual.
+2. Check `GET /audio/status` → skip if playing.
+3. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` → skip if last suggestion < `SUGGESTION_COOLDOWN_MIN` ago.
+4. **Skip mood check entirely.** The user is working — that alone is enough context.
+5. Check `GET /audio/history?person={name}&last=1` → personalize genre (see Learning Rules).
+6. Default genre: **lo-fi, ambient, instrumental, study beats**. Override with audio history if clear preference.
+7. Optionally read mood decision — if one is fresh and suggestion-worthy, use it to refine genre (e.g. `tired` + sedentary → calm piano instead of lo-fi). But a missing/stale/normal mood does NOT block the suggestion.
+8. Suggest — speak only, do not auto-play.
 
 ### Learning Rules
 
