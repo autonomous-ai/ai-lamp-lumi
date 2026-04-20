@@ -318,6 +318,22 @@ class SensingService:
             logger.debug("[sensing] sleeping — suppressed %s", event_type)
             return
 
+        # New presence session — clear MotionPerception dedup so the next
+        # motion.activity isn't silently dropped by the 5-min window.
+        # Otherwise a friend arriving while someone was already sitting would
+        # wait out the remainder of the old window before the agent saw them.
+        if event_type == "presence.enter":
+            for perception in self._perceptions:
+                reset = getattr(perception, "reset_dedup", None)
+                if callable(reset):
+                    try:
+                        reset()
+                    except Exception:
+                        logger.exception(
+                            "[sensing] %s.reset_dedup() failed",
+                            perception.__class__.__name__,
+                        )
+
         now = time.time()
         cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
         last = self._last_event_time.get(event_type, 0)
