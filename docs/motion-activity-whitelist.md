@@ -4,9 +4,13 @@ Only these Kinect action classes are forwarded to OpenClaw as `motion.activity` 
 
 Chỉ những action classes dưới đây được forward lên OpenClaw dạng `motion.activity`. Còn lại bị filter ở LeLamp để tiết kiệm token.
 
-LeLamp groups raw action labels into 4 categories before sending to Lumi. Lumi/agent only sees the group name (`drink`, `break`, `sedentary`, `emotional`), not the raw label.
+LeLamp categorises raw action labels before sending to Lumi:
+- Physical groups (`drink`, `break`, `sedentary`) — collapsed to the group name on the `Activity detected:` line. The raw label is not exposed.
+- Emotional bucket (`laughing`, `crying`, `yawning`, `singing`) — sent as raw labels on a separate `Emotional cue:` line so the agent can map each to the correct emotion + mood log entry.
 
-LeLamp gom raw action thành 4 nhóm trước khi gửi Lumi. Lumi/agent chỉ thấy tên nhóm, không thấy tên action gốc.
+LeLamp phân loại raw action trước khi gửi Lumi:
+- Nhóm vật lý (`drink`, `break`, `sedentary`) — gộp về tên nhóm ở dòng `Activity detected:`. Raw label không được expose.
+- Nhóm cảm xúc (`laughing`, `crying`, `yawning`, `singing`) — gửi raw label ở dòng riêng `Emotional cue:` để agent map đúng emotion + log mood từng cái.
 
 ## drink — reset hydration timer / Reset timer nhắc uống nước
 
