@@ -51,7 +51,7 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
 
 One POST per group. Backend dedups automatically — if the previous entry has the same action, the new POST is silently dropped. You don't need to check before posting.
 
-> `Emotional cue:` is handled by the **Emotion Detection** skill — not this skill. Do not log emotional cues here.
+> `motion.activity` no longer carries emotional cues — emotional actions will arrive via a separate `motion.emotional` event in a future version. This skill handles only the physical activity groups (`drink`, `break`, `sedentary`).
 
 ### Step 2 — Read recent history
 

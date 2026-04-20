@@ -284,8 +284,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Reply hygiene — reminded per-event because agents drift over long sessions.
-		msg += "\n[REPLY RULE: reply is spoken VERBATIM. All reasoning/log math/plan stays in `thinking`. Nothing to say → NO_REPLY, don't narrate the skip.]"
+		// Reply shape — strict binary, re-stated every turn.
+		msg += "\n[REPLY SHAPE: ONE short caring sentence OR the literal token NO_REPLY. Nothing else — no math, labels, bullets, markdown, \"No nudge needed\". If no real thing to say → NO_REPLY.]"
 		// Nudge agent to follow wellbeing skill on relevant events.
 		switch req.Type {
 		case "presence.leave":
@@ -299,7 +299,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing log user field and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
-			msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break — reset_ts is max(last activity entry, last enter entry, last nudge entry of same kind). Apply the Wellbeing skill's Step 4 rules (threshold) to decide whether to nudge. (3) If you spoke a nudge, POST back with action=nudge_hydration or nudge_break — this resets the delta so you don't re-nudge on every wake-up. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user. Emotional cue: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak.]"
+			msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break — reset_ts is max(last activity entry, last enter entry, last nudge entry of same kind). Apply the Wellbeing skill's Step 4 rules (threshold) to decide whether to nudge. (3) If you spoke a nudge, POST back with action=nudge_hydration or nudge_break — this resets the delta so you don't re-nudge on every wake-up. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).
