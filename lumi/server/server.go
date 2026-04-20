@@ -351,13 +351,6 @@ func (s *Server) runConfigChangeListener(ctx context.Context) {
 			return
 		case <-ch:
 			s.handleSetUpCompleteChange(s.config.SetUpCompleted)
-			// Re-push voice config to LeLamp on any config change (e.g. TTS voice)
-			if s.config.SetUpCompleted && s.config.DeepgramAPIKey != "" {
-				slog.Info("re-pushing voice config to LeLamp", "component", "config", "ttsVoice", s.config.TTSVoice, "ttsProvider", s.config.TTSProvider)
-				if err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions, s.config.TTSProvider); err != nil {
-					slog.Warn("re-push voice config failed", "component", "config", "error", err)
-				}
-			}
 		}
 	}
 }
