@@ -179,13 +179,13 @@ class HumanActionRecognizerModel(ABC):
         else:
             class_mask = self._default_mask
 
-        pred[:, ~class_mask] = 0
         total = np.sum(pred, axis=-1, keepdims=True)
 
         if total.item() == 0:
             return []
 
         pred = pred / total
+        pred[:, ~class_mask] = 0
 
         # Collect classes above threshold
         scores = pred[0]
