@@ -1,7 +1,7 @@
 """
-TTS Service — converts text to speech via OpenAI TTS API and plays through speaker.
+TTS Service — converts text to speech and plays through speaker.
 
-Uses OpenAI-compatible API (same base_url and api_key as the LLM provider).
+Supports pluggable backends (OpenAI, ElevenLabs) via tts_backend.py.
 Streams PCM chunks directly to the audio device — no buffering the entire response.
 Runs synthesis in a background thread to avoid blocking FastAPI.
 """
@@ -16,23 +16,19 @@ from typing import Optional
 
 import numpy as np
 
+from lelamp.service.voice.tts_backend import TTSBackend, TTS_SAMPLE_RATE, create_backend
+
 logger = logging.getLogger("lelamp.voice.tts")
 logger.setLevel(logging.DEBUG)
 
-AVAILABLE_VOICES = ("alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer")
 DEFAULT_VOICE = "alloy"
 DEFAULT_MODEL = "tts-1"
 
-# OpenAI TTS returns 24kHz 16-bit mono PCM
-TTS_SAMPLE_RATE = 24000
 TTS_CHANNELS = 1
-
-# Stream chunk size for iter_bytes (4KB = ~85ms of audio at 24kHz 16-bit)
-STREAM_CHUNK_SIZE = 4096
 
 
 class TTSService:
-    """Text-to-speech using OpenAI TTS API + sounddevice streaming playback."""
+    """Text-to-speech with pluggable backend + sounddevice streaming playback."""
 
     def __init__(
         self,
@@ -48,13 +44,11 @@ class TTSService:
         instructions: Optional[str] = None,
         on_speak_start=None,
         on_speak_end=None,
+        provider: str = "openai",
     ):
         self._sd = sound_device_module
         self._np = numpy_module
         self._output_device = output_device
-        if voice not in AVAILABLE_VOICES:
-            logger.warning("Unknown TTS voice '%s', falling back to '%s'", voice, DEFAULT_VOICE)
-            voice = DEFAULT_VOICE
         self._voice = voice
         self._model = model
         self._speed = max(0.25, min(4.0, speed))
@@ -75,21 +69,18 @@ class TTSService:
         self._last_spoken_text: str = ""
         self._last_spoken_time: float = 0.0
 
-        self._client = None
-        self._base_url = base_url
         self._device_rate = None
+        self._backend: Optional[TTSBackend] = None
         try:
-            from openai import OpenAI
-
-            self._client = OpenAI(api_key=api_key, base_url=base_url)
+            self._backend = create_backend(provider=provider, api_key=api_key, base_url=base_url)
             logger.info(
-                "OpenAI TTS ready (voice=%s, model=%s, base_url=%s)",
+                "TTS ready (provider=%s, voice=%s, model=%s)",
+                provider,
                 self._voice,
                 self._model,
-                base_url,
             )
-        except ImportError as e:
-            logger.warning("openai SDK not available: %s", e)
+        except Exception as e:
+            logger.warning("TTS backend init failed: %s", e)
 
         # Probe device sample rate by actually opening a stream (check_output_settings
         # is unreliable on some ALSA devices like seeed-2mic wm8960, CD002-AUDIO)
@@ -124,7 +115,7 @@ class TTSService:
 
     @property
     def available(self) -> bool:
-        return self._client is not None and self._sd is not None
+        return self._backend is not None and self._backend.available and self._sd is not None
 
     @property
     def speaking(self) -> bool:
@@ -248,55 +239,53 @@ class TTSService:
         return [c for c in chunks if c]
 
     def _iter_tts_samples(self, text: str, dst_rate: int, ttfb_tag: Optional[str] = None):
-        """Yield float32 samples chunks from OpenAI-compatible streaming response."""
+        """Yield float32 sample frames from the TTS backend's PCM stream."""
         np = self._np
+        src_rate = self._backend.sample_rate
         remainder = b""
         first_audio_logged = False
         t0 = time.perf_counter()
-        kwargs = dict(
-            model=self._model,
-            voice=self._voice,
-            input=text,
-            response_format="pcm",
-            speed=self._speed,
-        )
-        if self._instructions:
-            kwargs["instructions"] = self._instructions
-        with self._client.audio.speech.with_streaming_response.create(**kwargs) as response:
-            for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
-                if self._stop_event.is_set():
-                    return
-                raw = remainder + chunk
-                usable = len(raw) - (len(raw) % 2)
-                remainder = raw[usable:]
-                if usable == 0:
-                    continue
-                samples = (
-                    np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32)
-                    / 32768.0
-                )
-                # Boost TTS volume to match music loudness (speech is inherently quieter)
-                samples = np.clip(samples * 2.5, -1.0, 1.0)
-                if dst_rate != TTS_SAMPLE_RATE:
-                    samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
-                if ttfb_tag and not first_audio_logged:
-                    first_audio_logged = True
-                    logger.info(
-                        "TTS %s first audio frame: %.0fms",
-                        ttfb_tag,
-                        (time.perf_counter() - t0) * 1000.0,
-                    )
-                yield samples.reshape(-1, 1)
 
-            if not self._stop_event.is_set() and len(remainder) >= 2:
-                usable = len(remainder) - (len(remainder) % 2)
-                samples = (
-                    np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32)
-                    / 32768.0
+        for chunk in self._backend.stream_pcm(
+            text=text,
+            voice=self._voice,
+            model=self._model,
+            speed=self._speed,
+            instructions=self._instructions,
+        ):
+            if self._stop_event.is_set():
+                return
+            raw = remainder + chunk
+            usable = len(raw) - (len(raw) % 2)
+            remainder = raw[usable:]
+            if usable == 0:
+                continue
+            samples = (
+                np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32)
+                / 32768.0
+            )
+            # Boost TTS volume to match music loudness (speech is inherently quieter)
+            samples = np.clip(samples * 2.5, -1.0, 1.0)
+            if dst_rate != src_rate:
+                samples = self._resample(samples, src_rate, dst_rate)
+            if ttfb_tag and not first_audio_logged:
+                first_audio_logged = True
+                logger.info(
+                    "TTS %s first audio frame: %.0fms",
+                    ttfb_tag,
+                    (time.perf_counter() - t0) * 1000.0,
                 )
-                if dst_rate != TTS_SAMPLE_RATE:
-                    samples = self._resample(samples, TTS_SAMPLE_RATE, dst_rate)
-                yield samples.reshape(-1, 1)
+            yield samples.reshape(-1, 1)
+
+        if not self._stop_event.is_set() and len(remainder) >= 2:
+            usable = len(remainder) - (len(remainder) % 2)
+            samples = (
+                np.frombuffer(remainder[:usable], dtype=np.int16).astype(np.float32)
+                / 32768.0
+            )
+            if dst_rate != src_rate:
+                samples = self._resample(samples, src_rate, dst_rate)
+            yield samples.reshape(-1, 1)
 
     def _stream_chunk_with_retry(self, stream, text: str, dst_rate: int, idx: int, total: int, ttfb_tag: Optional[str] = None) -> int:
         """Stream one text chunk with retry; return written sample count."""
