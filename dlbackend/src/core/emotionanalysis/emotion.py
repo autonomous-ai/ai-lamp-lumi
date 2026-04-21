@@ -202,11 +202,12 @@ class EmotionSession:
         self._last_ts = cur_ts
 
         filtered = self._filter(self._last_detected)
-        self._logger.info(
-            "Detected %d face(s): %s",
-            len(filtered),
-            ", ".join(f"{d.emotion} ({d.confidence:.2f})" for d in filtered) or "none",
-        )
+        if len(filtered) > 0:
+            self._logger.info(
+                "Detected %d face(s): %s",
+                len(filtered),
+                ", ".join(f"{d.emotion} ({d.confidence:.2f})" for d in filtered) or "none",
+            )
 
         return EmotionResponse(detections=filtered)
 
