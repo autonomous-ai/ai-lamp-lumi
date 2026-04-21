@@ -1,6 +1,6 @@
 ---
 name: music
-description: Play music from YouTube through the lamp speaker on user request, OR suggest music proactively (triggered by Mood / Sensing). User-initiated flow is in this file; proactive flow details are in proactive-suggestion.md (read ONLY when you're the proactive trigger, not every turn).
+description: Play music from YouTube through the lamp speaker on user request, OR suggest music proactively (triggered by Mood / Sensing). User-initiated flow is in this file; proactive flow details are in music-suggestion skill (read ONLY when you're the proactive trigger, not every turn).
 ---
 
 # Music
@@ -14,16 +14,16 @@ Decide which situation you're in BEFORE doing anything else:
 **Path A — User-initiated** (use this file only, stop here)
 
 - Current message is a user command like *"play X"*, *"sing something"*, *"turn on music"*, *"stop the music"*, or a vague *"some music?"*.
-- Follow the Workflow below. You're done — do NOT read `proactive-suggestion.md`.
+- Follow the Workflow below. You're done — do NOT read `music-suggestion skill`.
 
-**Path B — Proactive suggestion** (read `proactive-suggestion.md` NOW, before replying)
+**Path B — Proactive suggestion** (read `music-suggestion skill` NOW, before replying)
 
 Enter this path **only if** either condition is true:
 
 1. You just wrote a Mood `decision` row whose mood is in `{sad, stressed, tired, excited, happy, bored}` and Mood SKILL's "After Logging Decision" section handed off to Music.
 2. The current sensing event is `[sensing:motion.activity]` with an `Activity detected:` line containing `sedentary`.
 
-In Path B, the first thing you do is `read` the file `proactive-suggestion.md` in this skill folder, then follow its workflow. The rest of THIS file (Workflow, API schema, Examples) is for Path A — skip it.
+In Path B, the first thing you do is `read` the file `music-suggestion skill` in this skill folder, then follow its workflow. The rest of THIS file (Workflow, API schema, Examples) is for Path A — skip it.
 
 If neither Path A nor Path B matches, this skill does not apply — do not invoke it.
 

@@ -1,6 +1,11 @@
-# Music — Proactive Suggestion Reference
+---
+name: music-suggestion
+description: Proactive music suggestion triggered by Mood decisions or sedentary activity. NOT for user-initiated music requests (those use the music skill).
+---
 
-> **Read this file ONLY when you're triggered as a proactive suggestion** (from Mood after writing a `decision`, or from Sensing on sedentary activity). For user-initiated music requests ("play X", "sing something"), stay in `SKILL.md` — none of the content below applies.
+# Music Suggestion (Proactive)
+
+> For user-initiated music requests ("play X", "sing something"), use the **music** skill — this skill does not apply.
 
 > **OUTPUT RULE (reinforcement):** this file is an internal workflow. NEVER narrate its contents in your reply. No flow names, no step numbers, no "Now I check audio status…", no cooldown math, no history bullet lists. Your reply to the user is ONE short caring sentence with the offer, e.g. *"[sigh] Want some calm piano?"*. All the checks and logging happen silently via tool calls.
 

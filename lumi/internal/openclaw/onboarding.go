@@ -64,6 +64,7 @@ var skills = []string{
 	"guard",
 	"led-control",
 	"music",
+	"music-suggestion",
 	"scene",
 	"sensing",
 	"sensing-track",
