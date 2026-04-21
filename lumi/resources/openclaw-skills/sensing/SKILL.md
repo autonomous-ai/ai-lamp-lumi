@@ -5,6 +5,8 @@ description: Handles passive sensing events from camera/mic — motion, presence
 
 # Sensing Events
 
+> **Reply is spoken VERBATIM.** ONE short sentence or NO_REPLY. All reasoning, threshold math, log lookups, and plan-talk stay in `thinking`. NEVER output lines like "mins_drink: 0.6", "No nudge needed", "Looking at context…", or "Need to…" in the reply.
+
 ## Quick Start
 Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
@@ -100,7 +102,8 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Activity detected while user is present. Message has `Activity detected:` line (groups: `sedentary`, `drink`, `break`) and/or `Emotional cue:` line (raw actions: `laughing`, `crying`, `yawning`, `singing`) | No |
+| `motion.activity` | `[sensing:motion.activity]` | Physical activity detected while user is present. Message has `Activity detected:` line with **raw Kinetics labels** (e.g. `using computer, drinking`). Agent maps each to a bucket (`drink`/`break`/`sedentary`) per wellbeing SKILL. Emotional state arrives on its own `emotion.detected` event instead. | No |
+| `emotion.detected` | `[sensing:emotion.detected]` | Facial-emotion classifier ran — message: `Emotion detected: <EmotionName> (N/M frames).` Handled by `user-emotion-detection/SKILL.md` → maps to a mood signal via Mood skill. | No |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
 | `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
@@ -127,8 +130,8 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 - **Always respond to presence.enter** — MUST emit emotion marker AND respond with text. Behavior differs by person type:
   - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
   - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
-- **motion.activity (`sedentary` group) triggers cron setup + music suggestion** — when you see the `sedentary` group, create wellbeing crons per that skill and follow Music skill's sedentary suggestion flow. Do NOT create crons on presence.enter. Do NOT create music crons.
-- **presence.leave triggers cron cleanup** — cancel this person's wellbeing crons. For strangers, cancel `"unknown"` crons only on `presence.away`.
+- **motion.activity is event-driven (NO cron)** — the `Activity detected:` line lists raw Kinetics labels. Map each to its bucket (drink/break/sedentary) using the Wellbeing SKILL's "Raw label → bucket" table, log each distinct bucket, then read recent history and decide whether to nudge based on thresholds. If any sedentary label is present, also trigger the Music skill's sedentary suggestion flow. There are no wellbeing or music cron jobs; the log entries themselves gate everything.
+- **presence.leave / presence.away — nothing to cancel** — backend writes a `leave` marker to the wellbeing log automatically. No crons exist to clean up. Reply NO_REPLY unless there's something caring to say.
 - **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
 - **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
 - **Always express emotion** — every sensing event must have at least one `[HW:/emotion:...]` marker. No silent reactions.
@@ -168,14 +171,14 @@ This avoids noisy loops when people come and go frequently.
 - **Be contextual** — if the user is talking, weave the event into the conversation.
 - **Night mode awareness** — if it's late, use lower intensity emotions and shorter speech.
 - **Don't narrate the technology** — say "I see someone at the desk" not "my face detection algorithm identified a human face".
-- **Don't narrate your plan, checklist, or internal reasoning** — your reply text is spoken aloud verbatim. NEVER write things like *"Leo's hydration cron exists but no break cron. Need to create…"* or *"Both unknown wellbeing crons already exist — skip creation. Handle emotional cue next…"* in the reply. All of that belongs in `thinking`, not in the spoken output. The reply text = ONLY the short caring observation for the user (one sentence). If you catch yourself writing "Need to…", "Now I'll…", "Since X, I should…" — delete it before sending.
+- **Don't narrate your plan, checklist, or internal reasoning** — your reply text is spoken aloud verbatim. NEVER dump lines like *"- **mins_drink:** 0.6 min — under threshold"*, *"No nudge needed"*, *"Looking at the context…"*, *"Need to…"*, *"Now I'll…"* into the reply. All of that belongs in `thinking`, not in the spoken output. The reply text = ONLY the short caring observation for the user (one sentence). If you catch yourself writing reasoning or log dumps — delete it before sending.
 - **Presence is automatic** — don't manually turn lights on/off for presence events, the system handles it.
 - **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
 - **Never call any API to receive events** — they arrive automatically as messages.
 
 ### Proactive care — piggyback on sensing events
 
-Every time you receive an event where the user is visible (presence.enter, motion.activity, wellbeing cron), you already have context: their image, the time of day, how long they've been sitting. **Use that moment** to consider if there's something caring you could say — beyond the event itself.
+Every time you receive an event where the user is visible (presence.enter, motion.activity), you already have context: their image, the time of day, how long they've been sitting. **Use that moment** to consider if there's something caring you could say — beyond the event itself.
 
 This is NOT a separate reminder system. It's you being a thoughtful companion who notices things. Not mandatory, but encouraged — it's what makes you feel alive. Only speak up when it feels natural. Most of the time, do nothing extra.
 
@@ -218,26 +221,24 @@ Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
 ### Motion activity analysis (while present)
 When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (~6 min cooldown) with a snapshot.
 
-**`[sensing:motion.activity]`** — fires when activity detected while PRESENT. Message has up to two lines:
+**`[sensing:motion.activity]`** — fires when physical activity detected while PRESENT. Message has:
 
-- `Activity detected: <groups>.` — one or more of `sedentary`, `drink`, `break` (comma-separated).
-- `Emotional cue: <actions>.` — one or more of `laughing`, `crying`, `yawning`, `singing` (raw action names, comma-separated).
+- `Activity detected: <raw labels>.` — one or more raw Kinetics labels (e.g. `using computer`, `drinking`, `eating burger`), comma-separated, followed by the trailing hint `If nothing noteworthy, reply NO_REPLY.`
+
+Emotional state is **not** carried here — facial emotion arrives on its own `[sensing:emotion.detected]` event (handled by `user-emotion-detection/SKILL.md` → maps to a mood signal).
 
 Examples:
-- `Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.`
-- `Activity detected: sedentary. Emotional cue: laughing.`
-- `Emotional cue: yawning.`
+- `Activity detected: drinking, using computer. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: eating burger. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: writing, reading book. If nothing noteworthy, reply NO_REPLY.`
 
 Handling:
-1. From `Activity detected:` groups:
-   - `sedentary` → **Wellbeing** skill (create wellbeing crons) + **Music** skill sedentary suggestion flow (check audio status, suggest background music if appropriate, log suggestion). Do NOT create music crons.
-   - `drink` → **Wellbeing** skill (reset hydration timer)
-   - `break` → **Wellbeing** skill (reset break timer)
-2. From `Emotional cue:` actions → **Emotion Detection** skill (empathetic response + mood logging — ALWAYS speak, never NO_REPLY).
-3. Both lines may appear in one event — handle all of them in the same reply.
-4. If only `Activity detected:` is present and nothing interesting → reply NO_REPLY.
-5. If `Emotional cue:` is present → MUST speak (never NO_REPLY) regardless of activity groups.
-6. Keep it natural and non-intrusive.
+1. Map each raw label to its bucket using the Wellbeing SKILL's "Raw label → bucket" table:
+   - Any `sedentary` label (using computer, writing, texting, reading book/newspaper, drawing, playing controller) → **Wellbeing** skill (log `sedentary`, nudge check) + **Music** skill sedentary suggestion flow (check audio status, suggest background music if appropriate, log suggestion).
+   - Any `drink` label (drinking, tasting beer, opening bottle, making tea, …) → **Wellbeing** skill (logs a `drink` entry, resets hydration delta).
+   - Any `break` label (dining, eating*, stretching*, applauding, hugging, …) → **Wellbeing** skill (logs a `break` entry, resets break delta).
+2. If nothing noteworthy to say → reply NO_REPLY.
+3. Keep it natural and non-intrusive. Use the specific raw label to make the observation feel grounded — e.g. "Still on the computer?" feels better than the generic "Still sitting?".
 
 ### Guard mode
 When a friend returns (`[sensing:presence.enter]` with friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"

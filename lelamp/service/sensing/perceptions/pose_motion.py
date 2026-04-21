@@ -218,8 +218,7 @@ class PoseMotionPerception(Perception):
                 "motion.activity",
                 "Body movement detected via pose estimation while user is present. "
                 "Look at the attached image — describe what the user appears to be doing "
-                "(e.g. stretching, reaching, fidgeting, getting up). "
-                "If nothing noteworthy, reply NO_REPLY.",
+                "(e.g. stretching, reaching, fidgeting, getting up).",
                 image=image,
             )
         else:

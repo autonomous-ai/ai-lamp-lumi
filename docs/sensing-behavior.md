@@ -197,11 +197,11 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 
 | Action | Written by | Purpose |
 |---|---|---|
-| `drink`, `break`, `sedentary`, `emotional` | Agent | User activity transition from motion.activity groups |
+| `drink`, `break`, `sedentary`, `emotional` | Agent | User activity transition — bucket derived from raw Kinetics labels on motion.activity |
 | `enter`, `leave` | Backend (sensing handler) | Session boundary — written on every presence.enter / presence.leave / presence.away |
 | `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility |
 
-**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(activity_groups), tuple(emotional_cues))` and a `_last_sent_ts`. Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). This stops the 1-per-minute sedentary spam at the source so Lumi never spends tokens on it.
+**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(raw_actions))` and a `_last_sent_ts`. Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). Keying on raw labels (not buckets) is intentionally looser than before — switching from `writing` to `drawing` now passes through so the agent gets the richer context. The trade is more agent turns; the gain is more-specific reactions ("Still on the computer?" vs. generic "Still sitting?").
 
 - User change (owner→owner, owner→unknown, unknown→owner) flips the key immediately → event passes through.
 - Different strangers (e.g. `stranger_46` → `stranger_54`) collapse to `"unknown"` via `FaceRecognizer.current_user()`, so swapping strangers alone doesn't break dedup.
@@ -213,21 +213,22 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
 
 ### On `motion.activity` — what the agent does
 
-1. **Log each Activity group** (`drink`, `break`, `sedentary`) via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
+1. **Map each raw label to its bucket** (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table, then **log each distinct bucket** via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream on the raw-label set, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
 2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
 3. **Compute deltas** from the log, using the most recent reset point for each:
 
    ```
-   hydration_reset = max(last drink entry ts, last enter entry ts)
-   break_reset     = max(last break entry ts, last enter entry ts)
+   hydration_reset = max(last drink entry, last enter entry, last nudge_hydration entry)
+   break_reset     = max(last break entry, last enter entry, last nudge_break entry)
    ```
 
-   `presence.enter` counts as a reset point — a fresh arrival means the delta starts at 0 and counts up, so no first-turn spam, but a real nudge once the user has been sitting long enough without drinking or taking a break.
+   Three reset points: the actual activity (`drink` / `break`), a fresh arrival (`enter`), or the last nudge of that kind (`nudge_*`). The nudge reset is the key: after Lumi reminds, the delta drops back to 0 so the next reminder only fires after another full threshold window — no separate cooldown variable needed.
 4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
-   - `minutes_since_last_drink >= HYDRATION_THRESHOLD_MIN` → hydration nudge.
-   - `minutes_since_last_break >= BREAK_THRESHOLD_MIN` → break nudge.
-   - else → normal caring observation or `NO_REPLY`.
-5. **Never guess** time-since from memory — always compute from the log.
+   - Hydration delta ≥ hydration threshold → hydration nudge.
+   - Else break delta ≥ break threshold → break nudge.
+   - Else → normal caring observation or `NO_REPLY`.
+5. **After speaking a nudge**, log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
+6. **Never guess** time-since from memory — always compute from the log.
 
 ### Thresholds
 
@@ -263,7 +264,7 @@ The sensing handler writes `enter` / `leave` entries to the same wellbeing JSONL
 - `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
 - `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_at_time_of_event>"}`
 
-Presence events also reset the lelamp dedup key (since `current_user` changes), so a stranger leaving and a friend arriving will let the next sedentary event through immediately.
+Presence events also reset the lelamp dedup key (since `current_user` changes), so a stranger leaving and a friend arriving will let the next activity event through immediately.
 
 ### Priority: Skills > Knowledge > History
 
@@ -287,10 +288,10 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 Music suggestions are **fully AI-driven** — no cron jobs, no backend triggers. The agent decides when to suggest based on two triggers:
 
 - **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), the agent follows the Music skill to suggest music matching that mood.
-- **Sedentary trigger:** When `motion.activity` detects sedentary behavior (working, reading), the agent suggests background music (lo-fi, ambient, instrumental).
+- **Sedentary trigger:** When `motion.activity` carries a sedentary raw label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`), the agent suggests background music (lo-fi, ambient, instrumental).
 - **Data-driven decisions:** Before suggesting, the agent queries:
   - `GET /audio/status` — is music already playing?
-  - `GET /api/openclaw/music-suggestion-history` — cooldown check (30 min between suggestions)
+  - `GET /api/openclaw/music-suggestion-history` — the last entry is the reset point; fire only when `minutes_since_last_suggestion >= SUGGESTION_INTERVAL_MIN` (7 min test / 30 min prod)
   - `GET /audio/history?person={name}` — per-user listening history (genre preference, duration, satisfaction)
 - **Learning loop:** Accepted suggestions reinforce genre/timing; rejected suggestions trigger approach adjustments. All logged via `/api/music-suggestion/log`.
 
@@ -372,33 +373,28 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 ### How it works
 
 `MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
-- **PRESENT** → sends a single `motion.activity` event. Message has up to two lines:
-  - `Activity detected: <groups>.` — physical activity groups (`drink`, `break`, `sedentary`), comma-separated.
-  - `Emotional cue: <actions>.` — raw emotional action names (`laughing`, `crying`, `yawning`, `singing`), comma-separated. Raw labels are preserved (not collapsed to a group) so the agent can map each to the correct emotion.
-  - When there is no emotional cue, the message ends with `If nothing noteworthy, reply NO_REPLY.` (token-saving hint). When an emotional cue is present, that hint is omitted because emotional cues always require a spoken response.
+- **PRESENT** → sends a single `motion.activity` event. Message format:
+  - `Activity detected: <raw labels>. If nothing noteworthy, reply NO_REPLY.` — raw Kinetics action labels (e.g. `using computer`, `drinking`, `eating burger`), comma-separated, followed by a token-saving hint. The agent maps each label to a bucket (`drink`/`break`/`sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table.
+  - Emotional X3D actions (`laughing`, `crying`, `yawning`, `singing`) are **intentionally dropped** here. A dedicated `motion.emotional` event type will be added later; until then emotional detections are silently ignored. `motion.activity` stays purely physical.
   - No images attached — saves tokens. Friend recognition is **not** required.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
 
 Example messages:
 ```
-Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.
-Activity detected: sedentary. Emotional cue: laughing.
-Emotional cue: yawning.
+Activity detected: drinking, using computer. If nothing noteworthy, reply NO_REPLY.
+Activity detected: eating burger. If nothing noteworthy, reply NO_REPLY.
+Activity detected: writing, reading book. If nothing noteworthy, reply NO_REPLY.
 ```
 
-### Wellbeing cron reset (LLM-driven)
+### Wellbeing nudge flow (event-driven)
 
-The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the `Activity detected:` line — no inference needed. Emotional cues are handled separately via the `Emotional cue:` line:
+The agent receives **raw Kinetics labels** on the `Activity detected:` line and must map each to a bucket (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's table before logging.
 
-1. **Read today's history** via `GET /api/openclaw/wellbeing-history?user={name}` for context (counts of drink/break/sedentary earlier today)
-2. **By group on `Activity detected:` line:**
-   - `drink` → reset hydration cron
-   - `break` → reset break cron (eating, stretching, movement)
-   - `sedentary` → create hydration + break crons if missing; also trigger Music skill sedentary suggestion (event-driven, no cron)
-   - Multiple groups in one event → handle all
-3. **`Emotional cue:` line present?** → Emotion Detection skill, no cron changes
-4. **Log** each observed group via `POST /api/wellbeing/log` with `{action, notes, user}` (one entry per group in the event)
-5. **Respond with caring observation** using context from history (e.g. "3rd glass today, nice!"). Observe, don't instruct. NEVER mention crons/timers/reminders.
+1. **Log** each distinct bucket via `POST /api/wellbeing/log` with `{action, notes, user}` — one entry per bucket even if multiple raw labels collapse to it. Backend-side no-op; LeLamp already deduped on the raw-label set.
+2. **Read history** via `GET /api/openclaw/wellbeing-history?user={name}&last=50`.
+3. **Compute deltas** against the latest reset point for each kind (see Wellbeing SKILL Step 3).
+4. **Decide nudge** per Wellbeing SKILL Step 4 — at most one hydration or break nudge per turn.
+5. **Respond**: a single short caring sentence if there's a nudge / suggestion, otherwise `NO_REPLY`.
 
 ### Agent behavior
 
@@ -410,7 +406,9 @@ The agent receives **activity groups** (`drink`, `break`, `sedentary`) from the 
 
 ## Emotion Detection — User Emotion (Lightweight UC-M1)
 
-Lumi detects the **user's** emotional state from the `Emotional cue:` line in `motion.activity` events using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
+> **⚠ Currently inactive.** Emotional X3D actions used to ride along on `motion.activity` as an `Emotional cue:` line. That coupling was removed — `motion.activity` is now purely physical (`sedentary` / `drink` / `break`). A dedicated `motion.emotional` event type is the planned home for this signal; until that lands, the Emotion Detection skill has no trigger and does not fire.
+
+Lumi detects the **user's** emotional state using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
 
 > **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
 
@@ -450,7 +448,7 @@ The default response is light (brief remark). Context escalates the intensity:
 - Cannot detect micro-expressions or subtle stress
 - Full UC-M1 would require a dedicated FER (Facial Expression Recognition) ONNX model added to the face recognition pipeline
 
-See `emotion-detection/SKILL.md` for the agent's full response rules.
+See `user-emotion-detection/SKILL.md` for the agent's full response rules.
 
 ---
 

@@ -105,6 +105,7 @@ type pendingEvent struct {
 	eventType string
 	msg       string
 	image     string
+	queuedAt  time.Time
 }
 
 // ProvideService constructs the openclaw service.
@@ -187,10 +188,20 @@ func (s *Service) SetBusy(busy bool) {
 // QueuePendingEvent buffers a sensing event to replay when the agent becomes idle.
 // All events are appended — motion/presence must not be missed.
 func (s *Service) QueuePendingEvent(eventType, msg, image string) {
+	now := time.Now()
 	s.pendingEventsMu.Lock()
-	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image})
+	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image, queuedAt: now})
 	s.pendingEventsMu.Unlock()
 	slog.Info("sensing event queued — agent busy", "component", "sensing", "type", eventType)
+
+	// Surface the queued event in the monitor immediately so the UI doesn't
+	// look idle while the agent is busy. The original sensing_input flow
+	// entry will fire later at drain time with queued_for_ms attached.
+	s.monitorBus.Push(domain.MonitorEvent{
+		Type:    "sensing_queued",
+		Summary: "[" + eventType + "] " + msg,
+		Detail:  map[string]any{"type": eventType, "reason": "agent_busy"},
+	})
 }
 
 // drainPendingEvents replays all buffered sensing events in order and clears the buffer.
@@ -217,6 +228,10 @@ func (s *Service) drainPendingEvents() {
 		reqID, runID := s.NextChatRunID()
 		flow.SetTrace(runID)
 		startPayload := map[string]any{"type": ev.eventType, "message": ev.msg}
+		if !ev.queuedAt.IsZero() {
+			startPayload["queued_for_ms"] = time.Since(ev.queuedAt).Milliseconds()
+			startPayload["queued_at"] = ev.queuedAt.Unix()
+		}
 		turnStart := flow.Start("sensing_input", startPayload, runID)
 
 		var msg string
@@ -224,13 +239,14 @@ func (s *Service) drainPendingEvents() {
 			msg = "[ambient] " + ev.msg
 		} else {
 			msg = "[sensing:" + ev.eventType + "] " + ev.msg
+			// Reply-hygiene rules live inside the respective SKILL.md files.
 			switch ev.eventType {
-			case "presence.leave":
-				msg += "\n[Follow Wellbeing skill: cancel this person's wellbeing crons. For strangers, cancel \"unknown\" crons. Do this silently.]"
-			case "presence.away":
-				msg += "\n[Cancel ALL remaining wellbeing crons (including \"unknown\"). Do this silently.]"
+			case "presence.leave", "presence.away":
+				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
-				msg += "\n[MANDATORY: Activity groups — sedentary: create missing wellbeing crons (for strangers use \"unknown\"). drink: reset hydration timer. break: reset break timer. emotional: follow Emotion Detection skill, ALWAYS speak. Follow Wellbeing skill accordingly.]"
+				msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
+			case "emotion.detected":
+				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 			}
 		}
 		var err error

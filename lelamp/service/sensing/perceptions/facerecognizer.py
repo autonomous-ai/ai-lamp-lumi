@@ -563,10 +563,30 @@ class FaceRecognizer(Perception):
         self._check_leaves(cur_ts)
 
     def to_dict(self) -> dict:
+        now = time.time()
+        # Last seen person (most recent across owners + strangers)
+        last_person = None
+        last_seen_ago = None
+        all_seen = {**self._owners_last_seen, **self._strangers_last_seen}
+        if all_seen:
+            most_recent = max(all_seen, key=all_seen.get)
+            last_person = most_recent
+            last_seen_ago = int(now - all_seen[most_recent])
+        # Currently visible people
+        visible = []
+        for pid, ts in self._owners_last_seen.items():
+            if (now - ts) < 10:
+                visible.append(pid)
+        for pid, ts in self._strangers_last_seen.items():
+            if (now - ts) < 10:
+                visible.append(pid)
         return {
             "type": "face",
             "face_present": self._face_present,
             "faces_count": self._faces_n,
+            "visible": visible,
+            "last_person": last_person,
+            "last_seen_seconds_ago": last_seen_ago,
             "enrolled_count": self.enrolled_count(),
             "stranger_count": len(self._stranger_embeddings)
             if self._stranger_embeddings is not None

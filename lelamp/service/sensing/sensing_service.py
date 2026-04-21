@@ -26,6 +26,7 @@ from typing import Optional
 import lelamp.config as config
 import requests
 from lelamp.service.sensing.perceptions import (
+    EmotionPerception,
     FaceRecognizer,
     LightLevelPerception,
     MotionPerception,
@@ -92,6 +93,14 @@ class SensingService:
             )
             if config.MOTION_ENABLED:
                 self._perceptions.append(MotionPerception(
+                    send_event=self._send_event,
+                    on_motion=self.presence.on_motion,
+                    capture_stable_frame=self._capture_stable_frame,
+                    presence_service=self.presence,
+                    face_recognizer=face_recognizer,
+                ))
+            if config.EMOTION_ENABLED:
+                self._perceptions.append(EmotionPerception(
                     send_event=self._send_event,
                     on_motion=self.presence.on_motion,
                     capture_stable_frame=self._capture_stable_frame,
@@ -308,6 +317,22 @@ class SensingService:
         if self._is_sleeping and self._is_sleeping() and event_type != "presence.enter":
             logger.debug("[sensing] sleeping — suppressed %s", event_type)
             return
+
+        # New presence session — clear MotionPerception dedup so the next
+        # motion.activity isn't silently dropped by the 5-min window.
+        # Otherwise a friend arriving while someone was already sitting would
+        # wait out the remainder of the old window before the agent saw them.
+        if event_type == "presence.enter":
+            for perception in self._perceptions:
+                reset = getattr(perception, "reset_dedup", None)
+                if callable(reset):
+                    try:
+                        reset()
+                    except Exception:
+                        logger.exception(
+                            "[sensing] %s.reset_dedup() failed",
+                            perception.__class__.__name__,
+                        )
 
         now = time.time()
         cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S

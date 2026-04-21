@@ -112,6 +112,23 @@ class RecognizeSpeakerResponse(BaseModel):
     confidence: float
 
 
+class EmbedAudioRequest(BaseModel):
+    """Request for stateless embedding computation.
+
+    Contract used by LeLamp's SpeakerRecognizer: one or more WAV audios come
+    in as base64 strings, one aggregated L2-normalized embedding comes out.
+    No DB write.
+    """
+
+    audios_b64: list[str] = Field(min_length=1)
+    chunk_seconds: float = 0.5
+
+
+class EmbedAudioResponse(BaseModel):
+    embedding: list[float]
+    embedding_dim: int
+
+
 router = APIRouter(tags=["audio-recognizer"])
 _audio_recognizer: AudioRecognizer | None = None
 
@@ -325,6 +342,44 @@ async def recognize_speaker(request: Request):
         payload, parsed_chunks = await _extract_recognize_request_from_http(request)
         result = recognizer.recognize(parsed_chunks, payload.chunk_sample_rate)
         return RecognizeSpeakerResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/audio-recognizer/embed", response_model=EmbedAudioResponse)
+async def embed_audio(req: EmbedAudioRequest):
+    """Return one L2-normalized aggregated embedding for a list of WAV audios.
+
+    Stateless — does NOT touch the speaker DB. Used by LeLamp's
+    SpeakerRecognizer to store embeddings per-user locally.
+    """
+    recognizer = _get_audio_recognizer()
+    try:
+        merged_chunks: list[list[float]] = []
+        last_sr = 16000
+        for item in req.audios_b64:
+            try:
+                raw = base64.b64decode(item)
+            except Exception as exc:
+                raise ValueError(f"invalid base64 payload: {exc}") from exc
+            if not raw:
+                raise ValueError("empty audio payload")
+            chunks, sr = _wav_bytes_to_chunks(raw, chunk_seconds=req.chunk_seconds)
+            if chunks:
+                merged_chunks.extend(chunks)
+                last_sr = sr
+        if not merged_chunks:
+            raise ValueError("no audio chunks extracted from inputs")
+        emb = recognizer._extract_embedding_from_chunks(
+            merged_chunks, chunk_sample_rate=last_sr
+        )
+        vec = np.asarray(emb, dtype=np.float32).flatten()
+        return EmbedAudioResponse(
+            embedding=vec.tolist(),
+            embedding_dim=int(vec.shape[0]),
+        )
     except HTTPException:
         raise
     except Exception as exc:

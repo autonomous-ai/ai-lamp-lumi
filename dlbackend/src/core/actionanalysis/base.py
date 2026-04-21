@@ -14,7 +14,7 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from core.actionanalysis.constants import RESOURCES_DIR
-from core.models import ActionResponse
+from core.models import ActionDetection, ActionResponse
 
 MODEL_T = TypeVar("MODEL_T", bound="HumanActionRecognizerModel")
 
@@ -240,12 +240,16 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             self._last_ts = cur_ts
 
         detected_classes = [
-            (name, conf) for name, conf in self._last_detected if conf > self._threshold
+            ActionDetection(class_name=name, conf=conf)
+            for name, conf in self._last_detected
+            if conf > self._threshold
         ]
-        self._logger.info(
-            "Detected top-3 :%s",
-            ", ".join([f"{name} ({conf:.2f})" for name, conf in detected_classes[:3]]),
-        )
+        if len(detected_classes) > 0:
+            self._logger.info(
+                "Detected top-%d :%s",
+                min(3, len(detected_classes)),
+                ", ".join([f"{d.class_name} ({d.conf:.2f})" for d in detected_classes[:3]]),
+            )
 
         return ActionResponse(detected_classes=detected_classes)
 

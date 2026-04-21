@@ -20,6 +20,11 @@ class HumanActionRecognizerSetting(BaseModel):
         return (self.w, self.h)
 
 
+class EmotionRecognizerSetting(BaseModel):
+    confidence_threshold: float = 0.5
+    frame_interval: float = 1.0
+
+
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env", env_nested_delimiter="__", extra="allow"
@@ -29,9 +34,12 @@ class Settings(BaseSettings):
     action_recognition_model: HumanActionRecognizerEnum = HumanActionRecognizerEnum.X3D
     action_recognition_ckpt_path: str | None = None
 
+    emotion_recognition_ckpt_path: str | None = None
+
     videomae: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16)
     uniformerv2: HumanActionRecognizerSetting = HumanActionRecognizerSetting()
     x3d: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16, w=256, h=256)
+    emotion: EmotionRecognizerSetting = EmotionRecognizerSetting()
 
 
 settings = Settings()

@@ -68,15 +68,24 @@ FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10
 
 # --- Sensing: Motion detection (X3D video action recognition) ---
 MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
-MOTION_X3D_CONFIDENCE_THRESHOLD = float(
-    os.environ.get("LELAMP_MOTION_X3D_CONFIDENCE_THRESHOLD", "0.3")
+MOTION_CONFIDENCE_THRESHOLD = float(
+    os.environ.get("LELAMP_MOTION_CONFIDENCE_THRESHOLD", "0.3")
 )
 MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
 MOTION_EVENT_COOLDOWN_S = float(
     os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0")
 )
-DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "")
+DL_MOTION_BACKEND_URL = os.environ.get("DL_MOTION_BACKEND_URL", "")  # Full WS URL for action-analysis endpoint
 DL_API_KEY = os.environ.get("DL_API_KEY", "")
+DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
+
+# --- Sensing: Emotion detection (face emotion via dlbackend) ---
+EMOTION_ENABLED = os.environ.get("LELAMP_EMOTION_ENABLED", "true").lower() == "true"
+EMOTION_CONFIDENCE_THRESHOLD = float(
+    os.environ.get("LELAMP_EMOTION_CONFIDENCE_THRESHOLD", "0.5")
+)
+EMOTION_FLUSH_S = float(os.environ.get("LELAMP_EMOTION_FLUSH_S", "10.0"))
+DL_EMOTION_BACKEND_URL = os.environ.get("DL_EMOTION_BACKEND_URL", "")  # Full WS URL for emotion-analysis endpoint
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
 POSE_MOTION_ENABLED = (

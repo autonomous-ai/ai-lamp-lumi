@@ -108,14 +108,40 @@ func NormalizeUser(name string) string {
 	return s
 }
 
-// LogForUser appends an activity entry for the given user. Dedup is handled
-// upstream at the lelamp sensing layer (before motion.activity is sent to
-// Lumi), so this function just appends — no same-action collapsing.
+// presenceActions are backend-written session markers. Multiple stranger
+// faces cycling in and out all collapse to user="unknown", so we must
+// dedup these here (lelamp only dedups motion.activity — presence events
+// bypass it). Without this, stranger_74 → stranger_75 produces two
+// "enter" entries and resets the wellbeing delta twice even though, from
+// Lumi's perspective, the "user" (unknown) never changed.
+//
+// Physical activity actions (drink/break/sedentary) and agent-written
+// nudge actions are not deduped here — lelamp already dedups them at the
+// source for motion.activity, and nudge entries are explicitly meant to
+// act as reset points one-per-event.
+var presenceActions = map[string]bool{
+	"enter": true,
+	"leave": true,
+}
+
+// LogForUser appends an activity entry for the given user. For presence
+// markers (enter/leave) it collapses consecutive same-action entries for
+// the same user — otherwise it just appends (lelamp handles that dedup).
 func LogForUser(user, action, notes string) {
 	user = NormalizeUser(user)
 	now := time.Now()
-	seq := global.seqN.Add(1)
 
+	global.mu.Lock()
+	defer global.mu.Unlock()
+
+	if presenceActions[action] {
+		day := now.Format("2006-01-02")
+		if last := readLastAction(user, day); last == action {
+			return
+		}
+	}
+
+	seq := global.seqN.Add(1)
 	evt := Event{
 		TS:     float64(now.UnixNano()) / 1e9,
 		Seq:    seq,
@@ -123,10 +149,28 @@ func LogForUser(user, action, notes string) {
 		Action: action,
 		Notes:  notes,
 	}
-
-	global.mu.Lock()
 	global.writeJSONL(now, user, evt)
-	global.mu.Unlock()
+}
+
+// readLastAction returns the action of the most recent entry in today's
+// file for the user, or empty if no entries.
+func readLastAction(user, day string) string {
+	path := filePath(user, day)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimRight(string(data), "\n")
+	if s == "" {
+		return ""
+	}
+	idx := strings.LastIndexByte(s, '\n')
+	last := s[idx+1:]
+	var evt Event
+	if err := json.Unmarshal([]byte(last), &evt); err != nil {
+		return ""
+	}
+	return evt.Action
 }
 
 // Query reads wellbeing events for a given user and day (YYYY-MM-DD).
