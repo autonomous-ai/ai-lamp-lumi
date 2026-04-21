@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Callable, Optional, override
 
 import cv2
-import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
 from websockets import ConnectionClosedError
 from websockets.sync.client import ClientConnection, connect
+
+import lelamp.config as config
 
 from .base import Perception
 
@@ -97,6 +98,8 @@ class RemoteMotionChecker:
         self._prepare_session()
 
         self._last_action: str | None = None
+        self._last_heartbeat_ts: float = 0.0
+        self._heartbeat_interval: float = config.DL_HEARTBEAT_INTERVAL_S
 
     def _prepare_session(self):
         if self._ws_session is not None:
@@ -116,6 +119,8 @@ class RemoteMotionChecker:
                     }
                 )
             )
+            # Consume the config_updated response so it doesn't pollute frame responses
+            self._ws_session.recv()
         except Exception:
             logger.exception("Failed to connect to remote motion recognition backend")
             self._ws_session = None
@@ -123,6 +128,25 @@ class RemoteMotionChecker:
     def _img2b64(self, frame: npt.NDArray[np.uint8]):
         _, buf = cv2.imencode(".jpg", frame)
         return base64.b64encode(buf.tobytes()).decode()
+
+    def _send_heartbeat(self) -> None:
+        """Send a heartbeat if the interval has elapsed."""
+        now = time.time()
+        if now - self._last_heartbeat_ts < self._heartbeat_interval:
+            return
+        if self._ws_session is None:
+            return
+        try:
+            self._ws_session.send(json.dumps({"type": "heartbeat"}))
+            resp = json.loads(self._ws_session.recv())
+            if resp.get("status") == "ok":
+                self._last_heartbeat_ts = now
+                logger.debug("[motion] heartbeat ok")
+            else:
+                logger.warning("[motion] heartbeat unexpected response: %s", resp)
+        except ConnectionClosedError:
+            logger.warning("[motion] heartbeat failed — connection lost")
+            self._ws_session = None
 
     def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
         """Send a frame for action recognition inference and return detected action names.
@@ -136,7 +160,11 @@ class RemoteMotionChecker:
         if self._ws_session is None:
             self._prepare_session()
             if self._ws_session is not None:
-                logger.info("[%s] reconnected to %s", self.__class__.__name__, self._base_url)
+                logger.info(
+                    "[%s] reconnected to %s", self.__class__.__name__, self._base_url
+                )
+
+        self._send_heartbeat()
 
         if self._ws_session is not None:
             try:
@@ -145,11 +173,16 @@ class RemoteMotionChecker:
                 )
                 resp = json.loads(self._ws_session.recv())
                 detected_classes = sorted(
-                    resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
+                    resp.get("detected_classes", []),
+                    key=lambda x: x["conf"],
+                    reverse=True,
                 )
-                return [name for name, _score in detected_classes]
+                return [d["class_name"] for d in detected_classes]
             except ConnectionClosedError:
-                logger.warning("[%s] connection lost, will retry on next tick", self.__class__.__name__)
+                logger.warning(
+                    "[%s] connection lost, will retry on next tick",
+                    self.__class__.__name__,
+                )
                 self._ws_session = None
 
         return None
