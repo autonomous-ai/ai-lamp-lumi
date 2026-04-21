@@ -311,10 +311,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 		}
 	}
-	// Nudge mood scan for all voice types (voice_command + ambient voice).
-	if req.Type == "voice_command" || req.Type == "voice" {
-		msg += "\n[MANDATORY: Follow Mood skill.]"
-	}
 
 	// Strip [snapshot: ...] markers from the outgoing LLM message. The full text
 	// (with snapshot paths) remains in the sensing_input JSONL via startPayload so
