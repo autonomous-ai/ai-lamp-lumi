@@ -30,7 +30,9 @@ interface Perception {
   connected?: boolean;
   last_raw_actions?: string[];
   last_user?: string | null;
-  last_emotion?: string | null;
+  last_sent_emotion?: string | null;
+  last_sent_user?: string | null;
+  last_detected_emotion?: string | null;
   buffered_snapshots?: number;
   buffered_emotions?: number;
   motion_detected?: boolean;
@@ -145,8 +147,16 @@ export function SensingSection() {
           <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Emotion</div>
           <div style={S.row}>
             <div>
-              <div style={S.label}>Last Emotion</div>
-              <div style={{ ...S.value, fontSize: 16 }}>{emotion.last_emotion ?? "—"}</div>
+              <div style={S.label}>Last Sent</div>
+              <div style={{ ...S.value, fontSize: 16 }}>{emotion.last_sent_emotion ?? "—"}</div>
+            </div>
+            <div>
+              <div style={S.label}>User</div>
+              <div style={S.value}>{emotion.last_sent_user || "unknown"}</div>
+            </div>
+            <div>
+              <div style={S.label}>Detecting</div>
+              <div style={S.value}>{emotion.last_detected_emotion ?? "—"}</div>
             </div>
             <div>
               <div style={S.label}>Since Detection</div>
