@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -30,10 +31,17 @@ type TimeSync struct {
 	Time [2]int64 `json:"time"`
 }
 
-// Command is sent by Desktop for status/name/unpair.
+// Command is sent by Desktop for status/name/owner/unpair and folder-push
+// (char_begin, file, chunk, file_end, char_end).
 type Command struct {
 	Cmd  string `json:"cmd"`
 	Name string `json:"name,omitempty"`
+
+	// Folder-push fields (Claude Desktop streams a data folder to the device)
+	Total int    `json:"total,omitempty"` // char_begin: total bytes across all files
+	Path  string `json:"path,omitempty"`  // file: relative file path
+	Size  int    `json:"size,omitempty"`  // file: file size in bytes
+	D     string `json:"d,omitempty"`     // chunk: base64-encoded data
 }
 
 // PermissionDecision is sent from device to Desktop.
@@ -79,6 +87,39 @@ type StatsInfo struct {
 	Vel  float64 `json:"vel"`
 	Nap  int     `json:"nap"`
 	Lvl  int     `json:"lvl"`
+}
+
+// ParseOrSalvage parses data as a JSON message. If parsing fails — typically
+// because a write-without-response ATT packet got dropped, leaving garbage
+// prefixing a valid message — it looks for the last `{"cmd":"` or `{"time":`
+// or `{"total":` opening in the buffer and retries from there. Returns the
+// salvaged message, the number of bytes discarded (0 if clean), and any
+// terminal parse error.
+func ParseOrSalvage(data []byte) (interface{}, int, error) {
+	msg, err := ParseMessage(data)
+	if err == nil {
+		return msg, 0, nil
+	}
+	// Try each recognizable JSON opener and pick the latest one that parses.
+	openers := [][]byte{[]byte(`{"cmd":"`), []byte(`{"time":`), []byte(`{"total":`)}
+	best := -1
+	var bestMsg interface{}
+	for _, opener := range openers {
+		idx := bytes.LastIndex(data, opener)
+		if idx <= 0 || idx <= best {
+			continue
+		}
+		salvage, salErr := ParseMessage(data[idx:])
+		if salErr != nil {
+			continue
+		}
+		best = idx
+		bestMsg = salvage
+	}
+	if best < 0 {
+		return nil, 0, err
+	}
+	return bestMsg, best, nil
 }
 
 // ParseMessage tries to parse a JSON line from Desktop.
@@ -129,6 +170,13 @@ func MakePermission(id, decision string) []byte {
 // MakeAck creates an ack JSON line.
 func MakeAck(cmd string, ok bool) []byte {
 	ack := Ack{AckCmd: cmd, OK: ok, N: 0}
+	data, _ := json.Marshal(ack)
+	return append(data, '\n')
+}
+
+// MakeAckN creates an ack JSON line with a byte count (for chunk/file_end).
+func MakeAckN(cmd string, ok bool, n int) []byte {
+	ack := Ack{AckCmd: cmd, OK: ok, N: n}
 	data, _ := json.Marshal(ack)
 	return append(data, '\n')
 }
