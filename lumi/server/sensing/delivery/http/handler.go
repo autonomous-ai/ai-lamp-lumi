@@ -301,7 +301,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[Follow wellbeing/SKILL.md, then music/SKILL.md for sedentary.]"
+			msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
 		case "emotion.detected":
 			msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 		}
