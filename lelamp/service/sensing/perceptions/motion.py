@@ -117,6 +117,7 @@ class RemoteMotionChecker:
             )
         except Exception:
             logger.exception("Failed to connect to remote motion recognition backend")
+            self._ws_session = None
 
     def _img2b64(self, frame: npt.NDArray[np.uint8]):
         _, buf = cv2.imencode(".jpg", frame)
