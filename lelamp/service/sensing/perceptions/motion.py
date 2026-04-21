@@ -429,17 +429,32 @@ class MotionPerception(Perception):
 
         self._send_event("motion.activity", message)
 
-    def reset_dedup(self) -> None:
-        """Clear the outbound dedup state so the next motion.activity will
-        send regardless of whether the state (user + raw actions) matches
-        the previous send. Called by SensingService on presence.enter so the
-        agent sees a fresh activity event right after a new session starts,
-        instead of waiting out the 5-minute wake-up window.
+    def reset_dedup(self, new_user: str = "") -> None:
+        """Clear the outbound dedup state only if the visible user actually
+        changed. Called by SensingService on presence.enter — without this
+        guard, every stranger flicker (stranger_79 → stranger_77, both
+        collapsing to "unknown" via FaceRecognizer.current_user()) would wipe
+        the key and bypass the 5-minute window, spamming motion.activity
+        events on every presence.enter. Resetting only on an actual user
+        transition (leo → unknown, unknown → chloe, chloe → leo) keeps the
+        dedup window honest while still letting a new presence session see a
+        fresh activity event immediately.
         """
-        if self._last_sent_key is not None:
-            logger.info("[motion] dedup reset (new presence session)")
-            self._last_sent_key = None
-            self._last_sent_ts = 0.0
+        if self._last_sent_key is None:
+            return
+        last_user = self._last_sent_key[0]
+        if last_user == new_user:
+            logger.debug(
+                "[motion] dedup reset skipped — same user %r",
+                last_user,
+            )
+            return
+        logger.info(
+            "[motion] dedup reset (user %r → %r)",
+            last_user, new_user,
+        )
+        self._last_sent_key = None
+        self._last_sent_ts = 0.0
 
     def to_dict(self) -> dict:
         seconds_since = (
