@@ -136,7 +136,7 @@ class EmotionModel:
             results.append(
                 EmotionDetection(
                     emotion=emotion_label,
-                    confidence=emotion_conf,
+                    confidence=emotion_conf * face_conf,
                     face_confidence=face_conf,
                     bbox=[int(x), int(y), int(fw), int(fh)],
                 )
