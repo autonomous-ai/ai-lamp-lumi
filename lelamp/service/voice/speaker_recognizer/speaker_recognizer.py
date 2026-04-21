@@ -68,6 +68,7 @@ _API_KEY = config.SPEAKER_EMBEDDING_API_KEY
 _API_TIMEOUT_S = config.SPEAKER_EMBEDDING_API_TIMEOUT_S
 _EMBED_MAX_SECONDS = config.SPEAKER_EMBED_MAX_SECONDS
 _MATCH_THRESHOLD = config.SPEAKER_MATCH_THRESHOLD
+_ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
@@ -551,25 +552,80 @@ class SpeakerRecognizer:
                 raise SpeakerRecognizerError("empty audio")
             new_wavs.append(_ensure_wav_16k_mono(raw))
 
-        # Persist original audios; origin is encoded in filename.
+        # Persist original audios; origin is encoded in filename. Stable
+        # millisecond prefix ensures lexicographic sort = chronological order,
+        # so the LATEST sample is always the last one we process below.
         for wb in new_wavs:
             fname = (
                 f"sample_{origin}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.wav"
             )
             (voice_dir / fname).write_bytes(wb)
 
-        # Build representative embedding from all saved samples.
+        # ----------------------------------------------------------------
+        # Consistency filter:
+        #   1. Compute a per-file embedding (1 vector per WAV).
+        #   2. Pick the LATEST sample as the reference — user's most recent
+        #      intent wins; noisy / different-speaker legacy samples get
+        #      dropped before they can drift the user's centroid.
+        #   3. Compare every older sample against the reference using the
+        #      same confidence metric as recognize() (cos → (cos+1)/2).
+        #      Keep only those ≥ SPEAKER_ENROLL_CONSISTENCY_THRESHOLD.
+        #   4. Delete dropped WAV files from disk so folder stays lean.
+        #   5. Save the L2-normalized MEAN of kept embeddings.
+        # ----------------------------------------------------------------
         all_samples = sorted(voice_dir.glob("sample_*.wav"))
-        audios_b64: list[str] = []
+        if not all_samples:
+            raise SpeakerRecognizerError("no samples after write — filesystem issue")
+
+        per_file_emb: dict[Path, np.ndarray] = {}
         for p in all_samples:
-            audios_b64.extend(
-                self._expand_wav_for_embedding(
-                    p.read_bytes(),
-                    stem=f"{norm}_{p.stem}",
-                )
+            chunks_b64 = self._expand_wav_for_embedding(
+                p.read_bytes(),
+                stem=f"{norm}_{p.stem}",
             )
-        embedding = self._compute_representative_embedding(audios_b64)
+            per_file_emb[p] = self._call_embedding_api(chunks_b64)
+
+        # Latest = last after lex sort (filename has ms timestamp prefix).
+        ref_path = all_samples[-1]
+        ref_emb = per_file_emb[ref_path]
+
+        kept_paths: list[Path] = [ref_path]
+        kept_embs: list[np.ndarray] = [ref_emb]
+        dropped: list[tuple[Path, float]] = []
+        for p in all_samples[:-1]:   # everything except the reference
+            sim = _cosine_similarity(per_file_emb[p], ref_emb)
+            if sim >= _ENROLL_CONSISTENCY_THRESHOLD:
+                kept_paths.append(p)
+                kept_embs.append(per_file_emb[p])
+            else:
+                dropped.append((p, sim))
+
+        for p, sim in dropped:
+            try:
+                p.unlink()
+                logger.info(
+                    "Enroll: dropped stale sample %s (confidence %.2f < %.2f)",
+                    p.name, sim, _ENROLL_CONSISTENCY_THRESHOLD,
+                )
+            except OSError as e:
+                logger.warning("Enroll: failed to delete %s: %s", p, e)
+
+        # Re-read the folder in case files were deleted.
+        all_samples = sorted(voice_dir.glob("sample_*.wav"))
+
+        # L2-normalized mean of kept embeddings.
+        stacked = np.stack(kept_embs, axis=0)
+        mean_vec = stacked.mean(axis=0).astype(np.float32)
+        mean_norm = float(np.linalg.norm(mean_vec))
+        if mean_norm <= 0.0:
+            raise SpeakerRecognizerError("degenerate mean embedding — all samples cancelled out")
+        embedding = mean_vec / mean_norm
+
         np.save(self._embedding_path(norm), embedding)
+        logger.info(
+            "Enroll embedding computed: ref=%s kept=%d dropped=%d dim=%d",
+            ref_path.name, len(kept_paths), len(dropped), int(embedding.shape[0]),
+        )
 
         # Update voice metadata + registry.
         existing = self._read_metadata(norm)
