@@ -335,10 +335,14 @@ class SensingService:
                         )
 
         now = time.time()
-        cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
-        last = self._last_event_time.get(event_type, 0)
-        if now - last < cd:
-            return
+        # motion.activity has its own 5-min dedup in MotionPerception —
+        # skip the global cooldown so different activities (drink vs
+        # sedentary) are never silently dropped.
+        if event_type not in ("motion.activity", "emotion.detected"):
+            cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
+            last = self._last_event_time.get(event_type, 0)
+            if now - last < cd:
+                return
 
         # Collect all images to save (single image or list)
         frames = []
