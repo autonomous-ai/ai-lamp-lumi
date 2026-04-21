@@ -47,7 +47,7 @@ class RemoteEmotionChecker:
 
         try:
             self._ws_session = connect(
-                self._base_url,
+                self._base_url.replace("http", "ws").replace("https", "wss"),
                 additional_headers={"X-API-Key": self._api_key},
             )
             self._ws_session.send(
@@ -120,9 +120,7 @@ class RemoteEmotionChecker:
                 )
                 resp = json.loads(self._ws_session.recv())
                 detections = resp.get("detections", [])
-                results = [
-                    d for d in detections if d["confidence"] >= self._threshold
-                ]
+                results = [d for d in detections if d["confidence"] >= self._threshold]
                 return sorted(results, key=lambda x: x["confidence"], reverse=True)
             except ConnectionClosedError:
                 logger.warning(
@@ -176,7 +174,9 @@ class EmotionPerception(Perception):
         # - Same user + same emotion within long window → skip (no repeat)
         self._last_sent_key: tuple[str, str] | None = None  # (user, emotion)
         self._last_sent_ts: float = 0.0
-        self._cooldown_s: float = 60.0       # min gap between any emotion event for same user
+        self._cooldown_s: float = (
+            60.0  # min gap between any emotion event for same user
+        )
         self._same_emotion_window_s: float = 300.0  # 5 min — same emotion suppression
 
     @override
@@ -222,8 +222,13 @@ class EmotionPerception(Perception):
             cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
             label = f"{emotion} {conf:.2f}"
             cv2.putText(
-                vis, label, (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
+                vis,
+                label,
+                (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
             )
         return vis
 
@@ -307,9 +312,13 @@ class EmotionPerception(Perception):
             try:
                 current_user = self._face_recognizer.current_user() or ""
             except Exception:
-                logger.exception("[activity.emotion] face_recognizer.current_user() failed")
+                logger.exception(
+                    "[activity.emotion] face_recognizer.current_user() failed"
+                )
 
-        elapsed = cur_ts - self._last_sent_ts if self._last_sent_ts > 0 else float("inf")
+        elapsed = (
+            cur_ts - self._last_sent_ts if self._last_sent_ts > 0 else float("inf")
+        )
         last_user = self._last_sent_key[0] if self._last_sent_key else ""
         last_emotion = self._last_sent_key[1] if self._last_sent_key else ""
 
@@ -317,15 +326,22 @@ class EmotionPerception(Perception):
         if current_user == last_user and elapsed < self._cooldown_s:
             logger.debug(
                 "[activity.emotion] cooldown skip: %s (%.0fs < %.0fs)",
-                message, elapsed, self._cooldown_s,
+                message,
+                elapsed,
+                self._cooldown_s,
             )
             return
 
         # Layer 2: same emotion suppression
-        if current_user == last_user and dominant_emotion == last_emotion and elapsed < self._same_emotion_window_s:
+        if (
+            current_user == last_user
+            and dominant_emotion == last_emotion
+            and elapsed < self._same_emotion_window_s
+        ):
             logger.info(
                 "[activity.emotion] same emotion skip: %s (%.0fs ago)",
-                message, elapsed,
+                message,
+                elapsed,
             )
             return
 
