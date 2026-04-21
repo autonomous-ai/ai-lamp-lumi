@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import os
 import time
 from enum import Enum
 from pathlib import Path
@@ -149,12 +150,12 @@ class RemoteMotionChecker:
             logger.warning("[motion] heartbeat failed — connection lost")
             self._ws_session = None
 
-    def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
-        """Send a frame for action recognition inference and return detected action names.
+    def update(self, frame: npt.NDArray[np.uint8]) -> list[dict] | None:
+        """Send a frame for action recognition inference.
 
-        Returns every detected whitelist action (sorted by confidence desc),
-        or None if the connection is unavailable. Returns [] if nothing
-        passes the backend threshold for this frame.
+        Returns list of dicts with keys: class_name, conf.
+        Sorted by confidence descending. Returns None if unavailable,
+        [] if nothing passes the backend threshold.
         """
 
         # Auto-reconnect if session was lost
@@ -178,7 +179,7 @@ class RemoteMotionChecker:
                     key=lambda x: x["conf"],
                     reverse=True,
                 )
-                return [d["class_name"] for d in detected_classes]
+                return detected_classes
             except ConnectionClosedError:
                 logger.warning(
                     "[%s] connection lost, will retry on next tick",
@@ -228,6 +229,7 @@ class MotionPerception(Perception):
         self._flush_interval: float = config.MOTION_FLUSH_S
         self._snapshot_buffer: list[npt.NDArray[np.uint8]] = []
         self._actions_buffer: list[str] = []
+        self._snapshot_paths: list[str] = []
         self._last_flush_ts: float = 0.0
 
         # Dedup state for outbound motion.activity events.
@@ -261,21 +263,75 @@ class MotionPerception(Perception):
             return
 
         try:
-            actions = self._checker.update(frame)
+            detections = self._checker.update(frame)
         except Exception:
             logger.exception("[motion] inference error")
             return
 
-        if actions:
+        if detections:
             self._last_motion_time = time.time()
             self._on_motion()
 
             stable = self._capture_stable_frame()
             image = stable if stable is not None else frame
             self._snapshot_buffer.append(image)
-            self._actions_buffer.extend(actions)
+            self._actions_buffer.extend(d["class_name"] for d in detections)
+
+            # Save annotated snapshot
+            snapshot_path = self._save_annotated(image, detections)
+            if snapshot_path:
+                self._snapshot_paths.append(snapshot_path)
 
         self._flush_buffer()
+
+    def _draw_annotations(
+        self, frame: npt.NDArray[np.uint8], detections: list[dict]
+    ) -> npt.NDArray[np.uint8]:
+        """Draw detected action labels on a copy of the frame."""
+        vis = frame.copy()
+        y_offset = 30
+        for det in detections:
+            label = f"{det['class_name']} ({det['conf']:.2f})"
+            cv2.putText(
+                vis, label, (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2,
+            )
+            y_offset += 30
+        return vis
+
+    def _save_annotated(
+        self, frame: npt.NDArray[np.uint8], detections: list[dict]
+    ) -> Optional[str]:
+        """Draw annotations and save to snapshot dir. Rotates old files."""
+        try:
+            os.makedirs(config.MOTION_SNAPSHOT_DIR, exist_ok=True)
+
+            annotated = self._draw_annotations(frame, detections)
+            filename = f"motion_{int(time.time() * 1000)}.jpg"
+            filepath = os.path.join(config.MOTION_SNAPSHOT_DIR, filename)
+            _, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            with open(filepath, "wb") as f:
+                f.write(buf.tobytes())
+
+            # Rotate: remove oldest files if over max count
+            files = sorted(
+                (
+                    os.path.join(config.MOTION_SNAPSHOT_DIR, f)
+                    for f in os.listdir(config.MOTION_SNAPSHOT_DIR)
+                    if f.endswith(".jpg")
+                ),
+                key=os.path.getmtime,
+            )
+            while len(files) > config.MOTION_SNAPSHOT_MAX_COUNT:
+                try:
+                    os.remove(files.pop(0))
+                except OSError:
+                    pass
+
+            return filepath
+        except Exception as e:
+            logger.debug("[motion] snapshot save failed: %s", e)
+            return None
 
     def _flush_buffer(self) -> None:
         if not self._snapshot_buffer:
@@ -286,8 +342,10 @@ class MotionPerception(Perception):
             return
 
         actions = list(self._actions_buffer)
+        snapshot_paths = list(self._snapshot_paths)
         self._snapshot_buffer.clear()
         self._actions_buffer.clear()
+        self._snapshot_paths.clear()
         self._last_flush_ts = cur_ts
 
         # Log raw detections in this flush window — useful for tuning
@@ -362,6 +420,10 @@ class MotionPerception(Perception):
             return
         self._last_sent_key = key
         self._last_sent_ts = cur_ts
+
+        # Attach latest snapshot path
+        if snapshot_paths:
+            message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
 
         logger.info("[motion] flushing: %s", message)
 

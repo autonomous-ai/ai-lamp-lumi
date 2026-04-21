@@ -37,7 +37,6 @@ import base64
 import io
 import json
 import logging
-import os
 import re
 import shutil
 import threading
@@ -51,35 +50,24 @@ from typing import Any, Iterable, Optional
 import numpy as np
 import requests
 
+from lelamp import config
+
 logger = logging.getLogger("lelamp.voice.speaker")
 
-# --- Storage layout ---
-_USERS_DIR = Path(os.environ.get("LELAMP_USERS_DIR", "/root/local/users"))
+# --- Storage layout (paths come from lelamp.config) ---
+_USERS_DIR = Path(config.USERS_DIR)
 _VOICE_SUBDIR = "voice"
 _EMBEDDING_FILE = "embedding.npy"
 _METADATA_FILE = "metadata.json"
 _REGISTRY_FILE = _USERS_DIR / ".voice_registry.json"
-_UNKNOWN_AUDIO_DIR = Path(
-    os.environ.get("LELAMP_UNKNOWN_AUDIO_DIR", "/tmp/lumi-unknown-voice")
-)
+_UNKNOWN_AUDIO_DIR = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR)
 
-# --- External embedding API ---
-# Default endpoint is dlbackend's /api/dl/audio-recognizer/embed, which is
-# stateless (no DB write) and returns one aggregated L2-normalized vector.
-# Override with SPEAKER_EMBEDDING_API_URL to point at a different service.
-_DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "").rstrip("/")
-_DEFAULT_EMBED_URL = (
-    f"{_DL_BACKEND_URL}/api/dl/audio-recognizer/embed" if _DL_BACKEND_URL else ""
-)
-_API_URL = os.environ.get("SPEAKER_EMBEDDING_API_URL", _DEFAULT_EMBED_URL)
-_API_KEY = os.environ.get(
-    "SPEAKER_EMBEDDING_API_KEY", os.environ.get("DL_API_KEY", "")
-)
-_API_TIMEOUT_S = float(os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15"))
-_EMBED_MAX_SECONDS = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0"))
-
-# Cosine similarity above which a speaker is considered a match.
-_MATCH_THRESHOLD = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7"))
+# --- External embedding API (centralized in lelamp.config) ---
+_API_URL = config.SPEAKER_EMBEDDING_API_URL
+_API_KEY = config.SPEAKER_EMBEDDING_API_KEY
+_API_TIMEOUT_S = config.SPEAKER_EMBEDDING_API_TIMEOUT_S
+_EMBED_MAX_SECONDS = config.SPEAKER_EMBED_MAX_SECONDS
+_MATCH_THRESHOLD = config.SPEAKER_MATCH_THRESHOLD
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
