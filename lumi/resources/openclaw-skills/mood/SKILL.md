@@ -16,6 +16,8 @@ description: Tracks the USER's mood only — signals + synthesized decision from
 >
 > **Your reply text** to the user is at most ONE short caring sentence (or `NO_REPLY`). All the workflow, logging, and synthesis happen silently via tool calls — the user only hears what you would naturally say if you were truly noticing how they feel.
 
+> **ALWAYS log.** `unknown` is a valid `user` value — log signals and decisions under `user: "unknown"` when `current_user` is unknown. Never skip logging because the user is unknown/unconfirmed; stranger mood still counts for Music decisions.
+
 Mood is stored as two kinds of rows:
 
 - **`signal`** — raw evidence from one source (camera action, voice tone, telegram message). Multiple per minute is fine.
