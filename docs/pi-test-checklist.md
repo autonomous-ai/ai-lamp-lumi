@@ -49,14 +49,35 @@ Track which features have been manually tested on the Raspberry Pi 4.
 
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
-| EX-01 | Guard mode enable/disable | `curl -X POST http://pi:5000/api/guard/enable` → `{"status":1}`. `curl http://pi:5000/api/guard` → `{"guard_mode":true}`. `curl -X POST http://pi:5000/api/guard/disable` → `{"guard_mode":false}` | ⏳ | |
-| EX-02 | Guard mode broadcast | Bật guard mode → bước vào khung hình camera → kiểm tra tất cả Telegram DM/group nhận được cảnh báo presence.enter kèm ảnh | ⏳ | |
-| EX-03 | Guard mode motion broadcast | Bật guard mode → tạo chuyển động lớn trước camera → kiểm tra Telegram nhận cảnh báo motion | ⏳ | |
-| EX-04 | Guard manual alert | `curl -X POST http://pi:5000/api/guard/alert -d '{"message":"Test alert"}'` → tất cả chat session nhận message | ⏳ | |
-| EX-05 | Guard mode via voice | Nói: **"bật chế độ canh gác"** hoặc **"enable guard mode"** → guard mode bật. Nói: **"tắt canh gác"** → guard mode tắt | ⏳ | Qua OpenClaw `guard` skill |
-| EX-06 | Stranger stats tracking | Để stranger xuất hiện trước camera nhiều lần → `curl http://pi:5001/face/stranger-stats` → thấy count tăng, first_seen/last_seen đúng | ⏳ | LeLamp port 5001 |
-| EX-07 | Stranger enrollment suggestion | Để stranger xuất hiện 3+ lần → agent gợi ý đăng ký khuôn mặt | ⏳ | Sensing skill logic |
-| EX-08 | Stranger stats persistence | Restart LeLamp → `curl http://pi:5001/face/stranger-stats` → stats vẫn còn (lưu trong LeLamp data dir) | ⏳ | |
+| EX-01 | Guard mode enable/disable | `curl -X POST http://pi:5000/api/guard/enable` → `{"status":1}`. `curl http://pi:5000/api/guard` → `{"guard_mode":true}`. `curl -X POST http://pi:5000/api/guard/disable` → `{"guard_mode":false}` | ✅ | API + config + skill done |
+| EX-02 | Guard mode broadcast | Bật guard mode → bước vào khung hình camera → kiểm tra tất cả Telegram DM/group nhận được cảnh báo presence.enter kèm ảnh | ✅ | SSE handler broadcasts via TelegramSender, snapshot attached |
+| EX-03 | Guard mode motion broadcast | Bật guard mode → tạo chuyển động lớn trước camera → kiểm tra Telegram nhận cảnh báo motion | ✅ | Same broadcast path as EX-02 |
+| EX-04 | Guard manual alert | `curl -X POST http://pi:5000/api/guard/alert -d '{"message":"Test alert"}'` → tất cả chat session nhận message | ✅ | `PostGuardAlert` → `Broadcast()` |
+| EX-05 | Guard mode via voice | Nói: **"bật chế độ canh gác"** hoặc **"enable guard mode"** → guard mode bật. Nói: **"tắt canh gác"** → guard mode tắt | ✅ | OpenClaw `guard` skill with enable/disable API + camera auto-enable |
+| EX-06 | Stranger stats tracking | Để stranger xuất hiện trước camera nhiều lần → `curl http://pi:5001/face/stranger-stats` → thấy count tăng, first_seen/last_seen đúng | ✅ | LeLamp `facerecognizer.py` tracks visit counts per stranger ID |
+| EX-07 | Stranger enrollment suggestion | Để stranger xuất hiện 3+ lần → agent gợi ý đăng ký khuôn mặt | ⚠️ | Sensing skill has context but no explicit visit-count trigger yet |
+| EX-08 | Stranger stats persistence | Restart LeLamp → `curl http://pi:5001/face/stranger-stats` → stats vẫn còn (lưu trong LeLamp data dir) | ✅ | Persisted to `.stranger_stats.json` |
+
+---
+
+## Extra — Speaker Recognition & Voice Enrollment
+
+| # | Use Case | How to test | Status | Notes |
+|---|---|---|---|---|
+| EX-09 | Speaker recognition | Nói gì đó → xem transcript có prefix `Name:` (recognized) hoặc `Unknown:` (chưa enroll) | ✅ | LeLamp `speaker_recognizer.py` + Lumi `speaker-recognizer` skill |
+| EX-10 | Voice self-enrollment | Nói **"I'm Leo"** hoặc **"tôi là Leo"** khi chưa enroll → agent tự enroll voice profile từ audio path | ✅ | Skill triggers on `Unknown: ... (audio save at <path>)` + self-intro |
+| EX-11 | Telegram voice enrollment | Gửi voice note trên Telegram kèm giới thiệu tên → agent enroll voice + link Telegram identity | ✅ | Skill handles `[mediaPaths: ...]` + intro detection |
+
+---
+
+## Extra — Facial Emotion & Wellness (AI-Driven)
+
+| # | Use Case | How to test | Status | Notes |
+|---|---|---|---|---|
+| EX-12 | Facial emotion detection | Ngồi trước camera, thể hiện cảm xúc → xem log có `emotion.detected` event | ✅ | LeLamp `emotion.py` via dlbackend WS, 7 emotions (Angry/Disgust/Fear/Happy/Sad/Surprise/Neutral) |
+| EX-13 | Mood logging from emotion | `emotion.detected` → agent tự POST `/api/mood/log` → `curl http://pi:5000/api/openclaw/mood-history` có entry | ✅ | `user-emotion-detection` skill → `mood` skill pipeline |
+| EX-14 | Proactive wellness nudge | Ngồi làm việc lâu (sedentary activity detected) → Lumi nhắc uống nước / đứng dậy | ✅ | `wellbeing` skill, event-driven from `motion.activity` sedentary labels |
+| EX-15 | Proactive music suggestion | Mood decision logged (stressed/tired/etc.) → Lumi gợi ý nhạc phù hợp | ✅ | `music-suggestion` skill, triggers on mood decisions + sedentary activity |
 
 ---
 
@@ -65,5 +86,5 @@ Track which features have been manually tested on the Raspberry Pi 4.
 - UC-09: Face tracking / servo follow face — chưa implement
 - UC-10: Gesture control — chưa implement
 - UC-12: Video call lighting — chưa implement
-- UC-15: Remote control via Telegram/Slack — chưa test end-to-end
-- Face enrollment API — chưa implement (ai cũng bị classify là stranger)
+- UC-M4a: Screen-time / eye-care tracking (gaze estimation) — chưa implement
+- UC-M4b: Wellness gestures (MediaPipe) — chưa implement

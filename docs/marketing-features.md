@@ -1,173 +1,140 @@
 # AI Lamp — Marketing-Proposed Features
 
-> Proposed by the marketing team. These features are **not yet in the product vision** and require team review before implementation.
-
-Status: **Under Review** — not scheduled, not implemented.
+> Features proposed by the marketing team. Status updated 2026-04-21 based on current codebase.
 
 ---
 
-## UC-M1: Facial Expression & Wellness Detection [Proposed]
+## UC-M1: Facial Expression & Wellness Detection [DONE]
+
+**Status: Implemented** (2026-04)
 
 **Actor**: System (automatic, camera)
-**Description**: Camera continuously analyzes the user's facial expression to detect emotional state, stress level, and fatigue — and Lumi responds proactively to support the user's wellbeing.
+**Description**: Camera analyzes the user's facial expression to detect emotional state — Lumi responds proactively to support the user's wellbeing.
 
 **Examples**:
 - User looks tense/stressed → Lumi dims light, shifts to warm color, softly offers a break
 - User looks drowsy/fatigued → Lumi increases brightness, plays an energizing chime, suggests a short walk
 - User looks focused and calm → Lumi holds current environment, suppresses all interruptions
 
-**Difference from existing**:
-- Current "Stress" detection (Pillar 4 table) uses **mic (voice tone)** — this UC uses **camera (facial expression)**
-- Complements voice tone detection; camera catches stress even when the user is silent
+**Implementation**:
+- Emotion classifier runs via **dlbackend WebSocket** (remote inference server), not on-device ONNX. LeLamp sends camera frames, receives emotion predictions.
+- `lelamp/service/sensing/perceptions/emotion.py` — `RemoteEmotionChecker` connects to dlbackend, fires `emotion.detected` sensing event with detected emotion (Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral).
+- Lumi `user-emotion-detection/SKILL.md` maps detected facial emotion → mood signal via `POST /api/mood/log`.
+- Lumi `mood/SKILL.md` fuses signals (camera emotion, conversation context, voice tone) into mood decisions.
+- Mood decisions trigger downstream actions: `music-suggestion` (proactive music), `wellbeing` (break/hydration nudges), `emotion` (lamp expression).
+- Configurable confidence threshold via `EMOTION_CONFIDENCE_THRESHOLD` in LeLamp config.
 
-**Architecture fit**:
-- Add emotion classifier model on top of existing InsightFace face detection in `lelamp/service/sensing/perceptions/facerecognizer.py`
-- Fire new sensing event `expression.detected` → Lumi → OpenClaw reacts via SOUL.md
-- Requires lightweight ONNX emotion model (~150MB, ~50ms/frame inference on Pi 4)
-
-**Open questions**:
-- [ ] Which emotion model? (MobileNet-based FER, EfficientNet-lite, or cloud vision API)
-- [ ] Accuracy threshold before triggering — avoid false positives (user just squinting at screen)
-- [ ] Privacy: facial expression data must stay fully on-device, never uploaded
-- [ ] How does this interact with voice-tone stress detection? Fusion logic needed?
-
-**Acceptance Criteria**:
-- Detects minimum 3 states: neutral, stressed/tense, fatigued/drowsy
-- Cooldown: minimum 60s between consecutive expression-triggered events
-- Inference runs on Pi 4 without degrading sensing loop below 2s cycle
-- User can disable expression detection independently of other camera features
+**Resolved questions**:
+- [x] Which emotion model? → Remote dlbackend (not on-device ONNX). Offloads inference, no Pi 4 RAM/CPU impact.
+- [x] Accuracy threshold → Configurable `EMOTION_CONFIDENCE_THRESHOLD` (default in LeLamp config).
+- [x] Privacy → Frames sent to self-hosted dlbackend only, not third-party cloud.
+- [x] Voice-tone interaction → Both feed into Mood skill fusion logic; camera emotion = signal, mood decision = fused output.
 
 ---
 
-## UC-M2: Proactive Wellness Reminders [Proposed]
+## UC-M2: Proactive Wellness Reminders [DONE]
 
-**Actor**: System (automatic, time + camera)
-**Description**: Lumi autonomously tracks how long the user has been sitting and proactively reminds them to stand up, drink water, or take a break — without the user having to ask.
+**Status: Implemented** (2026-04)
+
+**Actor**: System (automatic, sensing-driven)
+**Description**: Lumi autonomously tracks sedentary activity and proactively reminds users to stand up, drink water, or take a break — without the user having to ask.
 
 **Examples**:
 - User has been at desk for 45 minutes → Lumi gently says "You've been sitting for a while — maybe stretch?"
 - User has been at desk for 2 hours with no water nearby → "Don't forget to hydrate"
-- User is working past midnight → Blue light reduction + gentle wind-down suggestion
 
-**Difference from existing**:
-- UC-06 has "Remind me to take a break in 25 minutes" — **user-initiated Pomodoro**
-- This UC is **fully proactive** — Lumi tracks sitting duration itself and initiates without being asked
+**Implementation**:
+- **Event-driven, not timer-based.** The `wellbeing/SKILL.md` triggers on every `motion.activity` event (from action recognition).
+- Action recognition via dlbackend classifies user activity: `using computer`, `writing`, `reading book`, `texting`, `drawing`, `playing controller` (sedentary) vs `drink`, `break` (reset activities).
+- Each activity is logged to per-user JSONL timeline via `POST /api/openclaw/wellbeing/log`.
+- On each event, skill reads recent history, computes time since last hydration/break reset, and nudges if thresholds exceeded.
+- Per-user tracking: `current_user` from sensing context tag, strangers share `"unknown"` timeline.
+- `lumi/resources/openclaw-skills/wellbeing/SKILL.md` — full workflow with threshold logic, dedup rules, and cooldowns.
 
-**Architecture fit**:
-- Track `presence.enter` timestamp; calculate continuous sitting duration in sensing loop
-- Fire `wellness.sitting_too_long` event after configurable threshold (default: 45 min)
-- Uses existing presence detection (FaceRecognizer) — no new model required
-- OpenClaw handles message tone/timing based on user history and personality
-
-> **Implementation note (2026-04)**: This UC is already covered by a more flexible AI-driven approach. Instead of a fixed-timer `wellness.sitting_too_long` event from the sensing loop, the Wellbeing SKILL uses OpenClaw cron jobs triggered by `motion.activity` sedentary detection (using computer, writing, reading, etc.). The break cron is only created when sedentary activity is confirmed — not on mere presence. The agent has full conversation context, per-person history, and personality awareness, making reminders more natural and adaptive than a static sensing-loop timer. See `lumi/resources/openclaw-skills/wellbeing/SKILL.md`.
-
-**Open questions**:
-- [ ] What are the default reminder intervals? (45 min? 60 min? User-configurable?)
-- [ ] How does Lumi distinguish "sitting at desk working" vs. "briefly back in frame"?
-- [ ] Should water/hydration reminders be time-based or require a separate sensor (humidity near a cup)?
-- [ ] Does "Do Not Disturb" mode suppress wellness reminders too, or are they always-on?
-
-**Acceptance Criteria**:
-- Sitting time tracked from first `presence.enter` event; reset on `presence.leave` (> 5 min absence)
-- Reminder fires at configurable intervals (default: 45 min, 90 min, 150 min)
-- Reminder tone adapts to context (gentler at night, more energetic in morning)
-- User can configure intervals or disable entirely via voice or web UI
+**Resolved questions**:
+- [x] Reminder intervals → AI-driven thresholds computed from activity log (not fixed timers).
+- [x] "Sitting at desk" vs "briefly back" → Action recognition distinguishes sedentary labels from transient presence.
+- [x] Hydration reminders → Time-based from last `drink` activity detection in wellbeing log.
+- [x] DND mode → Agent personality handles context sensitivity (gentler at night, adapts to mood).
 
 ---
 
-## UC-M3: Proactive Music Suggestion by Mood [Proposed]
+## UC-M3: Proactive Music Suggestion by Mood [DONE]
 
-**Actor**: System (automatic, conversation context + sensing)
-**Description**: Lumi proactively suggests or plays music based on detected mood, time of day, and ongoing conversation context — without the user requesting it.
+**Status: Implemented** (2026-04)
+
+**Actor**: System (automatic, mood + sensing-driven)
+**Description**: Lumi proactively suggests music based on detected mood, sedentary activity, and listening history — without the user requesting it.
 
 **Examples**:
-- User sounds stressed (voice tone) → Lumi softly plays ambient/lo-fi without being asked
-- Deep focus detected (sustained silence, no movement) → Lumi offers focus music ("Want some background music?")
-- Morning routine detected → Lumi plays an energizing playlist
-- User says they feel sad during conversation → Lumi offers comfort music
+- User detected as stressed (facial emotion + conversation) → Lumi suggests calm piano
+- User doing sedentary work for a while → Lumi offers lo-fi/study beats
+- User detected as happy/excited → Lumi suggests upbeat music
 
-**Difference from existing**:
-- Music playback (SKILL.md + music_service.py) is **fully implemented and working**
-- Current behavior: **reactive only** — user must ask "play some music"
-- This UC adds the **proactive trigger layer** — Lumi decides to offer/play without being asked
+**Implementation**:
+- `lumi/resources/openclaw-skills/music-suggestion/SKILL.md` — dedicated proactive skill (separate from reactive `music/SKILL.md`).
+- **Two triggers**:
+  1. **Mood-driven**: After `mood/SKILL.md` logs a mood decision (sad, stressed, tired, excited, happy, bored) → music-suggestion fires.
+  2. **Sedentary-driven**: `motion.activity` with sedentary labels (using computer, writing, etc.) → direct suggestion trigger.
+- Checks before suggesting: audio already playing? recent suggestion cooldown (7 min)? stale mood decision (>30 min)?
+- Queries `GET /audio/history?person={name}` for personalized genre preference.
+- Genre mapping: stressed → soft jazz/classical, tired → calm piano, happy → upbeat pop, sedentary → lo-fi/ambient.
+- Always suggests first via TTS, plays only after user confirmation.
+- `[HW:/speak]` marker forces TTS on lamp speaker even for channel-origin sessions.
 
-**Implementation status** (partial):
-- ✅ **History-based suggestion** — Music SKILL.md updated with "Music Suggestion (Proactive)" section. Queries `hw_audio` events from flow log API (`GET /api/openclaw/flow-events`) to build listening history. Suggests 1–2 songs via TTS without auto-playing; plays only after user confirmation.
-- ⬜ **Sensing-triggered suggestion** — Proactive triggers from stress/focus/morning context not yet wired (requires sensing event → suggestion pipeline)
-
-**Architecture fit**:
-- Lowest effort of the 4 proposed features — no new hardware model needed
-- Music SKILL.md updated with suggestion workflow, bash recipes to query flow logs, and suggestion rules
-- Sensing events already available: `sound.voice_tone` (stress), `sound.silence` (focus), `time.schedule` (morning/night)
-- OpenClaw maps: stress → ambient/lo-fi, focus → instrumental, morning → upbeat
-
-**Open questions**:
-- [x] User music preferences: how does Lumi learn over time what the user likes? → **Solved: queries `hw_audio` flow log history**
-- [x] Should Lumi ask first ("Want some music?") or just play? → **Always suggest first, play only after confirmation**
-- [ ] How to avoid being annoying — music interrupting a phone call or video meeting?
-- [ ] Integrate with UC-16 (Screen Awareness) to detect Spotify/YouTube already running → don't suggest
-
-**Acceptance Criteria**:
-- Proactive music trigger fires on: stress detection, sustained focus (>15 min silence), morning schedule
-- Always asks before playing (first time) — "plays directly" only after user confirms preference
-- Respects video call mode (UC-12) — no music during active calls
-- User can say "stop suggesting music" and Lumi remembers via OpenClaw long-term memory
+**Resolved questions**:
+- [x] Music preferences → Queries `hw_audio` flow log + `/audio/history` for listening history.
+- [x] Ask first vs auto-play → Always suggest first, play only after confirmation.
+- [x] Sensing-triggered → Done: mood decisions + sedentary activity both trigger suggestions.
+- [ ] Phone call / video meeting detection → Not yet (requires UC-12 or screen awareness).
 
 ---
 
-## UC-M4: Screen-Time Awareness & Gesture Support [Proposed]
+## UC-M4: Screen-Time Awareness & Gesture Support [NOT STARTED]
 
-**Actor**: System (automatic, camera)
-**Description**: Camera tracks how long the user has been staring at a screen without looking away, and proactively offers eye-care reminders or support. Additionally, hand gestures can trigger supportive actions.
+**Status: Not implemented** — requires new models not yet in the codebase.
 
 **Sub-feature A — Screen-Time / Eye-Care Tracking**:
-- Camera detects user's gaze direction (facing screen continuously)
-- After configurable duration (e.g., 20 min) without looking away → Lumi suggests the 20-20-20 rule ("Look at something 20 feet away for 20 seconds")
-- Tracks "look-away" events to reset the timer
+- Needs gaze estimation model — not implemented in LeLamp sensing pipeline.
+- Pi 4 feasibility unknown, benchmark needed.
 
 **Sub-feature B — Contextual Gesture Support**:
-- User glances at Lumi while looking stressed/overwhelmed → Lumi offers assistance
-- User rubs eyes (fatigue gesture) → Lumi dims light and suggests a break
-- Note: this is distinct from UC-10 (gesture control for lamp) — this is **welfare-oriented**, not control-oriented
+- Needs gesture/pose model (MediaPipe Hand Lite or similar) — not implemented.
+- High complexity, ~300-500MB RAM impact. May require Pi 5 or USB accelerator.
 
-**Difference from existing**:
-- UC-10 covers lamp-control gestures (wave = toggle, thumbs up = scene) — fully defined but not implemented
-- This UC covers **wellness gestures** (eye-rub, looking at Lumi) → Lumi offers support
-- UC-16 covers screen awareness via desktop agent — this UC uses **camera only**, no desktop agent required
-
-**Architecture fit**:
-- Sub-feature A: Track face-present + gaze direction duration. Gaze estimation is a medium-complexity addition to FaceRecognizer
-- Sub-feature B: High complexity — requires gesture/pose model (MediaPipe Hand Lite or similar), ~300-500MB RAM impact
-- Pi 4 feasibility: Sub-feature A is viable; Sub-feature B requires benchmark before committing
-
-**Open questions**:
-- [ ] Sub-feature A: Is gaze direction detection accurate enough without dedicated eye-tracking hardware?
-- [ ] Sub-feature B: MediaPipe on Pi 4 — benchmark needed. May require Pi 5 or USB accelerator (Coral)
-- [ ] How does this interact with UC-10 (gesture for lamp control)? Same model, different intent classification?
-- [ ] Should Sub-feature A and B be split into separate UCs given the complexity difference?
-
-**Acceptance Criteria (Sub-feature A)**:
-- Screen-stare timer fires after 20 min of continuous face-present without significant head movement
-- Reminder uses 20-20-20 rule messaging
-- Timer resets when user looks away (head turn > 30 degrees) for > 5 seconds
-- User can configure threshold or disable
-
-**Acceptance Criteria (Sub-feature B)**:
-- Pending Pi 4 benchmark — define after feasibility confirmed
-- If feasible: minimum 2 wellness gestures recognized with > 80% accuracy
+**Open questions** (unchanged):
+- [ ] Gaze direction detection accuracy without dedicated eye-tracking hardware?
+- [ ] MediaPipe on Pi 4 — benchmark needed
+- [ ] Interaction with UC-10 (gesture for lamp control)?
+- [ ] Split Sub-feature A and B into separate UCs?
 
 ---
 
-## Summary & Recommended Priority
+## Bonus: Speaker Recognition [DONE]
 
-| UC | Feature | Effort | Pi 4 Risk | Recommended Priority |
-|---|---|---|---|---|
-| UC-M3 | Proactive Music Suggestion | Low (SKILL.md + SOUL.md only) | None | **P1 — partial (history-based suggestion done)** |
-| UC-M2 | Proactive Wellness Reminders | Low (sensing loop logic) | None | **P1 — do first** |
-| UC-M1 | Facial Expression Detection | Medium (new ONNX model) | Low | P2 |
-| UC-M4a | Screen-Time / Eye-Care | Medium (gaze estimation) | Medium | P2 |
-| UC-M4b | Wellness Gestures | High (MediaPipe, needs benchmark) | High | P3 — benchmark first |
+**Status: Implemented** (2026-04) — not in original marketing proposal but a significant feature.
+
+**Description**: Lumi recognizes who is speaking by voice. Mic transcripts are prefixed with the speaker's name (`Leo:`) or `Unknown:`. Users can self-enroll their voice by introducing themselves.
+
+**Implementation**:
+- `lelamp/speaker_recognizer.py` + `lelamp/service/voice/speaker_recognizer/speaker_recognizer.py` — voice embedding model, profile storage, real-time matching.
+- `lumi/resources/openclaw-skills/speaker-recognizer/SKILL.md` — self-enrollment skill (mic intro, Telegram voice note, two-turn enrollment).
+- Voice profiles stored per-user alongside face data in `/root/local/users/{name}/`.
+- Telegram identity linked during voice enrollment for DM targeting.
 
 ---
 
-*Proposed by marketing team 2026-04-06. Requires product owner sign-off before scheduling.*
+## Summary
+
+| UC | Feature | Status | Implementation |
+|---|---|---|---|
+| UC-M1 | Facial Expression Detection | **DONE** | dlbackend emotion WS + `user-emotion-detection` + `mood` skills |
+| UC-M2 | Proactive Wellness Reminders | **DONE** | `wellbeing` skill, event-driven from `motion.activity` |
+| UC-M3 | Proactive Music Suggestion | **DONE** | `music-suggestion` skill, mood + sedentary triggers |
+| UC-M4a | Screen-Time / Eye-Care | **NOT STARTED** | Needs gaze estimation model |
+| UC-M4b | Wellness Gestures | **NOT STARTED** | Needs gesture model (MediaPipe) |
+| Bonus | Speaker Recognition | **DONE** | LeLamp voice embeddings + Lumi enrollment skill |
+
+---
+
+*Originally proposed by marketing team 2026-04-06. Status updated 2026-04-21.*
