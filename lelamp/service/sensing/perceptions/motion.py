@@ -125,7 +125,7 @@ class RemoteMotionChecker:
         return base64.b64encode(buf.tobytes()).decode()
 
     def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
-        """Send a frame for X3D inference and return all detected action names.
+        """Send a frame for action recognition inference and return detected action names.
 
         Returns every detected whitelist action (sorted by confidence desc),
         or None if the connection is unavailable. Returns [] if nothing
@@ -160,7 +160,7 @@ class RemoteMotionChecker:
 
 
 class MotionPerception(Perception):
-    """Detects motion via X3D video action recognition (400 Kinect action classes).
+    """Detects motion via remote DL backend action recognition.
 
     Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
     sending all accumulated snapshots together in one event.
@@ -207,8 +207,6 @@ class MotionPerception(Perception):
         self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
-        self._last_activity_groups: list[str] = []
-        self._last_raw_actions: list[str] = []
 
     @staticmethod
     def _load_whitelist() -> list[str] | None:
@@ -229,7 +227,7 @@ class MotionPerception(Perception):
         try:
             actions = self._checker.update(frame)
         except Exception:
-            logger.exception("[motion] X3D inference error")
+            logger.exception("[motion] inference error")
             return
 
         if actions:
@@ -256,12 +254,11 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        # Log raw X3D detections in this flush window — useful for tuning
+        # Log raw detections in this flush window — useful for tuning
         # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
         # particular flush did/didn't produce an event.
         if actions:
-            logger.info("[motion] raw X3D actions in window: %s", actions)
-            self._last_raw_actions = list(actions)
+            logger.info("[motion] raw actions in window: %s", actions)
 
         raw_actions: set[str] = set()
 
@@ -274,13 +271,11 @@ class MotionPerception(Perception):
                 # Emotional actions (laughing/crying/yawning/singing) are
                 # intentionally NOT emitted via motion.activity. A dedicated
                 # motion.emotional event will be added later to carry them;
-                # until then emotional X3D detections are silently ignored
+                # until then emotional detections are silently ignored
                 # here so motion.activity stays purely about physical actions.
                 continue
             raw_actions.add(a)
 
-        if activity_groups:
-            self._last_activity_groups = sorted(activity_groups)
         if not raw_actions:
             return
 
