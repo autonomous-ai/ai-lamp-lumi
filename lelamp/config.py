@@ -131,3 +131,20 @@ SNAPSHOT_PERSIST_MAX_BYTES = int(
 IDLE_TIMEOUT_S = float(os.environ.get("LELAMP_IDLE_TIMEOUT_S", "300"))
 AWAY_TIMEOUT_S = float(os.environ.get("LELAMP_AWAY_TIMEOUT_S", "900"))
 IDLE_BRIGHTNESS = float(os.environ.get("LELAMP_IDLE_BRIGHTNESS", "0.20"))
+
+# --- Sensing: Speaker recognition (voice embedding via dlbackend) ---
+SPEAKER_RECOGNITION_ENABLED: bool = (
+    os.environ.get("LELAMP_SPEAKER_RECOGNITION_ENABLED", "true").lower() == "true"
+)
+SPEAKER_MIN_AUDIO_S: float = float(os.environ.get("LELAMP_SPEAKER_MIN_AUDIO_S", "0.8")) # seconds
+SPEAKER_MATCH_THRESHOLD: float = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7")) # 0.0 - 1.0
+SPEAKER_EMBED_MAX_SECONDS: float = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0")) # seconds
+SPEAKER_EMBEDDING_API_TIMEOUT_S: float = float(
+    os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15")
+)
+SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
+    "LELAMP_UNKNOWN_AUDIO_DIR", "/tmp/lumi-unknown-voice"
+)
+DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/api/dl/audio-recognizer/embed")
+SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+SPEAKER_EMBEDDING_API_KEY: str = DL_API_KEY
