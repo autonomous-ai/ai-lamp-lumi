@@ -183,6 +183,11 @@ def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
     New samples are appended to the user's voice folder and the embedding is
     recomputed from all samples in the folder (old + new).
     """
+    logger.info(
+        "POST /speaker/enroll name=%r wav_paths=%d tg_user=%r tg_id=%r origin=%r",
+        req.name, len(req.wav_paths),
+        req.telegram_username or "", req.telegram_id or "", req.origin or "",
+    )
     _validate_paths(req.wav_paths)
     sr = get_speaker_recognizer()
     try:
@@ -195,6 +200,7 @@ def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
             origin=req.origin or "",
         )
     except SpeakerRecognizerError as e:
+        logger.warning("POST /speaker/enroll failed for %r: %s", req.name, e)
         raise HTTPException(status_code=400, detail=str(e)) from e
     return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
 
@@ -207,6 +213,10 @@ def speaker_update_identity(req: UpdateIdentityRequest) -> EnrollResponse:
     introduces themselves via Telegram — we can link the two without
     re-uploading audio.
     """
+    logger.info(
+        "POST /speaker/identity name=%r tg_user=%r tg_id=%r",
+        req.name, req.telegram_username or "", req.telegram_id or "",
+    )
     sr = get_speaker_recognizer()
     try:
         meta = sr.update_identity(
@@ -215,6 +225,7 @@ def speaker_update_identity(req: UpdateIdentityRequest) -> EnrollResponse:
             telegram_id=req.telegram_id or "",
         )
     except SpeakerRecognizerError as e:
+        logger.warning("POST /speaker/identity failed for %r: %s", req.name, e)
         raise HTTPException(status_code=404, detail=str(e)) from e
     return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
 
@@ -226,6 +237,7 @@ def speaker_reset() -> RemoveResponse:
     Shared identity (``metadata.json``) is preserved — face / mood /
     wellbeing still depend on it.
     """
+    logger.info("POST /speaker/reset — wiping all voice profiles")
     sr = get_speaker_recognizer()
     n = sr.reset_all()
     return RemoveResponse(status="ok", name="*", removed=n > 0)
@@ -239,9 +251,11 @@ def speaker_remove(req: RemoveSpeakerRequest) -> RemoveResponse:
     behaviour so callers don't silently no-op on a typo. Other per-user data
     (face photos, mood, wellbeing, ...) is preserved regardless.
     """
+    logger.info("POST /speaker/remove name=%r", req.name)
     sr = get_speaker_recognizer()
     removed = sr.remove(req.name)
     if not removed:
+        logger.warning("POST /speaker/remove: voice profile not found for %r", req.name)
         raise HTTPException(
             status_code=404,
             detail=f"voice profile not found: {req.name}",
