@@ -35,6 +35,9 @@ from lelamp.presets import (
     EMO_MUSIC_CHILL,
     EMO_SHOCK,
     EMO_SLEEPY,
+    FX_SPEAKING_WAVE,
+    AIM_LEFT,
+    AIM_RIGHT,
     SCENE_PRESETS,
     VALID_LED_EFFECTS,
 )
@@ -1236,7 +1239,7 @@ def aim_servo(req: ServoAimRequest):
             obs = animation_service.robot.get_observation()
         current = {k: v for k, v in obs.items() if k.endswith(".pos")}
 
-        if req.direction in ("left", "right"):
+        if req.direction in (AIM_LEFT, AIM_RIGHT):
             # Keep current pose, only rotate yaw
             positions = {**current, "base_yaw.pos": preset["base_yaw.pos"]}
         else:
@@ -1569,11 +1572,11 @@ def _on_tts_speak_start():
     rgb_service.dispatch("solid", (0, 0, 0))
 
     _effect_stop.clear()
-    _effect_name = "speaking_wave"
+    _effect_name = FX_SPEAKING_WAVE
     _effect_base_color = color
     _effect_thread = threading.Thread(
         target=_run_effect,
-        args=("speaking_wave", color, 2.5, None, _effect_stop, rgb_service),
+        args=(FX_SPEAKING_WAVE, color, 2.5, None, _effect_stop, rgb_service),
         daemon=True,
         name="led-effect-speaking_wave",
     )
@@ -1626,7 +1629,7 @@ def start_led_effect(req: LEDEffectRequest):
     # During TTS playback, speaking_wave takes priority over status LED effects
     # (Lumi sends breathing/pulse for listening/processing states). Skip to avoid
     # killing the speaking animation mid-playback. TTS end callback handles restore.
-    if _tts_speaking and req.effect != "speaking_wave":
+    if _tts_speaking and req.effect != FX_SPEAKING_WAVE:
         logger.info("LED effect '%s' skipped — TTS speaking_wave active", req.effect)
         return {"status": "ok", "effect": req.effect, "speed": req.speed}
 

@@ -10,6 +10,11 @@ import time
 import threading
 from typing import Optional
 
+from lelamp.presets import (
+    FX_BLINK, FX_BREATHING, FX_CANDLE, FX_NOTIFICATION_FLASH,
+    FX_PULSE, FX_RAINBOW, FX_SPEAKING_WAVE,
+)
+
 
 def is_done(deadline: Optional[float], stop_event: threading.Event) -> bool:
     """Return True if the effect should stop."""
@@ -59,19 +64,19 @@ def run_effect(
         deadline = time.monotonic() + duration_ms / 1000.0
 
     try:
-        if effect == "breathing":
+        if effect == FX_BREATHING:
             breathing(color, speed, deadline, stop_event, svc)
-        elif effect == "candle":
+        elif effect == FX_CANDLE:
             candle(color, speed, deadline, stop_event, svc)
-        elif effect == "rainbow":
+        elif effect == FX_RAINBOW:
             rainbow(speed, deadline, stop_event, svc)
-        elif effect == "notification_flash":
+        elif effect == FX_NOTIFICATION_FLASH:
             notification_flash(color, speed, stop_event, svc)
-        elif effect == "pulse":
+        elif effect == FX_PULSE:
             pulse(color, speed, deadline, stop_event, svc)
-        elif effect == "blink":
+        elif effect == FX_BLINK:
             blink(color, speed, deadline, stop_event, svc)
-        elif effect == "speaking_wave":
+        elif effect == FX_SPEAKING_WAVE:
             speaking_wave(color, speed, deadline, stop_event, svc)
     except Exception as e:
         import logging
