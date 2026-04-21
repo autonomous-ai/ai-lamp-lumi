@@ -288,10 +288,7 @@ class MotionPerception(Perception):
             )
             return
 
-        message = (
-            f"Activity detected: {', '.join(sorted(raw_actions))}. "
-            "If nothing noteworthy, reply NO_REPLY."
-        )
+        message = f"Activity detected: {', '.join(sorted(raw_actions))}."
 
         # Dedup: drop if the outbound state (user + raw actions) hasn't
         # changed since the last send AND we're still within the dedup window.
