@@ -37,9 +37,9 @@
 | OpenClaw event push (#2) | WebSocket RPC `chat.send` with `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. | `server/sensing/delivery/http/handler.go` |
 | Camera processing (#3) | On-device OpenCV in LeLamp Python. Frame diff for motion, Haar cascade for face detection, mean brightness for light level. Auto-snapshot (full-resolution JPEG q85) on significant events → forwarded to OpenClaw with vision. | `lelamp/service/sensing/sensing_service.py` |
 | AI Vision | Enabled (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing events with images sent via `SendChatMessageWithImage` → OpenClaw LLM can see camera snapshots. | `lumi/internal/openclaw/service.go` |
-| Face detection vs recognition | Face **detection** (is someone there?) = P1, done via Haar cascade. Face **recognition** (who is it?) = P2, needs face embedding enrollment flow. **Privacy concern:** without recognition, anyone can walk up to Lumi and ask it to read emails, calendar, personal info. Recognition gates sensitive actions to known users only. | `sensing_service.py`, `product-vision.md` UC-11 |
-| Voice/speaker identification | P2. Distinguish owner voice from others. Same privacy concern as face recognition — prevents strangers from accessing personal data via voice. | — |
-| Enrolled gating strategy | **Must decide before shipping.** Options: (1) Face recognition (local, dlib/OpenCV DNN, ~200ms on Pi4) — enroll during setup, gate sensitive skills to recognized faces. (2) Voice embedding (local, resemblyzer/speechbrain) — heavier on Pi4. (3) Proximity/wake word PIN — fallback if no camera. (4) Combination. **Recommendation:** face recognition as primary gate, enrolled during setup wizard. Unrecognized faces get limited mode (lamp control only, no personal data). | — |
+| Face detection vs recognition | **Both done.** Face detection (P1) via Haar cascade. Face **recognition** (P2) via InsightFace embeddings — `facerecognizer.py` classifies owners vs strangers, fires `presence.enter` with name or `stranger_N`. Enrollment via `/face/enroll` API + `face-enroll/SKILL.md`. Stranger visit tracking with persistence. | `facerecognizer.py`, `face-enroll/SKILL.md`, `sensing_service.py` |
+| Voice/speaker identification | **Done (2026-04).** LeLamp `speaker_recognizer.py` identifies speakers by voice embedding. Transcripts prefixed with `Name:` (known) or `Unknown:` (not enrolled). Self-enrollment via voice intro or Telegram voice note. Profiles stored per-user alongside face data. | `lelamp/speaker_recognizer.py`, `speaker-recognizer/SKILL.md` |
+| Enrolled gating strategy | **Done (2026-04).** Dual-gate: face recognition (InsightFace, `facerecognizer.py`) + voice recognition (`speaker_recognizer.py`). Both run on-device. Unrecognized faces/voices classified as `Unknown`/`stranger`. Per-user data gated by identity. Self-enrollment for both face (`/face/enroll`) and voice (via skill). | `lelamp/service/sensing/perceptions/facerecognizer.py`, `face-enroll/SKILL.md`, `speaker-recognizer/SKILL.md` |
 | Audio input ownership (#4) | LeLamp owns mic. Local VAD gates Deepgram connection (cost saving). Sensing loop also taps mic for ambient sound level (shared). | `lelamp/service/voice/voice_service.py` |
 | Emotion presets (#6) | 8 presets implemented: curious, happy, sad, thinking, idle, excited, shy, shock. Each maps to servo recording + LED color + eye expression. | `lelamp/server.py` EMOTION_PRESETS |
 | Display rendering (#7) | `gc9a01-python` driver + PIL/Pillow rendering. 11 eye expressions drawn with ImageDraw. Dual-mode: eyes (default) + info text. Background render loop with auto-blink. | `lelamp/service/display/` |
@@ -77,8 +77,11 @@
 - UC-10 Gesture Control
 - UC-12 Video Call Optimization
 - UC-15 Remote Control — **Note:** Telegram/Slack/Discord currently provided by OpenClaw built-in multi-channel (zero Lumi code needed). If gateway is changed, Lumi needs its own channel abstraction layer. See Unresolved decisions.
-- Face Recognition (identify enrolled person by face embedding — greet by name)
-- Voice/Speaker Identification (distinguish enrolled voice from others)
+- Face Recognition ✅ — InsightFace embeddings, owner/stranger classification, `/face/enroll` + `face-enroll/SKILL.md`
+- Voice/Speaker Recognition ✅ — LeLamp `speaker_recognizer.py`, voice embedding profiles, self-enrollment via voice intro or Telegram voice note
+- Facial Emotion Detection ✅ — dlbackend WS emotion classifier, `emotion.detected` events, `user-emotion-detection/SKILL.md`
+- Proactive Wellness ✅ — `wellbeing/SKILL.md`, event-driven from `motion.activity` sedentary labels
+- Proactive Music Suggestion ✅ — `music-suggestion/SKILL.md`, mood + sedentary triggers
 
 ### 4 Pillars — All Have Code ✅
 
@@ -89,16 +92,25 @@
 | 3. "It's actually useful" | ✅ | Scenes, scheduling (cron), voice assistant |
 | 4. "It acts on its own" | ✅ | Sensing loop (motion + sound) + presence auto on/off + ambient idle behaviors (breathing LED, color drift, servo micro-movements, TTS self-talk) |
 
-### Skills (9 total) ✅
+### Skills (18 total) ✅
 
-| Skill | Endpoints |
+| Skill | Endpoints / Description |
 |---|---|
 | led-control | `/led/solid`, `/led/paint`, `/led/off` |
 | servo-control | `/servo`, `/servo/play` |
 | camera | `/camera`, `/camera/snapshot`, `/camera/stream` |
 | audio | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
 | emotion | `/emotion` (coordinates servo + LED + display eyes) |
-| sensing | Auto — motion/sound/presence.enter/presence.leave/light.level events → OpenClaw (with vision) + presence auto-control |
+| sensing | Auto — motion/sound/presence/light events → OpenClaw (with vision) + presence auto-control |
+| sensing-track | Activity/presence timeline tracking via wellbeing JSONL |
 | scene | `/scene` (6 lighting presets) |
 | display | `/display/eyes`, `/display/info`, `/display/snapshot` |
-| scheduling | OpenClaw cron (no custom endpoints needed) |
+| voice | Voice pipeline control, TTS routing |
+| music | Reactive music playback (`/audio/play`, `/audio/stop`) |
+| music-suggestion | Proactive music suggestion (mood + sedentary triggers) |
+| mood | Mood signal fusion + decision logging (`/api/mood/log`) |
+| wellbeing | Event-driven hydration/break reminders (`/api/openclaw/wellbeing/log`) |
+| user-emotion-detection | Maps facial `emotion.detected` → mood signal |
+| face-enroll | Face enrollment via `/face/enroll` API |
+| speaker-recognizer | Voice self-enrollment, speaker identification |
+| guard | Guard mode toggle, dramatic stranger reactions, Telegram broadcast |
