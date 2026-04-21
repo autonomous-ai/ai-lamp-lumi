@@ -88,7 +88,13 @@ func (s *BLEServer) Start() error {
 	// to the processor goroutine so onConnect runs serially with onMessage.
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
 		if connected {
-			log.Println("[ble] device connected")
+			if !s.connected {
+				s.connected = true
+				log.Println("[ble] device connected")
+				if s.onConnect != nil {
+					s.onConnect(true)
+				}
+			}
 		} else {
 			log.Println("[ble] device disconnected")
 			s.rxMu.Lock()

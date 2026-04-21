@@ -30,6 +30,7 @@ import { StatusDot, SoftwareUpdateButtons } from "./components";
 import { OverviewSection } from "./OverviewSection";
 import { SystemSection } from "./SystemSection";
 import { FlowSection } from "./FlowSection";
+import { SensingSection } from "./SensingSection";
 import { CameraSection } from "./CameraSection";
 import { ServoSection } from "./ServoSection";
 import { AnalyticsSection } from "./AnalyticsSection";
@@ -402,6 +403,7 @@ export default function Monitor() {
           )}
           {section === "flow"      && <FlowSection events={events} onClearEvents={clearFlowEvents} />}
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
+          {section === "sensing"   && <SensingSection />}
           {section === "servo"     && <ServoSection />}
           {section === "face-owners" && <FaceOwnersSection />}
           {section === "analytics" && <AnalyticsSection />}

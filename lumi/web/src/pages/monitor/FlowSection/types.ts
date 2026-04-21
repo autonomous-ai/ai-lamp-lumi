@@ -33,9 +33,10 @@ export interface Turn {
   sessionBreak?: boolean;
   endTime?: string;
   type: string;
-  path: "local" | "agent" | "dropped" | "unknown";
+  path: "local" | "agent" | "dropped" | "queued" | "unknown";
   status: "active" | "done" | "error";
   events: DisplayEvent[];
+  queuedForMs?: number;
 }
 
 // Runtime detail lines
@@ -219,7 +220,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", voice_command: "🎙", sound: "🔊",
-  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡",
+  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊",
   "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   web_chat: "🖥", telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", schedule: "⏰",

@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Callable, Optional, override
 
 import cv2
-import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
 from websockets import ConnectionClosedError
 from websockets.sync.client import ClientConnection, connect
+
+import lelamp.config as config
 
 from .base import Perception
 
@@ -21,7 +22,8 @@ logger.setLevel(logging.DEBUG)
 RESOURCES_DIR = Path(__file__).parent / "resources"
 
 # Map raw Kinetics action labels to high-level activity groups.
-# Lumi receives only the group name, not the raw label.
+# Lumi receives the raw labels — the agent infers the group. The mapping here
+# is kept only to filter out emotional actions (handled by a separate channel).
 ACTIVITY_GROUP: dict[str, str] = {
     # drink — reset hydration timer
     "drinking": "drink",
@@ -85,7 +87,7 @@ class RemoteMotionChecker:
         base_url: str,
         api_key: str,
         whitelist: list[str] | None = None,
-        threshold: float = config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+        threshold: float = config.MOTION_CONFIDENCE_THRESHOLD,
     ):
         self._base_url: str = base_url
         self._api_key: str = api_key
@@ -96,6 +98,8 @@ class RemoteMotionChecker:
         self._prepare_session()
 
         self._last_action: str | None = None
+        self._last_heartbeat_ts: float = 0.0
+        self._heartbeat_interval: float = config.DL_HEARTBEAT_INTERVAL_S
 
     def _prepare_session(self):
         if self._ws_session is not None:
@@ -110,38 +114,76 @@ class RemoteMotionChecker:
                 json.dumps(
                     {
                         "type": "config",
+                        "task": "action",
                         "whitelist": self._whitelist,
                         "threshold": self._threshold,
                     }
                 )
             )
+            # Consume the config_updated response so it doesn't pollute frame responses
+            self._ws_session.recv()
         except Exception:
             logger.exception("Failed to connect to remote motion recognition backend")
+            self._ws_session = None
 
     def _img2b64(self, frame: npt.NDArray[np.uint8]):
         _, buf = cv2.imencode(".jpg", frame)
         return base64.b64encode(buf.tobytes()).decode()
 
+    def _send_heartbeat(self) -> None:
+        """Send a heartbeat if the interval has elapsed."""
+        now = time.time()
+        if now - self._last_heartbeat_ts < self._heartbeat_interval:
+            return
+        if self._ws_session is None:
+            return
+        try:
+            self._ws_session.send(json.dumps({"type": "heartbeat", "task": "action"}))
+            resp = json.loads(self._ws_session.recv())
+            if resp.get("status") == "ok":
+                self._last_heartbeat_ts = now
+                logger.debug("[motion] heartbeat ok")
+            else:
+                logger.warning("[motion] heartbeat unexpected response: %s", resp)
+        except ConnectionClosedError:
+            logger.warning("[motion] heartbeat failed — connection lost")
+            self._ws_session = None
+
     def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
-        """Send a frame for X3D inference and return all detected action names.
+        """Send a frame for action recognition inference and return detected action names.
 
         Returns every detected whitelist action (sorted by confidence desc),
         or None if the connection is unavailable. Returns [] if nothing
         passes the backend threshold for this frame.
         """
 
+        # Auto-reconnect if session was lost
+        if self._ws_session is None:
+            self._prepare_session()
+            if self._ws_session is not None:
+                logger.info(
+                    "[%s] reconnected to %s", self.__class__.__name__, self._base_url
+                )
+
+        self._send_heartbeat()
+
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
-                    json.dumps({"type": "frame", "frame_b64": self._img2b64(frame)})
+                    json.dumps({"type": "frame", "task": "action", "frame_b64": self._img2b64(frame)})
                 )
                 resp = json.loads(self._ws_session.recv())
                 detected_classes = sorted(
-                    resp.get("detected_classes", []), key=lambda x: x[1], reverse=True
+                    resp.get("detected_classes", []),
+                    key=lambda x: x["conf"],
+                    reverse=True,
                 )
-                return [name for name, _score in detected_classes]
+                return [d["class_name"] for d in detected_classes]
             except ConnectionClosedError:
-                logger.warning("[%s] connection closed", self.__class__.__name__)
+                logger.warning(
+                    "[%s] connection lost, will retry on next tick",
+                    self.__class__.__name__,
+                )
                 self._ws_session = None
 
         return None
@@ -152,7 +194,7 @@ class RemoteMotionChecker:
 
 
 class MotionPerception(Perception):
-    """Detects motion via X3D video action recognition (400 Kinect action classes).
+    """Detects motion via remote DL backend action recognition.
 
     Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
     sending all accumulated snapshots together in one event.
@@ -165,7 +207,7 @@ class MotionPerception(Perception):
         capture_stable_frame: Callable,
         presence_service,
         face_recognizer=None,
-        base_url: str = config.DL_BACKEND_URL,
+        base_url: str = config.DL_MOTION_BACKEND_URL,
         api_key: str = config.DL_API_KEY,
     ):
         super().__init__(send_event)
@@ -179,7 +221,7 @@ class MotionPerception(Perception):
             base_url=base_url,
             api_key=api_key,
             whitelist=whitelist,
-            threshold=config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+            threshold=config.MOTION_CONFIDENCE_THRESHOLD,
         )
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S
@@ -189,11 +231,14 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
         # Dedup state for outbound motion.activity events.
-        # Key = (current_user, frozenset(activity_groups), tuple(sorted(emotional_cues))).
+        # Key = (current_user, frozenset(raw_actions)).
         # Same key within MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User
         # change flips the key immediately; different strangers collapse to
-        # "unknown" so they don't break dedup on their own.
-        self._last_sent_key: tuple[str, frozenset[str], tuple[str, ...]] | None = None
+        # "unknown" so they don't break dedup on their own. Keying on raw
+        # actions is looser than the old group-level key — transitioning from
+        # "writing" to "drawing" now passes through as a new event so the agent
+        # gets the richer context.
+        self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
 
@@ -216,7 +261,7 @@ class MotionPerception(Perception):
         try:
             actions = self._checker.update(frame)
         except Exception:
-            logger.exception("[motion] X3D inference error")
+            logger.exception("[motion] inference error")
             return
 
         if actions:
@@ -243,15 +288,13 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        # Log raw X3D detections in this flush window — useful for tuning
+        # Log raw detections in this flush window — useful for tuning
         # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
         # particular flush did/didn't produce an event.
         if actions:
-            logger.info("[motion] raw X3D actions in window: %s", actions)
+            logger.info("[motion] raw actions in window: %s", actions)
 
-        activity_groups: set[str] = set()
-        emotional_cues: list[str] = []
-        seen_emotions: set[str] = set()
+        raw_actions: set[str] = set()
 
         for a in reversed(actions):
             group = ACTIVITY_GROUP.get(a)
@@ -259,13 +302,15 @@ class MotionPerception(Perception):
                 logger.warning("[motion] unmapped action '%s', skipping", a)
                 continue
             if group == "emotional":
-                if a not in seen_emotions:
-                    emotional_cues.append(a)
-                    seen_emotions.add(a)
-            else:
-                activity_groups.add(group)
+                # Emotional actions (laughing/crying/yawning/singing) are
+                # intentionally NOT emitted via motion.activity. A dedicated
+                # motion.emotional event will be added later to carry them;
+                # until then emotional detections are silently ignored
+                # here so motion.activity stays purely about physical actions.
+                continue
+            raw_actions.add(a)
 
-        if not activity_groups and not emotional_cues:
+        if not raw_actions:
             return
 
         from ..presence_service import PresenceState
@@ -277,20 +322,13 @@ class MotionPerception(Perception):
             )
             return
 
-        parts: list[str] = []
-        if activity_groups:
-            parts.append(f"Activity detected: {', '.join(sorted(activity_groups))}.")
-        if emotional_cues:
-            parts.append(f"Emotional cue: {', '.join(emotional_cues)}.")
-        else:
-            parts.append("If nothing noteworthy, reply NO_REPLY.")
+        message = f"Activity detected: {', '.join(sorted(raw_actions))}."
 
-        message = " ".join(parts)
-
-        # Dedup: drop if the outbound state (user + activity groups + emotional
-        # cues) hasn't changed since the last send AND we're still within the
-        # dedup window. A user change, an activity group change, or a different
-        # emotional cue all flip the key — those always pass through.
+        # Dedup: drop if the outbound state (user + raw actions) hasn't
+        # changed since the last send AND we're still within the dedup window.
+        # A user change or an action set change flips the key — those always
+        # pass through. After 5 min the same key passes through anyway so
+        # Lumi agent wakes up and reruns the threshold check.
         current_user = ""
         if self._face_recognizer is not None:
             try:
@@ -299,8 +337,7 @@ class MotionPerception(Perception):
                 logger.exception("[motion] face_recognizer.current_user() failed")
         key = (
             current_user,
-            frozenset(activity_groups),
-            tuple(sorted(emotional_cues)),
+            frozenset(raw_actions),
         )
         if (
             self._last_sent_key == key
@@ -319,15 +356,30 @@ class MotionPerception(Perception):
 
         self._send_event("motion.activity", message)
 
+    def reset_dedup(self) -> None:
+        """Clear the outbound dedup state so the next motion.activity will
+        send regardless of whether the state (user + raw actions) matches
+        the previous send. Called by SensingService on presence.enter so the
+        agent sees a fresh activity event right after a new session starts,
+        instead of waiting out the 5-minute wake-up window.
+        """
+        if self._last_sent_key is not None:
+            logger.info("[motion] dedup reset (new presence session)")
+            self._last_sent_key = None
+            self._last_sent_ts = 0.0
+
     def to_dict(self) -> dict:
         seconds_since = (
             int(time.time() - self._last_motion_time)
             if self._last_motion_time is not None
             else None
         )
+        last_key = self._last_sent_key
         return {
             "type": "motion",
-            "last_action": self._checker.last_action,
+            "connected": self._checker._ws_session is not None,
+            "last_raw_actions": sorted(last_key[1]) if last_key else [],
+            "last_user": last_key[0] if last_key else None,
             "buffered_snapshots": len(self._snapshot_buffer),
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,

@@ -39,10 +39,17 @@ Key fields:
 
 ## Query recipes
 
+### Timezone — always set before date arithmetic
+
+```bash
+export TZ=$(cat /etc/timezone)
+```
+
 ### All sensing events in a time range
 
 ```bash
-DATE="2026-04-03"
+export TZ=$(cat /etc/timezone)
+DATE="$(date +%Y-%m-%d)"
 FROM_TS=$(date -d "$DATE 22:00:00" +%s)
 TO_TS=$(date -d "$DATE 23:59:59" +%s)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')' \
@@ -51,16 +58,20 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' 
 
 ### Events of a specific type in the last N hours
 
+Use `"motion"` for raw motion, `"motion.activity"` for activity analysis (raw Kinetics labels like `using computer`, `drinking`, `eating burger` — agent maps to drink/break/sedentary buckets). Most queries want both:
+
 ```bash
+export TZ=$(cat /etc/timezone)
 SINCE=$(date -d "1 hour ago" +%s)
 TODAY=$(date +%Y-%m-%d)
-jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"' and .data.type=="motion")' \
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"' and (.data.type=="motion" or .data.type=="motion.activity"))' \
   "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Any activity in the last N minutes
 
 ```bash
+export TZ=$(cat /etc/timezone)
 SINCE=$(date -d "30 minutes ago" +%s)
 TODAY=$(date +%Y-%m-%d)
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"')' \
@@ -69,16 +80,25 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$SINCE"')' 
 
 ### Presence events only (who came by)
 
+Names in messages are lowercase (`friend (gray)`). Use `test()` with `"i"` flag for case-insensitive search:
+
 ```bash
 TODAY=$(date +%Y-%m-%d)
+# All presence events
 jq -c 'select(.node=="sensing_input" and .kind=="enter" and (.data.type=="presence.enter" or .data.type=="presence.leave"))' \
+  "/root/local/flow_events_${TODAY}.jsonl"
+# Search for a specific person (case-insensitive)
+jq -c 'select(.node=="sensing_input" and .kind=="enter" and .data.type=="presence.enter" and (.data.message | test("gray";"i")))' \
   "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
 ### Events spanning multiple days
 
 ```bash
-cat /root/local/flow_events_2026-04-02.jsonl /root/local/flow_events_2026-04-03.jsonl \
+export TZ=$(cat /etc/timezone)
+YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+TODAY=$(date +%Y-%m-%d)
+cat "/root/local/flow_events_${YESTERDAY}.jsonl" "/root/local/flow_events_${TODAY}.jsonl" \
   | jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' and .ts <= '"$TO_TS"')'
 ```
 
@@ -90,7 +110,7 @@ jq -c 'select(.node=="sensing_input" and .kind=="exit" and .data.error != null)'
   "/root/local/flow_events_${TODAY}.jsonl"
 ```
 
-### List snapshots for a time range
+### List snapshots (72h TTL — older files may be purged)
 
 ```bash
 ls -lt /var/log/lumi/snapshots/ | head -20
@@ -144,7 +164,7 @@ Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).
 - **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete Unix timestamps using `date -d` before filtering.
 - **Span multiple days** — for questions covering more than today, `cat` multiple JSONL files together.
 - **Parse the message field** for who/what details — `friend (gray)`, `friend (chloe)`, `stranger (stranger_1)`, `Large movement detected`, etc.
-- **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message and mention it. The snapshot is viewable at `/var/log/lumi/snapshots/`.
+- **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message. Snapshots have 72h TTL — check the file exists before referencing (`test -f <path>`). Viewable at `/var/log/lumi/snapshots/`.
 
 ---
 
@@ -157,7 +177,7 @@ Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).
 ---
 
 **Input:** "Is there any motion in the last hour?"
-**Action:** Query `data.type=="motion"` with `SINCE=$(date -d "1 hour ago" +%s)`.
+**Action:** Query `data.type` in `["motion", "motion.activity"]` with `SINCE=$(date -d "1 hour ago" +%s)`.
 **Response:** "Yes, I detected large movement 3 times — at 9:29, 9:59, and 10:12." or "No motion in the last hour."
 
 ---
