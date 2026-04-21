@@ -316,6 +316,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		msg += "\n[MANDATORY: Follow Mood skill.]"
 	}
 
+	// Strip [snapshot: ...] markers from the outgoing LLM message. The full text
+	// (with snapshot paths) remains in the sensing_input JSONL via startPayload so
+	// the Monitor UI can still render thumbnails — the agent just doesn't waste
+	// tokens on the path.
+	msg = reSnapshotPath.ReplaceAllString(msg, "")
+	msg = strings.ReplaceAll(msg, "\n\n\n", "\n\n")
+	msg = strings.TrimSpace(msg)
+
 	var err error
 	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
 	if req.Image != "" && req.Type != "motion.activity" {
@@ -465,14 +473,21 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// Prefer persistent dir (survives reboot), fall back to tmp buffer.
+	// Prefer persistent dir (survives reboot), fall back to tmp buffers.
+	// lumi-emotion-snapshots holds FER snapshots; lumi-sensing-snapshots holds presence/motion.
 	persistPath := filepath.Join("/var/log/lumi/snapshots", name)
 	if _, err := os.Stat(persistPath); err == nil {
 		c.File(persistPath)
 		return
 	}
-	tmpPath := filepath.Join("/tmp/lumi-sensing-snapshots", name)
-	c.File(tmpPath)
+	for _, dir := range []string{"/tmp/lumi-sensing-snapshots", "/tmp/lumi-emotion-snapshots"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+	}
+	c.Status(http.StatusNotFound)
 }
 
 // MoodLogRequest is the payload for logging a user mood event.
