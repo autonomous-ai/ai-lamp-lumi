@@ -11,8 +11,8 @@ description: Event-driven hydration and break reminders. Reads the per-user acti
 
 Wellbeing is **event-driven**, not cron-driven. There are no wellbeing cron jobs. On every `motion.activity` event, you:
 
-1. Read the `Activity detected:` line — it now lists **raw Kinetics labels** (e.g. `using computer, drinking, eating burger`), not group names. Map each raw label to its bucket (`drink` / `break` / `sedentary`) using the table in "Raw label → bucket" below.
-2. Log each distinct bucket present once (at most one `drink`, one `break`, one `sedentary` per event). LeLamp already deduped upstream, so you just POST and move on.
+1. Read the `Activity detected:` line. LeLamp already categorises — it sends the bucket name for physical actions (`drink`, `break`) and the raw Kinetics label for sedentary activities (`using computer`, `writing`, `reading book`, `texting`, `reading newspaper`, `drawing`, `playing controller`). Example: `Activity detected: drink, using computer.`
+2. POST one wellbeing row per label, verbatim — the value on the line IS the `action` field. No bucket mapping in your head.
 3. Read the recent history.
 4. Figure out silently how long it's been since the last reset point for hydration and for break (never guess from memory).
 5. If either delta is over its threshold, speak a short caring nudge. Otherwise stay quiet.
@@ -40,33 +40,33 @@ BREAK_THRESHOLD_MIN     = 7
 
 `HYDRATION_THRESHOLD_MIN` and `BREAK_THRESHOLD_MIN` are intentionally different in test so you can tell which path fired. There is no separate nudge cooldown — nudging itself counts as a "reset", so after Lumi reminds, the delta goes back to 0 and the next nudge of the same kind only fires after another full threshold window.
 
-## Raw label → bucket
+## What's in `Activity detected:`
 
-LeLamp sends raw Kinetics action labels so you have richer context about what the user is actually doing. Collapse each label to one of three buckets before logging:
+LeLamp does the categorisation. The labels on the `Activity detected:` line are already the final `action` values — log them verbatim.
 
-| Bucket | Raw labels |
+| Category | Labels emitted on `Activity detected:` |
 |---|---|
-| `drink` | `drinking`, `drinking beer`, `drinking shots`, `tasting beer`, `opening bottle`, `making tea` |
-| `break` | `tasting food`, `stretching arm`, `stretching leg`, `dining`, `eating burger`, `eating cake`, `eating carrots`, `eating chips`, `eating doughnuts`, `eating hotdog`, `eating ice cream`, `eating spaghetti`, `eating watermelon`, `applauding`, `clapping`, `celebrating`, `sneezing`, `sniffing`, `hugging`, `kissing`, `headbanging`, `sticking tongue out` |
-| `sedentary` | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` |
+| Drink (bucket, collapsed) | `drink` |
+| Break (bucket, collapsed) | `break` |
+| Sedentary (raw Kinetics label) | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` |
 
 Emotional actions (`laughing`, `crying`, `yawning`, `singing`) are filtered upstream and never appear on `motion.activity`.
 
 ## On `motion.activity`
 
-Parse the `Activity detected:` line into raw labels (comma-separated), map each to its bucket, and deduplicate buckets in your head. For every distinct bucket present:
+Split the `Activity detected:` line on comma, strip whitespace, and for every label present:
 
 ### Step 1 — Log the activity
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -H 'Content-Type: application/json' \
-  -d '{"action":"<bucket>","notes":"<raw labels observed>","user":"<current_user>"}'
+  -d '{"action":"<label verbatim>","notes":"","user":"<current_user>"}'
 ```
 
-One POST per bucket (not per raw label). Example: message says `Activity detected: using computer, writing, drinking.` → POST `action=sedentary, notes="using computer, writing"` AND POST `action=drink, notes="drinking"`. LeLamp already deduped the incoming `motion.activity` (same user + same raw-action set within 5 min won't reach you), so by the time you see the event it's "new enough to log" — just POST and move on.
+One POST per label. Example: message says `Activity detected: drink, using computer, writing.` → POST `action=drink`, POST `action=using computer`, POST `action=writing`. LeLamp already deduped the incoming `motion.activity` (same user + same label set within 5 min won't reach you), so by the time you see the event it's "new enough to log" — just POST and move on.
 
-> `motion.activity` no longer carries emotional cues — emotional actions will arrive via a separate `motion.emotional` event in a future version. This skill handles only the physical buckets (`drink`, `break`, `sedentary`).
+> `motion.activity` no longer carries emotional cues — emotional actions will arrive via a separate `motion.emotional` event in a future version. This skill handles the physical labels listed above.
 
 ### Step 2 — Read recent history
 
@@ -86,6 +86,8 @@ Why all three count as resets:
 - A `drink` / `break` entry means the user actually acted.
 - An `enter` entry means this is a fresh session (just arrived — zero the clock).
 - A `nudge_*` entry means Lumi already reminded them; don't re-nudge until another full threshold window passes.
+
+**Sedentary raw-label entries** (`using computer`, `writing`, `reading book`, `texting`, `reading newspaper`, `drawing`, `playing controller`) are **NOT** reset points. They're logged for timeline visibility and to inform nudge phrasing, but don't advance the hydration or break clock.
 
 If none of those entries exist yet for today, treat the delta as 0 — there's nothing to nudge about.
 
@@ -169,7 +171,8 @@ There are NO crons to cancel. Wellbeing is stateless at the timer level — the 
 
 | Action | Written by | Meaning |
 |---|---|---|
-| `drink`, `break`, `sedentary`, `emotional` | Agent (bucket derived from raw Kinetics labels on the motion.activity line) | User activity transition |
+| `drink`, `break` | Agent (verbatim from motion.activity — LeLamp already collapsed to bucket) | User actually drank / took a break. **Reset point** for the corresponding timer. |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | Agent (verbatim from motion.activity — LeLamp sends sedentary as raw labels) | User is doing a sedentary activity. Logged for timeline + nudge phrasing. **Not a reset point.** |
 | `enter`, `leave` | Backend (on presence.* events) | Session boundary; backend collapses consecutive same-action (so stranger → stranger stays as one `enter`) |
 | `nudge_hydration`, `nudge_break` | Agent (after speaking a nudge) | Records when Lumi actually reminded the user — serves as the reset point for the next threshold window AND gives timeline visibility |
 

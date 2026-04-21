@@ -230,13 +230,15 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
         # Dedup state for outbound motion.activity events.
-        # Key = (current_user, frozenset(raw_actions)).
-        # Same key within MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User
-        # change flips the key immediately; different strangers collapse to
-        # "unknown" so they don't break dedup on their own. Keying on raw
-        # actions is looser than the old group-level key — transitioning from
-        # "writing" to "drawing" now passes through as a new event so the agent
-        # gets the richer context.
+        # Key = (current_user, frozenset(labels)) where `labels` matches what
+        # actually goes into the message: bucket names for drink/break, raw
+        # Kinetics labels for sedentary. So `eating burger → eating cake` is
+        # the same key (both collapse to "break") and is dropped; `writing →
+        # drawing` flips the key (sedentary stays raw) and passes through so
+        # the agent sees the new activity. Same key within MOTION_DEDUP_WINDOW_S
+        # = drop (saves Lumi tokens). User change flips the key immediately;
+        # different strangers collapse to "unknown" so they don't break dedup
+        # on their own.
         self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
@@ -293,7 +295,13 @@ class MotionPerception(Perception):
         if actions:
             logger.info("[motion] raw actions in window: %s", actions)
 
-        raw_actions: set[str] = set()
+        # Hybrid output: drink/break collapse to bucket name, sedentary keeps
+        # the raw Kinetics label. Bucket names are enough for hydration/break
+        # timer resets — the agent doesn't need the specific food or drink.
+        # Sedentary keeps the raw label so the agent can ground nudge phrasing
+        # and music-genre choice in the concrete activity (writing / reading
+        # book / playing controller / …).
+        labels: set[str] = set()
 
         for a in reversed(actions):
             group = ACTIVITY_GROUP.get(a)
@@ -307,9 +315,12 @@ class MotionPerception(Perception):
                 # until then emotional detections are silently ignored
                 # here so motion.activity stays purely about physical actions.
                 continue
-            raw_actions.add(a)
+            if group == "sedentary":
+                labels.add(a)
+            else:
+                labels.add(group)
 
-        if not raw_actions:
+        if not labels:
             return
 
         from ..presence_service import PresenceState
@@ -321,11 +332,11 @@ class MotionPerception(Perception):
             )
             return
 
-        message = f"Activity detected: {', '.join(sorted(raw_actions))}."
+        message = f"Activity detected: {', '.join(sorted(labels))}."
 
-        # Dedup: drop if the outbound state (user + raw actions) hasn't
+        # Dedup: drop if the outbound state (user + outbound labels) hasn't
         # changed since the last send AND we're still within the dedup window.
-        # A user change or an action set change flips the key — those always
+        # A user change or a label-set change flips the key — those always
         # pass through. After 5 min the same key passes through anyway so
         # Lumi agent wakes up and reruns the threshold check.
         current_user = ""
@@ -336,7 +347,7 @@ class MotionPerception(Perception):
                 logger.exception("[motion] face_recognizer.current_user() failed")
         key = (
             current_user,
-            frozenset(raw_actions),
+            frozenset(labels),
         )
         if (
             self._last_sent_key == key

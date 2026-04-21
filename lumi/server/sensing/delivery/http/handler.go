@@ -540,12 +540,18 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 
 // WellbeingLogRequest is the payload for logging a wellbeing activity.
 // Accepted actions:
-//   - User activity transitions (agent writes): drink, break, sedentary, emotional
+//   - Bucket names (agent writes from motion.activity hybrid output): drink, break
+//   - Raw Kinetics sedentary labels (agent writes verbatim from motion.activity):
+//     using computer, writing, texting, reading book, reading newspaper, drawing,
+//     playing controller
 //   - Nudge records (agent writes after speaking): nudge_hydration, nudge_break
-//   - Presence markers (backend writes internally): enter, leave — accepted on the
-//     API too so the validator doesn't reject them if something posts them.
+//   - Presence markers (backend writes internally): enter, leave
+//
+// The enum is intentionally permissive for `action` — validator only requires a
+// non-empty, short string. The log is append-only; semantic checks (what counts
+// as a reset point for hydration/break) live in the Wellbeing SKILL.
 type WellbeingLogRequest struct {
-	Action string `json:"action" validate:"required,oneof=drink break sedentary emotional nudge_hydration nudge_break enter leave"`
+	Action string `json:"action" validate:"required,max=64"`
 	Notes  string `json:"notes"`
 	User   string `json:"user"`
 }
