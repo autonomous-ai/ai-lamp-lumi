@@ -38,6 +38,12 @@ curl -s -X POST http://127.0.0.1:5001/servo/aim -H "Content-Type: application/js
 5. Respond conversationally if appropriate — greet, react, or weave into the current conversation.
 6. For light level changes, consider adjusting lamp brightness via the LED skill.
 
+## Hard Rules
+
+`presence.*`, `motion.*`, `sound`, `light.*` → reply only (HW + servo + ≤1 sentence or `NO_REPLY`). **No tool calls. No fabricating emotion from older turns.**
+
+Only `emotion.detected` may chain into mood/music — via `user-emotion-detection/SKILL.md`.
+
 ## Examples
 
 **Input:** `[sensing:presence.enter]` with image — friend detected

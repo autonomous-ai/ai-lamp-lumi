@@ -5,6 +5,12 @@ description: Maps a detected user facial emotion (from emotion.detected events) 
 
 # User Emotion Detection
 
+## Strict Trigger
+
+Runs **only** when this turn's input has `[sensing:emotion.detected] Emotion detected: <Name>`.
+
+For any other event (`presence.*`, `motion.*`, `sound`, `light.*`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `emotion.detected` in THIS turn.
+
 > **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST fire a `POST /api/mood/log` tool call for this event. Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no tool_call fires this turn, the skill failed. Every `emotion.detected` event = at least one `POST /api/mood/log` call. No exceptions, no skips, no "already logged recently" reasoning.
 
 > **This skill is silent.** It only logs mood data — no spoken reply needed. All steps stay in `thinking`. If you want to speak, follow normal sensing reply rules. NEVER narrate mood logging, mapping, or workflow steps in the reply.
