@@ -24,11 +24,6 @@ The system will: (1) fire the emotion + servo hardware, (2) speak "Welcome back!
 
 **`[HW:/broadcast:{}]`** — forces TTS and fans the text out to **all** Telegram chats. Used by guard mode alerts.
 
-**Fallback (old binary without HW support):** If `[HW:...]` markers appear in the spoken output, the system does not support them yet. Fall back to explicit `curl` tool calls instead:
-```bash
-curl -s -X POST http://127.0.0.1:5001/emotion -H "Content-Type: application/json" -d '{"emotion":"greeting","intensity":0.9}'
-curl -s -X POST http://127.0.0.1:5001/servo/aim -H "Content-Type: application/json" -d '{"direction":"user"}'
-```
 
 ## Workflow
 1. Receive a `[sensing:<type>]` message automatically (no API call needed).
