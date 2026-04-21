@@ -39,7 +39,6 @@ export function OverviewSection({
   speakerMuted,
   ledColor,
   sceneInfo,
-  sensingState,
   onSceneActivate,
 }: {
   sys: SystemInfo | null;
@@ -55,7 +54,6 @@ export function OverviewSection({
   speakerMuted: boolean;
   ledColor: LEDColor | null;
   sceneInfo: SceneInfo | null;
-  sensingState: any;
   onSceneActivate: (scene: string) => void;
 }) {
   const emotion = oc?.emotion ?? "";
@@ -357,11 +355,6 @@ export function OverviewSection({
               <HWBadge label="Camera" ok={hw.camera} />
               <HWBadge label="Audio" ok={hw.audio} />
               <HWBadge label="Sensing" ok={hw.sensing} />
-              {sensingState?.perceptions?.map((p: any) =>
-                p.type === "motion" || p.type === "emotion" ? (
-                  <HWBadge key={p.type} label={`DL:${p.type}`} ok={p.connected} />
-                ) : null
-              )}
               <HWBadge label="Voice" ok={hw.voice} />
               <HWBadge label="TTS" ok={hw.tts} />
               <HWBadge label="Display" ok={hw.display} />
