@@ -15,11 +15,11 @@ from core.emotionanalysis.emotion import EmotionModel
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
-VGG_MODEL_PATH = Path.cwd() / "local" / "vgg-fer.onnx"
+EMONET_MODEL_PATH = Path.cwd() / "local" / "emonet_8.onnx"
 
 pytestmark = pytest.mark.skipif(
-    not VGG_MODEL_PATH.exists(),
-    reason=f"Local emotion model not found at {VGG_MODEL_PATH}",
+    not EMONET_MODEL_PATH.exists(),
+    reason=f"Local emotion model not found at {EMONET_MODEL_PATH}",
 )
 
 
@@ -52,7 +52,7 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 @pytest.fixture(scope="session")
 def model():
     """Load the real EmotionModel once for the entire test session."""
-    m = EmotionModel(fer_path=VGG_MODEL_PATH)
+    m = EmotionModel(fer_path=EMONET_MODEL_PATH)
     m.start()
     return m
 
@@ -112,15 +112,12 @@ class TestEmotionAnalysisWebSocket:
                 assert "face_confidence" in det
                 assert "bbox" in det
                 assert det["emotion"] in [
-                    "Angry",
-                    "Disgust",
-                    "Fear",
-                    "Happy",
-                    "Sad",
-                    "Surprise",
-                    "Neutral",
+                    "Neutral", "Happy", "Sad", "Surprise",
+                    "Fear", "Disgust", "Anger", "Contempt",
                 ]
                 assert 0.0 <= det["confidence"] <= 1.0
+                assert "valence" in det
+                assert "arousal" in det
                 assert len(det["bbox"]) == 4
 
     def test_multiple_frames(self, client):
