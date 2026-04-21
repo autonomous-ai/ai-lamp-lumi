@@ -4,13 +4,17 @@ Only these Kinect action classes are forwarded to OpenClaw as `motion.activity` 
 
 Chỉ những action classes dưới đây được forward lên OpenClaw dạng `motion.activity`. Còn lại bị filter ở LeLamp để tiết kiệm token.
 
-LeLamp sends raw Kinetics action labels directly on the `Activity detected:` line — the agent maps them to buckets (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table. The group names below are documentation-only; they describe how the agent should collapse each label, not what appears on the wire.
+LeLamp does the categorisation before sending. On the `Activity detected:` line:
+- Drink actions (listed below) collapse to the bucket name `drink`.
+- Break actions (listed below) collapse to the bucket name `break`.
+- Sedentary actions are emitted as raw Kinetics labels (no collapsing) so the agent can ground nudge phrasing + music genre in the specific activity.
+- Emotional actions are filtered out entirely — they do not appear on `motion.activity`. A dedicated `motion.emotional` event will carry them later.
 
-Emotional actions (`laughing`, `crying`, `yawning`, `singing`) are filtered out on LeLamp and never appear on `motion.activity`. A dedicated `motion.emotional` event will carry them in a future version.
-
-LeLamp gửi raw Kinetics labels trực tiếp ở dòng `Activity detected:` — agent tự map sang bucket (`drink`, `break`, `sedentary`) theo bảng "Raw label → bucket" trong Wellbeing SKILL. Tên nhóm bên dưới chỉ là doc, mô tả cách agent gom label, không phải format trên wire.
-
-Action cảm xúc (`laughing`, `crying`, `yawning`, `singing`) bị filter ở LeLamp, không bao giờ lên `motion.activity`. Sẽ có event `motion.emotional` riêng cho nhóm này trong tương lai.
+LeLamp đã categorize trước khi gửi. Trên dòng `Activity detected:`:
+- Action drink (liệt kê dưới) gộp thành bucket name `drink`.
+- Action break (liệt kê dưới) gộp thành bucket name `break`.
+- Action sedentary giữ raw Kinetics label (không gộp) để agent có context cụ thể cho nudge + music genre.
+- Action cảm xúc bị filter hoàn toàn — không xuất hiện trên `motion.activity`. Sẽ có event `motion.emotional` riêng sau.
 
 ## drink — reset hydration timer / Reset timer nhắc uống nước
 
