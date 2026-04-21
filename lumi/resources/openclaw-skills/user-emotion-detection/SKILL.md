@@ -63,5 +63,4 @@ Emotion detected: <EmotionName>.
    - Step 2 (Mood): GET recent mood history.
    - Step 3 (Mood): decide the fused mood.
    - Step 4 (Mood): POST the `kind=decision` row.
-   - Mood's "After Logging Decision — Music Suggestion" hand-off: if the decided mood is suggestion-worthy, follow the `music-suggestion` skill.
 4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Do not narrate any of the steps above in your reply.
