@@ -1,43 +1,95 @@
-# DEV — RunId Mis-attribution Between Sensing `chat.send` and Concurrent Telegram Message
+# DEV — RunId Mis-attribution: Lumi `pendingChatTrace` Single-Slot Overwrite
 
-Playbook for diagnosing the case where Lumi's `chat.send` idempotency key (e.g. `lumi-chat-26-1776759969005`) ends up wrapping an agent turn that actually processed a *different* user message — typically a Telegram reply that arrived ~1–2 s later on the same session lane.
+Playbook for the bug where Lumi's `chat.send` idempotency key (e.g. `lumi-chat-201-1776763410829`) ends up wrapping an agent turn that actually processed a *different* input — a message Lumi sent earlier (`chat-200`, `chat-198`, …) or a Telegram inbound that slipped in on the same session lane.
 
-First seen: 2026-04-21 on OpenClaw gateway `2026.4.9`, session `agent:main:main`, runId `lumi-chat-26-1776759969005`.
+First detected: 2026-04-21 on OpenClaw gateway `2026.4.9`, session `agent:main:main`.
+
+Fixed in Lumi: see §5. Keep this doc as reference when new `runId` drift shows up.
 
 ---
 
 ## 1. Symptom
 
-- Flow monitor / TTS pipeline shows a response that does not match the input of the run it is attributed to.
-- Example: Lumi sent `[sensing:presence.enter] stranger_75`; Lumi attributed the resulting TTS text to that run but the actual text was a ~400-token explanation answering a Telegram question from Leo about `[node-host]`.
-- The real sensing message is processed in a *later* turn with a UUID runId (not `lumi-chat-*`).
-- Possible downstream effects:
-  - Wrong text spoken on the lamp speaker (TTS suppressed for channel run is the only reason it didn't reach the speaker in this specific case).
-  - Double-reaction: sensing event gets responded to twice (once via mis-attributed turn — content wrong; once via the actual later UUID turn).
-  - `agent_thinking` + `tts_send` events on the flow monitor appear semantically disconnected from the `chat_send` / `chat_input` of the same run.
+Flow monitor / TTS pipeline attributes a turn's output to the wrong runId. The `tts_send` / `agent_thinking` events under a `trace_id` are semantically disconnected from the `chat_send.message` that shares the same `trace_id`.
+
+Evidence cases on 2026-04-21 (session `agent:main:main`):
+
+| Lumi `chat.send` (intended) | Content actually delivered under that runId | Shift |
+|---|---|---|
+| `lumi-chat-26-1776759969005` · sensing `presence.enter stranger_75` | ~400-token answer to Leo's Telegram question *"why did it add node-host?"* | +1 (Telegram inbound interleaved) |
+| `lumi-chat-201-1776763410829` · sensing `emotion.detected Angry` | ambient-speech reply *"Back on that — yeah. [listening]"* (belongs to `chat-200`) | +1 (pure Lumi burst) |
+| `lumi-chat-203-1776763417607` · ambient `lily: right` | mood decision CoT about the Angry event (belongs to `chat-201`) | +2 |
+| `lumi-chat-339-1776764806327` · sensing `sound occurrence 1` | *"58k/200k (29%) — 7 compactions."* (answer to Telegram question *"size context đang bao nhiêu"* on `chat-337`) | +2 |
+
+Downstream effects:
+
+- Wrong text spoken on the lamp speaker (in channel-origin turns TTS is suppressed; other paths do reach the speaker).
+- Double-reaction: the sensing event eventually gets processed in a later turn, re-triggering skills that were already partially executed.
+- Monitor UI groups thinking + response under a runId whose `chat_send` shows an unrelated message — misleading during incident triage.
 
 ---
 
-## 2. Root cause (hypothesis, verified from session JSONL)
+## 2. Root cause — Lumi side, not OpenClaw
 
-**Race condition inside OpenClaw gateway's per-session queue (`lane=session:agent:main:main`).**
+Lumi's SSE handler maps an OpenClaw lifecycle UUID back to its device runId by consuming a "pending chat trace" that was stashed at `chat.send` time. Before the fix, the stash was a **single slot**:
 
-1. Lumi sends `chat.send` (sensing) → OpenClaw ACKs and enqueues it in the session lane.
-2. Before the agent starts the turn, a Telegram inbound arrives for the same session (~1–2 s later).
-3. OpenClaw starts an agent turn for the Telegram message but binds the `lifecycle` UUID to the **pending `idempotencyKey` of Lumi's earlier `chat.send`** (`lumi-chat-*`).
-4. The turn's output (matching the Telegram question) streams back under Lumi's runId.
-5. Lumi maps the UUID → `lumi-chat-*` via the lifecycle mapper and drops the assistant text into the sensing run's flow/TTS pipeline.
-6. The sensing message is processed in the *next* turn and gets a fresh UUID runId (e.g. `9bb9339e-…`), which Lumi sees as an OpenClaw-initiated run.
+`lumi/internal/openclaw/service.go` (pre-fix):
 
-This is a gateway-side bug: the `idempotencyKey` of a pending send should only ever label the turn that actually consumed *that* message. Correlation logic must not reuse an unresolved `idempotencyKey` for an unrelated queued input (e.g. Telegram inbound).
+```go
+pendingChatMu      sync.Mutex
+pendingChatTrace   string       // ← one slot, overwritten each chat.send
+pendingChatTraceAt time.Time
 
-Relevant Lumi correlation log (confirms the mapping happens):
+func (s *Service) SetPendingChatTrace(runID string) {
+    s.pendingChatMu.Lock()
+    s.pendingChatTrace = runID    // ← blindly replaces previous entry
+    s.pendingChatTraceAt = time.Now()
+    s.pendingChatMu.Unlock()
+}
+```
+
+Paired with `lumi/server/openclaw/delivery/sse/handler.go:404-411`:
+
+```go
+if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && isLumiSession {
+    if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
+        h.mapRunID(payload.RunID, deviceTrace)
+    }
+}
+```
+
+When sensing or channel traffic bursts (`chat.send` arriving faster than the agent turn loop processes them), every new send **overwrites** the prior idempotencyKey. By the time `lifecycle_start` fires for the earlier turn, the slot already holds the newer key — Lumi maps OpenClaw's UUID to the wrong device runId and every subsequent turn is shifted.
+
+Replay of `lumi-chat-201` swap:
 
 ```
-mapped OpenClaw runId to device trace
-  openclawId=3a5b3d9f-8e42-4a66-a11f-60c9b39ada1c
-  deviceId=lumi-chat-26-1776759969005
+T         Lumi gửi chat-200 "back on that"  → pendingChatTrace = "chat-200"
+T + 8 s   Lumi gửi chat-201 "Angry"         → pendingChatTrace = "chat-201"   ← overwrite
+T + 10 s  OpenClaw lifecycle_start (turn processing chat-200)
+           → ConsumePendingChatTrace() returns "chat-201"
+           → map UUID → lumi-chat-201
+           → tts_send "Back on that — yeah" attributed to chat-201
 ```
+
+OpenClaw processes the session lane FIFO correctly; Lumi's correlation is what misaligns.
+
+Introduced by commit `64571f7b` (2026-04-14, *"Fix race condition in OpenClaw UUID → device trace mapping"*) which replaced the previous `flow.GetTrace()` global with this single-slot variable — closing one race while opening a new one for burst sends.
+
+### Why the original commit made sense at the time
+
+Before `64571f7b`, the handler used a **global** `flow.GetTrace()` to carry the device runId across `lifecycle_start`. That global was cleared by `flow.ClearTrace()` inside channel-turn handling, so a concurrent Telegram reply could wipe the sensing trace mid-flight and leave `lifecycle_start` with nothing to map. The old code had explicit comments about keeping `flow.GetTrace()` "active for the duration of the device turn so the Telegram heuristic can work correctly" — the author was already fighting that race.
+
+`64571f7b` moved the state onto `Service` so channel code could not clear it. That fix was correct for its stated goal. The **single-slot** choice was reasonable given the sensing traffic at the time: roughly one event every tens of seconds, agent turns finishing before the next chat.send landed. One pending trace was never overlapped by a second.
+
+### Why the precondition broke
+
+Between 2026-04-14 and 2026-04-21, several sensing changes landed that turned a calm stream into a burst:
+
+- `b207efc` — bypass the 60 s cooldown on `motion.activity` + `emotion.detected`, so these fire every time the upstream filter passes.
+- `f76eb72` — allow `motion.activity` + `emotion.detected` to fire tool calls, stretching each turn to 5–10 s.
+- New/reactivated event types: ambient voice, `sensing:sound`, richer `presence.enter`, queued replays on busy.
+
+Net effect: at peak, 4–6 `chat.send` can be in flight within a single turn's duration. Each one overwrote the previous `pendingChatTrace`. The race observed on 2026-04-21 is a direct consequence of this shift — the author of `64571f7b` did not model a burst regime.
 
 ---
 
@@ -45,12 +97,12 @@ mapped OpenClaw runId to device trace
 
 | Source | What it proves |
 |---|---|
-| `journalctl -u lumi` grep for the runId | Lumi's `chat.send` payload (what it intended to send) + the UUID→device runId mapping |
-| `/root/local/flow_events_YYYY-MM-DD.jsonl` | What actually fired under that runId: `tts_send`, `agent_thinking`, `token_usage` — content that may not match the `chat_send` under the same `trace_id` |
-| **`/root/.openclaw/agents/main/sessions/<sessionId>.jsonl`** | Ground truth of the session: every user message + assistant message with `thinking` blocks + signatures. Timestamps are UTC. |
-| `journalctl -u openclaw` | Session lane diagnostics (e.g. `lane wait exceeded`), `chat.send` / `chat.history` ACKs, connId. |
+| `journalctl -u lumi` filtered by runId | Lumi's `chat.send` payload (intended input) + the UUID→device runId mapping line (`mapped OpenClaw runId to device trace`) |
+| `/root/local/flow_events_YYYY-MM-DD.jsonl` | What actually fired under that runId: `tts_send`, `agent_thinking`, `tool_call`, `token_usage`. Content often does not match the `chat_send.message` on the same `trace_id` |
+| **`/root/.openclaw/agents/main/sessions/<sessionId>.jsonl`** | Ground truth: every user + assistant entry with UTC timestamps and `thinking` blocks + signatures. Use this to confirm which message the turn actually processed |
+| `journalctl -u openclaw` | Session lane diagnostics (e.g. `lane wait exceeded waitedMs=…`), chat.send / chat.history ACKs, connId |
 
-The session file (`/root/.openclaw/agents/main/sessions/*.jsonl`) is the deciding one — it shows both the sensing message and the Telegram message as separate `user` entries with their own timestamps, making the race obvious.
+The session JSONL is the decisive file — align its timestamps with Lumi's `chat.send` timestamps to see which message was actually prompt-fed into each agent turn.
 
 ---
 
@@ -68,17 +120,26 @@ RUN=lumi-chat-<N>-<ms>
 ### 4.1 Confirm the mis-attribution
 
 ```bash
-# What Lumi sent under this runId
+# What Lumi intended to send under this runId
 $SSH "sudo journalctl -u lumi --no-pager | grep '\[chat.send\] full payload' | grep '$RUN'"
 
-# What actually came back under this runId (flow events)
+# What actually came back under this runId
 $SSH "sudo grep '$RUN' /root/local/flow_events_$(date +%F).jsonl \
-      | jq -c 'select(.node==\"tts_send\" or .node==\"agent_thinking\") | {node, data}'"
+      | jq -c 'select(.node==\"tts_send\" or .node==\"agent_thinking\") | {node, text:(.data.text|.[:250])}'"
 ```
 
-If the `tts_send.text` / `agent_thinking.text` is semantically unrelated to the `chat.send.message`, you are looking at this bug.
+If the `tts_send.text` / `agent_thinking.text` is semantically unrelated to the `chat.send.message`, this bug (or its Telegram-interleave variant) is in play.
 
-### 4.2 Find the actual Telegram message that got answered
+### 4.2 Inspect the burst window
+
+```bash
+# All Lumi chat.sends in a window — run id + first 100 chars of message
+$SSH "sudo journalctl -u lumi --since '<START>' --until '<END>' --no-pager \
+      | grep '\[chat.send\] full payload' \
+      | sed -E 's/.*idempotencyKey\":\"([^\"]+)\",\"message\":\"([^\"]{0,100}).*/\\1  →  \\2/'"
+```
+
+### 4.3 Pull the session ground truth
 
 ```bash
 SESSION=$($SSH "sudo ls -t /root/.openclaw/agents/main/sessions/*.jsonl" \
@@ -91,57 +152,102 @@ $SSH "sudo jq -c 'select(.type==\"message\" and .message.role==\"user\" \
       $SESSION"
 ```
 
-Look for a `Conversation info` block with a Telegram `sender_id` arriving within ~2 s of the Lumi `chat.send` — that is the message whose answer was mis-attributed.
+A user entry whose content matches the `tts_send.text` answer (but whose timestamp pairs with the *previous* chat.send) confirms the shift.
 
-### 4.3 Check session lane contention
+### 4.4 Session lane contention
 
 ```bash
 $SSH "sudo journalctl -u openclaw --no-pager | grep 'lane wait exceeded'"
 ```
 
-Recurring `lane=session:agent:main:main waitedMs=…` lines confirm the queue is piling up and race windows are frequent.
+Recurring `lane=session:agent:main:main waitedMs=…` lines indicate the queue is piling up and the race window is frequent.
 
 ---
 
-## 5. Mitigations
+## 5. Fix — landed
 
-Listed from cheapest / most targeted to most invasive.
+`lumi/internal/openclaw/service.go`: replace the single-slot `pendingChatTrace` with a FIFO `pendingChatQueue []pendingTrace`. `SetPendingChatTrace` appends, `ConsumePendingChatTrace` pops the head, stale entries (older than `pendingChatTTL = 2 * time.Minute`) are dropped from the head before popping. Public API unchanged so the SSE handler needs no edit.
 
-### 5.1 Update OpenClaw (try first, non-invasive)
+### Flow after the fix (end-to-end)
 
-Gateway on the Pi was `2026.4.9`; the connect handshake reports `updateAvailable.latestVersion=2026.4.15`. Update and check whether the lifecycle→idempotencyKey binding logic is tightened upstream.
+```
+Lumi.sendChat(msg)
+  └─ WS write OK
+  └─ SetPendingChatTrace(K_n)                      queue: [... , K_n]
+                                                  ▲ tail
 
-```bash
-$SSH "npm -g install openclaw@2026.4.15 && sudo systemctl restart openclaw"
+OpenClaw gateway
+  └─ session:agent:main:main lane enqueue (FIFO)
+  └─ agent turn loop pulls head → lifecycle_start(UUID_n)
+                                                     │
+Lumi.SSE handler                                     ▼
+  └─ isLumiSession=true, phase=start
+  └─ ConsumePendingChatTrace() → K_n                queue: [...]
+  └─ mapRunID(UUID_n, K_n)
+  └─ runIDMap[UUID_n] = K_n
+
+subsequent events for this turn
+  └─ resolveRunID(UUID_n) → K_n                    (flow / JSONL / monitor key-stable)
+
+lifecycle_end
+  └─ flush assistant text → TTS attributed to K_n ✓
 ```
 
-Re-run the detection queries after a fresh race window to confirm.
+Alignment invariant: if OpenClaw pulls the session lane FIFO and Lumi appends FIFO in `chat.send` order, then N-th `lifecycle_start` pairs with N-th `chat.send`. Both halves verified — OpenClaw FIFO confirmed from session JSONL insertion order (`lumi-chat-200` inserted at `09:23:32.260Z`, `lumi-chat-201` at `09:23:39.273Z`, matching send order).
 
-### 5.2 Lumi-side sanity check (plaster, cheap)
+### Design confidence — same pattern already in the handler
 
-In `lumi/server/openclaw/delivery/sse/handler.go`, when accumulating assistant deltas for a `lumi-chat-*` run, keep a copy of the `chat.send` message that Lumi sent. On `lifecycle_end`:
+The existing `h.cronFireExpected []int64` queue at `handler.go:419-444` uses **the exact same head-drop-stale → pop pattern** to correlate cron "started" events with their lifecycle UUID:
 
-- If the final assistant text has no token overlap with the original `chat.send` message **and** the run was a sensing run (message starts with `[sensing:`), log a warning and suppress TTS / downstream publishing for that run.
-- Emit a monitor event `runid_mismatch_suspected` with both texts.
+```go
+// Drop stale entries from the head.
+idx := 0
+for idx < len(h.cronFireExpected) && h.cronFireExpected[idx] < cutoff {
+    idx++
+}
+h.cronFireExpected = h.cronFireExpected[idx:]
+if len(h.cronFireExpected) > 0 {
+    startedAt := h.cronFireExpected[0]
+    h.cronFireExpected = h.cronFireExpected[1:]
+    // ...
+}
+```
 
-This does not fix the root cause but prevents speaking the wrong text.
+The fix mirrors this style for consistency with prior engineering choices in the same file.
 
-### 5.3 Serialize Lumi sends with Telegram inbound (invasive)
+### Edge cases verified
 
-Have Lumi subscribe to OpenClaw's `session.message` events and defer outbound `chat.send` when there is an unacked Telegram inbound within the last N ms on the same session. Requires coordination state on the Lumi side; only worth it if 5.1 upstream fix is not available and 5.2 plaster is not enough.
+- **Burst sends (A, B, C within one turn)**: queue = [A,B,C] → pops align to lifecycle_start order → ✓ fixed.
+- **Slow turn (send A, wait 30 s, send B)**: queue = [A] → pop A → queue = [B] → pop B → ✓.
+- **Stale entry (send A, OpenClaw drops it silently, 2+ min later send B)**: on B's lifecycle_start, head (A) is stale → drop → pop B → ✓.
+- **Stale head + fresh tail** (send A, then 2+ min later send B, then lifecycle for B): drop-while-head-stale loop drops A, pops B → ✓.
+- **Concurrent Set + Consume**: guarded by `pendingChatMu`.
+- **Memory growth** on slice tail reslicing: bounded — TTL drops stale entries from head, so queue length tracks in-flight send count (~max 10 at peak observed).
+
+### Residual edge case: Telegram interleave
+
+If a Telegram user sends a message into the same session between Lumi's `chat.send` and the matching `lifecycle_start`, OpenClaw runs the Telegram turn first; Lumi's FIFO still pops the head (a stale Lumi key) and mis-attributes the Telegram response to Lumi's pending sensing. Observable as a +1 shift with Telegram content landing under a `lumi-chat-*` runId (case `lumi-chat-26` above).
+
+Two ways to close this:
+
+1. **OpenClaw-side**: have `chat.send` response echo the UUID OpenClaw assigned, so Lumi maps `idempotencyKey ↔ UUID` directly without guessing on `lifecycle_start`. Requires upstream change — consider filing against openclaw.
+2. **Lumi-side guard**: enrich `lifecycle_start` mapping with a secondary check (e.g. first `chat_input` event payload), only popping the queue once we've confirmed the turn is Lumi-originated. More complex; defer until Telegram-interleave shifts are seen in practice after this fix ships.
 
 ---
 
 ## 6. Related memory / context
 
-- `project_runid_uuid_vs_lumi_chat.md` — sensing always uses `lumi-chat-*`; UUID runs are Telegram / cron / OpenClaw-initiated. This bug violates that invariant: a `lumi-chat-*` runId ends up wrapping what is effectively a Telegram turn.
-- `project_guard_broadcast_evolution.md` — prior instability around chat.send reliability on Haiku; unrelated cause but overlapping surface area.
-- Native thinking is confirmed firing for this session (assistant messages carry `thinking` + `thinkingSignature`), so this bug is orthogonal to the "reasoning leaked into text" issue documented elsewhere.
+- `project_runid_uuid_vs_lumi_chat.md` — documents the invariant "sensing always uses `lumi-chat-*`; UUIDs are Telegram/cron/OpenClaw-initiated". This bug violated the invariant silently: a `lumi-chat-*` runId could wrap any other input that happened to run ahead in the queue.
+- `project_guard_broadcast_evolution.md` — prior "Haiku ignores SKILL" instability. Some of the observed misbehaviour likely included runId drift on top of real skill compliance issues; now separable.
+- Thinking leak (`[Latest decision was sad…]` showing up in `tts_send`) is a separate class of bug — the model producing CoT as `text` instead of native thinking content. Orthogonal to this runId fix.
 
 ---
 
 ## 7. Status
 
-- **Detected**: 2026-04-21 on `lumi-chat-26-1776759969005` (session `agent:main:main`).
-- **Upstream fix**: not verified — update to `2026.4.15` and re-test before writing a Lumi-side mitigation.
-- **Workaround landed**: none yet.
+- **Detected**: 2026-04-21 — `lumi-chat-26`, `lumi-chat-201`, `lumi-chat-203`, `lumi-chat-337/339` (session `agent:main:main`).
+- **Root cause**: Lumi `pendingChatTrace` single-slot overwrite, introduced by commit `64571f7b` on 2026-04-14. Precondition (low sensing burst rate) broke between 14/4 and 21/4 as sensing pipeline gained ambient voice, sound events, tool-calling emotion/motion skills.
+- **Fix landed**: FIFO queue + TTL head-drop in `lumi/internal/openclaw/service.go` + interface doc refresh in `lumi/domain/agent.go`. Public API unchanged. `GOOS=linux GOARCH=arm64 go build ./...` clean.
+- **Deploy**: not yet. `make build-lamp` → scp `lumi-server` to Pi → `sudo systemctl restart lumi`.
+- **Post-deploy verification**: re-run §4.1 / §4.2 on a fresh burst window; expect `tts_send.text` to align with `chat_send.message` under the same `trace_id`.
+- **Follow-up**: Telegram-interleave variant still open — see §5. Consider upstream openclaw change to echo UUID in `chat.send` response.
