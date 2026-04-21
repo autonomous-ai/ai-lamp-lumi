@@ -93,12 +93,11 @@ export function SensingSection() {
       <div style={S.card}>
         <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>DL Backend</div>
         <div style={S.row}>
-          <div>
-            <span style={S.badge(motion?.connected ?? false)}>Motion (X3D)</span>
-          </div>
-          <div>
-            <span style={S.badge(emotion?.connected ?? false)}>Emotion (FER)</span>
-          </div>
+          {data.perceptions.filter((p) => p.connected !== undefined).map((p) => (
+            <div key={p.type}>
+              <span style={S.badge(p.connected ?? false)}>{p.type}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -118,7 +117,7 @@ export function SensingSection() {
       {/* Motion */}
       {motion && (
         <div style={S.card}>
-          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Motion (X3D)</div>
+          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Motion</div>
           <div style={S.row}>
             <div>
               <div style={S.label}>Last Actions</div>
@@ -143,7 +142,7 @@ export function SensingSection() {
       {/* Emotion */}
       {emotion && (
         <div style={S.card}>
-          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Emotion (FER)</div>
+          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Emotion</div>
           <div style={S.row}>
             <div>
               <div style={S.label}>Last Emotion</div>
