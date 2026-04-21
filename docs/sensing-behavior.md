@@ -197,11 +197,12 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 
 | Action | Written by | Purpose |
 |---|---|---|
-| `drink`, `break`, `sedentary`, `emotional` | Agent | User activity transition — bucket derived from raw Kinetics labels on motion.activity |
+| `drink`, `break` | Agent (verbatim from motion.activity — LeLamp emitted bucket name) | Reset point for the corresponding nudge timer |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | Agent (verbatim from motion.activity — LeLamp emitted raw sedentary label) | Timeline + nudge phrasing. **Not** a reset point. |
 | `enter`, `leave` | Backend (sensing handler) | Session boundary — written on every presence.enter / presence.leave / presence.away |
 | `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility |
 
-**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(raw_actions))` and a `_last_sent_ts`. Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). Keying on raw labels (not buckets) is intentionally looser than before — switching from `writing` to `drawing` now passes through so the agent gets the richer context. The trade is more agent turns; the gain is more-specific reactions ("Still on the computer?" vs. generic "Still sitting?").
+**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(labels))` and a `_last_sent_ts`, where `labels` matches the outbound message (bucket names for drink/break, raw Kinetics labels for sedentary). Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). So `eating burger → eating cake` collapses to the same `break` key and is dropped, while `writing → drawing` flips the key (sedentary is raw) and passes through so the agent sees the new activity.
 
 - User change (owner→owner, owner→unknown, unknown→owner) flips the key immediately → event passes through.
 - Different strangers (e.g. `stranger_46` → `stranger_54`) collapse to `"unknown"` via `FaceRecognizer.current_user()`, so swapping strangers alone doesn't break dedup.
@@ -213,7 +214,7 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
 
 ### On `motion.activity` — what the agent does
 
-1. **Map each raw label to its bucket** (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table, then **log each distinct bucket** via `POST /api/wellbeing/log` with `user = current_user`. LeLamp already deduped the outbound stream on the raw-label set, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
+1. **Log each label verbatim** from the `Activity detected:` line via `POST /api/wellbeing/log` with `user = current_user`. No mapping — LeLamp already categorised (bucket name for drink/break, raw Kinetics label for sedentary). LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
 2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
 3. **Compute deltas** from the log, using the most recent reset point for each:
 
@@ -374,23 +375,23 @@ When the user is already present (PRESENT state), foreground motion triggers a `
 
 `MotionPerception` buffers snapshots and action names, flushing them periodically (`MOTION_FLUSH_S`). On flush it checks `PresenceService.state`:
 - **PRESENT** → sends a single `motion.activity` event. Message format:
-  - `Activity detected: <raw labels>. If nothing noteworthy, reply NO_REPLY.` — raw Kinetics action labels (e.g. `using computer`, `drinking`, `eating burger`), comma-separated, followed by a token-saving hint. The agent maps each label to a bucket (`drink`/`break`/`sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table.
+  - `Activity detected: <labels>.` — LeLamp already categorises: physical actions collapse to the bucket name (`drink`, `break`), sedentary activities keep the raw Kinetics label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`). The agent logs each label verbatim — no mapping required at the agent level.
   - Emotional X3D actions (`laughing`, `crying`, `yawning`, `singing`) are **intentionally dropped** here. A dedicated `motion.emotional` event type will be added later; until then emotional detections are silently ignored. `motion.activity` stays purely physical.
   - No images attached — saves tokens. Friend recognition is **not** required.
 - **Otherwise** → event is **skipped** (logged, not sent). Lumi only expects `motion.activity` — plain `motion` from X3D/pose has no handler and wastes agent tokens.
 
 Example messages:
 ```
-Activity detected: drinking, using computer. If nothing noteworthy, reply NO_REPLY.
-Activity detected: eating burger. If nothing noteworthy, reply NO_REPLY.
-Activity detected: writing, reading book. If nothing noteworthy, reply NO_REPLY.
+Activity detected: drink, using computer.
+Activity detected: break.
+Activity detected: writing, reading book.
 ```
 
 ### Wellbeing nudge flow (event-driven)
 
-The agent receives **raw Kinetics labels** on the `Activity detected:` line and must map each to a bucket (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's table before logging.
+The agent reads the `Activity detected:` line, splits on comma, and POSTs each label verbatim as the `action` field — LeLamp already categorised, so there is no bucket mapping in the agent.
 
-1. **Log** each distinct bucket via `POST /api/wellbeing/log` with `{action, notes, user}` — one entry per bucket even if multiple raw labels collapse to it. Backend-side no-op; LeLamp already deduped on the raw-label set.
+1. **Log** each label via `POST /api/wellbeing/log` with `{action, notes:"", user}` — one entry per label. Backend-side no-op; LeLamp already deduped on the outbound label set.
 2. **Read history** via `GET /api/openclaw/wellbeing-history?user={name}&last=50`.
 3. **Compute deltas** against the latest reset point for each kind (see Wellbeing SKILL Step 3).
 4. **Decide nudge** per Wellbeing SKILL Step 4 — at most one hydration or break nudge per turn.

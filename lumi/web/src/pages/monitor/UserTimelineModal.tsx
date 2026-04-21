@@ -173,18 +173,48 @@ export function UserTimelineModal({ user, onClose }: Props) {
         const ts = Number(r.ts) || 0;
         const action = String(r.action || "");
         const notes = String(r.notes || "");
-        const meta = WELLBEING_ICONS[action] || { icon: "•", title: action };
-        // For physical activity buckets, drop the bucket subtitle and show
-        // the raw Kinetics label as the title with its specific icon.
-        const useRawAsTitle = BUCKET_WITH_RAW.has(action) && notes !== "";
-        merged.push({
-          ts,
-          source: "wellbeing",
-          icon: useRawAsTitle ? rawLabelIcon(notes, meta.icon) : meta.icon,
-          color: action.startsWith("nudge_") ? "rgb(251,146,60)" : "rgb(96,165,250)",
-          title: useRawAsTitle ? notes : meta.title,
-          detail: useRawAsTitle ? "" : notes,
-        });
+        const bucketMeta = WELLBEING_ICONS[action];
+        const rawIcon = RAW_LABEL_ICON[action.toLowerCase()];
+        const color = action.startsWith("nudge_") ? "rgb(251,146,60)" : "rgb(96,165,250)";
+
+        // Three cases, in priority order:
+        //  1. New hybrid — action is a raw Kinetics sedentary label emitted directly
+        //     (e.g. "using computer", "writing"). Use the per-label icon + action as title.
+        //  2. Bucket action (drink / break / nudge_* / enter / leave / legacy sedentary)
+        //     — use WELLBEING_ICONS mapping. Notes act as subtitle when present (legacy
+        //     entries from the pre-hybrid deploy had notes="<raw label>").
+        //  3. Unknown action — bullet fallback.
+        if (!bucketMeta && rawIcon) {
+          merged.push({
+            ts,
+            source: "wellbeing",
+            icon: rawIcon,
+            color,
+            title: action,
+            detail: notes,
+          });
+        } else if (bucketMeta) {
+          // Legacy pre-hybrid entries: action="sedentary"/"drink"/"break" with notes=raw label.
+          // Keep the old "raw-as-title with per-label icon" rendering so history looks consistent.
+          const legacyRawAsTitle = BUCKET_WITH_RAW.has(action) && notes !== "";
+          merged.push({
+            ts,
+            source: "wellbeing",
+            icon: legacyRawAsTitle ? rawLabelIcon(notes, bucketMeta.icon) : bucketMeta.icon,
+            color,
+            title: legacyRawAsTitle ? notes : bucketMeta.title,
+            detail: legacyRawAsTitle ? "" : notes,
+          });
+        } else {
+          merged.push({
+            ts,
+            source: "wellbeing",
+            icon: "•",
+            color,
+            title: action,
+            detail: notes,
+          });
+        }
       }
     }
 
