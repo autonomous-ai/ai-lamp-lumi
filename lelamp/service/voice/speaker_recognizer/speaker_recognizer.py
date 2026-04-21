@@ -519,6 +519,11 @@ class SpeakerRecognizer:
         origin = origin if origin in ("mic", "telegram", "other") else "other"
 
         norm = _normalize_label(name)
+        logger.info(
+            "Enrolling speaker: name=%r (norm=%r) new_samples=%d origin=%s tg_identity=%s",
+            name, norm, len(sources), origin,
+            bool(telegram_username or telegram_id),
+        )
         user_dir = self._users_dir / norm
         user_dir.mkdir(parents=True, exist_ok=True)
         voice_dir = self._voice_dir(norm)
