@@ -63,13 +63,10 @@ MAX_SESSION_DURATION_S = float(os.environ.get("LELAMP_MAX_SESSION_DURATION_S", "
 STT_KEEPALIVE = os.environ.get("LELAMP_STT_KEEPALIVE", "false").lower() == "true"
 
 # Speaker recognition — prefix every transcript with "<Name>: " identified from
-# the session's buffered audio. Disabled if SPEAKER_EMBEDDING_API_URL is unset.
-SPEAKER_RECOGNITION_ENABLED = (
-    os.environ.get("LELAMP_SPEAKER_RECOGNITION_ENABLED", "true").lower() == "true"
-)
-# Minimum buffered audio duration (seconds) before attempting recognition —
-# short fragments are unreliable for speaker embeddings.
-SPEAKER_MIN_AUDIO_S = float(os.environ.get("LELAMP_SPEAKER_MIN_AUDIO_S", "0.8"))
+# the session's buffered audio. All knobs centralized in lelamp.config.
+from lelamp import config as _lelamp_config
+SPEAKER_RECOGNITION_ENABLED = _lelamp_config.SPEAKER_RECOGNITION_ENABLED
+SPEAKER_MIN_AUDIO_S = _lelamp_config.SPEAKER_MIN_AUDIO_S
 
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
