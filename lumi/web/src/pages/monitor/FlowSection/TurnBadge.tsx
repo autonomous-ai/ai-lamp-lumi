@@ -166,7 +166,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 2,
           wordBreak: "break-word" as const, lineHeight: 1.4,
         }}>
-          <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>TTS 🔊</span>
+          <span style={{ color: "var(--lm-purple)", fontWeight: 600, marginRight: 4 }}>{["telegram","discord","slack","wechat","channel"].includes(turn.type) ? "💬" : "TTS 🔊"}</span>
           {output}
         </div>
       ) : turn.path === "dropped" ? (
