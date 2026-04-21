@@ -111,16 +111,17 @@ This is the difference between a tool and a companion. A tool waits. A companion
 
 Lumi Server runs a lightweight sensing loop that emits events:
 
-| Event | Source | Frequency | Cost |
-|---|---|---|---|
-| `presence.enter` | Camera (face/body detection) | On change | Low (simple CV) |
-| `presence.leave` | Camera (no face timeout) | On change | Low |
-| `light.level` | Camera (frame brightness) | Every 30s | Minimal |
-| `sound.level` | Mic (RMS amplitude) | Every 5s | Minimal |
-| `sound.silence` | Mic (silence duration > threshold) | On change | Minimal |
-| `sound.voice_tone` | Mic (pitch/energy analysis) | On voice detected | Medium |
-| `time.schedule` | Clock (cron-like triggers) | Per schedule | None |
-| `sensor.*` | Plug-in sensors (temp, humidity) | Configurable | Low |
+| Event | Source | Frequency | Cost | Status |
+|---|---|---|---|---|
+| `presence.enter` | Camera (InsightFace recognition) | On change | Low | ✅ Done — identifies owner by name or stranger_N |
+| `presence.leave` | Camera (no face timeout) | On change | Low | ✅ Done |
+| `presence.away` | Camera (extended absence) | On change | Low | ✅ Done |
+| `motion.activity` | Camera (dlbackend action recognition) | On activity change | Medium | ✅ Done — Kinetics labels (using computer, drink, etc.) |
+| `emotion.detected` | Camera (dlbackend emotion classifier) | On expression change | Medium | ✅ Done — 7 emotions (Happy, Sad, Angry, etc.) |
+| `light.level` | Camera (frame brightness) | Every 30s | Minimal | ✅ Done |
+| `sound` | Mic (ambient sound level) | On threshold | Minimal | ✅ Done |
+| `voice` / `voice_command` | Mic (Deepgram STT) | On speech | Medium | ✅ Done — wake word detection |
+| `time.schedule` | OpenClaw cron | Per schedule | None | ✅ Done |
 
 Events are lightweight — no LLM tokens burned. Only when an event is significant enough does Lumi push context to OpenClaw for AI decision-making.
 
@@ -683,11 +684,12 @@ The Lumi server is forked from openclaw-lobster. Approximately 70-80% of Layer 1
 
 ### Use Case Priority Matrix
 
-| Priority | Use Cases | Milestone |
+| Priority | Use Cases | Status |
 |---|---|---|
-| **P0 — Critical** | UC-01 Voice Control, UC-02 Color Control, UC-14 Audio Feedback | First Prototype |
-| **P1 — High** | UC-03 Scenes, UC-04 Timer, UC-06 AI Companion, UC-08 Servo Direction, UC-11 Presence, UC-13 Status | v1.0 Release |
-| **P2 — Medium** | UC-05 Circadian, UC-07 Effects, UC-09 Auto-Tracking, UC-10 Gesture, UC-12 Video Call, UC-15 Remote, UC-16 Screen Awareness | v1.x Releases |
+| **P0 — Critical** | UC-01 Voice Control ✅, UC-02 Color Control ✅, UC-14 Audio Feedback ✅ | **ALL DONE** |
+| **P1 — High** | UC-03 Scenes ✅, UC-04 Timer ✅, UC-06 AI Companion ✅, UC-08 Servo Direction ✅, UC-11 Presence ✅, UC-13 Status ✅ | **ALL DONE** |
+| **P2 — Medium** | UC-05 Circadian ❌, UC-07 Effects ⚠️, UC-09 Auto-Tracking ❌, UC-10 Gesture ❌, UC-12 Video Call ❌, UC-15 Remote ✅, UC-16 Screen Awareness ❌ | 1/7 done, 1 partial |
+| **Bonus (Marketing)** | Facial Emotion ✅, Wellness Reminders ✅, Music Suggestion ✅, Speaker Recognition ✅, Guard Mode ✅, Face Enrollment ✅ | **ALL DONE** |
 
 ---
 
@@ -731,33 +733,32 @@ The Lumi server is forked from openclaw-lobster. Approximately 70-80% of Layer 1
 
 ## 9. Open Questions
 
-### Architecture
+### Architecture — All Resolved ✅
 
-- [ ] **Camera processing**: On-device (GoCV / OpenCV on Pi 4) or offload to OpenClaw's vision capabilities? Pi 4 has limited GPU — continuous vision processing may compete with LLM workload.
-- [ ] **Audio input ownership**: Does OpenClaw handle the microphone directly (via its own voice pipeline), or does the Lumi server capture audio and forward it? This affects latency and architecture boundaries.
-- [ ] **LeLamp driver integration**: How exactly does the Python LeLamp runtime communicate with the Go Lumi server? Options: subprocess, gRPC, REST, or shared hardware access with mutex.
+- [x] **Camera processing**: LeLamp Python runs on-device OpenCV for face detection/recognition (InsightFace). Heavy inference (emotion, action recognition) offloaded to self-hosted dlbackend via WebSocket. Camera snapshots forwarded to OpenClaw LLM for vision understanding.
+- [x] **Audio input ownership**: LeLamp owns mic. Local VAD (Silero) gates Deepgram STT connection (cost saving). Wake word "Hey Lumi" detected in transcript → `voice_command` event. No wake word → `voice` (ambient sensing).
+- [x] **LeLamp driver integration**: HTTP proxy. LeLamp FastAPI on `127.0.0.1:5001`, Lumi Go server proxies from port `5000`. Simple, debuggable, no shared state.
 
-### Hardware
+### Hardware — Mostly Resolved
 
-- [ ] **Servo model**: Which specific Feetech servo models? What torque and speed specs are needed for smooth, quiet desk-lamp movement?
-- [ ] **5-axis configuration**: Exact axis layout — which joints map to which degrees of freedom? Need mechanical design specification.
-- [ ] **LED layout**: 8x5 grid — is this on a flat PCB or curved surface? How does physical layout affect pixel-art patterns and light diffusion?
-- [ ] **Power supply**: Single PSU for Pi + servos + LEDs, or separate rails? 5 servos + 64 LEDs at full brightness can draw significant current.
-- [ ] **Thermal management**: Pi 4 + continuous camera + servo operation in an enclosed lamp body — is passive cooling sufficient?
+- [x] **Servo model**: Feetech STS3215 servo motors. Controlled via LeLamp serial bus.
+- [x] **LED layout**: WS2812 RGB LED ring. Controlled via LeLamp `rpi_ws281x` Python driver.
+- [ ] **Power supply**: Single PSU for Pi + servos + LEDs, or separate rails?
+- [x] **Thermal management**: Pi 5 migration in progress (Pi 4 sufficient but tight). Active cooling with fan.
 
-### Product
+### Product — Mostly Resolved
 
-- [ ] **Wake word**: What is the wake word? Custom ("Hey Lamp") or use OpenClaw's existing mechanism?
-- [ ] **Personality defaults**: What is the default personality out of the box? Playful? Professional? Should users choose during setup?
-- [ ] **Privacy indicators**: Physical LED or shutter for camera active state? How do we communicate "camera is off" unambiguously?
-- [ ] **Form factor / Industrial design**: Who designs the physical lamp body? What aesthetic — minimalist, playful, industrial?
-- [ ] **Kit vs. assembled**: Ship as a DIY kit (maker audience) or fully assembled product? Or both?
+- [x] **Wake word**: "Hey Lumi" (and variants: "Lumi", "này Lumi", "ê Lumi", "Lumi ơi"). Detected in Deepgram transcript. Dynamic — agent can rename itself via IDENTITY.md.
+- [x] **Personality defaults**: Defined in SOUL.md — warm, curious, expressive companion. Not an assistant. Evolves with user via long-term memory.
+- [ ] **Privacy indicators**: Display eyes close when camera off. LED indicator TBD.
+- [ ] **Form factor / Industrial design**: Current prototype uses LeLamp hardware body. Production design TBD.
+- [ ] **Kit vs. assembled**: TBD.
 
 ### Business
 
-- [ ] **BOM cost target**: Current estimate < $200 — is this achievable with 5 Feetech servos + Pi 4 + camera + audio?
-- [ ] **Certification**: CE/FCC needed for a consumer electronics product with Wi-Fi, camera, and microphone.
-- [ ] **LeLamp licensing**: What license does LeLamp use? Any obligations if we use their hardware drivers?
+- [ ] **BOM cost target**: Current estimate < $200 — needs finalization with Pi 5.
+- [ ] **Certification**: CE/FCC needed for consumer electronics with Wi-Fi, camera, and microphone.
+- [x] **LeLamp licensing**: Open source. Drivers used directly in mono-repo, tracked via UPSTREAM.md.
 
 ---
 
