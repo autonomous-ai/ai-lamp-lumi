@@ -257,6 +257,14 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 			}
 		}
+		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
+		// behaviour of the direct PostEvent path (sensing handler). The full text with
+		// snapshot paths still reaches the sensing_input JSONL via startPayload above,
+		// so Monitor UI thumbnails keep working.
+		msg = reSnapshotPath.ReplaceAllString(msg, "")
+		msg = strings.ReplaceAll(msg, "\n\n\n", "\n\n")
+		msg = strings.TrimSpace(msg)
+
 		var err error
 		if ev.image != "" {
 			_, err = s.SendChatMessageWithImageAndRun(msg, ev.image, reqID, runID)

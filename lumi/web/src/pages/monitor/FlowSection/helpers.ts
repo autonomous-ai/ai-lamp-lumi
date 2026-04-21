@@ -1095,12 +1095,24 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
   for (const ev of turn.events) {
     const evRunId = extractEventRunId(ev);
     const sameRun = !turnRunId || !evRunId || evRunId === turnRunId;
-    if (!input && (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
-        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input"))) {
+    if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")
+        || (ev.type === "flow_event" && ev.detail?.node === "sensing_input")) {
       const d = ev.detail as Record<string, any> | undefined;
       const dataMsg = d?.data?.message ?? d?.message;
-      const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
-      input = dataMsg || (m ? m[2] : "") || ev.summary;
+      if (!input) {
+        const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
+        input = dataMsg || (m ? m[2] : "") || ev.summary;
+      }
+      // Extract snapshot paths from sensing_input (backend strips [snapshot:...] from chat_send
+      // text, so sensing_input is the authoritative source for the Monitor turn-item thumbnails).
+      if (typeof dataMsg === "string") {
+        const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-(?:sensing|emotion|motion)-snapshots|\/var\/log\/lumi\/snapshots)\/((?:sensing|emotion|motion)_[^\]]+\.jpg)\]/g;
+        let snapMatch;
+        while ((snapMatch = snapRe.exec(dataMsg)) !== null) {
+          const url = `/api/sensing/snapshot/${snapMatch[1]}`;
+          if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
+        }
+      }
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
       const d = ev.detail as Record<string, any> | undefined;
