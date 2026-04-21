@@ -67,7 +67,16 @@ FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "300.0"
 FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "1800.0"))
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
-# --- Sensing: Motion detection (X3D video action recognition) ---
+# --- DL backend connection ---
+DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "")  # Base WS URL, e.g. wss://<pod>-8888.proxy.runpod.net/lelamp
+DL_API_KEY = os.environ.get("DL_API_KEY", "")
+DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
+DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/api/dl/action-analysis/ws")
+DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/api/dl/emotion-analysis/ws")
+DL_MOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_MOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+DL_EMOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_EMOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+
+# --- Sensing: Motion detection (action recognition via dlbackend) ---
 MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
 MOTION_CONFIDENCE_THRESHOLD = float(
     os.environ.get("LELAMP_MOTION_CONFIDENCE_THRESHOLD", "0.3")
@@ -76,9 +85,11 @@ MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
 MOTION_EVENT_COOLDOWN_S = float(
     os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0")
 )
-DL_MOTION_BACKEND_URL = os.environ.get("DL_MOTION_BACKEND_URL", "")  # Full WS URL for action-analysis endpoint
-DL_API_KEY = os.environ.get("DL_API_KEY", "")
-DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
+MOTION_SNAPSHOT_DIR = os.environ.get(
+    "LELAMP_MOTION_SNAPSHOT_DIR",
+    os.path.join(tempfile.gettempdir(), "lumi-motion-snapshots"),
+)
+MOTION_SNAPSHOT_MAX_COUNT = int(os.environ.get("LELAMP_MOTION_SNAPSHOT_MAX_COUNT", "100"))
 
 # --- Sensing: Emotion detection (face emotion via dlbackend) ---
 EMOTION_ENABLED = os.environ.get("LELAMP_EMOTION_ENABLED", "true").lower() == "true"
@@ -91,7 +102,6 @@ EMOTION_SNAPSHOT_DIR = os.environ.get(
     os.path.join(tempfile.gettempdir(), "lumi-emotion-snapshots"),
 )
 EMOTION_SNAPSHOT_MAX_COUNT = int(os.environ.get("LELAMP_EMOTION_SNAPSHOT_MAX_COUNT", "100"))
-DL_EMOTION_BACKEND_URL = os.environ.get("DL_EMOTION_BACKEND_URL", "")  # Full WS URL for emotion-analysis endpoint
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
 POSE_MOTION_ENABLED = (
@@ -121,3 +131,20 @@ SNAPSHOT_PERSIST_MAX_BYTES = int(
 IDLE_TIMEOUT_S = float(os.environ.get("LELAMP_IDLE_TIMEOUT_S", "300"))
 AWAY_TIMEOUT_S = float(os.environ.get("LELAMP_AWAY_TIMEOUT_S", "900"))
 IDLE_BRIGHTNESS = float(os.environ.get("LELAMP_IDLE_BRIGHTNESS", "0.20"))
+
+# --- Sensing: Speaker recognition (voice embedding via dlbackend) ---
+SPEAKER_RECOGNITION_ENABLED: bool = (
+    os.environ.get("LELAMP_SPEAKER_RECOGNITION_ENABLED", "true").lower() == "true"
+)
+SPEAKER_MIN_AUDIO_S: float = float(os.environ.get("LELAMP_SPEAKER_MIN_AUDIO_S", "0.8")) # seconds
+SPEAKER_MATCH_THRESHOLD: float = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7")) # 0.0 - 1.0
+SPEAKER_EMBED_MAX_SECONDS: float = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0")) # seconds
+SPEAKER_EMBEDDING_API_TIMEOUT_S: float = float(
+    os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15")
+)
+SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
+    "LELAMP_UNKNOWN_AUDIO_DIR", "/tmp/lumi-unknown-voice"
+)
+DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/api/dl/audio-recognizer/embed")
+SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+SPEAKER_EMBEDDING_API_KEY: str = DL_API_KEY
