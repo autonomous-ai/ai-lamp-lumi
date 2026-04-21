@@ -1,4 +1,4 @@
-.PHONY: install install-cpu install-gpu install-dev start start-runpod test test-action test-action-api test-action-local lint
+.PHONY: install install-cpu install-gpu install-dev start start-runpod test test-action test-action-api test-action-local test-emotion test-emotion-api test-emotion-local lint
 
 NGINX_CONF ?= /workspace/ai-lamp-openclaw/dlbackend/nginx.conf
 
@@ -47,6 +47,14 @@ test-action-api:
 
 test-action-local:
 	python -m pytest tests/action_local/ -v
+
+test-emotion: test-emotion-api test-emotion-local
+
+test-emotion-api:
+	python -m pytest tests/emotion_api/ -v
+
+test-emotion-local:
+	python -m pytest tests/emotion_local/ -v
 
 lint:
 	ruff check src/ tests/

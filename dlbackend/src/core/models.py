@@ -22,17 +22,20 @@ class DetectionResult(BaseModel):
 
 class ActionFrameRequest(BaseModel):
     type: Literal["frame"] = "frame"
+    task: Literal["action"] = "action"
     frame_b64: str
 
 
 class ActionConfigRequest(BaseModel):
     type: Literal["config"] = "config"
+    task: Literal["action"] = "action"
     whitelist: list[str] | None = None
     threshold: float = 0.3
 
 
 class ActionHeartBeatRequest(BaseModel):
     type: Literal["heartbeat"] = "heartbeat"
+    task: Literal["action"] = "action"
 
 
 ActionRequest = Annotated[
