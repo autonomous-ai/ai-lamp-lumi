@@ -19,7 +19,7 @@ description: Proactive music suggestion triggered by Mood decisions or sedentary
 ## Before suggesting (silently, in `thinking`)
 
 1. Check `GET /audio/status` — skip if music already playing.
-2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` — skip if last suggestion was less than 7 minutes ago.
+2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` — skip if last suggestion was less than 7 minutes ago. *(production: change to 30 min before ship)*
 3. For mood trigger: check `GET /api/openclaw/mood-history?user={name}&kind=decision&last=1` — skip if stale (>30 min) or missing.
 4. Check `GET /audio/history?person={name}&last=1` — use to personalize genre.
 
