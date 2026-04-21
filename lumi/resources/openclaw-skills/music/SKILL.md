@@ -7,8 +7,6 @@ description: Play and stop music from YouTube through the lamp speaker on user r
 
 Play music through the lamp speaker by searching YouTube. Use this when the user asks to play, sing, or listen to music.
 
-> **Reply is spoken VERBATIM.** ONE short sentence — *"Playing Bohemian Rhapsody!"*. Do NOT narrate workflow steps or output song lyrics.
-
 ## Workflow
 
 1. **Specific song / artist** → play directly.
