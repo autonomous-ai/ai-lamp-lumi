@@ -36,13 +36,14 @@ var (
 //   - A single processor goroutine drains msgCh and evtCh, calling onMessage
 //     and onConnect sequentially so the transfer state they touch is race-free.
 type BLEServer struct {
-	rxMu       sync.Mutex
+	rxMu       sync.Mutex // also guards `connected` (shared with the D-Bus connect-handler dispatch)
 	sendMu     sync.Mutex
 	deviceName string
 	txChar     bluetooth.Characteristic
 	onMessage  func([]byte)
 	onConnect  func(connected bool)
 	rxBuf      bytes.Buffer
+	connected  bool
 	msgCh      chan []byte
 	evtCh      chan bool
 }
@@ -84,22 +85,26 @@ func (s *BLEServer) Start() error {
 	}
 
 	// Reset the RX buffer on disconnect so a leftover partial line from the
-	// prior session doesn't corrupt the next. Connection state is forwarded
-	// to the processor goroutine so onConnect runs serially with onMessage.
+	// prior session doesn't corrupt the next. Dedup both edges — BlueZ can
+	// fire the handler redundantly (e.g. when the remote briefly re-subscribes)
+	// and each onConnect call has side effects (state transitions, xfer reset),
+	// so we only forward genuine edge changes to the processor goroutine.
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
+		s.rxMu.Lock()
+		changed := s.connected != connected
+		s.connected = connected
+		if !connected {
+			s.rxBuf.Reset()
+		}
+		s.rxMu.Unlock()
+
+		if !changed {
+			return
+		}
 		if connected {
-			if !s.connected {
-				s.connected = true
-				log.Println("[ble] device connected")
-				if s.onConnect != nil {
-					s.onConnect(true)
-				}
-			}
+			log.Println("[ble] device connected")
 		} else {
 			log.Println("[ble] device disconnected")
-			s.rxMu.Lock()
-			s.rxBuf.Reset()
-			s.rxMu.Unlock()
 		}
 		s.evtCh <- connected
 	})
