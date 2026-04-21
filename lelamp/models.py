@@ -310,6 +310,7 @@ class FacePersonDetail(BaseModel):
     wellbeing_days: list[str] = []  # e.g. ["2026-04-10"]
     music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
     audio_history_days: list[str] = []  # e.g. ["2026-04-17"]
+    voice_samples: list[str] = []  # e.g. ["sample_mic_1776761894080_4bca6274.wav"]
     files: list[str] = []  # all non-photo files
 
 

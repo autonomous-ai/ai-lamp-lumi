@@ -99,6 +99,7 @@ export interface FaceOwnerDetail {
   wellbeing_days?: string[];
   music_suggestion_days?: string[];
   audio_history_days?: string[];
+  voice_samples?: string[];
   files?: string[];
 }
 export interface FaceOwnersDetail {
