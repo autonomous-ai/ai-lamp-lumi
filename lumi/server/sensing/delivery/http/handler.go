@@ -465,7 +465,10 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 // Checks persistent dir first (/var/log/lumi/snapshots/), falls back to tmp.
 func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	name := c.Param("name")
-	if !strings.HasPrefix(name, "sensing_") || !strings.HasSuffix(name, ".jpg") {
+	validPrefix := strings.HasPrefix(name, "sensing_") ||
+		strings.HasPrefix(name, "emotion_") ||
+		strings.HasPrefix(name, "motion_")
+	if !validPrefix || !strings.HasSuffix(name, ".jpg") || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 		c.Status(http.StatusNotFound)
 		return
 	}
