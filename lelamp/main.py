@@ -15,6 +15,7 @@ from livekit.plugins import (
     noise_cancellation,
 )
 from typing import Union
+from lelamp.presets import SERVO_WAKE_UP
 from lelamp.service.motors.motors_service import MotorsService
 from lelamp.service.rgb.rgb_service import RGBService
 
@@ -62,7 +63,7 @@ Demo rules:
         self.rgb_service.start()
 
         # Trigger wake up animation via motors service
-        self.motors_service.dispatch("play", "wake_up")
+        self.motors_service.dispatch("play", SERVO_WAKE_UP)
         self.rgb_service.dispatch("solid", (255, 255, 255))
         self._set_system_volume(100)
 

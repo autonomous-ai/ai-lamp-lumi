@@ -38,6 +38,14 @@ from lelamp.presets import (
     FX_SPEAKING_WAVE,
     AIM_LEFT,
     AIM_RIGHT,
+    SERVO_MUSIC_GROOVE,
+    SERVO_MUSIC_JAZZ,
+    SERVO_MUSIC_CLASSICAL,
+    SERVO_MUSIC_HIPHOP,
+    SERVO_MUSIC_ROCK,
+    SERVO_MUSIC_WALTZ,
+    SERVO_MUSIC_CHILL,
+    SERVO_MUSIC_HYPE,
     SCENE_PRESETS,
     VALID_LED_EFFECTS,
 )
@@ -2788,9 +2796,9 @@ def voice_status():
 # --- Music ---
 
 _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("music_jazz", ["jazz", "swing", "blues", "soul", "funk", "bossa nova"]),
+    (SERVO_MUSIC_JAZZ, ["jazz", "swing", "blues", "soul", "funk", "bossa nova"]),
     (
-        "music_classical",
+        SERVO_MUSIC_CLASSICAL,
         [
             "classical",
             "orchestra",
@@ -2806,22 +2814,22 @@ _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
             "violin",
         ],
     ),
-    ("music_hiphop", ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
-    ("music_rock", ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
-    ("music_waltz", ["waltz", "tango", "ballroom", "foxtrot"]),
-    ("music_chill", ["chill", "lofi", "lo-fi", "lo fi", "ambient", "relax", "mellow", "study", "calm", "sleep"]),
-    ("music_hype", ["hype", "edm", "electronic", "dance", "rave", "party", "upbeat", "electro", "techno", "house", "festival"]),
+    (SERVO_MUSIC_HIPHOP, ["hip hop", "hiphop", "hip-hop", "rap", "trap", "rnb", "r&b"]),
+    (SERVO_MUSIC_ROCK, ["rock", "metal", "punk", "grunge", "heavy", "guitar", "band"]),
+    (SERVO_MUSIC_WALTZ, ["waltz", "tango", "ballroom", "foxtrot"]),
+    (SERVO_MUSIC_CHILL, ["chill", "lofi", "lo-fi", "lo fi", "ambient", "relax", "mellow", "study", "calm", "sleep"]),
+    (SERVO_MUSIC_HYPE, ["hype", "edm", "electronic", "dance", "rave", "party", "upbeat", "electro", "techno", "house", "festival"]),
 ]
 
 _MUSIC_STYLE_EMOTION: dict[str, str] = {
-    "music_groove": EMO_HAPPY,
-    "music_jazz": EMO_HAPPY,
-    "music_classical": EMO_CURIOUS,
-    "music_hiphop": EMO_EXCITED,
-    "music_rock": EMO_EXCITED,
-    "music_waltz": EMO_HAPPY,
-    "music_chill": EMO_SLEEPY,
-    "music_hype": EMO_EXCITED,
+    SERVO_MUSIC_GROOVE: EMO_HAPPY,
+    SERVO_MUSIC_JAZZ: EMO_HAPPY,
+    SERVO_MUSIC_CLASSICAL: EMO_CURIOUS,
+    SERVO_MUSIC_HIPHOP: EMO_EXCITED,
+    SERVO_MUSIC_ROCK: EMO_EXCITED,
+    SERVO_MUSIC_WALTZ: EMO_HAPPY,
+    SERVO_MUSIC_CHILL: EMO_SLEEPY,
+    SERVO_MUSIC_HYPE: EMO_EXCITED,
 }
 
 
@@ -2831,7 +2839,7 @@ def _detect_music_style(query: str) -> str:
     for recording, keywords in _MUSIC_STYLE_KEYWORDS:
         if any(k in q for k in keywords):
             return recording
-    return "music_groove"
+    return SERVO_MUSIC_GROOVE
 
 
 @app.post("/audio/play", response_model=StatusResponse, tags=["Audio"])

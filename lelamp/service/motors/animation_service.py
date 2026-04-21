@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
-from lelamp.presets import EMO_IDLE, EMO_SLEEPY
+from lelamp.presets import EMO_SLEEPY, SERVO_IDLE, SERVO_MUSIC_GROOVE
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
 
 
 class AnimationService:
-    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = EMO_IDLE, hold_s: float = 0.0):
+    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = SERVO_IDLE, hold_s: float = 0.0):
         self.port = port
         self.lamp_id = lamp_id
         self.fps = fps
@@ -66,7 +66,7 @@ class AnimationService:
 
         # Music groove: loop while music is playing
         self._music_playing = False
-        self._music_recording = "music_groove"
+        self._music_recording = SERVO_MUSIC_GROOVE
 
         # Custom event handling
         self._running = threading.Event()
@@ -235,7 +235,7 @@ class AnimationService:
                         music_chill, music_hype.
                         Falls back to music_groove when None or unknown.
         """
-        self._music_recording = recording_name if recording_name else "music_groove"
+        self._music_recording = recording_name if recording_name else SERVO_MUSIC_GROOVE
         self._music_playing = True
         self._handle_play(self._music_recording)
 

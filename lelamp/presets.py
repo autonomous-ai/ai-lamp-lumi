@@ -33,6 +33,37 @@ AIM_UP = "up"
 AIM_DOWN = "down"
 AIM_USER = "user"
 
+# --- Servo recording name constants ---
+# Each maps to a CSV file under recordings/ (e.g. SERVO_CURIOUS → "curious" → curious.csv).
+SERVO_CURIOUS = "curious"
+SERVO_HAPPY_WIGGLE = "happy_wiggle"
+SERVO_SAD = "sad"
+SERVO_THINKING_DEEP = "thinking_deep"
+SERVO_IDLE = "idle"
+SERVO_EXCITED = "excited"
+SERVO_SHY = "shy"
+SERVO_SHOCK = "shock"
+SERVO_LISTENING = "listening"
+SERVO_LAUGH = "laugh"
+SERVO_CONFUSED = "confused"
+SERVO_SLEEPY = "sleepy"
+SERVO_GREETING = "greeting"
+SERVO_GOODBYE = "goodbye"
+SERVO_NOD = "nod"
+SERVO_ACKNOWLEDGE = "acknowledge"
+SERVO_STRETCHING = "stretching"
+SERVO_SCANNING = "scanning"
+SERVO_HEADSHAKE = "headshake"
+SERVO_WAKE_UP = "wake_up"
+SERVO_MUSIC_GROOVE = "music_groove"
+SERVO_MUSIC_JAZZ = "music_jazz"
+SERVO_MUSIC_CLASSICAL = "music_classical"
+SERVO_MUSIC_HIPHOP = "music_hiphop"
+SERVO_MUSIC_ROCK = "music_rock"
+SERVO_MUSIC_WALTZ = "music_waltz"
+SERVO_MUSIC_CHILL = "music_chill"
+SERVO_MUSIC_HYPE = "music_hype"
+
 # --- Emotion name constants ---
 # Used as keys in EMOTION_PRESETS and for comparisons across the codebase.
 # The string values are part of the HTTP API contract (SKILL.md).
@@ -66,28 +97,28 @@ EMO_HEADSHAKE = "headshake"
 # "camera": "on"  = auto-enable camera if off (active interaction, need vision)
 # omitted         = no camera change
 EMOTION_PRESETS = {
-    EMO_CURIOUS:       {"servo": "curious",       "color": [255, 191, 0],   "effect": FX_BREATHING,          "speed": 1.0, "camera": "on"},
-    EMO_HAPPY:         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": FX_CANDLE,             "speed": 1.0, "camera": "on"},
-    EMO_SAD:           {"servo": "sad",           "color": [80, 80, 200],   "effect": FX_BREATHING,          "speed": 0.8, "camera": "on"},
-    EMO_THINKING:      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": FX_PULSE,              "speed": 0.5, "camera": "on"},
-    EMO_IDLE:          {"servo": "idle",          "color": [183, 235, 234], "effect": FX_BREATHING,          "speed": 0.8},
-    EMO_EXCITED:       {"servo": "excited",       "color": [230, 51, 230],  "effect": FX_BLINK,              "speed": 2.5, "camera": "on"},
-    EMO_SHY:           {"servo": "shy",           "color": [255, 150, 180], "effect": FX_BLINK,              "speed": 0.5, "camera": "on"},
-    EMO_SHOCK:         {"servo": "shock",         "color": [255, 255, 255], "effect": FX_NOTIFICATION_FLASH, "speed": 2.0, "camera": "on"},
-    EMO_LISTENING:     {"servo": "listening",     "color": [51, 121, 230],  "effect": FX_PULSE,              "speed": 0.6, "camera": "on"},
-    EMO_LAUGH:         {"servo": "laugh",         "color": [230, 191, 51],  "effect": FX_BLINK,              "speed": 1.2, "camera": "on"},
-    EMO_CONFUSED:      {"servo": "confused",      "color": [224, 71, 25],   "effect": FX_CANDLE,             "speed": 0.6, "camera": "on"},
-    EMO_SLEEPY:        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": FX_BREATHING,          "speed": 0.5, "camera": "off"},
-    EMO_GREETING:      {"servo": "greeting",      "color": [255, 180, 100], "effect": FX_BLINK,              "speed": 0.8, "camera": "on"},
-    EMO_GOODBYE:       {"servo": "goodbye",       "color": [255, 180, 100], "effect": FX_BREATHING,          "speed": 0.5},
-    EMO_CARING:        {"servo": "nod",           "color": [255, 160, 120], "effect": FX_BREATHING,          "speed": 0.4, "camera": "on"},
-    EMO_ACKNOWLEDGE:   {"servo": "acknowledge",   "color": [51, 230, 141],  "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
-    EMO_STRETCHING:    {"servo": "stretching",    "color": [245, 240, 230], "effect": FX_BREATHING,          "speed": 0.6, "camera": "on"},
-    EMO_MUSIC_STRONG:  {"servo": "music_rock",    "color": [155, 221, 155], "effect": FX_RAINBOW,            "speed": 1.5},
-    EMO_MUSIC_CHILL:   {"servo": "music_rock",    "color": [252, 136, 3],   "effect": FX_BREATHING,          "speed": 0.5},
-    EMO_SCAN:          {"servo": "scanning",      "color": [36, 184, 224],  "effect": FX_PULSE,              "speed": 1.0, "camera": "on"},
-    EMO_NOD:           {"servo": "nod",           "color": [51, 230, 141],  "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
-    EMO_HEADSHAKE:     {"servo": "headshake",     "color": [230, 51, 51],   "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
+    EMO_CURIOUS:       {"servo": SERVO_CURIOUS,       "color": [255, 191, 0],   "effect": FX_BREATHING,          "speed": 1.0, "camera": "on"},
+    EMO_HAPPY:         {"servo": SERVO_HAPPY_WIGGLE,  "color": [255, 220, 0],   "effect": FX_CANDLE,             "speed": 1.0, "camera": "on"},
+    EMO_SAD:           {"servo": SERVO_SAD,           "color": [80, 80, 200],   "effect": FX_BREATHING,          "speed": 0.8, "camera": "on"},
+    EMO_THINKING:      {"servo": SERVO_THINKING_DEEP, "color": [180, 100, 255], "effect": FX_PULSE,              "speed": 0.5, "camera": "on"},
+    EMO_IDLE:          {"servo": SERVO_IDLE,          "color": [183, 235, 234], "effect": FX_BREATHING,          "speed": 0.8},
+    EMO_EXCITED:       {"servo": SERVO_EXCITED,       "color": [230, 51, 230],  "effect": FX_BLINK,              "speed": 2.5, "camera": "on"},
+    EMO_SHY:           {"servo": SERVO_SHY,           "color": [255, 150, 180], "effect": FX_BLINK,              "speed": 0.5, "camera": "on"},
+    EMO_SHOCK:         {"servo": SERVO_SHOCK,         "color": [255, 255, 255], "effect": FX_NOTIFICATION_FLASH, "speed": 2.0, "camera": "on"},
+    EMO_LISTENING:     {"servo": SERVO_LISTENING,     "color": [51, 121, 230],  "effect": FX_PULSE,              "speed": 0.6, "camera": "on"},
+    EMO_LAUGH:         {"servo": SERVO_LAUGH,         "color": [230, 191, 51],  "effect": FX_BLINK,              "speed": 1.2, "camera": "on"},
+    EMO_CONFUSED:      {"servo": SERVO_CONFUSED,      "color": [224, 71, 25],   "effect": FX_CANDLE,             "speed": 0.6, "camera": "on"},
+    EMO_SLEEPY:        {"servo": SERVO_SLEEPY,        "color": [60, 40, 120],   "effect": FX_BREATHING,          "speed": 0.5, "camera": "off"},
+    EMO_GREETING:      {"servo": SERVO_GREETING,      "color": [255, 180, 100], "effect": FX_BLINK,              "speed": 0.8, "camera": "on"},
+    EMO_GOODBYE:       {"servo": SERVO_GOODBYE,       "color": [255, 180, 100], "effect": FX_BREATHING,          "speed": 0.5},
+    EMO_CARING:        {"servo": SERVO_NOD,           "color": [255, 160, 120], "effect": FX_BREATHING,          "speed": 0.4, "camera": "on"},
+    EMO_ACKNOWLEDGE:   {"servo": SERVO_ACKNOWLEDGE,   "color": [51, 230, 141],  "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
+    EMO_STRETCHING:    {"servo": SERVO_STRETCHING,    "color": [245, 240, 230], "effect": FX_BREATHING,          "speed": 0.6, "camera": "on"},
+    EMO_MUSIC_STRONG:  {"servo": SERVO_MUSIC_ROCK,    "color": [155, 221, 155], "effect": FX_RAINBOW,            "speed": 1.5},
+    EMO_MUSIC_CHILL:   {"servo": SERVO_MUSIC_ROCK,    "color": [252, 136, 3],   "effect": FX_BREATHING,          "speed": 0.5},
+    EMO_SCAN:          {"servo": SERVO_SCANNING,      "color": [36, 184, 224],  "effect": FX_PULSE,              "speed": 1.0, "camera": "on"},
+    EMO_NOD:           {"servo": SERVO_NOD,           "color": [51, 230, 141],  "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
+    EMO_HEADSHAKE:     {"servo": SERVO_HEADSHAKE,     "color": [230, 51, 51],   "effect": FX_BLINK,              "speed": 1.0, "camera": "on"},
 }
 
 # Lighting scene presets — simulated color temperature via RGB mixing.

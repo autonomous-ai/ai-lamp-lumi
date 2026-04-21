@@ -15,7 +15,7 @@ from livekit.plugins import (
     noise_cancellation,
 )
 from typing import Union
-from lelamp.presets import EMO_IDLE
+from lelamp.presets import SERVO_IDLE, SERVO_WAKE_UP
 from lelamp.service.motors.animation_service import AnimationService
 from lelamp.service.rgb.rgb_service import RGBService
 
@@ -48,7 +48,7 @@ Demo rules:
             lamp_id=lamp_id,
             fps=30,
             duration=3.0,
-            idle_recording=EMO_IDLE
+            idle_recording=SERVO_IDLE
         )
         self.rgb_service = RGBService(
             led_count=40,
@@ -65,7 +65,7 @@ Demo rules:
         self.rgb_service.start()
 
         # Trigger wake up animation via animation service
-        self.animation_service.dispatch("play", "wake_up")
+        self.animation_service.dispatch("play", SERVO_WAKE_UP)
         self.rgb_service.dispatch("solid", (255, 255, 255))
         self._set_system_volume(100)
 
