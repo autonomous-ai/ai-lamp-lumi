@@ -5,6 +5,8 @@ description: Maps a detected user facial emotion (from emotion.detected events) 
 
 # User Emotion Detection
 
+> **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST fire a `POST /api/mood/log` tool call for this event. Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no tool_call fires this turn, the skill failed. Every `emotion.detected` event = at least one `POST /api/mood/log` call. No exceptions, no skips, no "already logged recently" reasoning.
+
 > **This skill is silent.** It only logs mood data — no spoken reply needed. All steps stay in `thinking`. If you want to speak, follow normal sensing reply rules. NEVER narrate mood logging, mapping, or workflow steps in the reply.
 
 ## What this skill does
@@ -42,7 +44,15 @@ Emotion detected: <EmotionName>.
 ## Workflow
 
 1. Parse the detected emotion from the message.
-2. POST a mood signal via the Mood skill: `POST /api/mood/log` with `kind=signal`, `source=camera`, `trigger=<EmotionName lowercase>`, `mood=<mapped>`, `user=<current_user from context tag>`. Every detected emotion in the table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis.
+2. **Fire this tool call immediately — do not paraphrase it in `thinking`:**
+
+   ```bash
+   curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+     -H 'Content-Type: application/json' \
+     -d '{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped>","user":"<current_user>"}'
+   ```
+
+   Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no tool_call fires this turn, the skill failed.
 3. **You must now continue the Mood skill's full workflow yourself — it does not run itself.** Read `mood/SKILL.md` if you haven't this turn, then:
    - Step 2 (Mood): GET recent mood history.
    - Step 3 (Mood): decide the fused mood.
