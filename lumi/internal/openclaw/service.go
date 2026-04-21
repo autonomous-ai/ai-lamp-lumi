@@ -93,12 +93,21 @@ type Service struct {
 	webChatRunsMu sync.Mutex
 	webChatRuns   map[string]bool
 
-	// pendingChatTrace stores the idempotencyKey of the most recent chat.send.
-	// Used by SSE handler to map OpenClaw UUID → device trace on lifecycle_start,
-	// replacing the race-prone global flow.GetTrace().
-	pendingChatMu      sync.Mutex
-	pendingChatTrace   string
-	pendingChatTraceAt time.Time
+	// pendingChatQueue is a FIFO of idempotencyKeys from outbound chat.sends
+	// that have not yet been paired with an OpenClaw lifecycle_start. Using a
+	// queue (not a single slot) prevents later sends from overwriting earlier
+	// ones when chat.send bursts arrive faster than the agent processes them —
+	// otherwise lifecycle_start pops the wrong key and every subsequent turn
+	// response gets attributed to the wrong runId.
+	pendingChatMu    sync.Mutex
+	pendingChatQueue []pendingTrace
+}
+
+// pendingTrace pairs a chat.send idempotencyKey with its send time.
+// Entries live in SetPendingChatTrace / ConsumePendingChatTrace in FIFO order.
+type pendingTrace struct {
+	runID  string
+	sentAt time.Time
 }
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -1683,26 +1692,39 @@ func (s *Service) ConsumeWebChatRun(runID string) bool {
 	return ok
 }
 
-// SetPendingChatTrace stores the idempotencyKey after a successful chat.send.
+// pendingChatTTL bounds how long an unclaimed pending trace stays in the queue.
+// Longer than any realistic chat.send → lifecycle_start gap; short enough to
+// recover automatically if OpenClaw drops a lifecycle event.
+const pendingChatTTL = 2 * time.Minute
+
+// SetPendingChatTrace appends an idempotencyKey to the FIFO queue after a
+// successful chat.send. Paired one-to-one with lifecycle_start via
+// ConsumePendingChatTrace so OpenClaw's UUID maps back to the correct
+// device runId even under burst sends on the same session lane.
 func (s *Service) SetPendingChatTrace(runID string) {
 	s.pendingChatMu.Lock()
-	s.pendingChatTrace = runID
-	s.pendingChatTraceAt = time.Now()
+	s.pendingChatQueue = append(s.pendingChatQueue, pendingTrace{
+		runID:  runID,
+		sentAt: time.Now(),
+	})
 	s.pendingChatMu.Unlock()
 }
 
-// ConsumePendingChatTrace returns and clears the pending chat trace. One-shot.
-// Returns "" if no pending chat or expired (>2 min).
+// ConsumePendingChatTrace pops the head of the pending queue, dropping any
+// stale entries (> pendingChatTTL) from the head first. Returns "" when the
+// queue is empty.
 func (s *Service) ConsumePendingChatTrace() string {
 	s.pendingChatMu.Lock()
 	defer s.pendingChatMu.Unlock()
-	if s.pendingChatTrace == "" || time.Since(s.pendingChatTraceAt) > 2*time.Minute {
-		s.pendingChatTrace = ""
+	for len(s.pendingChatQueue) > 0 && time.Since(s.pendingChatQueue[0].sentAt) > pendingChatTTL {
+		s.pendingChatQueue = s.pendingChatQueue[1:]
+	}
+	if len(s.pendingChatQueue) == 0 {
 		return ""
 	}
-	trace := s.pendingChatTrace
-	s.pendingChatTrace = ""
-	return trace
+	head := s.pendingChatQueue[0]
+	s.pendingChatQueue = s.pendingChatQueue[1:]
+	return head.runID
 }
 
 // --- Channel abstraction (backend-agnostic) ---
