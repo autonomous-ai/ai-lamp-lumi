@@ -160,6 +160,7 @@ export default function Monitor() {
   const [speakerMuted, setSpeakerMuted] = useState(false);
   const [ledColor, setLedColor] = useState<LEDColor | null>(null);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
+  const [sensingState, setSensingState] = useState<any>(null);
   const [lelampVersion, setLelampVersion] = useState<string | null>(null);
   const [events, setEvents] = useState<DisplayEvent[]>([]);
   const [displayTs, setDisplayTs] = useState(0);
@@ -239,14 +240,16 @@ export default function Monitor() {
         } catch {}
 
         try {
-          const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
+          const [voiceR, servoR, dispR, audioR, musicR, ledR, sensingR] = await Promise.all([
             fetch(`${HW}/voice/status`).then((r) => r.json()),
             fetch(`${HW}/servo`).then((r) => r.json()),
             fetch(`${HW}/display`).then((r) => r.json()),
             fetch(`${HW}/audio/volume`).then((r) => r.json()),
             fetch(`${HW}/audio/status`).then((r) => r.json()),
             fetch(`${HW}/led/color`).then((r) => r.json()),
+            fetch(`${HW}/sensing`).then((r) => r.json()).catch(() => null),
           ]);
+          if (sensingR) setSensingState(sensingR);
           setVoice(voiceR);
           setServo(servoR);
           setDisplayState(dispR);
@@ -381,6 +384,7 @@ export default function Monitor() {
               speakerMuted={speakerMuted}
               ledColor={ledColor}
               sceneInfo={sceneInfo}
+              sensingState={sensingState}
               onSceneActivate={(scene) => {
                 fetch(`${HW}/scene`, {
                   method: "POST",

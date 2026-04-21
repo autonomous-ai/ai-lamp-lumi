@@ -70,6 +70,12 @@ class RemoteEmotionChecker:
         sorted by confidence descending. Returns None if unavailable,
         [] if no faces or no emotion above threshold.
         """
+        # Auto-reconnect if session was lost
+        if self._ws_session is None:
+            self._prepare_session()
+            if self._ws_session is not None:
+                logger.info("[%s] reconnected to %s", self.__class__.__name__, self._base_url)
+
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
@@ -79,7 +85,6 @@ class RemoteEmotionChecker:
                 )
                 resp = json.loads(self._ws_session.recv())
                 detections = resp.get("detections", [])
-                # Each detection: {"emotion": str, "confidence": float, "bbox": [x,y,w,h]}
                 results = [
                     (d["emotion"], d["confidence"])
                     for d in detections
@@ -87,7 +92,7 @@ class RemoteEmotionChecker:
                 ]
                 return sorted(results, key=lambda x: x[1], reverse=True)
             except ConnectionClosedError:
-                logger.warning("[%s] connection closed", self.__class__.__name__)
+                logger.warning("[%s] connection lost, will retry on next tick", self.__class__.__name__)
                 self._ws_session = None
 
         return None
@@ -224,6 +229,7 @@ class EmotionPerception(Perception):
         )
         return {
             "type": "emotion",
+            "connected": self._checker._ws_session is not None,
             "last_emotion": self._last_emotion,
             "buffered_emotions": len(self._emotion_buffer),
             "emotion_detected": self._last_detection_time is not None,
