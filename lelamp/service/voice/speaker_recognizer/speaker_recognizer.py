@@ -319,6 +319,7 @@ class SpeakerRecognizer:
         if not audios_b64:
             raise SpeakerRecognizerError("no audio to embed")
 
+        logger.info("Calling embedding API with %d audios at %s", len(audios_b64), self._api_url)
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["X-API-Key"] = self._api_key
@@ -331,11 +332,16 @@ class SpeakerRecognizer:
                 timeout=_API_TIMEOUT_S,
             )
         except requests.RequestException as e:
+            logger.warning("Embedding server unreachable at %s: %s", self._api_url, e)
             raise SpeakerRecognizerError(
                 f"embedding API unreachable: {e}"
             ) from e
 
         if resp.status_code != 200:
+            logger.warning(
+                "Embedding server returned HTTP %d: %s",
+                resp.status_code, resp.text[:120],
+            )
             raise SpeakerRecognizerError(
                 f"embedding API error {resp.status_code}: {resp.text[:200]}"
             )
@@ -679,6 +685,7 @@ class SpeakerRecognizer:
         saved_path = self._save_incoming_audio(wav_bytes)
 
         if not self.available:
+            logger.warning("Embedding server not configured — set SPEAKER_EMBEDDING_API_URL or DL_BACKEND_URL")
             return {
                 "name": "unknown",
                 "confidence": 0.0,
