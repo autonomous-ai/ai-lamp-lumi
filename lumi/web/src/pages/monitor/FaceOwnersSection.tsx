@@ -448,6 +448,18 @@ export function FaceOwnersSection() {
                       {person.audio_history_days.length} audio history day{person.audio_history_days.length !== 1 ? "s" : ""}
                     </span>
                   )}
+                  {person.voice_samples && person.voice_samples.length > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 4,
+                      background: "rgba(168,85,247,0.15)",
+                      color: "rgb(168,85,247)",
+                      fontWeight: 600,
+                    }}>
+                      🎤 {person.voice_samples.length} voice sample{person.voice_samples.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
                   <button
                     onClick={() => handleRemove(person.label)}
                     disabled={deleting === person.label}
@@ -488,6 +500,9 @@ export function FaceOwnersSection() {
                   }
                   if (person.audio_history_days && person.audio_history_days.length > 0) {
                     items.push({ name: "audio_history", isDir: true, dirKey: `${person.label}:audio_history`, children: person.audio_history_days.map((d) => `${d}.jsonl`) });
+                  }
+                  if (person.voice_samples && person.voice_samples.length > 0) {
+                    items.push({ name: "voice", isDir: true, dirKey: `${person.label}:voice`, children: person.voice_samples });
                   }
                   return items.map((item, i) => {
                     const isLastTop = i === items.length - 1;
