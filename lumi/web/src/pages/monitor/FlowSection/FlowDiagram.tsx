@@ -158,10 +158,10 @@ export function FlowDiagram({
 
   const nodeInfo = extractNodeInfo(turnEvents);
 
-  // Extract snapshot URLs from agent_call lines
+  // Extract snapshot URLs from agent_call lines (🖼 added by helpers.ts from sensing_input or chat_send).
   const snapshotUrls: string[] = (nodeInfo.agent_call ?? [])
     .filter((l) => l.startsWith("🖼"))
-    .map((l) => l.match(/snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\s]+\.jpg)/)?.[1])
+    .map((l) => l.match(/snapshot:\s*(?:\/tmp\/lumi-(?:sensing|emotion)-snapshots|\/var\/log\/lumi\/snapshots)\/((?:sensing|emotion)_[^\s]+\.jpg)/)?.[1])
     .filter((f): f is string => !!f)
     .map((f) => `/api/sensing/snapshot/${f}`);
 
