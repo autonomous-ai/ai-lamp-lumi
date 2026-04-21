@@ -15,6 +15,7 @@ from livekit.plugins import (
     noise_cancellation,
 )
 from typing import Union
+from lelamp.presets import EMO_IDLE
 from lelamp.service.motors.animation_service import AnimationService
 from lelamp.service.rgb.rgb_service import RGBService
 
@@ -47,7 +48,7 @@ Demo rules:
             lamp_id=lamp_id,
             fps=30,
             duration=3.0,
-            idle_recording="idle"
+            idle_recording=EMO_IDLE
         )
         self.rgb_service = RGBService(
             led_count=40,
