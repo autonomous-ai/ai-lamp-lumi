@@ -644,7 +644,7 @@ export function ChatSection({ events }: Props) {
       if (!evRunId || evRunId !== pending) continue;
 
       const d = ev.detail as Record<string, any> | undefined;
-      if (ev.type === "flow_event" && d?.node === "tts_send") {
+      if (ev.type === "flow_event" && (d?.node === "tts_send" || d?.node === "tts_suppressed")) {
         const text: string = d?.data?.text ?? d?.text ?? "";
         if (text) {
           resolvedIds.current.add(pending);

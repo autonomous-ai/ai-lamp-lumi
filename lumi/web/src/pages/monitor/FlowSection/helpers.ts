@@ -44,7 +44,7 @@ export function turnHasOutput(turn: Turn): boolean {
   return turn.events.some((ev) =>
     ev.type === "tts" ||
     ev.type === "intent_match" ||
-    (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "intent_match")),
+    (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed" || ev.detail?.node === "intent_match")),
   );
 }
 
@@ -346,7 +346,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
-    if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "no_reply")) {
+    if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed" || ev.detail?.node === "no_reply")) {
       current.status = "done";
       current.endTime = ev.time;
     }
@@ -651,11 +651,13 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         info.agent_response.push(`❌ ${dataErr}`);
       }
     }
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+    if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       const d = ev.detail as Record<string, any> | undefined;
       const text = d?.data?.text ?? d?.text ?? "";
+      const isSuppressed = ev.type === "flow_event" && d?.node === "tts_suppressed";
+      const label = isSuppressed ? "💬" : "🔊";
       if (text && info.tts_speak.length < 2) {
-        info.tts_speak.push(`🔊 "${text}"`);
+        info.tts_speak.push(`${label} "${text}"`);
       }
       if (text && !info.agent_response.some((l) => l.startsWith('"'))) {
         info.agent_response.push(`"${text}"`);
@@ -757,7 +759,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         pushUnique(info.lumi_gate, `🎵 → audio ${path}`);
       }
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "tts_send") {
+    if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")) {
       pushUnique(info.lumi_gate, "🔊 → TTS");
     }
     if (ev.type === "flow_event" && ev.detail?.node === "tts_suppressed") {
@@ -822,7 +824,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       nLifecycleEndTs = ts;
     }
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+    if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!nTtsTs) nTtsTs = ts;
     }
     const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
@@ -951,7 +953,7 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       lifecycleEndTs = ts;
     }
-    if (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send")) {
+    if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!ttsTs) ttsTs = ts;
     }
     const isToolCall = ev.type === "tool_call" || (ev.type === "flow_event" && ev.detail?.node === "tool_call");
@@ -1110,7 +1112,7 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
         }
       }
     }
-    if (!outputFromIntent && sameRun && (ev.type === "tts" || (ev.type === "flow_event" && ev.detail?.node === "tts_send"))) {
+    if (!outputFromIntent && sameRun && (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")))) {
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.data?.text ?? d?.text ?? ev.summary ?? output;
     }
