@@ -102,7 +102,7 @@ curl -s -X POST http://127.0.0.1:5001/presence/enable
 | Type | Prefix | What it means | Includes image? |
 |---|---|---|---|
 | `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Physical activity detected while user is present. Message has `Activity detected:` line (groups: `sedentary`, `drink`, `break`). Emotional state arrives on its own `emotion.detected` event instead. | No |
+| `motion.activity` | `[sensing:motion.activity]` | Physical activity detected while user is present. Message has `Activity detected:` line with **raw Kinetics labels** (e.g. `using computer, drinking`). Agent maps each to a bucket (`drink`/`break`/`sedentary`) per wellbeing SKILL. Emotional state arrives on its own `emotion.detected` event instead. | No |
 | `emotion.detected` | `[sensing:emotion.detected]` | Facial-emotion classifier ran — message: `Emotion detected: <EmotionName> (N/M frames).` Handled by `user-emotion-detection/SKILL.md` → maps to a mood signal via Mood skill. | No |
 | `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
 | `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
@@ -130,7 +130,7 @@ This is automatic — you do NOT need to manage it. If the user says "don't turn
 - **Always respond to presence.enter** — MUST emit emotion marker AND respond with text. Behavior differs by person type:
   - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
   - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
-- **motion.activity is event-driven (NO cron)** — log each Activity group (drink/break/sedentary) via Wellbeing skill, then read recent history and decide whether to nudge based on thresholds. `sedentary` also triggers Music skill's sedentary suggestion flow. There are no wellbeing or music cron jobs; the log entries themselves gate everything.
+- **motion.activity is event-driven (NO cron)** — the `Activity detected:` line lists raw Kinetics labels. Map each to its bucket (drink/break/sedentary) using the Wellbeing SKILL's "Raw label → bucket" table, log each distinct bucket, then read recent history and decide whether to nudge based on thresholds. If any sedentary label is present, also trigger the Music skill's sedentary suggestion flow. There are no wellbeing or music cron jobs; the log entries themselves gate everything.
 - **presence.leave / presence.away — nothing to cancel** — backend writes a `leave` marker to the wellbeing log automatically. No crons exist to clean up. Reply NO_REPLY unless there's something caring to say.
 - **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
 - **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
@@ -223,21 +223,22 @@ When the user is present and the camera detects movement, a `[sensing:motion.act
 
 **`[sensing:motion.activity]`** — fires when physical activity detected while PRESENT. Message has:
 
-- `Activity detected: <groups>.` — one or more of `sedentary`, `drink`, `break` (comma-separated), followed by the trailing hint `If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: <raw labels>.` — one or more raw Kinetics labels (e.g. `using computer`, `drinking`, `eating burger`), comma-separated, followed by the trailing hint `If nothing noteworthy, reply NO_REPLY.`
 
 Emotional state is **not** carried here — facial emotion arrives on its own `[sensing:emotion.detected]` event (handled by `user-emotion-detection/SKILL.md` → maps to a mood signal).
 
 Examples:
-- `Activity detected: drink, sedentary. If nothing noteworthy, reply NO_REPLY.`
-- `Activity detected: break. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: drinking, using computer. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: eating burger. If nothing noteworthy, reply NO_REPLY.`
+- `Activity detected: writing, reading book. If nothing noteworthy, reply NO_REPLY.`
 
 Handling:
-1. From `Activity detected:` groups:
-   - `sedentary` → **Wellbeing** skill (event-driven nudge check) + **Music** skill sedentary suggestion flow (check audio status, suggest background music if appropriate, log suggestion).
-   - `drink` → **Wellbeing** skill (logs a `drink` entry, resets hydration delta).
-   - `break` → **Wellbeing** skill (logs a `break` entry, resets break delta).
+1. Map each raw label to its bucket using the Wellbeing SKILL's "Raw label → bucket" table:
+   - Any `sedentary` label (using computer, writing, texting, reading book/newspaper, drawing, playing controller) → **Wellbeing** skill (log `sedentary`, nudge check) + **Music** skill sedentary suggestion flow (check audio status, suggest background music if appropriate, log suggestion).
+   - Any `drink` label (drinking, tasting beer, opening bottle, making tea, …) → **Wellbeing** skill (logs a `drink` entry, resets hydration delta).
+   - Any `break` label (dining, eating*, stretching*, applauding, hugging, …) → **Wellbeing** skill (logs a `break` entry, resets break delta).
 2. If nothing noteworthy to say → reply NO_REPLY.
-3. Keep it natural and non-intrusive.
+3. Keep it natural and non-intrusive. Use the specific raw label to make the observation feel grounded — e.g. "Still on the computer?" feels better than the generic "Still sitting?".
 
 ### Guard mode
 When a friend returns (`[sensing:presence.enter]` with friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"

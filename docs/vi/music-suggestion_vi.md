@@ -46,9 +46,9 @@ Agent suggest nhạc → POST /api/music-suggestion/log
 ### 2. Activity Trigger (Sedentary) — không cần mood
 
 ```
-Camera detect "using computer" → [sensing:motion.activity] sedentary group
+Camera detect "using computer" → [sensing:motion.activity] raw label "using computer"
     ↓
-Sensing SKILL.md: sedentary → follow Music skill Flow B (sedentary)
+Sensing SKILL.md: raw label thuộc nhóm sedentary → follow Music skill Flow B (sedentary)
     ↓
 Agent check:
   ├── Audio đang play? (GET /audio/status) → skip nếu playing
