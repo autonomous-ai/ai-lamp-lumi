@@ -109,7 +109,7 @@ class RemoteMotionChecker:
 
         try:
             self._ws_session = connect(
-                self._base_url, additional_headers={"X-API-Key": self._api_key}
+                self._base_url.replace("http", "ws").replace("https", "wss"), additional_headers={"X-API-Key": self._api_key}
             )
             self._ws_session.send(
                 json.dumps(
