@@ -5,6 +5,8 @@ description: Handles passive sensing events from camera/mic — motion, presence
 
 # Sensing Events
 
+> **Reply is spoken VERBATIM.** ONE short sentence or NO_REPLY. All reasoning, threshold math, log lookups, and plan-talk stay in `thinking`. NEVER output lines like "mins_drink: 0.6", "No nudge needed", "Looking at context…", or "Need to…" in the reply.
+
 ## Quick Start
 Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
 
