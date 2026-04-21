@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"log"
+	"sync"
 
 	"tinygo.org/x/bluetooth"
 )
@@ -27,19 +27,52 @@ var (
 )
 
 // BLEServer manages the Nordic UART BLE GATT server.
+//
+// BlueZ dispatches D-Bus methods on separate goroutines — WriteEvent and
+// SetConnectHandler callbacks can fire concurrently — and ble.Send is called
+// from the HTTP server too. Serialization:
+//   - rxMu   guards rxBuf accumulation / line extraction.
+//   - sendMu guards txChar writes.
+//   - A single processor goroutine drains msgCh and evtCh, calling onMessage
+//     and onConnect sequentially so the transfer state they touch is race-free.
 type BLEServer struct {
+	rxMu       sync.Mutex
+	sendMu     sync.Mutex
 	deviceName string
 	txChar     bluetooth.Characteristic
 	onMessage  func([]byte)
 	onConnect  func(connected bool)
 	rxBuf      bytes.Buffer
+	msgCh      chan []byte
+	evtCh      chan bool
 }
 
 func NewBLEServer(deviceName string, onMessage func([]byte), onConnect func(connected bool)) *BLEServer {
-	return &BLEServer{
+	s := &BLEServer{
 		deviceName: deviceName,
 		onMessage:  onMessage,
 		onConnect:  onConnect,
+		msgCh:      make(chan []byte, 64),
+		evtCh:      make(chan bool, 4),
+	}
+	go s.processor()
+	return s
+}
+
+// processor serializes user callbacks. Running in one goroutine means
+// onMessage and onConnect never race on the shared transfer state.
+func (s *BLEServer) processor() {
+	for {
+		select {
+		case line := <-s.msgCh:
+			if s.onMessage != nil {
+				s.onMessage(line)
+			}
+		case connected := <-s.evtCh:
+			if s.onConnect != nil {
+				s.onConnect(connected)
+			}
+		}
 	}
 }
 
@@ -50,19 +83,21 @@ func (s *BLEServer) Start() error {
 		return err
 	}
 
-	// Set connect/disconnect handler
+	// Reset the RX buffer on disconnect so a leftover partial line from the
+	// prior session doesn't corrupt the next. Connection state is forwarded
+	// to the processor goroutine so onConnect runs serially with onMessage.
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
 		if connected {
 			log.Println("[ble] device connected")
 		} else {
 			log.Println("[ble] device disconnected")
+			s.rxMu.Lock()
+			s.rxBuf.Reset()
+			s.rxMu.Unlock()
 		}
-		if s.onConnect != nil {
-			s.onConnect(connected)
-		}
+		s.evtCh <- connected
 	})
 
-	// Add Nordic UART Service
 	err := adapter.AddService(&bluetooth.Service{
 		UUID: nusServiceUUID,
 		Characteristics: []bluetooth.CharacteristicConfig{
@@ -97,40 +132,48 @@ func (s *BLEServer) Start() error {
 	return adv.Start()
 }
 
-// handleRX accumulates incoming bytes and dispatches complete JSON lines.
+// handleRX accumulates incoming bytes and forwards each complete
+// newline-terminated line to the processor goroutine. Partial data stays in
+// rxBuf until the terminating '\n' arrives in a later write. rxMu keeps
+// concurrent WriteValue dispatches from racing on the buffer.
 func (s *BLEServer) handleRX(data []byte) {
+	s.rxMu.Lock()
 	s.rxBuf.Write(data)
 
-	scanner := bufio.NewScanner(bytes.NewReader(s.rxBuf.Bytes()))
-	var consumed int
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		consumed += len(line) + 1
-		if len(line) == 0 {
-			continue
+	var lines [][]byte
+	for {
+		buf := s.rxBuf.Bytes()
+		idx := bytes.IndexByte(buf, '\n')
+		if idx < 0 {
+			break
 		}
-		msg := make([]byte, len(line))
-		copy(msg, line)
-		if s.onMessage != nil {
-			s.onMessage(msg)
+		if idx > 0 {
+			line := make([]byte, idx)
+			copy(line, buf[:idx])
+			lines = append(lines, line)
 		}
+		s.rxBuf.Next(idx + 1)
 	}
+	s.rxMu.Unlock()
 
-	remaining := s.rxBuf.Bytes()[consumed:]
-	s.rxBuf.Reset()
-	if len(remaining) > 0 {
-		s.rxBuf.Write(remaining)
+	for _, line := range lines {
+		s.msgCh <- line
 	}
 }
 
 // Send writes a JSON line to the TX characteristic (Device → Desktop).
-// BLE MTU is typically 20 bytes, so we chunk if needed.
+// We chunk at 180 bytes — safely under the macOS-negotiated MTU (~185) so a
+// typical ack fits in one notification and Claude Desktop never has to
+// reassemble a fragmented reply. sendMu serializes writes across the
+// processor goroutine and HTTP approval handlers.
 func (s *BLEServer) Send(data []byte) error {
-	const mtu = 20
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	const maxNotify = 180
 	for len(data) > 0 {
 		chunk := data
-		if len(chunk) > mtu {
-			chunk = data[:mtu]
+		if len(chunk) > maxNotify {
+			chunk = data[:maxNotify]
 		}
 		if _, err := s.txChar.Write(chunk); err != nil {
 			return err
