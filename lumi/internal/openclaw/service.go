@@ -30,6 +30,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/lelamp"
+	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -102,10 +103,11 @@ type Service struct {
 
 // pendingEvent is a sensing event buffered while the agent was busy.
 type pendingEvent struct {
-	eventType string
-	msg       string
-	image     string
-	queuedAt  time.Time
+	eventType   string
+	msg         string
+	image       string
+	queuedAt    time.Time
+	currentUser string // snapshot at queue time — may differ from replay time
 }
 
 // ProvideService constructs the openclaw service.
@@ -189,8 +191,12 @@ func (s *Service) SetBusy(busy bool) {
 // All events are appended — motion/presence must not be missed.
 func (s *Service) QueuePendingEvent(eventType, msg, image string) {
 	now := time.Now()
+	curUser := mood.CurrentUser()
+	if curUser == "" {
+		curUser = "unknown"
+	}
 	s.pendingEventsMu.Lock()
-	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image, queuedAt: now})
+	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image, queuedAt: now, currentUser: curUser})
 	s.pendingEventsMu.Unlock()
 	slog.Info("sensing event queued — agent busy", "component", "sensing", "type", eventType)
 
@@ -244,8 +250,10 @@ func (s *Service) drainPendingEvents() {
 			case "presence.leave", "presence.away":
 				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
+				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
 			case "emotion.detected":
+				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 			}
 		}
