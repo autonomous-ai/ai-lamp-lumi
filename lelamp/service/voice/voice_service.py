@@ -665,15 +665,18 @@ class VoiceService:
 
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
+            audio_path = result.get("unknown_audio_path", "")
             if result.get("match") and name and name != "unknown":
                 # Prefer the display_name field (preserves original casing like
                 # "McDonald" or "chloe_92") — fallback to capitalize() of the
                 # normalized label only when the field is absent.
                 display = result.get("display_name") or name.capitalize()
-                logger.info("Speaker ID: %s (confidence=%.2f)", name, confidence)
+                logger.info(
+                    "Speaker ID: %s (confidence=%.2f, audio=%s)",
+                    name, confidence, audio_path or "-",
+                )
                 return f"{display}: {transcript}"
 
-            audio_path = result.get("unknown_audio_path", "")
             logger.info(
                 "Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path
             )
@@ -702,11 +705,11 @@ class VoiceService:
                         break
                 command_text = cmd or best
                 final_msg = _identify_and_decorate(command_text)
-                logger.info("STT COMMAND: '%s' (wake word detected)", final_msg)
+                logger.info("Final message → Lumi (voice_command): %r", final_msg)
                 self._send_to_lumi(final_msg, event_type="voice_command")
             else:
                 final_msg = _identify_and_decorate(best)
-                logger.info("STT ambient: '%s'", final_msg)
+                logger.info("Final message → Lumi (voice): %r", final_msg)
                 self._send_to_lumi(final_msg, event_type="voice")
 
         def on_transcript(text: str, is_final: bool):
