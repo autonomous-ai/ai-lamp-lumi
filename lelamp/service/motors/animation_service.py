@@ -5,6 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
+from lelamp.presets import EMO_IDLE, EMO_SLEEPY
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ STARTUP_MOVE_DURATION = 5.0
 
 # Recordings that hold final pose instead of returning to idle
 # (e.g. sleepy — lamp stays still until woken by presence/wake-word)
-NO_IDLE_RECORDINGS = {"sleepy"}
+NO_IDLE_RECORDINGS = {EMO_SLEEPY}
 
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
@@ -41,7 +42,7 @@ def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
 
 
 class AnimationService:
-    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle", hold_s: float = 0.0):
+    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = EMO_IDLE, hold_s: float = 0.0):
         self.port = port
         self.lamp_id = lamp_id
         self.fps = fps
