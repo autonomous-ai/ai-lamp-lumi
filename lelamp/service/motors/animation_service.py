@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
-from lelamp.presets import EMO_SLEEPY, SERVO_IDLE, SERVO_MUSIC_GROOVE
+from lelamp.presets import EMO_SLEEPY, SERVO_CMD_PLAY, SERVO_CMD_MUSIC_START, SERVO_CMD_MUSIC_STOP, SERVO_IDLE, SERVO_MUSIC_GROOVE
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ class AnimationService:
         self._event_thread.start()
 
         # Auto-play idle (same as upstream) so lamp moves immediately after boot
-        self.dispatch("play", self.idle_recording)
+        self.dispatch(SERVO_CMD_PLAY, self.idle_recording)
 
     def stop(self, timeout: float = 5.0):
         # Stop event processing
@@ -218,11 +218,11 @@ class AnimationService:
                 time.sleep(1.0 / self.fps)  # full FPS for active animations
     
     def handle_event(self, event_type: str, payload: Any):
-        if event_type == "play":
+        if event_type == SERVO_CMD_PLAY:
             self._handle_play(payload)
-        elif event_type == "music_start":
+        elif event_type == SERVO_CMD_MUSIC_START:
             self._handle_music_start(payload)
-        elif event_type == "music_stop":
+        elif event_type == SERVO_CMD_MUSIC_STOP:
             self._handle_music_stop()
         else:
             print(f"Unknown event type: {event_type}")
