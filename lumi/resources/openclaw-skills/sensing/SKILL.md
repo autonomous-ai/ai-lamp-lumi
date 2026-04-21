@@ -40,9 +40,7 @@ curl -s -X POST http://127.0.0.1:5001/servo/aim -H "Content-Type: application/js
 
 ## Hard Rules
 
-`presence.*`, `motion.*`, `sound`, `light.*` → reply only (HW + servo + ≤1 sentence or `NO_REPLY`). **No tool calls. No fabricating emotion from older turns.**
-
-Only `emotion.detected` may chain into mood/music — via `user-emotion-detection/SKILL.md`.
+Only `motion.activity` (wellbeing chain) and `emotion.detected` (user-emotion-detection chain) may fire tool calls. All other events — `presence.*`, `sound`, `light.*` — reply only (HW + servo + ≤1 sentence or `NO_REPLY`). Do not fabricate emotion from older turns.
 
 ## Examples
 
