@@ -258,7 +258,7 @@ class MotionPerception(Perception):
         # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
         # particular flush did/didn't produce an event.
         if actions:
-            logger.info("[motion] raw X3D actions in window: %s", actions)
+            logger.info("[motion] raw actions in window: %s", actions)
 
         raw_actions: set[str] = set()
 
