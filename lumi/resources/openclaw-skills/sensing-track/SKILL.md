@@ -58,7 +58,7 @@ jq -c 'select(.node=="sensing_input" and .kind=="enter" and .ts >= '"$FROM_TS"' 
 
 ### Events of a specific type in the last N hours
 
-Use `"motion"` for raw motion, `"motion.activity"` for activity analysis (sedentary/drink/break). Most queries want both:
+Use `"motion"` for raw motion, `"motion.activity"` for activity analysis (raw Kinetics labels like `using computer`, `drinking`, `eating burger` — agent maps to drink/break/sedentary buckets). Most queries want both:
 
 ```bash
 export TZ=$(cat /etc/timezone)

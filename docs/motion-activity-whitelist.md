@@ -4,13 +4,13 @@ Only these Kinect action classes are forwarded to OpenClaw as `motion.activity` 
 
 Chỉ những action classes dưới đây được forward lên OpenClaw dạng `motion.activity`. Còn lại bị filter ở LeLamp để tiết kiệm token.
 
-LeLamp categorises raw action labels before sending to Lumi:
-- Physical groups (`drink`, `break`, `sedentary`) — collapsed to the group name on the `Activity detected:` line. The raw label is not exposed.
-- Emotional bucket (`laughing`, `crying`, `yawning`, `singing`) — sent as raw labels on a separate `Emotional cue:` line so the agent can map each to the correct emotion + mood log entry.
+LeLamp sends raw Kinetics action labels directly on the `Activity detected:` line — the agent maps them to buckets (`drink`, `break`, `sedentary`) using the Wellbeing SKILL's "Raw label → bucket" table. The group names below are documentation-only; they describe how the agent should collapse each label, not what appears on the wire.
 
-LeLamp phân loại raw action trước khi gửi Lumi:
-- Nhóm vật lý (`drink`, `break`, `sedentary`) — gộp về tên nhóm ở dòng `Activity detected:`. Raw label không được expose.
-- Nhóm cảm xúc (`laughing`, `crying`, `yawning`, `singing`) — gửi raw label ở dòng riêng `Emotional cue:` để agent map đúng emotion + log mood từng cái.
+Emotional actions (`laughing`, `crying`, `yawning`, `singing`) are filtered out on LeLamp and never appear on `motion.activity`. A dedicated `motion.emotional` event will carry them in a future version.
+
+LeLamp gửi raw Kinetics labels trực tiếp ở dòng `Activity detected:` — agent tự map sang bucket (`drink`, `break`, `sedentary`) theo bảng "Raw label → bucket" trong Wellbeing SKILL. Tên nhóm bên dưới chỉ là doc, mô tả cách agent gom label, không phải format trên wire.
+
+Action cảm xúc (`laughing`, `crying`, `yawning`, `singing`) bị filter ở LeLamp, không bao giờ lên `motion.activity`. Sẽ có event `motion.emotional` riêng cho nhóm này trong tương lai.
 
 ## drink — reset hydration timer / Reset timer nhắc uống nước
 

@@ -10,7 +10,7 @@ description: Proactive music suggestion triggered by Mood decisions or sedentary
 ## Triggers
 
 1. **Mood** — after logging a mood `decision` that is suggestion-worthy: `sad`, `stressed`, `tired`, `excited`, `happy`, `bored`.
-2. **Sedentary** — `motion.activity` with `sedentary` activity detected.
+2. **Sedentary** — `motion.activity` whose `Activity detected:` line contains a sedentary raw label: `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, or `playing controller`.
 
 ## User attribution
 
