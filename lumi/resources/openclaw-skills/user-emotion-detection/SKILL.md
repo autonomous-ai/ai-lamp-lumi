@@ -7,7 +7,7 @@ description: Maps a detected user facial emotion (from emotion.detected events) 
 
 ## Strict Trigger
 
-Runs **only** when this turn's input has `[sensing:emotion.detected] Emotion detected: <Name>`.
+Runs **only** when this turn's input has `[sensing:emotion.detected] Emotion detected: <EmotionName>`.
 
 For any other event (`presence.*`, `motion.*`, `sound`, `light.*`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `emotion.detected` in THIS turn.
 
