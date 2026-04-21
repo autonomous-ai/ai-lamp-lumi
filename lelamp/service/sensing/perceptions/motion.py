@@ -130,6 +130,12 @@ class RemoteMotionChecker:
         passes the backend threshold for this frame.
         """
 
+        # Auto-reconnect if session was lost
+        if self._ws_session is None:
+            self._prepare_session()
+            if self._ws_session is not None:
+                logger.info("[%s] reconnected to %s", self.__class__.__name__, self._base_url)
+
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
@@ -141,7 +147,7 @@ class RemoteMotionChecker:
                 )
                 return [name for name, _score in detected_classes]
             except ConnectionClosedError:
-                logger.warning("[%s] connection closed", self.__class__.__name__)
+                logger.warning("[%s] connection lost, will retry on next tick", self.__class__.__name__)
                 self._ws_session = None
 
         return None
@@ -334,6 +340,7 @@ class MotionPerception(Perception):
         )
         return {
             "type": "motion",
+            "connected": self._checker._ws_session is not None,
             "last_action": self._checker.last_action,
             "buffered_snapshots": len(self._snapshot_buffer),
             "motion_detected": self._last_motion_time is not None,
