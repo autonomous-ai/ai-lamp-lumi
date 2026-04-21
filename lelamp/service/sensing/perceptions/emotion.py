@@ -283,15 +283,15 @@ class EmotionPerception(Perception):
         if emotions:
             logger.info("[activity.emotion] raw detections in window: %s", emotions)
 
-        # Find dominant emotion (most frequent in buffer)
+        # Skip Neutral — not actionable. Pick dominant among non-Neutral so
+        # one real emotion in the window still fires even if Neutral is more frequent.
         from collections import Counter
 
-        counts = Counter(emotions)
-        dominant_emotion, count = counts.most_common(1)[0]
-
-        # Skip Neutral — not actionable
-        if dominant_emotion == "Neutral":
+        non_neutral = [e for e in emotions if e != "Neutral"]
+        if not non_neutral:
             return
+        counts = Counter(non_neutral)
+        dominant_emotion, count = counts.most_common(1)[0]
 
         from ..presence_service import PresenceState
 
