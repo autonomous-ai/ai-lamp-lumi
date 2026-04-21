@@ -211,9 +211,15 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       }
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
-      // Check if message already available (resolved event) and is a sensing event
       const d = ev.detail as Record<string, any> | undefined;
       const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
+      const sender = d?.sender ?? d?.data?.sender ?? "";
+      // Skip node-host echo — Lumi's own chat.send echoed back via session.message.
+      // These duplicate the sensing_input / voice_pipeline turn that already exists.
+      // Detect by: sender is node-host + message contains Lumi-injected directives.
+      if (sender === "node-host" && (/\[sensing:[^\]]+\]/.test(msg) || /\[MANDATORY:/.test(msg) || /\[Follow /.test(msg) || /\[REPLY RULE:/.test(msg) || /\[context: current_user=/.test(msg))) {
+        return null;
+      }
       const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
       if (sensingMatch) {
         return { type: sensingMatch[1], path: "agent", boundary: "chat" as const };
