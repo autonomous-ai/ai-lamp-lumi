@@ -197,11 +197,12 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 
 | Action | Do ai ghi | Mục đích |
 |---|---|---|
-| `drink`, `break`, `sedentary`, `emotional` | Agent | Transition hoạt động — bucket agent tự map từ raw Kinetics label trên motion.activity |
+| `drink`, `break` | Agent (nguyên văn từ motion.activity — LeLamp emit bucket name) | Reset point cho nudge timer tương ứng |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | Agent (nguyên văn từ motion.activity — LeLamp emit raw sedentary label) | Timeline + nudge phrasing. **KHÔNG** phải reset point. |
 | `enter`, `leave` | Backend (sensing handler) | Session boundary — phá dedup chain |
 | `nudge_hydration`, `nudge_break` | Agent (sau khi nhắc) | Ghi lại thời điểm Lumi nhắc — để hiện lên timeline (không ảnh hưởng logic nudge tiếp theo) |
 
-**Dedup nằm ở LeLamp.** `lelamp/service/sensing/perceptions/motion.py` giữ `_last_sent_key = (current_user, frozenset(raw_actions))` và `_last_sent_ts`. Trước khi gửi `motion.activity`, nếu key không đổi **và** khoảng cách từ lần gửi cuối chưa vượt `MOTION_DEDUP_WINDOW_S = 300` giây (5 phút) → drop. Key theo raw label (không theo bucket) nên lỏng hơn trước — user đổi từ `writing` sang `drawing` giờ pass qua để agent thấy label mới. Đổi lại nhiều agent turn hơn, nhưng phản ứng có context cụ thể hơn.
+**Dedup nằm ở LeLamp.** `lelamp/service/sensing/perceptions/motion.py` giữ `_last_sent_key = (current_user, frozenset(labels))` và `_last_sent_ts`, trong đó `labels` khớp với outbound message (bucket names cho drink/break, raw Kinetics labels cho sedentary). Trước khi gửi `motion.activity`, nếu key không đổi **và** khoảng cách từ lần gửi cuối chưa vượt `MOTION_DEDUP_WINDOW_S = 300` giây (5 phút) → drop. Nên `eating burger → eating cake` gộp thành cùng key `break` và bị drop, còn `writing → drawing` lật key (sedentary giữ raw) nên pass qua để agent thấy activity mới.
 
 - Đổi user (owner→owner, owner→unknown, unknown→owner) lật key ngay → event pass qua.
 - Stranger khác nhau (`stranger_46` → `stranger_54`) đều collapse về `"unknown"` qua `FaceRecognizer.current_user()` → đổi stranger không phá dedup.
@@ -213,7 +214,7 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
 
 ### Khi nhận `motion.activity` — agent làm gì
 
-1. **Parse dòng `Activity detected:`** thành raw Kinetics labels (phân cách bởi dấu phẩy), map mỗi label sang bucket (`drink`/`break`/`sedentary`) theo bảng "Raw label → bucket" trong Wellbeing SKILL, rồi **log từng bucket** qua `POST /api/wellbeing/log` với `user = current_user` (một entry/bucket, kể cả khi nhiều raw label cùng bucket). Backend dedup — agent không cần check "đã ở state này chưa?".
+1. **Parse dòng `Activity detected:`** thành labels (phân cách bởi dấu phẩy), rồi **log từng label nguyên văn** qua `POST /api/wellbeing/log` với `{action:"<label>", notes:"", user:current_user}`. LeLamp đã categorize sẵn (bucket name cho drink/break, raw label cho sedentary) nên agent không map gì thêm.
 2. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
 3. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
 
@@ -377,23 +378,23 @@ Khi user đang ở trạng thái PRESENT và camera phát hiện chuyển độn
 
 `MotionPerception` buffer snapshots và action names, flush theo interval (`MOTION_FLUSH_S`). Khi flush, check `PresenceService.state`:
 - **PRESENT** → gửi 1 event `motion.activity` duy nhất. Format message:
-  - `Activity detected: <raw labels>. If nothing noteworthy, reply NO_REPLY.` — raw Kinetics action labels (ví dụ `using computer`, `drinking`, `eating burger`), cách nhau bởi dấu phẩy, kèm hint tiết kiệm token. Agent tự map từng label sang bucket (`drink`/`break`/`sedentary`) theo bảng "Raw label → bucket" trong Wellbeing SKILL.
+  - `Activity detected: <labels>.` — LeLamp đã categorize: physical actions gộp thành bucket (`drink`, `break`); sedentary activities giữ raw Kinetics label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`). Agent log từng label nguyên văn — không map gì thêm ở phía agent.
   - Emotional X3D actions (`laughing`, `crying`, `yawning`, `singing`) **cố ý bị drop** ở đây. Một event type riêng `motion.emotional` sẽ được thêm sau; cho đến khi đó, detection emotional bị bỏ qua im lặng. `motion.activity` giữ thuần vật lý.
   - Không gửi ảnh — tiết kiệm tokens. **Không** yêu cầu nhận diện friend.
 - **Còn lại** → event bị **skip** (log, không gửi). Lumi chỉ expect `motion.activity` — plain `motion` từ X3D/pose không có handler và lãng phí agent tokens.
 
 Ví dụ message:
 ```
-Activity detected: drinking, using computer. If nothing noteworthy, reply NO_REPLY.
-Activity detected: eating burger. If nothing noteworthy, reply NO_REPLY.
-Activity detected: writing, reading book. If nothing noteworthy, reply NO_REPLY.
+Activity detected: drink, using computer.
+Activity detected: break.
+Activity detected: writing, reading book.
 ```
 
 ### Flow wellbeing nudge (event-driven)
 
-Agent nhận **raw Kinetics labels** trên dòng `Activity detected:` và phải map mỗi label sang bucket (`drink`, `break`, `sedentary`) theo bảng trong Wellbeing SKILL trước khi log.
+Agent đọc dòng `Activity detected:`, split theo dấu phẩy, rồi POST từng label nguyên văn vào field `action` — LeLamp đã categorize sẵn nên agent không map gì.
 
-1. **Log** từng bucket (tối đa 1 entry/bucket dù nhiều raw label cùng bucket) qua `POST /api/wellbeing/log` với `{action, notes, user}`. LeLamp đã dedup trên raw-label set nên agent không phải check.
+1. **Log** từng label qua `POST /api/wellbeing/log` với `{action, notes:"", user}` — một entry/label. LeLamp đã dedup trên outbound label set nên agent không phải check.
 2. **Đọc history** qua `GET /api/openclaw/wellbeing-history?user={name}&last=50`.
 3. **Tính delta** so với reset point gần nhất cho mỗi loại (xem Wellbeing SKILL Step 3).
 4. **Quyết định nudge** theo Wellbeing SKILL Step 4 — tối đa 1 hydration hoặc break nudge mỗi turn.
