@@ -28,6 +28,13 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lelamp.presets import (
     AIM_PRESETS,
     EMOTION_PRESETS,
+    EMO_CURIOUS,
+    EMO_EXCITED,
+    EMO_HAPPY,
+    EMO_IDLE,
+    EMO_MUSIC_CHILL,
+    EMO_SHOCK,
+    EMO_SLEEPY,
     SCENE_PRESETS,
     VALID_LED_EFFECTS,
 )
@@ -2073,7 +2080,7 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
     # Idle LED (cyan breathing) is the ambient fallback — only apply when the user has not
     # explicitly set a scene/color/effect. If a user state exists, skip the LED change so
     # the user's environment lighting is preserved; the servo still plays normally.
-    if emotion == "idle" and _user_led_state is not None:
+    if emotion == EMO_IDLE and _user_led_state is not None:
         if display_service:
             try:
                 display_service.set_expression(emotion)
@@ -2142,7 +2149,7 @@ def express_emotion(req: EmotionRequest):
                 _user_led_state.get("type") if _user_led_state else None,
                 _sleeping)
 
-    _sleeping = req.emotion == "sleepy"
+    _sleeping = req.emotion == EMO_SLEEPY
 
     servo_played = None
 
@@ -2166,11 +2173,11 @@ def express_emotion(req: EmotionRequest):
     #   shock   — notification_flash auto-stops after ~1.5s (3 flashes); restore
     #             at 2.0s so LED doesn't linger in a blank post-flash state while
     #             the servo finishes its 4.8s recovery animation.
-    if req.emotion == "idle":
+    if req.emotion == EMO_IDLE:
         pass  # no restore — idle is ambient resting state
-    elif req.emotion == "sleepy":
+    elif req.emotion == EMO_SLEEPY:
         pass  # no restore — sleepy is a resting state (wake via presence/wake-word)
-    elif req.emotion == "shock":
+    elif req.emotion == EMO_SHOCK:
         _schedule_led_restore(2.0)
         logger.info("Emotion: shock — LED restore scheduled in 2.0s")
     else:
@@ -2804,14 +2811,14 @@ _MUSIC_STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
 ]
 
 _MUSIC_STYLE_EMOTION: dict[str, str] = {
-    "music_groove": "happy",
-    "music_jazz": "happy",
-    "music_classical": "curious",
-    "music_hiphop": "excited",
-    "music_rock": "excited",
-    "music_waltz": "happy",
-    "music_chill": "sleepy",
-    "music_hype": "excited",
+    "music_groove": EMO_HAPPY,
+    "music_jazz": EMO_HAPPY,
+    "music_classical": EMO_CURIOUS,
+    "music_hiphop": EMO_EXCITED,
+    "music_rock": EMO_EXCITED,
+    "music_waltz": EMO_HAPPY,
+    "music_chill": EMO_SLEEPY,
+    "music_hype": EMO_EXCITED,
 }
 
 
@@ -2841,7 +2848,7 @@ def audio_play(req: MusicPlayRequest):
     # Detect genre up front so the callback captures the right style.
     style = _detect_music_style(req.query)
     logger.info("music style detected: %s", style)
-    emotion = _MUSIC_STYLE_EMOTION.get(style, "happy")
+    emotion = _MUSIC_STYLE_EMOTION.get(style, EMO_HAPPY)
 
     def _on_audio_started():
         # Fired by MusicService once ffmpeg is actually streaming (after yt-dlp resolves URL).
@@ -2879,7 +2886,7 @@ def _on_music_complete():
     elif rgb_service:
         logger.info("Music stop: no active user state — falling back to idle breathing")
         # No active user preference — gentle idle breathing
-        idle_preset = EMOTION_PRESETS["idle"]
+        idle_preset = EMOTION_PRESETS[EMO_IDLE]
         try:
             _stop_current_effect()
             global _effect_thread, _effect_name

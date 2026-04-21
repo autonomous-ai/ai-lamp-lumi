@@ -7,6 +7,32 @@ All pure data, no runtime dependencies. Import from server.py.
 # Valid LED effect names
 VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pulse", "blink", "speaking_wave"]
 
+# --- Emotion name constants ---
+# Used as keys in EMOTION_PRESETS and for comparisons across the codebase.
+# The string values are part of the HTTP API contract (SKILL.md).
+EMO_CURIOUS = "curious"
+EMO_HAPPY = "happy"
+EMO_SAD = "sad"
+EMO_THINKING = "thinking"
+EMO_IDLE = "idle"
+EMO_EXCITED = "excited"
+EMO_SHY = "shy"
+EMO_SHOCK = "shock"
+EMO_LISTENING = "listening"
+EMO_LAUGH = "laugh"
+EMO_CONFUSED = "confused"
+EMO_SLEEPY = "sleepy"
+EMO_GREETING = "greeting"
+EMO_GOODBYE = "goodbye"
+EMO_CARING = "caring"
+EMO_ACKNOWLEDGE = "acknowledge"
+EMO_STRETCHING = "stretching"
+EMO_MUSIC_STRONG = "music_strong"
+EMO_MUSIC_CHILL = "music_chill"
+EMO_SCAN = "scan"
+EMO_NOD = "nod"
+EMO_HEADSHAKE = "headshake"
+
 # Emotion presets: maps emotion name to servo recording + LED color + optional LED effect.
 # "effect" triggers a background LED animation; "color" is the base color for that effect.
 # When no "effect" is set, LED is a simple solid fill.
@@ -14,28 +40,28 @@ VALID_LED_EFFECTS = ["breathing", "candle", "rainbow", "notification_flash", "pu
 # "camera": "on"  = auto-enable camera if off (active interaction, need vision)
 # omitted         = no camera change
 EMOTION_PRESETS = {
-    "curious":       {"servo": "curious",       "color": [255, 191, 0],   "effect": "breathing",          "speed": 1.0, "camera": "on"},
-    "happy":         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "candle",             "speed": 1.0, "camera": "on"},
-    "sad":           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.8, "camera": "on"},
-    "thinking":      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "pulse",              "speed": 0.5, "camera": "on"},
-    "idle":          {"servo": "idle",          "color": [183, 235, 234], "effect": "breathing",          "speed": 0.8},
-    "excited":       {"servo": "excited",       "color": [230, 51, 230],  "effect": "blink",              "speed": 2.5, "camera": "on"},
-    "shy":           {"servo": "shy",           "color": [255, 150, 180], "effect": "blink",              "speed": 0.5, "camera": "on"},
-    "shock":         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 2.0, "camera": "on"},
-    "listening":     {"servo": "listening",     "color": [51, 121, 230],  "effect": "pulse",              "speed": 0.6, "camera": "on"},
-    "laugh":         {"servo": "laugh",         "color": [230, 191, 51],  "effect": "blink",              "speed": 1.2, "camera": "on"},
-    "confused":      {"servo": "confused",      "color": [224, 71, 25],   "effect": "candle",             "speed": 0.6, "camera": "on"},
-    "sleepy":        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.5, "camera": "off"},
-    "greeting":      {"servo": "greeting",      "color": [255, 180, 100], "effect": "blink",              "speed": 0.8, "camera": "on"},
-    "goodbye":       {"servo": "goodbye",       "color": [255, 180, 100], "effect": "breathing",          "speed": 0.5},
-    "caring":        {"servo": "nod",           "color": [255, 160, 120], "effect": "breathing",          "speed": 0.4, "camera": "on"},
-    "acknowledge":   {"servo": "acknowledge",   "color": [51, 230, 141],  "effect": "blink",              "speed": 1.0, "camera": "on"},
-    "stretching":    {"servo": "stretching",    "color": [245, 240, 230], "effect": "breathing",          "speed": 0.6, "camera": "on"},
-    "music_strong":  {"servo": "music_rock",    "color": [155, 221, 155], "effect": "rainbow",            "speed": 1.5},
-    "music_chill":   {"servo": "music_rock",    "color": [252, 136, 3],   "effect": "breathing",          "speed": 0.5},
-    "scan":          {"servo": "scanning",      "color": [36, 184, 224],  "effect": "pulse",              "speed": 1.0, "camera": "on"},
-    "nod":           {"servo": "nod",           "color": [51, 230, 141],  "effect": "blink",              "speed": 1.0, "camera": "on"},
-    "headshake":     {"servo": "headshake",     "color": [230, 51, 51],   "effect": "blink",              "speed": 1.0, "camera": "on"},
+    EMO_CURIOUS:       {"servo": "curious",       "color": [255, 191, 0],   "effect": "breathing",          "speed": 1.0, "camera": "on"},
+    EMO_HAPPY:         {"servo": "happy_wiggle",  "color": [255, 220, 0],   "effect": "candle",             "speed": 1.0, "camera": "on"},
+    EMO_SAD:           {"servo": "sad",           "color": [80, 80, 200],   "effect": "breathing",          "speed": 0.8, "camera": "on"},
+    EMO_THINKING:      {"servo": "thinking_deep", "color": [180, 100, 255], "effect": "pulse",              "speed": 0.5, "camera": "on"},
+    EMO_IDLE:          {"servo": "idle",          "color": [183, 235, 234], "effect": "breathing",          "speed": 0.8},
+    EMO_EXCITED:       {"servo": "excited",       "color": [230, 51, 230],  "effect": "blink",              "speed": 2.5, "camera": "on"},
+    EMO_SHY:           {"servo": "shy",           "color": [255, 150, 180], "effect": "blink",              "speed": 0.5, "camera": "on"},
+    EMO_SHOCK:         {"servo": "shock",         "color": [255, 255, 255], "effect": "notification_flash", "speed": 2.0, "camera": "on"},
+    EMO_LISTENING:     {"servo": "listening",     "color": [51, 121, 230],  "effect": "pulse",              "speed": 0.6, "camera": "on"},
+    EMO_LAUGH:         {"servo": "laugh",         "color": [230, 191, 51],  "effect": "blink",              "speed": 1.2, "camera": "on"},
+    EMO_CONFUSED:      {"servo": "confused",      "color": [224, 71, 25],   "effect": "candle",             "speed": 0.6, "camera": "on"},
+    EMO_SLEEPY:        {"servo": "sleepy",        "color": [60, 40, 120],   "effect": "breathing",          "speed": 0.5, "camera": "off"},
+    EMO_GREETING:      {"servo": "greeting",      "color": [255, 180, 100], "effect": "blink",              "speed": 0.8, "camera": "on"},
+    EMO_GOODBYE:       {"servo": "goodbye",       "color": [255, 180, 100], "effect": "breathing",          "speed": 0.5},
+    EMO_CARING:        {"servo": "nod",           "color": [255, 160, 120], "effect": "breathing",          "speed": 0.4, "camera": "on"},
+    EMO_ACKNOWLEDGE:   {"servo": "acknowledge",   "color": [51, 230, 141],  "effect": "blink",              "speed": 1.0, "camera": "on"},
+    EMO_STRETCHING:    {"servo": "stretching",    "color": [245, 240, 230], "effect": "breathing",          "speed": 0.6, "camera": "on"},
+    EMO_MUSIC_STRONG:  {"servo": "music_rock",    "color": [155, 221, 155], "effect": "rainbow",            "speed": 1.5},
+    EMO_MUSIC_CHILL:   {"servo": "music_rock",    "color": [252, 136, 3],   "effect": "breathing",          "speed": 0.5},
+    EMO_SCAN:          {"servo": "scanning",      "color": [36, 184, 224],  "effect": "pulse",              "speed": 1.0, "camera": "on"},
+    EMO_NOD:           {"servo": "nod",           "color": [51, 230, 141],  "effect": "blink",              "speed": 1.0, "camera": "on"},
+    EMO_HEADSHAKE:     {"servo": "headshake",     "color": [230, 51, 51],   "effect": "blink",              "speed": 1.0, "camera": "on"},
 }
 
 # Lighting scene presets — simulated color temperature via RGB mixing.
