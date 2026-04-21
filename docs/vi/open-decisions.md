@@ -36,9 +36,9 @@
 | Event push (#2) | WebSocket RPC `chat.send` với `operator.write` scope. LeLamp POST → Lumi Go `/api/sensing/event` → OpenClaw WS. |
 | Camera processing (#3) | On-device OpenCV trong LeLamp Python. Frame diff cho motion, Haar cascade cho face detection, mean brightness cho light level. Auto-snapshot (full-resolution JPEG q85) khi event đáng kể → forward OpenClaw vision. |
 | AI Vision | Bật (`SupportsVision: true`, `Input: ["text", "image"]`). Sensing event có ảnh gửi qua `SendChatMessageWithImage` → AI nhìn được camera snapshot. |
-| Face detection vs recognition | Face **detection** (có người không?) = P1, done (Haar cascade). Face **recognition** (ai đây?) = P2, cần face embedding + enrollment flow lúc setup. **Vấn đề privacy:** nếu không có recognition, bất kỳ ai lại gần Lumi đều có thể hỏi email, lịch, thông tin cá nhân. Recognition cần để gate sensitive actions chỉ cho người đã đăng ký. |
-| Voice/speaker identification | P2. Phân biệt giọng chủ nhân vs người lạ. Cùng vấn đề privacy — chặn người lạ truy cập data cá nhân qua giọng nói. |
-| Enrolled gating strategy | **Phải chốt trước khi ship.** Các phương án: (1) Face recognition local (dlib/OpenCV DNN, ~200ms trên Pi4) — enroll lúc setup, gate sensitive skills cho mặt đã đăng ký. (2) Voice embedding local (resemblyzer/speechbrain) — nặng hơn trên Pi4. (3) Wake word + PIN — fallback nếu không có camera. (4) Kết hợp. **Đề xuất:** face recognition làm primary gate, enroll trong setup wizard. Mặt lạ → limited mode (chỉ điều khiển đèn, không truy cập data cá nhân). |
+| Face detection vs recognition | **Cả hai done.** Face detection (P1) qua Haar cascade. Face **recognition** (P2) qua InsightFace embeddings — `facerecognizer.py` phân loại owner vs stranger, fire `presence.enter` kèm tên hoặc `stranger_N`. Enrollment qua `/face/enroll` API + `face-enroll/SKILL.md`. Stranger visit tracking có persistence. |
+| Voice/speaker identification | **Done (2026-04).** LeLamp `speaker_recognizer.py` nhận diện người nói bằng voice embedding. Transcript có prefix `Name:` (đã enroll) hoặc `Unknown:` (chưa enroll). Tự enroll qua voice intro hoặc Telegram voice note. |
+| Enrolled gating strategy | **Done (2026-04).** Dual-gate: face recognition (InsightFace) + voice recognition (`speaker_recognizer.py`). Cả hai chạy on-device. Người lạ phân loại `Unknown`/`stranger`. Per-user data gated bằng identity. Self-enrollment cho cả face (`/face/enroll`) và voice (qua skill). |
 | Audio/Voice (#4) | LeLamp own mic/speaker. Local VAD (RMS energy) + on-demand Deepgram STT. Wake word "Hey Lumi" trong transcript → `voice_command` (ưu tiên). Không có wake word → `voice` (ambient sensing). |
 | Emotion presets (#6) | 8 presets (curious, happy, sad, thinking, idle, excited, shy, shock) + 11 eye expressions trên display. |
 | Display rendering (#7) | `gc9a01-python` + PIL/Pillow. 240x240 round LCD. Dual-mode eyes/info. Auto-blink. Plugin — skip nếu không có. |
@@ -80,8 +80,11 @@
 | UC-10 | Gesture control | Hand pose estimation |
 | UC-12 | Video call optimization | Face lighting analysis |
 | UC-15 | Remote control (Telegram/Slack) | OpenClaw multi-channel — **Lưu ý:** hiện "free" nhờ OpenClaw. Nếu đổi gateway khác, cần channel abstraction layer. Xem mục Chưa chốt. |
-| — | Face recognition (nhận diện người quen) | Face embedding + enrollment lúc setup |
-| — | Voice/speaker identification | Phân biệt giọng chủ nhân vs người lạ |
+| — | Face recognition ✅ | InsightFace embeddings, owner/stranger, `/face/enroll` + `face-enroll/SKILL.md` |
+| — | Voice/speaker recognition ✅ | LeLamp `speaker_recognizer.py`, voice embedding, self-enrollment qua voice intro hoặc Telegram voice note |
+| — | Facial emotion detection ✅ | dlbackend WS emotion classifier, `emotion.detected`, `user-emotion-detection/SKILL.md` |
+| — | Proactive wellness ✅ | `wellbeing/SKILL.md`, event-driven từ `motion.activity` sedentary labels |
+| — | Proactive music suggestion ✅ | `music-suggestion/SKILL.md`, mood + sedentary triggers |
 
 ### 4 Pillars ✅
 
@@ -92,16 +95,25 @@
 | 3. "Hữu ích thật" | ✅ | Scenes, scheduling, voice assistant |
 | 4. "Tự hành" | ✅ | Sensing loop + presence auto on/off + ambient idle (breathing LED, color drift, servo micro-movements, TTS self-talk) |
 
-### Skills (9 total) ✅
+### Skills (18 total) ✅
 
-| Skill | SKILL.md | Endpoints |
+| Skill | SKILL.md | Endpoints / Mô tả |
 |-------|----------|-----------|
 | led-control | ✅ | `/led/solid`, `/led/paint`, `/led/off` |
 | servo-control | ✅ | `/servo`, `/servo/play` |
 | camera | ✅ | `/camera`, `/camera/snapshot`, `/camera/stream` |
 | audio | ✅ | `/audio`, `/audio/volume`, `/audio/play-tone`, `/audio/record` |
 | emotion | ✅ | `/emotion` (servo + LED + eyes coordinated) |
-| sensing | ✅ | Auto — motion/sound/presence.enter/leave/light.level + auto-snapshot vision + presence auto |
+| sensing | ✅ | Auto — motion/sound/presence/light events → OpenClaw (vision) + presence auto |
+| sensing-track | ✅ | Activity/presence timeline tracking qua wellbeing JSONL |
 | scene | ✅ | `/scene` (6 presets) |
 | display | ✅ | `/display/eyes`, `/display/info`, `/display/snapshot` |
-| scheduling | ✅ | OpenClaw cron (no custom endpoints) |
+| voice | ✅ | Voice pipeline control, TTS routing |
+| music | ✅ | Reactive music playback (`/audio/play`, `/audio/stop`) |
+| music-suggestion | ✅ | Proactive music suggestion (mood + sedentary triggers) |
+| mood | ✅ | Mood signal fusion + decision logging (`/api/mood/log`) |
+| wellbeing | ✅ | Event-driven hydration/break reminders (`/api/openclaw/wellbeing/log`) |
+| user-emotion-detection | ✅ | Maps facial `emotion.detected` → mood signal |
+| face-enroll | ✅ | Face enrollment qua `/face/enroll` API |
+| speaker-recognizer | ✅ | Voice self-enrollment, speaker identification |
+| guard | ✅ | Guard mode toggle, dramatic stranger reactions, Telegram broadcast |
