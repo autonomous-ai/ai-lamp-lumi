@@ -40,7 +40,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import threading
 import time
 import uuid
@@ -78,7 +77,6 @@ _API_KEY = os.environ.get(
 )
 _API_TIMEOUT_S = float(os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15"))
 _EMBED_MAX_SECONDS = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0"))
-_EMBED_TMP_DIR = Path(os.environ.get("SPEAKER_EMBED_TMP_DIR", "/tmp/lumi-voice-embed"))
 
 # Cosine similarity above which a speaker is considered a match.
 _MATCH_THRESHOLD = float(os.environ.get("SPEAKER_MATCH_THRESHOLD", "0.7"))
@@ -383,7 +381,7 @@ class SpeakerRecognizer:
         return chunks
 
     def _expand_wav_for_embedding(self, wav_bytes: bytes, *, stem: str) -> list[str]:
-        """Return base64 WAV inputs; long audios are chunked into tmp files."""
+        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O)."""
         waveform = _wav_bytes_to_float32_16k_mono(wav_bytes)
         chunks = self._split_waveform_by_max_seconds(waveform)
         if not chunks:
@@ -392,27 +390,16 @@ class SpeakerRecognizer:
         if len(chunks) == 1:
             return [base64.b64encode(_float32_waveform_to_wav_bytes(chunks[0])).decode("ascii")]
 
-        _EMBED_TMP_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_dir = Path(
-            tempfile.mkdtemp(
-                prefix=f"{stem[:24]}_",
-                dir=str(_EMBED_TMP_DIR),
-            )
-        )
-
         logger.info(
             "split long audio for embedding: stem=%s chunks=%d max_seconds=%.2f",
             stem,
             len(chunks),
             _EMBED_MAX_SECONDS,
         )
-        out: list[str] = []
-        for i, chunk in enumerate(chunks):
-            chunk_bytes = _float32_waveform_to_wav_bytes(chunk)
-            chunk_path = tmp_dir / f"{stem}_chunk_{i:03d}.wav"
-            chunk_path.write_bytes(chunk_bytes)
-            out.append(base64.b64encode(chunk_bytes).decode("ascii"))
-        return out
+        return [
+            base64.b64encode(_float32_waveform_to_wav_bytes(chunk)).decode("ascii")
+            for chunk in chunks
+        ]
 
     def _compute_representative_embedding(self, audios_b64: list[str]) -> np.ndarray:
         """Compute representative embedding by averaging per-sample embeddings."""
