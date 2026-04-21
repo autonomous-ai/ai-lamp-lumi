@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import os
 import time
 from typing import Callable, Optional, override
 
@@ -89,11 +90,11 @@ class RemoteEmotionChecker:
             logger.warning("[activity.emotion] heartbeat failed — connection lost")
             self._ws_session = None
 
-    def update(self, frame: npt.NDArray[np.uint8]) -> list[tuple[str, float]] | None:
+    def update(self, frame: npt.NDArray[np.uint8]) -> list[dict] | None:
         """Send a frame for emotion inference.
 
-        Returns list of (emotion_label, confidence) for each detected face,
-        sorted by confidence descending. Returns None if unavailable,
+        Returns list of dicts with keys: emotion, confidence, face_confidence, bbox.
+        Sorted by confidence descending. Returns None if unavailable,
         [] if no faces or no emotion above threshold.
         """
         # Auto-reconnect if session was lost
@@ -120,11 +121,9 @@ class RemoteEmotionChecker:
                 resp = json.loads(self._ws_session.recv())
                 detections = resp.get("detections", [])
                 results = [
-                    (d["emotion"], d["confidence"])
-                    for d in detections
-                    if d["confidence"] >= self._threshold
+                    d for d in detections if d["confidence"] >= self._threshold
                 ]
-                return sorted(results, key=lambda x: x[1], reverse=True)
+                return sorted(results, key=lambda x: x["confidence"], reverse=True)
             except ConnectionClosedError:
                 logger.warning(
                     "[%s] connection lost, will retry on next tick",
@@ -169,6 +168,7 @@ class EmotionPerception(Perception):
         # Buffer — flushed every EMOTION_FLUSH_S
         self._flush_interval: float = config.EMOTION_FLUSH_S
         self._emotion_buffer: list[str] = []
+        self._snapshot_paths: list[str] = []
         self._last_flush_ts: float = 0.0
 
         # Dedup: per-user cooldown + same-emotion suppression
@@ -194,14 +194,72 @@ class EmotionPerception(Perception):
             self._last_detection_time = time.time()
             self._on_motion()
 
-            top_emotion, top_conf = results[0]
-            self._last_emotion = top_emotion
-            self._emotion_buffer.append(top_emotion)
+            top = results[0]
+            self._last_emotion = top["emotion"]
+            self._emotion_buffer.append(top["emotion"])
             logger.debug(
-                "[activity.emotion] detected: %s (%.2f)", top_emotion, top_conf
+                "[activity.emotion] detected: %s (%.2f)",
+                top["emotion"],
+                top["confidence"],
             )
 
+            # Draw annotated frame and save snapshot
+            snapshot_path = self._save_annotated(frame, results)
+            if snapshot_path:
+                self._snapshot_paths.append(snapshot_path)
+
         self._flush_buffer()
+
+    def _draw_annotations(
+        self, frame: npt.NDArray[np.uint8], detections: list[dict]
+    ) -> npt.NDArray[np.uint8]:
+        """Draw face bboxes and emotion labels on a copy of the frame."""
+        vis = frame.copy()
+        for det in detections:
+            x, y, w, h = det["bbox"]
+            emotion = det["emotion"]
+            conf = det["confidence"]
+            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            label = f"{emotion} {conf:.2f}"
+            cv2.putText(
+                vis, label, (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
+            )
+        return vis
+
+    def _save_annotated(
+        self, frame: npt.NDArray[np.uint8], detections: list[dict]
+    ) -> Optional[str]:
+        """Draw annotations and save to snapshot dir. Rotates old files."""
+        try:
+            os.makedirs(config.EMOTION_SNAPSHOT_DIR, exist_ok=True)
+
+            annotated = self._draw_annotations(frame, detections)
+            filename = f"emotion_{int(time.time() * 1000)}.jpg"
+            filepath = os.path.join(config.EMOTION_SNAPSHOT_DIR, filename)
+            _, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            with open(filepath, "wb") as f:
+                f.write(buf.tobytes())
+
+            # Rotate: remove oldest files if over max count
+            files = sorted(
+                (
+                    os.path.join(config.EMOTION_SNAPSHOT_DIR, f)
+                    for f in os.listdir(config.EMOTION_SNAPSHOT_DIR)
+                    if f.endswith(".jpg")
+                ),
+                key=os.path.getmtime,
+            )
+            while len(files) > config.EMOTION_SNAPSHOT_MAX_COUNT:
+                try:
+                    os.remove(files.pop(0))
+                except OSError:
+                    pass
+
+            return filepath
+        except Exception as e:
+            logger.debug("[activity.emotion] snapshot save failed: %s", e)
+            return None
 
     def _flush_buffer(self) -> None:
         if not self._emotion_buffer:
@@ -212,7 +270,9 @@ class EmotionPerception(Perception):
             return
 
         emotions = list(self._emotion_buffer)
+        snapshot_paths = list(self._snapshot_paths)
         self._emotion_buffer.clear()
+        self._snapshot_paths.clear()
         self._last_flush_ts = cur_ts
 
         if emotions:
@@ -271,6 +331,10 @@ class EmotionPerception(Perception):
 
         self._last_sent_key = (current_user, dominant_emotion)
         self._last_sent_ts = cur_ts
+
+        # Attach latest snapshot path
+        if snapshot_paths:
+            message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
 
         logger.info("[activity.emotion] flushing: %s", message)
         self._send_event("emotion.detected", message)
