@@ -36,6 +36,15 @@ from lelamp.presets import (
     EMO_SHOCK,
     EMO_SLEEPY,
     FX_SPEAKING_WAVE,
+    LST_EFFECT,
+    LST_OFF,
+    LST_SCENE,
+    LST_SOLID,
+    RGB_CMD_PAINT,
+    RGB_CMD_SOLID,
+    SERVO_CMD_MUSIC_START,
+    SERVO_CMD_MUSIC_STOP,
+    SERVO_CMD_PLAY,
     AIM_LEFT,
     AIM_RIGHT,
     SERVO_MUSIC_GROOVE,
@@ -990,7 +999,7 @@ def play_recording(req: ServoRequest):
         animation_service._event_thread.start()
         logger.info("Animation event loop restarted via /servo/play")
     t0 = time.perf_counter()
-    animation_service.dispatch("play", req.recording)
+    animation_service.dispatch(SERVO_CMD_PLAY, req.recording)
     logger.debug("servo dispatch took %.1fms", (time.perf_counter() - t0) * 1000)
     return {"status": "ok"}
 
@@ -1012,7 +1021,7 @@ def resume_servos():
         )
         animation_service._event_thread.start()
         logger.info("Animation event loop restarted via /servo/resume")
-    animation_service.dispatch("play", animation_service.idle_recording)
+    animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
     logger.info("Servo resumed from zero-hold mode")
     return {"status": "ok"}
 
@@ -1279,7 +1288,7 @@ def aim_servo(req: ServoAimRequest):
             animation_service._event_thread.start()
             if not hold_pos:
                 # No state available — fall back to immediate idle
-                animation_service.dispatch("play", animation_service.idle_recording)
+                animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
 
 
 # --- LED endpoints ---
@@ -1332,13 +1341,13 @@ def set_led_solid(req: LEDSolidRequest):
         raise HTTPException(503, "LED not available")
     global _active_scene
     color = tuple(req.color) if isinstance(req.color, list) else req.color
-    rgb_service.dispatch("solid", color)
+    rgb_service.dispatch(RGB_CMD_SOLID, color)
     _active_scene = None  # manual solid color clears scene context
     # Track for presence restore
     if sensing_service and isinstance(color, tuple):
         sensing_service.presence.set_last_color(color)
     # Save as user LED state so emotion calls can restore it afterward
-    _save_user_led_state({"type": "solid", "color": list(color)})
+    _save_user_led_state({"type": LST_SOLID, "color": list(color)})
     return {"status": "ok"}
 
 
@@ -1348,7 +1357,7 @@ def set_led_paint(req: LEDPaintRequest):
     if not rgb_service:
         raise HTTPException(503, "LED not available")
     colors = [tuple(c) if isinstance(c, list) else c for c in req.colors]
-    rgb_service.dispatch("paint", colors)
+    rgb_service.dispatch(RGB_CMD_PAINT, colors)
     return {"status": "ok"}
 
 
@@ -1363,7 +1372,7 @@ def turn_off_leds():
     _active_scene = None
     if sensing_service:
         sensing_service.presence.set_last_color((0, 0, 0))
-    _save_user_led_state({"type": "off"})
+    _save_user_led_state({"type": LST_OFF})
     return {"status": "ok"}
 
 
@@ -1437,18 +1446,18 @@ def _restore_user_led():
         return
 
     state = _user_led_state
-    if state is None or state.get("type") == "off":
+    if state is None or state.get("type") == LST_OFF:
         logger.info("LED restore: no active user state (state=%s) — keeping emotion color", state)
         return
 
     stype = state.get("type")
     logger.info("LED restore: restoring user state type=%s", stype)
     try:
-        if stype == "solid":
+        if stype == LST_SOLID:
             _stop_current_effect()
-            rgb_service.dispatch("solid", tuple(state["color"]))
+            rgb_service.dispatch(RGB_CMD_SOLID, tuple(state["color"]))
             logger.info("LED restore: solid color=%s", state["color"])
-        elif stype == "effect":
+        elif stype == LST_EFFECT:
             _stop_current_effect()
             global _effect_thread, _effect_name, _effect_base_color
             color = tuple(state["color"])
@@ -1465,12 +1474,12 @@ def _restore_user_led():
             )
             _effect_thread.start()
             logger.info("LED restore: effect=%s color=%s speed=%s", effect, color, speed)
-        elif stype == "scene":
+        elif stype == LST_SCENE:
             preset = SCENE_PRESETS.get(state["scene"])
             if preset:
                 _stop_current_effect()
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
-                rgb_service.dispatch("solid", scaled)
+                rgb_service.dispatch(RGB_CMD_SOLID, scaled)
                 aim_dir = preset.get("aim")
                 logger.info("LED restore: scene=%s color=%s aim=%s", state["scene"], scaled, aim_dir)
                 if aim_dir and animation_service:
@@ -1537,11 +1546,11 @@ def _get_current_led_color() -> tuple:
     # Check user-set LED state first (most explicit)
     if _user_led_state:
         stype = _user_led_state.get("type")
-        if stype == "solid" and _is_nonblack(_user_led_state.get("color")):
+        if stype == LST_SOLID and _is_nonblack(_user_led_state.get("color")):
             return tuple(_user_led_state["color"])
-        if stype == "effect" and _is_nonblack(_user_led_state.get("color")):
+        if stype == LST_EFFECT and _is_nonblack(_user_led_state.get("color")):
             return tuple(_user_led_state["color"])
-        if stype == "scene":
+        if stype == LST_SCENE:
             preset = SCENE_PRESETS.get(_user_led_state.get("scene", ""))
             if preset:
                 return tuple(int(c * preset["brightness"]) for c in preset["color"])
@@ -1577,7 +1586,7 @@ def _on_tts_speak_start():
 
     # Stop any running effect and clear strip to avoid old frame bleeding through
     _stop_current_effect()
-    rgb_service.dispatch("solid", (0, 0, 0))
+    rgb_service.dispatch(RGB_CMD_SOLID, (0, 0, 0))
 
     _effect_stop.clear()
     _effect_name = FX_SPEAKING_WAVE
@@ -1608,7 +1617,7 @@ def _on_tts_speak_end():
 
     # Clear strip immediately so last speaking_wave frame doesn't linger
     if rgb_service:
-        rgb_service.dispatch("solid", (0, 0, 0))
+        rgb_service.dispatch(RGB_CMD_SOLID, (0, 0, 0))
 
     # Restore previous LED state (solid/effect/scene).
     # If _user_led_state is None or "off", _restore_user_led() does nothing —
@@ -1676,7 +1685,7 @@ def start_led_effect(req: LEDEffectRequest):
     # Save as user LED state so emotion calls can restore it afterward
     _save_user_led_state(
         {
-            "type": "effect",
+            "type": LST_EFFECT,
             "effect": req.effect,
             "color": list(base_color),
             "speed": req.speed,
@@ -2124,7 +2133,7 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
                 )
                 _effect_thread.start()
             else:
-                rgb_service.dispatch("solid", tuple(scaled))
+                rgb_service.dispatch(RGB_CMD_SOLID, tuple(scaled))
             led_color = scaled
             if sensing_service:
                 sensing_service.presence.set_last_color(tuple(scaled))
@@ -2167,7 +2176,7 @@ def express_emotion(req: EmotionRequest):
     # Play servo animation
     if animation_service and preset.get("servo"):
         try:
-            animation_service.dispatch("play", preset["servo"])
+            animation_service.dispatch(SERVO_CMD_PLAY, preset["servo"])
             servo_played = preset["servo"]
         except Exception as e:
             logger.warning(f"Emotion servo failed: {e}")
@@ -2202,7 +2211,7 @@ def express_emotion(req: EmotionRequest):
     # Any non-off emotion while camera is auto-off → re-enable (active interaction detected).
     # Respects manual override — if user explicitly disabled camera, skip.
     cam = preset.get("camera")
-    if cam == "off":
+    if cam == LST_OFF:
         _auto_camera_off(f"emotion:{req.emotion}")
     elif cam == "on" and _camera_disabled:
         _auto_camera_on(f"emotion:{req.emotion}")
@@ -2241,7 +2250,7 @@ def activate_scene(req: SceneRequest):
     brightness = preset["brightness"]
     scaled = [int(c * brightness) for c in base]
     try:
-        rgb_service.dispatch("solid", tuple(scaled))
+        rgb_service.dispatch(RGB_CMD_SOLID, tuple(scaled))
     except Exception as e:
         raise HTTPException(500, f"Failed to set scene: {e}")
 
@@ -2250,7 +2259,7 @@ def activate_scene(req: SceneRequest):
     if sensing_service:
         sensing_service.presence.set_last_color(tuple(scaled))
     # Save as user LED state so emotion calls can restore it afterward
-    _save_user_led_state({"type": "scene", "scene": req.scene})
+    _save_user_led_state({"type": LST_SCENE, "scene": req.scene})
 
     # Aim lamp head for the scene (non-blocking — runs in background thread)
     aim_dir = preset.get("aim")
@@ -2265,7 +2274,7 @@ def activate_scene(req: SceneRequest):
     # Camera reactive lifecycle: auto off/on based on preset "camera" field.
     # Respects manual override — if user explicitly disabled camera, skip.
     cam = preset.get("camera")
-    if cam == "off":
+    if cam == LST_OFF:
         _auto_camera_off(f"scene:{req.scene}")
     elif cam == "on":
         _auto_camera_on(f"scene:{req.scene}")
@@ -2865,14 +2874,14 @@ def audio_play(req: MusicPlayRequest):
         # Fired by MusicService once ffmpeg is actually streaming (after yt-dlp resolves URL).
         # Starting groove here ensures servo and music are in sync.
         if animation_service:
-            animation_service.dispatch("music_start", style)
+            animation_service.dispatch(SERVO_CMD_MUSIC_START, style)
 
     import os as _os
     if req.query.startswith("/") and _os.path.isfile(req.query):
         started = music_service.play_file(req.query, person=person)
         # play_file resolves instantly (local file) — start groove right away.
         if started and animation_service:
-            animation_service.dispatch("music_start", style)
+            animation_service.dispatch(SERVO_CMD_MUSIC_START, style)
     else:
         started = music_service.play(req.query, on_started=_on_audio_started, person=person)
     if not started:
@@ -2888,11 +2897,11 @@ def _on_music_complete():
     Otherwise fall back to idle breathing so lamp doesn't go dark.
     """
     if animation_service:
-        animation_service.dispatch("music_stop", None)
+        animation_service.dispatch(SERVO_CMD_MUSIC_STOP, None)
 
     state = _user_led_state
     logger.info("Music stop: restoring state type=%s", state.get("type") if state else None)
-    if state is not None and state.get("type") != "off":
+    if state is not None and state.get("type") != LST_OFF:
         _restore_user_led()
     elif rgb_service:
         logger.info("Music stop: no active user state — falling back to idle breathing")

@@ -19,6 +19,7 @@ import time
 from enum import Enum
 
 import lelamp.config as config
+from lelamp.presets import RGB_CMD_SOLID
 
 logger = logging.getLogger("lelamp.presence")
 
@@ -107,7 +108,7 @@ class PresenceService:
             return
         try:
             logger.info("Presence: restoring light color=%s", self._last_color)
-            self._rgb_service.dispatch("solid", self._last_color)
+            self._rgb_service.dispatch(RGB_CMD_SOLID, self._last_color)
         except Exception as e:
             logger.warning("Presence: failed to restore light: %s", e)
         if self._on_restore_aim:
@@ -125,7 +126,7 @@ class PresenceService:
             return
         try:
             dimmed = tuple(int(c * config.IDLE_BRIGHTNESS) for c in self._last_color)
-            self._rgb_service.dispatch("solid", dimmed)
+            self._rgb_service.dispatch(RGB_CMD_SOLID, dimmed)
         except Exception as e:
             logger.warning("Presence: failed to dim light: %s", e)
 

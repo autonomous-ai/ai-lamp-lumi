@@ -13,6 +13,7 @@ from typing import Optional
 from lelamp.presets import (
     FX_BLINK, FX_BREATHING, FX_CANDLE, FX_NOTIFICATION_FLASH,
     FX_PULSE, FX_RAINBOW, FX_SPEAKING_WAVE,
+    RGB_CMD_PAINT, RGB_CMD_SOLID,
 )
 
 
@@ -99,7 +100,7 @@ def breathing(
                 return
             brightness = math.sin(math.pi * i / 100.0)
             scaled = tuple(int(c * brightness) for c in color)
-            svc.dispatch("solid", scaled)
+            svc.dispatch(RGB_CMD_SOLID, scaled)
             time.sleep(step_delay)
 
 
@@ -122,7 +123,7 @@ def candle(
             g = int(min(255, color[1] * flicker * random.uniform(0.6, 0.9)))
             b = int(min(255, color[2] * flicker * 0.3))
             pixels.append((r, g, b))
-        svc.dispatch("paint", pixels)
+        svc.dispatch(RGB_CMD_PAINT, pixels)
         time.sleep(step_delay)
 
 
@@ -142,7 +143,7 @@ def rainbow(
             hue = (offset + i / led_count) % 1.0
             r, g, b = hsv_to_rgb(hue, 1.0, 1.0)
             pixels.append((r, g, b))
-        svc.dispatch("paint", pixels)
+        svc.dispatch(RGB_CMD_PAINT, pixels)
         offset += 0.01
         time.sleep(step_delay)
 
@@ -159,11 +160,11 @@ def notification_flash(
     for _ in range(3):
         if stop_event.is_set():
             return
-        svc.dispatch("solid", color)
+        svc.dispatch(RGB_CMD_SOLID, color)
         time.sleep(flash_on)
         if stop_event.is_set():
             return
-        svc.dispatch("solid", (0, 0, 0))
+        svc.dispatch(RGB_CMD_SOLID, (0, 0, 0))
         time.sleep(flash_off)
 
 
@@ -177,11 +178,11 @@ def blink(
     """Rapid on/off blink. speed=1 → ~3 Hz, speed=2 → ~6 Hz, speed=0.5 → ~1.5 Hz."""
     half_period = 1.0 / (speed * 6.0)  # on time = off time
     while not is_done(deadline, stop_event):
-        svc.dispatch("solid", color)
+        svc.dispatch(RGB_CMD_SOLID, color)
         time.sleep(half_period)
         if is_done(deadline, stop_event):
             return
-        svc.dispatch("solid", (0, 0, 0))
+        svc.dispatch(RGB_CMD_SOLID, (0, 0, 0))
         time.sleep(half_period)
 
 
@@ -210,7 +211,7 @@ def pulse(
                         0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1)
                     )
                     pixels[i] = tuple(int(c * falloff) for c in color)
-            svc.dispatch("paint", pixels)
+            svc.dispatch(RGB_CMD_PAINT, pixels)
             time.sleep(step_delay)
 
 
@@ -261,5 +262,5 @@ def speaking_wave(
                 if idx < led_count:
                     pixels[idx] = seg_color
 
-        svc.dispatch("paint", pixels)
+        svc.dispatch(RGB_CMD_PAINT, pixels)
         time.sleep(step_delay)
