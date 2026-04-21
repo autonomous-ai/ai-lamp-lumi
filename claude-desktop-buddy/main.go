@@ -57,6 +57,9 @@ func main() {
 		handleBLEMessage(data, sm, ble, cfg.DeviceName, startTime)
 	}, func(connected bool) {
 		sm.SetConnected(connected)
+		if !connected {
+			xfer.Abort()
+		}
 	})
 
 	// Transient state expiry ticker
@@ -65,22 +68,6 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			sm.CheckTransientExpiry()
-		}
-	}()
-
-	// Heartbeat timeout checker — if no heartbeat for 30s, treat as disconnected
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if sm.Connected() {
-				hb := sm.LastHeartbeat()
-				if hb == nil {
-					continue
-				}
-				// Check if we haven't received a heartbeat recently
-				// StateMachine doesn't expose lastHBTime, so we track via connected state
-			}
 		}
 	}()
 
@@ -111,11 +98,23 @@ func main() {
 // ble is declared as package var so handleBLEMessage can reference it via closure
 var ble *BLEServer
 
+// xfer holds the single active folder-push transfer from Claude Desktop.
+var xfer Transfer
+
 func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceName string, startTime time.Time) {
-	msg, err := ParseMessage(data)
+	msg, lost, err := ParseOrSalvage(data)
 	if err != nil {
 		log.Printf("[ble] parse error: %v (data: %s)", err, string(data))
 		return
+	}
+	if lost > 0 {
+		// Claude Desktop writes BLE chunks via Write-Without-Response, which
+		// has no ATT_CONFIRM, so BlueZ silently drops packets under load. When
+		// that happens we salvage the tail of the line. The dropped bytes are
+		// gone — affected file transfers will be incomplete but the session
+		// stays alive for the remaining chunks.
+		log.Printf("[ble] WARN: dropped %d corrupted prefix bytes (BLE packet loss)", lost)
+		xfer.Abort()
 	}
 
 	switch m := msg.(type) {
@@ -152,10 +151,58 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 			}
 		case "unpair":
 			log.Println("[ble] unpair requested")
+			xfer.Abort()
 			if err := bleSrv.Send(MakeAck("unpair", true)); err != nil {
 				log.Printf("[ble] send ack error: %v", err)
 			}
 			sm.SetConnected(false)
+
+		// Folder-push streaming protocol — persist to disk under CharsRoot.
+		case "char_begin":
+			ok := true
+			if err := xfer.Begin(m.Name, m.Total); err != nil {
+				log.Printf("[xfer] begin error: %v", err)
+				ok = false
+			}
+			if err := bleSrv.Send(MakeAck("char_begin", ok)); err != nil {
+				log.Printf("[ble] send ack error: %v", err)
+			}
+		case "file":
+			ok := true
+			if err := xfer.StartFile(m.Path, m.Size); err != nil {
+				log.Printf("[xfer] file error: %v", err)
+				ok = false
+			}
+			if err := bleSrv.Send(MakeAck("file", ok)); err != nil {
+				log.Printf("[ble] send ack error: %v", err)
+			}
+		case "chunk":
+			n, err := xfer.WriteChunk(m.D)
+			if err != nil {
+				log.Printf("[xfer] chunk error: %v", err)
+				if err := bleSrv.Send(MakeAckN("chunk", false, n)); err != nil {
+					log.Printf("[ble] send ack error: %v", err)
+				}
+				break
+			}
+			if err := bleSrv.Send(MakeAckN("chunk", true, n)); err != nil {
+				log.Printf("[ble] send ack error: %v", err)
+			}
+		case "file_end":
+			n, err := xfer.EndFile()
+			ok := err == nil
+			if err != nil {
+				log.Printf("[xfer] file_end error: %v", err)
+			}
+			if err := bleSrv.Send(MakeAckN("file_end", ok, n)); err != nil {
+				log.Printf("[ble] send ack error: %v", err)
+			}
+		case "char_end":
+			xfer.End()
+			if err := bleSrv.Send(MakeAck("char_end", true)); err != nil {
+				log.Printf("[ble] send ack error: %v", err)
+			}
+
 		default:
 			log.Printf("[ble] unknown command: %s", m.Cmd)
 			if err := bleSrv.Send(MakeAck(m.Cmd, false)); err != nil {
