@@ -4,6 +4,22 @@ LeLamp presets — emotion, scene, and LED effect constants.
 All pure data, no runtime dependencies. Import from server.py.
 """
 
+# --- LED state types (tracked in _user_led_state["type"]) ---
+LST_SOLID = "solid"
+LST_PAINT = "paint"
+LST_EFFECT = "effect"
+LST_SCENE = "scene"
+LST_OFF = "off"
+
+# --- RGB dispatch commands (rgb_service.dispatch(cmd, ...)) ---
+RGB_CMD_SOLID = "solid"
+RGB_CMD_PAINT = "paint"
+
+# --- Servo dispatch commands (animation_service.dispatch(cmd, ...)) ---
+SERVO_CMD_PLAY = "play"
+SERVO_CMD_MUSIC_START = "music_start"
+SERVO_CMD_MUSIC_STOP = "music_stop"
+
 # --- LED effect name constants ---
 FX_BREATHING = "breathing"
 FX_CANDLE = "candle"
