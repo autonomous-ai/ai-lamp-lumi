@@ -207,8 +207,6 @@ class MotionPerception(Perception):
         self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
-        self._last_activity_groups: list[str] = []
-        self._last_raw_actions: list[str] = []
 
     @staticmethod
     def _load_whitelist() -> list[str] | None:
@@ -261,7 +259,6 @@ class MotionPerception(Perception):
         # particular flush did/didn't produce an event.
         if actions:
             logger.info("[motion] raw X3D actions in window: %s", actions)
-            self._last_raw_actions = list(actions)
 
         raw_actions: set[str] = set()
 
@@ -279,8 +276,6 @@ class MotionPerception(Perception):
                 continue
             raw_actions.add(a)
 
-        if activity_groups:
-            self._last_activity_groups = sorted(activity_groups)
         if not raw_actions:
             return
 
