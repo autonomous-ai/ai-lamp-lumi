@@ -20,33 +20,38 @@ class DetectionResult(BaseModel):
     confidence: float
 
 
-class ActionRecognitionRequest(BaseModel):
-    """Request payload for human action analysis endpoints."""
-
-    type: Literal["frame", "whitelist"]
-
-
-class FrameRequest(ActionRecognitionRequest):
+class ActionFrameRequest(BaseModel):
     type: Literal["frame"] = "frame"
     frame_b64: str
 
 
-class ConfigRequest(ActionRecognitionRequest):
+class ActionConfigRequest(BaseModel):
     type: Literal["config"] = "config"
     whitelist: list[str] | None = None
     threshold: float = 0.3
 
 
+class ActionHeartBeatRequest(BaseModel):
+    type: Literal["heartbeat"] = "heartbeat"
+
+
 ActionRequest = Annotated[
-    Annotated[FrameRequest, Tag("frame")] | Annotated[ConfigRequest, Tag("config")],
+    Annotated[ActionFrameRequest, Tag("frame")]
+    | Annotated[ActionConfigRequest, Tag("config")]
+    | Annotated[ActionHeartBeatRequest, Tag("heartbeat")],
     Discriminator("type"),
 ]
+
+
+class ActionDetection(BaseModel):
+    class_name: str
+    conf: float
 
 
 class ActionResponse(BaseModel):
     """Single human action analysis result."""
 
-    detected_classes: list[tuple[str, float]]
+    detected_classes: list[ActionDetection]
 
 
 # --- Emotion analysis ---
@@ -64,9 +69,15 @@ class EmotionConfigRequest(BaseModel):
     threshold: float = 0.5
 
 
+class EmotionHeartBeatRequest(BaseModel):
+    type: Literal["heartbeat"] = "heartbeat"
+    task: Literal["emotion"] = "emotion"
+
+
 EmotionRequest = Annotated[
     Annotated[EmotionFrameRequest, Tag("frame")]
-    | Annotated[EmotionConfigRequest, Tag("config")],
+    | Annotated[EmotionConfigRequest, Tag("config")]
+    | Annotated[EmotionHeartBeatRequest, Tag("heartbeat")],
     Discriminator("type"),
 ]
 

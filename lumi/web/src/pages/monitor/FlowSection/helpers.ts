@@ -182,6 +182,11 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       const t = m ? m[1] : "unknown";
       return { type: t, path: "dropped", forceNewTurn: true };
     }
+    if (ev.type === "sensing_queued") {
+      const m = ev.summary.match(/^\[([^\]]+)\]/);
+      const t = m ? m[1] : "unknown";
+      return { type: t, path: "queued", forceNewTurn: true };
+    }
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
       let t = m ? m[1] : "unknown";
@@ -251,17 +256,25 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       if (evRunId && turns.some((t) => t.id === evRunId)) {
         turnId = `${evRunId}:${ev._seq}`;
       }
+      const isTerminalQueued = start.path === "queued";
+      const isTerminalDropped = start.path === "dropped";
+      const queuedForMs = (() => {
+        const d = ev.detail as Record<string, any> | undefined;
+        const v = d?.data?.queued_for_ms ?? d?.queued_for_ms;
+        return typeof v === "number" ? v : undefined;
+      })();
       current = {
         id: turnId,
         runId: evRunId,
         startTime: ev.time,
-        endTime: start.path === "dropped" ? ev.time : undefined,
+        endTime: (isTerminalDropped || isTerminalQueued) ? ev.time : undefined,
         type: start.type,
         path: start.path,
         boundary: start.boundary,
         boundaryInstanceSeq: start.boundary ? ev._seq : undefined,
-        status: start.path === "dropped" ? "done" : "active",
+        status: (isTerminalDropped || isTerminalQueued) ? "done" : "active",
         events: [ev],
+        queuedForMs,
       };
       continue;
     }
@@ -309,6 +322,13 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
 
     current.events.push(ev);
+    // Capture queued_for_ms when a sensing_input replay event lands inside the turn
+    if (current.queuedForMs === undefined &&
+        (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input"))) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const v = d?.data?.queued_for_ms ?? d?.queued_for_ms;
+      if (typeof v === "number") current.queuedForMs = v;
+    }
     // Classify unknown turns from chat_input events
     if (current.type === "unknown" && (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input"))) {
       const d = ev.detail as Record<string, any> | undefined;

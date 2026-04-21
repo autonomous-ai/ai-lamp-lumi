@@ -19,6 +19,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
   };
 
   const pathColor = turn.path === "dropped" ? "var(--lm-red)"
+    : turn.path === "queued" ? "var(--lm-amber)"
     : turn.path === "local" ? "var(--lm-green)"
     : turn.path === "agent" ? "var(--lm-blue)"
     : "var(--lm-text-muted)";
@@ -37,7 +38,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : turn.status === "error"
       ? "ERROR"
       : "ACTIVE";
-  const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path === "dropped" ? "dropped" : turn.path;
+  const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path === "dropped" ? "dropped" : turn.path === "queued" ? "queued" : turn.path;
 
   return (
     <div style={{
@@ -81,6 +82,16 @@ export function TurnBadge({ turn }: { turn: Turn }) {
             fontSize: 8, padding: "1px 5px", borderRadius: 3,
             background: `${durColor}18`, color: durColor, fontWeight: 700,
           }}>⏱ {label}</span>;
+        })()}
+        {typeof turn.queuedForMs === "number" && turn.queuedForMs > 0 && (() => {
+          const ms = turn.queuedForMs;
+          const label = ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+            : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s`
+            : `${ms}ms`;
+          return <span style={{
+            fontSize: 8, padding: "1px 5px", borderRadius: 3,
+            background: "var(--lm-amber)18", color: "var(--lm-amber)", fontWeight: 700,
+          }} title="queued waiting for agent before processing">⏸ queued {label}</span>;
         })()}
       </div>
 
@@ -175,6 +186,13 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
         }}>
           ⏸ dropped — agent was busy
+        </div>
+      ) : turn.path === "queued" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-amber)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          ⏸ queued — agent busy, will replay when idle
         </div>
       ) : turn.status === "done" ? (
         <div style={{

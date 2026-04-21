@@ -77,6 +77,7 @@ MOTION_EVENT_COOLDOWN_S = float(
 )
 DL_MOTION_BACKEND_URL = os.environ.get("DL_MOTION_BACKEND_URL", "")  # Full WS URL for action-analysis endpoint
 DL_API_KEY = os.environ.get("DL_API_KEY", "")
+DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
 
 # --- Sensing: Emotion detection (face emotion via dlbackend) ---
 EMOTION_ENABLED = os.environ.get("LELAMP_EMOTION_ENABLED", "true").lower() == "true"
