@@ -157,14 +157,19 @@ class VoiceService:
         # Speaker recognizer (optional). Lazy-initialized — if embedding API
         # isn't configured the prefix is simply skipped.
         self._speaker = None
-        if SPEAKER_RECOGNITION_ENABLED:
+        if not SPEAKER_RECOGNITION_ENABLED:
+            logger.info("Speaker recognizer disabled by LELAMP_SPEAKER_RECOGNITION_ENABLED=false. This is the default value.")
+        else:
             try:
                 from lelamp.service.voice.speaker_recognizer import SpeakerRecognizer
                 self._speaker = SpeakerRecognizer()
                 if not self._speaker.available:
                     logger.info(
-                        "Speaker recognizer idle — SPEAKER_EMBEDDING_API_URL not set"
+                        "Speaker recognizer idle — SPEAKER_EMBEDDING_API_URL not set "
+                        "(service instance exists but embedding calls will return 'unknown' with an error)"
                     )
+                else:
+                    logger.info("Speaker recognizer enabled — will prefix every STT final with speaker name")
             except Exception as e:
                 logger.warning("Speaker recognizer init failed: %s", e)
                 self._speaker = None
@@ -633,22 +638,29 @@ class VoiceService:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
 
             For unknown speakers, also append ``(audio save at <path>)`` so the
-            LLM skill can pick the path up and enroll the voice later.
+            LLM skill can pick the path up and enroll the voice later. When
+            the pipeline is skipped for any reason, we log why at INFO level
+            so the transcript → Lumi flow is easy to trace end-to-end.
             """
-            if not self._speaker or not audio_buffer:
+            logger.info("Identify and decorate transcript: raw transcript is: '%s'", transcript)
+            if self._speaker is None:
+                logger.info("Skip speaker ID: recognizer not initialized (LELAMP_SPEAKER_RECOGNITION_ENABLED or init failure)")
+                return transcript
+            if not audio_buffer:
+                logger.warning("Skip speaker ID: audio buffer is empty (no frames captured this session)")
                 return transcript
             try:
                 from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
                     pcm16_bytes_to_wav,
                 )
             except Exception as e:
-                logger.debug("Speaker recognizer helper import failed: %s", e)
+                logger.warning("Skip speaker ID: helper import failed: %s", e)
                 return transcript
 
             total_bytes = sum(len(b) for b in audio_buffer)
             duration_s = total_bytes / (STT_RATE * 2)  # int16 mono
             if duration_s < SPEAKER_MIN_AUDIO_S:
-                logger.debug(
+                logger.info(
                     "Skip speaker ID: only %.2fs of audio buffered (<%.2fs)",
                     duration_s, SPEAKER_MIN_AUDIO_S,
                 )
@@ -663,23 +675,26 @@ class VoiceService:
                 logger.warning("Speaker recognize failed: %s", e)
                 return transcript
 
+            logger.info("Speaker recognize result: %r", result)
+            err = result.get("error")
+            audio_path = result.get("unknown_audio_path", "")
+            if err:
+                logger.warning("Speaker ID skipped — embedding server issue: %s", err)
+                if audio_path:
+                    return f"Unknown: {transcript} (audio save at {audio_path})"
+                return transcript
+
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
-            audio_path = result.get("unknown_audio_path", "")
             if result.get("match") and name and name != "unknown":
                 # Prefer the display_name field (preserves original casing like
                 # "McDonald" or "chloe_92") — fallback to capitalize() of the
                 # normalized label only when the field is absent.
                 display = result.get("display_name") or name.capitalize()
-                logger.info(
-                    "Speaker ID: %s (confidence=%.2f, audio=%s)",
-                    name, confidence, audio_path or "-",
-                )
+                logger.info("Speaker ID: %s (confidence=%.2f, audio=%s)", name, confidence, audio_path or "-")
                 return f"{display}: {transcript}"
 
-            logger.info(
-                "Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path
-            )
+            logger.info("Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path or "-")
             if audio_path:
                 return f"Unknown: {transcript} (audio save at {audio_path})"
             return f"Unknown: {transcript}"
@@ -859,14 +874,20 @@ class VoiceService:
             return True
         return False
 
-    def _send_to_lumi(self, transcript: str, event_type: str = "voice"):
-        """Send voice transcript to Lumi Server as a sensing event (with retry)."""
+    def _send_to_lumi(self, message: str, event_type: str = "voice"):
+        """Send the final decorated message (speaker prefix + optional audio
+        path) to Lumi as a sensing event.
+
+        ``message`` is already the output of ``_identify_and_decorate`` — it
+        contains ``"<Name>: <text>"`` for a known speaker or
+        ``"Unknown: <text> (audio save at <path>)"`` for an unenrolled one.
+        """
         # Layer 3: transcript self-filter — drop if it's echo of our own TTS
-        if self._is_echo(transcript):
+        if self._is_echo(message):
             return
 
         import json as _json
-        payload = {"type": event_type, "message": transcript}
+        payload = {"type": event_type, "message": message}
         logger.info("curl -s -X POST %s -H 'Content-Type: application/json' -d '%s'",
                     LUMI_SENSING_URL, _json.dumps(payload))
         max_retries = 3
@@ -884,7 +905,7 @@ class VoiceService:
                 elif resp.status_code != 200:
                     logger.warning("Lumi returned %d: %s", resp.status_code, resp.text)
                 else:
-                    logger.info("Sent to Lumi: '%s'", transcript)
+                    logger.info("Sent to Lumi: %r", message)
                 return
             except requests.ConnectionError as e:
                 if attempt < max_retries:
