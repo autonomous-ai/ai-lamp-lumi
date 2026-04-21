@@ -7,6 +7,8 @@ description: Proactive music suggestion triggered by Mood decisions or sedentary
 
 > **Reply is spoken VERBATIM.** ONE short caring sentence — *"[sigh] Want some calm piano?"*. All checks and logic stay in `thinking`. NEVER output timestamps, cooldown math, flow names, or step numbers.
 
+> **`unknown` users count.** Always run suggestion checks when `current_user` is `"unknown"` — speak only, no DM. Never skip because the user is unknown/unconfirmed.
+
 ## Triggers
 
 1. **Mood** — after logging a mood `decision` that is suggestion-worthy: `sad`, `stressed`, `tired`, `excited`, `happy`, `bored`.
