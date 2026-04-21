@@ -29,6 +29,59 @@ const WELLBEING_ICONS: Record<string, { icon: string; title: string }> = {
   nudge_break: { icon: "🔔", title: "Nudged: break" },
 };
 
+// Per raw Kinetics label icons. When notes carries a raw label (sedentary /
+// drink / break entries), the timeline shows the raw label as the title with
+// its specific icon — bucket name is dropped for clarity.
+const RAW_LABEL_ICON: Record<string, string> = {
+  // drink
+  "drinking": "💧",
+  "drinking beer": "🍺",
+  "drinking shots": "🥃",
+  "tasting beer": "🍺",
+  "opening bottle": "🍾",
+  "making tea": "🍵",
+  // break
+  "tasting food": "🍴",
+  "stretching arm": "💪",
+  "stretching leg": "🦵",
+  "dining": "🍽",
+  "eating burger": "🍔",
+  "eating cake": "🍰",
+  "eating carrots": "🥕",
+  "eating chips": "🍟",
+  "eating doughnuts": "🍩",
+  "eating hotdog": "🌭",
+  "eating ice cream": "🍦",
+  "eating spaghetti": "🍝",
+  "eating watermelon": "🍉",
+  "applauding": "👏",
+  "clapping": "👏",
+  "celebrating": "🎉",
+  "sneezing": "🤧",
+  "sniffing": "👃",
+  "hugging": "🤗",
+  "kissing": "😘",
+  "headbanging": "🤘",
+  "sticking tongue out": "😛",
+  // sedentary
+  "using computer": "💻",
+  "writing": "✍️",
+  "texting": "📱",
+  "reading book": "📖",
+  "reading newspaper": "📰",
+  "drawing": "🎨",
+  "playing controller": "🎮",
+};
+
+function rawLabelIcon(notes: string, fallback: string): string {
+  // notes may carry multiple comma-separated labels — pick the first known.
+  for (const part of notes.split(",")) {
+    const key = part.trim().toLowerCase();
+    if (RAW_LABEL_ICON[key]) return RAW_LABEL_ICON[key];
+  }
+  return fallback;
+}
+
 function todayLocal(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -115,18 +168,22 @@ export function UserTimelineModal({ user, onClose }: Props) {
     }
 
     if (wellbeingText) {
+      const BUCKET_WITH_RAW = new Set(["sedentary", "drink", "break"]);
       for (const r of parseJsonl(wellbeingText)) {
         const ts = Number(r.ts) || 0;
         const action = String(r.action || "");
         const notes = String(r.notes || "");
         const meta = WELLBEING_ICONS[action] || { icon: "•", title: action };
+        // For physical activity buckets, drop the bucket subtitle and show
+        // the raw Kinetics label as the title with its specific icon.
+        const useRawAsTitle = BUCKET_WITH_RAW.has(action) && notes !== "";
         merged.push({
           ts,
           source: "wellbeing",
-          icon: meta.icon,
+          icon: useRawAsTitle ? rawLabelIcon(notes, meta.icon) : meta.icon,
           color: action.startsWith("nudge_") ? "rgb(251,146,60)" : "rgb(96,165,250)",
-          title: meta.title,
-          detail: notes,
+          title: useRawAsTitle ? notes : meta.title,
+          detail: useRawAsTitle ? "" : notes,
         });
       }
     }

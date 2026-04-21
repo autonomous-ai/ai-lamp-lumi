@@ -147,8 +147,17 @@ class EmotionModel:
     @staticmethod
     def _preprocess_face(face_bgr: npt.NDArray[np.uint8]) -> npt.NDArray[np.float32]:
         gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
-        resized = cv2.resize(gray, (40, 40))
-        tensor = resized.astype(np.float32) / 255.0
+        h, w = gray.shape
+        # Resize longest side to 40, maintain aspect ratio
+        scale = 40 / max(h, w)
+        new_h, new_w = int(h * scale), int(w * scale)
+        resized = cv2.resize(gray, (new_w, new_h))
+        # Pad to 40x40 with zeros (black)
+        padded = np.zeros((40, 40), dtype=np.uint8)
+        top = (40 - new_h) // 2
+        left = (40 - new_w) // 2
+        padded[top : top + new_h, left : left + new_w] = resized
+        tensor = padded.astype(np.float32) / 255.0
         return tensor.reshape(1, 1, 40, 40)
 
     def create_session(
