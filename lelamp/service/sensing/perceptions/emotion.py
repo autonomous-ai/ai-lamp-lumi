@@ -135,10 +135,13 @@ class EmotionPerception(Perception):
         self._emotion_buffer: list[str] = []
         self._last_flush_ts: float = 0.0
 
-        # Dedup: same (user, dominant_emotion) within window → drop
-        self._last_sent_key: tuple[str, str] | None = None
+        # Dedup: per-user cooldown + same-emotion suppression
+        # - Same user within cooldown → skip (prevents FER fluctuation spam)
+        # - Same user + same emotion within long window → skip (no repeat)
+        self._last_sent_key: tuple[str, str] | None = None  # (user, emotion)
         self._last_sent_ts: float = 0.0
-        self._dedup_window_s: float = 300.0  # 5 min
+        self._cooldown_s: float = 60.0       # min gap between any emotion event for same user
+        self._same_emotion_window_s: float = 300.0  # 5 min — same emotion suppression
 
     @override
     def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
@@ -198,25 +201,37 @@ class EmotionPerception(Perception):
 
         message = f"Emotion detected: {dominant_emotion}."
 
-        # Dedup
+        # Dedup — two layers:
+        # 1) Per-user cooldown: any emotion for same user within 60s → skip
+        # 2) Same emotion: same user + same emotion within 5 min → skip
         current_user = ""
         if self._face_recognizer is not None:
             try:
                 current_user = self._face_recognizer.current_user() or ""
             except Exception:
                 logger.exception("[activity.emotion] face_recognizer.current_user() failed")
-        key = (current_user, dominant_emotion)
-        if (
-            self._last_sent_key == key
-            and (cur_ts - self._last_sent_ts) < self._dedup_window_s
-        ):
-            logger.info(
-                "[activity.emotion] dedup drop: %s (same as last send %.1fs ago)",
-                message,
-                cur_ts - self._last_sent_ts,
+
+        elapsed = cur_ts - self._last_sent_ts if self._last_sent_ts > 0 else float("inf")
+        last_user = self._last_sent_key[0] if self._last_sent_key else ""
+        last_emotion = self._last_sent_key[1] if self._last_sent_key else ""
+
+        # Layer 1: cooldown per user
+        if current_user == last_user and elapsed < self._cooldown_s:
+            logger.debug(
+                "[activity.emotion] cooldown skip: %s (%.0fs < %.0fs)",
+                message, elapsed, self._cooldown_s,
             )
             return
-        self._last_sent_key = key
+
+        # Layer 2: same emotion suppression
+        if current_user == last_user and dominant_emotion == last_emotion and elapsed < self._same_emotion_window_s:
+            logger.info(
+                "[activity.emotion] same emotion skip: %s (%.0fs ago)",
+                message, elapsed,
+            )
+            return
+
+        self._last_sent_key = (current_user, dominant_emotion)
         self._last_sent_ts = cur_ts
 
         logger.info("[activity.emotion] flushing: %s", message)
@@ -228,10 +243,13 @@ class EmotionPerception(Perception):
             if self._last_detection_time is not None
             else None
         )
+        last_sent = self._last_sent_key
         return {
             "type": "emotion",
             "connected": self._checker._ws_session is not None,
-            "last_emotion": self._last_emotion,
+            "last_sent_emotion": last_sent[1] if last_sent else None,
+            "last_sent_user": last_sent[0] if last_sent else None,
+            "last_detected_emotion": self._last_emotion,
             "buffered_emotions": len(self._emotion_buffer),
             "emotion_detected": self._last_detection_time is not None,
             "seconds_since_detection": seconds_since,
