@@ -38,17 +38,17 @@ Do NOT activate when:
 2. Turn B is `Unknown: I'm Darren (audio save at <pathB>)` → call `POST /speaker/enroll` with `wav_paths=[<pathA>, <pathB>]`.
 
 ### Enroll from Telegram voice note
-1. Telegram audio arrives at `SRC=/tmp/openclaw/media/voice_xxx.ogg` (or `.wav`, `.m4a`, etc.).
-2. **Copy/convert** into `/tmp/lumi-unknown-voice/` as 16 kHz mono WAV — never pass the raw `/tmp/openclaw/media/...` path to the API.
-3. Call `POST /speaker/enroll` with the new WAV path + `telegram_username` + `telegram_id` from the message context.
+1. Telegram audio arrives at `SRC` (e.g. `/tmp/openclaw/media/voice_xxx.ogg` — exact path depends on OpenClaw's media dir, take it from `mediaPaths`).
+2. If `SRC` is already `.wav` → use it directly. Otherwise convert to WAV **in the same directory** with `ffmpeg -ar 16000 -ac 1`. Use `DST="${SRC%.*}.wav"` — same folder, same basename, `.wav` extension.
+3. Call `POST /speaker/enroll` with that WAV path + `telegram_username` + `telegram_id` from the message context.
 
 ### Link Telegram to a mic-only profile
 1. User is already enrolled via mic (`GET /speaker/list` shows `has_telegram_identity: false`) and now sends a Telegram intro.
 2. Call `POST /speaker/identity` with the name + Telegram fields. No audio upload needed.
 
 ### Recognize a Telegram voice
-1. Copy/convert the attachment as above.
-2. Call `POST /speaker/recognize` with the new WAV path.
+1. Convert to WAV in the same dir as above (if not already `.wav`).
+2. Call `POST /speaker/recognize` with that WAV path.
 3. `match: true` → use `name`; `match: false` → treat as unknown, `unknown_audio_path` is kept for a follow-up enroll.
 
 ### List / remove / reset
@@ -74,14 +74,13 @@ curl -s -X POST http://127.0.0.1:5001/speaker/enroll \
   -d '{"name": "darren", "wav_paths": ["/tmp/lumi-unknown-voice/incoming_A.wav", "/tmp/lumi-unknown-voice/incoming_B.wav"]}'
 ```
 
-### Enroll (Telegram voice — copy/convert first)
+### Enroll (Telegram voice — convert in-place if needed)
 ```bash
-SRC="/tmp/openclaw/media/voice_abc.ogg"
-DST="/tmp/lumi-unknown-voice/telegram_darren_$(date +%s%3N).wav"
-mkdir -p "$(dirname "$DST")"
+SRC="/tmp/openclaw/media/voice_abc.ogg"   # take from the message's mediaPaths
 if [[ "$SRC" == *.wav ]]; then
-  cp "$SRC" "$DST"
+  DST="$SRC"
 else
+  DST="${SRC%.*}.wav"                      # same folder, same basename, .wav
   ffmpeg -i "$SRC" -ar 16000 -ac 1 -y "$DST" 2>/dev/null
 fi
 curl -s -X POST http://127.0.0.1:5001/speaker/enroll \
@@ -91,7 +90,7 @@ curl -s -X POST http://127.0.0.1:5001/speaker/enroll \
 
 ### Recognize (Telegram voice)
 ```bash
-# After copy/convert as above:
+# After conversion as above:
 curl -s -X POST http://127.0.0.1:5001/speaker/recognize \
   -H "Content-Type: application/json" \
   -d "{\"wav_path\": \"$DST\"}"
@@ -137,7 +136,7 @@ curl -s -X POST http://127.0.0.1:5001/speaker/reset
 - **Lowercase normalized names** — use the same `name` as `face-enroll` for the same person (folder `/root/local/users/<name>/` is shared across skills).
 - **Always include Telegram identity when the message came from Telegram** — pass `telegram_username` + `telegram_id`. Omit (don't send empty strings) when unknown.
 - **Use `/speaker/identity`, not re-enroll**, when you just want to link Telegram info to a mic-only profile (no new audio).
-- **Telegram audio must be copied/converted into `/tmp/lumi-unknown-voice/`** first — never pass raw `/tmp/openclaw/media/...` paths.
+- **Telegram audio must be 16 kHz mono WAV** before calling the API — convert with `ffmpeg -ar 16000 -ac 1 -y "${SRC%.*}.wav"` (same folder as the source). Skip conversion if the source is already `.wav`. Non-WAV media files (`.ogg`, `.m4a`, `.mp3`, `.opus`) are rejected by the embedding backend.
 - **Mic transcript paths are safe to reuse** — the `(audio save at <path>)` marker already points to a stable location.
 - **Don't spam "who are you?"** — ask once per session; if no name, move on.
 - **Confirm every enroll** — "Nice to meet you, Darren! I'll remember your voice."

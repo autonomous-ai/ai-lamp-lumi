@@ -143,7 +143,8 @@ SPEAKER_EMBEDDING_API_TIMEOUT_S: float = float(
     os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15")
 )
 SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
-    "LELAMP_UNKNOWN_AUDIO_DIR", "/tmp/lumi-unknown-voice"
+    "LELAMP_UNKNOWN_AUDIO_DIR",
+    os.path.join(tempfile.gettempdir(), "lumi-unknown-voice"),
 )
 DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/api/dl/audio-recognizer/embed")
 SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
