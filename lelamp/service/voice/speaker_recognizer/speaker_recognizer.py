@@ -376,8 +376,32 @@ class SpeakerRecognizer:
         return chunks
 
     def _expand_wav_for_embedding(self, wav_bytes: bytes, *, stem: str) -> list[str]:
-        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O)."""
+        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O).
+
+        Validates that the audio is long enough and has audible signal before
+        returning — kaldi fbank on the embedding server needs at least ~25 ms
+        of non-silence to produce any feature frame; an empty feature tensor
+        crashes ONNX with ``Invalid input shape: {80, 0}``. Catch it here
+        where we can give a clear message instead of surfacing that cryptic
+        error back to the caller.
+        """
         waveform = _wav_bytes_to_float32_16k_mono(wav_bytes)
+
+        # 250ms floor — well above kaldi's 25ms frame, and short enough to
+        # accept mic bursts that barely pass the SPEAKER_MIN_AUDIO_S gate.
+        min_samples = int(0.25 * _TARGET_SR)
+        if waveform.shape[0] < min_samples:
+            raise SpeakerRecognizerError(
+                f"audio too short for embedding: {waveform.shape[0]/_TARGET_SR:.2f}s < 0.25s"
+            )
+
+        # RMS floor — reject near-silence. 1e-4 ≈ −80 dBFS on float32 PCM.
+        rms = float(np.sqrt(np.mean(waveform.astype(np.float64) ** 2)))
+        if rms < 1e-4:
+            raise SpeakerRecognizerError(
+                f"audio too silent for embedding: rms={rms:.6f} < 1e-4"
+            )
+
         chunks = self._split_waveform_by_max_seconds(waveform)
         if not chunks:
             raise SpeakerRecognizerError("empty audio after decoding")
