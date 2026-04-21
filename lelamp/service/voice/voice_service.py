@@ -647,14 +647,14 @@ class VoiceService:
                 logger.info("Skip speaker ID: recognizer not initialized (LELAMP_SPEAKER_RECOGNITION_ENABLED or init failure)")
                 return transcript
             if not audio_buffer:
-                logger.info("Skip speaker ID: audio buffer is empty (no frames captured this session)")
+                logger.warning("Skip speaker ID: audio buffer is empty (no frames captured this session)")
                 return transcript
             try:
                 from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
                     pcm16_bytes_to_wav,
                 )
             except Exception as e:
-                logger.info("Skip speaker ID: helper import failed: %s", e)
+                logger.warning("Skip speaker ID: helper import failed: %s", e)
                 return transcript
 
             total_bytes = sum(len(b) for b in audio_buffer)
@@ -672,14 +672,14 @@ class VoiceService:
                 audio_b64 = _b64.b64encode(wav_bytes).decode("ascii")
                 result = self._speaker.recognize(audio_b64, source_type="base64")
             except Exception as e:
-                logger.info("Speaker recognize failed: %s", e)
+                logger.warning("Speaker recognize failed: %s", e)
                 return transcript
 
             logger.info("Speaker recognize result: %r", result)
             err = result.get("error")
             audio_path = result.get("unknown_audio_path", "")
             if err:
-                logger.info("Speaker ID skipped — embedding server issue: %s", err)
+                logger.warning("Speaker ID skipped — embedding server issue: %s", err)
                 if audio_path:
                     return f"Unknown: {transcript} (audio save at {audio_path})"
                 return transcript
