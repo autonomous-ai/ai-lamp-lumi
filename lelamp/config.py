@@ -5,6 +5,7 @@ Import: from lelamp.config import LAMP_ID, SERVO_PORT, ...
 """
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional, Union
 
@@ -85,6 +86,11 @@ EMOTION_CONFIDENCE_THRESHOLD = float(
     os.environ.get("LELAMP_EMOTION_CONFIDENCE_THRESHOLD", "0.5")
 )
 EMOTION_FLUSH_S = float(os.environ.get("LELAMP_EMOTION_FLUSH_S", "10.0"))
+EMOTION_SNAPSHOT_DIR = os.environ.get(
+    "LELAMP_EMOTION_SNAPSHOT_DIR",
+    os.path.join(tempfile.gettempdir(), "lumi-emotion-snapshots"),
+)
+EMOTION_SNAPSHOT_MAX_COUNT = int(os.environ.get("LELAMP_EMOTION_SNAPSHOT_MAX_COUNT", "100"))
 DL_EMOTION_BACKEND_URL = os.environ.get("DL_EMOTION_BACKEND_URL", "")  # Full WS URL for emotion-analysis endpoint
 
 # --- Sensing: Pose-based motion detection (RTMPose ONNX) ---
