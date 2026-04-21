@@ -33,9 +33,10 @@ export interface Turn {
   sessionBreak?: boolean;
   endTime?: string;
   type: string;
-  path: "local" | "agent" | "dropped" | "unknown";
+  path: "local" | "agent" | "dropped" | "queued" | "unknown";
   status: "active" | "done" | "error";
   events: DisplayEvent[];
+  queuedForMs?: number;
 }
 
 // Runtime detail lines

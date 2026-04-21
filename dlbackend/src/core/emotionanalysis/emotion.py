@@ -17,6 +17,7 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from config import settings
+from core.models import EmotionDetection, EmotionResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,11 @@ class EmotionModel:
         nms_threshold: float = 0.3,
         top_k: int = 5000,
     ):
-        self._yunet_path = yunet_path or self.DEFAULT_YUNET_MODEL
-        self._fer_path = fer_path or self.DEFAULT_FER_MODEL
-        self._score_threshold = score_threshold
-        self._nms_threshold = nms_threshold
-        self._top_k = top_k
+        self._yunet_path: Path = yunet_path or self.DEFAULT_YUNET_MODEL
+        self._fer_path: Path = fer_path or self.DEFAULT_FER_MODEL
+        self._score_threshold: float = score_threshold
+        self._nms_threshold: float = nms_threshold
+        self._top_k: int = top_k
 
         self._face_detector: cv2.FaceDetectorYN | None = None
         self._fer_session: ort.InferenceSession | None = None
@@ -76,7 +77,9 @@ class EmotionModel:
         providers.append("CPUExecutionProvider")
 
         self._fer_session = ort.InferenceSession(
-            str(self._fer_path), sess_options=opts, providers=providers,
+            str(self._fer_path),
+            sess_options=opts,
+            providers=providers,
         )
         self._fer_input_name = self._fer_session.get_inputs()[0].name
         active = self._fer_session.get_providers()
@@ -92,8 +95,9 @@ class EmotionModel:
         return self._running and self._face_detector is not None and self._fer_session is not None
 
     def detect(
-        self, frame: npt.NDArray[np.uint8],
-    ) -> list[dict]:
+        self,
+        frame: npt.NDArray[np.uint8],
+    ) -> list[EmotionDetection]:
         """Detect faces and classify emotions.
 
         Returns list of {"emotion": str, "confidence": float, "bbox": [x,y,w,h]}.
@@ -129,12 +133,14 @@ class EmotionModel:
             emotion_label = EMOTIONS[emotion_idx]
             emotion_conf = float(probs[emotion_idx])
 
-            results.append({
-                "emotion": emotion_label,
-                "confidence": emotion_conf,
-                "face_confidence": face_conf,
-                "bbox": [int(x), int(y), int(fw), int(fh)],
-            })
+            results.append(
+                EmotionDetection(
+                    emotion=emotion_label,
+                    confidence=emotion_conf,
+                    face_confidence=face_conf,
+                    bbox=[int(x), int(y), int(fw), int(fh)],
+                )
+            )
 
         return results
 
@@ -157,16 +163,6 @@ class EmotionModel:
         )
 
 
-class EmotionResponse:
-    """Response from emotion detection."""
-
-    def __init__(self, detections: list[dict]):
-        self.detections = detections
-
-    def model_dump(self) -> dict:
-        return {"detections": self.detections}
-
-
 class EmotionSession:
     """Per-connection session for emotion detection."""
 
@@ -180,7 +176,7 @@ class EmotionSession:
         self._threshold = threshold
         self._frame_interval = frame_interval
         self._last_ts: float = 0
-        self._last_detected: list[dict] = []
+        self._last_detected: list[EmotionDetection] = []
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def update(self, frame: npt.NDArray[np.uint8]) -> EmotionResponse | None:
@@ -200,13 +196,13 @@ class EmotionSession:
         self._logger.info(
             "Detected %d face(s): %s",
             len(filtered),
-            ", ".join(f"{d['emotion']} ({d['confidence']:.2f})" for d in filtered) or "none",
+            ", ".join(f"{d.emotion} ({d.confidence:.2f})" for d in filtered) or "none",
         )
 
         return EmotionResponse(detections=filtered)
 
-    def _filter(self, detections: list[dict]) -> list[dict]:
-        return [d for d in detections if d["confidence"] >= self._threshold]
+    def _filter(self, detections: list[EmotionDetection]) -> list[EmotionDetection]:
+        return [d for d in detections if d.confidence >= self._threshold]
 
     def set_config(self, threshold: float) -> None:
         self._threshold = threshold

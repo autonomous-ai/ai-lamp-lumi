@@ -115,8 +115,8 @@ class TestActionAnalysisWebSocket:
         await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
         resp = json.loads(await ws.recv())
         assert "detected_classes" in resp
-        for class_name, _ in resp["detected_classes"]:
-            assert class_name in allowed
+        for det in resp["detected_classes"]:
+            assert det["class_name"] in allowed
 
         # Reset
         await ws.send(json.dumps({"type": "config", "whitelist": None}))
@@ -145,6 +145,34 @@ class TestActionAnalysisWebSocket:
         await ws.send(json.dumps({"type": "frame"}))
         resp = json.loads(await ws.recv())
         assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_returns_ok(self, ws):
+        await ws.send(json.dumps({"type": "heartbeat"}))
+        resp = json.loads(await ws.recv())
+        assert resp == {"status": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_multiple(self, ws):
+        """Multiple heartbeats in a row should all return ok."""
+        for _ in range(3):
+            await ws.send(json.dumps({"type": "heartbeat"}))
+            resp = json.loads(await ws.recv())
+            assert resp == {"status": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_interleaved_with_frames(self, ws):
+        """Heartbeat should work between frame requests."""
+        await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+        await ws.recv()
+
+        await ws.send(json.dumps({"type": "heartbeat"}))
+        resp = json.loads(await ws.recv())
+        assert resp == {"status": "ok"}
+
+        await ws.send(json.dumps({"type": "frame", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        assert "detected_classes" in resp
 
     @pytest.mark.asyncio
     async def test_ws_without_api_key_rejected(self):
