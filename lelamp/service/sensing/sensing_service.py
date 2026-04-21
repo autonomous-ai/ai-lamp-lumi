@@ -322,12 +322,25 @@ class SensingService:
         # motion.activity isn't silently dropped by the 5-min window.
         # Otherwise a friend arriving while someone was already sitting would
         # wait out the remainder of the old window before the agent saw them.
+        #
+        # Pass the *current* user so perceptions can skip the reset when the
+        # visible user hasn't actually changed (e.g. stranger_79 → stranger_77,
+        # both collapse to "unknown"). Without this guard, face-recognition
+        # flicker between stranger IDs wipes the dedup every few seconds.
         if event_type == "presence.enter":
+            new_user = ""
+            if self._face_recognizer is not None:
+                try:
+                    new_user = self._face_recognizer.current_user() or ""
+                except Exception:
+                    logger.exception(
+                        "[sensing] face_recognizer.current_user() failed"
+                    )
             for perception in self._perceptions:
                 reset = getattr(perception, "reset_dedup", None)
                 if callable(reset):
                     try:
-                        reset()
+                        reset(new_user)
                     except Exception:
                         logger.exception(
                             "[sensing] %s.reset_dedup() failed",
