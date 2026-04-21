@@ -474,13 +474,17 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 		return
 	}
 	// Prefer persistent dir (survives reboot), fall back to tmp buffers.
-	// lumi-emotion-snapshots holds FER snapshots; lumi-sensing-snapshots holds presence/motion.
+	// lumi-sensing-snapshots: presence; lumi-emotion-snapshots: FER; lumi-motion-snapshots: activity.
 	persistPath := filepath.Join("/var/log/lumi/snapshots", name)
 	if _, err := os.Stat(persistPath); err == nil {
 		c.File(persistPath)
 		return
 	}
-	for _, dir := range []string{"/tmp/lumi-sensing-snapshots", "/tmp/lumi-emotion-snapshots"} {
+	for _, dir := range []string{
+		"/tmp/lumi-sensing-snapshots",
+		"/tmp/lumi-emotion-snapshots",
+		"/tmp/lumi-motion-snapshots",
+	} {
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)

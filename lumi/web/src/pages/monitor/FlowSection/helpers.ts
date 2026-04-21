@@ -1124,8 +1124,8 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
       // Extract all snapshot paths → convert to API URLs.
-      // Accepts sensing_*.jpg (presence/motion) in sensing dirs, emotion_*.jpg (FER) in emotion dir.
-      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-(?:sensing|emotion)-snapshots|\/var\/log\/lumi\/snapshots)\/((?:sensing|emotion)_[^\]]+\.jpg)\]/g;
+      // Accepts sensing_*.jpg (presence), emotion_*.jpg (FER), motion_*.jpg (activity) across all 4 dirs.
+      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-(?:sensing|emotion|motion)-snapshots|\/var\/log\/lumi\/snapshots)\/((?:sensing|emotion|motion)_[^\]]+\.jpg)\]/g;
       let snapMatch;
       while ((snapMatch = snapRe.exec(raw)) !== null) {
         const url = `/api/sensing/snapshot/${snapMatch[1]}`;
