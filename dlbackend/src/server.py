@@ -36,12 +36,14 @@ from core.actionanalysis.videomae import VideoMAEModel
 from core.actionanalysis.x3d import X3DModel
 from core.emotionanalysis.emotion import EmotionModel
 from core.models import (
+    ActionConfigRequest,
+    ActionFrameRequest,
+    ActionHeartBeatRequest,
     ActionRequest,
-    ConfigRequest,
     EmotionConfigRequest,
     EmotionFrameRequest,
+    EmotionHeartBeatRequest,
     EmotionRequest,
-    FrameRequest,
 )
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 
@@ -170,15 +172,18 @@ async def action_analysis_ws(websocket: WebSocket):
                 continue
 
             match req:
-                case FrameRequest():
+                case ActionFrameRequest():
                     frame = decode_image(req.frame_b64)
                     result = action_recognizer.update(frame)
                     if result is not None:
                         await websocket.send_json(result.model_dump())
 
-                case ConfigRequest():
+                case ActionConfigRequest():
                     action_recognizer.set_config(req.whitelist, req.threshold)
                     await websocket.send_json({"status": "config_updated"})
+
+                case ActionHeartBeatRequest():
+                    await websocket.send_json({"status": "ok"})
 
                 case _:
                     pass
@@ -229,6 +234,9 @@ async def emotion_analysis_ws(websocket: WebSocket):
                 case EmotionConfigRequest():
                     session.set_config(req.threshold)
                     await websocket.send_json({"status": "config_updated"})
+
+                case EmotionHeartBeatRequest():
+                    await websocket.send_json({"status": "ok"})
 
                 case _:
                     pass

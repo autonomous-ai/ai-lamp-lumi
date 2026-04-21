@@ -11,6 +11,7 @@ from websockets import ConnectionClosedError
 from websockets.sync.client import ClientConnection, connect
 
 import lelamp.config as config
+
 from .base import Perception
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,9 @@ class RemoteEmotionChecker:
         self._threshold: float = threshold
         self._ws_session: ClientConnection | None = None
 
+        self._last_heartbeat_ts: float = 0.0
+        self._heartbeat_interval: float = config.DL_HEARTBEAT_INTERVAL_S
+
         self._prepare_session()
 
     def _prepare_session(self):
@@ -54,6 +58,8 @@ class RemoteEmotionChecker:
                     }
                 )
             )
+            # Consume the config_updated response so it doesn't pollute frame responses
+            self._ws_session.recv()
         except Exception:
             logger.exception("Failed to connect to remote emotion recognition backend")
             self._ws_session = None
@@ -62,9 +68,28 @@ class RemoteEmotionChecker:
         _, buf = cv2.imencode(".jpg", frame)
         return base64.b64encode(buf.tobytes()).decode()
 
-    def update(
-        self, frame: npt.NDArray[np.uint8]
-    ) -> list[tuple[str, float]] | None:
+    def _send_heartbeat(self) -> None:
+        """Send a heartbeat if the interval has elapsed."""
+        now = time.time()
+        if now - self._last_heartbeat_ts < self._heartbeat_interval:
+            return
+        if self._ws_session is None:
+            return
+        try:
+            self._ws_session.send(json.dumps({"type": "heartbeat", "task": "emotion"}))
+            resp = json.loads(self._ws_session.recv())
+            if resp.get("status") == "ok":
+                self._last_heartbeat_ts = now
+                logger.debug("[activity.emotion] heartbeat ok")
+            else:
+                logger.warning(
+                    "[activity.emotion] heartbeat unexpected response: %s", resp
+                )
+        except ConnectionClosedError:
+            logger.warning("[activity.emotion] heartbeat failed — connection lost")
+            self._ws_session = None
+
+    def update(self, frame: npt.NDArray[np.uint8]) -> list[tuple[str, float]] | None:
         """Send a frame for emotion inference.
 
         Returns list of (emotion_label, confidence) for each detected face,
@@ -75,13 +100,21 @@ class RemoteEmotionChecker:
         if self._ws_session is None:
             self._prepare_session()
             if self._ws_session is not None:
-                logger.info("[%s] reconnected to %s", self.__class__.__name__, self._base_url)
+                logger.info(
+                    "[%s] reconnected to %s", self.__class__.__name__, self._base_url
+                )
+
+        self._send_heartbeat()
 
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
                     json.dumps(
-                        {"type": "frame", "task": "emotion", "frame_b64": self._img2b64(frame)}
+                        {
+                            "type": "frame",
+                            "task": "emotion",
+                            "frame_b64": self._img2b64(frame),
+                        }
                     )
                 )
                 resp = json.loads(self._ws_session.recv())
@@ -93,7 +126,10 @@ class RemoteEmotionChecker:
                 ]
                 return sorted(results, key=lambda x: x[1], reverse=True)
             except ConnectionClosedError:
-                logger.warning("[%s] connection lost, will retry on next tick", self.__class__.__name__)
+                logger.warning(
+                    "[%s] connection lost, will retry on next tick",
+                    self.__class__.__name__,
+                )
                 self._ws_session = None
 
         return None
@@ -161,7 +197,9 @@ class EmotionPerception(Perception):
             top_emotion, top_conf = results[0]
             self._last_emotion = top_emotion
             self._emotion_buffer.append(top_emotion)
-            logger.debug("[activity.emotion] detected: %s (%.2f)", top_emotion, top_conf)
+            logger.debug(
+                "[activity.emotion] detected: %s (%.2f)", top_emotion, top_conf
+            )
 
         self._flush_buffer()
 

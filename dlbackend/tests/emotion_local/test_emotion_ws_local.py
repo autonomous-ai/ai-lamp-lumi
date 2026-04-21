@@ -191,6 +191,48 @@ class TestEmotionAnalysisWebSocket:
                 ws.receive_json()
         server.emotion_model = saved
 
+    def test_heartbeat_returns_ok(self, client):
+        with client.websocket_connect(
+            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
+        ) as ws:
+            ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
+            resp = ws.receive_json()
+            assert resp == {"status": "ok"}
+
+    def test_heartbeat_multiple(self, client):
+        """Multiple heartbeats in a row should all return ok."""
+        with client.websocket_connect(
+            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
+        ) as ws:
+            for _ in range(3):
+                ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
+                resp = ws.receive_json()
+                assert resp == {"status": "ok"}
+
+    def test_heartbeat_interleaved_with_frames(self, client):
+        """Heartbeat should work between frame requests."""
+        with client.websocket_connect(
+            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
+        ) as ws:
+            ws.send_text(
+                json.dumps(
+                    {"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}
+                )
+            )
+            ws.receive_json()
+
+            ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
+            resp = ws.receive_json()
+            assert resp == {"status": "ok"}
+
+            ws.send_text(
+                json.dumps(
+                    {"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}
+                )
+            )
+            resp = ws.receive_json()
+            assert "detections" in resp
+
     def test_ws_without_api_key_rejected(self, client):
         with pytest.raises(Exception):
             with client.websocket_connect("/api/dl/emotion-analysis/ws") as ws:
