@@ -229,7 +229,7 @@ func (s *Service) drainPendingEvents() {
 			case "presence.leave", "presence.away":
 				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
-				msg += "\n[Follow wellbeing/SKILL.md, then music/SKILL.md for sedentary.]"
+				msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
 			case "emotion.detected":
 				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 			}

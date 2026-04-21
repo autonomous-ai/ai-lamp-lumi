@@ -21,7 +21,8 @@ logger.setLevel(logging.DEBUG)
 RESOURCES_DIR = Path(__file__).parent / "resources"
 
 # Map raw Kinetics action labels to high-level activity groups.
-# Lumi receives only the group name, not the raw label.
+# Lumi receives the raw labels — the agent infers the group. The mapping here
+# is kept only to filter out emotional actions (handled by a separate channel).
 ACTIVITY_GROUP: dict[str, str] = {
     # drink — reset hydration timer
     "drinking": "drink",
@@ -189,10 +190,13 @@ class MotionPerception(Perception):
         self._last_flush_ts: float = 0.0
 
         # Dedup state for outbound motion.activity events.
-        # Key = (current_user, frozenset(activity_groups)).
+        # Key = (current_user, frozenset(raw_actions)).
         # Same key within MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User
         # change flips the key immediately; different strangers collapse to
-        # "unknown" so they don't break dedup on their own.
+        # "unknown" so they don't break dedup on their own. Keying on raw
+        # actions is looser than the old group-level key — transitioning from
+        # "writing" to "drawing" now passes through as a new event so the agent
+        # gets the richer context.
         self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
@@ -249,7 +253,7 @@ class MotionPerception(Perception):
         if actions:
             logger.info("[motion] raw X3D actions in window: %s", actions)
 
-        activity_groups: set[str] = set()
+        raw_actions: set[str] = set()
 
         for a in reversed(actions):
             group = ACTIVITY_GROUP.get(a)
@@ -261,11 +265,11 @@ class MotionPerception(Perception):
                 # intentionally NOT emitted via motion.activity. A dedicated
                 # motion.emotional event will be added later to carry them;
                 # until then emotional X3D detections are silently ignored
-                # here so motion.activity stays purely about physical groups.
+                # here so motion.activity stays purely about physical actions.
                 continue
-            activity_groups.add(group)
+            raw_actions.add(a)
 
-        if not activity_groups:
+        if not raw_actions:
             return
 
         from ..presence_service import PresenceState
@@ -278,15 +282,15 @@ class MotionPerception(Perception):
             return
 
         message = (
-            f"Activity detected: {', '.join(sorted(activity_groups))}. "
+            f"Activity detected: {', '.join(sorted(raw_actions))}. "
             "If nothing noteworthy, reply NO_REPLY."
         )
 
-        # Dedup: drop if the outbound state (user + activity groups) hasn't
+        # Dedup: drop if the outbound state (user + raw actions) hasn't
         # changed since the last send AND we're still within the dedup window.
-        # A user change or an activity group change flips the key — those
-        # always pass through. After 5 min the same key passes through anyway
-        # so Lumi agent wakes up and reruns the threshold check.
+        # A user change or an action set change flips the key — those always
+        # pass through. After 5 min the same key passes through anyway so
+        # Lumi agent wakes up and reruns the threshold check.
         current_user = ""
         if self._face_recognizer is not None:
             try:
@@ -295,7 +299,7 @@ class MotionPerception(Perception):
                 logger.exception("[motion] face_recognizer.current_user() failed")
         key = (
             current_user,
-            frozenset(activity_groups),
+            frozenset(raw_actions),
         )
         if (
             self._last_sent_key == key
@@ -316,9 +320,9 @@ class MotionPerception(Perception):
 
     def reset_dedup(self) -> None:
         """Clear the outbound dedup state so the next motion.activity will
-        send regardless of whether the state (user + activity groups) matches
+        send regardless of whether the state (user + raw actions) matches
         the previous send. Called by SensingService on presence.enter so the
-        agent sees a fresh sedentary event right after a new session starts,
+        agent sees a fresh activity event right after a new session starts,
         instead of waiting out the 5-minute wake-up window.
         """
         if self._last_sent_key is not None:
