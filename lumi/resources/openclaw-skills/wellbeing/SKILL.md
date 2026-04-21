@@ -5,6 +5,8 @@ description: Event-driven hydration and break reminders. Reads the per-user acti
 
 # Wellbeing
 
+> **Reply is spoken VERBATIM.** ONE short caring nudge — *"Grab some water?"*. All computation (timestamps, deltas, thresholds) stays in `thinking`. NEVER output math, log entries, or skip reasons in the reply.
+
 ## Quick Start
 
 Wellbeing is **event-driven**, not cron-driven. There are no wellbeing cron jobs. On every `motion.activity` event, you:
