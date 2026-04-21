@@ -123,12 +123,14 @@ type AgentGateway interface {
 	// ConsumeWebChatRun checks and removes a web-chat-marked runID. One-shot.
 	ConsumeWebChatRun(runID string) bool
 
-	// SetPendingChatTrace stores the idempotencyKey of the most recent chat.send
-	// so lifecycle_start can map OpenClaw UUID → device trace without relying on global flow trace.
+	// SetPendingChatTrace appends the idempotencyKey of an outbound chat.send
+	// to a FIFO queue. Paired with ConsumePendingChatTrace on lifecycle_start
+	// so OpenClaw's UUID maps back to the correct device runId even when
+	// multiple chat.sends are in flight on the same session lane.
 	SetPendingChatTrace(runID string)
 
-	// ConsumePendingChatTrace returns and clears the pending chat trace. One-shot.
-	// Returns "" if no pending chat or expired (>2 min).
+	// ConsumePendingChatTrace pops the head of the FIFO queue, dropping stale
+	// entries (>2 min) from the head first. Returns "" if the queue is empty.
 	ConsumePendingChatTrace() string
 
 	// --- Channel abstraction (backend-agnostic) ---
