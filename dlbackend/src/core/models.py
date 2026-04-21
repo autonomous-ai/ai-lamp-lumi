@@ -92,6 +92,8 @@ class EmotionDetection(BaseModel):
     confidence: float
     face_confidence: float
     bbox: list[int]
+    valence: float = 0.0
+    arousal: float = 0.0
 
 
 class EmotionResponse(BaseModel):

@@ -376,8 +376,32 @@ class SpeakerRecognizer:
         return chunks
 
     def _expand_wav_for_embedding(self, wav_bytes: bytes, *, stem: str) -> list[str]:
-        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O)."""
+        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O).
+
+        Validates that the audio is long enough and has audible signal before
+        returning — kaldi fbank on the embedding server needs at least ~25 ms
+        of non-silence to produce any feature frame; an empty feature tensor
+        crashes ONNX with ``Invalid input shape: {80, 0}``. Catch it here
+        where we can give a clear message instead of surfacing that cryptic
+        error back to the caller.
+        """
         waveform = _wav_bytes_to_float32_16k_mono(wav_bytes)
+
+        # 250ms floor — well above kaldi's 25ms frame, and short enough to
+        # accept mic bursts that barely pass the SPEAKER_MIN_AUDIO_S gate.
+        min_samples = int(0.25 * _TARGET_SR)
+        if waveform.shape[0] < min_samples:
+            raise SpeakerRecognizerError(
+                f"audio too short for embedding: {waveform.shape[0]/_TARGET_SR:.2f}s < 0.25s"
+            )
+
+        # RMS floor — reject near-silence. 1e-4 ≈ −80 dBFS on float32 PCM.
+        rms = float(np.sqrt(np.mean(waveform.astype(np.float64) ** 2)))
+        if rms < 1e-4:
+            raise SpeakerRecognizerError(
+                f"audio too silent for embedding: rms={rms:.6f} < 1e-4"
+            )
+
         chunks = self._split_waveform_by_max_seconds(waveform)
         if not chunks:
             raise SpeakerRecognizerError("empty audio after decoding")
@@ -538,7 +562,15 @@ class SpeakerRecognizer:
             telegram_id=telegram_id or None,
         )
 
-        # Decode + normalize incoming audios.
+        # ------------------------------------------------------------
+        # Strict policy: the voice/ folder ONLY contains audios that
+        # contributed to the final embedding. So we do all the work in
+        # memory first — validate, embed, filter — and ONLY THEN commit
+        # surviving samples to disk. Any audio that fails validation or
+        # the consistency filter never touches the folder.
+        # ------------------------------------------------------------
+
+        # Step 1 — Decode + normalize incoming audios (in-memory only).
         new_wavs: list[bytes] = []
         for src in sources:
             if source_type == "filepath":
@@ -552,79 +584,118 @@ class SpeakerRecognizer:
                 raise SpeakerRecognizerError("empty audio")
             new_wavs.append(_ensure_wav_16k_mono(raw))
 
-        # Persist original audios; origin is encoded in filename. Stable
-        # millisecond prefix ensures lexicographic sort = chronological order,
-        # so the LATEST sample is always the last one we process below.
-        for wb in new_wavs:
-            fname = (
-                f"sample_{origin}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.wav"
+        # Step 2 — Compute embedding per NEW wav BEFORE writing to disk.
+        # _expand_wav_for_embedding will raise on too-short / silent audio,
+        # so invalid inputs are rejected here without polluting the folder.
+        new_embeddings: list[tuple[bytes, np.ndarray]] = []
+        for idx, wb in enumerate(new_wavs):
+            try:
+                chunks_b64 = self._expand_wav_for_embedding(
+                    wb, stem=f"{norm}_new{idx}"
+                )
+                emb = self._call_embedding_api(chunks_b64)
+                new_embeddings.append((wb, emb))
+            except SpeakerRecognizerError as e:
+                logger.warning(
+                    "Enroll: rejected new sample #%d — %s (not saved to disk)",
+                    idx, e,
+                )
+
+        if not new_embeddings:
+            raise SpeakerRecognizerError(
+                "no valid new samples — all provided audio was too short / silent / unreadable"
             )
-            (voice_dir / fname).write_bytes(wb)
 
-        # ----------------------------------------------------------------
-        # Consistency filter:
-        #   1. Compute a per-file embedding (1 vector per WAV).
-        #   2. Pick the LATEST sample as the reference — user's most recent
-        #      intent wins; noisy / different-speaker legacy samples get
-        #      dropped before they can drift the user's centroid.
-        #   3. Compare every older sample against the reference using the
-        #      same confidence metric as recognize() (cos → (cos+1)/2).
-        #      Keep only those ≥ SPEAKER_ENROLL_CONSISTENCY_THRESHOLD.
-        #   4. Delete dropped WAV files from disk so folder stays lean.
-        #   5. Save the L2-normalized MEAN of kept embeddings.
-        # ----------------------------------------------------------------
-        all_samples = sorted(voice_dir.glob("sample_*.wav"))
-        if not all_samples:
-            raise SpeakerRecognizerError("no samples after write — filesystem issue")
+        # Step 3 — Load EXISTING samples on disk + compute their embeddings.
+        # Pre-existing files that fail validation are deleted so the folder
+        # stays in a valid-only state even if a legacy file is broken.
+        existing_on_disk = sorted(voice_dir.glob("sample_*.wav"))
+        existing_embs: dict[Path, np.ndarray] = {}
+        for p in existing_on_disk:
+            try:
+                chunks_b64 = self._expand_wav_for_embedding(
+                    p.read_bytes(), stem=f"{norm}_{p.stem}"
+                )
+                existing_embs[p] = self._call_embedding_api(chunks_b64)
+            except SpeakerRecognizerError as e:
+                logger.warning(
+                    "Enroll: removing broken existing sample %s — %s",
+                    p.name, e,
+                )
+                try:
+                    p.unlink()
+                except OSError as ose:
+                    logger.warning("Enroll: failed to delete %s: %s", p, ose)
 
-        per_file_emb: dict[Path, np.ndarray] = {}
-        for p in all_samples:
-            chunks_b64 = self._expand_wav_for_embedding(
-                p.read_bytes(),
-                stem=f"{norm}_{p.stem}",
-            )
-            per_file_emb[p] = self._call_embedding_api(chunks_b64)
+        # Step 4 — Reference = the LATEST NEW wav (user's most recent intent
+        # wins). All other samples (new + existing) are scored against it.
+        ref_wb, ref_emb = new_embeddings[-1]
 
-        # Latest = last after lex sort (filename has ms timestamp prefix).
-        ref_path = all_samples[-1]
-        ref_emb = per_file_emb[ref_path]
-
-        kept_paths: list[Path] = [ref_path]
-        kept_embs: list[np.ndarray] = [ref_emb]
-        dropped: list[tuple[Path, float]] = []
-        for p in all_samples[:-1]:   # everything except the reference
-            sim = _cosine_similarity(per_file_emb[p], ref_emb)
+        kept_new: list[tuple[bytes, np.ndarray]] = [(ref_wb, ref_emb)]
+        dropped_new = 0
+        for wb, emb in new_embeddings[:-1]:
+            sim = _cosine_similarity(emb, ref_emb)
             if sim >= _ENROLL_CONSISTENCY_THRESHOLD:
-                kept_paths.append(p)
-                kept_embs.append(per_file_emb[p])
+                kept_new.append((wb, emb))
             else:
-                dropped.append((p, sim))
+                dropped_new += 1
+                logger.info(
+                    "Enroll: dropped new sample (sim=%.2f < %.2f) — not written to disk",
+                    sim, _ENROLL_CONSISTENCY_THRESHOLD,
+                )
 
-        for p, sim in dropped:
+        kept_existing: list[tuple[Path, np.ndarray]] = []
+        dropped_existing: list[tuple[Path, float]] = []
+        for p, emb in existing_embs.items():
+            sim = _cosine_similarity(emb, ref_emb)
+            if sim >= _ENROLL_CONSISTENCY_THRESHOLD:
+                kept_existing.append((p, emb))
+            else:
+                dropped_existing.append((p, sim))
+
+        # Step 5 — Delete dropped EXISTING samples from disk.
+        for p, sim in dropped_existing:
             try:
                 p.unlink()
                 logger.info(
-                    "Enroll: dropped stale sample %s (confidence %.2f < %.2f)",
+                    "Enroll: removed stale existing sample %s (sim=%.2f < %.2f)",
                     p.name, sim, _ENROLL_CONSISTENCY_THRESHOLD,
                 )
             except OSError as e:
                 logger.warning("Enroll: failed to delete %s: %s", p, e)
 
-        # Re-read the folder in case files were deleted.
-        all_samples = sorted(voice_dir.glob("sample_*.wav"))
+        # Step 6 — Commit kept NEW wavs to disk. Stable millisecond prefix
+        # ensures lex sort = chronological order for later reference picks.
+        # Tiny sleep between writes keeps timestamp uniqueness for the rare
+        # case where the same ms boundary is hit.
+        written_new_paths: list[Path] = []
+        for wb, _emb in kept_new:
+            fname = f"sample_{origin}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.wav"
+            fpath = voice_dir / fname
+            fpath.write_bytes(wb)
+            written_new_paths.append(fpath)
 
-        # L2-normalized mean of kept embeddings.
+        # Step 7 — Final embedding = L2-normalized mean of kept embeddings.
+        kept_embs = [emb for _, emb in kept_existing] + [emb for _, emb in kept_new]
         stacked = np.stack(kept_embs, axis=0)
         mean_vec = stacked.mean(axis=0).astype(np.float32)
         mean_norm = float(np.linalg.norm(mean_vec))
         if mean_norm <= 0.0:
-            raise SpeakerRecognizerError("degenerate mean embedding — all samples cancelled out")
+            raise SpeakerRecognizerError(
+                "degenerate mean embedding — all kept samples cancelled out"
+            )
         embedding = mean_vec / mean_norm
-
         np.save(self._embedding_path(norm), embedding)
+
+        # Re-read the folder — it now contains ONLY samples that were valid
+        # AND passed the consistency filter (kept existing + written new).
+        all_samples = sorted(voice_dir.glob("sample_*.wav"))
+
         logger.info(
-            "Enroll embedding computed: ref=%s kept=%d dropped=%d dim=%d",
-            ref_path.name, len(kept_paths), len(dropped), int(embedding.shape[0]),
+            "Enroll committed: new_written=%d new_rejected=%d existing_kept=%d existing_dropped=%d total_on_disk=%d dim=%d",
+            len(written_new_paths), dropped_new,
+            len(kept_existing), len(dropped_existing),
+            len(all_samples), int(embedding.shape[0]),
         )
 
         # Update voice metadata + registry.

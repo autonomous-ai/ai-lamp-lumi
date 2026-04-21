@@ -621,15 +621,30 @@ class VoiceService:
                     logger.debug("VAD: RMS=%.0f above threshold but Silero rejected — not speech", rms)
 
     def _stream_session(self, mic, frame_size: int, device_rate: int, preconnected_session=None, speech_pre_buffer=None):
-        """Stream audio to STT provider until silence or TTS interrupts."""
+        """Stream audio to STT provider until silence or TTS interrupts.
+
+        Buffer lifecycle (one per call):
+            START  — ``audio_buffer = []`` created as a local variable
+            FILL   — every frame that goes to STT is also appended here
+            USE    — at session end ``_send_best`` reads it for speaker ID
+            END    — function returns → local ``audio_buffer`` goes out of
+                     scope → garbage-collected. NO state leaks to the next
+                     ``_stream_session`` call.
+        """
         session = preconnected_session or self._stt.create_session()
 
         longest_partial = [""]
         final_segments = []
         final_sent = [False]
         # Collect every resampled 16kHz int16 PCM chunk so we can identify the
-        # speaker at session end.
+        # speaker at session end. This list is LOCAL to _stream_session — a
+        # fresh empty list every call, no cross-session carry-over.
         audio_buffer: list[bytes] = []
+        pre_frames_from_vad = len(speech_pre_buffer or [])
+        logger.info(
+            "Session START — pre_from_vad=%d frames, device_rate=%dHz",
+            pre_frames_from_vad, device_rate,
+        )
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
@@ -780,8 +795,10 @@ class VoiceService:
             # Flush holdoff audio (frames captured before STT connect, both paths)
             all_pre = (speech_pre_buffer or []) + pre_buffer
             if all_pre:
-                logger.debug("STT pre-buffer: flushing %d frames (%.0fms)",
-                             len(all_pre), len(all_pre) * FRAME_DURATION_MS)
+                logger.info(
+                    "Session FILL (pre-flush) — added %d frames (~%.0fms) to buffer",
+                    len(all_pre), len(all_pre) * FRAME_DURATION_MS,
+                )
                 for frame in all_pre:
                     session.send_audio(frame)
                     audio_buffer.append(frame)
@@ -840,8 +857,18 @@ class VoiceService:
             if longest_partial[0]:
                 final_segments.append(longest_partial[0])
             combined = " ".join(final_segments).strip()
+
+            # Final snapshot of the buffer for traceability before it goes
+            # out of scope. 1 session = 1 speaking turn = this many frames.
+            buf_frames = len(audio_buffer)
+            buf_bytes = sum(len(b) for b in audio_buffer)
+            buf_duration = buf_bytes / (STT_RATE * 2)
+            logger.info(
+                "Session END — buffer frames=%d bytes=%d duration=%.2fs transcript=%r",
+                buf_frames, buf_bytes, buf_duration, combined or "(empty)",
+            )
+
             if combined:
-                logger.info("STT session done — sending: '%s'", combined)
                 _send_best(combined)
             # Clear listening LED — covers cases where no voice_command was sent (silence, TTS interrupt)
             try:
@@ -850,6 +877,12 @@ class VoiceService:
                               timeout=0.3)
             except Exception:
                 pass
+
+            # Buffer is a local variable — once this function returns it is
+            # garbage-collected. The next _stream_session call starts with a
+            # fresh empty buffer. Leaving this log here as a breadcrumb so
+            # operators can confirm session boundaries in the log stream.
+            logger.info("Session RESET — audio_buffer discarded, ready for next turn")
 
     def _is_echo(self, transcript: str) -> bool:
         """Check if transcript is echo of last TTS output (Layer 3: transcript self-filter)."""

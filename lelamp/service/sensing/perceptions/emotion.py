@@ -18,7 +18,7 @@ from .base import Perception
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-EMOTIONS = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+EMOTIONS = ["Neutral", "Happy", "Sad", "Surprise", "Fear", "Disgust", "Anger", "Contempt"]
 
 
 class RemoteEmotionChecker:
