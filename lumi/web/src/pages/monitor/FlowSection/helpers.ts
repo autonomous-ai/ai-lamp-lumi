@@ -597,20 +597,30 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         while ((snapM = snapAllRe.exec(chatMsg)) !== null) {
           info.agent_call.push(`🖼 snapshot: ${snapM[1].trim()}`);
         }
-        // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw
-        // Strip [snapshot: ...] from display text (thumbnails rendered separately via 🖼 lines)
-        const displayMsg = chatMsg.replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
+        // Replace any earlier 📩 from sensing_input with the exact text sent to OpenClaw.
+        // Show the chat_send message VERBATIM — no strip — so the user can visually verify
+        // whether the backend stripped [snapshot: ...] before sending to the LLM.
         const idx = info.agent_call.findIndex((l) => l.startsWith("📩"));
-        if (idx >= 0) info.agent_call[idx] = `📩 ${displayMsg}`;
-        else info.agent_call.push(`📩 ${displayMsg}`);
+        if (idx >= 0) info.agent_call[idx] = `📩 ${chatMsg}`;
+        else info.agent_call.push(`📩 ${chatMsg}`);
       }
     }
-    // Show input message on agent_call node (fallback if chat_send hasn't fired yet)
+    // Show input message on agent_call node (fallback if chat_send hasn't fired yet).
+    // Backend strips [snapshot:...] from chat_send text; sensing_input retains the full
+    // text so snapshots (🖼 lines) come from here.
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const d = ev.detail as Record<string, any> | undefined;
       const msg = d?.data?.message ?? d?.message ?? ev.summary ?? "";
-      if (msg && !info.agent_call.some((l) => l.startsWith("📩"))) {
-        info.agent_call.push(`📩 ${msg}`);
+      if (msg) {
+        const snapAllRe = /\[snapshot:\s*([^\]]+)\]/g;
+        let snapM;
+        while ((snapM = snapAllRe.exec(msg)) !== null) {
+          const line = `🖼 snapshot: ${snapM[1].trim()}`;
+          if (!info.agent_call.includes(line)) info.agent_call.push(line);
+        }
+        if (!info.agent_call.some((l) => l.startsWith("📩"))) {
+          info.agent_call.push(`📩 ${msg}`);
+        }
       }
     }
     if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
@@ -1113,8 +1123,9 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     if (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) {
       const d = ev.detail as Record<string, any> | undefined;
       const raw = (d?.data?.message ?? d?.message ?? ev.summary ?? "").trim();
-      // Extract all snapshot paths → convert to API URLs
-      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-sensing-snapshots|\/var\/log\/lumi\/snapshots)\/(sensing_[^\]]+\.jpg)\]/g;
+      // Extract all snapshot paths → convert to API URLs.
+      // Accepts sensing_*.jpg (presence/motion) in sensing dirs, emotion_*.jpg (FER) in emotion dir.
+      const snapRe = /\[snapshot:\s*(?:\/tmp\/lumi-(?:sensing|emotion)-snapshots|\/var\/log\/lumi\/snapshots)\/((?:sensing|emotion)_[^\]]+\.jpg)\]/g;
       let snapMatch;
       while ((snapMatch = snapRe.exec(raw)) !== null) {
         const url = `/api/sensing/snapshot/${snapMatch[1]}`;
