@@ -56,6 +56,7 @@ class RemoteEmotionChecker:
             )
         except Exception:
             logger.exception("Failed to connect to remote emotion recognition backend")
+            self._ws_session = None
 
     def _img2b64(self, frame: npt.NDArray[np.uint8]) -> str:
         _, buf = cv2.imencode(".jpg", frame)
