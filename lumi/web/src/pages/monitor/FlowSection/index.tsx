@@ -12,7 +12,7 @@ import { CanvasModal } from "./CanvasModal";
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
-  cam: ["motion", "motion.activity", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
+  cam: ["motion", "motion.activity", "emotion.detected", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
   channel: ["telegram", "discord", "slack", "wechat", "channel"],
   web: ["web_chat"],
   cron: ["cron", "cron:hydration", "cron:break", "cron:music"],
@@ -24,7 +24,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "motion.activity": "activity", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
+  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
@@ -251,7 +251,7 @@ export function FlowSection({
     const d = ev.detail as Record<string, any> | undefined;
     const sensingType = d?.data?.type ?? d?.type;
     const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
-      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "sound");
+      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "emotion.detected" || sensingType === "sound");
     if (isSensingInput || fromSensingChatSend || fromSensingAgentCall) {
       // Determine mic vs cam from sensing type or summary bracket
       let detectedType = sensingType;
@@ -259,7 +259,7 @@ export function FlowSection({
         const m = ev.summary.match(/^\[([^\]]+)\]/);
         detectedType = m?.[1]?.replace("sensing:", "") ?? "";
       }
-      const isCam = /motion|presence|light/i.test(detectedType ?? "");
+      const isCam = /motion|presence|light|emotion/i.test(detectedType ?? "");
       visitedStages.add(isCam ? "cam_input" : "mic_input");
       break;
     }
