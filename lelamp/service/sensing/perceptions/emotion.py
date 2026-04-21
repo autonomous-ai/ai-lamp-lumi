@@ -228,10 +228,13 @@ class EmotionPerception(Perception):
             if self._last_detection_time is not None
             else None
         )
+        last_sent = self._last_sent_key
         return {
             "type": "emotion",
             "connected": self._checker._ws_session is not None,
-            "last_emotion": self._last_emotion,
+            "last_sent_emotion": last_sent[1] if last_sent else None,
+            "last_sent_user": last_sent[0] if last_sent else None,
+            "last_detected_emotion": self._last_emotion,
             "buffered_emotions": len(self._emotion_buffer),
             "emotion_detected": self._last_detection_time is not None,
             "seconds_since_detection": seconds_since,
