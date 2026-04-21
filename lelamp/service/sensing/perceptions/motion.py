@@ -87,7 +87,7 @@ class RemoteMotionChecker:
         base_url: str,
         api_key: str,
         whitelist: list[str] | None = None,
-        threshold: float = config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+        threshold: float = config.MOTION_CONFIDENCE_THRESHOLD,
     ):
         self._base_url: str = base_url
         self._api_key: str = api_key
@@ -114,6 +114,7 @@ class RemoteMotionChecker:
                 json.dumps(
                     {
                         "type": "config",
+                        "task": "action",
                         "whitelist": self._whitelist,
                         "threshold": self._threshold,
                     }
@@ -137,7 +138,7 @@ class RemoteMotionChecker:
         if self._ws_session is None:
             return
         try:
-            self._ws_session.send(json.dumps({"type": "heartbeat"}))
+            self._ws_session.send(json.dumps({"type": "heartbeat", "task": "action"}))
             resp = json.loads(self._ws_session.recv())
             if resp.get("status") == "ok":
                 self._last_heartbeat_ts = now
@@ -169,7 +170,7 @@ class RemoteMotionChecker:
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
-                    json.dumps({"type": "frame", "frame_b64": self._img2b64(frame)})
+                    json.dumps({"type": "frame", "task": "action", "frame_b64": self._img2b64(frame)})
                 )
                 resp = json.loads(self._ws_session.recv())
                 detected_classes = sorted(
@@ -220,7 +221,7 @@ class MotionPerception(Perception):
             base_url=base_url,
             api_key=api_key,
             whitelist=whitelist,
-            threshold=config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+            threshold=config.MOTION_CONFIDENCE_THRESHOLD,
         )
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S

@@ -53,6 +53,9 @@ Emotion detected: <EmotionName>.
    ```
 
    Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no tool_call fires this turn, the skill failed.
-3. **Silently follow `mood/SKILL.md`** — read history, decide fused mood, log decision. All in `thinking`, no output.
-4. **If mood is suggestion-worthy** (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), **silently follow `music-suggestion/SKILL.md`**.
-5. Reply: ONE caring sentence or `NO_REPLY`. Never narrate any steps above.
+3. **You must now continue the Mood skill's full workflow yourself — it does not run itself.** Read `mood/SKILL.md` if you haven't this turn, then:
+   - Step 2 (Mood): GET recent mood history.
+   - Step 3 (Mood): decide the fused mood.
+   - Step 4 (Mood): POST the `kind=decision` row.
+   - Mood's "After Logging Decision — Music Suggestion" hand-off: if the decided mood is suggestion-worthy, follow the `music-suggestion` skill.
+4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Do not narrate any of the steps above in your reply.
