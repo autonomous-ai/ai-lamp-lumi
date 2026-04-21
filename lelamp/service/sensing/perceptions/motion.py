@@ -125,7 +125,7 @@ class RemoteMotionChecker:
         return base64.b64encode(buf.tobytes()).decode()
 
     def update(self, frame: npt.NDArray[np.uint8]) -> list[str] | None:
-        """Send a frame for X3D inference and return all detected action names.
+        """Send a frame for action recognition inference and return detected action names.
 
         Returns every detected whitelist action (sorted by confidence desc),
         or None if the connection is unavailable. Returns [] if nothing
@@ -160,7 +160,7 @@ class RemoteMotionChecker:
 
 
 class MotionPerception(Perception):
-    """Detects motion via X3D video action recognition (400 Kinect action classes).
+    """Detects motion via remote DL backend action recognition.
 
     Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
     sending all accumulated snapshots together in one event.
@@ -227,7 +227,7 @@ class MotionPerception(Perception):
         try:
             actions = self._checker.update(frame)
         except Exception:
-            logger.exception("[motion] X3D inference error")
+            logger.exception("[motion] inference error")
             return
 
         if actions:
@@ -254,7 +254,7 @@ class MotionPerception(Perception):
         self._actions_buffer.clear()
         self._last_flush_ts = cur_ts
 
-        # Log raw X3D detections in this flush window — useful for tuning
+        # Log raw detections in this flush window — useful for tuning
         # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
         # particular flush did/didn't produce an event.
         if actions:
@@ -271,7 +271,7 @@ class MotionPerception(Perception):
                 # Emotional actions (laughing/crying/yawning/singing) are
                 # intentionally NOT emitted via motion.activity. A dedicated
                 # motion.emotional event will be added later to carry them;
-                # until then emotional X3D detections are silently ignored
+                # until then emotional detections are silently ignored
                 # here so motion.activity stays purely about physical actions.
                 continue
             raw_actions.add(a)
