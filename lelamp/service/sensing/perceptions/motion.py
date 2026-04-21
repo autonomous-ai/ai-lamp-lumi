@@ -87,7 +87,7 @@ class RemoteMotionChecker:
         base_url: str,
         api_key: str,
         whitelist: list[str] | None = None,
-        threshold: float = config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+        threshold: float = config.MOTION_CONFIDENCE_THRESHOLD,
     ):
         self._base_url: str = base_url
         self._api_key: str = api_key
@@ -220,7 +220,7 @@ class MotionPerception(Perception):
             base_url=base_url,
             api_key=api_key,
             whitelist=whitelist,
-            threshold=config.MOTION_X3D_CONFIDENCE_THRESHOLD,
+            threshold=config.MOTION_CONFIDENCE_THRESHOLD,
         )
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S
