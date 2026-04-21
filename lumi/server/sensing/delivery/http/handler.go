@@ -203,8 +203,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// - Outside voice window: motion/light/sound dropped when busy (low priority, high frequency).
 	inVoiceWindow := time.Now().UnixMilli() < h.voiceActiveUntil.Load()
 	if isPassive && h.agentGateway.IsBusy() {
+		// motion.activity and emotion.detected get queued (not dropped) because
+		// LeLamp deduplicates both with a 5-min window at the source — if one
+		// reaches Lumi it's genuinely new. Dropping it here would make LeLamp's
+		// dedup think "sent" while the agent never saw the event, blocking the
+		// next real transition for 5 min.
 		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||
-			req.Type == "voice" || inVoiceWindow
+			req.Type == "voice" ||
+			req.Type == "motion.activity" || req.Type == "emotion.detected" ||
+			inVoiceWindow
 		if shouldQueue {
 			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
@@ -284,22 +291,19 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else {
 		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
 		msg = "[sensing:" + req.Type + "] " + req.Message
-		// Reply hygiene — reminded per-event because agents drift over long sessions.
-		msg += "\n[REPLY RULE: reply is spoken VERBATIM. All reasoning/log math/plan stays in `thinking`. Nothing to say → NO_REPLY, don't narrate the skip.]"
-		// Nudge agent to follow wellbeing skill on relevant events.
+		// Reply-hygiene rules live inside the respective SKILL.md files.
 		switch req.Type {
-		case "presence.leave":
-			// Backend already wrote a "leave" marker to the wellbeing log — no cron to cancel (event-driven).
-			msg += "\n[Wellbeing is event-driven — no crons to cancel. Backend has logged the leave marker. Reply NO_REPLY unless something is worth saying.]"
-		case "presence.away":
-			msg += "\n[Wellbeing is event-driven — no crons to cancel. Reply NO_REPLY.]"
+		case "presence.leave", "presence.away":
+			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 		case "motion.activity":
 			currentUser := mood.CurrentUser()
 			if currentUser == "" {
 				currentUser = "unknown"
 			}
-			msg += "\n[context: current_user=" + currentUser + " — use THIS exact value for wellbeing log user field and mood log user field. Do NOT infer any other name from memory, chat history, or KNOWLEDGE.md.]"
-			msg += "\n[MANDATORY: Wellbeing is event-driven (NO cron). On EVERY motion.activity: (1) POST /api/wellbeing/log for each Activity group present (drink/break/sedentary) — backend dedups. (2) GET /api/openclaw/wellbeing-history?user=<current_user>&last=50, compute minutes_since_last_drink and minutes_since_last_break — reset_ts is max(last activity entry, last enter entry, last nudge entry of same kind). Apply the Wellbeing skill's Step 4 rules (threshold) to decide whether to nudge. (3) If you spoke a nudge, POST back with action=nudge_hydration or nudge_break — this resets the delta so you don't re-nudge on every wake-up. Never guess time-since — always compute from the log. Music: MUST follow Music skill AI-Driven Music Suggestion workflow for current_user. Emotional cue: follow Emotion Detection skill AND read Mood SKILL.md then execute its full workflow (TWO separate POSTs to /api/mood/log — first kind=signal, then kind=decision; source=camera, trigger=<cue>), ALWAYS speak.]"
+			msg += "\n[context: current_user=" + currentUser + "]"
+			msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
+		case "emotion.detected":
+			msg += "\n[Follow user-emotion-detection/SKILL.md.]"
 		}
 	}
 	// Nudge mood scan for all voice types (voice_command + ambient voice).

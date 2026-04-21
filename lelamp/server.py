@@ -746,11 +746,27 @@ app = FastAPI(
             "description": "AI voice pipeline. Deepgram STT (always-on listening) + LLM-based TTS (text-to-speech). Requires API keys.",
         },
         {
+            "name": "Speaker",
+            "description": "Per-user voice enrollment + recognition via cosine similarity on external-API embeddings.",
+        },
+        {
             "name": "System",
             "description": "Health checks and system status.",
         },
     ],
 )
+
+# Speaker recognition routes — implemented in lelamp.speaker_recognizer to keep
+# server.py small. Import is lazy to avoid failing when deps (numpy/soundfile)
+# are missing in a minimal install.
+try:
+    from lelamp.speaker_recognizer import router as speaker_router
+
+    app.include_router(speaker_router)
+except Exception as _speaker_import_err:  # noqa: BLE001
+    logger.warning(
+        "Speaker recognition router disabled: %s", _speaker_import_err
+    )
 
 
 class ProxyPrefixMiddleware:

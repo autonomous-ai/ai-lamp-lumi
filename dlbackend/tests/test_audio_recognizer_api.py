@@ -114,6 +114,11 @@ def _wav_to_pcm16_b64(path: Path) -> tuple[str, int]:
     return base64.b64encode(pcm16.tobytes()).decode("ascii"), int(sr)
 
 
+def _wav_file_to_b64(path: Path) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+
 def _require_mock_wav(path: Path) -> None:
     if not path.exists():
         pytest.skip(f"Missing mock wav (add under tests/mock_data/audio): {path}")
@@ -387,4 +392,26 @@ def test_list_speakers_and_remove():
     )
     assert rm_resp.status_code == 200, rm_resp.text
     assert rm_resp.json()["removed"] is True
+
+
+def test_embed_audio_from_wav_b64():
+    print("==========================================test_embed_audio_from_wav_b64==========================================")
+    audios_b64 = [_wav_file_to_b64(BAO_1), _wav_file_to_b64(BAO_2)]
+    resp = _timed_request(
+        "embed audio wav_b64 list",
+        "POST",
+        "/api/dl/audio-recognizer/embed",
+        headers=_headers(),
+        json={"audios_b64": audios_b64, "chunk_seconds": 0.5},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "embedding" in body
+    assert "embedding_dim" in body
+    assert isinstance(body["embedding"], list)
+    assert body["embedding_dim"] == len(body["embedding"])
+    vec = np.asarray(body["embedding"], dtype=np.float32)
+    assert vec.ndim == 1
+    assert vec.shape[0] > 0
+    assert np.isclose(np.linalg.norm(vec), 1.0, atol=1e-2)
 

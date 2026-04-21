@@ -46,18 +46,17 @@ LeLamp dedups the outbound stream so Lumi only sees events that matter. Understa
 ### Dedup key
 
 ```
-key = (current_user, frozenset(activity_groups), tuple(sorted(emotional_cues)))
+key = (current_user, frozenset(raw_actions))
 ```
 
 - `current_user` comes from `FaceRecognizer.current_user()` — the most recent friend still within the forget window, else `"unknown"` if any stranger is visible, else empty (in which case the event isn't sent anyway — no presence).
-- `activity_groups` is the set of physical groups collapsed from raw X3D labels (`drink`, `break`, `sedentary`).
-- `emotional_cues` is the sorted tuple of raw cues (`laughing`, `crying`, `yawning`, `singing`).
+- `raw_actions` is the set of raw Kinetics labels that passed the whitelist (e.g. `using computer`, `drinking`, `eating burger`). Emotional labels are filtered out upstream and never reach the dedup key. Keying on raw labels is intentionally looser than the old bucket-level key — `writing` → `drawing` now flips the key so the agent sees the new label.
 
 ### Send / drop rule
 
 ```
 SEND if:
-  key != last_sent_key                 # state changed (user / activity / cue)
+  key != last_sent_key                 # state changed (user / raw action set)
   OR (key == last_sent_key and now - last_sent_ts >= 5 min)   # wake-up
 
 DROP if:
@@ -70,34 +69,18 @@ A user change always flips the key. Different strangers collapse to `"unknown"` 
 
 | Time | State | Result |
 |---|---|---|
-| 09:00 | Alex enters → sedentary | SEND (first) |
-| 09:01 | Alex still sedentary | DROP (key same, <5 min) |
-| 09:04 | Alex still sedentary | DROP |
-| 09:05 | Alex still sedentary | **SEND** (≥5 min wake-up) |
-| 09:06 | Alex + laughing | SEND (emotional cue added) |
-| 09:07 | Alex + laughing | DROP |
-| 09:10 | Alex + drink | SEND (activity group changed) |
+| 09:00 | Alex enters → using computer | SEND (first) |
+| 09:01 | Alex still using computer | DROP (key same, <5 min) |
+| 09:04 | Alex still using computer | DROP |
+| 09:05 | Alex still using computer | **SEND** (≥5 min wake-up) |
+| 09:06 | Alex switches to writing | SEND (raw action set changed) |
+| 09:07 | Alex still writing | DROP |
+| 09:10 | Alex + drinking | SEND (action set changed) |
 | 09:15 | Alex gone, stranger arrives | SEND (current_user flipped to "unknown") |
-
-### Sedentary + emotional variations
-
-Each cue add/remove/swap flips the key.
-
-| Time | Key (`user`, `groups`, `cues`) | Result |
-|---|---|---|
-| 09:00 | alex, `{sedentary}`, `()` | SEND (first) |
-| 09:02 | alex, `{sedentary}`, `(laughing)` | SEND (cue appeared) |
-| 09:03 | alex, `{sedentary}`, `(laughing)` | DROP (same, <5 min) |
-| 09:05 | alex, `{sedentary}`, `(laughing, yawning)` | SEND (cue added) |
-| 09:06 | alex, `{sedentary}`, `(laughing)` | SEND (yawning removed) |
-| 09:07 | alex, `{sedentary}`, `()` | SEND (no cues left) |
-| 09:10 | alex, `{sedentary}`, `()` | DROP (same, <5 min from 09:07) |
-| 09:12 | alex, `{sedentary}`, `()` | **SEND** (≥5 min wake-up) |
 
 ### Quick mental model
 
-- Cue appears, changes, or disappears → SEND.
-- Activity group appears, changes, or disappears → SEND.
+- Raw action appears, changes, or disappears → SEND.
 - User changes (friend↔friend, friend↔unknown, unknown↔friend) → SEND.
 - Everything identical for 5 min straight → SEND anyway (so the wellbeing threshold check still runs).
 - Otherwise → DROP.
@@ -111,27 +94,29 @@ The backend accepts fake sensing events on `POST /api/sensing/event`. You don't 
 ```bash
 $SSH "curl -s -X POST http://127.0.0.1:5000/api/sensing/event \
   -H 'Content-Type: application/json' \
-  -d '{\"type\":\"motion.activity\",\"message\":\"Activity detected: sedentary. Emotional cue: laughing.\"}'"
+  -d '{\"type\":\"motion.activity\",\"message\":\"Activity detected: using computer.\"}'"
 # → {"status":1,"data":{"runId":"lumi-chat-<seq>-<ms>"},"message":null}
 ```
 
-Common test payloads:
+Emotional cues (`laughing`, `crying`, `yawning`, `singing`) are filtered at LeLamp and never reach Lumi — there is no way to inject them via `motion.activity` anymore. A future `motion.emotional` event will carry them.
+
+Common test payloads (raw Kinetics labels — agent maps each to `drink`/`break`/`sedentary` bucket):
 
 ```jsonc
-// Emotional cue only (no sedentary) — should trigger Emotion Detection + Mood
-{"type":"motion.activity","message":"Emotional cue: laughing."}
+// Sedentary only — agent logs "sedentary", may nudge if drink/break threshold elapsed
+{"type":"motion.activity","message":"Activity detected: using computer. If nothing noteworthy, reply NO_REPLY."}
 
-// Sedentary + emotional — should append "sedentary" to wellbeing JSONL (dedup'd if previous was also sedentary), plus mood log from emotional cue
-{"type":"motion.activity","message":"Activity detected: sedentary. Emotional cue: laughing."}
+// Mixed sedentary — agent logs one "sedentary" entry (bucket-dedup at agent level)
+{"type":"motion.activity","message":"Activity detected: writing, reading book."}
 
-// Sedentary only — should append "sedentary" (dedup'd), possibly nudge if drink/break threshold elapsed
-{"type":"motion.activity","message":"Activity detected: sedentary. If nothing noteworthy, reply NO_REPLY."}
+// Drink action — agent logs a "drink" bucket entry
+{"type":"motion.activity","message":"Activity detected: drinking."}
 
-// Drink action — appends "drink" entry (dedup'd if already last action)
-{"type":"motion.activity","message":"Activity detected: drink."}
+// Break action — agent logs a "break" bucket entry
+{"type":"motion.activity","message":"Activity detected: eating burger."}
 
-// Break action — appends "break" entry
-{"type":"motion.activity","message":"Activity detected: break."}
+// Mixed bucket — agent logs both "drink" and "sedentary"
+{"type":"motion.activity","message":"Activity detected: drinking, using computer."}
 
 // Friend enters — should set current_user to their name
 {"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (leo))"}
@@ -216,7 +201,7 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 ### 6.1 Agent skips mood logging entirely
 **Symptom:** `tool_call` trace contains no `/api/mood/log` call. Mood JSONL empty despite events firing.
 **Diagnose:** grep `tool_call` for `mood/log` — zero hits.
-**Fix path:** strengthen MANDATORY directive in `lumi/server/sensing/delivery/http/handler.go` and `emotion-detection/SKILL.md` to explicitly chain to Mood skill.
+**Fix path:** strengthen MANDATORY directive in `lumi/server/sensing/delivery/http/handler.go` and `user-emotion-detection/SKILL.md` to explicitly chain to Mood skill.
 
 ### 6.2 Agent bijas mood payload schema
 **Symptom:** `POST /api/mood/log` returns `Field validation for 'Mood' failed on the 'required' tag`.
