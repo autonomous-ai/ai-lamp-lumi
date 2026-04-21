@@ -54,7 +54,7 @@ Output: Do NOT use this skill. Use **Scene** skill instead. Emotion is for YOUR 
 Input: User says "make it purple"
 Output: Do NOT use this skill. Use **LED Control** skill instead.
 
-### Available emotions
+### Available emotions (ONLY these — never invent names like "apologetic", "warm", "playful", etc.)
 
 | Emotion | Servo | LED Effect | When to use |
 |---|---|---|---|
