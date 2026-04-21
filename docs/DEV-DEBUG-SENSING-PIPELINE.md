@@ -46,11 +46,11 @@ LeLamp dedups the outbound stream so Lumi only sees events that matter. Understa
 ### Dedup key
 
 ```
-key = (current_user, frozenset(raw_actions))
+key = (current_user, frozenset(labels))
 ```
 
 - `current_user` comes from `FaceRecognizer.current_user()` — the most recent friend still within the forget window, else `"unknown"` if any stranger is visible, else empty (in which case the event isn't sent anyway — no presence).
-- `raw_actions` is the set of raw Kinetics labels that passed the whitelist (e.g. `using computer`, `drinking`, `eating burger`). Emotional labels are filtered out upstream and never reach the dedup key. Keying on raw labels is intentionally looser than the old bucket-level key — `writing` → `drawing` now flips the key so the agent sees the new label.
+- `labels` matches exactly what goes into the outbound message — bucket names (`drink`, `break`) for physical actions, raw Kinetics labels (`using computer`, `writing`, …) for sedentary. Emotional labels are filtered out upstream and never reach the dedup key. So `eating burger → eating cake` collapses to the same `break` key (dropped within 5 min), while `writing → drawing` flips the key and passes through.
 
 ### Send / drop rule
 
