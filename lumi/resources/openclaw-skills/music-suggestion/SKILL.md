@@ -42,7 +42,8 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override t
 - NEVER auto-play — only suggest. Play after user confirms.
 - ONE sentence, conversational: *"How about some Norah Jones?"*
 - Suggest 1 song at a time.
-- Unknown users — speak only (no DM).
+- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}]` Your suggestion text. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+- **Unknown users** — speak only (no DM). Log with `user:"unknown"`.
 
 ## Log suggestion (REQUIRED after speaking)
 
@@ -66,7 +67,8 @@ When checking `GET /audio/history`, use past behavior to personalize:
 
 ## Examples
 
-- Mood: tired → `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` You seem tired — want some calm piano?
+- Mood: tired (known user) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` You seem tired — want some calm piano?
+- Mood: tired (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` You seem tired — want some calm piano?
 - Mood: happy, music already playing → skip (NO_REPLY)
 - After user confirms → `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
 
