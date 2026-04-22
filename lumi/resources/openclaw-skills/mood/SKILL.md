@@ -115,7 +115,7 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 
 ## User field
 
-- **Camera**: omit `user` — face recognition sets the current user. Verify with `GET http://127.0.0.1:5001/face/cooldowns` if needed.
+- **Camera**: omit `user` — face recognition sets the current user. Verify with `GET http://127.0.0.1:5001/face/cooldowns` and read the `current_user` field in the response (friend name, `"unknown"` for strangers-only, or empty when nobody is present).
 - **Telegram**: extract from `[telegram:SenderName]`, lowercase.
 - **Voice**: omit (logged as `unknown`).
 
