@@ -6,12 +6,18 @@ import lelamp.app_state as state
 from lelamp.models import EmotionRequest, EmotionResponse
 from lelamp.presets import (
     EMOTION_PRESETS,
+    EMO_GREETING,
     EMO_IDLE,
     EMO_SHOCK,
     EMO_SLEEPY,
+    EMO_STRETCHING,
     LST_OFF,
     SERVO_CMD_PLAY,
 )
+
+# Only these emotions can wake the lamp from sleep.
+# All others are silently ignored when sleeping.
+_WAKE_EMOTIONS = {EMO_GREETING, EMO_STRETCHING, EMO_SLEEPY}
 
 router = APIRouter(tags=["Emotion"])
 
@@ -30,6 +36,10 @@ def express_emotion(req: EmotionRequest):
                        req.emotion, req.intensity,
                        state._user_led_state.get("type") if state._user_led_state else None,
                        state._sleeping)
+
+    if state._sleeping and req.emotion not in _WAKE_EMOTIONS:
+        state.logger.info("POST /emotion: ignored %s while sleeping", req.emotion)
+        return {"status": "ignored", "reason": "sleeping"}
 
     state._sleeping = req.emotion == EMO_SLEEPY
 
