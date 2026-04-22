@@ -277,6 +277,24 @@ LeLamp's `FaceRecognizer._post_wellbeing` writes `enter` / `leave` rows directly
 
 Result: every enter has a matching leave on the same timeline, and attribution in each timeline reflects only events that belong to that user.
 
+**Two flows, two different rules.** It is important to see that presence rows and activity rows are attributed on different principles:
+
+- **Enter/leave rows** are per-presence: each friend gets their own timeline, strangers collapse to one `unknown` timeline, and `current_user()` is NOT consulted — a new friend entering does not "kick" another friend's session, and a stranger appearing alongside a friend does not downgrade the friend.
+- **Activity rows** (drink, break, sedentary labels) use `current_user()` with friend priority — when Chloe and a stranger are both visible, activities go only to Chloe's timeline, because she is the effective user.
+
+Worked example — Chloe and Stranger_X overlap:
+
+| Time | Event | Chloe timeline | Unknown timeline |
+|---|---|---|---|
+| 18:00 | Chloe fresh detected | `chloe: enter` | — |
+| 18:15 | Stranger_X fresh detected | — | `unknown: enter` |
+| 18:20 | `motion.activity` (using computer) — `current_user()=chloe` | `chloe: using computer` | — |
+| 18:45 | Last stranger forgotten | — | `unknown: leave` |
+| 19:00 | `motion.activity` (writing) — `current_user()=chloe` | `chloe: writing` | — |
+| 20:00 | Chloe forgotten | `chloe: leave` | — |
+
+Chloe's timeline is a complete session with activities; the unknown timeline records that a stranger was present in the room during 18:15–18:45 but has no activity rows, because Chloe was the effective user throughout. The two flows don't conflict — they answer different questions.
+
 ### Priority: Skills > Knowledge > History
 
 AGENTS.md enforces a strict priority: **SKILL.md instructions always override KNOWLEDGE.md and conversation history**. This is critical because the agent self-accumulates "learnings" in KNOWLEDGE.md via heartbeat, and these can contain incorrect rules that conflict with developer-maintained skills. If the agent notices a conflict, it must update KNOWLEDGE.md to match the skill, not the other way around.
