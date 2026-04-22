@@ -69,6 +69,8 @@ Response is a time-ordered list of events with `{ts, action, notes, hour}`.
 
 > ⛔ **DO NOT** run `cat`, `ls`, `head`, `tail`, or any file-system tool against `/root/local/users/*/wellbeing/*.jsonl`. Always use the `/api/openclaw/wellbeing-history` endpoint above. The habit skill has a narrow exception for multi-day pattern building — that exception does not apply here. File reads bypass server normalization, future caching, and Phase 2 presence-dedup reasoning.
 
+> ⛔ **PORT IS 5000** — wellbeing endpoints live on the **Lumi** server (port **5000**), not LeLamp (5001). Any wellbeing URL you construct MUST start with `http://127.0.0.1:5000/`. Using `5001` will 404 silently and your nudge will never be logged. Remember: `5001` is LeLamp hardware (face / audio / speaker). `5000` is Lumi (wellbeing / mood / music / openclaw history).
+
 ### Step 2 — Compute deltas (in your head, silently)
 
 **Do NOT output any of this math. All computation stays in `thinking`.** These instructions tell you WHAT to compute, not what to write in the reply.
@@ -131,7 +133,7 @@ If multiple sedentary labels are present (e.g. `writing, reading book`), pick th
 
 ### Step 4 — Log the nudge after speaking (for timeline only)
 
-If you spoke a hydration nudge, immediately POST:
+If you spoke a hydration nudge, immediately POST (**port 5000**, not 5001):
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
@@ -140,6 +142,8 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
 ```
 
 Same for break → `action="nudge_break"`. This entry serves two purposes: timeline visibility (the user's log shows when Lumi actually reminded them) AND delta reset (Step 2 treats the nudge entry as a reset point, so the next reminder of that kind waits a full threshold window).
+
+> If the POST returns a non-2xx (including 404) — you hit the wrong port. Re-check the URL says `5000`, not `5001`. Do NOT give up silently; without the nudge row, the skill will spam reminders because the reset point never moves.
 
 ### Step 5 — Never narrate the mechanics
 
