@@ -43,7 +43,7 @@ BREAK_THRESHOLD_MIN     = 7
 
 ## What's in `Activity detected:`
 
-LeLamp does the categorisation. The labels on the `Activity detected:` line are already the final `action` values — log them verbatim.
+LeLamp does the categorisation AND has already written a wellbeing log row for each label below **before** this event reached you. The line is shown to you only so you can ground the nudge phrasing in the concrete activity. Do NOT re-log them.
 
 | Category | Labels emitted on `Activity detected:` |
 |---|---|
