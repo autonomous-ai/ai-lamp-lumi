@@ -28,6 +28,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/lib/mood"
@@ -54,6 +55,7 @@ var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*[^\]]+\]`)
 type Service struct {
 	config      *config.Config
 	monitorBus  *monitor.Bus
+	statusLED   *statusled.Service
 	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
 	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
 	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
@@ -120,10 +122,11 @@ type pendingEvent struct {
 }
 
 // ProvideService constructs the openclaw service.
-func ProvideService(cfg *config.Config, bus *monitor.Bus) *Service {
+func ProvideService(cfg *config.Config, bus *monitor.Bus, sled *statusled.Service) *Service {
 	s := &Service{
 		config:        cfg,
 		monitorBus:    bus,
+		statusLED:     sled,
 		pendingRPC:    make(map[string]chan json.RawMessage),
 		guardRuns:     make(map[string]string),
 		broadcastRuns: make(map[string]bool),
@@ -778,6 +781,9 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 		if ctx.Err() != nil {
 			return
 		}
+		if s.statusLED != nil {
+			s.statusLED.Set(statusled.StateAgentDown)
+		}
 		if err != nil {
 			slog.Warn("websocket disconnected, reconnecting", "component", "openclaw", "error", err, "backoff", backoff)
 			flow.Log("ws_disconnect", map[string]any{"error": err.Error(), "backoff_s": backoff.Seconds()})
@@ -971,6 +977,9 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConn = conn
 	s.wsMu.Unlock()
 	s.wsConnected.Store(true)
+	if s.statusLED != nil {
+		s.statusLED.Clear(statusled.StateAgentDown)
+	}
 	flow.End("ws_connect", connStart, map[string]any{"session_key": s.GetSessionKey() != ""})
 	flow.Log("ws_ready", map[string]any{"session": s.GetSessionKey() != ""})
 
