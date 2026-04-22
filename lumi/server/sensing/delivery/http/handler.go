@@ -122,31 +122,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	})
 
 	// Sync mood.CurrentUser with LeLamp's view on every event that carries
-	// it. LeLamp's FaceRecognizer.current_user() is the source of truth
-	// (sorts by session_start, keeps the friend when stranger flicker
-	// happens, collapses strangers to "unknown"). Writing wellbeing
-	// enter/leave on effective-user *transitions* — rather than on every
-	// raw presence.enter message — means stranger_37 → stranger_38 while
-	// Chloe is still present produces no log churn, and a friend who
-	// steps out briefly but comes back before forget_ts doesn't lose the
-	// session. Phase 2 dedup in wellbeing.go catches any residual duplicate
-	// enters/leaves caused by out-of-order events.
-	oldEffective := mood.CurrentUser()
-	newEffective := req.CurrentUser
-	if oldEffective != newEffective {
-		if oldEffective != "" {
-			wellbeing.LogForUser(oldEffective, "leave", "")
-		}
-		if newEffective != "" {
-			wellbeing.LogForUser(newEffective, "enter", "")
-		}
-	}
-	if newEffective != "" {
-		mood.SetCurrentUser(newEffective)
+	// it. LeLamp's FaceRecognizer.current_user() is the source of truth.
+	//
+	// Wellbeing enter/leave rows are written by LeLamp directly (per
+	// friend on their own timeline, stranger collapsed to "unknown"
+	// timeline) — the handler no longer writes them here. See
+	// facerecognizer._post_wellbeing.
+	if req.CurrentUser != "" {
+		mood.SetCurrentUser(req.CurrentUser)
 	} else if req.Type == "presence.leave" || req.Type == "presence.away" {
-		// Only clear on explicit leave/away events when LeLamp says nobody's
-		// here. Other event types arriving with empty current_user (e.g.
-		// older LeLamp build without this field) leave mood untouched.
 		mood.ClearCurrentUser()
 	}
 

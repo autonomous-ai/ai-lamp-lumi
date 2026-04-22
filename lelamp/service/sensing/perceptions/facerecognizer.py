@@ -11,6 +11,7 @@ import insightface
 import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
+import requests
 
 from .base import Perception
 
@@ -67,6 +68,13 @@ class FaceRecognizer(Perception):
         # continuously present. See docs/plan-presence-logging.md.
         self._owners_session_start: dict[str, float] = {}
         self._strangers_session_start: dict[str, float] = {}
+        # True between the first stranger-enter row LeLamp has posted to the
+        # wellbeing log and the corresponding "all strangers gone" leave.
+        # Keeps the "unknown" timeline as a single session even as different
+        # stranger IDs cycle in and out — without this flag, stranger_37 →
+        # stranger_38 while both are within the forget window would never
+        # produce a matching leave, and re-enters would stack duplicate rows.
+        self._any_stranger_logged: bool = False
         self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
         self._face_present = False
@@ -453,6 +461,8 @@ class FaceRecognizer(Perception):
                     owners_seen.add(person_id)
                     face_annotations.append((bbox, face_kind, person_id))
                     self._owners_session_start[person_id] = cur_ts
+                    # Per-friend enter row: each friend owns their own timeline.
+                    self._post_wellbeing(self.normalize_label(person_id), "enter")
                 else:
                     logger.debug(
                         f"Ignore friend(id={person_id}): seen in the last {cur_ts - last_seen:.2f} seconds"
@@ -523,6 +533,14 @@ class FaceRecognizer(Perception):
             f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
         )
         self._face_present = self._faces_n > 0
+
+        # "unknown" session enter: fire once when the first stranger appears
+        # and stays un-logged until all strangers leave. Keeps multiple
+        # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
+        # into one session row for the "unknown" user timeline.
+        if strangers_seen and not self._any_stranger_logged:
+            self._post_wellbeing("unknown", "enter")
+            self._any_stranger_logged = True
 
         if self._face_present:
             self._on_motion()
@@ -612,6 +630,8 @@ class FaceRecognizer(Perception):
                 del self._owners_last_seen[person_id]
                 self._owners_session_start.pop(person_id, None)
                 kind = self._known_face_kinds.pop(person_id, "friend")
+                # Per-friend leave row on their own timeline.
+                self._post_wellbeing(self.normalize_label(person_id), "leave")
                 self._send_leave_event(person_id, kind=kind)
 
         for person_id, last_seen in list(self._strangers_last_seen.items()):
@@ -620,12 +640,43 @@ class FaceRecognizer(Perception):
                 self._strangers_session_start.pop(person_id, None)
                 # self._send_leave_event(person_id, kind="stranger")
 
+        # "unknown" session leave: fire once when the last stranger has
+        # gone. Mirrors the enter in _check_impl — gives the unknown
+        # timeline matching enter/leave pairs even though individual
+        # stranger IDs don't emit presence.leave.
+        if self._any_stranger_logged and not self._strangers_last_seen:
+            self._post_wellbeing("unknown", "leave")
+            self._any_stranger_logged = False
+
     def _send_leave_event(self, person_id: str, kind: str) -> None:
         self._send_event(
             "presence.leave",
             f"Person no longer visible — {kind} ({person_id})",
             cooldown=config.FACE_COOLDOWN_S,
         )
+
+    def _post_wellbeing(self, user: str, action: str) -> None:
+        """POST an enter/leave row to Lumi's wellbeing log.
+
+        Fire-and-forget with a short timeout — a stuck Lumi must never
+        block face detection. Phase 2 dedup in wellbeing.go absorbs any
+        residual duplicates from races or restarts.
+        """
+        if not user:
+            return
+        try:
+            resp = requests.post(
+                config.LUMI_WELLBEING_LOG_URL,
+                json={"action": action, "notes": "", "user": user},
+                timeout=2,
+            )
+            if resp.status_code != 200:
+                logger.debug(
+                    "[face] wellbeing %s %s returned %d",
+                    action, user, resp.status_code,
+                )
+        except requests.RequestException as e:
+            logger.debug("[face] wellbeing %s %s failed: %s", action, user, e)
 
     # -- Stranger visit tracking -------------------------------------------------
 
@@ -739,7 +790,6 @@ class FaceRecognizer(Perception):
             "strangers": strangers,
             "owners_forget_s": self._owners_forget_ts,
             "strangers_forget_s": self._strangers_forget_ts,
-            "current_user": self.current_user(),
         }
 
     def reset_cooldowns(self) -> None:
