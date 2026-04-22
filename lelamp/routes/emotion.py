@@ -22,6 +22,16 @@ _WAKE_EMOTIONS = {EMO_GREETING, EMO_STRETCHING, EMO_SLEEPY}
 router = APIRouter(tags=["Emotion"])
 
 
+@router.get("/emotion/status")
+def emotion_status():
+    """Return current emotion state."""
+    return {
+        "current_emotion": state._current_emotion,
+        "sleeping": state._sleeping,
+        "active_scene": state._active_scene,
+    }
+
+
 @router.get("/emotion/presets")
 def list_emotion_presets():
     """Return all available emotion presets with their LED color and effect."""
@@ -55,6 +65,7 @@ def express_emotion(req: EmotionRequest):
         return {"status": "ignored", "emotion": req.emotion, "servo": None, "led": None}
 
     state._sleeping = req.emotion == EMO_SLEEPY
+    state._current_emotion = req.emotion
 
     # When servo is in hold mode (focus/reading scene), suppress emotion
     # animations to avoid distraction. Only scene-changing emotions pass through.
