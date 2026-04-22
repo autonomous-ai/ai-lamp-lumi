@@ -29,6 +29,16 @@ If any check says skip → reply `NO_REPLY`. Do not narrate why.
 
 ## Pick genre
 
+**First, check habit patterns:**
+
+```bash
+cat /root/local/users/{name}/habit/patterns.json 2>/dev/null
+```
+
+If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below.
+
+**Otherwise, fall back to default genre table:**
+
 | User state | Default genre |
 |---|---|
 | Tired / fatigued | Calm piano, gentle acoustic, nature sounds |
@@ -37,7 +47,7 @@ If any check says skip → reply `NO_REPLY`. Do not narrate why.
 | Bored / restless | Fun pop, disco, upbeat indie |
 | Sedentary (no mood) | Lo-fi, ambient, study beats |
 
-If audio history shows a clear preference (e.g. K-pop, classical) → override the table.
+If audio history shows a clear preference (e.g. K-pop, classical) → override both habit and table.
 
 ## Suggest (speak only)
 

@@ -1,14 +1,14 @@
 # Plan: LeLamp owns wellbeing log
 
-Status: **Proposal** (2026-04-21).
+Status: **Partially implemented** (2026-04-22). Bugs A+B fixed, Bug C still pending.
 
 ## Bugs to fix
 
-**A. Duplicate `unknown: enter`** — each new stranger_N fires `presence.enter`; Lumi handler collapses to `"unknown"` and writes a new `enter` row. Skill reads most-recent `enter` → never nudges even after 30+ min.
+**A. Duplicate `unknown: enter`** — ✅ FIXED. Added `_owners_session_start` / `_strangers_session_start` tracking, handler-level transition dedup, and wellbeing.go phase-2 dedup.
 
-**B. `current_user()` wrong winner** — sorts by `last_seen` (updated every frame), not by actual enter time. Chloe 18:00 + An 18:30 both present → winner is arbitrary dict order. Required: most recent enter wins → An.
+**B. `current_user()` wrong winner** — ✅ FIXED. Now sorts by `session_start` (not `last_seen`). Chloe 18:00 + An 18:30 → An wins (newer session_start).
 
-**C. Stranger `leave` never fires** — commented at `facerecognizer.py:609`. `unknown` has no matching leave, so enter keeps stacking.
+**C. Stranger `leave` never fires** — ❌ PENDING. `_send_leave_event` for strangers still commented out at `facerecognizer.py:621`.
 
 ## Principle
 
