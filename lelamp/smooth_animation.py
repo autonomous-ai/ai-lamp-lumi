@@ -15,6 +15,7 @@ from livekit.plugins import (
     noise_cancellation,
 )
 from typing import Union
+from lelamp.presets import SERVO_IDLE, SERVO_WAKE_UP
 from lelamp.service.motors.animation_service import AnimationService
 from lelamp.service.rgb.rgb_service import RGBService
 
@@ -47,7 +48,7 @@ Demo rules:
             lamp_id=lamp_id,
             fps=30,
             duration=3.0,
-            idle_recording="idle"
+            idle_recording=SERVO_IDLE
         )
         self.rgb_service = RGBService(
             led_count=40,
@@ -64,8 +65,8 @@ Demo rules:
         self.rgb_service.start()
 
         # Trigger wake up animation via animation service
-        self.animation_service.dispatch("play", "wake_up")
-        self.rgb_service.dispatch("solid", (255, 255, 255))
+        self.animation_service.dispatch(SERVO_CMD_PLAY, SERVO_WAKE_UP)
+        self.rgb_service.dispatch(RGB_CMD_SOLID, (255, 255, 255))
         self._set_system_volume(100)
 
     def _set_system_volume(self, volume_percent: int):
@@ -123,7 +124,7 @@ Demo rules:
         print(f"LeLamp: play_recording function called with recording_name: {recording_name}")
         try:
             # Send play event to animation service
-            self.animation_service.dispatch("play", recording_name)
+            self.animation_service.dispatch(SERVO_CMD_PLAY, recording_name)
             result = f"Started playing recording: {recording_name}"
             return result
         except Exception as e:
@@ -150,7 +151,7 @@ Demo rules:
                 return "Error: RGB values must be between 0 and 255"
             
             # Send solid color event to RGB service
-            self.rgb_service.dispatch("solid", (red, green, blue))
+            self.rgb_service.dispatch(RGB_CMD_SOLID, (red, green, blue))
             result = f"Set RGB light to solid color: RGB({red}, {green}, {blue})"
             return result
         except Exception as e:
@@ -187,7 +188,7 @@ Demo rules:
                 validated_colors.append(tuple(color))
             
             # Send paint event to RGB service
-            self.rgb_service.dispatch("paint", validated_colors)
+            self.rgb_service.dispatch(RGB_CMD_PAINT, validated_colors)
             result = f"Painted RGB pattern with {len(validated_colors)} colors"
             return result
         except Exception as e:

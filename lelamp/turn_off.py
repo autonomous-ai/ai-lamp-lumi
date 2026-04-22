@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(__file__))
 
 from service.rgb import RGBService
 from follower import LeLampFollower, LeLampFollowerConfig
+from lelamp.presets import RGB_CMD_SOLID
 
 def turn_off(port: str, lamp_id: str):
     # Initialize robot connection
@@ -26,7 +27,7 @@ def turn_off(port: str, lamp_id: str):
         
         # Turn off LED
         print("Turning off LED")
-        rgb_service.dispatch("solid", (0, 0, 0))
+        rgb_service.dispatch(RGB_CMD_SOLID, (0, 0, 0))
         
         print("Turn off complete")
         
