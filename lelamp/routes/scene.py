@@ -120,9 +120,6 @@ def deactivate_scene():
     Reverses ALL peripheral changes made by scene activation:
     servo hold, camera, mic, speaker, LED.
     """
-    if not state._active_scene:
-        return {"status": "no_scene_active"}
-
     prev = state._active_scene
     state._active_scene = None
     state._save_user_led_state(None)
