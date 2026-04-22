@@ -31,10 +31,10 @@ Ví dụ: nếu mất internet VÀ agent down, **Mất internet** (cam) được
 - Voice command và AI features không khả dụng; LED scene và servo vẫn hoạt động
 - TTS thông báo "Brain reconnected!" khi phục hồi
 
-### LeLamp Down (Tím)
-- Kích hoạt khi LeLamp server (port 5001) không phản hồi
-- Health watcher poll mỗi 5 giây; LED bật ngay lần thất bại đầu tiên
-- Tắt ngay khi LeLamp phản hồi /health
+### LeLamp Down (Tím — hoặc tối/đen)
+- Khi LeLamp crash, LED **tắt hẳn** vì driver LED cũng chết theo
+- Health watcher poll mỗi 5 giây và theo dõi thời gian down
+- Khi phục hồi: tím breathing flash ngắn khi state clear, sau đó LED trở lại bình thường
 - TTS thông báo "Hardware recovered!" khi phục hồi
 - LED, servo, camera, mic, speaker không khả dụng khi LeLamp down
 

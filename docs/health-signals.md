@@ -31,10 +31,10 @@ Example: if Lumi has no internet AND agent is down, **No Internet** (orange) is 
 - Voice commands and AI features are unavailable; local LED scenes and servo still work
 - TTS announces "Brain reconnected!" on recovery
 
-### LeLamp Down (Purple)
-- Activates when LeLamp hardware server (port 5001) is unreachable
-- Health watcher polls every 5 seconds; LED set on first failure
-- Clears as soon as LeLamp responds to /health
+### LeLamp Down (Purple — or dark/black)
+- When LeLamp crashes, LED goes **dark** because the LED driver itself is down
+- Health watcher polls every 5 seconds and tracks the outage
+- On recovery: purple breathing flashes briefly as the state clears, then normal LED resumes
 - TTS announces "Hardware recovered!" on recovery
 - LED control, servo, camera, mic, and speaker are unavailable while LeLamp is down
 
