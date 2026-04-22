@@ -69,8 +69,19 @@ FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
 
 # --- DL backend connection ---
-DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "")  # Base WS URL, e.g. wss://<pod>-8888.proxy.runpod.net/lelamp
-DL_API_KEY = os.environ.get("DL_API_KEY", "")
+LUMI_CONFIG_PATH = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")
+
+def _lumi_cfg_get(key: str, default: str = "") -> str:
+    """Read a value from Lumi's config.json (shared with Go server)."""
+    try:
+        import json
+        with open(LUMI_CONFIG_PATH) as f:
+            return json.load(f).get(key, default)
+    except Exception:
+        return default
+
+DL_BACKEND_URL = _lumi_cfg_get("llm_base_url") or os.environ.get("DL_BACKEND_URL", "")
+DL_API_KEY = _lumi_cfg_get("llm_api_key") or os.environ.get("DL_API_KEY", "")
 DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
 DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/api/dl/action-analysis/ws")
 DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/api/dl/emotion-analysis/ws")
