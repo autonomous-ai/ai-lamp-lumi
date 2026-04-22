@@ -14,8 +14,9 @@ const BaseURL = "http://127.0.0.1:5001"
 
 var httpClient = &http.Client{Timeout: 5 * time.Second}
 
-// SetEffect starts a named LED effect with the given color and speed.
+// SetEffect stops any running effect, then starts a new one.
 func SetEffect(effect string, r, g, b int, speed float64) {
+	post("/led/effect/stop", "{}")
 	body := fmt.Sprintf(`{"effect":"%s","color":[%d,%d,%d],"speed":%.2f}`, effect, r, g, b, speed)
 	post("/led/effect", body)
 }
