@@ -63,6 +63,7 @@ _active_scene: Optional[str] = None
 _user_led_state: Optional[dict] = None
 _restore_timer: Optional[threading.Timer] = None
 _sleeping: bool = False
+_current_emotion: Optional[str] = None
 
 # --- TTS speaking LED state ---
 
