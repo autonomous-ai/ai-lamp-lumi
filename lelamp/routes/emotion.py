@@ -43,16 +43,23 @@ def express_emotion(req: EmotionRequest):
 
     state._sleeping = req.emotion == EMO_SLEEPY
 
+    # When servo is in hold mode (focus/reading scene), suppress emotion
+    # animations to avoid distraction. Only scene-changing emotions pass through.
+    servo_held = state.animation_service and getattr(state.animation_service, "_hold_mode", False)
+    scene_change = req.emotion in {EMO_GREETING, EMO_SLEEPY, EMO_STRETCHING}
+
     servo_played = None
 
-    if state.animation_service and preset.get("servo"):
+    if state.animation_service and preset.get("servo") and (not servo_held or scene_change):
         try:
             state.animation_service.dispatch(SERVO_CMD_PLAY, preset["servo"])
             servo_played = preset["servo"]
         except Exception as e:
             state.logger.warning(f"Emotion servo failed: {e}")
+    elif servo_held:
+        state.logger.info("POST /emotion: servo suppressed (%s) -- hold mode", req.emotion)
 
-    led_color = state._apply_emotion_led_display(req.emotion, req.intensity)
+    led_color = state._apply_emotion_led_display(req.emotion, req.intensity) if not servo_held or scene_change else None
 
     if req.emotion == EMO_IDLE:
         pass
