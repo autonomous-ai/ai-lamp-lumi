@@ -98,7 +98,20 @@ Example: *Leo usually drinks at 9am* → at 9:15 with no `drink` today, nudge ev
 
 ### Step 4 — Speak (if nudging)
 
-Ground the phrasing in the current raw label from the `Activity detected:` line so the nudge feels observed, not generic. See `references/nudge-phrasing.md` for label → suggested wording.
+Ground the phrasing in the current raw label from the `Activity detected:` line so the nudge feels observed, not generic. Vary wording each time.
+
+| Raw label | Hydration example | Break example |
+|---|---|---|
+| `using computer` | *"Been at the screen — grab a glass of water?"* | *"Eyes off the screen for a sec?"* |
+| `writing` | *"Pen down for some water?"* | *"Wrist break — time to stretch."* |
+| `texting` | *"Phone down, water break?"* | *"Phone down — stand up for a sec?"* |
+| `reading book` | *"Bookmark it and grab some water?"* | *"Been reading a while — give your eyes a rest?"* |
+| `reading newspaper` | *"Page down, time for water?"* | *"Eyes need a break from the page?"* |
+| `drawing` | *"Brush down, sip of water?"* | *"Hands cramping? Quick stretch."* |
+| `playing controller` | *"Pause and grab some water?"* | *"Been gaming a while — stand up?"* |
+| (no label / generic) | *"Been a while since you drank — grab some water?"* | *"Quick stand-up? Your back will thank you."* |
+
+If multiple sedentary labels are present, pick the one that fits best or blend (*"Eyes and wrists both deserve a break."*). Table is a starting point, not a script.
 
 ### Step 5 — Log the nudge after speaking
 
