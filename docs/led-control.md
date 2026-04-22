@@ -60,6 +60,8 @@ POST /scene
 
 Each scene controls **all peripherals** — not just LED, but also camera, mic, speaker, and servo.
 
+Deactivate: `POST /scene/off` — clears active scene, restores idle LED, re-enables camera/speaker, releases servo hold.
+
 | Scene | Bright | Color (K) | Servo | Camera | Mic | Speaker |
 |-------|--------|-----------|-------|--------|-----|---------|
 | `reading` | 80% | 4000K warm white | desk + hold | off | on | off |
