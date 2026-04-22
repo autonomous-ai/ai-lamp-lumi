@@ -150,6 +150,7 @@ def face_owners_detail():
             audio_history_days = sorted(f.stem for f in audio_hist_dir.iterdir() if f.suffix == ".jsonl") if audio_hist_dir.is_dir() else []
             voice_dir = d / "voice"
             voice_samples = sorted(f.name for f in voice_dir.iterdir() if f.is_file() and f.suffix.lower() in {".wav", ".mp3", ".ogg"}) if voice_dir.is_dir() else []
+            habit_patterns = (d / "habit" / "patterns.json").is_file()
             meta = FaceRecognizer._read_metadata(d)
             persons.append(
                 FacePersonDetail(
@@ -163,6 +164,7 @@ def face_owners_detail():
                     music_suggestion_days=music_suggestion_days,
                     audio_history_days=audio_history_days,
                     voice_samples=voice_samples,
+                    habit_patterns=habit_patterns,
                     files=other_files,
                 )
             )

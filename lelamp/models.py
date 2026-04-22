@@ -311,6 +311,7 @@ class FacePersonDetail(BaseModel):
     music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
     audio_history_days: list[str] = []  # e.g. ["2026-04-17"]
     voice_samples: list[str] = []  # e.g. ["sample_mic_1776761894080_4bca6274.wav"]
+    habit_patterns: bool = False  # True if habit/patterns.json exists
     files: list[str] = []  # all non-photo files
 
 
