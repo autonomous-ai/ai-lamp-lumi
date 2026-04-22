@@ -205,7 +205,7 @@ class RemoteMotionChecker:
         return self._last_action
 
 
-class MotionPerception(Perception):
+class ActionPerception(Perception):
     """Detects motion via remote DL backend action recognition.
 
     Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
@@ -214,10 +214,9 @@ class MotionPerception(Perception):
 
     def __init__(
         self,
+        perception_state,
         send_event: Callable,
         on_motion: Callable,
-        capture_stable_frame: Callable,
-        presence_service,
         face_recognizer=None,
         base_url: str = config.DL_MOTION_BACKEND_URL,
         api_key: str = config.DL_API_KEY,

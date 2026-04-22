@@ -141,14 +141,14 @@ except ImportError as e:
     logger.warning(f"Video capture device not available: {e}")
 
 SensingService = None
-FaceRecognizer = None
+FacePerception = None
 try:
-    from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer
+    from lelamp.service.sensing.perceptions.facerecognizer import FacePerception
     from lelamp.service.sensing.sensing_service import SensingService
 except ImportError as e:
     logger.warning(f"Sensing service not available: {e}")
     SensingService = None
-    FaceRecognizer = None
+    FacePerception = None
 
 VoiceService = None
 DeepgramSTT = None
