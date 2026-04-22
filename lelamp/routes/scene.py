@@ -111,3 +111,37 @@ def activate_scene(req: SceneRequest):
         "color": scaled,
         "aim": aim_dir,
     }
+
+
+@router.post("/scene/off", response_model=StatusResponse)
+def deactivate_scene():
+    """Deactivate current scene and return to idle state."""
+    if not state._active_scene:
+        return {"status": "no_scene_active"}
+
+    prev = state._active_scene
+    state._active_scene = None
+    state._save_user_led_state(None)
+
+    # Release servo hold
+    if state.animation_service and state.animation_service._hold_mode:
+        state.animation_service._hold_mode = False
+        state.logger.info("Scene off: servo released")
+
+    # Re-enable camera
+    if state._camera_disabled:
+        state._auto_camera_on("scene:off")
+
+    # Unmute speaker
+    if state._speaker_muted:
+        state._speaker_muted = False
+        state.logger.info("Scene off: speaker unmuted")
+
+    # Restore idle LED
+    from lelamp.presets import EMOTION_PRESETS, EMO_IDLE
+    idle = EMOTION_PRESETS[EMO_IDLE]
+    if state.rgb_service:
+        state.rgb_service.dispatch(RGB_CMD_SOLID, tuple(idle["color"]))
+
+    state.logger.info("Scene off: deactivated %s, restored idle", prev)
+    return {"status": "ok"}
