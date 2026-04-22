@@ -1,97 +1,57 @@
 ---
 name: wellbeing
-description: Event-driven hydration and break reminders. Reads the per-user activity JSONL on every motion.activity to decide whether to nudge — no cron jobs. Thresholds are computed from the log, never guessed.
+description: Proactive hydration and break reminders. Use when a motion.activity event fires, when the user asks if they should drink water or take a break, or when checking whether it's time to nudge a specific user. Thresholds are computed from the per-user log, never guessed.
 ---
 
 # Wellbeing
 
-## ⛔ OUTPUT FORMAT — READ FIRST
+## ⛔ Output Format — READ FIRST
 
-Your visible reply MUST be exactly ONE of these, nothing else:
+Your visible reply MUST be exactly one of:
 
 1. `NO_REPLY`
 2. ONE short caring sentence (e.g. *"Grab some water?"*)
 
-If the reply contains any of: `Computing`, `Latest`, `Reset`, `Check`, timestamps, bullet lists, tables, `**bold**`, or the word `threshold` → **YOU FAILED**. Everything like that goes in the thinking block, never in the reply.
-
----
+If the reply contains any of `Computing`, `Latest`, `Reset`, `Check`, timestamps, bullet lists, tables, `**bold**`, or the word `threshold` → **YOU FAILED**. All math, timestamps, and reasoning stay in the `thinking` block — never in the reply.
 
 ## Gotchas (concrete facts, NOT suggestions)
 
-Exact endpoints — use these verbatim, never substitute a port or path:
+**Endpoints — use verbatim, never substitute a port or path:**
 
-| Purpose | URL (use exactly) |
+| Purpose | URL |
 |---|---|
 | Read history | `http://127.0.0.1:5000/api/openclaw/wellbeing-history` |
 | Log nudge | `http://127.0.0.1:5000/api/wellbeing/log` |
 
-- Port **5000** is Lumi (data APIs: wellbeing / mood / music / openclaw history).
-- Port **5001** is LeLamp HARDWARE — audio, camera, face, presence, speaker. It has **NO** `/api/wellbeing/*`, `/api/mood/*`, `/api/music-suggestion/*` routes. Calling 5001 for any wellbeing URL returns 404 silently and your nudge is lost.
-- Do not pattern-match from other skills. `5001/audio/play`, `5001/face/enroll`, `5001/camera/snapshot` are unrelated to wellbeing.
+- Port **5000** = Lumi (data APIs: wellbeing / mood / music / openclaw history).
+- Port **5001** = LeLamp HARDWARE (audio, camera, face, presence, speaker). Has **NO** `/api/wellbeing/*` route — calling 5001 returns 404 silently and your nudge is lost.
+- Do not pattern-match from other skills: `5001/audio/play`, `5001/face/enroll`, `5001/camera/snapshot` are unrelated to wellbeing.
+
+**User attribution:** every `user` field MUST come from the `[context: current_user=X]` tag the backend injects into the triggering event. Strangers collapse to `"unknown"`. If no context tag is present, default to `"unknown"`.
+
+**Thresholds (TEST VALUES — swap to production before ship):**
+
+```
+HYDRATION_THRESHOLD_MIN = 5     # production: 45
+BREAK_THRESHOLD_MIN     = 7     # production: 30
+```
+
+**LeLamp writes activities; you only write nudges.** Rows for `drink` / `break` / sedentary labels are posted by LeLamp directly when `motion.activity` fires — before the event reaches you. Do NOT re-log them. You still POST `nudge_hydration` / `nudge_break` because only you know when you actually spoke.
+
+**Presence rows** (`enter` / `leave`) are written by the backend on `presence.*` events. You never POST those either.
 
 ## Rules (Never / Only)
 
 1. **Only** call `http://127.0.0.1:5000/api/openclaw/wellbeing-history` to read history. **Never** read `/root/local/users/*/wellbeing/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
 2. **Only** POST to `http://127.0.0.1:5000/api/wellbeing/log`. **Never** substitute `5001`, `8080`, or any other port. **Never** omit `http://` or hardcode `localhost`.
-3. **Never** echo computation (timestamps, minutes, thresholds, reset reasoning) into the visible reply. All math stays in the `thinking` block.
+3. **Never** echo computation into the visible reply (timestamps, minutes, thresholds, reset reasoning). All math stays in `thinking`.
 4. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`. Never invent new actions.
-5. If a POST returns non-2xx → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, otherwise the skill spams reminders forever.
+5. On a non-2xx response from a POST → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, or the skill will spam reminders forever.
+6. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
+7. **Never** narrate the skip reason. If you decide NOT to nudge, reply `NO_REPLY` or a plain caring observation. Don't say *"just nudged N min ago"*, *"both over threshold"*, *"dedup applies"*.
+8. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
 
----
-
-> **Reply is spoken VERBATIM.** ONE short caring nudge — *"Grab some water?"*. All computation (timestamps, deltas, thresholds) stays in `thinking`. NEVER output math, log entries, or skip reasons in the reply.
-
-> **LeLamp logs activities; you only log nudges.** Activity rows (drink / break / sedentary labels) are written by LeLamp directly when it fires `motion.activity`. You no longer POST them. You still POST `nudge_hydration` / `nudge_break` after speaking, because only you know when you actually nudged.
-
-## Quick Start
-
-Wellbeing is **event-driven**, not cron-driven. There are no wellbeing cron jobs. On every `motion.activity` event, you:
-
-1. Read the recent history (LeLamp already logged the activity rows for this event).
-2. Figure out silently how long it's been since the last reset point for hydration and for break (never guess from memory).
-3. If either delta is over its threshold, speak a short caring nudge. Otherwise stay quiet.
-4. After speaking a nudge, POST `nudge_hydration` or `nudge_break` so future turns see that you nudged.
-
-Presence `enter` / `leave` markers are written by the backend when people arrive or leave — agent never posts those.
-
-## User attribution — hard rule
-
-Every `user` field in this skill MUST come from the `[context: current_user=X]` tag that the backend injects into the triggering `motion.activity` message.
-
-- Strangers collapse to `"unknown"` — all strangers share one timeline.
-- **NEVER** infer `{user}` from memory, KNOWLEDGE.md, chat history, `senderLabel`, or any other source.
-- If no context tag is present, default to `"unknown"`.
-
-## Thresholds
-
-**USE THESE EXACT VALUES — do not substitute anything else:**
-
-```
-HYDRATION_THRESHOLD_MIN = 5
-BREAK_THRESHOLD_MIN     = 7
-```
-
-> ⚠ **Release checklist (NOT ACTIVE YET):** before shipping to production, edit this SKILL to change `HYDRATION_THRESHOLD_MIN` to `45` and `BREAK_THRESHOLD_MIN` to `30`. Until that edit lands, the active values are **5 / 7**. Do not use 45 or 30 — those are future values, not current ones.
-
-`HYDRATION_THRESHOLD_MIN` and `BREAK_THRESHOLD_MIN` are intentionally different in test so you can tell which path fired. There is no separate nudge cooldown — nudging itself counts as a "reset", so after Lumi reminds, the delta goes back to 0 and the next nudge of the same kind only fires after another full threshold window.
-
-## What's in `Activity detected:`
-
-LeLamp does the categorisation AND has already written a wellbeing log row for each label below **before** this event reached you. The line is shown to you only so you can ground the nudge phrasing in the concrete activity. Do NOT re-log them.
-
-| Category | Labels emitted on `Activity detected:` |
-|---|---|
-| Drink (bucket, collapsed) | `drink` |
-| Break (bucket, collapsed) | `break` |
-| Sedentary (raw Kinetics label) | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` |
-
-Emotional actions (`laughing`, `crying`, `yawning`, `singing`) are filtered upstream and never appear on `motion.activity`.
-
-## On `motion.activity`
-
-LeLamp has already logged the activity rows for this event (one row per label on the `Activity detected:` line) before sending the event to you. Your job is: read the history, decide whether to nudge, and if you do, log the nudge.
-
-> `motion.activity` no longer carries emotional cues — emotional actions will arrive via a separate `motion.emotional` event in a future version. This skill handles the physical labels listed above.
+## Workflow — on every `motion.activity`
 
 ### Step 1 — Read recent history
 
@@ -99,75 +59,48 @@ LeLamp has already logged the activity rows for this event (one row per label on
 curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user>&last=50"
 ```
 
-Response is a time-ordered list of events with `{ts, action, notes, hour}`.
+Response is a time-ordered list of `{ts, action, notes, hour}`.
 
-> ⛔ **DO NOT** run `cat`, `ls`, `head`, `tail`, or any file-system tool against `/root/local/users/*/wellbeing/*.jsonl`. Always use the `/api/openclaw/wellbeing-history` endpoint above. The habit skill has a narrow exception for multi-day pattern building — that exception does not apply here. File reads bypass server normalization, future caching, and Phase 2 presence-dedup reasoning.
+### Step 2 — Compute deltas (silently, in `thinking`)
 
-> ⛔ **PORT IS 5000** — wellbeing endpoints live on the **Lumi** server (port **5000**), not LeLamp (5001). Any wellbeing URL you construct MUST start with `http://127.0.0.1:5000/`. Using `5001` will 404 silently and your nudge will never be logged. Remember: `5001` is LeLamp hardware (face / audio / speaker). `5000` is Lumi (wellbeing / mood / music / openclaw history).
+For each timer, the "last reset point" is the most recent of three actions:
 
-### Step 2 — Compute deltas (in your head, silently)
+| Timer | Reset actions |
+|---|---|
+| Hydration | `drink`, `enter`, `nudge_hydration` |
+| Break | `break`, `enter`, `nudge_break` |
 
-**Do NOT output any of this math. All computation stays in `thinking`.** These instructions tell you WHAT to compute, not what to write in the reply.
+`delta = now − last_reset`. Sedentary raw labels (`using computer`, `writing`, etc.) are NOT reset points — they're logged for timeline + nudge phrasing only.
 
-For hydration, find the most recent of these three log entries: a `drink`, an `enter`, or a `nudge_hydration`. The time since that entry (in minutes) is your hydration delta. The same method applies to break, using `break`, `enter`, and `nudge_break` as the reset candidates.
+If none of the reset actions exist yet today → delta = 0 (nothing to nudge).
 
-Why all three count as resets:
-- A `drink` / `break` entry means the user actually acted.
-- An `enter` entry means this is a fresh session (just arrived — zero the clock).
-- A `nudge_*` entry means Lumi already reminded them; don't re-nudge until another full threshold window passes.
+### Step 3 — Decide (silently)
 
-**Sedentary raw-label entries** (`using computer`, `writing`, `reading book`, `texting`, `reading newspaper`, `drawing`, `playing controller`) are **NOT** reset points. They're logged for timeline visibility and to inform nudge phrasing, but don't advance the hydration or break clock.
+Nudge at most ONE thing per turn. Hydration takes priority over break.
 
-If none of those entries exist yet for today, treat the delta as 0 — there's nothing to nudge about.
+- Hydration delta ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
+- Else break delta ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge.
+- Else → `NO_REPLY` or a plain caring observation.
 
-### Step 3 — Decide whether to nudge (silently)
+The `nudge_*` row you POST in Step 5 acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
-Nudge at most one thing per turn. Hydration takes priority over break.
+### Step 3b — Habit check (optional, after Step 3 only if no threshold nudge fired)
 
-- If the hydration delta is at or over the hydration threshold, speak a hydration nudge.
-- Otherwise, if the break delta is at or over the break threshold, speak a break nudge.
-- Otherwise, respond to the event normally (a caring observation if it feels natural) or reply `NO_REPLY`.
-
-The reset rules in Step 2 keep this from spamming — once you nudge, the `nudge_*` entry resets the delta and the next reminder of that kind only fires after another full threshold window.
-
-**Hard rule: if you decide NOT to nudge, the reply is `NO_REPLY` or a plain caring observation — NEVER narrate the skip reason.** Don't say "just nudged N min ago, no repeat", "both over threshold but skipping", "dedup applies", etc. Those are internal decisions that stay in `thinking`. The user only hears actual nudges, never "why I didn't nudge". The log (timeline) is the evidence — if there's no `nudge_hydration` entry, the user didn't get a nudge, regardless of what the agent may have thought on a previous turn.
-
-**Trust the log, not memory.** If the wellbeing history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
-
-### Step 3b — Habit-based proactive check (optional, after Step 3)
-
-If no threshold nudge fired in Step 3, check habit patterns for a proactive nudge:
-
-1. Read `/root/local/users/{current_user}/habit/patterns.json`. If the file doesn't exist, skip.
-2. Check `updated_at` — if older than 6 hours, invoke the `habit` skill to rebuild patterns first.
+1. Read `/root/local/users/{current_user}/habit/patterns.json`. If absent, skip.
+2. If `updated_at` older than 6 hours, invoke the `habit` skill to rebuild.
 3. For each entry in `wellbeing_patterns` with `strength` moderate or strong:
-   - Is the current time within `typical_hour:typical_minute ± window_minutes`?
-   - Has the `action` already appeared in today's log? If yes, skip.
-   - Has a `nudge_*` for this action already been logged today? If yes, skip.
-4. If a habit-based nudge fires, speak it and log the nudge (same as Step 4). Do NOT double-nudge if a threshold nudge already fired in Step 3.
+   - Is `now` within `typical_hour:typical_minute ± window_minutes`?
+   - Has the `action` already appeared in today's log? → skip.
+   - Has a matching `nudge_*` already been logged today? → skip.
+4. If a habit nudge fires, speak it and log per Step 5. Do NOT double-nudge if Step 3 already fired.
 
-This adds **predictive** nudging on top of the existing **threshold** nudging. Example: Leo usually drinks at 9am — at 9:15 with no `drink` entry today, nudge even if the hydration threshold hasn't been crossed yet.
+Example: *Leo usually drinks at 9am* → at 9:15 with no `drink` today, nudge even if the 5-min threshold hasn't been crossed.
 
-### Ground the nudge in the current raw label
+### Step 4 — Speak (if nudging)
 
-The triggering `motion.activity` lists the raw Kinetics labels the user is doing right now. Tailor the nudge to the most specific sedentary label present so the reminder feels observed, not generic. Vary wording each time — never repeat verbatim.
+Ground the phrasing in the current raw label from the `Activity detected:` line so the nudge feels observed, not generic. See `references/nudge-phrasing.md` for label → suggested wording.
 
-| Raw label seen now | Hydration nudge example | Break nudge example |
-|---|---|---|
-| `using computer` | *"Been at the screen — grab a glass of water?"* | *"Eyes off the screen for a sec?"* |
-| `writing` | *"Pen down for some water?"* | *"Wrist break — time to stretch."* |
-| `texting` | *"Phone down, water break?"* | *"Phone down — stand up for a sec?"* |
-| `reading book` | *"Bookmark it and grab some water?"* | *"Been reading a while — give your eyes a rest?"* |
-| `reading newspaper` | *"Page down, time for water?"* | *"Eyes need a break from the page?"* |
-| `drawing` | *"Brush down, sip of water?"* | *"Hands cramping? Quick stretch."* |
-| `playing controller` | *"Pause and grab some water?"* | *"Been gaming a while — stand up?"* |
-| (no specific label / generic) | *"Been a while since you drank — grab some water?"* | *"Quick stand-up? Your back will thank you."* |
-
-If multiple sedentary labels are present (e.g. `writing, reading book`), pick the one that fits best or blend (*"Eyes and wrists both deserve a break."*). The table is a starting point, not a script — keep it natural and one short sentence.
-
-### Step 4 — Log the nudge after speaking (for timeline only)
-
-If you spoke a hydration nudge, immediately POST (**port 5000**, not 5001):
+### Step 5 — Log the nudge after speaking
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
@@ -175,57 +108,19 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -d '{"action":"nudge_hydration","notes":"<your nudge text>","user":"<current_user>"}'
 ```
 
-Same for break → `action="nudge_break"`. This entry serves two purposes: timeline visibility (the user's log shows when Lumi actually reminded them) AND delta reset (Step 2 treats the nudge entry as a reset point, so the next reminder of that kind waits a full threshold window).
-
-> If the POST returns a non-2xx (including 404) — you hit the wrong port. Re-check the URL says `5000`, not `5001`. Do NOT give up silently; without the nudge row, the skill will spam reminders because the reset point never moves.
-
-### Step 5 — Never narrate the mechanics
-
-Your reply is spoken aloud verbatim. The ONLY thing the user should hear is the one caring sentence — never the reasoning behind it.
-
-**FORBIDDEN in the reply text** (put these in `thinking` only):
-
-- Any number of minutes (e.g. *"76.7 min"*, *"over 45 min threshold"*, *"it's been 2 hours"*).
-- Any comparison to thresholds (e.g. *"way over"*, *"almost due"*, *"under the limit"*).
-- Any plan-talk (*"Need to nudge for both"*, *"Now I'll remind about…"*).
-- Any log/data references (*"Drink:"*, *"Break:"*, *"Last entry:"*).
-
-**Correct:** *"Hey, grab some water — it's been a while."*
-**Wrong:** *"Drink: 76.7 min — way over 45 min threshold! Hey, drink water!"*
-
-If you see yourself writing numbers, colons, or the word "threshold" in the reply, delete it and rewrite in natural caring language. One sentence. Nothing more.
+Same for break → `action="nudge_break"`. This row is timeline visibility AND the reset point for the next window.
 
 ## On `presence.enter` / `presence.leave` / `presence.away`
 
-Backend handles the log writes automatically. You don't need to call `/api/wellbeing/log` for these.
+Backend writes the `enter` / `leave` rows. You do nothing for these events — stay silent (`NO_REPLY`) unless there's something genuinely worth saying.
 
-- `presence.leave`: stay silent (NO_REPLY) unless there's something worth saying.
-- `presence.away`: stay silent.
-
-There are NO crons to cancel. Wellbeing is stateless at the timer level — the log IS the state.
-
-## API Reference
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `http://127.0.0.1:5000/api/wellbeing/log` | POST | Append activity entry `{"action","notes","user"}` — backend dedups |
-| `http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=X&date=YYYY-MM-DD&last=N` | GET | Read activity history |
-| `http://127.0.0.1:5001/user/info?name=X` | GET | Get telegram_id, is_friend (only needed if you DM via Telegram) |
-
-`action` values:
+## Action value reference
 
 | Action | Written by | Meaning |
 |---|---|---|
-| `drink`, `break` | LeLamp (when `motion.activity` fires, before the event reaches the agent) | User actually drank / took a break. **Reset point** for the corresponding timer. |
-| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | LeLamp (when `motion.activity` fires) | User is doing a sedentary activity. Logged for timeline + nudge phrasing. **Not a reset point.** |
-| `enter`, `leave` | Backend (on presence.* events) | Session boundary; backend dedups against the last presence row for this user, so consecutive enters without an intervening leave (stranger-ID churn) collapse to one. |
-| `nudge_hydration`, `nudge_break` | Agent (after speaking a nudge) | Records when Lumi actually reminded the user — serves as the reset point for the next threshold window AND gives timeline visibility. |
+| `drink`, `break` | LeLamp (on `motion.activity`, before event reaches you) | User acted. **Reset point.** |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | LeLamp (on `motion.activity`) | Sedentary — logged for timeline + phrasing. **Not a reset point.** |
+| `enter`, `leave` | Backend (on `presence.*` events) | Session boundary; deduped against last presence row, so stranger-ID churn collapses. **Reset point.** |
+| `nudge_hydration`, `nudge_break` | **You**, after speaking a nudge | Timeline + reset for next window. |
 
-## Principles
-
-- **Log is the source of truth.** Never guess "it's been a while" — always compute from the log.
-- **Backend handles dedup and session markers** — you just post and query.
-- **One nudge per turn max.** Hydration takes priority over break if both are due.
-- **You're a companion, not an alarm clock.** If the user says "don't remind me about X" → skip the corresponding nudge for the rest of the session.
-- **Invisible mechanics.** Never mention thresholds, logs, deltas, or skill names in the reply.
-- **All strangers share one timeline** under `user="unknown"`. Do not distinguish stranger_46 vs stranger_54.
+Emotional labels (`laughing`, `crying`, `yawning`, `singing`) are filtered upstream and never reach this skill via `motion.activity` — they'll arrive on a separate `motion.emotional` event in a future version.
