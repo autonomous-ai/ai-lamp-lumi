@@ -68,6 +68,10 @@ Output: Do NOT use this skill for emotion. Use **Emotion** skill instead (you CA
 - **"watch a movie", "movie"** -> use `movie` (15%).
 - After activating a scene, you can ALSO call Emotion to show your personality — emotion is a brief reaction, scene is the persistent ambient light.
 - You can switch scenes smoothly — just call the endpoint, the LED update is immediate.
+- **There is no "scene off".** To leave a scene, switch to a more appropriate one. If the current scene doesn't match the time of day or user's request, pick the right one:
+  - Morning / "it's bright" / "wake up" → `energize`
+  - Daytime / "normal light" → `relax` or `focus`
+  - "Turn off the light" → use LED Control skill (`/led/off`), not Scene
 - For custom lighting beyond these presets, use the LED Control skill directly with specific RGB values.
 - **Do NOT use for specific color requests** -> use **LED Control** skill.
 - **Do NOT use for expressing emotion** -> use **Emotion** skill.
