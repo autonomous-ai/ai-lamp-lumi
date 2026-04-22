@@ -1260,15 +1260,37 @@ func (h *OpenClawHandler) SetBusy(c *gin.Context) {
 }
 
 func (h *OpenClawHandler) Status(c *gin.Context) {
-	h.lastEmotionMu.Lock()
-	emotion := h.lastEmotion
-	h.lastEmotionMu.Unlock()
+	// Get real emotion from LeLamp (source of truth) instead of parsed text
+	emotion := h.fetchLeLampEmotion()
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"name":       h.agentGateway.Name(),
 		"connected":  h.agentGateway.IsReady(),
 		"sessionKey": h.agentGateway.GetSessionKey() != "",
 		"emotion":    emotion,
 	}))
+}
+
+// fetchLeLampEmotion calls LeLamp /emotion/status to get the current emotion.
+// Falls back to lastEmotion if LeLamp is unreachable.
+func (h *OpenClawHandler) fetchLeLampEmotion() string {
+	resp, err := http.Get("http://127.0.0.1:5001/emotion/status")
+	if err != nil {
+		h.lastEmotionMu.Lock()
+		defer h.lastEmotionMu.Unlock()
+		return h.lastEmotion
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		CurrentEmotion string `json:"current_emotion"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		h.lastEmotionMu.Lock()
+		defer h.lastEmotionMu.Unlock()
+		return h.lastEmotion
+	}
+	return result.CurrentEmotion
 }
 
 // Recent returns the latest flow events from today's JSONL file only.
