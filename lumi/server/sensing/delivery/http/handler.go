@@ -333,7 +333,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[Follow user-emotion-detection/SKILL.md.]"
+			msg += "\n[REQUIRED — complete ALL steps before replying:]"
+			msg += "\n[Step 1: user-emotion-detection/SKILL.md — log mood signal + decision]"
+			msg += "\n[Step 2: music-suggestion/SKILL.md — run AFTER mood decision is logged]"
 		}
 	}
 
