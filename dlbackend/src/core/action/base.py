@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 
-from core.actionanalysis.constants import RESOURCES_DIR
+from core.action.constants import RESOURCES_DIR
 from core.models import ActionDetection, ActionResponse
 
 MODEL_T = TypeVar("MODEL_T", bound="HumanActionRecognizerModel")
