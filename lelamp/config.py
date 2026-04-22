@@ -44,6 +44,7 @@ TTS_INSTRUCTIONS: str = os.environ.get("LELAMP_TTS_INSTRUCTIONS", "Friendly")
 
 # --- Sensing: Lumi integration ---
 LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
+LUMI_WELLBEING_LOG_URL = "http://127.0.0.1:5000/api/wellbeing/log"
 
 # --- Sensing: Event cooldown ---
 EVENT_COOLDOWN_S = float(os.environ.get("LELAMP_EVENT_COOLDOWN_S", "60.0"))
