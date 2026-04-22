@@ -18,7 +18,10 @@ Storage layout per user::
                                    display_name). Same file face-enroll writes —
                                    merged on write, never overwritten blindly.
         voice/
-            embedding.npy       — L2-normalized aggregated embedding
+            embedding.npy       — single L2-normalized aggregated vector [D].
+                                   Mirrors dlbackend's per-speaker storage so
+                                   recognize uses the same per-chunk voting
+                                   logic as dlbackend's /recognize endpoint.
             metadata.json       — voice-specific (enrolled_at, updated_at,
                                    num_samples, sample_files, embedding_dim)
             sample_<ts>_<uuid>.wav  — source WAV files (16kHz mono)
@@ -299,8 +302,16 @@ class SpeakerRecognizer:
 
     # -------------------------------------------------------------- external
 
-    def _call_embedding_api(self, audios_b64: list[str]) -> np.ndarray:
-        """POST audios to the embedding API and return one L2-normalized vector."""
+    def _call_embedding_api(
+        self, audios_b64: list[str], *, return_chunks: bool = False
+    ) -> np.ndarray:
+        """POST audios to the embedding API.
+
+        Returns the L2-normalized aggregated vector ``[D]`` by default. When
+        ``return_chunks=True`` returns the matrix of per-chunk embeddings
+        ``[M, D]`` instead — used by ``recognize()`` to do per-chunk voting
+        against stored speakers (mirroring dlbackend's /recognize logic).
+        """
         if not self._api_url:
             raise SpeakerRecognizerError(
                 "SPEAKER_EMBEDDING_API_URL not configured"
@@ -308,15 +319,22 @@ class SpeakerRecognizer:
         if not audios_b64:
             raise SpeakerRecognizerError("no audio to embed")
 
-        logger.info("Calling embedding API with %d audios at %s", len(audios_b64), self._api_url)
+        logger.info(
+            "Calling embedding API with %d audios at %s (return_chunks=%s)",
+            len(audios_b64), self._api_url, return_chunks,
+        )
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["X-API-Key"] = self._api_key
 
+        body: dict[str, Any] = {"audios_b64": audios_b64}
+        if return_chunks:
+            body["return_chunks"] = True
+
         try:
             resp = requests.post(
                 self._api_url,
-                json={"audios_b64": audios_b64},
+                json=body,
                 headers=headers,
                 timeout=_API_TIMEOUT_S,
             )
@@ -339,6 +357,21 @@ class SpeakerRecognizer:
             payload = resp.json()
         except ValueError as e:
             raise SpeakerRecognizerError(f"embedding API returned non-JSON: {e}") from e
+
+        if return_chunks:
+            chunks = payload.get("chunk_embeddings")
+            if not chunks:
+                raise SpeakerRecognizerError(
+                    "embedding API response missing 'chunk_embeddings'"
+                )
+            mat = np.asarray(chunks, dtype=np.float32)
+            if mat.ndim != 2 or mat.size == 0:
+                raise SpeakerRecognizerError(
+                    f"chunk_embeddings must be a non-empty 2-D array, got shape {mat.shape}"
+                )
+            norms = np.linalg.norm(mat, axis=1, keepdims=True)
+            norms[norms < 1e-12] = 1.0
+            return (mat / norms).astype(np.float32)
 
         emb = payload.get("embedding")
         if emb is None:
@@ -420,22 +453,6 @@ class SpeakerRecognizer:
             for chunk in chunks
         ]
 
-    def _compute_representative_embedding(self, audios_b64: list[str]) -> np.ndarray:
-        """Compute representative embedding by averaging per-sample embeddings."""
-        if not audios_b64:
-            raise SpeakerRecognizerError("no audio to embed")
-
-        emb_list: list[np.ndarray] = []
-        for audio_b64 in audios_b64:
-            emb_list.append(self._call_embedding_api([audio_b64]))
-
-        stacked = np.stack(emb_list, axis=0).astype(np.float32)
-        mean_vec = np.mean(stacked, axis=0).astype(np.float32)
-        norm = float(np.linalg.norm(mean_vec))
-        if norm == 0.0:
-            raise SpeakerRecognizerError("mean embedding has zero norm")
-        return mean_vec / norm
-
     # ------------------------------------------------------------- metadata
 
     def _read_metadata(self, norm: str) -> dict[str, Any]:
@@ -464,7 +481,11 @@ class SpeakerRecognizer:
         self._metadata_path(norm).write_text(json.dumps(meta, indent=2))
 
     def _load_all_embeddings(self) -> dict[str, np.ndarray]:
-        """Load every stored embedding from disk — source of truth for recognize()."""
+        """Load every stored aggregated embedding [D] — source of truth for recognize().
+
+        Mirrors dlbackend's per-speaker storage: one L2-normalized vector
+        per user. Recognize then runs per-chunk voting against these.
+        """
         out: dict[str, np.ndarray] = {}
         if not self._users_dir.is_dir():
             return out
@@ -475,12 +496,13 @@ class SpeakerRecognizer:
             if not emb_path.is_file():
                 continue
             try:
-                emb = np.load(emb_path).astype(np.float32)
-                if emb.ndim == 1 and emb.size > 0:
-                    # Defensive re-normalize in case file was edited.
-                    n = float(np.linalg.norm(emb))
-                    if n > 0.0:
-                        out[entry.name] = emb / n
+                vec = np.load(emb_path).astype(np.float32)
+                if vec.ndim != 1 or vec.size == 0:
+                    continue
+                n = float(np.linalg.norm(vec))
+                if n < 1e-12:
+                    continue
+                out[entry.name] = (vec / n).astype(np.float32)
             except Exception as e:
                 logger.warning("failed to load embedding for %s: %s", entry.name, e)
         return out
@@ -675,16 +697,17 @@ class SpeakerRecognizer:
             fpath.write_bytes(wb)
             written_new_paths.append(fpath)
 
-        # Step 7 — Final embedding = L2-normalized mean of kept embeddings.
-        kept_embs = [emb for _, emb in kept_existing] + [emb for _, emb in kept_new]
-        stacked = np.stack(kept_embs, axis=0)
-        mean_vec = stacked.mean(axis=0).astype(np.float32)
-        mean_norm = float(np.linalg.norm(mean_vec))
-        if mean_norm <= 0.0:
-            raise SpeakerRecognizerError(
-                "degenerate mean embedding — all kept samples cancelled out"
-            )
-        embedding = mean_vec / mean_norm
+        # Step 7 — Final stored embedding mirrors dlbackend's register: send
+        # ALL kept WAVs in a single /embed call so the server runs its
+        # weighted attentive aggregation across every chunk of every kept
+        # sample, then collapses to one L2-normalized [D] vector. That same
+        # vector is what dlbackend's /recognize would compare against, so
+        # downstream per-chunk voting in lelamp.recognize() is apples-to-apples.
+        kept_wavs = [wb for _p, _e in kept_existing for wb in [_p.read_bytes()]] + [
+            wb for wb, _e in kept_new
+        ]
+        kept_b64 = [base64.b64encode(wb).decode("ascii") for wb in kept_wavs]
+        embedding = self._call_embedding_api(kept_b64)  # [D] aggregated
         np.save(self._embedding_path(norm), embedding)
 
         # Re-read the folder — it now contains ONLY samples that were valid
@@ -820,7 +843,12 @@ class SpeakerRecognizer:
                 wav_bytes,
                 stem="incoming",
             )
-            embedding = self._compute_representative_embedding(input_audios)
+            # Per-chunk query embeddings — same per-chunk granularity that
+            # dlbackend's /recognize uses internally, so per-chunk voting
+            # below produces apples-to-apples confidence.
+            query_chunks = self._call_embedding_api(
+                input_audios, return_chunks=True
+            )  # [M, D]
         except SpeakerRecognizerError as e:
             return {
                 "name": "unknown",
@@ -841,12 +869,36 @@ class SpeakerRecognizer:
                 "candidates": [],
             }
 
-        scores: list[tuple[str, float]] = []
-        for n, emb in known.items():
-            conf = _cosine_similarity(embedding, emb)
-            scores.append((n, conf))
-        scores.sort(key=lambda t: t[1], reverse=True)
-        best_name, best_conf = scores[0]
+        # Per-chunk voting (mirrors dlbackend.recognize line 614-645):
+        # for each query chunk, pick the highest-confidence speaker, record
+        # one vote and one confidence sample. Winner = most votes, tiebreak
+        # by avg confidence. Returned confidence = avg of winner's votes.
+        names = list(known.keys())
+        ref_matrix = np.stack([known[n] for n in names], axis=0)  # [K, D]
+        sims = query_chunks @ ref_matrix.T                         # [M, K] raw cos
+        confs = (sims + 1.0) / 2.0                                  # mapped [0, 1]
+        best_idx = confs.argmax(axis=1)                             # [M]
+        best_conf_per_chunk = confs[np.arange(confs.shape[0]), best_idx]
+
+        vote_count: dict[str, int] = {}
+        conf_sum: dict[str, float] = {}
+        for k_idx, c in zip(best_idx.tolist(), best_conf_per_chunk.tolist()):
+            n = names[k_idx]
+            vote_count[n] = vote_count.get(n, 0) + 1
+            conf_sum[n] = conf_sum.get(n, 0.0) + float(c)
+
+        # Tiebreak by avg confidence so a 1-vote winner with high conf
+        # never beats a 5-vote one — votes dominate.
+        ranked = sorted(
+            vote_count.keys(),
+            key=lambda n: (vote_count[n], conf_sum[n] / vote_count[n]),
+            reverse=True,
+        )
+        best_name = ranked[0]
+        best_conf = conf_sum[best_name] / vote_count[best_name]
+        scores = [
+            (n, conf_sum[n] / vote_count[n], vote_count[n]) for n in ranked
+        ]
 
         is_match = best_conf >= self._match_threshold
         resolved_name = best_name if is_match else "unknown"
@@ -856,8 +908,8 @@ class SpeakerRecognizer:
             "match": is_match,
             "unknown_audio_path": saved_path,
             "candidates": [
-                {"name": n, "confidence": round(c, 4)}
-                for n, c in scores[:3]
+                {"name": n, "confidence": round(c, 4), "votes": v}
+                for n, c, v in scores[:3]
             ],
         }
         # Surface identity fields on match.

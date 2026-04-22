@@ -121,15 +121,21 @@ class EmbedAudioRequest(BaseModel):
     Contract used by LeLamp's SpeakerRecognizer: one or more WAV audios come
     in as base64 strings, one aggregated L2-normalized embedding comes out.
     No DB write.
+
+    Set ``return_chunks=True`` when the caller needs per-chunk embeddings
+    (e.g. to perform per-chunk voting at recognize time, mirroring this
+    service's own ``/recognize`` matching logic).
     """
 
     audios_b64: list[str] = Field(min_length=1)
     chunk_seconds: float = 0.5
+    return_chunks: bool = False
 
 
 class EmbedAudioResponse(BaseModel):
     embedding: list[float]
     embedding_dim: int
+    chunk_embeddings: list[list[float]] | None = None
 
 
 router = APIRouter(tags=["audio-recognizer"])
@@ -353,10 +359,13 @@ async def recognize_speaker(request: Request):
 
 @router.post("/audio-recognizer/embed", response_model=EmbedAudioResponse)
 async def embed_audio(req: EmbedAudioRequest):
-    """Return one L2-normalized aggregated embedding for a list of WAV audios.
+    """Return per-chunk and/or aggregated L2-normalized embeddings.
 
-    Stateless — does NOT touch the speaker DB. Used by LeLamp's
-    SpeakerRecognizer to store embeddings per-user locally.
+    Stateless — does NOT touch the speaker DB. ``embedding`` is always the
+    weighted aggregate over all chunks (same vector as ``/recognize`` would
+    compare against). When ``return_chunks=True`` the response also carries
+    the per-chunk embeddings so callers can run their own per-chunk voting
+    against a local store.
     """
     recognizer = _get_audio_recognizer()
     try:
@@ -375,13 +384,30 @@ async def embed_audio(req: EmbedAudioRequest):
                 last_sr = sr
         if not merged_chunks:
             raise ValueError("no audio chunks extracted from inputs")
-        emb = recognizer._extract_embedding_from_chunks(
+
+        # Inline _extract_embedding_from_chunks so we keep the per-chunk
+        # embeddings around (the wrapper throws them away after aggregation).
+        waveforms = recognizer._prepare_waveforms_from_chunks(
             merged_chunks, chunk_sample_rate=last_sr
         )
-        vec = np.asarray(emb, dtype=np.float32).flatten()
+        if not waveforms:
+            raise ValueError("all chunks empty after preprocessing")
+        chunk_embs = recognizer._extract_embeddings_from_waveforms_batch(waveforms)
+        if not chunk_embs:
+            raise ValueError("no embeddings produced")
+        agg = recognizer._aggregate_embeddings(chunk_embs)
+
+        agg_vec = np.asarray(agg, dtype=np.float32).flatten()
+        chunk_payload: list[list[float]] | None = None
+        if req.return_chunks:
+            chunk_payload = [
+                np.asarray(e, dtype=np.float32).flatten().tolist()
+                for e in chunk_embs
+            ]
         return EmbedAudioResponse(
-            embedding=vec.tolist(),
-            embedding_dim=int(vec.shape[0]),
+            embedding=agg_vec.tolist(),
+            embedding_dim=int(agg_vec.shape[0]),
+            chunk_embeddings=chunk_payload,
         )
     except HTTPException:
         raise
