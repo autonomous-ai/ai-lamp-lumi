@@ -79,7 +79,7 @@ class ElevenLabsTTSBackend(TTSBackend):
         # Resolve voice name to voice_id (pass through if already an ID)
         voice_id = self.VOICE_IDS.get(voice, voice)
         # output_format is a query param, not body — pcm_24000 = 24kHz 16-bit mono
-        url = f"{self._base_url}/v1/text-to-speech/{voice_id}/stream?output_format=pcm_24000"
+        url = f"{self._base_url}/text-to-speech/{voice_id}/stream?output_format=pcm_24000"
         headers = {
             "xi-api-key": self._api_key,
             "Content-Type": "application/json",
