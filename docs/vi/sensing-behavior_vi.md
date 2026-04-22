@@ -197,26 +197,29 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 
 | Action | Do ai ghi | Mục đích |
 |---|---|---|
-| `drink`, `break` | Agent (nguyên văn từ motion.activity — LeLamp emit bucket name) | Reset point cho nudge timer tương ứng |
-| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | Agent (nguyên văn từ motion.activity — LeLamp emit raw sedentary label) | Timeline + nudge phrasing. **KHÔNG** phải reset point. |
-| `enter`, `leave` | Backend (sensing handler) | Session boundary — phá dedup chain |
-| `nudge_hydration`, `nudge_break` | Agent (sau khi nhắc) | Ghi lại thời điểm Lumi nhắc — để hiện lên timeline (không ảnh hưởng logic nudge tiếp theo) |
+| `drink`, `break` | **LeLamp** (`motion.py` POST `/api/wellbeing/log` ngay trước khi fire `motion.activity`) | Reset point cho nudge timer tương ứng |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | **LeLamp** (`motion.py`, cùng đường đó) | Timeline + nudge phrasing. **KHÔNG** phải reset point. |
+| `enter`, `leave` | Backend (sensing handler, trên event `presence.*`) | Session boundary — Lumi dedup so với presence row cuối cùng, nên nhiều enter liên tiếp không có leave xen giữa (stranger-ID churn) sẽ gộp thành 1. |
+| `nudge_hydration`, `nudge_break` | Agent (sau khi nhắc) | Ghi lại thời điểm Lumi nhắc — hiện lên timeline. Chỉ agent biết khi nào nó thực sự nói, nên chỉ agent ghi entry này. |
 
-**Dedup nằm ở LeLamp.** `lelamp/service/sensing/perceptions/motion.py` giữ `_last_sent_key = (current_user, frozenset(labels))` và `_last_sent_ts`, trong đó `labels` khớp với outbound message (bucket names cho drink/break, raw Kinetics labels cho sedentary). Trước khi gửi `motion.activity`, nếu key không đổi **và** khoảng cách từ lần gửi cuối chưa vượt `MOTION_DEDUP_WINDOW_S = 300` giây (5 phút) → drop. Nên `eating burger → eating cake` gộp thành cùng key `break` và bị drop, còn `writing → drawing` lật key (sedentary giữ raw) nên pass qua để agent thấy activity mới.
+**Dedup nằm ở 2 nơi.**
+
+*Activity dedup (window 5 phút).* `lelamp/service/sensing/perceptions/motion.py` giữ `_last_sent_key = (current_user, frozenset(labels))` và `_last_sent_ts`, trong đó `labels` khớp với outbound message (bucket names cho drink/break, raw Kinetics labels cho sedentary). Trước khi gửi `motion.activity` **và trước khi POST các row tới `/api/wellbeing/log`**, nếu key không đổi **và** khoảng cách từ lần gửi cuối chưa vượt `MOTION_DEDUP_WINDOW_S = 300` giây (5 phút) → drop cả chu kỳ. Nên `eating burger → eating cake` gộp thành cùng key `break` và bị drop, còn `writing → drawing` lật key (sedentary giữ raw) nên pass qua.
 
 - Đổi user (owner→owner, owner→unknown, unknown→owner) lật key ngay → event pass qua.
 - Stranger khác nhau (`stranger_46` → `stranger_54`) đều collapse về `"unknown"` qua `FaceRecognizer.current_user()` → đổi stranger không phá dedup.
 - Sau 5 phút cùng state, event tiếp theo vẫn pass — để Lumi agent "thức dậy" định kỳ chạy threshold check.
 
-Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việc của lelamp.
+*Presence dedup (tại log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scan file JSONL của user từ dưới lên để tìm **presence row** gần nhất (enter/leave, bỏ qua activity rows xen giữa). `enter` khi presence cuối đã là `enter` → drop; `leave` khi chưa có session mở → drop. Đây là cái giữ duy nhất 1 open session cho `unknown` kể cả khi stranger_37 → stranger_38 → stranger_39 mỗi người fire 1 raw `presence.enter` upstream.
 
 **Retention:** 7 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
 
 ### Khi nhận `motion.activity` — agent làm gì
 
-1. **Parse dòng `Activity detected:`** thành labels (phân cách bởi dấu phẩy), rồi **log từng label nguyên văn** qua `POST /api/wellbeing/log` với `{action:"<label>", notes:"", user:current_user}`. LeLamp đã categorize sẵn (bucket name cho drink/break, raw label cho sedentary) nên agent không map gì thêm.
-2. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
+Tới thời điểm agent thấy event, LeLamp đã tự log mọi label activity rồi (xem bảng "Do ai ghi" phía trên). Agent chỉ còn đọc history, quyết định nhắc, và nếu nhắc thì log `nudge_*`.
+
+1. **Đọc history gần đây** qua `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
+2. **Tính delta** từ log, dùng **điểm reset gần nhất** cho mỗi loại:
 
    ```
    hydration_reset = max(last drink entry, last enter entry, last nudge_hydration entry)
@@ -224,12 +227,12 @@ Lumi **không dedup** — `wellbeing.LogForUser` append thẳng. Dedup là việ
    ```
 
    Ba điểm reset: hoạt động thực tế (`drink`/`break`), mới vào session (`enter`), hoặc lần nhắc gần nhất (`nudge_*`). Nudge reset là điểm mấu chốt: sau khi Lumi nhắc, delta về 0 → lần nhắc tiếp theo chỉ fire sau 1 threshold window nữa — không cần cooldown constant riêng.
-4. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
+3. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
    - Hydration delta ≥ hydration threshold → nhắc uống nước.
    - Else break delta ≥ break threshold → nhắc nghỉ/stretch.
    - Else → caring observation hoặc `NO_REPLY`.
-5. **Sau khi nhắc**, log entry `nudge_hydration` hoặc `nudge_break` — đây là cái reset delta cho window tiếp theo (và hiện lên timeline user).
-6. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
+4. **Sau khi nhắc**, log entry `nudge_hydration` hoặc `nudge_break` — đây là cái reset delta cho window tiếp theo (và hiện lên timeline user).
+5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
 
 ### Ngưỡng
 
@@ -255,7 +258,11 @@ Nếu user uống hoặc nghỉ trước window tiếp theo, entry `drink`/`brea
 
 ### User attribution — `[context: current_user=X]`
 
-Sensing handler inject tag `[context: current_user=X]` vào mọi message `motion.activity`. `X` là tên friend gần nhất được nhận, hoặc `"unknown"` khi face chỉ thấy stranger. Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`. Nguồn duy nhất là `mood.CurrentUser()`, cũng set `"unknown"` khi stranger `presence.enter` (trước đây để stale tên friend cũ).
+Sensing handler inject tag `[context: current_user=X]` vào mọi message `motion.activity`. `X` là **friend có session_start mới nhất** trong số các friend còn trong forget window (xem `FaceRecognizer.current_user()`), hoặc `"unknown"` khi face **chỉ** thấy stranger (không có friend nào còn present). Quan trọng: nếu có friend còn chưa bị "forget", `current_user()` trả về friend đó kể cả khi event `presence.enter` vừa rồi là của stranger — stranger-flicker không đá friend khỏi session.
+
+Chọn theo `session_start` (thời điểm re-enter sau leave gần nhất) chứ không phải `last_seen`, để trường hợp 2 friend cùng present liên tục (Chloe 18:00, An 18:30) luôn chọn friend enter mới nhất (An) — deterministic, không phụ thuộc thứ tự dict.
+
+Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`.
 
 ### Marker presence do backend tự ghi
 
