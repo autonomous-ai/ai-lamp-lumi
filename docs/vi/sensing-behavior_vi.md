@@ -199,7 +199,7 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 |---|---|---|
 | `drink`, `break` | **LeLamp** (`motion.py` POST `/api/wellbeing/log` ngay trước khi fire `motion.activity`) | Reset point cho nudge timer tương ứng |
 | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | **LeLamp** (`motion.py`, cùng đường đó) | Timeline + nudge phrasing. **KHÔNG** phải reset point. |
-| `enter`, `leave` | Backend (sensing handler, trên event `presence.*`) | Session boundary — Lumi dedup so với presence row cuối cùng, nên nhiều enter liên tiếp không có leave xen giữa (stranger-ID churn) sẽ gộp thành 1. |
+| `enter`, `leave` | **LeLamp** (`FaceRecognizer._post_wellbeing`, gọi từ `_check_impl` khi fresh detection và `_check_leaves` khi forget hết) | Session boundary — mỗi friend có timeline riêng; stranger gộp chung vào 1 timeline `"unknown"` duy nhất qua flag `_any_stranger_logged` (1 enter khi stranger đầu xuất hiện, 1 leave khi stranger cuối cùng forget). |
 | `nudge_hydration`, `nudge_break` | Agent (sau khi nhắc) | Ghi lại thời điểm Lumi nhắc — hiện lên timeline. Chỉ agent biết khi nào nó thực sự nói, nên chỉ agent ghi entry này. |
 
 **Dedup nằm ở 2 nơi.**
@@ -210,7 +210,7 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 - Stranger khác nhau (`stranger_46` → `stranger_54`) đều collapse về `"unknown"` qua `FaceRecognizer.current_user()` → đổi stranger không phá dedup.
 - Sau 5 phút cùng state, event tiếp theo vẫn pass — để Lumi agent "thức dậy" định kỳ chạy threshold check.
 
-*Presence dedup (tại log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scan file JSONL của user từ dưới lên để tìm **presence row** gần nhất (enter/leave, bỏ qua activity rows xen giữa). `enter` khi presence cuối đã là `enter` → drop; `leave` khi chưa có session mở → drop. Đây là cái giữ duy nhất 1 open session cho `unknown` kể cả khi stranger_37 → stranger_38 → stranger_39 mỗi người fire 1 raw `presence.enter` upstream.
+*Presence dedup (safety net tại log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scan file JSONL của user từ dưới lên để tìm **presence row** gần nhất (enter/leave, bỏ qua activity rows xen giữa). `enter` khi presence cuối đã là `enter` → drop; `leave` khi chưa có session mở → drop. Vì LeLamp đã fire 1 enter / 1 session thật (per-friend + unknown gộp), layer này chỉ là safety net cho restart / out-of-order edge case, không load-bearing.
 
 **Retention:** 7 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
 
@@ -262,19 +262,20 @@ Sensing handler inject tag `[context: current_user=X]` vào mọi message `motio
 
 Chọn theo `session_start` (thời điểm re-enter sau leave gần nhất) chứ không phải `last_seen`, để trường hợp 2 friend cùng present liên tục (Chloe 18:00, An 18:30) luôn chọn friend enter mới nhất (An) — deterministic, không phụ thuộc thứ tự dict.
 
-**Nguồn duy nhất nằm ở LeLamp.** `sensing_service._send_event` đính kèm `face_recognizer.current_user()` vào mọi payload gửi đi dưới field `current_user`. Lumi sensing handler đọc thẳng `req.CurrentUser`, không parse lại từ message text nữa — khép lại lớp bug: `presence.enter` chỉ-có-stranger bắn khi friend vẫn còn present từng khiến `mood.CurrentUser()` của Lumi bị downgrade về `"unknown"`. Row `enter` / `leave` trong wellbeing giờ chỉ được ghi khi **effective user thực sự đổi** (old != new), nên stranger flicker khi friend còn present không gây log churn.
+**Nguồn duy nhất nằm ở LeLamp.** `sensing_service._send_event` đính kèm `face_recognizer.current_user()` vào mọi payload gửi đi dưới field `current_user`. Lumi sensing handler đọc thẳng `req.CurrentUser`, không parse lại từ message text nữa — khép lại lớp bug: `presence.enter` chỉ-có-stranger bắn khi friend vẫn còn present từng khiến `mood.CurrentUser()` của Lumi bị downgrade về `"unknown"`.
+
+Caller ngoài (web UI, skill) có thể query cùng giá trị qua `GET http://127.0.0.1:5001/face/current-user` → `{"current_user": "<name>"}`. Đây là endpoint riêng; **không** parse ra từ `/face/cooldowns` (endpoint đó chỉ phục vụ debug view friend/stranger cooldown).
 
 Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`.
 
-### Marker presence do backend tự ghi
+### Marker presence do LeLamp tự ghi
 
-Sensing handler ghi `enter` / `leave` vào cùng file wellbeing JSONL — **agent không cần làm gì**:
+`FaceRecognizer._post_wellbeing` của LeLamp ghi thẳng row `enter` / `leave` qua `POST /api/wellbeing/log` — agent không tham gia, sensing handler của Lumi cũng không ghi nữa.
 
-- `presence.enter` (friend) → `{"action": "enter", "user": "<name>"}`
-- `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
-- `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_tại_thời_điểm_event>"}`
+- **Per-friend:** mỗi friend có timeline riêng. Fresh friend detection (sau gap > `FACE_OWNER_FORGET_S`) → `{"action": "enter", "user": "<name>"}`. Friend bị forget trong `_check_leaves` → `{"action": "leave", "user": "<name>"}`. Chloe enter khi Leo còn present chỉ ghi `chloe: enter` — không đụng timeline của Leo.
+- **Stranger (gộp về `"unknown"`):** gate bởi flag `_any_stranger_logged`. Stranger đầu tiên → `unknown: enter`. Flag giữ true khi còn bất kỳ stranger nào trong forget window, nên stranger_37 → stranger_38 → stranger_52 không sinh thêm row. Khi `_check_leaves` drop stranger cuối → `unknown: leave`.
 
-Các marker này phá dedup chain nên ví dụ `using computer → leave → enter → using computer` cho ra 3 entry (sedentary, leave+enter, sedentary), không phải 1.
+Kết quả: mọi enter có matching leave trên cùng timeline, attribution trong mỗi timeline chỉ phản ánh event thuộc về user đó.
 
 ### Ưu tiên: Skills > Knowledge > History
 
