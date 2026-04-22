@@ -46,6 +46,19 @@ type lelampHealth struct {
 	TTS     bool `json:"tts"`
 }
 
+// servoInfo represents a single servo from /servo/status.
+type servoInfo struct {
+	ID     int     `json:"id"`
+	Angle  float64 `json:"angle"`
+	Online bool    `json:"online"`
+	Error  *string `json:"error"`
+}
+
+// servoStatus is the /servo/status response.
+type servoStatus struct {
+	Servos map[string]servoInfo `json:"servos"`
+}
+
 // Service polls LeLamp /health and auto-restarts the voice pipeline
 // when ALSA/sensing failures are detected.
 type Service struct {
@@ -116,6 +129,25 @@ func (s *Service) Start(ctx context.Context) {
 				}()
 			} else {
 				s.statusLED.Clear(statusled.StateLeLampDown)
+			}
+
+			// Hardware component check — servo/led/audio/voice.
+			// Camera and sensing excluded (may be off by scene preset).
+			servoOK := h.Servo
+			if ss, err := s.fetchServoStatus(); err == nil {
+				for name, info := range ss.Servos {
+					if !info.Online {
+						servoOK = false
+						slog.Warn("servo offline", "component", "healthwatch", "servo", name, "id", info.ID)
+					}
+				}
+			}
+			if servoOK && h.LED && h.Audio && h.Voice {
+				s.statusLED.Clear(statusled.StateHardware)
+			} else {
+				s.statusLED.Set(statusled.StateHardware)
+				slog.Warn("hardware component failure", "component", "healthwatch",
+					"servo", servoOK, "led", h.LED, "audio", h.Audio, "voice", h.Voice)
 			}
 
 			// Announce via TTS once voice+TTS are ready.
@@ -216,6 +248,21 @@ func (s *Service) fetchHealth() (*lelampHealth, error) {
 		return nil, err
 	}
 	return &h, nil
+}
+
+// fetchServoStatus calls LeLamp GET /servo/status and returns per-servo online state.
+func (s *Service) fetchServoStatus() (*servoStatus, error) {
+	resp, err := s.httpClient.Get(lelamp.BaseURL + "/servo/status")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var ss servoStatus
+	if err := json.NewDecoder(resp.Body).Decode(&ss); err != nil {
+		return nil, err
+	}
+	return &ss, nil
 }
 
 // restartVoice stops the LeLamp voice pipeline and restarts it.
