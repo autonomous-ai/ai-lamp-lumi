@@ -541,7 +541,7 @@ app = FastAPI(
 
 # --- Include route modules ---
 
-from lelamp.routes import servo, led, camera, audio, emotion, scene, sensing, display, voice, music
+from lelamp.routes import servo, led, camera, audio, emotion, scene, sensing, display, voice, music, system
 
 app.include_router(servo.router)
 app.include_router(led.router)
@@ -553,6 +553,7 @@ app.include_router(sensing.router)
 app.include_router(display.router)
 app.include_router(voice.router)
 app.include_router(music.router)
+app.include_router(system.router)
 
 # Speaker recognition routes (lazy import)
 try:
