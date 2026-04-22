@@ -221,17 +221,21 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
 
 ## API Calls
 
-### Read wellbeing history (via API)
+### Read wellbeing history
+
+**Single-day / recent-tail reads → ALWAYS via API:**
 ```bash
 curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&date=YYYY-MM-DD&last=100"
+curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&last=50"
 ```
 
-### Read from file directly (for multi-day analysis)
+**Multi-day pattern building in THIS skill only:** direct file reads are allowed so you can scan 7–14 days without paginating.
 ```bash
+ls /root/local/users/{name}/wellbeing/*.jsonl | sort | tail -14
 cat /root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl
 ```
 
-Use direct file reads for multi-day pattern building (faster, no API pagination needed).
+> ⚠ **Scope rule:** direct file reads are a habit-skill-only shortcut for multi-day aggregation. Other skills (wellbeing, music-suggestion, mood, user-emotion-detection) **MUST use the API** — reading JSONL files directly bypasses Phase 2 presence dedup, server normalization, and any future caching. If you are NOT inside Flow A (multi-day pattern build) of this skill, use `curl`.
 
 ## Integration Points
 
