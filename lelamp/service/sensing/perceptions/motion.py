@@ -10,6 +10,7 @@ from typing import Callable, Optional, override
 import cv2
 import numpy as np
 import numpy.typing as npt
+import requests
 from websockets import ConnectionClosedError
 from websockets.sync.client import ClientConnection, connect
 
@@ -421,6 +422,14 @@ class MotionPerception(Perception):
         self._last_sent_key = key
         self._last_sent_ts = cur_ts
 
+        # Log each outbound label to Lumi wellbeing BEFORE firing the event.
+        # Log-first means when the agent reads history on motion.activity,
+        # the new rows are already there — no read-before-write race if the
+        # skill queries concurrently. Log-and-forget on failure: we keep the
+        # same semantics as the old agent-side POST (a missing row is just a
+        # missing row; skills tolerate gaps).
+        self._post_wellbeing_labels(current_user, labels)
+
         # Attach latest snapshot path
         if snapshot_paths:
             message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
@@ -428,6 +437,29 @@ class MotionPerception(Perception):
         logger.info("[motion] flushing: %s", message)
 
         self._send_event("motion.activity", message)
+
+    def _post_wellbeing_labels(self, user: str, labels: set[str]) -> None:
+        """POST each activity label to Lumi wellbeing log.
+
+        Replaces the agent's per-label POST that used to live in the
+        wellbeing SKILL (Step 1). Fires synchronously but with a short
+        timeout so a stuck Lumi never blocks motion detection.
+        """
+        log_user = user or "unknown"
+        for label in sorted(labels):
+            try:
+                resp = requests.post(
+                    config.LUMI_WELLBEING_LOG_URL,
+                    json={"action": label, "notes": "", "user": log_user},
+                    timeout=2,
+                )
+                if resp.status_code != 200:
+                    logger.warning(
+                        "[motion] wellbeing log %s returned %d: %s",
+                        label, resp.status_code, resp.text,
+                    )
+            except requests.RequestException as e:
+                logger.debug("[motion] wellbeing log %s failed: %s", label, e)
 
     def reset_dedup(self, new_user: str = "") -> None:
         """Clear the outbound dedup state only if the visible user actually
