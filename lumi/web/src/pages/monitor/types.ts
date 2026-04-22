@@ -100,6 +100,7 @@ export interface FaceOwnerDetail {
   music_suggestion_days?: string[];
   audio_history_days?: string[];
   voice_samples?: string[];
+  habit_patterns?: boolean;
   files?: string[];
 }
 export interface FaceOwnersDetail {
