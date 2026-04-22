@@ -100,3 +100,16 @@ class EmotionResponse(BaseModel):
     """Emotion analysis response."""
 
     detections: list[EmotionDetection]
+
+
+class EmotionRecognizeRequest(BaseModel):
+    """HTTP request for single-image emotion recognition."""
+
+    image_b64: str
+    threshold: float = 0.5
+
+
+class EmotionRecognizeResponse(BaseModel):
+    """HTTP response for single-image emotion recognition."""
+
+    detections: list[EmotionDetection]

@@ -29,12 +29,12 @@ from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
 from config import settings
-from core.actionanalysis.base import HumanActionRecognizerModel
-from core.actionanalysis.enums import HumanActionRecognizerEnum
-from core.actionanalysis.uniformerv2 import UniformerV2Model
-from core.actionanalysis.videomae import VideoMAEModel
-from core.actionanalysis.x3d import X3DModel
-from core.emotionanalysis.emotion import EmotionModel
+from core.action.base import HumanActionRecognizerModel
+from core.action.enums import HumanActionRecognizerEnum
+from core.action.uniformerv2 import UniformerV2Model
+from core.action.videomae import VideoMAEModel
+from core.action.x3d import X3DModel
+from core.emotion.emotion import EmotionModel
 from core.models import (
     ActionConfigRequest,
     ActionFrameRequest,
@@ -43,6 +43,8 @@ from core.models import (
     EmotionConfigRequest,
     EmotionFrameRequest,
     EmotionHeartBeatRequest,
+    EmotionRecognizeRequest,
+    EmotionRecognizeResponse,
     EmotionRequest,
 )
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
@@ -251,6 +253,21 @@ async def emotion_analysis_ws(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("Emotion analysis WebSocket disconnected")
+
+
+@router.post("/emotion-recognize", response_model=EmotionRecognizeResponse)
+async def emotion_recognize(req: EmotionRecognizeRequest):
+    """Single-shot emotion recognition from a base64-encoded image.
+
+    Detects faces, classifies emotion for each, returns detections above threshold.
+    """
+    if emotion_model is None or not emotion_model.is_ready():
+        raise HTTPException(status_code=503, detail="Emotion model not loaded")
+
+    frame = decode_image(req.image_b64)
+    detections = emotion_model.detect(frame)
+    filtered = [d for d in detections if d.confidence >= req.threshold]
+    return EmotionRecognizeResponse(detections=filtered)
 
 
 @router.get("/health")
