@@ -24,6 +24,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
+	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/server/config"
 )
@@ -48,17 +49,19 @@ type lelampHealth struct {
 // Service polls LeLamp /health and auto-restarts the voice pipeline
 // when ALSA/sensing failures are detected.
 type Service struct {
-	bus *monitor.Bus
-	cfg *config.Config
+	bus       *monitor.Bus
+	cfg       *config.Config
+	statusLED *statusled.Service
 
 	httpClient *http.Client
 }
 
 // ProvideService constructs a HealthWatchService.
-func ProvideService(bus *monitor.Bus, cfg *config.Config) *Service {
+func ProvideService(bus *monitor.Bus, cfg *config.Config, sled *statusled.Service) *Service {
 	return &Service{
-		bus: bus,
-		cfg: cfg,
+		bus:       bus,
+		cfg:       cfg,
+		statusLED: sled,
 		httpClient: &http.Client{Timeout: 3 * time.Second},
 	}
 }
@@ -93,6 +96,7 @@ func (s *Service) Start(ctx context.Context) {
 				// stays true so we can still detect ALSA re-failure after
 				// restart if it happens again.
 				slog.Debug("LeLamp unreachable", "component", "healthwatch", "error", err)
+				s.statusLED.Set(statusled.StateLeLampDown)
 				wasUnreachable = true
 				continue
 			}
@@ -103,7 +107,18 @@ func (s *Service) Start(ctx context.Context) {
 				voiceWasRunning = true
 			}
 
-			// LeLamp recovered from downtime — announce via TTS once voice+TTS are ready.
+			// LeLamp recovered from downtime — flash purple then clear.
+			if wasUnreachable {
+				s.statusLED.Set(statusled.StateLeLampDown) // now LeLamp is up, purple actually shows
+				go func() {
+					time.Sleep(3 * time.Second)
+					s.statusLED.Clear(statusled.StateLeLampDown)
+				}()
+			} else {
+				s.statusLED.Clear(statusled.StateLeLampDown)
+			}
+
+			// Announce via TTS once voice+TTS are ready.
 			if wasUnreachable && h.Voice && h.TTS {
 				wasUnreachable = false
 				slog.Info("LeLamp recovered from downtime, announcing via TTS", "component", "healthwatch")

@@ -33,7 +33,8 @@ func InitializeServer() (*Server, error) {
 	configConfig := config.ProvideConfig()
 	service := network.ProvideService(configConfig)
 	bus := monitor.ProvideBus()
-	agentGateway := agent.ProvideGateway(configConfig, bus)
+	statusledService := statusled.ProvideService()
+	agentGateway := agent.ProvideGateway(configConfig, bus, statusledService)
 	healthHandler := http.ProvideHealthHandler(configConfig, service, agentGateway)
 	client := beclient.ProvideClient(configConfig)
 	deviceService := device.ProvideService(configConfig, service, agentGateway, client)
@@ -46,12 +47,11 @@ func InitializeServer() (*Server, error) {
 	}
 	deviceMQTTHandler := mqtthandler.ProvideDeviceMQTTHandler(configConfig, factory, deviceService, service)
 	deviceGPIOHandler := http4.ProvideDeviceGPIOHandler(configConfig, service, agentGateway)
-	statusledService := statusled.ProvideService()
 	openClawHandler := sse.ProvideOpenClawHandler(agentGateway, bus, statusledService)
 	sensingHandler := http5.ProvideSensingHandler(agentGateway, bus, configConfig, statusledService, openClawHandler.IsSleeping)
 	deviceButton := devicebutton.ProvideDeviceButtonOptional()
 	ambientService := ambient.ProvideService(bus)
-	healthwatchService := healthwatch.ProvideService(bus, configConfig)
+	healthwatchService := healthwatch.ProvideService(bus, configConfig, statusledService)
 	server := ProvideServer(configConfig, healthHandler, networkHandler, deviceHandler, deviceMQTTHandler, deviceGPIOHandler, openClawHandler, sensingHandler, deviceService, agentGateway, service, deviceButton, factory, ambientService, healthwatchService, statusledService)
 	return server, nil
 }

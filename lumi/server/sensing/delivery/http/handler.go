@@ -79,11 +79,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
-	// Light up listening LED only when wake word is confirmed (voice_command) from physical device.
-	// Skip for web chat (source="web") — no physical speaker interaction.
+	// Voice command from physical device — log for tracing (LED feedback is handled by LeLamp).
 	if req.Type == "voice_command" && req.Source != "web" {
-		slog.Info("listening LED set", "component", "statusled", "reason", req.Type, "message", req.Message)
-		h.statusLED.Set(statusled.StateListening)
+		slog.Info("voice_command received", "component", "sensing", "message", req.Message)
 	}
 	// voice_listening / voice_listening_end are internal LED signals — don't forward to agent.
 	// Also gate sensing events: suppress passive sensing during the voice conversation window
@@ -95,10 +93,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 	if req.Type == "voice_listening_end" {
-		// Mic session closed — safe to clear listening LED here: STT is done but agent
-		// hasn't made any tool calls yet, so StopEffect won't race with LED changes.
-		slog.Info("listening LED cleared", "component", "statusled", "reason", "voice_listening_end")
-		h.statusLED.Clear(statusled.StateListening)
 		// Extend window 5s to cover STT → Lumi → LLM → TTS pipeline.
 		h.voiceActiveUntil.Store(time.Now().Add(5 * time.Second).UnixMilli())
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
@@ -167,8 +161,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				Type:    "intent_match",
 				Summary: "[local] " + req.Message + " → " + result.TTSText,
 			})
-			// Local intent handled — clear listening LED now (no lifecycle_start will come).
-			h.statusLED.Clear(statusled.StateListening)
 			flow.End("sensing_input", turnStart, map[string]any{"path": "local"}, localRunID)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
 				"handler":  "local",
