@@ -28,6 +28,8 @@ dependencies = [
     "sounddevice",
     "scipy>=1.8",
     "kaldi-native-fbank>=1.0.0",
+    "noisereduce",
+    "silero-vad"
 ]
 
 [project.optional-dependencies]
