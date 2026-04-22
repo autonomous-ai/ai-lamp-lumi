@@ -10,7 +10,7 @@ description: Event-driven hydration and break reminders. Reads the per-user acti
 Your visible reply MUST be exactly ONE of these, nothing else:
 
 1. `NO_REPLY`
-2. `[HW:/emotion:{...}]\n\n<one short caring sentence>`
+2. ONE short caring sentence (e.g. *"Grab some water?"*)
 
 If the reply contains any of: `Computing`, `Latest`, `Reset`, `Check`, timestamps, bullet lists, tables, `**bold**`, or the word `threshold` → **YOU FAILED**. Everything like that goes in the thinking block, never in the reply.
 
