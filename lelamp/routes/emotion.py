@@ -22,6 +22,19 @@ _WAKE_EMOTIONS = {EMO_GREETING, EMO_STRETCHING, EMO_SLEEPY}
 router = APIRouter(tags=["Emotion"])
 
 
+@router.get("/emotion/presets")
+def list_emotion_presets():
+    """Return all available emotion presets with their LED color and effect."""
+    result = {}
+    for name, preset in EMOTION_PRESETS.items():
+        result[name] = {
+            "color": preset.get("color"),
+            "effect": preset.get("effect"),
+            "speed": preset.get("speed"),
+        }
+    return result
+
+
 @router.post("/emotion", response_model=EmotionResponse)
 def express_emotion(req: EmotionRequest):
     """Express an emotion by coordinating servo animation + LED color simultaneously."""
