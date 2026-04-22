@@ -36,6 +36,7 @@ from lelamp.config import (
     TTS_SPEED,
     TTS_VOICE,
     TTS_INSTRUCTIONS,
+    LUMI_CONFIG_PATH,
 )
 from lelamp.models import HealthResponse, StatusResponse
 from lelamp.presets import SCENE_PRESETS, SERVO_CMD_PLAY
@@ -259,7 +260,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"Audio input device: {state.audio_input_device}")
 
     # Auto-start voice pipeline from Lumi config
-    lumi_config_path = config.LUMI_CONFIG_PATH
+    lumi_config_path = LUMI_CONFIG_PATH
     try:
         with open(lumi_config_path) as f:
             lumi_cfg = json.load(f)
