@@ -42,7 +42,7 @@ const (
 ---`
 
 	heartbeatMDBlock = `<!-- LUMI DO NOT REMOVE -->
-**Knowledge synthesis:** Each heartbeat, read today's ` + "`memory/YYYY-MM-DD.md`" + `, extract important insights, and append them to ` + "`KNOWLEDGE.md`" + `. Only write new learnings — do not repeat what is already there.
+**Knowledge synthesis (once daily at 21:00):** If current time is >= 21:00 AND you have NOT already done this today (check ` + "`KNOWLEDGE.md`" + ` for today's date header), read today's ` + "`memory/YYYY-MM-DD.md`" + `, extract important insights, and append them to ` + "`KNOWLEDGE.md`" + ` under a ` + "`## YYYY-MM-DD`" + ` header. Only write new learnings — do not repeat what is already there. If already done today or before 21:00, skip silently.
 
 ---`
 )
