@@ -66,7 +66,7 @@ Each scene controls **all peripherals** — not just LED, but also camera, mic, 
 | `focus` | 70% | 4200K warm-neutral | desk + hold | off | off | off |
 | `relax` | 40% | 2700K warm | wall | on | on | on |
 | `movie` | 15% | 2400K dim amber | wall | off | on | off |
-| `night` | 5% | 1800K deep amber | down | off | off | off |
+| `night` | 5% | 1800K deep amber | down | off | on | off |
 | `energize` | 100% | 5000K daylight | up | on | on | on |
 
 ### Scene peripheral control
