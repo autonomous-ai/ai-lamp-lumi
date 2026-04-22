@@ -118,15 +118,4 @@ Auto-pauses on interaction, resumes after 60s of silence.
 
 ## LED in Emotion
 
-Each emotion preset has its own LED color:
-
-| Emotion | LED Color |
-|---------|-----------|
-| curious | Warm yellow |
-| happy | Bright yellow |
-| sad | Light blue |
-| thinking | Soft purple |
-| idle | Dim warm white |
-| excited | Bright orange |
-| shy | Soft pink |
-| shock | White flash |
+See [emotion-led-mapping.md](emotion-led-mapping.md) for the full emotion → LED color + effect + servo mapping.
