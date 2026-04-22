@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"os/exec"
 	"sync"
 
 	"tinygo.org/x/bluetooth"
@@ -140,7 +141,17 @@ func (s *BLEServer) Start() error {
 		return err
 	}
 
-	return adv.Start()
+	if err := adv.Start(); err != nil {
+		return err
+	}
+
+	// Pi5 workaround: tinygo's D-Bus RegisterAdvertisement doesn't always
+	// create a kernel-level adv instance. Force one via btmgmt so the BLE
+	// radio actually broadcasts. The -c (connectable), -g (general-discoverable),
+	// and -n (scan-rsp-local-name) flags mirror what Claude Desktop expects.
+	s.ensureKernelAdv()
+
+	return nil
 }
 
 // handleRX accumulates incoming bytes and forwards each complete
@@ -192,6 +203,32 @@ func (s *BLEServer) Send(data []byte) error {
 		data = data[len(chunk):]
 	}
 	return nil
+}
+
+// ensureKernelAdv uses btmgmt to create a kernel-level BLE advertisement.
+// On Pi5, tinygo's D-Bus RegisterAdvertisement may not create one, causing
+// the device to be invisible to BLE scanners despite the GATT service being
+// registered. This is a workaround.
+func (s *BLEServer) ensureKernelAdv() {
+	// Set adapter name so scan response contains "Claude-..."
+	if out, err := exec.Command("btmgmt", "name", s.deviceName).CombinedOutput(); err != nil {
+		log.Printf("[ble] btmgmt name failed: %v (%s)", err, out)
+	}
+
+	// Remove any stale instance
+	exec.Command("btmgmt", "rm-adv", "1").Run()
+
+	// Add connectable, general-discoverable adv with NUS UUID and local name in scan response
+	out, err := exec.Command("btmgmt", "add-adv",
+		"-c", "-g", "-n",
+		"-u", "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+		"1",
+	).CombinedOutput()
+	if err != nil {
+		log.Printf("[ble] btmgmt add-adv failed: %v (%s)", err, out)
+	} else {
+		log.Println("[ble] kernel-level BLE advertisement active (btmgmt)")
+	}
 }
 
 // Close is a no-op for tinygo bluetooth.
