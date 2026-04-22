@@ -259,7 +259,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"Audio input device: {state.audio_input_device}")
 
     # Auto-start voice pipeline from Lumi config
-    lumi_config_path = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")
+    lumi_config_path = config.LUMI_CONFIG_PATH
     try:
         with open(lumi_config_path) as f:
             lumi_cfg = json.load(f)
