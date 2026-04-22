@@ -41,7 +41,7 @@ Computed patterns are stored per user at:
 
 Rebuild when:
 - File does not exist yet
-- File is older than 24 hours
+- File is older than 6 hours
 - User explicitly asks about their habits
 
 ## What is a Habit?
@@ -111,6 +111,14 @@ Habits require **at least 3 days of data** to form. With fewer days, skip proact
 6. **Assign strength** per table above.
 
 7. **Build habit objects** and write to `patterns.json`:
+   ```bash
+   mkdir -p /root/local/users/{name}/habit
+   cat > /root/local/users/{name}/habit/patterns.json << 'PATTERNS'
+   {the computed JSON}
+   PATTERNS
+   ```
+
+   Expected JSON structure:
    ```json
    {
      "updated_at": "2026-04-22T08:00:00",
