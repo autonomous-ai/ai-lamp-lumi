@@ -12,8 +12,6 @@ Your visible reply MUST be exactly one of:
 1. `NO_REPLY`
 2. ONE short caring sentence (e.g. *"Grab some water?"*)
 
-If the reply contains any of `Computing`, `Latest`, `Reset`, `Check`, timestamps, bullet lists, tables, `**bold**`, or the word `threshold` → **YOU FAILED**. All math, timestamps, and reasoning stay in the `thinking` block — never in the reply.
-
 ## Gotchas (concrete facts, NOT suggestions)
 
 **Endpoints — use verbatim, never substitute a port or path:**
@@ -44,12 +42,10 @@ BREAK_THRESHOLD_MIN     = 7     # production: 30
 
 1. **Only** call `http://127.0.0.1:5000/api/openclaw/wellbeing-history` to read history. **Never** read `/root/local/users/*/wellbeing/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
 2. **Only** POST to `http://127.0.0.1:5000/api/wellbeing/log`. **Never** substitute `5001`, `8080`, or any other port. **Never** omit `http://` or hardcode `localhost`.
-3. **Never** echo computation into the visible reply (timestamps, minutes, thresholds, reset reasoning). All math stays in `thinking`.
-4. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`. Never invent new actions.
-5. On a non-2xx response from a POST → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, or the skill will spam reminders forever.
-6. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
-7. **Never** narrate the skip reason. If you decide NOT to nudge, reply `NO_REPLY` or a plain caring observation. Don't say *"just nudged N min ago"*, *"both over threshold"*, *"dedup applies"*.
-8. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
+3. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`. Never invent new actions.
+4. On a non-2xx response from a POST → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, or the skill will spam reminders forever.
+5. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
+6. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
 
 ## Workflow — on every `motion.activity`
 
@@ -61,7 +57,7 @@ curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user
 
 Response is a time-ordered list of `{ts, action, notes, hour}`.
 
-### Step 2 — Compute deltas (silently, in `thinking`)
+### Step 2 — Compute deltas
 
 For each timer, the "last reset point" is the most recent of three actions:
 
@@ -74,7 +70,7 @@ For each timer, the "last reset point" is the most recent of three actions:
 
 If none of the reset actions exist yet today → delta = 0 (nothing to nudge).
 
-### Step 3 — Decide (silently)
+### Step 3 — Decide
 
 Nudge at most ONE thing per turn. Hydration takes priority over break.
 
