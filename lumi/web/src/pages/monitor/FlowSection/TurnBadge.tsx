@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Turn } from "./types";
 import { SOURCE_ICON, TURN_INPUT_FALLBACK } from "./types";
-import { turnIO, turnTokenStats } from "./helpers";
+import { turnIO, turnTokenStats, turnCurrentUser } from "./helpers";
 
 export function TurnBadge({ turn }: { turn: Turn }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -29,6 +29,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output, hwOutput, snapshotUrls } = turnIO(turn);
   const tokenStats = turnTokenStats(turn);
+  const currentUser = turnCurrentUser(turn);
   const hasBroadcast = turn.events.some((ev) =>
     ev.type === "flow_event" && (ev.detail as Record<string, any>)?.node === "telegram_alert_broadcast"
   );
@@ -71,6 +72,19 @@ export function TurnBadge({ turn }: { turn: Turn }) {
             background: "#e5393518", color: "#e53935", fontWeight: 700,
           }}>📢 BROADCAST</span>
         )}
+        {currentUser && (() => {
+          const isUnknown = currentUser === "unknown";
+          const color = isUnknown ? "var(--lm-text-muted)" : "var(--lm-teal)";
+          return (
+            <span
+              title={isUnknown ? "Current user: stranger/unknown" : `Current user: ${currentUser}`}
+              style={{
+                fontSize: 8, padding: "1px 5px", borderRadius: 3,
+                background: `${color}18`, color, fontWeight: 700,
+              }}
+            >👤 {currentUser}</span>
+          );
+        })()}
         {turn.endTime && (() => {
           const ms = new Date(turn.endTime).getTime() - new Date(turn.startTime).getTime();
           if (!Number.isFinite(ms) || ms < 0) return null;
