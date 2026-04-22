@@ -17,8 +17,8 @@ import numpy as np
 import numpy.typing as npt
 
 from config import settings
-from core.actionanalysis.base import HumanActionRecognizerModel, HumanActionRecognizerSession
-from core.actionanalysis.constants import RESOURCES_DIR
+from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
+from core.action.constants import RESOURCES_DIR
 
 logger = logging.getLogger(__name__)
 

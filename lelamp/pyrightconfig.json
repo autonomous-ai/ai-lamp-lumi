@@ -1,0 +1,12 @@
+{
+  "extraPaths": [".."],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportUnusedImport": false,
+  "reportExplicitAny": false,
+  "reportAny": false,
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false
+}
