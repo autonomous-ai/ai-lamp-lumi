@@ -91,6 +91,10 @@ Habits require **at least 3 days of data** to form. With fewer days, skip proact
    | `leave` | Departure time |
    | `using computer` | Work session start |
    | `writing`, `texting`, `reading book`, `drawing` | Activity patterns |
+   | `meal` | Meal timing (from conversation intent) |
+   | `coffee` | Coffee timing (from conversation intent) |
+   | `sleep` | Sleep timing (from conversation intent) |
+   | `exercise` | Exercise timing (from conversation intent) |
 
    Skip: `nudge_hydration`, `nudge_break`, `emotional`.
 
@@ -176,6 +180,10 @@ Window sizes by action:
 | `break` | ±30 min |
 | `enter` (arrival) | ±45 min |
 | Sedentary labels | ±60 min |
+| `meal` | ±45 min |
+| `coffee` | ±30 min |
+| `sleep` | ±30 min |
+| `exercise` | ±60 min |
 
 ### C — Music personalization
 
@@ -183,6 +191,33 @@ Window sizes by action:
 2. Group accepted suggestions by hour → find peak hours. Extract genre hint from `message` field (e.g. "lo-fi", "jazz", "piano").
 3. Write to `music_patterns` in `patterns.json`.
 4. Music-suggestion skill reads this: if current hour matches `peak_hour ± 1`, use `preferred_genre` instead of the default mood-based genre table.
+
+### D — Conversation intent logging (triggered from SOUL)
+
+SOUL instructs Lumi to call this flow when user expresses intent for a daily activity NOW.
+
+**Intent → action mapping:**
+
+| User says | Action to log |
+|---|---|
+| "lunch", "dinner", "going to eat", "grab food" | `meal` |
+| "coffee break", "grab a coffee", "getting coffee" | `coffee` |
+| "good night", "going to sleep", "heading to bed" | `sleep` |
+| "gym", "exercise", "workout", "going for a run" | `exercise` |
+
+**How to log:**
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"meal","notes":"user said: going to lunch","user":"<current_user>"}'
+```
+
+**Rules:**
+- Log silently — do NOT tell the user you're logging. Just respond naturally.
+- Only log when user states intent NOW, not past tense or general talk.
+- One log per intent per conversation turn — no duplicates.
+- `notes` field stores the original phrase for debugging.
 
 ## API Calls
 
