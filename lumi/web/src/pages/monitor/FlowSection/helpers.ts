@@ -1194,6 +1194,32 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
   return { input, output, hwOutput, snapshotUrls };
 }
 
+// Scan a turn for the backend-injected `[context: current_user=X]` tag and
+// return X (or null if not present). The handler adds this tag to
+// motion.activity and emotion.detected messages so downstream skills
+// attribute rows to the right user — showing it on the Flow card makes
+// user-attribution visible at a glance (which is specially useful when
+// stranger flicker or multi-friend scenes are being debugged).
+export function turnCurrentUser(turn: Turn): string | null {
+  const re = /\[context:\s*current_user=([^\]]+)\]/i;
+  for (const ev of turn.events) {
+    const d = ev.detail as Record<string, any> | undefined;
+    const candidates: unknown[] = [
+      d?.message,
+      d?.data?.message,
+      d?.text,
+      d?.data?.text,
+      ev.summary,
+    ];
+    for (const c of candidates) {
+      if (typeof c !== "string") continue;
+      const m = c.match(re);
+      if (m) return m[1].trim();
+    }
+  }
+  return null;
+}
+
 export function turnTokenStats(turn: Turn): { inTok: number; outTok: number; cacheRead: number; cacheWrite: number; total: number } | null {
   let inTok = 0;
   let outTok = 0;
