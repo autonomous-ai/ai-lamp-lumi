@@ -262,6 +262,8 @@ Sensing handler inject tag `[context: current_user=X]` vào mọi message `motio
 
 Chọn theo `session_start` (thời điểm re-enter sau leave gần nhất) chứ không phải `last_seen`, để trường hợp 2 friend cùng present liên tục (Chloe 18:00, An 18:30) luôn chọn friend enter mới nhất (An) — deterministic, không phụ thuộc thứ tự dict.
 
+**Nguồn duy nhất nằm ở LeLamp.** `sensing_service._send_event` đính kèm `face_recognizer.current_user()` vào mọi payload gửi đi dưới field `current_user`. Lumi sensing handler đọc thẳng `req.CurrentUser`, không parse lại từ message text nữa — khép lại lớp bug: `presence.enter` chỉ-có-stranger bắn khi friend vẫn còn present từng khiến `mood.CurrentUser()` của Lumi bị downgrade về `"unknown"`. Row `enter` / `leave` trong wellbeing giờ chỉ được ghi khi **effective user thực sự đổi** (old != new), nên stranger flicker khi friend còn present không gây log churn.
+
 Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`.
 
 ### Marker presence do backend tự ghi

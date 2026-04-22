@@ -16,6 +16,9 @@ interface CooldownState {
   strangers: CooldownEntry[];
   owners_forget_s: number;
   strangers_forget_s: number;
+  // Friend with newest session_start still in forget window, or "unknown"
+  // when only strangers present, or empty when nobody. Ships with /face/cooldowns.
+  current_user?: string;
 }
 
 function fmtCountdown(s: number): string {
@@ -279,13 +282,27 @@ export function FaceOwnersSection() {
         )}
 
         {!error && data && (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 24, fontWeight: 700, color: "var(--lm-amber)" }}>
               {data.enrolled_count}
             </span>
             <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
               enrolled user{data.enrolled_count !== 1 ? "s" : ""}
             </span>
+            {cooldowns?.current_user && (
+              <span style={{
+                marginLeft: "auto",
+                fontSize: 12,
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: cooldowns.current_user === "unknown" ? "var(--lm-text-muted-bg, rgba(148,163,184,0.15))" : "rgba(45,212,191,0.18)",
+                color: cooldowns.current_user === "unknown" ? "var(--lm-text-muted)" : "var(--lm-teal)",
+                fontWeight: 700,
+                textTransform: "capitalize",
+              }}>
+                👤 Here now: {cooldowns.current_user}
+              </span>
+            )}
           </div>
         )}
 
@@ -355,8 +372,17 @@ export function FaceOwnersSection() {
       {/* Person cards */}
       {data && data.persons.length > 0 && (
         <div className="lm-grid-2">
-          {data.persons.map((person) => (
-            <div key={person.label} style={S.card}>
+          {data.persons.map((person) => {
+            const isCurrent = !!cooldowns?.current_user && cooldowns.current_user === person.label;
+            const cardStyle: React.CSSProperties = isCurrent
+              ? {
+                  ...S.card,
+                  border: "2px solid var(--lm-teal)",
+                  boxShadow: "0 0 12px rgba(45,212,191,0.25)",
+                }
+              : S.card;
+            return (
+            <div key={person.label} style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -368,6 +394,17 @@ export function FaceOwnersSection() {
                     }}>
                       {person.label}
                     </div>
+                    {isCurrent && (
+                      <span style={{
+                        fontSize: 9,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        background: "var(--lm-teal)",
+                        color: "#0b1220",
+                        fontWeight: 700,
+                        letterSpacing: 0.5,
+                      }}>● HERE NOW</span>
+                    )}
                     <button
                       onClick={() => setTimelineUser(person.label)}
                       style={{
@@ -640,7 +677,8 @@ export function FaceOwnersSection() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
