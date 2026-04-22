@@ -44,6 +44,8 @@ const (
 	heartbeatMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **Knowledge synthesis:** Each heartbeat, read today's ` + "`memory/YYYY-MM-DD.md`" + `, extract important insights, and append them to ` + "`KNOWLEDGE.md`" + `. Only write new learnings — do not repeat what is already there.
 
+**Habit check:** Each heartbeat, for each known user with a ` + "`habit/patterns.json`" + ` file, run the proactive check from ` + "`skills/habit/SKILL.md`" + ` Flow B. If a habit-based nudge is due and no one has been nudged yet, speak it. Also rebuild ` + "`patterns.json`" + ` if older than 6 hours (Flow A).
+
 ---`
 )
 
