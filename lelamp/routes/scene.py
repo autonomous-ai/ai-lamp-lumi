@@ -65,6 +65,42 @@ def activate_scene(req: SceneRequest):
     elif cam == "on":
         state._auto_camera_on(f"scene:{req.scene}")
 
+    # Mic control
+    mic = preset.get("mic")
+    if mic == "off" and not state._mic_muted:
+        state._mic_muted = True
+        if state.voice_service and state.voice_service.available:
+            state.voice_service.stop()
+        state.logger.info("Scene %s: mic muted", req.scene)
+    elif mic == "on" and state._mic_muted:
+        state._mic_muted = False
+        state._mic_manual_override = False
+        if state.voice_service:
+            state.voice_service.start()
+        state.logger.info("Scene %s: mic unmuted", req.scene)
+
+    # Speaker control
+    spk = preset.get("speaker")
+    if spk == "off" and not state._speaker_muted:
+        state._speaker_muted = True
+        if state.tts_service and state.tts_service.speaking:
+            state.tts_service.stop()
+        if state.music_service and state.music_service.playing:
+            state.music_service.stop()
+        state.logger.info("Scene %s: speaker muted", req.scene)
+    elif spk == "on" and state._speaker_muted:
+        state._speaker_muted = False
+        state.logger.info("Scene %s: speaker unmuted", req.scene)
+
+    # Servo hold/release
+    servo = preset.get("servo")
+    if servo == "hold" and state.animation_service:
+        state.animation_service._hold_mode = True
+        state.logger.info("Scene %s: servo hold", req.scene)
+    elif servo != "hold" and state.animation_service and state.animation_service._hold_mode:
+        state.animation_service._hold_mode = False
+        state.logger.info("Scene %s: servo released", req.scene)
+
     return {
         "status": "ok",
         "scene": req.scene,
