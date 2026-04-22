@@ -40,7 +40,7 @@ FILLERS = [w.strip() for w in _fillers_env.split(",") if w.strip()]
 # 0 = play on every new partial (still throttled by MIN_INTERVAL_S).
 STALL_TIMEOUT_S = float(os.environ.get("LELAMP_BACKCHANNEL_STALL_S", "0.1"))
 # Minimum seconds between two consecutive cues (prevents spamming).
-MIN_INTERVAL_S = float(os.environ.get("LELAMP_BACKCHANNEL_INTERVAL_S", "3.0"))
+MIN_INTERVAL_S = float(os.environ.get("LELAMP_BACKCHANNEL_INTERVAL_S", "5.0"))
 # Volume multiplier for cue audio relative to normal TTS (0.0 = silent, 1.0 = full).
 VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "1.0"))
 
@@ -109,6 +109,9 @@ class Backchannel:
 
     def _play(self, text: str) -> None:
         """Play a short TTS cue directly, bypassing tts_service.speak()."""
+        import lelamp.app_state as _state
+        if _state._speaker_muted:
+            return
         tts = self._tts
         if tts is None or tts._backend is None or not tts._backend.available or tts._sd is None:
             return
