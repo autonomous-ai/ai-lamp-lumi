@@ -199,7 +199,7 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 |---|---|---|
 | `drink`, `break` | **LeLamp** (`motion.py` POSTs `/api/wellbeing/log` right before firing `motion.activity`) | Reset point for the corresponding nudge timer |
 | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | **LeLamp** (`motion.py`, same path) | Timeline + nudge phrasing. **Not** a reset point. |
-| `enter`, `leave` | Backend (sensing handler, on `presence.*` events) | Session boundary — Lumi dedups against the last presence row so consecutive enters without an intervening leave (stranger-ID churn) collapse to one. |
+| `enter`, `leave` | **LeLamp** (`FaceRecognizer._post_wellbeing`, called from `_check_impl` on fresh detection and `_check_leaves` on forget expiry) | Session boundary — per-friend rows go to each friend's own timeline; strangers collapse to a single `"unknown"` timeline gated by the `_any_stranger_logged` flag (one enter on first stranger, one leave when the last one is forgotten). |
 | `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility. Only the agent knows when it actually spoke, so only the agent writes these. |
 
 **Dedup lives in two places.**
@@ -210,7 +210,7 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 - Different strangers (e.g. `stranger_46` → `stranger_54`) collapse to `"unknown"` via `FaceRecognizer.current_user()`, so swapping strangers alone doesn't break dedup.
 - After 5 min on the same state, the next event passes through even if nothing changed — this keeps the Lumi agent "woken up" periodically so the wellbeing threshold check still runs.
 
-*Presence dedup (at-log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scans the user's JSONL bottom-up for the most recent **presence** row (enter/leave, ignoring activity rows in between). `enter` while the last presence is already `enter` is dropped; `leave` with no matching open session is dropped. This is what keeps a single open session for `unknown` even when stranger_37 → stranger_38 → stranger_39 each fire their own raw `presence.enter` upstream.
+*Presence dedup (at-log safety net).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scans the user's JSONL bottom-up for the most recent **presence** row (enter/leave, ignoring activity rows in between). `enter` while the last presence is already `enter` is dropped; `leave` with no matching open session is dropped. Since LeLamp already emits one enter per real session (per-friend + collapsed-unknown), this runs as a safety net for restarts or out-of-order edge cases rather than load-bearing dedup.
 
 **Retention:** 7 days on the Lumi side. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
 
@@ -262,19 +262,20 @@ The sensing handler injects a `[context: current_user=X]` tag into every `motion
 
 Sorting by `session_start` (the timestamp of the re-enter after the last leave) rather than `last_seen` makes the answer deterministic when two friends are continuously present (Chloe 18:00, An 18:30 → An wins because her session started later), instead of depending on dict iteration order.
 
-**Source of truth lives in LeLamp.** `sensing_service._send_event` attaches `face_recognizer.current_user()` to every outbound payload as the `current_user` field. Lumi's sensing handler reads `req.CurrentUser` directly instead of parsing it back out of the message text — this closed a class of bugs where a stranger-only `presence.enter` fired while a friend was still present would downgrade Lumi's `mood.CurrentUser()` to `"unknown"`. Wellbeing `enter` / `leave` rows are now written only on **effective-user transitions** (old != new), so stranger flicker while a friend is present produces no log churn.
+**Source of truth lives in LeLamp.** `sensing_service._send_event` attaches `face_recognizer.current_user()` to every outbound payload as the `current_user` field. Lumi's sensing handler reads `req.CurrentUser` directly instead of parsing it back out of the message text — this closed a class of bugs where a stranger-only `presence.enter` fired while a friend was still present would downgrade Lumi's `mood.CurrentUser()` to `"unknown"`.
+
+External callers (web UI, skills) can query the same value via `GET http://127.0.0.1:5001/face/current-user` → `{"current_user": "<name>"}`. This is a dedicated endpoint; do NOT parse it out of `/face/cooldowns` (that endpoint is the friend/stranger cooldown debug view only).
 
 The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`.
 
-### Presence markers written by backend
+### Presence markers written by LeLamp
 
-The sensing handler writes `enter` / `leave` entries to the same wellbeing JSONL — the agent is not involved:
+LeLamp's `FaceRecognizer._post_wellbeing` writes `enter` / `leave` rows directly to Lumi's `POST /api/wellbeing/log` — the agent is not involved, and Lumi's sensing handler no longer writes them either.
 
-- `presence.enter` (friend) → `{"action": "enter", "user": "<name>"}`
-- `presence.enter` (stranger) → `{"action": "enter", "user": "unknown"}`
-- `presence.leave` / `presence.away` → `{"action": "leave", "user": "<current_user_at_time_of_event>"}`
+- **Per-friend:** each friend gets their own timeline. Fresh friend detection (after gap > `FACE_OWNER_FORGET_S`) → `{"action": "enter", "user": "<name>"}`. Friend forgotten in `_check_leaves` → `{"action": "leave", "user": "<name>"}`. Chloe entering while Leo is still present produces `chloe: enter` only — does not touch Leo's timeline.
+- **Strangers (collapsed to `"unknown"`):** gated by a `_any_stranger_logged` flag. First stranger of a session → `unknown: enter`. Flag stays true while any stranger is still within the forget window, so stranger_37 → stranger_38 → stranger_52 churn does not produce extra rows. When `_check_leaves` drops the last stranger → `unknown: leave`.
 
-Presence events also reset the lelamp dedup key (since `current_user` changes), so a stranger leaving and a friend arriving will let the next activity event through immediately.
+Result: every enter has a matching leave on the same timeline, and attribution in each timeline reflects only events that belong to that user.
 
 ### Priority: Skills > Knowledge > History
 
