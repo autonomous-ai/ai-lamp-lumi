@@ -139,16 +139,18 @@ EMOTION_PRESETS = {
 
 # Lighting scene presets — simulated color temperature via RGB mixing.
 # 2200K = very warm amber, 2700K = warm white, 4000K = neutral, 5000K = cool, 6500K = daylight
-# "camera": "off" = auto-disable camera (idle scene, no vision needed)
-# "camera": "on"  = auto-enable camera (active scene, vision useful)
-# omitted          = no camera change
+# "camera": "off"/"on" = auto-disable/enable camera
+# "mic": "off"/"on"    = mute/unmute microphone
+# "speaker": "off"/"on"= mute/unmute speaker
+# "servo": "hold"       = freeze servo (no idle/emotion animations)
+# omitted               = no change for that peripheral
 SCENE_PRESETS = {
-    SCENE_READING:  {"brightness": 0.80, "color": [255, 225, 180], "aim": AIM_DESK, "camera": "off"},   # ~4000K neutral
-    SCENE_FOCUS:    {"brightness": 1.00, "color": [235, 240, 255], "aim": AIM_DESK, "camera": "off"},   # ~5000K cool white
-    SCENE_RELAX:    {"brightness": 0.40, "color": [255, 180, 100], "aim": AIM_WALL, "camera": "on"},    # ~2700K warm
-    SCENE_MOVIE:    {"brightness": 0.15, "color": [255, 170, 80],  "aim": AIM_WALL, "camera": "off"},   # ~2700K dim amber
-    SCENE_NIGHT:    {"brightness": 0.05, "color": [255, 140, 40],  "aim": AIM_DOWN, "camera": "off"},   # ~2200K very warm
-    SCENE_ENERGIZE: {"brightness": 1.00, "color": [220, 235, 255], "aim": AIM_UP,   "camera": "on"},    # ~6500K daylight
+    SCENE_READING:  {"brightness": 0.80, "color": [255, 209, 163], "aim": AIM_DESK, "camera": "off", "mic": "off", "speaker": "off", "servo": "hold"},  # ~4000K neutral
+    SCENE_FOCUS:    {"brightness": 0.70, "color": [255, 214, 170], "aim": AIM_DESK, "camera": "off", "mic": "off", "speaker": "off", "servo": "hold"},  # ~4200K warm-neutral
+    SCENE_RELAX:    {"brightness": 0.40, "color": [255, 166, 87],  "aim": AIM_WALL, "camera": "on",  "mic": "on",  "speaker": "on"},                    # ~2700K warm
+    SCENE_MOVIE:    {"brightness": 0.15, "color": [255, 147, 51],  "aim": AIM_WALL, "camera": "off", "mic": "on",  "speaker": "off"},                   # ~2400K dim amber
+    SCENE_NIGHT:    {"brightness": 0.05, "color": [255, 105, 0],   "aim": AIM_DOWN, "camera": "off", "mic": "off", "speaker": "off"},                   # ~1800K deep amber, blue-free
+    SCENE_ENERGIZE: {"brightness": 1.00, "color": [255, 228, 206], "aim": AIM_UP,   "camera": "on",  "mic": "on",  "speaker": "on"},                    # ~5000K daylight
 }
 
 # Servo aim presets — named lamp-head directions mapped to joint positions (normalized -100..100).
