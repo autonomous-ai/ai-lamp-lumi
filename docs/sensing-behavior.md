@@ -197,26 +197,29 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 
 | Action | Written by | Purpose |
 |---|---|---|
-| `drink`, `break` | Agent (verbatim from motion.activity — LeLamp emitted bucket name) | Reset point for the corresponding nudge timer |
-| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | Agent (verbatim from motion.activity — LeLamp emitted raw sedentary label) | Timeline + nudge phrasing. **Not** a reset point. |
-| `enter`, `leave` | Backend (sensing handler) | Session boundary — written on every presence.enter / presence.leave / presence.away |
-| `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility |
+| `drink`, `break` | **LeLamp** (`motion.py` POSTs `/api/wellbeing/log` right before firing `motion.activity`) | Reset point for the corresponding nudge timer |
+| `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | **LeLamp** (`motion.py`, same path) | Timeline + nudge phrasing. **Not** a reset point. |
+| `enter`, `leave` | Backend (sensing handler, on `presence.*` events) | Session boundary — Lumi dedups against the last presence row so consecutive enters without an intervening leave (stranger-ID churn) collapse to one. |
+| `nudge_hydration`, `nudge_break` | Agent (after speaking a reminder) | Records when Lumi actually reminded — purely for timeline visibility. Only the agent knows when it actually spoke, so only the agent writes these. |
 
-**Dedup lives at LeLamp.** `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(labels))` and a `_last_sent_ts`, where `labels` matches the outbound message (bucket names for drink/break, raw Kinetics labels for sedentary). Before emitting `motion.activity`, it drops the event if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). So `eating burger → eating cake` collapses to the same `break` key and is dropped, while `writing → drawing` flips the key (sedentary is raw) and passes through so the agent sees the new activity.
+**Dedup lives in two places.**
+
+*Activity dedup (5-min window).* `lelamp/service/sensing/perceptions/motion.py` keeps a `_last_sent_key = (current_user, frozenset(labels))` and a `_last_sent_ts`, where `labels` matches the outbound message (bucket names for drink/break, raw Kinetics labels for sedentary). Before emitting `motion.activity` **and before POSTing the rows to `/api/wellbeing/log`**, it drops the cycle if the key hasn't changed **and** the gap since the last send is still under `MOTION_DEDUP_WINDOW_S = 300` seconds (5 min). So `eating burger → eating cake` collapses to the same `break` key and is dropped, while `writing → drawing` flips the key (sedentary is raw) and passes through.
 
 - User change (owner→owner, owner→unknown, unknown→owner) flips the key immediately → event passes through.
 - Different strangers (e.g. `stranger_46` → `stranger_54`) collapse to `"unknown"` via `FaceRecognizer.current_user()`, so swapping strangers alone doesn't break dedup.
 - After 5 min on the same state, the next event passes through even if nothing changed — this keeps the Lumi agent "woken up" periodically so the wellbeing threshold check still runs.
 
-Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedup is the lelamp's job.
+*Presence dedup (at-log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scans the user's JSONL bottom-up for the most recent **presence** row (enter/leave, ignoring activity rows in between). `enter` while the last presence is already `enter` is dropped; `leave` with no matching open session is dropped. This is what keeps a single open session for `unknown` even when stranger_37 → stranger_38 → stranger_39 each fire their own raw `presence.enter` upstream.
 
 **Retention:** 7 days on the Lumi side. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
 
 ### On `motion.activity` — what the agent does
 
-1. **Log each label verbatim** from the `Activity detected:` line via `POST /api/wellbeing/log` with `user = current_user`. No mapping — LeLamp already categorised (bucket name for drink/break, raw Kinetics label for sedentary). LeLamp already deduped the outbound stream, so by the time the agent sees the event it's already "new enough to matter" — just log and move on.
-2. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
-3. **Compute deltas** from the log, using the most recent reset point for each:
+By the time the agent sees the event, LeLamp has already logged the activity rows for it (see "Written by" in the table above). The agent's job is just: read the history, decide whether to nudge, and log the nudge if it fired.
+
+1. **Read recent history** via `GET /api/openclaw/wellbeing-history?user={current_user}&last=50`.
+2. **Compute deltas** from the log, using the most recent reset point for each:
 
    ```
    hydration_reset = max(last drink entry, last enter entry, last nudge_hydration entry)
@@ -224,12 +227,12 @@ Lumi does **not** dedup — `wellbeing.LogForUser` appends unconditionally. Dedu
    ```
 
    Three reset points: the actual activity (`drink` / `break`), a fresh arrival (`enter`), or the last nudge of that kind (`nudge_*`). The nudge reset is the key: after Lumi reminds, the delta drops back to 0 so the next reminder only fires after another full threshold window — no separate cooldown variable needed.
-4. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
+3. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
    - Hydration delta ≥ hydration threshold → hydration nudge.
    - Else break delta ≥ break threshold → break nudge.
    - Else → normal caring observation or `NO_REPLY`.
-5. **After speaking a nudge**, log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
-6. **Never guess** time-since from memory — always compute from the log.
+4. **After speaking a nudge**, log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
+5. **Never guess** time-since from memory — always compute from the log.
 
 ### Thresholds
 
@@ -255,7 +258,11 @@ If the user drinks or takes a break before the next window, the regular `drink` 
 
 ### User attribution — `[context: current_user=X]`
 
-The sensing handler injects a `[context: current_user=X]` tag into every `motion.activity` message. `X` is the last recognized friend, or `"unknown"` when face saw only strangers. The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`. Source of truth is `mood.CurrentUser()`, which sets `"unknown"` on stranger `presence.enter` (previously left the previous friend's name stale).
+The sensing handler injects a `[context: current_user=X]` tag into every `motion.activity` message. `X` is the **friend with the newest session_start** among friends still in the forget window (see `FaceRecognizer.current_user()`), or `"unknown"` when face sees **only** strangers (no friend is still present). Crucially: if a friend is still within their forget window, `current_user()` returns that friend even if the most recent raw `presence.enter` was for a stranger — stranger flicker does not kick a friend out of the session.
+
+Sorting by `session_start` (the timestamp of the re-enter after the last leave) rather than `last_seen` makes the answer deterministic when two friends are continuously present (Chloe 18:00, An 18:30 → An wins because her session started later), instead of depending on dict iteration order.
+
+The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`.
 
 ### Presence markers written by backend
 
