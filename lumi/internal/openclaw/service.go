@@ -236,6 +236,26 @@ func (s *Service) drainPendingEvents() {
 		jv := events[j].eventType == "voice" || events[j].eventType == "voice_command"
 		return iv && !jv
 	})
+	// Expire stale motion/emotion events — they're high-frequency and stale
+	// data is worse than no data (e.g. after compaction). Voice and presence
+	// events are never expired because they carry user intent or session state.
+	const expireAfter = 60 * time.Second
+	filtered := events[:0]
+	for _, ev := range events {
+		if (ev.eventType == "motion.activity" || ev.eventType == "emotion.detected") &&
+			time.Since(ev.queuedAt) > expireAfter {
+			slog.Info("sensing event expired from queue", "component", "sensing", "type", ev.eventType, "age_s", int(time.Since(ev.queuedAt).Seconds()))
+			continue
+		}
+		filtered = append(filtered, ev)
+	}
+	events = filtered
+
+	if len(events) == 0 {
+		slog.Info("all pending sensing events expired, nothing to drain", "component", "sensing")
+		return
+	}
+
 	slog.Info("draining pending sensing events", "component", "sensing", "count", len(events))
 	for _, ev := range events {
 		// Allocate a dedicated run ID so each replayed event gets its own
