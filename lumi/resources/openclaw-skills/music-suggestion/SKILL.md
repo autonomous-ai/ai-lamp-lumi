@@ -5,7 +5,16 @@ description: Proactive music suggestion triggered by Mood decisions or sedentary
 
 # Music Suggestion (Proactive)
 
-> **Reply is spoken VERBATIM.** ONE short caring sentence — *"[sigh] Want some calm piano?"*. All checks and logic stay in `thinking`. NEVER output timestamps, cooldown math, flow names, or step numbers.
+Wrap the ONE short caring sentence you want Lumi to say aloud in `<say>...</say>` tags.
+For no reply, output `<say></say>` (empty tag).
+
+All reasoning, cooldown checks, timestamps, and math stay in the `thinking` block — think as long
+as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
+those tags is scratch and is discarded.
+
+Examples:
+- Suggest: `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?</say>`
+- Skip:    `<say></say>`
 
 > **`unknown` users count.** Always run suggestion checks when `current_user` is `"unknown"` — speak only, no DM. Never skip because the user is unknown/unconfirmed.
 
@@ -25,7 +34,7 @@ description: Proactive music suggestion triggered by Mood decisions or sedentary
 3. For mood trigger: check `GET /api/openclaw/mood-history?user={name}&kind=decision&last=1` — skip if stale (>30 min) or missing.
 4. Check `GET /audio/history?person={name}&last=1` — use to personalize genre.
 
-If any check says skip → reply `NO_REPLY`. Do not narrate why.
+If any check says skip → reply `<say></say>`. Do not narrate why.
 
 ## Pick genre
 
@@ -54,8 +63,8 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - NEVER auto-play — only suggest. Play after user confirms.
 - ONE sentence, conversational: *"How about some Norah Jones?"*
 - Suggest 1 song at a time.
-- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}]` Your suggestion text. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
-- **Unknown users** — speak only (no DM). Log with `user:"unknown"`.
+- **Known users** — speak + DM via Telegram: `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text</say>`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+- **Unknown users** — speak only (no DM): `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text</say>`. Log with `user:"unknown"`.
 
 ## Log suggestion (REQUIRED after speaking)
 
@@ -79,13 +88,13 @@ When checking `GET /audio/history`, use past behavior to personalize:
 
 ## Examples
 
-- Mood: tired (known user) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}]` You seem tired — want some calm piano?
-- Mood: tired (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` You seem tired — want some calm piano?
-- Mood: happy, music already playing → skip (NO_REPLY)
-- After user confirms → `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}]` Great choice!
+- Mood: tired (known user) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}] You seem tired — want some calm piano?</say>`
+- Mood: tired (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?</say>`
+- Mood: happy, music already playing → `<say></say>`
+- After user confirms → `<say>[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Great choice!</say>`
 
 ## Rules
 
-- All computation stays in `thinking` — reply is only the suggestion sentence or NO_REPLY.
+- All computation stays in `thinking` — reply is only `<say>...</say>` with the suggestion sentence or empty.
 - Never mention "cooldown", "interval", "threshold", or timestamps in the reply.
 - `person` field in `/audio/play` must be lowercase.
