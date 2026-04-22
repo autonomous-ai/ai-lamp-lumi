@@ -12,7 +12,7 @@ class ElevenLabsTTSBackend(TTSBackend):
     """ElevenLabs TTS backend with streaming support."""
 
     DEFAULT_MODEL = "eleven_v3"
-    API_BASE = "https://api.elevenlabs.io"
+    ELEVENLABS_PATH = "/elevenlabs"
 
     # Voice name -> voice_id mapping
     # Curated for companion AI — warm, friendly, expressive
@@ -49,13 +49,13 @@ class ElevenLabsTTSBackend(TTSBackend):
     }
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
-        self._api_key = "sk_ad049bfc2b626d950d9f2f969e14a1f19df93fbb7c494268"  # api_key — hardcoded for testing
-        self._base_url = self.API_BASE #(base_url or self.API_BASE).rstrip("/")
+        self._api_key = api_key
+        self._base_url = (base_url or "").rstrip("/") + self.ELEVENLABS_PATH
         self._httpx = None
         try:
             import httpx
             self._httpx = httpx
-            logger.info("ElevenLabs TTS backend ready (base_url=%s)", self._base_url)
+            logger.info("ElevenLabs TTS backend ready (proxy=%s)", self._base_url)
         except ImportError as e:
             logger.warning("httpx not available for ElevenLabs backend: %s", e)
 
