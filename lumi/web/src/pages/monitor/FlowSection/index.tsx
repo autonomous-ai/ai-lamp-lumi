@@ -1,10 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { S } from "../styles";
-import { API, FLOW_EVENTS_MAX } from "../types";
+import { API, FLOW_EVENTS_MAX, HW } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
 import { FLOW_NODES, SOURCE_ICON } from "./types";
-import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs, turnCurrentUser } from "./helpers";
+import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
@@ -184,17 +184,27 @@ export function FlowSection({
 
   const turns = useMemo(() => groupIntoTurns(events), [events]);
 
-  // Latest current_user seen in any turn (newest first). Represents who
-  // LeLamp thought was in front of the lamp when the most recent tagged
-  // event fired. Stale on quiet periods but updates live on any motion/
-  // emotion event, which is exactly the signal the Flow tab watches.
-  const latestCurrentUser = useMemo(() => {
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const u = turnCurrentUser(turns[i]);
-      if (u) return u;
-    }
-    return null;
-  }, [turns]);
+  // Live current_user — polled from LeLamp every 2s (same source the Users
+  // tab uses). Reading from turn events instead was stale: if the agent is
+  // busy and no motion/emotion event has streamed through, the last tagged
+  // turn can be minutes old and show the wrong person.
+  const [currentUser, setCurrentUser] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${HW}/face/current-user`);
+        if (!r.ok || cancelled) return;
+        const j = await r.json();
+        if (!cancelled) setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
+      } catch {
+        // keep last known value on transient error
+      }
+    };
+    tick();
+    const t = setInterval(tick, 2000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
 
   // Sub-types that actually appear in the current turns list
   const availableTypes = useMemo(() => {
@@ -322,12 +332,12 @@ export function FlowSection({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={S.cardLabel}>Flow Panel</span>
-            {latestCurrentUser && (() => {
-              const isUnknown = latestCurrentUser === "unknown";
+            {currentUser && (() => {
+              const isUnknown = currentUser === "unknown";
               const color = isUnknown ? "var(--lm-text-muted)" : "var(--lm-teal)";
               return (
                 <span
-                  title={isUnknown ? "LeLamp currently sees only strangers" : `LeLamp's current user: ${latestCurrentUser}`}
+                  title={isUnknown ? "LeLamp currently sees only strangers" : `LeLamp's current user: ${currentUser}`}
                   style={{
                     fontSize: 12,
                     padding: "4px 10px",
@@ -338,7 +348,7 @@ export function FlowSection({
                     textTransform: "capitalize",
                     border: `1px solid ${color}55`,
                   }}
-                >👤 {latestCurrentUser}</span>
+                >👤 {currentUser}</span>
               );
             })()}
           </div>
