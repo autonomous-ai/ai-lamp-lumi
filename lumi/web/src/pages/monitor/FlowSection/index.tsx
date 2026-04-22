@@ -12,10 +12,10 @@ import { CanvasModal } from "./CanvasModal";
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
   mic: ["voice", "voice_command", "sound"],
-  cam: ["motion", "motion.activity", "emotion.detected", "presence.enter", "presence.leave", "presence.away", "light.level", "environment", "wellbeing.hydration", "wellbeing.break"],
+  cam: ["motion", "motion.activity", "emotion.detected", "presence.enter", "presence.leave", "presence.away", "light.level", "environment"],
   channel: ["telegram", "discord", "slack", "wechat", "channel"],
   web: ["web_chat"],
-  cron: ["cron", "cron:hydration", "cron:break", "cron:music"],
+  cron: ["cron", "cron:music"],
   system: ["system", "schedule", "music.mood"],
 };
 const TYPE_ICON: Record<string, string> = {
@@ -25,10 +25,9 @@ const TYPE_ICON: Record<string, string> = {
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
   motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
-  "wellbeing.hydration": "water", "wellbeing.break": "break",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
-  cron: "cron", "cron:hydration": "💧hydration", "cron:break": "🧘break", "cron:music": "🎵music",
+  cron: "cron", "cron:music": "🎵music",
 };
 
 // Preset sensing events for manual testing

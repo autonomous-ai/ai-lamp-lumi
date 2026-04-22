@@ -134,14 +134,12 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
         const sender = d?.sender ?? d?.data?.sender ?? "";
-        // Fallback signal + sub-label (hydration/break/music) parsed from text.
+        // Fallback signal + sub-label parsed from text.
         if (!isCron && (!sender || sender === "") && /scheduled reminder/i.test(msg)) {
           isCron = true;
         }
         if (isCron) {
-          if (/hydration/i.test(msg)) cronLabel = "cron:hydration";
-          else if (/break|stretch/i.test(msg)) cronLabel = "cron:break";
-          else if (/music/i.test(msg)) cronLabel = "cron:music";
+          if (/music/i.test(msg)) cronLabel = "cron:music";
           break;
         }
       }

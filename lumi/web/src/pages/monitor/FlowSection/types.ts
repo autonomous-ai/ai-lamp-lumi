@@ -221,10 +221,10 @@ export const FLOW_NODES: FlowNodeDef[] = [
 export const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", voice_command: "🎙", sound: "🔊",
   motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊",
-  "wellbeing.hydration": "💧", "wellbeing.break": "🧘", "wellbeing.music": "🎵",
+  "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   web_chat: "🖥", telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", schedule: "⏰",
-  cron: "⏰", "cron:hydration": "💧", "cron:break": "🧘", "cron:music": "🎵",
+  cron: "⏰", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
   "music.mood": "🎵",

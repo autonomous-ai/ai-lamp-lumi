@@ -283,7 +283,9 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
 			case "emotion.detected":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
-				msg += "\n[Follow user-emotion-detection/SKILL.md.]"
+				msg += "\n[REQUIRED — complete ALL steps before replying:]"
+				msg += "\n[Step 1: user-emotion-detection/SKILL.md — log mood signal + decision]"
+				msg += "\n[Step 2: music-suggestion/SKILL.md — run AFTER mood decision is logged]"
 			}
 		}
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the

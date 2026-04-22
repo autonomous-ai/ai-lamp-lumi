@@ -426,7 +426,7 @@ async def lifespan(app: FastAPI):
                 logger.info("GPIO17 button pressed -- unmuting mic")
                 from lelamp.routes.voice import unmute_mic
                 unmute_mic()
-                if state.tts_service and state.tts_service.available:
+                if state.tts_service and state.tts_service.available and not state._speaker_muted:
                     threading.Thread(
                         target=lambda: state.tts_service.speak("I'm listening!"),
                         daemon=True,
