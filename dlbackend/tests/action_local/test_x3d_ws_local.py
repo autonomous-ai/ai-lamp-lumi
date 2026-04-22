@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from core.actionanalysis.x3d import X3DModel
+from core.action.x3d import X3DModel
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
