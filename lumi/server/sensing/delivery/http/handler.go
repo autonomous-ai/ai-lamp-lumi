@@ -38,6 +38,13 @@ type SensingEventRequest struct {
 	Image string `json:"image,omitempty"`
 	// Source identifies where this event originated. "web" = web monitor chat (TTS suppressed).
 	Source string `json:"source,omitempty"`
+	// CurrentUser is LeLamp's view of who is effectively in front of the lamp
+	// right now (from FaceRecognizer.current_user()). Empty when nobody is
+	// visible. This is the source of truth — do NOT re-derive by parsing
+	// Message. Text parsing gave wrong answers when a stranger-only enter
+	// event fired while a friend was still present (Lumi would downgrade
+	// mood to "unknown" even though the friend was within forget window).
+	CurrentUser string `json:"current_user,omitempty"`
 }
 
 
@@ -114,25 +121,32 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		Detail:  monitorDetail,
 	})
 
-	// Track current user for per-user mood/wellbeing attribution.
-	// Strangers collapse to "unknown" so downstream never has to guess a
-	// friend identity from memory/chat history.
-	//
-	// Presence events also write enter/leave markers to the wellbeing log
-	// so the dedup chain is broken across sessions — same-action entries
-	// on either side of a presence boundary are kept (not collapsed).
-	if req.Type == "presence.enter" {
-		if name := extractUserName(req.Message); name != "" {
-			mood.SetCurrentUser(name)
-			wellbeing.LogForUser(name, "enter", "")
-		} else if strings.Contains(req.Message, "stranger") {
-			mood.SetCurrentUser("unknown")
-			wellbeing.LogForUser("unknown", "enter", "")
+	// Sync mood.CurrentUser with LeLamp's view on every event that carries
+	// it. LeLamp's FaceRecognizer.current_user() is the source of truth
+	// (sorts by session_start, keeps the friend when stranger flicker
+	// happens, collapses strangers to "unknown"). Writing wellbeing
+	// enter/leave on effective-user *transitions* — rather than on every
+	// raw presence.enter message — means stranger_37 → stranger_38 while
+	// Chloe is still present produces no log churn, and a friend who
+	// steps out briefly but comes back before forget_ts doesn't lose the
+	// session. Phase 2 dedup in wellbeing.go catches any residual duplicate
+	// enters/leaves caused by out-of-order events.
+	oldEffective := mood.CurrentUser()
+	newEffective := req.CurrentUser
+	if oldEffective != newEffective {
+		if oldEffective != "" {
+			wellbeing.LogForUser(oldEffective, "leave", "")
 		}
+		if newEffective != "" {
+			wellbeing.LogForUser(newEffective, "enter", "")
+		}
+	}
+	if newEffective != "" {
+		mood.SetCurrentUser(newEffective)
 	} else if req.Type == "presence.leave" || req.Type == "presence.away" {
-		if user := mood.CurrentUser(); user != "" {
-			wellbeing.LogForUser(user, "leave", "")
-		}
+		// Only clear on explicit leave/away events when LeLamp says nobody's
+		// here. Other event types arriving with empty current_user (e.g.
+		// older LeLamp build without this field) leave mood untouched.
 		mood.ClearCurrentUser()
 	}
 
@@ -313,14 +327,24 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		case "presence.leave", "presence.away":
 			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 		case "motion.activity":
-			currentUser := mood.CurrentUser()
+			// Prefer the value LeLamp shipped in this request payload
+			// over mood.CurrentUser(); they should match (mood was just
+			// synced above) but sourcing from the payload makes the
+			// attribution traceable to the event that produced it.
+			currentUser := req.CurrentUser
+			if currentUser == "" {
+				currentUser = mood.CurrentUser()
+			}
 			if currentUser == "" {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
 			msg += "\n[Follow wellbeing/SKILL.md + music-suggestion/SKILL.md.]"
 		case "emotion.detected":
-			currentUser := mood.CurrentUser()
+			currentUser := req.CurrentUser
+			if currentUser == "" {
+				currentUser = mood.CurrentUser()
+			}
 			if currentUser == "" {
 				currentUser = "unknown"
 			}
@@ -627,18 +651,6 @@ func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
 var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
 
 // extractSnapshotPath extracts the snapshot file path from a sensing message.
-// reUserName matches "friend (gray)" in presence.enter messages.
-var reUserName = regexp.MustCompile(`friend\s*\(([^)]+)\)`)
-
-// extractUserName returns the first recognized friend name from a presence.enter message.
-func extractUserName(message string) string {
-	m := reUserName.FindStringSubmatch(message)
-	if m == nil {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(m[1]))
-}
-
 func extractSnapshotPath(message string) string {
 	m := reSnapshotPath.FindStringSubmatch(message)
 	if m == nil {
