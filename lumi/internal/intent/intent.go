@@ -134,6 +134,19 @@ var rules = []rule{
 		},
 	},
 
+	// --- Scene off (must be before scene activation rules) ---
+	{
+		name: "scene_off",
+		match: func(t string) bool {
+			return (strings.Contains(t, "turn off") || strings.Contains(t, "disable")) &&
+				(strings.Contains(t, "mode") || strings.Contains(t, "scene"))
+		},
+		exec: func(string) *Result {
+			post("/scene/off", "")
+			return &Result{TTSText: "Back to normal!", LEDOff: true, Actions: []string{"POST /scene/off"}}
+		},
+	},
+
 	// --- Scenes ---
 	{
 		name:  "scene_reading",
