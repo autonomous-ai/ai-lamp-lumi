@@ -110,10 +110,20 @@ func NormalizeUser(name string) string {
 
 // presenceActions are backend-written session markers. Multiple stranger
 // faces cycling in and out all collapse to user="unknown", so we must
-// dedup these here (lelamp only dedups motion.activity — presence events
-// bypass it). Without this, stranger_74 → stranger_75 produces two
-// "enter" entries and resets the wellbeing delta twice even though, from
-// Lumi's perspective, the "user" (unknown) never changed.
+// dedup that specific case (lelamp only dedups motion.activity — presence
+// events bypass it). Without the dedup, stranger_74 → stranger_75 produces
+// two "enter" entries in the unknown timeline and resets the wellbeing
+// delta twice even though, from Lumi's perspective, the "user" (unknown)
+// never changed.
+//
+// Friends do NOT need this guard: lelamp's per-friend session tracking
+// (_owners_last_seen + FACE_OWNER_FORGET_S) at facerecognizer.py already
+// fires enter only on a genuinely new session, so Lumi should trust each
+// friend's enter/leave and just record it. Deduping friends here causes
+// the opposite failure: if lelamp restarts between a friend's last
+// detection and the forget-timeout, leave is never fired, the file gets
+// stuck in "enter" state, and the NEXT legitimate enter is silently
+// dropped — the friend vanishes from their own timeline on return.
 //
 // Physical activity actions (drink/break/sedentary) and agent-written
 // nudge actions are not deduped here — lelamp already dedups them at the
@@ -125,12 +135,10 @@ var presenceActions = map[string]bool{
 }
 
 // LogForUser appends an activity entry for the given user. For presence
-// markers (enter/leave) it collapses against the last PRESENCE action
-// (ignoring activity rows between them) so an enter while a session is
-// still open, or a leave when no session is open, is skipped. Without
-// this, stranger_74 → using computer → stranger_75 → using computer
-// produces a second "enter" after the activity rows hide the first
-// enter from a naive last-action check.
+// markers on the unknown timeline, it collapses against the last PRESENCE
+// action (ignoring activity rows between them) so stranger flicker does
+// not inflate the unknown session count. Friend presence rows skip the
+// dedup — lelamp is the authoritative source of friend enter/leave.
 func LogForUser(user, action, notes string) {
 	user = NormalizeUser(user)
 	now := time.Now()
@@ -138,7 +146,7 @@ func LogForUser(user, action, notes string) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 
-	if presenceActions[action] {
+	if presenceActions[action] && user == DefaultUser {
 		day := now.Format("2006-01-02")
 		lastPresence := readLastPresenceAction(user, day)
 		// enter while already in an open session → skip (session still live).
