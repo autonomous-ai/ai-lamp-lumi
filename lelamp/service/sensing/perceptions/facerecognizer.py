@@ -739,7 +739,6 @@ class FaceRecognizer(Perception):
             "strangers": strangers,
             "owners_forget_s": self._owners_forget_ts,
             "strangers_forget_s": self._strangers_forget_ts,
-            "current_user": self.current_user(),
         }
 
     def reset_cooldowns(self) -> None:

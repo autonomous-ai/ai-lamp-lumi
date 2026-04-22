@@ -245,6 +245,19 @@ def face_cooldowns():
     return fr.cooldown_state()
 
 
+@router.get("/face/current-user", tags=["Face"])
+def face_current_user():
+    """Return who LeLamp considers "in front of the lamp" right now.
+
+    Friend with the newest session_start still within the forget window,
+    else "unknown" when only strangers are present, else empty string.
+    Dedicated endpoint so callers don't have to pull the whole cooldown
+    payload just to get one field.
+    """
+    fr = _require_face_recognizer()
+    return {"current_user": fr.current_user()}
+
+
 @router.post("/face/cooldowns/reset", tags=["Face"])
 def face_cooldowns_reset():
     """Reset all face recognition cooldown timers."""
