@@ -49,15 +49,27 @@ def activate_scene(req: SceneRequest):
     state._save_user_led_state({"type": LST_SCENE, "scene": req.scene})
 
     aim_dir = preset.get("aim")
+    servo_mode = preset.get("servo")
     if aim_dir and state.animation_service:
         from lelamp.routes.servo import aim_servo
 
-        threading.Thread(
-            target=aim_servo,
-            args=(ServoAimRequest(direction=aim_dir),),
-            daemon=True,
-            name=f"scene-aim-{aim_dir}",
-        ).start()
+        # Release hold before aiming so the move isn't blocked
+        if state.animation_service._hold_mode:
+            state.animation_service._hold_mode = False
+
+        def _aim_then_hold():
+            aim_servo(ServoAimRequest(direction=aim_dir))
+            if servo_mode == "hold":
+                state.animation_service._hold_mode = True
+                state.logger.info("Scene %s: servo hold (after aim)", req.scene)
+
+        threading.Thread(target=_aim_then_hold, daemon=True, name=f"scene-aim-{aim_dir}").start()
+    elif servo_mode == "hold" and state.animation_service:
+        state.animation_service._hold_mode = True
+        state.logger.info("Scene %s: servo hold", req.scene)
+    elif servo_mode != "hold" and state.animation_service and state.animation_service._hold_mode:
+        state.animation_service._hold_mode = False
+        state.logger.info("Scene %s: servo released", req.scene)
 
     cam = preset.get("camera")
     if cam == LST_OFF:
@@ -91,15 +103,6 @@ def activate_scene(req: SceneRequest):
     elif spk == "on" and state._speaker_muted:
         state._speaker_muted = False
         state.logger.info("Scene %s: speaker unmuted", req.scene)
-
-    # Servo hold/release
-    servo = preset.get("servo")
-    if servo == "hold" and state.animation_service:
-        state.animation_service._hold_mode = True
-        state.logger.info("Scene %s: servo hold", req.scene)
-    elif servo != "hold" and state.animation_service and state.animation_service._hold_mode:
-        state.animation_service._hold_mode = False
-        state.logger.info("Scene %s: servo released", req.scene)
 
     return {
         "status": "ok",
