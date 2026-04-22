@@ -323,7 +323,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[Follow wellbeing/SKILL.md. Wellbeing URL base = http://127.0.0.1:5000 (Lumi), NOT 5001 (LeLamp hardware).]"
+			msg += "\n[Follow wellbeing/SKILL.md.]"
 		case "emotion.detected":
 			currentUser := req.CurrentUser
 			if currentUser == "" {
