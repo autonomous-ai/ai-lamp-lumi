@@ -67,6 +67,8 @@ curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user
 
 Response is a time-ordered list of events with `{ts, action, notes, hour}`.
 
+> ⛔ **DO NOT** run `cat`, `ls`, `head`, `tail`, or any file-system tool against `/root/local/users/*/wellbeing/*.jsonl`. Always use the `/api/openclaw/wellbeing-history` endpoint above. The habit skill has a narrow exception for multi-day pattern building — that exception does not apply here. File reads bypass server normalization, future caching, and Phase 2 presence-dedup reasoning.
+
 ### Step 2 — Compute deltas (in your head, silently)
 
 **Do NOT output any of this math. All computation stays in `thinking`.** These instructions tell you WHAT to compute, not what to write in the reply.

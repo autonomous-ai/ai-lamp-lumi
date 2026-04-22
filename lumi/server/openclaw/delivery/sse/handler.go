@@ -640,16 +640,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if json.Unmarshal(histPayload, &hist) != nil {
 							return
 						}
-						// Extract thinking from last assistant message and emit to monitor
+						// Extract thinking from last assistant message and push it to
+						// the live monitor bus ONLY. Deliberately not persisted via
+						// flow.Log — thinking content is for live debug view, not
+						// for the replayable flow JSONL (which is shared with the
+						// monitor download, the downloaded bundle, and future
+						// consumers that shouldn't see model CoT verbatim).
 						for i := len(hist.Messages) - 1; i >= 0; i-- {
 							if hist.Messages[i].Role == "assistant" {
 								for _, c := range hist.Messages[i].Content {
 									if c.Type == "thinking" && c.Thinking != "" {
-										flow.Log("agent_thinking", map[string]any{
-											"run_id":  capturedFlowRunID,
-											"source":  "chat_history",
-											"text":    c.Thinking,
-										}, capturedFlowRunID)
 										h.monitorBus.Push(domain.MonitorEvent{
 											Type:    "thinking",
 											Summary: c.Thinking,
