@@ -125,8 +125,12 @@ var presenceActions = map[string]bool{
 }
 
 // LogForUser appends an activity entry for the given user. For presence
-// markers (enter/leave) it collapses consecutive same-action entries for
-// the same user — otherwise it just appends (lelamp handles that dedup).
+// markers (enter/leave) it collapses against the last PRESENCE action
+// (ignoring activity rows between them) so an enter while a session is
+// still open, or a leave when no session is open, is skipped. Without
+// this, stranger_74 → using computer → stranger_75 → using computer
+// produces a second "enter" after the activity rows hide the first
+// enter from a naive last-action check.
 func LogForUser(user, action, notes string) {
 	user = NormalizeUser(user)
 	now := time.Now()
@@ -136,7 +140,13 @@ func LogForUser(user, action, notes string) {
 
 	if presenceActions[action] {
 		day := now.Format("2006-01-02")
-		if last := readLastAction(user, day); last == action {
+		lastPresence := readLastPresenceAction(user, day)
+		// enter while already in an open session → skip (session still live).
+		// leave while no open session → skip (nothing to close).
+		if action == "enter" && lastPresence == "enter" {
+			return
+		}
+		if action == "leave" && lastPresence != "enter" {
 			return
 		}
 	}
@@ -152,9 +162,11 @@ func LogForUser(user, action, notes string) {
 	global.writeJSONL(now, user, evt)
 }
 
-// readLastAction returns the action of the most recent entry in today's
-// file for the user, or empty if no entries.
-func readLastAction(user, day string) string {
+// readLastPresenceAction scans today's file bottom-up and returns the most
+// recent enter/leave action for the user, or empty if none. Skips
+// activity rows so an activity entry between two enters doesn't mask the
+// open session.
+func readLastPresenceAction(user, day string) string {
 	path := filePath(user, day)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -164,13 +176,17 @@ func readLastAction(user, day string) string {
 	if s == "" {
 		return ""
 	}
-	idx := strings.LastIndexByte(s, '\n')
-	last := s[idx+1:]
-	var evt Event
-	if err := json.Unmarshal([]byte(last), &evt); err != nil {
-		return ""
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var evt Event
+		if err := json.Unmarshal([]byte(lines[i]), &evt); err != nil {
+			continue
+		}
+		if presenceActions[evt.Action] {
+			return evt.Action
+		}
 	}
-	return evt.Action
+	return ""
 }
 
 // Query reads wellbeing events for a given user and day (YYYY-MM-DD).
