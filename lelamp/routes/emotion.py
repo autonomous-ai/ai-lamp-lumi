@@ -39,7 +39,7 @@ def express_emotion(req: EmotionRequest):
 
     if state._sleeping and req.emotion not in _WAKE_EMOTIONS:
         state.logger.info("POST /emotion: ignored %s while sleeping", req.emotion)
-        return {"status": "ignored", "reason": "sleeping"}
+        return {"status": "ignored", "emotion": req.emotion, "servo": None, "led": None}
 
     state._sleeping = req.emotion == EMO_SLEEPY
 
