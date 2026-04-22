@@ -16,6 +16,29 @@ If the reply contains any of: `Computing`, `Latest`, `Reset`, `Check`, timestamp
 
 ---
 
+## Gotchas (concrete facts, NOT suggestions)
+
+Exact endpoints — use these verbatim, never substitute a port or path:
+
+| Purpose | URL (use exactly) |
+|---|---|
+| Read history | `http://127.0.0.1:5000/api/openclaw/wellbeing-history` |
+| Log nudge | `http://127.0.0.1:5000/api/wellbeing/log` |
+
+- Port **5000** is Lumi (data APIs: wellbeing / mood / music / openclaw history).
+- Port **5001** is LeLamp HARDWARE — audio, camera, face, presence, speaker. It has **NO** `/api/wellbeing/*`, `/api/mood/*`, `/api/music-suggestion/*` routes. Calling 5001 for any wellbeing URL returns 404 silently and your nudge is lost.
+- Do not pattern-match from other skills. `5001/audio/play`, `5001/face/enroll`, `5001/camera/snapshot` are unrelated to wellbeing.
+
+## Rules (Never / Only)
+
+1. **Only** call `http://127.0.0.1:5000/api/openclaw/wellbeing-history` to read history. **Never** read `/root/local/users/*/wellbeing/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
+2. **Only** POST to `http://127.0.0.1:5000/api/wellbeing/log`. **Never** substitute `5001`, `8080`, or any other port. **Never** omit `http://` or hardcode `localhost`.
+3. **Never** echo computation (timestamps, minutes, thresholds, reset reasoning) into the visible reply. All math stays in the `thinking` block.
+4. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`. Never invent new actions.
+5. If a POST returns non-2xx → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, otherwise the skill spams reminders forever.
+
+---
+
 > **Reply is spoken VERBATIM.** ONE short caring nudge — *"Grab some water?"*. All computation (timestamps, deltas, thresholds) stays in `thinking`. NEVER output math, log entries, or skip reasons in the reply.
 
 > **LeLamp logs activities; you only log nudges.** Activity rows (drink / break / sedentary labels) are written by LeLamp directly when it fires `motion.activity`. You no longer POST them. You still POST `nudge_hydration` / `nudge_break` after speaking, because only you know when you actually nudged.
