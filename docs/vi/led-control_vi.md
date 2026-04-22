@@ -58,14 +58,42 @@ POST /scene
 {"scene": "reading"}
 ```
 
-| Scene | Brightness | Màu | Mô tả |
-|-------|-----------|-----|-------|
-| `reading` | 80% | Warm white | Đọc sách |
-| `focus` | 100% | Cool white | Tập trung |
-| `relax` | 40% | Warm amber | Thư giãn |
-| `movie` | 15% | Dim warm | Xem phim |
-| `night` | 5% | Soft orange | Đèn ngủ |
-| `energize` | 100% | Bright daylight | Tỉnh táo |
+Mỗi scene điều khiển **toàn bộ thiết bị ngoại vi** — không chỉ LED mà cả camera, mic, speaker và servo.
+
+| Scene | Sáng | Màu (K) | Servo | Camera | Mic | Speaker |
+|-------|------|---------|-------|--------|-----|---------|
+| `reading` | 80% | 4000K trắng ấm | desk + hold | off | off | off |
+| `focus` | 70% | 4200K trung tính ấm | desk + hold | off | off | off |
+| `relax` | 40% | 2700K ấm | wall | on | on | on |
+| `movie` | 15% | 2400K amber mờ | wall | off | on | off |
+| `night` | 5% | 1800K amber đậm | down | off | off | off |
+| `energize` | 100% | 5000K ánh sáng ban ngày | up | on | on | on |
+
+### Điều khiển ngoại vi theo scene
+
+Khi kích hoạt scene, `POST /scene` thực hiện theo thứ tự:
+
+1. **LED** — màu đặc = `preset.color × preset.brightness`
+2. **Servo aim** — xoay đầu đèn theo hướng preset (desk, wall, up, down)
+3. **Servo hold** — nếu `"servo": "hold"`, freeze servo **sau khi** aim xong (aim → hold trong cùng 1 thread). Tự release khi chuyển sang scene không có hold.
+4. **Camera** — tự động bật/tắt
+5. **Mic** — mute dừng voice pipeline (STT), unmute khởi động lại
+6. **Speaker** — mute dừng TTS + nhạc đang phát, unmute bật lại output
+
+### Chặn emotion khi hold mode
+
+Khi servo đang hold (reading/focus), **animation cảm xúc bị chặn** để tránh phân tâm:
+
+- `happy`, `thinking`, `curious`, `sad`, v.v. → servo + LED bị bỏ qua
+- `greeting`, `sleepy`, `stretching` → **cho qua** (đây là emotion thay đổi trạng thái: chào, ngủ, thức dậy)
+
+Nghĩa là khi focus, sensing event vẫn tới OpenClaw nhưng Lumi giữ nguyên trạng thái vật lý — không cử động, LED ổn định.
+
+### Lý do chọn nhiệt độ màu
+
+- **Focus 4200K/70%** (không phải 5000K/100%) — 4000-4300K tối ưu cho tập trung mà không gây mỏi mắt
+- **Night 1800K amber đậm** — bước sóng >580nm không ảnh hưởng melatonin
+- **Movie mic on** — cho phép điều khiển giọng nói ("pause", "stop") khi xem phim
 
 ## Status LED
 
