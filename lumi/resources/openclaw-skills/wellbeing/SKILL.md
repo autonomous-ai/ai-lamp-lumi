@@ -5,6 +5,17 @@ description: Event-driven hydration and break reminders. Reads the per-user acti
 
 # Wellbeing
 
+## ⛔ OUTPUT FORMAT — READ FIRST
+
+Your visible reply MUST be exactly ONE of these, nothing else:
+
+1. `NO_REPLY`
+2. `[HW:/emotion:{...}]\n\n<one short caring sentence>`
+
+If the reply contains any of: `Computing`, `Latest`, `Reset`, `Check`, timestamps, bullet lists, tables, `**bold**`, or the word `threshold` → **YOU FAILED**. Everything like that goes in the thinking block, never in the reply.
+
+---
+
 > **Reply is spoken VERBATIM.** ONE short caring nudge — *"Grab some water?"*. All computation (timestamps, deltas, thresholds) stays in `thinking`. NEVER output math, log entries, or skip reasons in the reply.
 
 > **LeLamp logs activities; you only log nudges.** Activity rows (drink / break / sedentary labels) are written by LeLamp directly when it fires `motion.activity`. You no longer POST them. You still POST `nudge_hydration` / `nudge_break` after speaking, because only you know when you actually nudged.
