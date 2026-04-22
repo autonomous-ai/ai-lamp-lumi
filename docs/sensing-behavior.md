@@ -405,49 +405,33 @@ The agent reads the `Activity detected:` line, splits on comma, and POSTs each l
 
 ---
 
-## Emotion Detection — User Emotion (Lightweight UC-M1)
+## Emotion Detection — User Emotion (UC-M1) ✅
 
-> **⚠ Currently inactive.** Emotional X3D actions used to ride along on `motion.activity` as an `Emotional cue:` line. That coupling was removed — `motion.activity` is now purely physical (`sedentary` / `drink` / `break`). A dedicated `motion.emotional` event type is the planned home for this signal; until that lands, the Emotion Detection skill has no trigger and does not fire.
+Lumi detects the **user's** emotional state via two channels:
 
-Lumi detects the **user's** emotional state using the existing X3D action recognition model — no separate facial expression model needed. This is a lightweight proxy for UC-M1 (Facial Expression & Wellness Detection).
+1. **Facial expression** (primary) — `emotion.detected` event from `lelamp/service/sensing/perceptions/emotion.py`. Uses a dedicated emotion classifier running on self-hosted dlbackend via WebSocket. Detects 7 emotions: Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral. Configurable confidence threshold (`EMOTION_CONFIDENCE_THRESHOLD`).
+2. **Body action** (secondary) — emotional X3D actions from action recognition are **intentionally dropped** from `motion.activity` (which is purely physical: sedentary/drink/break). A dedicated `motion.emotional` event type is planned for these.
 
 > **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
 
-### Detected emotional actions
+### `emotion.detected` event
 
-The X3D model already classifies these emotional actions from the motion activity whitelist:
+Fired by LeLamp when the dlbackend emotion classifier detects a facial expression above the confidence threshold. Message format: `Emotion detected: Happy` (or Sad, Angry, etc.).
 
-| Action | Inferred state | Agent emotion |
-|---|---|---|
-| `laughing` | Happy/amused | `laugh` (0.8) |
-| `crying` | Sad/upset | `caring` (0.9) |
-| `yawning` | Tired/fatigued | `sleepy` (0.6) |
-| `singing` | Happy/relaxed | `happy` (0.7) |
+The sensing handler (`handler.go`) routes `emotion.detected` events to the agent. When the agent is busy, these events are queued and replayed when idle.
 
-### Always speak
+### Agent behavior
 
-Unlike regular `motion.activity` events (which may result in NO_REPLY for sedentary actions), emotional actions **always get a spoken response**. Silence is never appropriate when Lumi notices the user laughing, crying, yawning, or singing.
+The `user-emotion-detection/SKILL.md` handles `emotion.detected` events:
 
-### Context-aware intensity
+1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated)
+2. Logs a `signal` row via `POST /api/mood/log`
+3. **Silent by default** — no spoken reply unless warranted by normal sensing reply rules
 
-The default response is light (brief remark). Context escalates the intensity:
+### Mood pipeline
 
-- **Time of day**: yawning after 22:00 → suggest winding down + dim light. Yawning before 10:00 → just a light remark.
-- **Sitting duration**: yawning after 2+ hours sitting → suggest a break.
-- **Repetition**: crying detected a second time in the session → gently offer to talk. Laughing 3+ times → comment on their good mood.
-- **Cross-skill**: singing with no music playing → offer music via Music skill.
-
-### Logging
-
-- **Mood history** (agent logs): On every cue the Mood skill writes a raw `signal` row, then immediately reads recent history and writes a synthesized `decision` row (e.g. `{"kind":"decision","mood":"happy","based_on":"...","reasoning":"..."}`). Music/Wellbeing read the latest `decision` (`?kind=decision&last=1`) for "current mood".
-- **Wellbeing history** (agent logs): Agent calls `POST /api/wellbeing/log` with `{"action":"emotional","notes":"yawning — afternoon slump","user":"{name}"}`. Same JSONL stream as hydration/break entries.
-
-### Limitations (vs full UC-M1)
-
-- Only 4 discrete actions — no continuous emotion spectrum (surprise, anger, fear, disgust not detected)
-- Requires visible body movement (X3D is video-based action recognition, not facial close-up)
-- Cannot detect micro-expressions or subtle stress
-- Full UC-M1 would require a dedicated FER (Facial Expression Recognition) ONNX model added to the face recognition pipeline
+- **Mood history** (agent logs): On every signal the Mood skill writes a raw `signal` row, then reads recent history and writes a synthesized `decision` row (e.g. `{"kind":"decision","mood":"happy","based_on":"...","reasoning":"..."}`).
+- Mood decisions trigger downstream skills: `music-suggestion` (proactive music), `wellbeing` (break/hydration nudges).
 
 See `user-emotion-detection/SKILL.md` for the agent's full response rules.
 

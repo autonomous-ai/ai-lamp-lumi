@@ -1,5 +1,6 @@
 from typing import Any, List, Union
 from ..base import ServiceBase
+from lelamp.presets import RGB_CMD_PAINT, RGB_CMD_SOLID
 
 
 def _is_pi5() -> bool:
@@ -181,9 +182,9 @@ class RGBService(ServiceBase):
         return (r << 16) | (g << 8) | b
 
     def handle_event(self, event_type: str, payload: Any):
-        if event_type == "solid":
+        if event_type == RGB_CMD_SOLID:
             self._handle_solid(payload)
-        elif event_type == "paint":
+        elif event_type == RGB_CMD_PAINT:
             self._handle_paint(payload)
         else:
             self.logger.warning(f"Unknown event type: {event_type}")
