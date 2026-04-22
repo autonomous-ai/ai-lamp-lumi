@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import time
 import base64
 
@@ -6,10 +7,36 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from core.audio_recognition.audio_recognizer import AudioRecognizer
+from core.audio_recognition.audio_recognizer import (
+    AUDIO_RECOGNIZER_ENGINES,
+    DEFAULT_AUDIO_RECOGNIZER_ENGINE,
+    create_audio_recognizer,
+)
+from dotenv import load_dotenv
 
+load_dotenv()
 
 DATA_DIR = Path(__file__).parent / "mock_data" / "audio"
+
+# Engine picked for this test session. Override with:
+#   TEST_AUDIO_RECOGNIZER_ENGINE=ecapa-tdnn512 pytest tests/test_audio_recognizer_local.py
+# Falls back to AUDIO_RECOGNIZER_ENGINE (shared with server) then the default.
+TEST_AUDIO_RECOGNIZER_ENGINE = (
+    os.getenv("TEST_AUDIO_RECOGNIZER_ENGINE")
+    or os.getenv("AUDIO_RECOGNIZER_ENGINE")
+    or DEFAULT_AUDIO_RECOGNIZER_ENGINE
+).strip().lower()
+
+print(
+    f"[test_audio_recognizer_local] using engine='{TEST_AUDIO_RECOGNIZER_ENGINE}' "
+    f"(available: {sorted(AUDIO_RECOGNIZER_ENGINES)})",
+    flush=True,
+)
+
+
+def _make_recognizer(**kwargs):
+    """Construct the recognizer for the engine selected by env var."""
+    return create_audio_recognizer(TEST_AUDIO_RECOGNIZER_ENGINE, **kwargs)
 
 BAO_1 = DATA_DIR / "Bao" / "Bao_1.wav"
 BAO_2 = DATA_DIR / "Bao" / "Bao_2.wav"
@@ -78,7 +105,7 @@ def test_register_single_wav_persist_local_db(tmp_path):
     print("==========================================test_register_single_wav_persist_local_db==========================================")
     # Arrange
     db_path = tmp_path / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)       
+    recognizer = _make_recognizer(db_path=db_path)       
 
     print("\n[Arrange] Register Bao from Bao_1.wav")
     # Action
@@ -101,7 +128,7 @@ def test_register_multi_wavs_use_median_centroid(tmp_path):
     print("==========================================test_register_multi_wavs_use_median_centroid==========================================")
     # Arrange
     db_path = tmp_path / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     wavs = [KHANH_1, KHANH_2, KHANH_3]
     print("\n[Arrange] Register Khanh from:", [str(x) for x in wavs])
 
@@ -127,7 +154,7 @@ def test_recognize_from_wav_path(tmp_path):
     print("==========================================test_recognize_from_wav_path==========================================")
     # Arrange
     db_path = tmp_path / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     _timed_call("register(Bao, Bao_1.wav)", recognizer.register, "Bao", BAO_1)
     _timed_call(
         "register(Khanh, 3 wavs)",
@@ -135,16 +162,26 @@ def test_recognize_from_wav_path(tmp_path):
         "Khanh",
         [KHANH_1, KHANH_2, KHANH_3],
     )
+    
+    _timed_call("register(Darren, 4 wavs)", recognizer.register, "Darren", [DARREN_0, DARREN_1, DARREN_2, DARREN_3])
+    
     print("\n[Arrange] DB speakers:", list(recognizer.speaker_db.keys()))
 
     # Action
     result = _timed_call("recognize(Khanh_4.wav)", recognizer.recognize, KHANH_4)
     print("[Action] recognize(Khanh_4.wav) ->", result)
-
-    # Assert
     assert result["name"] == "Khanh"
     assert 0.0 <= result["confidence"] <= 1.0
-
+    
+    result = _timed_call("recognize(Darren_4.wav)", recognizer.recognize, DARREN_4)
+    print("[Action] recognize(Darren_4.wav) ->", result)
+    assert result["name"] == "Darren"
+    assert 0.0 <= result["confidence"] <= 1.0
+    
+    result = _timed_call("recognize(Bao_2.wav)", recognizer.recognize, BAO_2)
+    print("[Action] recognize(Bao_2.wav) ->", result)
+    assert result["name"] == "Bao"
+    assert 0.0 <= result["confidence"] <= 1.0
 
 @pytest.mark.integration
 @pytest.mark.skipif(
@@ -155,7 +192,7 @@ def test_recognize_from_audio_chunks(tmp_path):
     print("==========================================test_recognize_from_audio_chunks==========================================")
     # Arrange
     db_path = tmp_path / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     _timed_call("register(Bao, Bao_1.wav)", recognizer.register, "Bao", BAO_1)
     _timed_call(
         "register(Khanh, 3 wavs)",
@@ -177,6 +214,20 @@ def test_recognize_from_audio_chunks(tmp_path):
     chunks_darren_4, sr_darren_4 = _timed_call("wav_to_chunks(record_4.wav)", _wav_to_chunks, DARREN_4, 0.5)
     print(f"\n[Arrange] Chunks from record_4.wav: count={len(chunks_darren_4)}, sr={sr_darren_4}")
 
+    # Khanh_4
+    chunks_khanh_4, sr_khanh_4 = _timed_call("wav_to_chunks(Khanh_4.wav)", _wav_to_chunks, KHANH_4, 0.5)
+    print(f"\n[Arrange] Chunks from Khanh_4.wav: count={len(chunks_khanh_4)}, sr={sr_khanh_4}")
+    
+    result_khanh_4 = _timed_call(
+        "recognize(chunks from Khanh_4.wav)",
+        recognizer.recognize,
+        chunks_khanh_4,
+        sr_khanh_4,
+    )
+    print("[Action] recognize(chunks Khanh_4.wav) ->", result_khanh_4)
+    assert result_khanh_4["name"] == "Khanh"
+    assert 0.0 <= result_khanh_4["confidence"] <= 1.0
+    
     # Action
     result_bao_2 = _timed_call(
         "recognize(chunks from Bao_2.wav)",
@@ -185,6 +236,8 @@ def test_recognize_from_audio_chunks(tmp_path):
         sr_bao_2,
     )
     print("[Action] recognize(chunks Bao_2.wav) ->", result_bao_2)
+    assert result_bao_2["name"] == "Bao"
+    assert 0.0 <= result_bao_2["confidence"] <= 1.0
 
     result_darren_4 = _timed_call(
         "recognize(chunks from record_4.wav)",
@@ -193,12 +246,9 @@ def test_recognize_from_audio_chunks(tmp_path):
         sr_darren_4,
     )
     print("[Action] recognize(chunks record_4.wav) ->", result_darren_4)
-
-    # Assert
-    assert result_bao_2["name"] == "Bao"
-    assert 0.0 <= result_bao_2["confidence"] <= 1.0    
     assert result_darren_4["name"] == "Darren"
     assert 0.0 <= result_darren_4["confidence"] <= 1.0
+    
 
 
 @pytest.mark.integration
@@ -210,7 +260,7 @@ def test_remove_speaker_success(tmp_path):
     print("==========================================test_remove_speaker_success==========================================")
     # Arrange
     db_path = DATA_DIR / "speaker_db_test_for_remove.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     _timed_call("register(Bao, Bao_1.wav)", recognizer.register, "Bao", BAO_1)
     _timed_call("register(Khanh, 3 wavs)", recognizer.register, "Khanh", [KHANH_1, KHANH_2, KHANH_3])
     _timed_call("register(Darren, 4 wavs)", recognizer.register, "Darren", [DARREN_0, DARREN_1, DARREN_2, DARREN_3])
@@ -234,7 +284,7 @@ def test_remove_speaker_not_found(tmp_path):
     print("==========================================test_remove_speaker_not_found==========================================")
     # Arrange
     db_path = tmp_path / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     _timed_call("register(Khanh, Khanh_1.wav)", recognizer.register, "Khanh", KHANH_1)
     print("\n[Arrange] Existing speakers:", list(recognizer.speaker_db.keys()))
 
@@ -255,7 +305,7 @@ def test_get_db():
     print("==========================================test_get_db==========================================")
     # Arrange
     db_path =  DATA_DIR / "speaker_db_test.json"
-    recognizer = AudioRecognizer(db_path=db_path)
+    recognizer = _make_recognizer(db_path=db_path)
     _timed_call("register(Bao, Bao_1.wav)", recognizer.register, "Bao", BAO_1)
     _timed_call(
         "register(Khanh, 3 wavs)",
@@ -287,7 +337,7 @@ def test_get_db():
 )
 def test_embed_from_audio_b64_local():
     print("==========================================test_embed_from_audio_b64_local==========================================")
-    recognizer = AudioRecognizer()
+    recognizer = _make_recognizer()
     audios_b64 = [_wav_file_to_b64(BAO_1), _wav_file_to_b64(BAO_2)]
 
     merged_chunks = []
