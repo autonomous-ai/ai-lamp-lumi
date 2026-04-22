@@ -384,9 +384,6 @@ async def lifespan(app: FastAPI):
 
             state.sensing_service = SensingService(
                 camera_capture=state.camera_capture,
-                sound_device_module=sd,
-                numpy_module=np,
-                cv2_module=cv2,
                 input_device=AUDIO_SENSING_DEVICE if AUDIO_SENSING_DEVICE is not None else state.audio_input_device,
                 poll_interval=float(os.environ.get("LELAMP_SENSING_INTERVAL", "2.0")),
                 rgb_service=state.rgb_service,

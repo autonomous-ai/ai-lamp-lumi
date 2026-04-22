@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Callable, override
 
 import insightface
-import lelamp.config as config
 import numpy as np
 import numpy.typing as npt
 import requests
+
+import lelamp.config as config
 
 from .base import Perception
 
@@ -50,13 +51,13 @@ class FaceRecognizer(Perception):
         self._cv2 = cv2
         self._on_motion = on_motion
 
-        self.threshold = threshold
-        self.negative_threshold = negative_threshold
-        self.max_strangers = max_strangers
-        self._stranger_counter = 0
+        self.threshold: float = threshold
+        self.negative_threshold: float | None = negative_threshold
+        self.max_strangers: int = max_strangers
+        self._stranger_counter: int = 0
 
-        self._owners_forget_ts = owners_forget_ts
-        self._strangers_forget_ts = strangers_forget_ts
+        self._owners_forget_ts: float = owners_forget_ts
+        self._strangers_forget_ts: float = strangers_forget_ts
 
         self._owners_last_seen: dict[str, float] = {}
         self._known_face_kinds: dict[str, str] = {}  # person_id → "friend"
@@ -77,13 +78,15 @@ class FaceRecognizer(Perception):
         self._any_stranger_logged: bool = False
         self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
-        self._face_present = False
-        self._faces_n = 0
+        self._face_present: bool = False
+        self._faces_n: int = 0
 
         # Stranger snapshot buffer — flushed every FACE_STRANGER_FLUSH_S
         # Each entry: (raw_frame, annotations[(bbox, kind, label), ...])
         self._stranger_flush_interval: float = config.FACE_STRANGER_FLUSH_S
-        self._stranger_buffer: list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]] = []
+        self._stranger_buffer: list[
+            tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]
+        ] = []
         self._stranger_ids_buffer: set[str] = set()
         self._last_stranger_flush_ts: float = 0.0
 
@@ -96,7 +99,12 @@ class FaceRecognizer(Perception):
         self._stranger_embeddings: np.ndarray | None = None
         self._stranger_labels: np.ndarray | None = None
 
+        self._callbacks: set[
+            Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
+        ] = set()
+
         import onnxruntime as ort
+
         ort.set_default_logger_severity(3)
         sess_opts = ort.SessionOptions()
         sess_opts.intra_op_num_threads = 1
@@ -108,6 +116,16 @@ class FaceRecognizer(Perception):
         self.app.prepare(ctx_id=-1)
 
         self._start_watcher()
+
+    def register_callback(
+        self, callback: Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
+    ):
+        self._callbacks.add(callback)
+
+    def unregister_callback(
+        self, callback: Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
+    ):
+        self._callbacks.discard(callback)
 
     def _start_watcher(self) -> None:
         """Poll USERS_DIR every 2s and reload embeddings when files change."""
@@ -197,7 +215,9 @@ class FaceRecognizer(Perception):
         return {}
 
     @staticmethod
-    def _write_metadata(person_dir: Path, telegram_username: str = "", telegram_id: str = "") -> None:
+    def _write_metadata(
+        person_dir: Path, telegram_username: str = "", telegram_id: str = ""
+    ) -> None:
         """Write metadata.json with telegram info."""
         meta_path = person_dir / "metadata.json"
         data: dict = {}
@@ -212,7 +232,13 @@ class FaceRecognizer(Perception):
             data["telegram_id"] = telegram_id
         meta_path.write_text(json.dumps(data))
 
-    def save_photo(self, image_bytes: bytes, label: str, telegram_username: str = "", telegram_id: str = "") -> str:
+    def save_photo(
+        self,
+        image_bytes: bytes,
+        label: str,
+        telegram_username: str = "",
+        telegram_id: str = "",
+    ) -> str:
         """Write JPEG bytes under USERS_DIR/{label}/ with a timestamp name."""
         norm = self.normalize_label(label)
         dest_dir = USERS_DIR / norm
@@ -266,7 +292,13 @@ class FaceRecognizer(Perception):
         )
         return n_enrolled
 
-    def enroll_from_bytes(self, image_bytes: bytes, label: str, telegram_username: str = "", telegram_id: str = "") -> str:
+    def enroll_from_bytes(
+        self,
+        image_bytes: bytes,
+        label: str,
+        telegram_username: str = "",
+        telegram_id: str = "",
+    ) -> str:
         """Decode image, save as JPEG on disk, and append embeddings."""
         norm = self.normalize_label(label)
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -528,6 +560,10 @@ class FaceRecognizer(Perception):
             self._evict_oldest_strangers()
             self._save_strangers_state()
 
+        for bbox, kind, person_id in face_annotations:
+            for callback in self._callbacks:
+                callback(frame, bbox, kind, person_id)
+
         self._faces_n = len(owners_seen) + len(strangers_seen)
         logger.info(
             f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
@@ -767,24 +803,28 @@ class FaceRecognizer(Perception):
             elapsed = now - last_seen
             remaining = max(0.0, self._owners_forget_ts - elapsed)
             kind = self._known_face_kinds.get(person_id, "friend")
-            owners.append({
-                "person_id": person_id,
-                "kind": kind,
-                "last_seen_ago": round(elapsed, 1),
-                "cooldown_remaining": round(remaining, 1),
-                "cooldown_total": self._owners_forget_ts,
-            })
+            owners.append(
+                {
+                    "person_id": person_id,
+                    "kind": kind,
+                    "last_seen_ago": round(elapsed, 1),
+                    "cooldown_remaining": round(remaining, 1),
+                    "cooldown_total": self._owners_forget_ts,
+                }
+            )
         strangers = []
         for person_id, last_seen in self._strangers_last_seen.items():
             elapsed = now - last_seen
             remaining = max(0.0, self._strangers_forget_ts - elapsed)
-            strangers.append({
-                "person_id": person_id,
-                "kind": "stranger",
-                "last_seen_ago": round(elapsed, 1),
-                "cooldown_remaining": round(remaining, 1),
-                "cooldown_total": self._strangers_forget_ts,
-            })
+            strangers.append(
+                {
+                    "person_id": person_id,
+                    "kind": "stranger",
+                    "last_seen_ago": round(elapsed, 1),
+                    "cooldown_remaining": round(remaining, 1),
+                    "cooldown_total": self._strangers_forget_ts,
+                }
+            )
         return {
             "owners": owners,
             "strangers": strangers,
@@ -835,7 +875,9 @@ class FaceRecognizer(Perception):
 
     def _flush_stranger_buffer(
         self, cur_ts: float
-    ) -> tuple[list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]], set[str]]:
+    ) -> tuple[
+        list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]], set[str]
+    ]:
         """Flush buffered stranger snapshots if the interval has elapsed.
 
         Returns ([(frame, annotations), ...], flushed_ids). Empty if not yet time to flush.
@@ -868,7 +910,9 @@ class FaceRecognizer(Perception):
             summary: Human-readable description of who was detected
                 (e.g. "friend (alice), stranger (stranger_3)").
         """
-        images = [self._annotate_frame(frame, annotations) for frame, annotations in frames]
+        images = [
+            self._annotate_frame(frame, annotations) for frame, annotations in frames
+        ]
         faces: set[tuple[str, str]] = set()
         for _, annotations in frames:
             for _, face_kind, label in annotations:
