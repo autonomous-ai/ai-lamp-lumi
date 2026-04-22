@@ -262,6 +262,8 @@ The sensing handler injects a `[context: current_user=X]` tag into every `motion
 
 Sorting by `session_start` (the timestamp of the re-enter after the last leave) rather than `last_seen` makes the answer deterministic when two friends are continuously present (Chloe 18:00, An 18:30 → An wins because her session started later), instead of depending on dict iteration order.
 
+**Source of truth lives in LeLamp.** `sensing_service._send_event` attaches `face_recognizer.current_user()` to every outbound payload as the `current_user` field. Lumi's sensing handler reads `req.CurrentUser` directly instead of parsing it back out of the message text — this closed a class of bugs where a stranger-only `presence.enter` fired while a friend was still present would downgrade Lumi's `mood.CurrentUser()` to `"unknown"`. Wellbeing `enter` / `leave` rows are now written only on **effective-user transitions** (old != new), so stranger flicker while a friend is present produces no log churn.
+
 The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`.
 
 ### Presence markers written by backend
