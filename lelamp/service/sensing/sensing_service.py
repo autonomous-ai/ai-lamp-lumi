@@ -374,7 +374,21 @@ class SensingService:
 
         logger.info("[sensing] %s: %s", event_type, message)
 
-        payload = {"type": event_type, "message": message}
+        payload: dict[str, object] = {"type": event_type, "message": message}
+        # Include LeLamp's effective current_user so Lumi handler doesn't
+        # have to re-derive it from the message text. Text parsing breaks
+        # when a stranger-only enter event fires while a friend is still
+        # present (extractUserName sees no friend in the message and
+        # downgrades mood.CurrentUser() to "unknown", even though the
+        # friend is still within forget window). LeLamp's current_user()
+        # is the source of truth — ship it.
+        if self._face_recognizer is not None:
+            try:
+                cu = self._face_recognizer.current_user() or ""
+            except Exception:
+                logger.exception("[sensing] face_recognizer.current_user() failed")
+                cu = ""
+            payload["current_user"] = cu
         logger.debug("[sensing] payload = %s", payload)
 
         try:
