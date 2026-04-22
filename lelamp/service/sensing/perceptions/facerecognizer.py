@@ -60,6 +60,13 @@ class FaceRecognizer(Perception):
         self._owners_last_seen: dict[str, float] = {}
         self._known_face_kinds: dict[str, str] = {}  # person_id → "friend"
         self._strangers_last_seen: dict[str, float] = {}
+        # Session-start = timestamp the person re-entered the scene after the
+        # previous leave (or first-ever detection). Unlike last_seen (updated
+        # every frame), this is set once on "fresh" detection and cleared on
+        # leave — so current_user() can pick the right friend when two are
+        # continuously present. See docs/plan-presence-logging.md.
+        self._owners_session_start: dict[str, float] = {}
+        self._strangers_session_start: dict[str, float] = {}
         self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
         self._face_present = False
@@ -445,6 +452,7 @@ class FaceRecognizer(Perception):
                 if last_seen is None or (cur_ts - last_seen) > self._owners_forget_ts:
                     owners_seen.add(person_id)
                     face_annotations.append((bbox, face_kind, person_id))
+                    self._owners_session_start[person_id] = cur_ts
                 else:
                     logger.debug(
                         f"Ignore friend(id={person_id}): seen in the last {cur_ts - last_seen:.2f} seconds"
@@ -466,6 +474,7 @@ class FaceRecognizer(Perception):
                 ):
                     strangers_seen.add(person_id)
                     face_annotations.append((bbox, "stranger", person_id))
+                    self._strangers_session_start[person_id] = cur_ts
                 else:
                     logger.debug(
                         f"Ignore stranger(id={person_id}): stranger has been seen in the last {cur_ts - last_seen:.2f} seconds"
@@ -482,6 +491,7 @@ class FaceRecognizer(Perception):
                 )
                 person_id = stranger_id.removeprefix(self.STRANGER_PREFIX)
                 self._strangers_last_seen[person_id] = cur_ts
+                self._strangers_session_start[person_id] = cur_ts
 
                 strangers_seen.add(person_id)
                 face_annotations.append((bbox, "stranger", person_id))
@@ -600,12 +610,14 @@ class FaceRecognizer(Perception):
         for person_id, last_seen in list(self._owners_last_seen.items()):
             if (cur_ts - last_seen) > self._owners_forget_ts:
                 del self._owners_last_seen[person_id]
+                self._owners_session_start.pop(person_id, None)
                 kind = self._known_face_kinds.pop(person_id, "friend")
                 self._send_leave_event(person_id, kind=kind)
 
         for person_id, last_seen in list(self._strangers_last_seen.items()):
             if (cur_ts - last_seen) > self._strangers_forget_ts:
                 del self._strangers_last_seen[person_id]
+                self._strangers_session_start.pop(person_id, None)
                 # self._send_leave_event(person_id, kind="stranger")
 
     def _send_leave_event(self, person_id: str, kind: str) -> None:
@@ -666,12 +678,16 @@ class FaceRecognizer(Perception):
 
     def current_user(self) -> str:
         """Return the name of the person currently "in front" of the lamp:
-        - Most recently seen friend if any friend is still within the forget window
-          (lowercased to match the Lumi per-user folder convention).
+        - Friend with the MOST RECENT session start (enter-after-last-leave)
+          among friends still within the forget window.
+          Lowercased to match the Lumi per-user folder convention.
         - "unknown" if no friend is visible but any stranger was seen within
           the stranger forget window (all strangers collapse to one bucket).
         - Empty string if nobody has been seen recently.
-        Used by motion dedup to reset the chain when the visible user changes.
+        Sorting by session_start (not last_seen) makes the answer deterministic
+        when two friends are both continuously present: whoever entered the
+        scene latest wins. last_seen ties at ~now while both remain visible,
+        so it can't distinguish them. See docs/plan-presence-logging.md.
         """
         now = time.time()
         best_friend: tuple[float, str] | None = None
@@ -680,8 +696,9 @@ class FaceRecognizer(Perception):
                 continue
             if self._known_face_kinds.get(person_id, "friend") != "friend":
                 continue
-            if best_friend is None or last_seen > best_friend[0]:
-                best_friend = (last_seen, person_id)
+            session_start = self._owners_session_start.get(person_id, last_seen)
+            if best_friend is None or session_start > best_friend[0]:
+                best_friend = (session_start, person_id)
         if best_friend is not None:
             return self.normalize_label(best_friend[1])
         for last_seen in self._strangers_last_seen.values():
@@ -729,6 +746,8 @@ class FaceRecognizer(Perception):
         self._owners_last_seen.clear()
         self._known_face_kinds.clear()
         self._strangers_last_seen.clear()
+        self._owners_session_start.clear()
+        self._strangers_session_start.clear()
         logger.info("Face recognition cooldowns reset")
 
     # -- Events -----------------------------------------------------------------
