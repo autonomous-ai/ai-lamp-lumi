@@ -115,7 +115,11 @@ def activate_scene(req: SceneRequest):
 
 @router.post("/scene/off", response_model=StatusResponse)
 def deactivate_scene():
-    """Deactivate current scene and return to idle state."""
+    """Deactivate current scene and return to idle state.
+
+    Reverses ALL peripheral changes made by scene activation:
+    servo hold, camera, mic, speaker, LED.
+    """
     if not state._active_scene:
         return {"status": "no_scene_active"}
 
@@ -131,6 +135,14 @@ def deactivate_scene():
     # Re-enable camera
     if state._camera_disabled:
         state._auto_camera_on("scene:off")
+
+    # Unmute mic + restart voice pipeline
+    if state._mic_muted:
+        state._mic_muted = False
+        state._mic_manual_override = False
+        if state.voice_service:
+            state.voice_service.start()
+        state.logger.info("Scene off: mic unmuted")
 
     # Unmute speaker
     if state._speaker_muted:
