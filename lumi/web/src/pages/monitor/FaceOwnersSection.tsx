@@ -16,9 +16,6 @@ interface CooldownState {
   strangers: CooldownEntry[];
   owners_forget_s: number;
   strangers_forget_s: number;
-  // Friend with newest session_start still in forget window, or "unknown"
-  // when only strangers present, or empty when nobody. Ships with /face/cooldowns.
-  current_user?: string;
 }
 
 function fmtCountdown(s: number): string {
@@ -34,10 +31,16 @@ export function FaceOwnersSection() {
   const [error, setError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Cooldown state
+  // Cooldown state (strangers/friends forget countdown — unrelated to
+  // current_user; /face/cooldowns is purely a debug view of detection state).
   const [cooldowns, setCooldowns] = useState<CooldownState | null>(null);
   const [cdError, setCdError] = useState(false);
   const [resetting, setResetting] = useState(false);
+
+  // Current user (effective user LeLamp sees right now). Polled separately
+  // from /face/current-user — this is the source used by Lumi handler,
+  // activity logging, and the "Here now" UI.
+  const [currentUser, setCurrentUser] = useState<string>("");
 
   // Enroll form state
   const [showEnroll, setShowEnroll] = useState(false);
@@ -129,6 +132,26 @@ export function FaceOwnersSection() {
     const t = setInterval(refreshCooldowns, 2000);
     return () => clearInterval(t);
   }, [refreshCooldowns]);
+
+  // Current user polling — every 2s, same cadence as cooldowns, but hits
+  // the dedicated /face/current-user endpoint so we don't re-derive it
+  // from the cooldown payload.
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const r = await fetch(`${HW}/face/current-user`);
+      if (!r.ok) return;
+      const j = await r.json();
+      setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
+    } catch {
+      // ignore — keep last known value
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCurrentUser();
+    const t = setInterval(refreshCurrentUser, 2000);
+    return () => clearInterval(t);
+  }, [refreshCurrentUser]);
 
   const handleResetCooldowns = async () => {
     setResetting(true);
@@ -289,18 +312,18 @@ export function FaceOwnersSection() {
             <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
               enrolled user{data.enrolled_count !== 1 ? "s" : ""}
             </span>
-            {cooldowns?.current_user && (
+            {currentUser && (
               <span style={{
                 marginLeft: "auto",
                 fontSize: 12,
                 padding: "4px 10px",
                 borderRadius: 6,
-                background: cooldowns.current_user === "unknown" ? "var(--lm-text-muted-bg, rgba(148,163,184,0.15))" : "rgba(45,212,191,0.18)",
-                color: cooldowns.current_user === "unknown" ? "var(--lm-text-muted)" : "var(--lm-teal)",
+                background: currentUser === "unknown" ? "var(--lm-text-muted-bg, rgba(148,163,184,0.15))" : "rgba(45,212,191,0.18)",
+                color: currentUser === "unknown" ? "var(--lm-text-muted)" : "var(--lm-teal)",
                 fontWeight: 700,
                 textTransform: "capitalize",
               }}>
-                👤 Here now: {cooldowns.current_user}
+                👤 Here now: {currentUser}
               </span>
             )}
           </div>
@@ -373,7 +396,7 @@ export function FaceOwnersSection() {
       {data && data.persons.length > 0 && (
         <div className="lm-grid-2">
           {data.persons.map((person) => {
-            const isCurrent = !!cooldowns?.current_user && cooldowns.current_user === person.label;
+            const isCurrent = !!currentUser && currentUser === person.label;
             const cardStyle: React.CSSProperties = isCurrent
               ? {
                   ...S.card,

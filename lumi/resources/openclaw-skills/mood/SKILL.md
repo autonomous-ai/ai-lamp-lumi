@@ -115,7 +115,7 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 
 ## User field
 
-- **Camera**: omit `user` — face recognition sets the current user. Verify with `GET http://127.0.0.1:5001/face/cooldowns` and read the `current_user` field in the response (friend name, `"unknown"` for strangers-only, or empty when nobody is present).
+- **Camera**: omit `user` — face recognition sets the current user. If you need to verify, query `GET http://127.0.0.1:5001/face/current-user` → `{"current_user": "<name>"}` (friend name, `"unknown"` for strangers-only, or empty string when nobody is present). Do NOT parse this out of `/face/cooldowns` — that endpoint is for the friend/stranger cooldown debug view, not for attribution.
 - **Telegram**: extract from `[telegram:SenderName]`, lowercase.
 - **Voice**: omit (logged as `unknown`).
 
