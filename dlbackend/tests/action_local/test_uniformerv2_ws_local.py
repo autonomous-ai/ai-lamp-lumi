@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from core.actionanalysis.uniformerv2 import UniformerV2Model
+from core.action.uniformerv2 import UniformerV2Model
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
