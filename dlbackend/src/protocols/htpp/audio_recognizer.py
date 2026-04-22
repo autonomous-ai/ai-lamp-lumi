@@ -13,7 +13,10 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, model_validator
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from core.audio_recognition.audio_recognizer import AudioRecognizer
+from core.audio_recognition.audio_recognizer import (
+    BaseAudioRecognizer,
+    create_audio_recognizer,
+)
 
 
 def _is_multipart_file(value: object) -> bool:
@@ -130,15 +133,15 @@ class EmbedAudioResponse(BaseModel):
 
 
 router = APIRouter(tags=["audio-recognizer"])
-_audio_recognizer: AudioRecognizer | None = None
+_audio_recognizer: BaseAudioRecognizer | None = None
 
 
-def _get_audio_recognizer() -> AudioRecognizer:
+def _get_audio_recognizer() -> BaseAudioRecognizer:
     global _audio_recognizer
     if _audio_recognizer is not None:
         return _audio_recognizer
     try:
-        _audio_recognizer = AudioRecognizer()
+        _audio_recognizer = create_audio_recognizer()
         return _audio_recognizer
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Audio recognizer is unavailable: {exc}") from exc

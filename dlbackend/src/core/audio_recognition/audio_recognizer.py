@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, TYPE_CHECKING, Union
+from typing import Any, Dict, Iterable, List, Sequence, Type, TYPE_CHECKING, Union
 from collections import defaultdict
 import shutil
 import urllib.request
@@ -29,13 +30,14 @@ except ImportError:  # pragma: no cover - handled at runtime
 if TYPE_CHECKING:
     import onnxruntime as ort_types
 from .speaker_db import BaseSpeakerDB, SpeakerDB
+from . import audio_preprocess
+
+logger = logging.getLogger(__name__)
 
 AudioInput = Union[str, Path]
 ChunkType = Union[np.ndarray, Sequence[float]]
 
 AUDIO_RECOGNITION_BASE_DIR = Path(__file__).parent
-DEFAULT_LOCAL_MODEL_PATH = AUDIO_RECOGNITION_BASE_DIR / "models" / "wespeaker-voxceleb-resnet34/" / "voxceleb_resnet34_LM.onnx"
-DEFAULT_REMOTE_MODEL_PATH = "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx"
 DEFAULT_DB_PATH = AUDIO_RECOGNITION_BASE_DIR / "speaker_db" / "speaker_db.json"
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_WINDOW_TYPE = "hamming"
@@ -45,14 +47,37 @@ DEFAULT_INTRA_OP_THREADS = 4
 DEFAULT_BATCH_SIZE = 8
 DEFAULT_MAX_SECOND = 4.0
 
+# Robust embedding preprocessing defaults (see audio_preprocess.py).
+DEFAULT_USE_NOISEREDUCE = True
+DEFAULT_USE_VAD = True
+DEFAULT_USE_HPF = True
+DEFAULT_USE_RMS_NORMALIZE = True
+DEFAULT_HPF_CUTOFF_HZ = 80.0
+DEFAULT_RMS_TARGET = 0.1
 
-class AudioRecognizer:
-    """ONNX speaker recognition service using NumPy-based preprocessing.
+# Short-chunk + fine-stride windowing applied at embedding time. Kept small
+# so 0.3-1s interferer words get isolated into a minority of chunks.
+DEFAULT_CHUNK_SEC = 1.0
+DEFAULT_STRIDE_SEC = 0.25
+DEFAULT_MIN_CHUNK_SEC = 0.4
 
-    The service loads an ONNX embedding model, computes log-mel filterbank
-    features, stores enrolled speaker embeddings locally, and returns
-    speaker name/confidence for recognition requests.
+# Environment variable used by `create_audio_recognizer` to pick the engine.
+ENV_AUDIO_RECOGNIZER_ENGINE = "AUDIO_RECOGNIZER_ENGINE"
+
+
+class BaseAudioRecognizer:
+    """ONNX speaker recognition base service using NumPy-based preprocessing.
+
+    Concrete engines (WeSpeaker ResNet34, ECAPA-TDNN-512, ...) are implemented
+    as subclasses overriding ``ENGINE_NAME``, ``DEFAULT_REMOTE_MODEL_PATH`` and
+    ``DEFAULT_LOCAL_MODEL_PATH``. All other logic (fbank extraction, ONNX
+    session, register / recognize, batching, aggregation) is shared here.
     """
+
+    # Subclasses must override.
+    ENGINE_NAME: str = "base"
+    DEFAULT_REMOTE_MODEL_PATH: str = ""
+    DEFAULT_LOCAL_MODEL_PATH: Path = Path("")
 
     def __init__(
         self,
@@ -65,6 +90,16 @@ class AudioRecognizer:
         intra_op_threads: int = DEFAULT_INTRA_OP_THREADS,
         batch_size: int = DEFAULT_BATCH_SIZE,
         max_second: float = DEFAULT_MAX_SECOND,
+        *,
+        use_noisereduce: bool = DEFAULT_USE_NOISEREDUCE,
+        use_vad: bool = DEFAULT_USE_VAD,
+        use_hpf: bool = DEFAULT_USE_HPF,
+        use_rms_normalize: bool = DEFAULT_USE_RMS_NORMALIZE,
+        hpf_cutoff_hz: float = DEFAULT_HPF_CUTOFF_HZ,
+        rms_target: float = DEFAULT_RMS_TARGET,
+        chunk_sec: float = DEFAULT_CHUNK_SEC,
+        stride_sec: float = DEFAULT_STRIDE_SEC,
+        min_chunk_sec: float = DEFAULT_MIN_CHUNK_SEC,
     ) -> None:
         """
         Args:
@@ -77,6 +112,15 @@ class AudioRecognizer:
             intra_op_threads: ONNX Runtime intra-op thread count.
             batch_size: Mini-batch size for ONNX embedding inference.
             max_second: Max duration (seconds) per sample before embedding.
+            use_noisereduce: Enable Layer 0 noise reduction before embedding.
+            use_vad: Enable silero-VAD to keep only speech regions.
+            use_hpf: Enable 80 Hz high-pass filter (rumble / DC removal).
+            use_rms_normalize: Scale waveform to a fixed RMS loudness.
+            hpf_cutoff_hz: High-pass cutoff frequency in Hz.
+            rms_target: Target RMS magnitude after normalization.
+            chunk_sec: Window length (seconds) for short-chunk embedding.
+            stride_sec: Hop size (seconds) for short-chunk embedding.
+            min_chunk_sec: Minimum chunk length kept after windowing.
         """
         self.model_path = self._prepare_model(model_path)
         self.db_path = Path(db_path)
@@ -87,23 +131,51 @@ class AudioRecognizer:
         self.batch_size = max(1, int(batch_size))
         self.max_second = float(max_second)
 
+        # Robust-embedding config (see audio_preprocess.py).
+        self.use_noisereduce = bool(use_noisereduce)
+        self.use_vad = bool(use_vad)
+        self.use_hpf = bool(use_hpf)
+        self.use_rms_normalize = bool(use_rms_normalize)
+        self.hpf_cutoff_hz = float(hpf_cutoff_hz)
+        self.rms_target = float(rms_target)
+        self.chunk_sec = float(chunk_sec)
+        self.stride_sec = float(stride_sec)
+        self.min_chunk_sec = float(min_chunk_sec)
+
         self.session = self._create_session(self.model_path, intra_op_threads)
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
         self.db: BaseSpeakerDB = SpeakerDB(db_path)
+
+        # Visibility: surface which engine + model path is loaded. Use the
+        # standard logger so callers can route it, and also print() so CLI
+        # users see it even without a logging config.
+        msg = (
+            f"[AudioRecognizer] engine='{self.ENGINE_NAME}' "
+            f"class={type(self).__name__} model_path={self.model_path}"
+        )
+        logger.info(msg)
+        print(msg, flush=True)
 
     def _prepare_model(self, model_path: str | None = None) -> str:
         """Prepares and ensures local model file is present. If not,
         downloads from remote and saves to default local path.
 
         Args:
-            model_path: Path to local model file or remote URL.
+            model_path: Path to local model file or remote URL. When ``None``,
+                falls back to engine defaults declared on the subclass.
 
         Returns:
             Path string to actual local model.
         """
-        default_local = DEFAULT_LOCAL_MODEL_PATH
-        default_remote = DEFAULT_REMOTE_MODEL_PATH
+        default_local = Path(self.DEFAULT_LOCAL_MODEL_PATH)
+        default_remote = self.DEFAULT_REMOTE_MODEL_PATH
+
+        if not str(default_local) or not default_remote:
+            raise RuntimeError(
+                f"Engine '{self.ENGINE_NAME}' is missing DEFAULT_LOCAL_MODEL_PATH "
+                "or DEFAULT_REMOTE_MODEL_PATH. Use a concrete subclass."
+            )
 
         def download_to_local(url, dest_path: Path) -> None:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,9 +183,12 @@ class AudioRecognizer:
                 shutil.copyfileobj(response, out_file)
 
         if model_path is None:
-            warnings.warn("model_path is None, switching to default local model path at", UserWarning)
+            warnings.warn(
+                f"model_path is None, switching to default local model path at {default_local}",
+                UserWarning,
+            )
             model_path = str(default_local)
- 
+
         if isinstance(model_path, Path):
             model_path = str(model_path)
         if model_path.startswith("http"):
@@ -283,27 +358,81 @@ class AudioRecognizer:
                 segments.append(seg.astype(np.float32))
         return segments
 
+    def _preprocess_waveform_for_embedding(self, waveform: np.ndarray) -> np.ndarray:
+        """Run Layer 0 (noise reduce) + Layer 1 (HPF / VAD / RMS) pipeline.
+
+        If VAD strips the whole signal, retry without VAD so downstream
+        aggregation still has something to work with (weighted aggregation
+        will down-weight the noisy chunks anyway).
+        """
+        arr = np.asarray(waveform, dtype=np.float32)
+        if arr.size == 0:
+            return arr
+        clean = audio_preprocess.preprocess_waveform(
+            arr,
+            self.sample_rate,
+            use_noisereduce=self.use_noisereduce,
+            use_vad=self.use_vad,
+            use_hpf=self.use_hpf,
+            use_rms=self.use_rms_normalize,
+            hpf_cutoff_hz=self.hpf_cutoff_hz,
+            rms_target=self.rms_target,
+        )
+        if clean.size == 0 and self.use_vad:
+            clean = audio_preprocess.preprocess_waveform(
+                arr,
+                self.sample_rate,
+                use_noisereduce=self.use_noisereduce,
+                use_vad=False,
+                use_hpf=self.use_hpf,
+                use_rms=self.use_rms_normalize,
+                hpf_cutoff_hz=self.hpf_cutoff_hz,
+                rms_target=self.rms_target,
+            )
+        return clean if clean.size > 0 else arr
+
+    def _preprocess_and_chunk(self, waveform: np.ndarray) -> List[np.ndarray]:
+        """Preprocess then slice into short, overlapping chunks for embedding."""
+        clean = self._preprocess_waveform_for_embedding(waveform)
+        if clean.size == 0:
+            return []
+        return audio_preprocess.chunk_with_stride(
+            clean,
+            self.sample_rate,
+            chunk_sec=self.chunk_sec,
+            stride_sec=self.stride_sec,
+            min_chunk_sec=self.min_chunk_sec,
+        )
+
     def _prepare_waveforms_from_paths(self, wav_paths: List[AudioInput]) -> List[np.ndarray]:
-        """Load wav paths and split long samples into max-second chunks."""
+        """Load wav paths, apply embedding preprocessing, emit short chunks."""
         out: List[np.ndarray] = []
         for path in wav_paths:
             waveform = self._load_waveform(path)
-            out.extend(self._split_waveform_by_max_seconds(waveform))
+            out.extend(self._preprocess_and_chunk(waveform))
         return out
 
     def _prepare_waveforms_from_chunks(
         self, chunks: List[ChunkType], chunk_sample_rate: int
     ) -> List[np.ndarray]:
-        """Convert chunk list to 1D waveforms and split by max-second."""
-        out: List[np.ndarray] = []
+        """Concatenate input chunks, preprocess, then emit short chunks.
+
+        Incoming ``chunks`` are often mic frames (20-40 ms each). We join
+        them into one waveform so VAD / noise reduce / RMS see the full
+        signal, then re-chunk with the embedding-time window.
+        """
+        pieces: List[np.ndarray] = []
         for chunk in chunks:
             arr = self._chunk_to_numpy(chunk)
             if arr.size == 0:
                 continue
             if chunk_sample_rate != self.sample_rate:
                 arr = self._resample(arr, orig_sr=chunk_sample_rate, new_sr=self.sample_rate)
-            out.extend(self._split_waveform_by_max_seconds(arr))
-        return out
+            pieces.append(arr)
+        if not pieces:
+            return []
+        waveform = np.concatenate(pieces).astype(np.float32)
+        return self._preprocess_and_chunk(waveform)
 
     def _extract_embeddings_from_paths_batch(self, wav_paths: List[AudioInput]) -> List[np.ndarray]:
         """Extract embeddings from many paths using batched ONNX inference.
@@ -387,12 +516,15 @@ class AudioRecognizer:
         return float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
 
     def _aggregate_embeddings(self, embeddings: List[np.ndarray]) -> np.ndarray:
-        """Aggregate multiple embeddings via median centroid + L2 normalization."""
+        """Attentive aggregation via self-consistency weights + L2 normalize.
+
+        Each chunk embedding is weighted by its cosine similarity to the
+        provisional median centroid, so a handful of interferer chunks
+        contribute negligibly to the final vector.
+        """
         if not embeddings:
             raise ValueError("No embeddings to aggregate.")
-        stack = np.stack([self._l2_normalize(e) for e in embeddings], axis=0)  # [N, D]
-        median_vec = np.median(stack, axis=0).astype(np.float32)
-        return self._l2_normalize(median_vec)
+        return audio_preprocess.weighted_aggregate(embeddings)
 
     @staticmethod
     def _chunk_to_numpy(chunk: ChunkType) -> np.ndarray:
@@ -486,15 +618,21 @@ class AudioRecognizer:
         vote_count: Dict[str, int] = defaultdict(int)
         conf_sum: Dict[str, float] = defaultdict(float)
 
-        for query_emb in query_embs:
+        import logging
+
+        for idx, query_emb in enumerate(query_embs):
             seg_best_name = ""
             seg_best_conf = 0.0
+            confidences_for_this_query = {}
             for name, ref_emb in self.db.items():
                 cos = self._cosine_similarity(query_emb, ref_emb)
                 confidence = (cos + 1.0) / 2.0
+                confidences_for_this_query[name] = confidence
                 if confidence > seg_best_conf:
                     seg_best_conf = confidence
                     seg_best_name = name
+            # Log confidence for all speakers for this query
+            logging.info(f"[AudioRecognizer] Query {idx}: confidences per speaker: {confidences_for_this_query}")
             if seg_best_name:
                 vote_count[seg_best_name] += 1
                 conf_sum[seg_best_name] += seg_best_conf
@@ -505,9 +643,97 @@ class AudioRecognizer:
         best_name = max(vote_count.keys(), key=lambda n: (vote_count[n], conf_sum[n] / vote_count[n]))
         avg_conf = conf_sum[best_name] / max(1, vote_count[best_name])
         return {"name": best_name, "confidence": float(avg_conf)}
+ 
 
     @property
     def speaker_db(self) -> Dict[str, np.ndarray]:
         """Compatibility view for existing callers/tests."""
         return self.db.to_dict()
+
+
+class WeSpeakerResNet34Recognizer(BaseAudioRecognizer):
+    """WeSpeaker VoxCeleb ResNet34-LM engine (256-dim embedding)."""
+
+    ENGINE_NAME = "wespeaker-resnet34"
+    DEFAULT_REMOTE_MODEL_PATH = (
+        "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx"
+    )
+    DEFAULT_LOCAL_MODEL_PATH = (
+        AUDIO_RECOGNITION_BASE_DIR
+        / "models"
+        / "wespeaker-voxceleb-resnet34-LM"
+        / "voxceleb_resnet34_LM.onnx"
+    )
+
+
+class EcapaTdnn512Recognizer(BaseAudioRecognizer):
+    """WeSpeaker VoxCeleb ECAPA-TDNN-512-LM engine (emb-192, c512 channels).
+
+    Input pipeline is identical to WeSpeaker ResNet34 (80-dim Kaldi fbank,
+    16kHz mono), so only the ONNX weights differ.
+    """
+
+    ENGINE_NAME = "ecapa-tdnn512"
+    DEFAULT_REMOTE_MODEL_PATH = (
+        "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/voxceleb_ECAPA512_LM.onnx"
+    )
+    DEFAULT_LOCAL_MODEL_PATH = (
+        AUDIO_RECOGNITION_BASE_DIR
+        / "models"
+        / "wespeaker-ecapa-tdnn512-LM"
+        / "voxceleb_ECAPA512_LM.onnx"
+    )
+
+
+# Registry of all concrete engines. Keyed by ENGINE_NAME for env-based lookup.
+AUDIO_RECOGNIZER_ENGINES: Dict[str, Type[BaseAudioRecognizer]] = {
+    WeSpeakerResNet34Recognizer.ENGINE_NAME: WeSpeakerResNet34Recognizer,
+    EcapaTdnn512Recognizer.ENGINE_NAME: EcapaTdnn512Recognizer,
+}
+
+DEFAULT_AUDIO_RECOGNIZER_ENGINE = WeSpeakerResNet34Recognizer.ENGINE_NAME
+
+
+def resolve_engine_name(engine: str | None = None) -> str:
+    """Pick engine name from explicit arg, env var, or default."""
+    if engine:
+        return engine.strip().lower()
+    env_value = os.getenv(ENV_AUDIO_RECOGNIZER_ENGINE, "").strip().lower()
+    return env_value or DEFAULT_AUDIO_RECOGNIZER_ENGINE
+
+
+def create_audio_recognizer(
+    engine: str | None = None, **kwargs: Any
+) -> BaseAudioRecognizer:
+    """Instantiate the configured speaker recognition engine.
+
+    Selection order:
+        1. Explicit ``engine`` argument.
+        2. Env var ``AUDIO_RECOGNIZER_ENGINE``.
+        3. ``DEFAULT_AUDIO_RECOGNIZER_ENGINE`` (WeSpeaker ResNet34).
+
+    Args:
+        engine: Engine identifier. See ``AUDIO_RECOGNIZER_ENGINES`` keys.
+        **kwargs: Forwarded to the engine constructor.
+    """
+    name = resolve_engine_name(engine)
+    cls = AUDIO_RECOGNIZER_ENGINES.get(name)
+    if cls is None:
+        available = ", ".join(sorted(AUDIO_RECOGNIZER_ENGINES.keys()))
+        raise ValueError(
+            f"Unknown audio recognizer engine '{name}'. Available: {available}"
+        )
+    source = (
+        "arg" if engine
+        else ("env" if os.getenv(ENV_AUDIO_RECOGNIZER_ENGINE) else "default")
+    )
+    msg = (
+        f"[AudioRecognizer] create_audio_recognizer engine='{name}' "
+        f"source={source} class={cls.__name__}"
+    )
+    logger.info(msg)
+    print(msg, flush=True)
+    return cls(**kwargs)
+
+AudioRecognizer = WeSpeakerResNet34Recognizer
 
