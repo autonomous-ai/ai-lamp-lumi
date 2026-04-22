@@ -7,10 +7,16 @@ description: Proactive hydration and break reminders. Use when a motion.activity
 
 ## ⛔ Output Format — READ FIRST
 
-Your visible reply MUST be exactly one of:
+Wrap the ONE short caring sentence you want Lumi to say aloud in `<say>...</say>` tags.
+For no reply, output `<say></say>` (empty tag).
 
-1. `NO_REPLY`
-2. ONE short caring sentence (e.g. *"Grab some water?"*)
+All reasoning, deltas, timestamps, and math stay in the `thinking` block — think as long
+as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
+those tags is scratch and is discarded.
+
+Examples:
+- Nudge: `<say>Been at the screen — grab a glass of water?</say>`
+- Skip:  `<say></say>`
 
 ## Gotchas (concrete facts, NOT suggestions)
 
