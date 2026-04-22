@@ -107,6 +107,20 @@ The reset rules in Step 3 keep this from spamming — once you nudge, the `nudge
 
 **Trust the log, not memory.** If the wellbeing history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory that claims otherwise. Memory is unreliable across turns; the log is the source of truth.
 
+### Step 4b — Habit-based proactive check (optional, after Step 4)
+
+If no threshold nudge fired in Step 4, check habit patterns for a proactive nudge:
+
+1. Read `/root/local/users/{current_user}/habit/patterns.json`. If the file doesn't exist, skip.
+2. Check `updated_at` — if older than 6 hours, invoke the `habit` skill to rebuild patterns first.
+3. For each entry in `wellbeing_patterns` with `strength` moderate or strong:
+   - Is the current time within `typical_hour:typical_minute ± window_minutes`?
+   - Has the `action` already appeared in today's log? If yes, skip.
+   - Has a `nudge_*` for this action already been logged today? If yes, skip.
+4. If a habit-based nudge fires, speak it and log the nudge (same as Step 5). Do NOT double-nudge if a threshold nudge already fired in Step 4.
+
+This adds **predictive** nudging on top of the existing **threshold** nudging. Example: Leo usually drinks at 9am — at 9:15 with no `drink` entry today, nudge even if the hydration threshold hasn't been crossed yet.
+
 ### Ground the nudge in the current raw label
 
 The triggering `motion.activity` lists the raw Kinetics labels the user is doing right now. Tailor the nudge to the most specific sedentary label present so the reminder feels observed, not generic. Vary wording each time — never repeat verbatim.
