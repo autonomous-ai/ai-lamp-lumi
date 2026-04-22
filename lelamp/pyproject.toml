@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "deepgram-sdk>=6.0.0",
-    "onnxruntime>=1.16.0",
+    "onnxruntime>=1.16.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "feetech-servo-sdk>=1.0.0",
-    "lerobot>=0.3.3",
+    "lerobot>=0.3.3; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "livekit-agents[openai]~=1.2",
     "livekit-plugins-noise-cancellation~=0.2",
     "numpy>=2.2.6",
@@ -26,10 +26,26 @@ dependencies = [
     "yt-dlp>=2025.3.0",
     "Pillow>=10.0.0",
     "opencv-python>=4.8.0",
-    "insightface>=0.7.3",
     "soundfile>=0.12",
     "scipy>=1.8",
     "sounddevice",
+    "insightface>=0.7.3; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.23.2",
+    "insightface>=0.7.3",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["lelamp"]
+
+[tool.uv]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [tool.uv.sources]

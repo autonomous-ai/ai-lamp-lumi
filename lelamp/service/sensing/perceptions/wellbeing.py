@@ -22,10 +22,9 @@ class WellbeingPerception(Perception):
 
     def __init__(
         self,
+        perception_state,
         cv2,
         send_event: Callable,
-        presence_service,
-        capture_stable_frame: Callable,
         # Accept old params for backwards compat (all ignored)
         hydration_interval_s: float = 0,
         break_interval_s: float = 0,

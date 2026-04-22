@@ -7,12 +7,21 @@ import time
 from pathlib import Path
 from typing import Callable, override
 
+import cv2
 import insightface
 import numpy as np
 import numpy.typing as npt
+import onnxruntime as ort
 import requests
 
 import lelamp.config as config
+from service.sensing.perceptions.models import (
+    Face,
+    PerceptionStateObservers,
+    PersonKind,
+)
+from service.sensing.perceptions.typing import SendEventCallable
+from service.sensing.presence_service import PresenceService
 
 from .base import Perception
 
@@ -29,7 +38,261 @@ STRANGER_STATE_DIR.mkdir(exist_ok=True, parents=True)
 _STRANGER_STATS_FILE = USERS_DIR / ".stranger_stats.json"
 
 
-class FaceRecognizer(Perception):
+class FaceRecognizer:
+    FRIEND_PREFIX: str = "friend_"
+    STRANGER_PREFIX: str = "stranger_"
+
+    def __init__(
+        self,
+        threshold: float = 0.4,
+        negative_threshold: float | None = 0.2,
+        max_strangers: int = 50,
+        model_name: str = "buffalo_sc",
+    ):
+        self._threshold: float = threshold
+        self._negative_threshold: float | None = negative_threshold
+        self._max_strangers: int = max_strangers
+        self._model_name: str = model_name
+
+        self._app: insightface.app.FaceAnalysis | None = None
+        self._owner_embeddings: npt.NDArray[np.float32] | None = None
+        self._owner_labels: npt.NDArray[np.str_] | None = None
+        self._stranger_counter: int = 0
+        self._stranger_embeddings: npt.NDArray[np.float32] | None = None
+        self._stranger_labels: npt.NDArray[np.str_] | None = None
+
+        self._running: bool = False
+        self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
+
+    def start(self):
+        if self._running:
+            self._logger.info(
+                "[%s] service has been already started", self.__class__.__name__
+            )
+            return
+
+        sess_opts = ort.SessionOptions()
+        sess_opts.intra_op_num_threads = 1
+        sess_opts.inter_op_num_threads = 1
+
+        self._app = insightface.app.FaceAnalysis(
+            name=self._model_name, session_options=sess_opts
+        )
+        self._app.prepare(ctx_id=-1)
+
+    def register(
+        self,
+        images: list[cv2.typing.MatLike],
+        labels: list[int | str],
+    ) -> None:
+        if self._app is None:
+            msg = f"[{self.__class__.__name__}] service must be started first"
+            raise RuntimeError(msg)
+
+        prefixed_labels = [self.FRIEND_PREFIX + str(lbl) for lbl in labels]
+        new_embeddings = []
+        new_labels = []
+        for image, label in zip(images, prefixed_labels):
+            results = self._app.get(image)
+            for r in results:
+                emb = r["embedding"]
+                new_embeddings.append(emb / np.linalg.norm(emb))
+                new_labels.append(label)
+
+        if new_embeddings:
+            stacked_e = np.stack(new_embeddings, axis=0)
+            stacked_l = np.stack(new_labels, axis=0)
+            self._owner_embeddings = (
+                np.concatenate([self._owner_embeddings, stacked_e])
+                if self._owner_embeddings is not None
+                else stacked_e
+            )
+            self._owner_labels = (
+                np.concatenate([self._owner_labels, stacked_l])
+                if self._owner_labels is not None
+                else stacked_l
+            )
+            logger.info(
+                "Added %d faces — total enrolled: %d, total strangers: %d",
+                len(new_embeddings),
+                len(self._owner_embeddings),
+                len(self._stranger_embeddings)
+                if self._stranger_embeddings is not None
+                else 0,
+            )
+
+    def _retrieve(
+        self,
+        embeds: npt.NDArray[np.float32],
+        bank: npt.NDArray[np.float32] | None,
+        labels: npt.NDArray[np.str_] | None,
+    ) -> tuple[npt.NDArray[np.float32], list[str | None]]:
+        scores: npt.NDArray[np.float32] = np.empty(0, dtype=np.float32)
+        ids: list[str | None] = []
+
+        if bank is not None and labels is not None:
+            sim = embeds @ bank.T
+            best = sim.argmax(axis=-1)
+            scores = np.array([sim[i, best[i]] for i in range(len(embeds))])
+            ids = [str(labels[best[i]]) for i in range(len(embeds))]
+        else:
+            scores = np.full(embeds.shape[0], _NO_MATCH)
+            ids = [None] * embeds.shape[0]
+
+        return scores, ids
+
+    def detect(self, frame: cv2.typing.MatLike):
+        if self._app is None:
+            msg = f"[{self.__class__.__name__}] service must be started first"
+            raise RuntimeError(msg)
+
+        cur_ts = time.time()
+
+        raw_results = self._app.get(frame)
+        n_faces = len(raw_results)
+
+        if n_faces == 0:
+            return
+
+        embeds: npt.NDArray[np.float32] = np.stack(
+            [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
+        )
+
+        owner_scores, owner_ids = self._retrieve(
+            embeds, self._owner_embeddings, self._owner_labels
+        )
+
+        self._load_strangers_state()
+        stranger_scores, stranger_ids = self._retrieve(
+            embeds, self._stranger_embeddings, self._stranger_labels
+        )
+
+        new_stranger_embeds = []
+        new_stranger_labels = []
+        owners_seen = set()
+        strangers_seen = set()
+        # per-face: (bbox_pixels, face_kind, label)  face_kind: "friend"|"stranger"|"unsure"
+        face_annotations: list[Face] = []
+
+        for i in range(n_faces):
+            o_score = float(owner_scores[i])
+            s_score = float(stranger_scores[i])
+            bbox = [int(v) for v in raw_results[i]["bbox"]]
+
+            if o_score > self._threshold:
+                raw_id = owner_ids[i] or ""
+                person_id = raw_id.removeprefix(self.FRIEND_PREFIX)
+                face_kind = PersonKind.FRIEND
+            elif s_score > self._threshold:
+                raw_id = stranger_ids[i] or ""
+                person_id = raw_id.removeprefix(self.STRANGER_PREFIX)
+                face_kind = PersonKind.STRANGER
+            elif (
+                self._negative_threshold is None
+                or max(o_score, s_score) <= self._negative_threshold
+            ):
+                self._stranger_counter += 1
+                self._stranger_counter %= int(1e6)
+
+                raw_id = f"{self.STRANGER_PREFIX}stranger_{self._stranger_counter}"
+                person_id = raw_id.removeprefix(self.STRANGER_PREFIX)
+                face_kind = PersonKind.STRANGER
+
+                new_stranger_embeds.append(embeds[i])
+                new_stranger_labels.append(raw_id)
+            else:
+                # Score between negative_threshold and threshold on both banks — unsure
+                person_id = "?"
+                face_kind = PersonKind.UNSURE
+
+            face_annotations.append(
+                Face(bbox=bbox, kind=face_kind, person_id=person_id)
+            )
+
+        if new_stranger_embeds:
+            stacked_e = np.stack(new_stranger_embeds, axis=0)
+            stacked_l = np.stack(new_stranger_labels, axis=0)
+            self._stranger_embeddings = (
+                np.concatenate([self._stranger_embeddings, stacked_e])
+                if self._stranger_embeddings is not None
+                else stacked_e
+            )
+            self._stranger_labels = (
+                np.concatenate([self._stranger_labels, stacked_l])
+                if self._stranger_labels is not None
+                else stacked_l
+            )
+            self._evict_oldest_strangers()
+            self._save_strangers_state()
+
+        for bbox, kind, person_id in face_annotations:
+            for callback in self._callbacks:
+                callback(frame, bbox, kind, person_id)
+
+        self._faces_n = len(owners_seen) + len(strangers_seen)
+        logger.info(
+            f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
+        )
+        self._face_present = self._faces_n > 0
+
+        # "unknown" session enter: fire once when the first stranger appears
+        # and stays un-logged until all strangers leave. Keeps multiple
+        # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
+        # into one session row for the "unknown" user timeline.
+        if strangers_seen and not self._any_stranger_logged:
+            self._post_wellbeing("unknown", "enter")
+            self._any_stranger_logged = True
+
+        if self._face_present:
+            self._on_motion()
+
+        # Strangers: always buffer snapshots; flush decides when to send
+        if strangers_seen:
+            stranger_annotations = [
+                (bbox, kind, label)
+                for bbox, kind, label in face_annotations
+                if kind == "stranger"
+            ]
+            self._stranger_buffer.append((frame.copy(), stranger_annotations))
+            self._stranger_ids_buffer.update(strangers_seen)
+            self._track_stranger_visits(strangers_seen)
+
+        flushed_snapshots, flushed_ids = self._flush_stranger_buffer(cur_ts)
+
+        # Build annotations to send: friends always, strangers only on flush
+        owner_annotations = [
+            (bbox, kind, label)
+            for bbox, kind, label in face_annotations
+            if kind == "friend"
+        ]
+        annotations_to_send = list(owner_annotations)
+        if flushed_ids:
+            annotations_to_send += [
+                (bbox, kind, label)
+                for bbox, kind, label in face_annotations
+                if kind == "stranger"
+            ]
+
+        if annotations_to_send:
+            friends_in_frame = {
+                name for _, kind, name in annotations_to_send if kind == "friend"
+            }
+            strangers_in_frame = flushed_ids
+            parts = []
+            if friends_in_frame:
+                parts.append(f"friend ({', '.join(friends_in_frame)})")
+            if strangers_in_frame:
+                parts.append(f"stranger ({', '.join(strangers_in_frame)})")
+            summary = ", ".join(parts)
+            self._send_enter_event(
+                frames=[(frame, annotations_to_send)] + flushed_snapshots,
+                summary=summary,
+            )
+
+        self._check_leaves(cur_ts)
+
+
+class FacePerception(Perception[cv2.typing.MatLike]):
     """InsightFace-based face recognizer. Detects friends and strangers, fires presence events."""
 
     FRIEND_PREFIX: str = "friend_"
@@ -37,44 +300,48 @@ class FaceRecognizer(Perception):
 
     def __init__(
         self,
-        cv2,
-        send_event: Callable,
-        on_motion: Callable,
+        perception_state: PerceptionStateObservers,
+        send_event: SendEventCallable,
+        presense_service: PresenceService | None = None,
         threshold: float = 0.4,
         negative_threshold: float | None = 0.2,
-        model_name: str = "buffalo_sc",
         max_strangers: int = 50,
-        strangers_forget_ts: float = config.FACE_STRANGER_FORGET_S,
+        model_name: str = "buffalo_sc",
         owners_forget_ts: float = config.FACE_OWNER_FORGET_S,
+        strangers_forget_ts: float = config.FACE_STRANGER_FORGET_S,
     ):
-        super().__init__(send_event)
-        self._cv2 = cv2
-        self._on_motion = on_motion
+        super().__init__(perception_state, send_event)
 
-        self.threshold: float = threshold
-        self.negative_threshold: float | None = negative_threshold
-        self.max_strangers: int = max_strangers
-        self._stranger_counter: int = 0
-
+        self._presense_service: PresenceService | None = presense_service
+        self._threshold: float = threshold
+        self._negative_threshold: float | None = negative_threshold
+        self._max_strangers: int = max_strangers
+        self._model_name: str = model_name
         self._owners_forget_ts: float = owners_forget_ts
         self._strangers_forget_ts: float = strangers_forget_ts
 
-        self._owners_last_seen: dict[str, float] = {}
-        self._known_face_kinds: dict[str, str] = {}  # person_id → "friend"
-        self._strangers_last_seen: dict[str, float] = {}
-        # Session-start = timestamp the person re-entered the scene after the
-        # previous leave (or first-ever detection). Unlike last_seen (updated
-        # every frame), this is set once on "fresh" detection and cleared on
-        # leave — so current_user() can pick the right friend when two are
-        # continuously present. See docs/plan-presence-logging.md.
-        self._owners_session_start: dict[str, float] = {}
-        self._strangers_session_start: dict[str, float] = {}
-        # True between the first stranger-enter row LeLamp has posted to the
-        # wellbeing log and the corresponding "all strangers gone" leave.
-        # Keeps the "unknown" timeline as a single session even as different
-        # stranger IDs cycle in and out — without this flag, stranger_37 →
-        # stranger_38 while both are within the forget window would never
-        # produce a matching leave, and re-enters would stack duplicate rows.
+        self._stranger_counter: int = 0
+
+        self._data_dict: dict[str, PersonData] = {}
+        self._owners: set[str] = set()
+        self._strangers: set[str] = set()
+
+        # self._known_face_kinds: dict[str, str] = {}  # person_id → "friend"
+        # self._owners_last_seen: dict[str, float] = {}
+        # self._strangers_last_seen: dict[str, float] = {}
+        # # Session-start = timestamp the person re-entered the scene after the
+        # # previous leave (or first-ever detection). Unlike last_seen (updated
+        # # every frame), this is set once on "fresh" detection and cleared on
+        # # leave — so current_user() can pick the right friend when two are
+        # # continuously present. See docs/plan-presence-logging.md.
+        # self._owners_session_start: dict[str, float] = {}
+        # self._strangers_session_start: dict[str, float] = {}
+        # # True between the first stranger-enter row LeLamp has posted to the
+        # # wellbeing log and the corresponding "all strangers gone" leave.
+        # # Keeps the "unknown" timeline as a single session even as different
+        # # stranger IDs cycle in and out — without this flag, stranger_37 →
+        # # stranger_38 while both are within the forget window would never
+        # # produce a matching leave, and re-enters would stack duplicate rows.
         self._any_stranger_logged: bool = False
         self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
 
@@ -102,8 +369,6 @@ class FaceRecognizer(Perception):
         self._callbacks: set[
             Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
         ] = set()
-
-        import onnxruntime as ort
 
         ort.set_default_logger_severity(3)
         sess_opts = ort.SessionOptions()
@@ -723,7 +988,9 @@ class FaceRecognizer(Perception):
             if resp.status_code != 200:
                 logger.debug(
                     "[face] wellbeing %s %s returned %d",
-                    action, user, resp.status_code,
+                    action,
+                    user,
+                    resp.status_code,
                 )
         except requests.RequestException as e:
             logger.debug("[face] wellbeing %s %s failed: %s", action, user, e)

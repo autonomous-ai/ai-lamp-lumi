@@ -2,8 +2,9 @@ import logging
 import time
 from typing import Callable, Optional
 
-import lelamp.config as config
 import numpy as np
+
+import lelamp.config as config
 
 from .base import Perception
 
@@ -13,7 +14,13 @@ logger = logging.getLogger(__name__)
 class LightLevelPerception(Perception):
     """Detects significant ambient light changes via mean frame brightness."""
 
-    def __init__(self, cv2, np_module, send_event: Callable):
+    def __init__(
+        self,
+        cv2,
+        np_module,
+        send_event: Callable,
+        perception_state,
+    ):
         super().__init__(send_event)
         self._cv2 = cv2
         self._np = np_module
@@ -51,6 +58,10 @@ class LightLevelPerception(Perception):
     def to_dict(self) -> dict:
         return {
             "type": "light_level",
-            "level": round(self._last_level, 1) if self._last_level is not None else None,
-            "seconds_since_check": int(time.time() - self._last_check) if self._last_check else None,
+            "level": round(self._last_level, 1)
+            if self._last_level is not None
+            else None,
+            "seconds_since_check": int(time.time() - self._last_check)
+            if self._last_check
+            else None,
         }

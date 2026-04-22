@@ -163,11 +163,10 @@ class PoseMotionPerception(Perception):
 
     def __init__(
         self,
+        perception_state,
         cv2,
         send_event: Callable,
         on_motion: Callable,
-        capture_stable_frame: Callable,
-        presence_service,
         face_recognizer=None,
         model_path: Path | None = None,
         motion_update_ts: float = config.MOTION_EVENT_COOLDOWN_S,

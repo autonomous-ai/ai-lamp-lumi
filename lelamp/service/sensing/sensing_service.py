@@ -23,21 +23,26 @@ import os
 import shutil
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
 import lelamp.config as config
+from devices.video_capture_device import VideoCaptureDeviceBase
 from lelamp.service.sensing.perceptions import (
     EmotionPerception,
-    FaceRecognizer,
+    FacePerception,
     LightLevelPerception,
-    MotionPerception,
+    ActionPerception,
     PoseMotionPerception,
     SoundPerception,
     WellbeingPerception,
 )
 from lelamp.service.sensing.presence_service import PresenceService
+from service.motors.animation_service import AnimationService
+from service.rgb.rgb_service import RGBService
+from service.sensing.perceptions.base import Perception
+from service.voice.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -45,17 +50,18 @@ logger.setLevel(logging.DEBUG)
 try:
     import cv2
 except ImportError:
-    cv2 = None  # type: ignore[assignment]
+    cv2 = None
 
 try:
     import numpy as np
 except ImportError:
-    np = None  # type: ignore[assignment]
+    np = None
 
 try:
     import sounddevice as sd
 except ImportError:
-    sd = None  # type: ignore[assignment]
+    sd = None
+
 
 class SensingService:
     """Background sensing loop. Runs in a daemon thread."""
@@ -65,66 +71,62 @@ class SensingService:
 
     def __init__(
         self,
-        camera_capture=None,
+        camera_capture: VideoCaptureDeviceBase | None = None,
         input_device: int | str | None = None,
         poll_interval: float = 2.0,
-        rgb_service=None,
-        tts_service=None,
-        animation_service=None,
-        on_restore_aim=None,
-        is_sleeping=None,
+        rgb_service: RGBService | None = None,
+        tts_service: TTSService | None = None,
+        animation_service: AnimationService | None = None,
+        on_restore_aim: Callable[[], None] | None = None,
+        is_sleeping: Callable[[], bool] | None = None,
     ):
-        self._camera = camera_capture
-        self._is_sleeping = is_sleeping  # callable → bool; suppresses non-wake events
-        self._poll_interval = poll_interval
-        self._animation = animation_service
+        self._camera: VideoCaptureDeviceBase | None = camera_capture
+        self._input_device: int | str | None = input_device
+        self._poll_interval: float = poll_interval
+        self._rgb_service: RGBService | None = rgb_service
+        self._tts_service: TTSService | None = tts_service
+        self._animation_service: AnimationService | None = animation_service
+        self._on_restore_aim: Callable[[], None] | None = on_restore_aim
+        self._is_sleeping: Callable[[], bool] | None = (
+            is_sleeping  # callable → bool; suppresses non-wake events
+        )
 
         self._running: bool = False
         self._thread: threading.Thread | None = None
         self._last_event_time: dict[str, float] = {}
-        self._face_recognizer: FaceRecognizer | None = None
+        self._face_recognizer: FacePerception | None = None
         self._wellbeing: WellbeingPerception | None = None
 
         # Presence auto on/off state machine
-        self.presence: PresenceService = PresenceService(
+        self._presence: PresenceService = PresenceService(
             rgb_service=rgb_service,
             send_event=self._send_event,
             on_restore_aim=on_restore_aim,
         )
 
         # Perception detectors
-        self._perceptions = []
+        self._perceptions: list[Perception] = []
         if cv2 is not None:
-            face_recognizer = FaceRecognizer(
+            face_recognizer = FacePerception(
                 cv2=cv2,
                 send_event=self._send_event,
-                on_motion=self.presence.on_motion,
+                on_motion=self._presence.on_motion,
             )
             self._face_recognizer = face_recognizer
             _ = face_recognizer.load_from_disk()
             self._wellbeing = WellbeingPerception(
                 cv2=cv2,
                 send_event=self._send_event,
-                presence_service=self.presence,
+                presence_service=self._presence,
                 capture_stable_frame=self._capture_stable_frame,
             )
             if config.MOTION_ENABLED:
                 self._perceptions.append(
-                    MotionPerception(
+                    ActionPerception(
                         send_event=self._send_event,
-                        on_motion=self.presence.on_motion,
+                        on_motion=self._presence.on_motion,
                         capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self.presence,
-                        face_recognizer=face_recognizer,
-                    )
-                )
-            if config.EMOTION_ENABLED:
-                self._perceptions.append(
-                    EmotionPerception(
-                        send_event=self._send_event,
-                        on_motion=self.presence.on_motion,
-                        capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self.presence,
+                        presence_service=self._presence,
                         face_recognizer=face_recognizer,
                     )
                 )
@@ -133,9 +135,19 @@ class SensingService:
                     PoseMotionPerception(
                         cv2=cv2,
                         send_event=self._send_event,
-                        on_motion=self.presence.on_motion,
+                        on_motion=self._presence.on_motion,
                         capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self.presence,
+                        presence_service=self._presence,
+                        face_recognizer=face_recognizer,
+                    )
+                )
+            if config.EMOTION_ENABLED:
+                self._perceptions.append(
+                    EmotionPerception(
+                        send_event=self._send_event,
+                        on_motion=self._presence.on_motion,
+                        capture_stable_frame=self._capture_stable_frame,
+                        presence_service=self._presence,
                         face_recognizer=face_recognizer,
                     )
                 )
@@ -201,13 +213,13 @@ class SensingService:
 
         for perception in self._perceptions:
             # Run heavy perceptions (face/pose) every other tick to save CPU
-            if isinstance(perception, (FaceRecognizer, PoseMotionPerception)):
+            if isinstance(perception, (FacePerception, PoseMotionPerception)):
                 if self._tick_count % 2 != 0:
                     continue
             perception.check(frame)
 
         # Presence timeout check (dim/off)
-        self.presence.tick()
+        self._presence.tick()
 
     # --- Frame encoding ---
 
@@ -324,7 +336,7 @@ class SensingService:
             "poll_interval": self._poll_interval,
             "last_event_seconds_ago": last_events,
             "perceptions": [p.to_dict() for p in self._perceptions],
-            "presence": self.presence.to_dict(),
+            "presence": self._presence.to_dict(),
         }
 
     def _send_event(
