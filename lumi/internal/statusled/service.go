@@ -21,6 +21,7 @@ const (
 	StateConnectivity State = "connectivity" // No internet connection
 	StateLeLampDown   State = "lelamp_down"  // LeLamp hardware server unreachable
 	StateAgentDown    State = "agent_down"   // OpenClaw agent disconnected
+	StateHardware     State = "hardware"     // Hardware component failure (servo/led/audio/voice)
 )
 
 // stateConfig defines the LED effect for each state.
@@ -37,15 +38,17 @@ var configs = map[State]stateConfig{
 	StateConnectivity: {Effect: "breathing", R: 255, G: 80, B: 0, Speed: 3.0},   // orange — no internet
 	StateLeLampDown:   {Effect: "breathing", R: 180, G: 0, B: 255, Speed: 3.0},  // purple — LeLamp down
 	StateAgentDown:    {Effect: "breathing", R: 0, G: 200, B: 200, Speed: 3.0},  // cyan — OpenClaw disconnected
+	StateHardware:     {Effect: "breathing", R: 255, G: 255, B: 0, Speed: 3.0},  // yellow — hardware component failure
 }
 
 // priority determines which state wins when multiple are active.
 var priority = map[State]int{
 	StateAgentDown:    1,
-	StateLeLampDown:   2,
-	StateConnectivity: 3,
-	StateBooting:      4,
-	StateOTA:          5,
+	StateHardware:     2,
+	StateLeLampDown:   3,
+	StateConnectivity: 4,
+	StateBooting:      5,
+	StateOTA:          6,
 	StateError:        6,
 }
 
