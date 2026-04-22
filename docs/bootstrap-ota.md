@@ -529,10 +529,10 @@ LeLamp version is a plain text `VERSION` file in the package root. Read by boots
 - [x] **LeLamp source**: Mono-repo. Driver code copied from `humancomputerlab/lelamp_runtime` into `lelamp/`, with LiveKit/OpenAI removed and HTTP API + DisplayService added. Upstream tracked manually via `lelamp/UPSTREAM.md`.
 - [x] **LeLamp HTTP port**: `5001` (Lumi Server is `5000`).
 - [x] **Bridge protocol**: Simple HTTP proxy. LeLamp runs FastAPI on `127.0.0.1:5001`, Lumi Server proxies from port 5000.
-- [ ] **Python version**: Pin to Python 3.11+? LeLamp's current Python version requirement?
-- [ ] **LeLamp packaging**: Include pre-built venv? Or install deps on-device? (Pi has limited resources for `pip install`)
-- [ ] **Display driver**: DisplayService (GC9A01) — part of LeLamp Python? Or new module?
-- [ ] **LeLamp config**: Does LeLamp need its own config file? Or configured via Lumi Server?
+- [x] **Python version**: Pinned to Python 3.12+ (`pyproject.toml`, `.python-version`, `setup.sh` uses `uv sync --python 3.12`).
+- [x] **LeLamp packaging**: On-device venv via `uv sync --python 3.12 --extra hardware` at `/opt/lelamp/.venv`. OTA preserves venv, reinstalls only on requirements change.
+- [x] **Display driver**: DisplayService (GC9A01) is part of LeLamp Python at `lelamp/service/display/display_service.py`.
+- [x] **LeLamp config**: Environment variable-based (`config.py` reads from env vars). `.env` file support via `python-dotenv`. No separate config file needed.
 
 ---
 
