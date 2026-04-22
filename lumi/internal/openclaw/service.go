@@ -1900,13 +1900,20 @@ func (s *Service) GetConfiguredChannel() string {
 // SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
 // Returns the reqID on success.
 func (s *Service) SendChatMessage(message string) (string, error) {
-	return s.sendChat(message, "", "", "")
+	return s.sendChat(message, "", "", "", "user")
+}
+
+// SendSystemChatMessage sends a system-originated message (skill watcher notifications,
+// wake greeting, /compact, …) so Flow Monitor can distinguish it from real user input.
+// The WS RPC payload is identical to SendChatMessage — only the flow event `type` differs.
+func (s *Service) SendSystemChatMessage(message string) (string, error) {
+	return s.sendChat(message, "", "", "", "system")
 }
 
 // SendChatMessageWithImage sends a message with a base64 JPEG image to the OpenClaw agent.
 // The image is included as a vision content block so the LLM can analyze the camera snapshot.
 func (s *Service) SendChatMessageWithImage(message string, imageBase64 string) (string, error) {
-	return s.sendChat(message, imageBase64, "", "")
+	return s.sendChat(message, imageBase64, "", "", "user")
 }
 
 // NextChatRunID allocates ids for the next chat.send so callers can flow.SetTrace(runID) before flow.Start.
@@ -1918,17 +1925,19 @@ func (s *Service) NextChatRunID() (reqID string, runID string) {
 
 // SendChatMessageWithRun sends using ids from NextChatRunID (must match that pair).
 func (s *Service) SendChatMessageWithRun(message string, reqID string, runID string) (string, error) {
-	return s.sendChat(message, "", reqID, runID)
+	return s.sendChat(message, "", reqID, runID, "user")
 }
 
 // SendChatMessageWithImageAndRun sends with image using ids from NextChatRunID.
 func (s *Service) SendChatMessageWithImageAndRun(message string, imageBase64 string, reqID string, runID string) (string, error) {
-	return s.sendChat(message, imageBase64, reqID, runID)
+	return s.sendChat(message, imageBase64, reqID, runID, "user")
 }
 
 // sendChat is the internal implementation for sending chat messages, optionally with an image.
 // If fixedReqID and fixedRunID are both non-empty, they are used (caller already incremented reqCounter via NextChatRunID).
-func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string) (string, error) {
+// sourceType labels the flow event ("user" for real user / sensing-driven input, "system" for
+// watcher / wake / compact notifications). Does not affect the WS RPC payload.
+func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string, sourceType string) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
 	s.wsMu.Unlock()
@@ -2032,6 +2041,7 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	s.SetPendingChatTrace(idempotencyKey)
 	flow.Log("chat_send", map[string]any{
 		"run_id":      idempotencyKey,
+		"type":        sourceType,
 		"has_session": sessionKey != "",
 		"has_image":   hasImage,
 		"image_bytes": len(imageBase64),

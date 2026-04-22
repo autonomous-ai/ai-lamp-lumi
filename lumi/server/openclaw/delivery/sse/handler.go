@@ -722,7 +722,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										if err == nil {
 											resp.Body.Close()
 										}
-										if _, err := h.agentGateway.SendChatMessage("/compact"); err != nil {
+										if _, err := h.agentGateway.SendSystemChatMessage("/compact"); err != nil {
 											slog.Error("auto-compact failed", "component", "agent", "error", err)
 										}
 									}()
