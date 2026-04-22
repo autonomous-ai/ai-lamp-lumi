@@ -12,6 +12,11 @@ Each eye expression is a combination of: eye shape, pupil position, eyelid posit
 from PIL import Image, ImageDraw, ImageFont
 from typing import Optional, Tuple
 
+from lelamp.presets import (
+    EMO_CURIOUS, EMO_EXCITED, EMO_HAPPY, EMO_SAD, EMO_SHOCK,
+    EMO_SHY, EMO_SLEEPY, EMO_THINKING,
+)
+
 # Display resolution
 WIDTH = 240
 HEIGHT = 240
@@ -49,17 +54,17 @@ class EyeState:
 
 # Expression definitions: modify eye shape and pupil behavior
 EXPRESSIONS = {
-    "neutral":  {"eye_h_scale": 1.0, "pupil_y": 0.0, "squint": 0.0},
-    "happy":    {"eye_h_scale": 0.6, "pupil_y": 0.1, "squint": 0.3},   # squinted happy
-    "sad":      {"eye_h_scale": 0.8, "pupil_y": 0.3, "squint": 0.0, "droop_top": True},
-    "curious":  {"eye_h_scale": 1.2, "pupil_y": -0.1, "squint": 0.0},  # wide open
-    "thinking": {"eye_h_scale": 0.9, "pupil_x": 0.5, "pupil_y": -0.3, "squint": 0.1},
-    "excited":  {"eye_h_scale": 1.3, "pupil_y": 0.0, "squint": 0.0},   # very wide
-    "shy":      {"eye_h_scale": 0.5, "pupil_x": -0.4, "pupil_y": 0.2, "squint": 0.2},
-    "shock":    {"eye_h_scale": 1.4, "pupil_y": 0.0, "squint": 0.0},   # max wide
-    "sleepy":   {"eye_h_scale": 0.3, "pupil_y": 0.2, "squint": 0.5},
-    "angry":    {"eye_h_scale": 0.7, "pupil_y": 0.0, "squint": 0.2, "angry_brow": True},
-    "love":     {"eye_h_scale": 0.8, "pupil_y": 0.0, "squint": 0.1, "heart": True},
+    "neutral":     {"eye_h_scale": 1.0, "pupil_y": 0.0, "squint": 0.0},
+    EMO_HAPPY:     {"eye_h_scale": 0.6, "pupil_y": 0.1, "squint": 0.3},   # squinted happy
+    EMO_SAD:       {"eye_h_scale": 0.8, "pupil_y": 0.3, "squint": 0.0, "droop_top": True},
+    EMO_CURIOUS:   {"eye_h_scale": 1.2, "pupil_y": -0.1, "squint": 0.0},  # wide open
+    EMO_THINKING:  {"eye_h_scale": 0.9, "pupil_x": 0.5, "pupil_y": -0.3, "squint": 0.1},
+    EMO_EXCITED:   {"eye_h_scale": 1.3, "pupil_y": 0.0, "squint": 0.0},   # very wide
+    EMO_SHY:       {"eye_h_scale": 0.5, "pupil_x": -0.4, "pupil_y": 0.2, "squint": 0.2},
+    EMO_SHOCK:     {"eye_h_scale": 1.4, "pupil_y": 0.0, "squint": 0.0},   # max wide
+    EMO_SLEEPY:    {"eye_h_scale": 0.3, "pupil_y": 0.2, "squint": 0.5},
+    "angry":       {"eye_h_scale": 0.7, "pupil_y": 0.0, "squint": 0.2, "angry_brow": True},
+    "love":        {"eye_h_scale": 0.8, "pupil_y": 0.0, "squint": 0.1, "heart": True},
 }
 
 

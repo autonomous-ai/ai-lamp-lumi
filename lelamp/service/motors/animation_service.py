@@ -5,6 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 from lelamp.follower import LeLampFollowerConfig, LeLampFollower
+from lelamp.presets import EMO_SLEEPY, SERVO_CMD_PLAY, SERVO_CMD_MUSIC_START, SERVO_CMD_MUSIC_STOP, SERVO_IDLE, SERVO_MUSIC_GROOVE
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ STARTUP_MOVE_DURATION = 5.0
 
 # Recordings that hold final pose instead of returning to idle
 # (e.g. sleepy — lamp stays still until woken by presence/wake-word)
-NO_IDLE_RECORDINGS = {"sleepy"}
+NO_IDLE_RECORDINGS = {EMO_SLEEPY}
 
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
@@ -41,7 +42,7 @@ def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
 
 
 class AnimationService:
-    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle", hold_s: float = 0.0):
+    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = SERVO_IDLE, hold_s: float = 0.0):
         self.port = port
         self.lamp_id = lamp_id
         self.fps = fps
@@ -65,7 +66,7 @@ class AnimationService:
 
         # Music groove: loop while music is playing
         self._music_playing = False
-        self._music_recording = "music_groove"
+        self._music_recording = SERVO_MUSIC_GROOVE
 
         # Custom event handling
         self._running = threading.Event()
@@ -149,7 +150,7 @@ class AnimationService:
         self._event_thread.start()
 
         # Auto-play idle (same as upstream) so lamp moves immediately after boot
-        self.dispatch("play", self.idle_recording)
+        self.dispatch(SERVO_CMD_PLAY, self.idle_recording)
 
     def stop(self, timeout: float = 5.0):
         # Stop event processing
@@ -217,11 +218,11 @@ class AnimationService:
                 time.sleep(1.0 / self.fps)  # full FPS for active animations
     
     def handle_event(self, event_type: str, payload: Any):
-        if event_type == "play":
+        if event_type == SERVO_CMD_PLAY:
             self._handle_play(payload)
-        elif event_type == "music_start":
+        elif event_type == SERVO_CMD_MUSIC_START:
             self._handle_music_start(payload)
-        elif event_type == "music_stop":
+        elif event_type == SERVO_CMD_MUSIC_STOP:
             self._handle_music_stop()
         else:
             print(f"Unknown event type: {event_type}")
@@ -234,7 +235,7 @@ class AnimationService:
                         music_chill, music_hype.
                         Falls back to music_groove when None or unknown.
         """
-        self._music_recording = recording_name if recording_name else "music_groove"
+        self._music_recording = recording_name if recording_name else SERVO_MUSIC_GROOVE
         self._music_playing = True
         self._handle_play(self._music_recording)
 

@@ -722,39 +722,37 @@ Body: {"x": 3, "y": 2, "r": 255, "g": 0, "b": 0}
 
 ## 9. Câu Hỏi Mở
 
-Những vấn đề cần quyết định trong quá trình phát triển:
-
-### Phần cứng
+### Phần cứng — Phần lớn đã giải quyết
 
 | # | Câu hỏi | Tác động | Trạng thái |
 |---|---|---|---|
-| H-01 | Raspberry Pi 4 có đủ hiệu năng cho vision + AI local không? Cần Pi 5? | Hiệu năng, giá thành | Cần benchmark |
-| H-02 | 64 LED (8x5) có đủ sáng làm đèn bàn chính không? Cần LED trắng bổ sung? | Chất lượng ánh sáng | Cần test thực tế |
-| H-03 | Feetech servo có đủ êm không? Cần upgrade servo? | Trải nghiệm người dùng | Cần test thực tế |
-| H-04 | Thiết kế vỏ ngoài — in 3D? Gia công CNC? Injection mold? | Giá thành, thẩm mỹ, quy mô sản xuất | Chưa quyết định |
+| H-01 | Raspberry Pi 4 có đủ hiệu năng? | Hiệu năng, giá thành | ✅ Pi 4 chạy được, Pi 5 migration đang tiến hành |
+| H-02 | 64 LED có đủ sáng? | Chất lượng ánh sáng | ✅ Đủ cho desk lamp, WS2812 ring |
+| H-03 | Feetech servo có đủ êm? | Trải nghiệm người dùng | ✅ STS3215 hoạt động tốt |
+| H-04 | Thiết kế vỏ ngoài? | Giá thành, thẩm mỹ | ❌ Chưa quyết định |
 
-### Phần mềm
+### Phần mềm — Tất cả đã giải quyết ✅
 
-| # | Câu hỏi | Tác động | Trạng thái |
-|---|---|---|---|
-| S-01 | OpenClaw chạy trên Pi hay cần server riêng? | Kiến trúc, độ trễ, chi phí | Cần xác định |
-| S-02 | LLM nào làm default? Self-hosted model hay cloud? | Chi phí vận hành, độ trễ, privacy | Cần benchmark |
-| S-03 | Wake word engine nào? Porcupine? OpenWakeWord? Custom? | Trải nghiệm, licensing | Cần đánh giá |
-| S-04 | Giao thức giao tiếp giữa Lumi server và LeLamp runtime? REST? gRPC? Unix socket? | Hiệu năng, complexity | Cần quyết định |
+| # | Câu hỏi | Kết quả |
+|---|---|---|
+| S-01 | OpenClaw chạy đâu? | Trên Pi, local gateway mode, port 18789 |
+| S-02 | LLM default? | Claude Haiku 4.5 (cloud, Anthropic API). Hỗ trợ multi-provider. |
+| S-03 | Wake word engine? | Không dùng engine riêng. "Hey Lumi" detected trong Deepgram STT transcript. Dynamic qua IDENTITY.md. |
+| S-04 | Giao thức Lumi ↔ LeLamp? | HTTP proxy. LeLamp FastAPI `127.0.0.1:5001`, Lumi proxy từ port `5000`. |
 
 ### Sản phẩm
 
 | # | Câu hỏi | Tác động | Trạng thái |
 |---|---|---|---|
-| P-01 | Bán kit DIY hay sản phẩm hoàn chỉnh? Hay cả hai? | Go-to-market, giá, target user | Cần chiến lược |
-| P-02 | Giá mục tiêu bao nhiêu? $99 kit? $199 assembled? $299 premium? | Thị trường, margin | Cần nghiên cứu |
-| P-03 | Tên sản phẩm chính thức? "AI Lamp" là tên tạm. | Branding, SEO, trademark | Chưa quyết định |
-| P-04 | Privacy sunglasses như Ongo? Hay cách khác để handle camera privacy? | UX, trust | Cần thiết kế |
-| P-05 | Cần mobile app không? Hay chỉ voice + Telegram? | Scope, development cost | Cần quyết định |
+| P-01 | Kit DIY hay assembled? | Go-to-market | ❌ Chưa quyết định |
+| P-02 | Giá mục tiêu? | Thị trường | ❌ Cần finalize với Pi 5 |
+| P-03 | Tên chính thức? | Branding | ✅ **Lumi** (từ "luminous") |
+| P-04 | Camera privacy? | UX, trust | ⚠️ Display eyes đóng khi camera off. LED indicator TBD. |
+| P-05 | Mobile app? | Scope | ✅ Không cần — voice + Telegram/Slack/Discord + web UI đủ |
 
 ---
 
 > **Tài liệu này là nền tảng định nghĩa sản phẩm AI Lamp.**
 > Mọi quyết định thiết kế, phát triển, và ưu tiên đều nên tham chiếu về đây.
 >
-> Cập nhật lần cuối: 24/03/2026
+> Cập nhật lần cuối: 21/04/2026
