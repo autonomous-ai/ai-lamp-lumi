@@ -51,7 +51,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
       cursor: "default",
     }}>
       {/* Row 1: source icon + type + path + status tag + duration */}
-      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, flexWrap: "wrap", rowGap: 3 }}>
         <span style={{ fontSize: 14, lineHeight: 1 }}>{icon}</span>
         <span style={{
           fontSize: 10, fontWeight: 700, color: "var(--lm-text)",
