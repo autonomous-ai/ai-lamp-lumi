@@ -62,8 +62,8 @@ Each scene controls **all peripherals** — not just LED, but also camera, mic, 
 
 | Scene | Bright | Color (K) | Servo | Camera | Mic | Speaker |
 |-------|--------|-----------|-------|--------|-----|---------|
-| `reading` | 80% | 4000K warm white | desk + hold | off | off | off |
-| `focus` | 70% | 4200K warm-neutral | desk + hold | off | off | off |
+| `reading` | 80% | 4000K warm white | desk + hold | off | on | off |
+| `focus` | 70% | 4200K warm-neutral | desk + hold | off | on | off |
 | `relax` | 40% | 2700K warm | wall | on | on | on |
 | `movie` | 15% | 2400K dim amber | wall | off | on | off |
 | `night` | 5% | 1800K deep amber | down | off | on | off |

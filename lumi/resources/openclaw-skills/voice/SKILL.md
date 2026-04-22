@@ -142,10 +142,12 @@ Suppress all audio output — TTS, music, backchannel. Lumi stays silent but sti
 
 Mic still works when speaker is muted — user can unmute via voice command.
 
+**CRITICAL: "unmute" ≠ "mute". Read the EXACT word. Do NOT call mute when user says unmute.**
+
 | User says | Action |
 |-----------|--------|
 | "be quiet" / "silent mode" / "don't talk" / "hush" / "silence" | `[HW:/speaker/mute:{}]` — MUST call |
-| "you can talk" / "unmute speaker" / "speak again" / "talk again" | `[HW:/speaker/unmute:{}]` — MUST call |
+| "**unmute**" / "you can talk" / "unmute speaker" / "speak again" / "talk again" | `[HW:/speaker/unmute:{}]` — MUST call (UN-mute, not mute!) |
 
 ### Examples
 

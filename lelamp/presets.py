@@ -145,8 +145,8 @@ EMOTION_PRESETS = {
 # "servo": "hold"       = freeze servo (no idle/emotion animations)
 # omitted               = no change for that peripheral
 SCENE_PRESETS = {
-    SCENE_READING:  {"brightness": 0.80, "color": [255, 209, 163], "aim": AIM_DESK, "camera": "off", "mic": "off", "speaker": "off", "servo": "hold"},  # ~4000K neutral
-    SCENE_FOCUS:    {"brightness": 0.70, "color": [255, 214, 170], "aim": AIM_DESK, "camera": "off", "mic": "off", "speaker": "off", "servo": "hold"},  # ~4200K warm-neutral
+    SCENE_READING:  {"brightness": 0.80, "color": [255, 209, 163], "aim": AIM_DESK, "camera": "off", "mic": "on",  "speaker": "off", "servo": "hold"},  # ~4000K neutral; mic on for voice wake
+    SCENE_FOCUS:    {"brightness": 0.70, "color": [255, 214, 170], "aim": AIM_DESK, "camera": "off", "mic": "on",  "speaker": "off", "servo": "hold"},  # ~4200K warm-neutral; mic on for voice wake
     SCENE_RELAX:    {"brightness": 0.40, "color": [255, 166, 87],  "aim": AIM_WALL, "camera": "on",  "mic": "on",  "speaker": "on"},                    # ~2700K warm
     SCENE_MOVIE:    {"brightness": 0.15, "color": [255, 147, 51],  "aim": AIM_WALL, "camera": "off", "mic": "on",  "speaker": "off"},                   # ~2400K dim amber
     SCENE_NIGHT:    {"brightness": 0.05, "color": [255, 105, 0],   "aim": AIM_DOWN, "camera": "off", "mic": "on",  "speaker": "off"},                   # ~1800K deep amber, blue-free; mic stays on for voice wake
