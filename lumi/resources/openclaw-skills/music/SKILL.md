@@ -10,7 +10,12 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
 ## Workflow
 
 1. **Specific song / artist** → play directly.
-2. **Vague request** (*"play music"*, *"sing something"*) → ask first: *"What are you in the mood for?"*
+2. **Vague request** (*"play music"*, *"sing something"*) → check habit patterns first:
+   ```bash
+   cat /root/local/users/{name}/habit/patterns.json 2>/dev/null
+   ```
+   If `music_patterns` exists and current hour is within `peak_hour ± 1` → use `preferred_genre` to pick a song, no need to ask.
+   Otherwise → ask: *"What are you in the mood for?"*
 3. Reply format:
    ```
    [HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"alice"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
