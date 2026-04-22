@@ -4,7 +4,7 @@ import { API, FLOW_EVENTS_MAX } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
 import { FLOW_NODES, SOURCE_ICON } from "./types";
-import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs } from "./helpers";
+import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs, turnCurrentUser } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
@@ -184,6 +184,18 @@ export function FlowSection({
 
   const turns = useMemo(() => groupIntoTurns(events), [events]);
 
+  // Latest current_user seen in any turn (newest first). Represents who
+  // LeLamp thought was in front of the lamp when the most recent tagged
+  // event fired. Stale on quiet periods but updates live on any motion/
+  // emotion event, which is exactly the signal the Flow tab watches.
+  const latestCurrentUser = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const u = turnCurrentUser(turns[i]);
+      if (u) return u;
+    }
+    return null;
+  }, [turns]);
+
   // Sub-types that actually appear in the current turns list
   const availableTypes = useMemo(() => {
     const seen = new Set<string>();
@@ -310,6 +322,25 @@ export function FlowSection({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={S.cardLabel}>Flow Panel</span>
+            {latestCurrentUser && (() => {
+              const isUnknown = latestCurrentUser === "unknown";
+              const color = isUnknown ? "var(--lm-text-muted)" : "var(--lm-teal)";
+              return (
+                <span
+                  title={isUnknown ? "LeLamp currently sees only strangers" : `LeLamp's current user: ${latestCurrentUser}`}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    background: `${color}20`,
+                    color,
+                    fontWeight: 700,
+                    textTransform: "capitalize",
+                    border: `1px solid ${color}55`,
+                  }}
+                >👤 {latestCurrentUser}</span>
+              );
+            })()}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
             <button
