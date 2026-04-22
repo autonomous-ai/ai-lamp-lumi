@@ -45,6 +45,7 @@ from core.models import (
     EmotionHeartBeatRequest,
     EmotionRequest,
 )
+from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -110,6 +111,13 @@ async def lifespan(app: FastAPI):
         logger.info("Emotion model ready")
     except Exception as e:
         logger.warning("Failed to load emotion model: %s", e)
+
+    logger.info("Loading audio recognizer...")
+    try:
+        audio_recognizer_protocol._get_audio_recognizer()
+        logger.info("Audio recognizer ready")
+    except Exception as e:
+        logger.warning("Failed to load audio recognizer: %s", e)
 
     yield
 
