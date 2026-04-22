@@ -7,7 +7,7 @@ Lumi uses LED breathing patterns to communicate device status. Each state has a 
 | LED Color | Effect | Meaning | When | Auto-clears |
 |-----------|--------|---------|------|-------------|
 | Cyan `(0,200,200)` | Breathing fast | **Agent Down** — AI brain disconnected | OpenClaw WebSocket drops | Yes — when agent reconnects |
-| Purple `(180,0,255)` | Breathing fast | **LeLamp Down** — Hardware server unreachable | LeLamp process crashed or restarting | Yes — when LeLamp responds again |
+| Purple `(180,0,255)` | Breathing fast | **LeLamp Down** — Hardware server unreachable | LED goes dark when down; purple flash 3s on recovery | Yes — clears after 3s |
 | Orange `(255,80,0)` | Breathing fast | **No Internet** — Wi-Fi connected but no internet | 5 consecutive ping failures (~25s) | Yes — when internet restores |
 | Blue `(0,80,255)` | Breathing fast | **Booting** — Lumi is starting up | Power on, system restart | Yes — when boot completes |
 | Green `(0,255,0)` | Breathing fast | **Updating** — OTA firmware update in progress | Bootstrap detects new firmware | Yes — when update completes (reboots) |
