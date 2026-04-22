@@ -173,6 +173,29 @@ func sanitizeAgentText(text string) string {
 	return text
 }
 
+// sayTagRe captures the content between the first <say>...</say> pair.
+// The (?s) flag lets `.` match newlines so multi-line content is supported.
+var sayTagRe = regexp.MustCompile(`(?s)<say>(.*?)</say>`)
+
+// extractSayTag pulls the spoken sentence out of a <say>...</say> wrapper.
+// Skills (currently wellbeing) instruct the model to wrap the one caring sentence
+// in <say> tags so its free-form reasoning in the text block doesn't leak to TTS.
+// Passthrough when no tag is present so skills that don't opt in stay unchanged.
+// Empty tag (`<say></say>`) collapses to NO_REPLY.
+func extractSayTag(text string) string {
+	m := sayTagRe.FindStringSubmatch(text)
+	if m == nil {
+		return text
+	}
+	inner := strings.TrimSpace(m[1])
+	if inner == "" {
+		slog.Info("empty <say> tag — treating as NO_REPLY", "component", "agent")
+		return "NO_REPLY"
+	}
+	slog.Info("extracted <say> tag", "component", "agent", "before_len", len(text), "after", inner[:min(len(inner), 100)])
+	return inner
+}
+
 // isLumiOutboundChatRunID is true when runID matches Lumi's chat.send idempotency key
 // (lumi-chat-* current; lumi-sensing-* legacy). Used so traceless lifecycle_start is not
 // mis-tagged as Telegram-only when the turn was initiated from Lumi.
@@ -950,6 +973,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 				// Detect heartbeat before sanitizing strips the sentinel.
 				isHeartbeatRun := strings.Contains(strings.ToUpper(text), "HEARTBEAT_OK")
+				// Extract <say>...</say> wrapper if the skill uses it (wellbeing).
+				// Non-tagged replies pass through unchanged.
+				text = extractSayTag(text)
 				text = sanitizeAgentText(text)
 				if isAgentNoReply(text) {
 					// NO_REPLY: agent explicitly decided to do nothing
