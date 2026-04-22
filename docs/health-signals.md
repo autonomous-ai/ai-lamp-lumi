@@ -7,6 +7,7 @@ Lumi uses LED breathing patterns to communicate device status. Each state has a 
 | LED Color | Effect | Meaning | When | Auto-clears |
 |-----------|--------|---------|------|-------------|
 | Cyan `(0,200,200)` | Breathing fast | **Agent Down** — AI brain disconnected | OpenClaw WebSocket drops | Yes — when agent reconnects |
+| Yellow `(255,255,0)` | Breathing fast | **Hardware Failure** — Component malfunction | Servo, LED driver, audio, or voice pipeline reports failure | Yes — when component recovers |
 | Purple `(180,0,255)` | Breathing fast | **LeLamp Down** — Hardware server unreachable | LED goes dark when down; purple flash 3s on recovery | Yes — clears after 3s |
 | Orange `(255,80,0)` | Breathing fast | **No Internet** — Wi-Fi connected but no internet | 5 consecutive ping failures (~25s) | Yes — when internet restores |
 | Blue `(0,80,255)` | Breathing fast | **Booting** — Lumi is starting up | Power on, system restart | Yes — when boot completes |
@@ -18,7 +19,7 @@ Lumi uses LED breathing patterns to communicate device status. Each state has a 
 When multiple states are active simultaneously, the highest-priority state is shown:
 
 ```
-Error (highest) > OTA > Booting > Connectivity > LeLamp Down > Agent Down (lowest)
+Error (highest) > OTA > Booting > Connectivity > LeLamp Down > Hardware > Agent Down (lowest)
 ```
 
 Example: if Lumi has no internet AND agent is down, **No Internet** (orange) is shown because it has higher priority.
@@ -30,6 +31,13 @@ Example: if Lumi has no internet AND agent is down, **No Internet** (orange) is 
 - Clears when the WebSocket reconnects successfully
 - Voice commands and AI features are unavailable; local LED scenes and servo still work
 - TTS announces "Brain reconnected!" on recovery
+
+### Hardware Failure (Yellow)
+- Activates when servo, LED driver, audio, or voice pipeline reports failure via LeLamp `/health`
+- Camera and sensing are excluded (may be intentionally off by scene preset)
+- Health watcher polls every 5 seconds
+- Clears automatically when all monitored components report healthy
+- Check web monitor for specific component details
 
 ### LeLamp Down (Purple — or dark/black)
 - When LeLamp crashes, LED goes **dark** because the LED driver itself is down
