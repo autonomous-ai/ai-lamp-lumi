@@ -223,8 +223,17 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 // speakRecovery announces LeLamp recovery via TTS.
+var recoveryPhrases = []string{
+	"[gasp] Oh, I can feel again!",
+	"[sigh] That felt weird.",
+	"Whew, I'm okay now. [chuckle]",
+	"[gasp] I'm back!",
+	"[sigh] That was strange. All good now.",
+}
+
 func (s *Service) speakRecovery() {
-	body, _ := json.Marshal(map[string]string{"text": "Hardware recovered!"})
+	phrase := recoveryPhrases[time.Now().UnixNano()%int64(len(recoveryPhrases))]
+	body, _ := json.Marshal(map[string]string{"text": phrase})
 	resp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/speak", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		slog.Warn("recovery TTS failed", "component", "healthwatch", "error", err)
