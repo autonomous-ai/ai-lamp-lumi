@@ -1,5 +1,5 @@
 // Package statusled manages LED feedback states so users can see what Lumi is doing.
-// States have priority: error > ota > booting > connectivity > processing > idle.
+// States have priority: error > ota > booting > connectivity > idle.
 // When a state clears, the LED is turned off — ambient service will resume breathing.
 package statusled
 
@@ -15,12 +15,12 @@ import (
 type State string
 
 const (
-	StateListening   State = "listening"   // Wake word detected — waiting for user to finish speaking
-	StateProcessing  State = "processing"  // Agent is thinking — blue pulse
-	StateOTA         State = "ota"         // Firmware updating — orange breathing (used by bootstrap binary)
-	StateError       State = "error"       // Something went wrong — red pulse
-	StateBooting     State = "booting"     // Starting up — slow blue pulse
-	StateConnectivity State = "connectivity" // Poor internet connection — yellow pulse
+	StateOTA          State = "ota"          // Firmware updating
+	StateError        State = "error"        // System error
+	StateBooting      State = "booting"      // Starting up
+	StateConnectivity State = "connectivity" // No internet connection
+	StateLeLampDown   State = "lelamp_down"  // LeLamp hardware server unreachable
+	StateAgentDown    State = "agent_down"   // OpenClaw agent disconnected
 )
 
 // stateConfig defines the LED effect for each state.
@@ -31,22 +31,22 @@ type stateConfig struct {
 }
 
 var configs = map[State]stateConfig{
-	StateListening:   {Effect: "breathing", R: 0, G: 220, B: 180, Speed: 1.2},
-	StateProcessing:  {Effect: "pulse", R: 80, G: 140, B: 255, Speed: 1.0},
-	StateOTA:         {Effect: "breathing", R: 255, G: 140, B: 0, Speed: 0.4},
-	StateError:       {Effect: "pulse", R: 255, G: 30, B: 30, Speed: 1.5},
-	StateBooting:     {Effect: "pulse", R: 0, G: 80, B: 255, Speed: 0.5},
-	StateConnectivity: {Effect: "pulse", R: 255, G: 200, B: 0, Speed: 0.8},
+	StateOTA:          {Effect: "breathing", R: 0, G: 255, B: 0, Speed: 3.0},     // green — firmware updating
+	StateError:        {Effect: "breathing", R: 255, G: 0, B: 0, Speed: 3.0},    // red — system error
+	StateBooting:      {Effect: "breathing", R: 0, G: 80, B: 255, Speed: 3.0},   // blue — starting up
+	StateConnectivity: {Effect: "breathing", R: 255, G: 80, B: 0, Speed: 3.0},   // orange — no internet
+	StateLeLampDown:   {Effect: "breathing", R: 180, G: 0, B: 255, Speed: 3.0},  // purple — LeLamp down
+	StateAgentDown:    {Effect: "breathing", R: 0, G: 200, B: 200, Speed: 3.0},  // cyan — OpenClaw disconnected
 }
 
 // priority determines which state wins when multiple are active.
 var priority = map[State]int{
-	StateListening:   1,
-	StateProcessing:  2,
+	StateAgentDown:    1,
+	StateLeLampDown:   2,
 	StateConnectivity: 3,
-	StateBooting:     4,
-	StateOTA:         5,
-	StateError:       6,
+	StateBooting:      4,
+	StateOTA:          5,
+	StateError:        6,
 }
 
 // Service manages status LED states.
