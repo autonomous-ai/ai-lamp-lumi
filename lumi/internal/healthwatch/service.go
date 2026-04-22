@@ -107,10 +107,18 @@ func (s *Service) Start(ctx context.Context) {
 				voiceWasRunning = true
 			}
 
-			// LeLamp is reachable — clear LED.
-			s.statusLED.Clear(statusled.StateLeLampDown)
+			// LeLamp recovered from downtime — flash purple then clear.
+			if wasUnreachable {
+				s.statusLED.Set(statusled.StateLeLampDown) // now LeLamp is up, purple actually shows
+				go func() {
+					time.Sleep(3 * time.Second)
+					s.statusLED.Clear(statusled.StateLeLampDown)
+				}()
+			} else {
+				s.statusLED.Clear(statusled.StateLeLampDown)
+			}
 
-			// LeLamp recovered from downtime — announce via TTS once voice+TTS are ready.
+			// Announce via TTS once voice+TTS are ready.
 			if wasUnreachable && h.Voice && h.TTS {
 				wasUnreachable = false
 				slog.Info("LeLamp recovered from downtime, announcing via TTS", "component", "healthwatch")
