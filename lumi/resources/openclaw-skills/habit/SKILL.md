@@ -68,7 +68,7 @@ Strength labels:
 | 0.50 – 0.75 | moderate |
 | > 0.75 | strong |
 
-Habits require **at least 3 days of data** to form. With fewer days, skip proactive nudging.
+Habits require **at least 1 day of data** to form. (Testing mode — raise to 3 days for production.)
 
 ## Workflow
 
@@ -243,9 +243,9 @@ Use direct file reads for multi-day pattern building (faster, no API pagination 
 
 | Purpose | Min days | Min occurrences |
 |---|---|---|
-| Habit detection | 3 | 2 |
-| Proactive nudging | 5 | 3 |
-| Music personalization | 3 | 2 accepted |
+| Habit detection | 1 | 1 |
+| Proactive nudging | 1 | 1 |
+| Music personalization | 1 | 1 accepted |
 
 If data is insufficient: use default wellbeing thresholds / music genre table as fallback. Never fabricate patterns.
 

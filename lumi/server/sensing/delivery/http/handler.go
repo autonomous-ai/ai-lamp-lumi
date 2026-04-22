@@ -196,6 +196,23 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		return
 	}
 
+	// Voice wake: when a voice command arrives while sleeping, fire greeting emotion
+	// to LeLamp so it wakes up (LED + servo) before the agent processes the turn.
+	// Without this, the agent's emotion:thinking would be blocked by LeLamp's wake guard.
+	if req.Type == "voice_command" && h.isSleeping != nil && h.isSleeping() {
+		slog.Info("voice wake — firing greeting to wake LeLamp", "component", "sensing")
+		go func() {
+			resp, err := http.Post("http://127.0.0.1:5001/emotion", "application/json",
+				strings.NewReader(`{"emotion":"greeting","intensity":0.8}`))
+			if err != nil {
+				slog.Warn("voice wake greeting failed", "component", "sensing", "error", err)
+				return
+			}
+			resp.Body.Close()
+			slog.Info("voice wake greeting sent", "component", "sensing", "status", resp.StatusCode)
+		}()
+	}
+
 	// When agent is busy:
 	// - voice_command (wake word confirmed) always passes through immediately.
 	// - voice (ambient STT), presence.enter/leave are queued and replayed when agent becomes idle.
