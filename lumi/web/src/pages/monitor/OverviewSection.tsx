@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 
@@ -5,23 +6,32 @@ const EMOTION_EMOJI: Record<string, string> = {
   happy: "😊", curious: "🤔", thinking: "💭", sad: "😢", excited: "🤩",
   shy: "😳", shock: "😱", idle: "😐", listening: "👂", laugh: "😄",
   confused: "😕", sleepy: "😴", greeting: "👋", goodbye: "👋", acknowledge: "👍",
-  stretching: "🙆", caring: "🤗",
+  stretching: "🙆", caring: "🤗", music_chill: "🎵", music_strong: "🎸",
+  scan: "👀", nod: "👍", headshake: "🙅",
 };
 
-const EMOTION_COLOR: Record<string, string> = {
-  happy:      "#fbbf24", curious:    "#f59e0b", thinking:   "#a78bfa",
-  sad:        "#60a5fa", excited:    "#fb923c", shy:        "#f472b6",
-  shock:      "#f8fafc", idle:       "#2dd4bf", listening:  "#93c5fd",
-  laugh:      "#fbbf24", confused:   "#c4b5fd", sleepy:     "#818cf8",
-  greeting:   "#fb923c", goodbye:    "#f97316", acknowledge:"#34d399",
-  stretching: "#fde68a", caring:     "#fca5a0",
-};
+function rgbToHex(rgb: number[]): string {
+  return "#" + rgb.map(c => c.toString(16).padStart(2, "0")).join("");
+}
 
-const ALL_EMOTIONS = [
-  "happy","curious","thinking","sad","excited","shy","shock",
-  "idle","listening","laugh","confused","sleepy","greeting","goodbye",
-  "acknowledge","stretching","caring",
-];
+function useEmotionPresets() {
+  const [emotions, setEmotions] = useState<string[]>([]);
+  const [colors, setColors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch(`${HW}/emotion/presets`)
+      .then(r => r.json())
+      .then((data: Record<string, { color: number[]; effect: string; speed: number }>) => {
+        setEmotions(Object.keys(data));
+        const c: Record<string, string> = {};
+        for (const [name, preset] of Object.entries(data)) {
+          c[name] = rgbToHex(preset.color);
+        }
+        setColors(c);
+      })
+      .catch(() => {});
+  }, []);
+  return { emotions, colors };
+}
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
 import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
 
@@ -56,6 +66,7 @@ export function OverviewSection({
   sceneInfo: SceneInfo | null;
   onSceneActivate: (scene: string) => void;
 }) {
+  const { emotions: ALL_EMOTIONS, colors: EMOTION_COLOR } = useEmotionPresets();
   const emotion = oc?.emotion ?? "";
   const emotionColor = EMOTION_COLOR[emotion] ?? "var(--lm-text-muted)";
   const emotionEmoji = EMOTION_EMOJI[emotion] ?? "✦";
