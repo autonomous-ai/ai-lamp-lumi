@@ -74,6 +74,7 @@ var skills = []string{
 	"mood",
 	"speaker-recognizer",
 	"user-emotion-detection",
+	"habit",
 }
 
 // EnsureOnboarding seeds SOUL.md, downloads skills, and injects the mandatory
