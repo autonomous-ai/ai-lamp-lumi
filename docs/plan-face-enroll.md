@@ -1,5 +1,7 @@
 # Plan: Face Enroll via Telegram Chat
 
+**Status: IMPLEMENTED** (2026-04)
+
 ## Context
 Lumi's FaceRecognizer (`facerecognizer.py`) has `train()` and `reset_enrolled()` but they're never called — all faces are classified as strangers. We need a way for users to send a selfie via Telegram + tag someone → enroll that face for recognition.
 
