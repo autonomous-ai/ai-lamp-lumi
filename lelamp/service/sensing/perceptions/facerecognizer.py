@@ -4,8 +4,9 @@ import re
 import shutil
 import threading
 import time
+from copy import copy
 from pathlib import Path
-from typing import Callable, override
+from typing import Any, Callable, override
 
 import cv2
 import insightface
@@ -17,7 +18,9 @@ import requests
 import lelamp.config as config
 from service.sensing.perceptions.models import (
     Face,
+    FaceDetectionData,
     PerceptionStateObservers,
+    PersonData,
     PersonKind,
 )
 from service.sensing.perceptions.typing import SendEventCallable
@@ -61,8 +64,31 @@ class FaceRecognizer:
         self._stranger_embeddings: npt.NDArray[np.float32] | None = None
         self._stranger_labels: npt.NDArray[np.str_] | None = None
 
+        self._lock: threading.Lock = threading.Lock()
         self._running: bool = False
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
+
+    @property
+    def owners(self) -> list[str]:
+        with self._lock:
+            if self._owner_labels is None:
+                return []
+            unique: set[str] = set()
+            for lbl in self._owner_labels:
+                s = str(lbl)
+                unique.add(s.removeprefix(self.FRIEND_PREFIX))
+            return list(unique)
+
+    @property
+    def strangers(self) -> list[str]:
+        with self._lock:
+            if self._stranger_labels is None:
+                return []
+            unique: set[str] = set()
+            for lbl in self._stranger_labels:
+                s = str(lbl)
+                unique.add(s.removeprefix(self.STRANGER_PREFIX))
+            return list(unique)
 
     def start(self):
         if self._running:
@@ -80,10 +106,21 @@ class FaceRecognizer:
         )
         self._app.prepare(ctx_id=-1)
 
+    def reset(self, owners: bool = True, strangers: bool = True):
+        with self._lock:
+            if owners:
+                self._owner_embeddings = None
+                self._owner_labels = None
+
+            if strangers:
+                self._stranger_embeddings = None
+                self._stranger_labels = None
+                self._stranger_counter = 0
+
     def register(
         self,
         images: list[cv2.typing.MatLike],
-        labels: list[int | str],
+        labels: list[str],
     ) -> None:
         if self._app is None:
             msg = f"[{self.__class__.__name__}] service must be started first"
@@ -102,24 +139,26 @@ class FaceRecognizer:
         if new_embeddings:
             stacked_e = np.stack(new_embeddings, axis=0)
             stacked_l = np.stack(new_labels, axis=0)
-            self._owner_embeddings = (
-                np.concatenate([self._owner_embeddings, stacked_e])
-                if self._owner_embeddings is not None
-                else stacked_e
-            )
-            self._owner_labels = (
-                np.concatenate([self._owner_labels, stacked_l])
-                if self._owner_labels is not None
-                else stacked_l
-            )
-            logger.info(
-                "Added %d faces — total enrolled: %d, total strangers: %d",
-                len(new_embeddings),
-                len(self._owner_embeddings),
-                len(self._stranger_embeddings)
-                if self._stranger_embeddings is not None
-                else 0,
-            )
+
+            with self._lock:
+                self._owner_embeddings = (
+                    np.concatenate([self._owner_embeddings, stacked_e])
+                    if self._owner_embeddings is not None
+                    else stacked_e
+                )
+                self._owner_labels = (
+                    np.concatenate([self._owner_labels, stacked_l])
+                    if self._owner_labels is not None
+                    else stacked_l
+                )
+                logger.info(
+                    "Added %d faces — total enrolled: %d, total strangers: %d",
+                    len(new_embeddings),
+                    len(self._owner_embeddings),
+                    len(self._stranger_embeddings)
+                    if self._stranger_embeddings is not None
+                    else 0,
+                )
 
     def _retrieve(
         self,
@@ -146,8 +185,6 @@ class FaceRecognizer:
             msg = f"[{self.__class__.__name__}] service must be started first"
             raise RuntimeError(msg)
 
-        cur_ts = time.time()
-
         raw_results = self._app.get(frame)
         n_faces = len(raw_results)
 
@@ -158,21 +195,20 @@ class FaceRecognizer:
             [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
         )
 
-        owner_scores, owner_ids = self._retrieve(
-            embeds, self._owner_embeddings, self._owner_labels
-        )
+        with self._lock:
+            self._load_strangers_state()
 
-        self._load_strangers_state()
-        stranger_scores, stranger_ids = self._retrieve(
-            embeds, self._stranger_embeddings, self._stranger_labels
-        )
+            owner_scores, owner_ids = self._retrieve(
+                embeds, self._owner_embeddings, self._owner_labels
+            )
+            stranger_scores, stranger_ids = self._retrieve(
+                embeds, self._stranger_embeddings, self._stranger_labels
+            )
 
         new_stranger_embeds = []
         new_stranger_labels = []
-        owners_seen = set()
-        strangers_seen = set()
         # per-face: (bbox_pixels, face_kind, label)  face_kind: "friend"|"stranger"|"unsure"
-        face_annotations: list[Face] = []
+        faces: list[Face] = []
 
         for i in range(n_faces):
             o_score = float(owner_scores[i])
@@ -191,10 +227,11 @@ class FaceRecognizer:
                 self._negative_threshold is None
                 or max(o_score, s_score) <= self._negative_threshold
             ):
-                self._stranger_counter += 1
-                self._stranger_counter %= int(1e6)
+                with self._lock:
+                    self._stranger_counter += 1
+                    self._stranger_counter %= int(1e6)
 
-                raw_id = f"{self.STRANGER_PREFIX}stranger_{self._stranger_counter}"
+                    raw_id = f"{self.STRANGER_PREFIX}stranger_{self._stranger_counter}"
                 person_id = raw_id.removeprefix(self.STRANGER_PREFIX)
                 face_kind = PersonKind.STRANGER
 
@@ -205,91 +242,72 @@ class FaceRecognizer:
                 person_id = "?"
                 face_kind = PersonKind.UNSURE
 
-            face_annotations.append(
-                Face(bbox=bbox, kind=face_kind, person_id=person_id)
-            )
+            faces.append(Face(bbox=bbox, kind=face_kind, person_id=person_id))
 
         if new_stranger_embeds:
             stacked_e = np.stack(new_stranger_embeds, axis=0)
             stacked_l = np.stack(new_stranger_labels, axis=0)
-            self._stranger_embeddings = (
-                np.concatenate([self._stranger_embeddings, stacked_e])
-                if self._stranger_embeddings is not None
-                else stacked_e
+            with self._lock:
+                self._stranger_embeddings = (
+                    np.concatenate([self._stranger_embeddings, stacked_e])
+                    if self._stranger_embeddings is not None
+                    else stacked_e
+                )
+                self._stranger_labels = (
+                    np.concatenate([self._stranger_labels, stacked_l])
+                    if self._stranger_labels is not None
+                    else stacked_l
+                )
+                self._evict_oldest_strangers()
+                self._save_strangers_state()
+
+        return faces
+
+    def _evict_oldest_strangers(self) -> None:
+        if self._stranger_embeddings is None or self._stranger_labels is None:
+            return
+
+        count = len(self._stranger_embeddings)
+        if count <= self._max_strangers:
+            return
+        drop = count - self._max_strangers
+        logger.debug("Evicting %d oldest stranger(s)", drop)
+        self._stranger_embeddings = self._stranger_embeddings[drop:]
+        self._stranger_labels = self._stranger_labels[drop:]
+
+    def _save_strangers_state(self):
+        if self._stranger_embeddings is not None and self._stranger_labels is not None:
+            try:
+                np.save(STRANGER_STATE_DIR / "embeds.npy", self._stranger_embeddings)
+                np.save(STRANGER_STATE_DIR / "labels.npy", self._stranger_labels)
+                np.save(
+                    STRANGER_STATE_DIR / "counter.npy", np.array(self._stranger_counter)
+                )
+                logger.debug("Saved strangers' state")
+            except Exception as e:
+                logger.error(f"Failed to save strangers' state due to {e}")
+
+    def _load_strangers_state(self):
+        try:
+            stranger_embeddings = np.load(
+                STRANGER_STATE_DIR / "embeds.npy", allow_pickle=True
             )
-            self._stranger_labels = (
-                np.concatenate([self._stranger_labels, stacked_l])
-                if self._stranger_labels is not None
-                else stacked_l
+            stranger_labels = np.load(
+                STRANGER_STATE_DIR / "labels.npy", allow_pickle=True
             )
-            self._evict_oldest_strangers()
-            self._save_strangers_state()
-
-        for bbox, kind, person_id in face_annotations:
-            for callback in self._callbacks:
-                callback(frame, bbox, kind, person_id)
-
-        self._faces_n = len(owners_seen) + len(strangers_seen)
-        logger.info(
-            f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
-        )
-        self._face_present = self._faces_n > 0
-
-        # "unknown" session enter: fire once when the first stranger appears
-        # and stays un-logged until all strangers leave. Keeps multiple
-        # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
-        # into one session row for the "unknown" user timeline.
-        if strangers_seen and not self._any_stranger_logged:
-            self._post_wellbeing("unknown", "enter")
-            self._any_stranger_logged = True
-
-        if self._face_present:
-            self._on_motion()
-
-        # Strangers: always buffer snapshots; flush decides when to send
-        if strangers_seen:
-            stranger_annotations = [
-                (bbox, kind, label)
-                for bbox, kind, label in face_annotations
-                if kind == "stranger"
-            ]
-            self._stranger_buffer.append((frame.copy(), stranger_annotations))
-            self._stranger_ids_buffer.update(strangers_seen)
-            self._track_stranger_visits(strangers_seen)
-
-        flushed_snapshots, flushed_ids = self._flush_stranger_buffer(cur_ts)
-
-        # Build annotations to send: friends always, strangers only on flush
-        owner_annotations = [
-            (bbox, kind, label)
-            for bbox, kind, label in face_annotations
-            if kind == "friend"
-        ]
-        annotations_to_send = list(owner_annotations)
-        if flushed_ids:
-            annotations_to_send += [
-                (bbox, kind, label)
-                for bbox, kind, label in face_annotations
-                if kind == "stranger"
-            ]
-
-        if annotations_to_send:
-            friends_in_frame = {
-                name for _, kind, name in annotations_to_send if kind == "friend"
-            }
-            strangers_in_frame = flushed_ids
-            parts = []
-            if friends_in_frame:
-                parts.append(f"friend ({', '.join(friends_in_frame)})")
-            if strangers_in_frame:
-                parts.append(f"stranger ({', '.join(strangers_in_frame)})")
-            summary = ", ".join(parts)
-            self._send_enter_event(
-                frames=[(frame, annotations_to_send)] + flushed_snapshots,
-                summary=summary,
+            stranger_counter = int(
+                np.load(STRANGER_STATE_DIR / "counter.npy", allow_pickle=True)
             )
+        except Exception:
+            logger.exception("Failed to load strangers' state")
+            stranger_embeddings = None
+            stranger_labels = None
+            stranger_counter = 0
 
-        self._check_leaves(cur_ts)
+        if stranger_embeddings is not None and stranger_labels is not None:
+            self._stranger_embeddings = stranger_embeddings
+            self._stranger_labels = stranger_labels
+            self._stranger_counter = stranger_counter
 
 
 class FacePerception(Perception[cv2.typing.MatLike]):
@@ -313,10 +331,12 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         super().__init__(perception_state, send_event)
 
         self._presense_service: PresenceService | None = presense_service
-        self._threshold: float = threshold
-        self._negative_threshold: float | None = negative_threshold
-        self._max_strangers: int = max_strangers
-        self._model_name: str = model_name
+        self._face_recognizer: FaceRecognizer = FaceRecognizer(
+            threshold=threshold,
+            negative_threshold=negative_threshold,
+            max_strangers=max_strangers,
+            model_name=model_name,
+        )
         self._owners_forget_ts: float = owners_forget_ts
         self._strangers_forget_ts: float = strangers_forget_ts
 
@@ -351,24 +371,11 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         # Stranger snapshot buffer — flushed every FACE_STRANGER_FLUSH_S
         # Each entry: (raw_frame, annotations[(bbox, kind, label), ...])
         self._stranger_flush_interval: float = config.FACE_STRANGER_FLUSH_S
-        self._stranger_buffer: list[
-            tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]
-        ] = []
+        self._stranger_snapshots_buffers: list[cv2.typing.MatLike] = []
         self._stranger_ids_buffer: set[str] = set()
         self._last_stranger_flush_ts: float = 0.0
 
-        # Enrolled embeddings — populated by train(), cleared by reset_enrolled()
-        self._owner_embeddings: np.ndarray | None = None
-        self._owner_labels: np.ndarray | None = None
-
-        # Stranger embeddings — accumulated at runtime, never cleared by reset_enrolled().
-        # Rows are insertion-ordered; index 0 is always the oldest stranger.
-        self._stranger_embeddings: np.ndarray | None = None
-        self._stranger_labels: np.ndarray | None = None
-
-        self._callbacks: set[
-            Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
-        ] = set()
+        self._callbacks: set[Callable[[FaceDetectionData], None]] = set()
 
         ort.set_default_logger_severity(3)
         sess_opts = ort.SessionOptions()
@@ -381,16 +388,16 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         self.app.prepare(ctx_id=-1)
 
         self._start_watcher()
+        self._state_lock: threading.Lock = threading.Lock()
+        self._callback_lock: threading.Lock = threading.Lock()
 
-    def register_callback(
-        self, callback: Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
-    ):
-        self._callbacks.add(callback)
+    def register_callback(self, callback: Callable[[FaceDetectionData], None]):
+        with self._callback_lock:
+            self._callbacks.add(callback)
 
-    def unregister_callback(
-        self, callback: Callable[[npt.NDArray[np.uint8], list[int], str, str], None]
-    ):
-        self._callbacks.discard(callback)
+    def unregister_callback(self, callback: Callable[[FaceDetectionData], None]):
+        with self._callback_lock:
+            self._callbacks.discard(callback)
 
     def _start_watcher(self) -> None:
         """Poll USERS_DIR every 2s and reload embeddings when files change."""
@@ -413,7 +420,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 if current != last:
                     last = current
                     logger.info("User photos changed — reloading embeddings")
-                    self.load_from_disk()
+                    _ = self.load_from_disk()
 
         t = threading.Thread(target=_poll, daemon=True, name="owner-photos-watcher")
         t.start()
@@ -421,40 +428,10 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
     def train(
         self,
-        images: list[npt.NDArray[np.uint8]],
-        labels: list[int | str],
+        images: list[cv2.typing.MatLike],
+        labels: list[str],
     ) -> None:
-        prefixed_labels = [self.FRIEND_PREFIX + str(lbl) for lbl in labels]
-        new_embeddings = []
-        new_labels = []
-        for img, label in zip(images, prefixed_labels):
-            results = self.app.get(img)
-            for r in results:
-                emb = r["embedding"]
-                new_embeddings.append(emb / np.linalg.norm(emb))
-                new_labels.append(label)
-
-        if new_embeddings:
-            stacked_e = np.stack(new_embeddings, axis=0)
-            stacked_l = np.stack(new_labels, axis=0)
-            self._owner_embeddings = (
-                np.concatenate([self._owner_embeddings, stacked_e])
-                if self._owner_embeddings is not None
-                else stacked_e
-            )
-            self._owner_labels = (
-                np.concatenate([self._owner_labels, stacked_l])
-                if self._owner_labels is not None
-                else stacked_l
-            )
-            logger.info(
-                "Added %d faces — total enrolled: %d, total strangers: %d",
-                len(new_embeddings),
-                len(self._owner_embeddings),
-                len(self._stranger_embeddings)
-                if self._stranger_embeddings is not None
-                else 0,
-            )
+        self._face_recognizer.register(images, labels)
 
     @staticmethod
     def normalize_label(label: str) -> str:
@@ -465,11 +442,10 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         return s[:64] if s else "person"
 
     def _clear_owner_embeddings(self) -> None:
-        self._owner_embeddings = None
-        self._owner_labels = None
+        self._face_recognizer.reset(owners=True, strangers=False)
 
     @staticmethod
-    def _read_metadata(person_dir: Path) -> dict:
+    def _read_metadata(person_dir: Path) -> dict[str, Any]:
         """Read metadata.json from a person's folder. Returns {} if missing."""
         meta_path = person_dir / "metadata.json"
         if meta_path.is_file():
@@ -485,7 +461,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
     ) -> None:
         """Write metadata.json with telegram info."""
         meta_path = person_dir / "metadata.json"
-        data: dict = {}
+        data: dict[str, Any] = {}
         if meta_path.is_file():
             try:
                 data = json.loads(meta_path.read_text())
@@ -495,7 +471,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             data["telegram_username"] = telegram_username
         if telegram_id:
             data["telegram_id"] = telegram_id
-        meta_path.write_text(json.dumps(data))
+        _ = meta_path.write_text(json.dumps(data))
 
     def save_photo(
         self,
@@ -512,12 +488,13 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             self._write_metadata(dest_dir, telegram_username, telegram_id)
         fname = f"{int(time.time() * 1000)}.jpg"
         path = dest_dir / fname
-        path.write_bytes(image_bytes)
+        _ = path.write_bytes(image_bytes)
         return str(path)
 
     def load_from_disk(self) -> int:
         """Clear enrolled embeddings and re-train from all JPEG/PNG images under USERS_DIR."""
         self._clear_owner_embeddings()
+
         if not USERS_DIR.is_dir():
             logger.info("No users dir at %s — skipping", USERS_DIR)
             return 0
@@ -528,12 +505,13 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         for person_dir in sorted(USERS_DIR.iterdir()):
             if not person_dir.is_dir():
                 continue
-            images = []
+
+            images: list[cv2.typing.MatLike] = []
             labels: list[str] = []
             for fname in sorted(person_dir.iterdir()):
                 if fname.suffix.lower() not in _IMG_EXTS:
                     continue
-                img = self._cv2.imread(str(fname))
+                img = cv2.imread(str(fname))
                 if img is None:
                     logger.warning("Failed to load image: %s", fname)
                     continue
@@ -549,13 +527,15 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                     person_dir.name,
                 )
 
-        n_enrolled = self.enrolled_count()
+        n_owners = len(self._face_recognizer.owners)
+        n_strangers = len(self._face_recognizer.owners)
         logger.info(
-            "Load from disk done — %d image(s), %d enrolled person(s)",
+            "Load from disk done — %d image(s), %d enrolled owners(s), %d enrolled strangers(s)",
             loaded_total,
-            n_enrolled,
+            n_owners,
+            n_strangers,
         )
-        return n_enrolled
+        return n_owners
 
     def enroll_from_bytes(
         self,
@@ -567,12 +547,12 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         """Decode image, save as JPEG on disk, and append embeddings."""
         norm = self.normalize_label(label)
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
-        img = self._cv2.imdecode(arr, self._cv2.IMREAD_COLOR)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if img is None:
             raise ValueError("could not decode image")
         if not self.app.get(img):
             raise ValueError("no face detected in image")
-        ok, buf = self._cv2.imencode(".jpg", img)
+        ok, buf = cv2.imencode(".jpg", img)
         if not ok:
             raise ValueError("could not encode image")
         path = self.save_photo(buf.tobytes(), norm, telegram_username, telegram_id)
@@ -617,7 +597,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         if not remaining:
             shutil.rmtree(person_dir)
             logger.info("No photos left for '%s' — removed person directory", label)
-        self.load_from_disk()
+        _ = self.load_from_disk()
         return True
 
     def remove_person(self, label: str) -> bool:
@@ -626,26 +606,14 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         if person_dir is None:
             return False
         shutil.rmtree(person_dir)
-        self.load_from_disk()
+        _ = self.load_from_disk()
         return True
 
     def enrolled_count(self) -> int:
-        if self._owner_labels is None:
-            return 0
-        unique = set()
-        for lbl in self._owner_labels:
-            s = str(lbl)
-            unique.add(s.removeprefix(self.FRIEND_PREFIX))
-        return len(unique)
+        return len(self._face_recognizer.owners)
 
     def enrolled_names(self) -> list[str]:
-        if self._owner_labels is None:
-            return []
-        unique = set()
-        for lbl in self._owner_labels:
-            s = str(lbl)
-            unique.add(s.removeprefix(self.FRIEND_PREFIX))
-        return sorted(unique)
+        return self._face_recognizer.owners
 
     def reset_enrolled(self) -> None:
         """Clear enrolled embeddings and delete all saved photos. Stranger bank is unchanged."""
@@ -656,318 +624,193 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                     shutil.rmtree(child)
         logger.info("Enrolled embeddings cleared and photos removed")
 
-    def _evict_oldest_strangers(self) -> None:
-        if self._stranger_embeddings is None or self._stranger_labels is None:
-            return
-        count = len(self._stranger_embeddings)
-        if count <= self.max_strangers:
-            return
-        drop = count - self.max_strangers
-        logger.debug("Evicting %d oldest stranger(s)", drop)
-        self._stranger_embeddings = self._stranger_embeddings[drop:]
-        self._stranger_labels = self._stranger_labels[drop:]
-
-    def _save_strangers_state(self):
-        if self._stranger_embeddings is not None and self._stranger_labels is not None:
-            try:
-                np.save(STRANGER_STATE_DIR / "embeds.npy", self._stranger_embeddings)
-                np.save(STRANGER_STATE_DIR / "labels.npy", self._stranger_labels)
-                np.save(
-                    STRANGER_STATE_DIR / "counter.npy", np.array(self._stranger_counter)
-                )
-                logger.debug("Saved strangers' state")
-            except Exception as e:
-                logger.error(f"Failed to save strangers' state due to {e}")
-
-    def _load_strangers_state(self):
-        try:
-            stranger_embeddings = np.load(
-                STRANGER_STATE_DIR / "embeds.npy", allow_pickle=True
-            )
-            stranger_labels = np.load(
-                STRANGER_STATE_DIR / "labels.npy", allow_pickle=True
-            )
-            stranger_counter = int(
-                np.load(STRANGER_STATE_DIR / "counter.npy", allow_pickle=True)
-            )
-        except Exception as e:
-            logger.debug("Loaded strangers' state")
-            logger.error(f"Failed to load strangers' state due to {e}")
-            stranger_embeddings = None
-            stranger_labels = None
-            stranger_counter = 0
-
-        if stranger_embeddings is not None and stranger_labels is not None:
-            self._stranger_embeddings = stranger_embeddings
-            self._stranger_labels = stranger_labels
-            self._stranger_counter = stranger_counter
-
-    def _score(self, embeds: np.ndarray, bank: np.ndarray, labels: np.ndarray):
-        sim = embeds @ bank.T
-        best = sim.argmax(axis=-1)
-        scores = np.array([sim[i, best[i]] for i in range(len(embeds))])
-        ids = [str(labels[best[i]]) for i in range(len(embeds))]
-        return scores, ids
-
     @override
-    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, data: cv2.typing.MatLike) -> None:
+        frame = data
         if frame is None:
             return
 
-        raw_results = self.app.get(frame)
         cur_ts = time.time()
 
-        if not raw_results:
+        faces = self._face_recognizer.detect(frame)
+
+        _ = self._state_lock.acquire()
+        if not faces:
             self._face_present = False
             self._faces_n = 0
             self._check_leaves(cur_ts)
             return
+        else:
+            self._faces_n = len(faces)
+            self._face_present = len(faces) > 0
 
-        embeds = np.stack(
-            [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
+        owners_seen = set([f.person_id for f in faces if f.kind == PersonKind.FRIEND])
+        strangers_seen = set(
+            [f.person_id for f in faces if f.kind == PersonKind.STRANGER]
         )
-        n = len(embeds)
 
-        owner_scores = np.full(n, _NO_MATCH)
-        owner_ids: list[str | None] = [None] * n
-        if self._owner_embeddings is not None and self._owner_labels is not None:
-            owner_scores, owner_ids = self._score(
-                embeds, self._owner_embeddings, self._owner_labels
-            )
-
-        self._load_strangers_state()
-        stranger_scores = np.full(n, _NO_MATCH)
-        stranger_ids: list[str | None] = [None] * n
-        if self._stranger_embeddings is not None and self._stranger_labels is not None:
-            stranger_scores, stranger_ids = self._score(
-                embeds, self._stranger_embeddings, self._stranger_labels
-            )
-
-        new_stranger_embeds = []
-        new_stranger_labels = []
-        owners_seen = set()
-        strangers_seen = set()
-        # per-face: (bbox_pixels, face_kind, label)  face_kind: "friend"|"stranger"|"unsure"
-        face_annotations: list[tuple[list[int], str, str]] = []
-
-        for x in range(n):
-            o_score = float(owner_scores[x])
-            s_score = float(stranger_scores[x])
-            bbox = [int(v) for v in raw_results[x]["bbox"]]
-
-            if o_score > self.threshold:
-                raw_id = owner_ids[x] or ""
-                face_kind = "friend"
-                person_id = raw_id.removeprefix(self.FRIEND_PREFIX)
-
-                if person_id not in self._owners_last_seen:
-                    last_seen = None
-                else:
-                    last_seen = self._owners_last_seen[person_id]
-
-                self._owners_last_seen[person_id] = cur_ts
-                self._known_face_kinds[person_id] = face_kind
-
-                if last_seen is None or (cur_ts - last_seen) > self._owners_forget_ts:
-                    owners_seen.add(person_id)
-                    face_annotations.append((bbox, face_kind, person_id))
-                    self._owners_session_start[person_id] = cur_ts
-                    # Per-friend enter row: each friend owns their own timeline.
-                    self._post_wellbeing(self.normalize_label(person_id), "enter")
-                else:
-                    logger.debug(
-                        f"Ignore friend(id={person_id}): seen in the last {cur_ts - last_seen:.2f} seconds"
-                    )
-
-            elif s_score > self.threshold:
-                person_id = (stranger_ids[x] or "").removeprefix(self.STRANGER_PREFIX)
-
-                if person_id not in self._strangers_last_seen:
-                    last_seen = None
-                else:
-                    last_seen = self._strangers_last_seen[person_id]
-
-                self._strangers_last_seen[person_id] = cur_ts
-
-                if (
-                    last_seen is None
-                    or (cur_ts - last_seen) > self._strangers_forget_ts
-                ):
-                    strangers_seen.add(person_id)
-                    face_annotations.append((bbox, "stranger", person_id))
-                    self._strangers_session_start[person_id] = cur_ts
-                else:
-                    logger.debug(
-                        f"Ignore stranger(id={person_id}): stranger has been seen in the last {cur_ts - last_seen:.2f} seconds"
-                    )
-
-            elif (
-                self.negative_threshold is None
-                or max(o_score, s_score) <= self.negative_threshold
-            ):
-                self._stranger_counter += 1
-                self._stranger_counter %= int(1e6)
-                stranger_id = (
-                    self.STRANGER_PREFIX + f"stranger_{self._stranger_counter}"
-                )
-                person_id = stranger_id.removeprefix(self.STRANGER_PREFIX)
-                self._strangers_last_seen[person_id] = cur_ts
-                self._strangers_session_start[person_id] = cur_ts
-
-                strangers_seen.add(person_id)
-                face_annotations.append((bbox, "stranger", person_id))
-                new_stranger_embeds.append(embeds[x])
-                new_stranger_labels.append(stranger_id)
-
-            else:
-                # Score between negative_threshold and threshold on both banks — unsure
-                face_annotations.append((bbox, "unsure", "?"))
-
-        if new_stranger_embeds:
-            stacked_e = np.stack(new_stranger_embeds, axis=0)
-            stacked_l = np.stack(new_stranger_labels, axis=0)
-            self._stranger_embeddings = (
-                np.concatenate([self._stranger_embeddings, stacked_e])
-                if self._stranger_embeddings is not None
-                else stacked_e
-            )
-            self._stranger_labels = (
-                np.concatenate([self._stranger_labels, stacked_l])
-                if self._stranger_labels is not None
-                else stacked_l
-            )
-            self._evict_oldest_strangers()
-            self._save_strangers_state()
-
-        for bbox, kind, person_id in face_annotations:
-            for callback in self._callbacks:
-                callback(frame, bbox, kind, person_id)
-
-        self._faces_n = len(owners_seen) + len(strangers_seen)
         logger.info(
             f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
         )
-        self._face_present = self._faces_n > 0
+
+        new_owners: set[str] = set()
+        new_strangers: set[str] = set()
+
+        for f in faces:
+            if f.kind == PersonKind.UNSURE:
+                continue
+
+            person_id = f.person_id
+            if person_id not in self._data_dict:
+                self._data_dict[person_id] = PersonData(id=person_id, kind=f.kind)
+
+            face_data = self._data_dict[person_id]
+
+            if face_data.kind == PersonKind.FRIEND:
+                forget_ts = self._owners_forget_ts
+            elif face_data.kind == PersonKind.STRANGER:
+                forget_ts = self._strangers_forget_ts
+            else:
+                forget_ts = 0
+
+            if (
+                face_data.last_seen is None
+                or (cur_ts - face_data.last_seen) > forget_ts
+            ):
+                if face_data.kind == PersonKind.FRIEND:
+                    new_owners.add(person_id)
+                elif face_data.kind == PersonKind.STRANGER:
+                    new_strangers.add(person_id)
+
+                self._data_dict[person_id].last_session_time = cur_ts
+
+            self._data_dict[person_id].last_seen = cur_ts
 
         # "unknown" session enter: fire once when the first stranger appears
         # and stays un-logged until all strangers leave. Keeps multiple
         # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
         # into one session row for the "unknown" user timeline.
-        if strangers_seen and not self._any_stranger_logged:
+        if len(new_strangers) > 0 and not self._any_stranger_logged:
             self._post_wellbeing("unknown", "enter")
             self._any_stranger_logged = True
 
-        if self._face_present:
-            self._on_motion()
+        if self._face_present and self._presense_service is not None:
+            self._presense_service.on_motion()
 
         # Strangers: always buffer snapshots; flush decides when to send
-        if strangers_seen:
-            stranger_annotations = [
-                (bbox, kind, label)
-                for bbox, kind, label in face_annotations
-                if kind == "stranger"
-            ]
-            self._stranger_buffer.append((frame.copy(), stranger_annotations))
-            self._stranger_ids_buffer.update(strangers_seen)
-            self._track_stranger_visits(strangers_seen)
+        annotated_frame = self._annotate_frame(frame, faces)
+        annotated_frames_to_send: list[cv2.typing.MatLike] = []
+        if len(new_owners) > 0:
+            annotated_frames_to_send.append(annotated_frame)
+        else:
+            if new_strangers:
+                self._stranger_snapshots_buffers.append(annotated_frame)
+                self._stranger_ids_buffer.update(new_strangers)
 
-        flushed_snapshots, flushed_ids = self._flush_stranger_buffer(cur_ts)
+        if new_strangers:
+            self._track_stranger_visits(new_strangers)
 
-        # Build annotations to send: friends always, strangers only on flush
-        owner_annotations = [
-            (bbox, kind, label)
-            for bbox, kind, label in face_annotations
-            if kind == "friend"
-        ]
-        annotations_to_send = list(owner_annotations)
-        if flushed_ids:
-            annotations_to_send += [
-                (bbox, kind, label)
-                for bbox, kind, label in face_annotations
-                if kind == "stranger"
-            ]
+        flushed_stranger_snapshots, flushed_stranger_ids = self._flush_stranger_buffer(
+            cur_ts
+        )
 
-        if annotations_to_send:
-            friends_in_frame = {
-                name for _, kind, name in annotations_to_send if kind == "friend"
-            }
-            strangers_in_frame = flushed_ids
+        annotated_frames_to_send = annotated_frames_to_send + flushed_stranger_snapshots
+        stranger_ids_to_send = new_strangers.union(flushed_stranger_ids)
+
+        if annotated_frames_to_send:
             parts = []
-            if friends_in_frame:
-                parts.append(f"friend ({', '.join(friends_in_frame)})")
-            if strangers_in_frame:
-                parts.append(f"stranger ({', '.join(strangers_in_frame)})")
+            if new_owners:
+                parts.append(f"friend ({', '.join(new_owners)})")
+            if stranger_ids_to_send:
+                parts.append(f"stranger ({', '.join(stranger_ids_to_send)})")
             summary = ", ".join(parts)
+            total_faces = len(new_owners) + len(stranger_ids_to_send)
             self._send_enter_event(
-                frames=[(frame, annotations_to_send)] + flushed_snapshots,
-                summary=summary,
+                frames=annotated_frames_to_send,
+                message=f"Person detected — {total_faces} face(s) visible ({summary})",
             )
 
         self._check_leaves(cur_ts)
 
-    def to_dict(self) -> dict:
-        now = time.time()
-        # Last seen person (most recent across owners + strangers)
-        last_person = None
-        last_seen_ago = None
-        all_seen = {**self._owners_last_seen, **self._strangers_last_seen}
-        if all_seen:
-            most_recent = max(all_seen, key=all_seen.get)
-            last_person = most_recent
-            last_seen_ago = int(now - all_seen[most_recent])
-        # Currently visible people
-        visible = []
-        for pid, ts in self._owners_last_seen.items():
-            if (now - ts) < 10:
-                visible.append(pid)
-        for pid, ts in self._strangers_last_seen.items():
-            if (now - ts) < 10:
-                visible.append(pid)
-        return {
-            "type": "face",
-            "face_present": self._face_present,
-            "faces_count": self._faces_n,
-            "visible": visible,
-            "last_person": last_person,
-            "last_seen_seconds_ago": last_seen_ago,
-            "enrolled_count": self.enrolled_count(),
-            "stranger_count": len(self._stranger_embeddings)
-            if self._stranger_embeddings is not None
-            else 0,
-        }
+        self._state_lock.release()
+
+        with self._callback_lock:
+            for callback in self._callbacks:
+                callback(FaceDetectionData(frame=frame.copy(), faces=copy(faces)))
+
+    def to_dict(self) -> dict[str, Any]:
+        with self._state_lock:
+            now = time.time()
+            # Last seen person (most recent across owners + strangers)
+            last_person = None
+            last_seen_ago = None
+            all_seen = {**self._owners_last_seen, **self._strangers_last_seen}
+            if all_seen:
+                most_recent = max(all_seen, key=all_seen.get)
+                last_person = most_recent
+                last_seen_ago = int(now - all_seen[most_recent])
+            # Currently visible people
+            visible = []
+            for pid, ts in self._owners_last_seen.items():
+                if (now - ts) < 10:
+                    visible.append(pid)
+            for pid, ts in self._strangers_last_seen.items():
+                if (now - ts) < 10:
+                    visible.append(pid)
+            return {
+                "type": "face",
+                "face_present": self._face_present,
+                "faces_count": self._faces_n,
+                "visible": visible,
+                "last_person": last_person,
+                "last_seen_seconds_ago": last_seen_ago,
+                "enrolled_count": self.enrolled_count(),
+                "stranger_count": len(self._face_recognizer.strangers),
+            }
 
     # -- Presence leave detection ------------------------------------------------
 
     def _check_leaves(self, cur_ts: float) -> None:
         """Fire presence.leave for anyone not seen within their forget interval."""
-        for person_id, last_seen in list(self._owners_last_seen.items()):
-            if (cur_ts - last_seen) > self._owners_forget_ts:
-                del self._owners_last_seen[person_id]
-                self._owners_session_start.pop(person_id, None)
-                kind = self._known_face_kinds.pop(person_id, "friend")
-                # Per-friend leave row on their own timeline.
-                self._post_wellbeing(self.normalize_label(person_id), "leave")
-                self._send_leave_event(person_id, kind=kind)
+        deleted_ids: set[str] = set()
+        for person_id, person_data in self._data_dict.items():
+            if person_data.kind == PersonKind.FRIEND:
+                if (
+                    person_data.last_seen is None
+                    or (cur_ts - person_data.last_seen) > self._owners_forget_ts
+                ):
+                    deleted_ids.add(person_id)
+                    # Per-friend leave row on their own timeline.
+                    self._post_wellbeing(self.normalize_label(person_id), "leave")
+                    self._send_leave_event(person_id, kind=person_data.kind)
+            elif person_data.kind == PersonKind.STRANGER:
+                if (
+                    person_data.last_seen is None
+                    or (cur_ts - person_data.last_seen) > self._strangers_forget_ts
+                ):
+                    deleted_ids.add(person_id)
 
-        for person_id, last_seen in list(self._strangers_last_seen.items()):
-            if (cur_ts - last_seen) > self._strangers_forget_ts:
-                del self._strangers_last_seen[person_id]
-                self._strangers_session_start.pop(person_id, None)
-                # self._send_leave_event(person_id, kind="stranger")
+        for id in deleted_ids:
+            del self._data_dict[id]
+
+        current_strangers = [
+            p for p in self._data_dict.values() if p.kind == PersonKind.STRANGER
+        ]
 
         # "unknown" session leave: fire once when the last stranger has
         # gone. Mirrors the enter in _check_impl — gives the unknown
         # timeline matching enter/leave pairs even though individual
         # stranger IDs don't emit presence.leave.
-        if self._any_stranger_logged and not self._strangers_last_seen:
+        if self._any_stranger_logged and not current_strangers:
             self._post_wellbeing("unknown", "leave")
             self._any_stranger_logged = False
 
-    def _send_leave_event(self, person_id: str, kind: str) -> None:
+    def _send_leave_event(self, person_id: str, kind: PersonKind) -> None:
         self._send_event(
             "presence.leave",
             f"Person no longer visible — {kind} ({person_id})",
-            cooldown=config.FACE_COOLDOWN_S,
+            None,
+            config.FACE_COOLDOWN_S,
         )
 
     def _post_wellbeing(self, user: str, action: str) -> None:
@@ -1124,25 +967,25 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
     # -- Events -----------------------------------------------------------------
 
+    _FACE_COLOR: dict[PersonKind, tuple[int, int, int]] = {
+        PersonKind.FRIEND: (0, 255, 0),  # green
+        PersonKind.STRANGER: (0, 0, 255),  # red
+        PersonKind.UNSURE: (0, 255, 255),  # yellow
+    }
+
     def _annotate_frame(
         self,
-        frame: npt.NDArray[np.uint8],
-        face_annotations: list[tuple[list[int], str, str]],
-    ) -> npt.NDArray[np.uint8]:
+        frame: cv2.typing.MatLike,
+        faces: list[Face],
+    ) -> cv2.typing.MatLike:
         """Draw bounding boxes and labels on a frame copy."""
         annotated = frame.copy()
-        cv2 = self._cv2
-        _COLOR = {
-            "friend": (0, 255, 0),  # green
-            "stranger": (0, 0, 255),  # red
-            "unsure": (0, 255, 255),  # yellow
-        }
-        for bbox, face_kind, label in face_annotations:
-            x1, y1, x2, y2 = bbox
-            color = _COLOR.get(face_kind, (128, 128, 128))
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            display_label = label if face_kind != "unsure" else "unsure"
-            cv2.putText(
+        for f in faces:
+            x1, y1, x2, y2 = f.bbox
+            color = self._FACE_COLOR.get(f.kind, (128, 128, 128))
+            _ = cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            display_label = f.person_id if f.kind != PersonKind.UNSURE else "unsure"
+            _ = cv2.putText(
                 annotated,
                 display_label,
                 (x1, y1 - 6),
@@ -1156,31 +999,28 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
     def _flush_stranger_buffer(
         self, cur_ts: float
-    ) -> tuple[
-        list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]], set[str]
-    ]:
+    ) -> tuple[list[cv2.typing.MatLike], set[str]]:
         """Flush buffered stranger snapshots if the interval has elapsed.
 
         Returns ([(frame, annotations), ...], flushed_ids). Empty if not yet time to flush.
         """
-        if not self._stranger_buffer:
-            return [], set()
-
         if (cur_ts - self._last_stranger_flush_ts) < self._stranger_flush_interval:
             return [], set()
 
-        entries = list(self._stranger_buffer)
+        snapshots = list(self._stranger_snapshots_buffers)
         ids = set(self._stranger_ids_buffer)
-        self._stranger_buffer.clear()
+        self._stranger_snapshots_buffers.clear()
         self._stranger_ids_buffer.clear()
         self._last_stranger_flush_ts = cur_ts
-        logger.info("[face] flushing %d stranger snapshot(s) for %s", len(entries), ids)
-        return entries, ids
+        logger.info(
+            "[face] flushing %d stranger snapshot(s) for %s", len(snapshots), ids
+        )
+        return snapshots, ids
 
     def _send_enter_event(
         self,
-        frames: list[tuple[npt.NDArray[np.uint8], list[tuple[list[int], str, str]]]],
-        summary: str,
+        frames: list[cv2.typing.MatLike],
+        message: str,
     ) -> None:
         """Send a presence.enter event with annotated snapshots.
 
@@ -1191,17 +1031,9 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             summary: Human-readable description of who was detected
                 (e.g. "friend (alice), stranger (stranger_3)").
         """
-        images = [
-            self._annotate_frame(frame, annotations) for frame, annotations in frames
-        ]
-        faces: set[tuple[str, str]] = set()
-        for _, annotations in frames:
-            for _, face_kind, label in annotations:
-                faces.add((face_kind, label))
-        total_faces = len(faces)
         self._send_event(
             "presence.enter",
-            f"Person detected — {total_faces} face(s) visible ({summary})",
-            images=images,
-            cooldown=config.FACE_COOLDOWN_S,
+            f"Person detected — {total_faces} face(s) visible ({message})",
+            frames,
+            config.FACE_COOLDOWN_S,
         )

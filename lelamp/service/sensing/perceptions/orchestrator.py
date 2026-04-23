@@ -95,7 +95,6 @@ class PerceptionOrchestrator:
         if cv2 is not None:
             if self._config.enable_face:
                 self._processors.face_recognizer = FacePerception(
-                    cv2=cv2,
                     perception_state=self._perception_state,
                     send_event=self._send_event,
                     on_motion=on_motion,
