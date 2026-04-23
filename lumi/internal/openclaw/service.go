@@ -283,7 +283,6 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
-				msg += "\n[Follow wellbeing/SKILL.md.]"
 			case "emotion.detected":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += "\n[REQUIRED — complete ALL steps before replying:]"
