@@ -318,6 +318,7 @@ class TrackerService:
             self._track_wrist_pitch = 0.0
 
         prev_cx, prev_cy = None, None
+        init_area = state.bbox[2] * state.bbox[3] if state.bbox else 0
         self._settled = False
         frame_count = 0
         fps_t0 = time.perf_counter()
@@ -351,6 +352,19 @@ class TrackerService:
                 state.low_confidence_frames = 0
                 state.bbox = tuple(int(v) for v in new_bbox)
                 bx, by, bw, bh = state.bbox
+
+                # Detect bbox bloat — tracker drifting to full frame
+                bbox_area = bw * bh
+                frame_area = frame.shape[0] * frame.shape[1]
+                if init_area > 0 and bbox_area > init_area * 3:
+                    logger.warning("Bbox bloated to %.0fx initial (area=%d vs init=%d), stopping",
+                                   bbox_area / init_area, bbox_area, init_area)
+                    break
+                if bbox_area > frame_area * 0.5:
+                    logger.warning("Bbox covers >50%% of frame (%d/%d), stopping",
+                                   bbox_area, frame_area)
+                    break
+
                 cx = bx + bw / 2
                 cy = by + bh / 2
 
