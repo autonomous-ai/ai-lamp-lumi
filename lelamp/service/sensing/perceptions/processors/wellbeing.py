@@ -7,10 +7,7 @@ in the sensing pipeline so that SensingService instantiation doesn't break.
 """
 
 import logging
-from typing import Callable, Optional, override
-
-import numpy as np
-import numpy.typing as npt
+from typing import Callable, override
 
 from .base import Perception
 

@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
 
-from service.sensing.perceptions.models import PerceptionStateObservers
 from service.sensing.perceptions.typing import SendEventCallable
+from service.sensing.perceptions.utils import PerceptionStateObservers
 
 logger = logging.getLogger(__name__)
 

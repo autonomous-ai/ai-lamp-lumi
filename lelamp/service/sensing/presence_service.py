@@ -31,7 +31,7 @@ class PresenceState(str, Enum):
     DISABLED = "disabled"
 
 
-class PresenceService:
+class PresenseService:
     """Tracks presence state based on motion events. Controls LED via rgb_service."""
 
     def __init__(self, rgb_service=None, send_event=None, on_restore_aim=None):

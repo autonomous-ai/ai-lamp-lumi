@@ -23,25 +23,17 @@ import os
 import shutil
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 import requests
 
 import lelamp.config as config
 from devices.video_capture_device import VideoCaptureDeviceBase
-from lelamp.service.sensing.perceptions import (
-    ActionPerception,
-    EmotionPerception,
-    FacePerception,
-    LightLevelPerception,
-    PoseMotionPerception,
-    SoundPerception,
-    WellbeingPerception,
-)
-from lelamp.service.sensing.presence_service import PresenceService
+from lelamp.service.sensing.presence_service import PresenseService
 from service.motors.animation_service import AnimationService
 from service.rgb.rgb_service import RGBService
-from service.sensing.perceptions.base import Perception
+from service.sensing.perceptions.models import PerceptionConfig
+from service.sensing.perceptions.orchestrator import PerceptionOrchestrator
 from service.voice.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
@@ -104,132 +96,47 @@ class SensingService:
         self._running: bool = False
         self._thread: threading.Thread | None = None
         self._last_event_time: dict[str, float] = {}
-        self._face_recognizer: FacePerception | None = None
-        self._wellbeing: WellbeingPerception | None = None
+
+        self._perception_orchestrator: PerceptionOrchestrator = PerceptionOrchestrator(
+            poll_interval_ts=self._poll_interval,
+            send_event=self._send_event,
+            perception_config=PerceptionConfig(
+                enable_face=True,
+                enable_motion=config.MOTION_ENABLED,
+                enable_emotion=config.EMOTION_ENABLED,
+                enable_light=True,
+                enable_sound=True,
+            ),
+        )
 
         # Presence auto on/off state machine
-        self._presence: PresenceService = PresenceService(
+        self._presense_service: PresenseService = PresenseService(
             rgb_service=rgb_service,
             send_event=self._send_event,
             on_restore_aim=on_restore_aim,
         )
+        _ = self._perception_orchestrator.with_presence_service(self._presense_service)
 
-        # Perception detectors
-        self._perceptions: list[Perception] = []
-        if cv2 is not None:
-            face_recognizer = FacePerception(
-                cv2=cv2,
-                send_event=self._send_event,
-                on_motion=self._presence.on_motion,
-            )
-            self._face_recognizer = face_recognizer
-            _ = face_recognizer.load_from_disk()
-            self._wellbeing = WellbeingPerception(
-                cv2=cv2,
-                send_event=self._send_event,
-                presence_service=self._presence,
-                capture_stable_frame=self._capture_stable_frame,
-            )
-            if config.MOTION_ENABLED:
-                self._perceptions.append(
-                    ActionPerception(
-                        send_event=self._send_event,
-                        on_motion=self._presence.on_motion,
-                        capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self._presence,
-                        face_recognizer=face_recognizer,
-                    )
-                )
-            if config.POSE_MOTION_ENABLED:
-                self._perceptions.append(
-                    PoseMotionPerception(
-                        cv2=cv2,
-                        send_event=self._send_event,
-                        on_motion=self._presence.on_motion,
-                        capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self._presence,
-                        face_recognizer=face_recognizer,
-                    )
-                )
-            if config.EMOTION_ENABLED:
-                self._perceptions.append(
-                    EmotionPerception(
-                        send_event=self._send_event,
-                        on_motion=self._presence.on_motion,
-                        capture_stable_frame=self._capture_stable_frame,
-                        presence_service=self._presence,
-                        face_recognizer=face_recognizer,
-                    )
-                )
-            self._perceptions += [
-                face_recognizer,
-                LightLevelPerception(
-                    cv2=cv2,
-                    np_module=np,
-                    send_event=self._send_event,
-                ),
-                self._wellbeing,
-            ]
-        if sd is not None and np is not None and input_device is not None:
-            self._sound_perception = SoundPerception(
-                sd=sd,
-                np_module=np,
-                send_event=self._send_event,
-                input_device=input_device,
-                tts_service=tts_service,
-            )
-            self._perceptions.append(self._sound_perception)
-        else:
-            self._sound_perception = None
+        if self._camera is not None:
+            _ = self._perception_orchestrator.with_camera_service(self._camera)
 
-    def set_tts_service(self, tts_service):
+        if self._tts_service is not None:
+            _ = self._perception_orchestrator.with_tts_service(self._tts_service)
+
+    def set_tts_service(self, tts_service: TTSService):
         """Set TTS reference after late initialization (echo suppression)."""
-        if self._sound_perception is not None:
-            self._sound_perception.set_tts_service(tts_service)
+        _ = self._perception_orchestrator.with_tts_service(tts_service)
 
     def start(self):
         if self._running:
             return
         self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="sensing")
-        self._thread.start()
-        logger.info("SensingService started (poll=%.1fs)", self._poll_interval)
+        self._perception_orchestrator.start()
 
     def stop(self):
         self._running = False
-        if self._thread:
-            self._thread.join(timeout=5)
-            self._thread = None
+        self._perception_orchestrator.stop()
         logger.info("SensingService stopped")
-
-    def _loop(self):
-        # Wait a bit for hardware to initialize
-        time.sleep(3)
-        self._tick_count = 0
-        while self._running:
-            try:
-                self._tick()
-            except Exception as e:
-                logger.error("Sensing tick error: %s", e, exc_info=True)
-            self._tick_count += 1
-            time.sleep(self._poll_interval)
-
-    def _tick(self):
-        frame = None
-
-        # Read camera frame once per tick (shared across detectors)
-        if self._camera and cv2:
-            frame = self._camera.last_frame
-
-        for perception in self._perceptions:
-            # Run heavy perceptions (face/pose) every other tick to save CPU
-            if isinstance(perception, (FacePerception, PoseMotionPerception)):
-                if self._tick_count % 2 != 0:
-                    continue
-            perception.check(frame)
-
-        # Presence timeout check (dim/off)
-        self._presence.tick()
 
     # --- Frame encoding ---
 
@@ -243,24 +150,24 @@ class SensingService:
         if not self._camera or not cv2:
             return None
 
-        anim = self._animation
+        anim = self._animation_service
         if anim:
             anim.freeze()
             time.sleep(self.FREEZE_SETTLE_S)
-        frame = self._camera.last_frame
+        frame = self._camera.capture()
         if anim:
             anim.unfreeze()
 
         if frame is None:
             return None
-        return frame
+        return frame.frame
 
     # --- Snapshot storage (two-tier) ---
     # Tmp: fast rotation buffer, lost on reboot
-    _snapshot_tmp_paths: list = []
+    _snapshot_tmp_paths: list[str] = []
     # Persist: survives reboot, agent can look back (TTL + size rotation)
 
-    def _save_frame(self, frame) -> Optional[str]:
+    def _save_frame(self, frame: cv2.typing.MatLike) -> str | None:
         """Save a camera frame as a JPEG to the tmp snapshot dir at original resolution.
 
         Keeps at most SNAPSHOT_TMP_MAX_COUNT files; deletes the oldest when exceeded.
@@ -274,7 +181,7 @@ class SensingService:
             filename = f"sensing_{int(time.time() * 1000)}.jpg"
             filepath = os.path.join(config.SNAPSHOT_TMP_DIR, filename)
             with open(filepath, "wb") as f:
-                f.write(buf.tobytes())
+                _ = f.write(buf.tobytes())
 
             self._snapshot_tmp_paths.append(filepath)
 
@@ -291,7 +198,7 @@ class SensingService:
             logger.debug("Frame save failed: %s", e)
             return None
 
-    def _persist_snapshot(self, tmp_path: str) -> Optional[str]:
+    def _persist_snapshot(self, tmp_path: str) -> str | None:
         """Copy a tmp snapshot to the persistent dir with TTL + size rotation.
 
         Returns the persistent file path, or None on failure.
@@ -330,7 +237,7 @@ class SensingService:
 
             # Copy snapshot to persistent dir
             dest = os.path.join(persist_dir, os.path.basename(tmp_path))
-            shutil.copy2(tmp_path, dest)
+            _ = shutil.copy2(tmp_path, dest)
             return dest
         except Exception as e:
             logger.debug("Persist snapshot failed: %s", e)
@@ -338,15 +245,15 @@ class SensingService:
 
     # --- Event sending ---
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         now = time.time()
         last_events = {k: int(now - v) for k, v in self._last_event_time.items()}
         return {
             "running": self._running,
             "poll_interval": self._poll_interval,
             "last_event_seconds_ago": last_events,
-            "perceptions": [p.to_dict() for p in self._perceptions],
-            "presence": self._presence.to_dict(),
+            "perceptions": self._perception_orchestrator.perceptions_state(),
+            "presence": self._presense_service.to_dict(),
         }
 
     def _send_event(
@@ -371,31 +278,16 @@ class SensingService:
         # both collapse to "unknown"). Without this guard, face-recognition
         # flicker between stranger IDs wipes the dedup every few seconds.
         if event_type == "presence.enter":
-            new_user = ""
-            if self._face_recognizer is not None:
-                try:
-                    new_user = self._face_recognizer.current_user() or ""
-                except Exception:
-                    logger.exception("[sensing] face_recognizer.current_user() failed")
-            for perception in self._perceptions:
-                reset = getattr(perception, "reset_dedup", None)
-                if callable(reset):
-                    try:
-                        reset(new_user)
-                    except Exception:
-                        logger.exception(
-                            "[sensing] %s.reset_dedup() failed",
-                            perception.__class__.__name__,
-                        )
+            self._perception_orchestrator.reset_dedup()
 
-        now = time.time()
+        cur_ts = time.time()
         # motion.activity has its own 5-min dedup in MotionPerception —
         # skip the global cooldown so different activities (drink vs
         # sedentary) are never silently dropped.
         if event_type not in ("motion.activity", "emotion.detected"):
             cd = cooldown if cooldown is not None else config.EVENT_COOLDOWN_S
             last = self._last_event_time.get(event_type, 0)
-            if now - last < cd:
+            if cur_ts - last < cd:
                 return
 
         # Collect all images to save (single image or list)
@@ -419,13 +311,12 @@ class SensingService:
         # downgrades mood.CurrentUser() to "unknown", even though the
         # friend is still within forget window). LeLamp's current_user()
         # is the source of truth — ship it.
-        if self._face_recognizer is not None:
-            try:
-                cu = self._face_recognizer.current_user() or ""
-            except Exception:
-                logger.exception("[sensing] face_recognizer.current_user() failed")
-                cu = ""
-            payload["current_user"] = cu
+        try:
+            cu = self._perception_orchestrator.current_user or ""
+        except Exception:
+            logger.exception("[sensing] face_recognizer.current_user() failed")
+            cu = ""
+        payload["current_user"] = cu
         logger.debug("[sensing] payload = %s", payload)
 
         try:
@@ -439,6 +330,6 @@ class SensingService:
                     "[sensing] Lumi returned %d: %s", resp.status_code, resp.text
                 )
             else:
-                self._last_event_time[event_type] = now
+                self._last_event_time[event_type] = cur_ts
         except requests.RequestException as e:
             logger.warning("[sensing] Failed to send event to Lumi: %s", e)

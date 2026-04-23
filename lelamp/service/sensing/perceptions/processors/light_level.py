@@ -1,45 +1,46 @@
 import logging
 import time
-from typing import Callable, Optional
+from typing import Any, cast, override
 
+import cv2
 import numpy as np
+import numpy.typing as npt
 
 import lelamp.config as config
+from service.sensing.perceptions.typing import SendEventCallable
+from service.sensing.perceptions.utils import PerceptionStateObservers
 
 from .base import Perception
 
 logger = logging.getLogger(__name__)
 
 
-class LightLevelPerception(Perception):
+class LightLevelPerception(Perception[cv2.typing.MatLike]):
     """Detects significant ambient light changes via mean frame brightness."""
 
     def __init__(
         self,
-        cv2,
-        np_module,
-        send_event: Callable,
-        perception_state,
+        perception_state: PerceptionStateObservers,
+        send_event: SendEventCallable,
     ):
-        super().__init__(send_event)
-        self._cv2 = cv2
-        self._np = np_module
-        self._last_level: Optional[float] = None
+        super().__init__(perception_state, send_event)
+        self._last_level: float | None = None
         self._last_check: float = 0.0
 
-    def _check_impl(self, frame: np.ndarray) -> None:
+    @override
+    def _check_impl(self, data: cv2.typing.MatLike):
+        frame = data
+
         if frame is None:
             return
+
         now = time.time()
         if now - self._last_check < config.LIGHT_LEVEL_INTERVAL_S:
             return
         self._last_check = now
 
-        np = self._np
-        cv2 = self._cv2
-
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        brightness = float(np.mean(gray))
+        brightness = float(np.mean(cast(npt.NDArray[np.uint8], gray)))
 
         prev = self._last_level
         self._last_level = brightness
@@ -52,10 +53,13 @@ class LightLevelPerception(Perception):
                 else:
                     msg = f"Ambient light increased significantly (level: {brightness:.0f}/255, change: {change:+.0f})"
                 self._send_event(
-                    "light.level", msg, cooldown=config.LIGHT_LEVEL_INTERVAL_S
+                    "light.level",
+                    msg,
+                    None,
+                    config.LIGHT_LEVEL_INTERVAL_S,
                 )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "light_level",
             "level": round(self._last_level, 1)
