@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -108,19 +107,9 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 func (h *DeviceHandler) GetVoices(c *gin.Context) {
 	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
 
-	resp, err := http.Get(lelamp.BaseURL + "/voice/voices?provider=" + provider)
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			var result struct {
-				Provider string   `json:"provider"`
-				Voices   []string `json:"voices"`
-			}
-			if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Voices) > 0 {
-				c.JSON(http.StatusOK, serializers.ResponseSuccess(result.Voices))
-				return
-			}
-		}
+	if voices, err := lelamp.ListVoices(provider); err == nil && len(voices) > 0 {
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(voices))
+		return
 	}
 	// Fallback to static list
 	voices, ok := domain.TTSVoicesByProvider[provider]

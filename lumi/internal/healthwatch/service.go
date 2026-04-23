@@ -15,11 +15,8 @@ package healthwatch
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"strings"
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
@@ -35,38 +32,12 @@ const (
 	restartCooldown = 30 * time.Second
 )
 
-// lelampHealth mirrors the /health response from LeLamp.
-type lelampHealth struct {
-	Servo   bool `json:"servo"`
-	LED     bool `json:"led"`
-	Camera  bool `json:"camera"`
-	Audio   bool `json:"audio"`
-	Sensing bool `json:"sensing"`
-	Voice   bool `json:"voice"`
-	TTS     bool `json:"tts"`
-}
-
-// servoInfo represents a single servo from /servo/status.
-type servoInfo struct {
-	ID     int     `json:"id"`
-	Angle  float64 `json:"angle"`
-	Online bool    `json:"online"`
-	Error  *string `json:"error"`
-}
-
-// servoStatus is the /servo/status response.
-type servoStatus struct {
-	Servos map[string]servoInfo `json:"servos"`
-}
-
 // Service polls LeLamp /health and auto-restarts the voice pipeline
 // when ALSA/sensing failures are detected.
 type Service struct {
 	bus       *monitor.Bus
 	cfg       *config.Config
 	statusLED *statusled.Service
-
-	httpClient *http.Client
 }
 
 // ProvideService constructs a HealthWatchService.
@@ -75,7 +46,6 @@ func ProvideService(bus *monitor.Bus, cfg *config.Config, sled *statusled.Servic
 		bus:       bus,
 		cfg:       cfg,
 		statusLED: sled,
-		httpClient: &http.Client{Timeout: 3 * time.Second},
 	}
 }
 
@@ -101,7 +71,7 @@ func (s *Service) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			h, err := s.fetchHealth()
+			h, err := lelamp.GetHealth()
 			if err != nil {
 				// LeLamp is down (crash / systemd restart in progress).
 				// Don't touch consecutiveFails — LeLamp being unreachable
@@ -134,7 +104,7 @@ func (s *Service) Start(ctx context.Context) {
 			// Hardware component check — servo/led/audio/voice.
 			// Camera and sensing excluded (may be off by scene preset).
 			servoOK := h.Servo
-			if ss, err := s.fetchServoStatus(); err == nil {
+			if ss, err := lelamp.GetServoStatus(); err == nil {
 				for name, info := range ss.Servos {
 					if !info.Online {
 						servoOK = false
@@ -233,45 +203,11 @@ var recoveryPhrases = []string{
 
 func (s *Service) speakRecovery() {
 	phrase := recoveryPhrases[time.Now().UnixNano()%int64(len(recoveryPhrases))]
-	body, _ := json.Marshal(map[string]string{"text": phrase})
-	resp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/speak", "application/json", strings.NewReader(string(body)))
-	if err != nil {
+	if err := lelamp.Speak(phrase); err != nil {
 		slog.Warn("recovery TTS failed", "component", "healthwatch", "error", err)
 		return
 	}
-	resp.Body.Close()
 	slog.Info("recovery TTS sent", "component", "healthwatch")
-}
-
-// fetchHealth calls LeLamp GET /health and returns the parsed response.
-// LeLamp returns the health object directly (FastAPI response_model, not wrapped).
-func (s *Service) fetchHealth() (*lelampHealth, error) {
-	resp, err := s.httpClient.Get(lelamp.BaseURL + "/health")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var h lelampHealth
-	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
-		return nil, err
-	}
-	return &h, nil
-}
-
-// fetchServoStatus calls LeLamp GET /servo/status and returns per-servo online state.
-func (s *Service) fetchServoStatus() (*servoStatus, error) {
-	resp, err := s.httpClient.Get(lelamp.BaseURL + "/servo/status")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var ss servoStatus
-	if err := json.NewDecoder(resp.Body).Decode(&ss); err != nil {
-		return nil, err
-	}
-	return &ss, nil
 }
 
 // restartVoice stops the LeLamp voice pipeline and restarts it.
@@ -286,29 +222,17 @@ func (s *Service) restartVoice() {
 	slog.Info("restarting LeLamp voice pipeline to recover ALSA", "component", "healthwatch")
 
 	// Stop first — ignore errors (pipeline may already be stopped).
-	stopResp, err := s.httpClient.Post(lelamp.BaseURL+"/voice/stop", "application/json", strings.NewReader("{}"))
-	if err == nil {
-		stopResp.Body.Close()
-	}
+	_ = lelamp.StopVoicePipeline()
 
 	time.Sleep(2 * time.Second)
 
 	// Always attempt restart — LeLamp falls back to AutonomousSTT if no Deepgram key.
-	payload := map[string]string{
-		"deepgram_api_key": s.cfg.DeepgramAPIKey,
-		"llm_api_key":      s.cfg.LLMAPIKey,
-		"llm_base_url":     s.cfg.LLMBaseURL,
-	}
-	if s.cfg.TTSProvider != "" {
-		payload["tts_provider"] = s.cfg.TTSProvider
-	}
-	body, _ := json.Marshal(payload)
-	startResp, err := s.httpClient.Post(
-		lelamp.BaseURL+"/voice/start",
-		"application/json",
-		strings.NewReader(string(body)),
-	)
-	if err != nil {
+	if err := lelamp.StartVoice(lelamp.VoiceStartConfig{
+		DeepgramKey: s.cfg.DeepgramAPIKey,
+		LLMKey:      s.cfg.LLMAPIKey,
+		LLMBaseURL:  s.cfg.LLMBaseURL,
+		TTSProvider: s.cfg.TTSProvider,
+	}); err != nil {
 		slog.Error("voice restart failed", "component", "healthwatch", "error", err)
 		s.bus.Push(domain.MonitorEvent{
 			Type:    "hw_alsa_restart_failed",
@@ -316,7 +240,6 @@ func (s *Service) restartVoice() {
 		})
 		return
 	}
-	defer startResp.Body.Close()
 
 	slog.Info("LeLamp voice pipeline restarted", "component", "healthwatch")
 	s.bus.Push(domain.MonitorEvent{

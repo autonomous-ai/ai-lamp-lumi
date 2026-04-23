@@ -30,6 +30,25 @@ func StopEffect() {
 	postSilent("/led/effect/stop", "{}")
 }
 
+// GetColor returns the current LED color as [R, G, B].
+func GetColor() ([3]int, error) {
+	resp, err := httpClient.Get(BaseURL + "/led/color")
+	if err != nil {
+		return [3]int{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return [3]int{}, fmt.Errorf("GET /led/color returned %d", resp.StatusCode)
+	}
+	var result struct {
+		Color [3]int `json:"color"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return [3]int{}, fmt.Errorf("decode /led/color: %w", err)
+	}
+	return result.Color, nil
+}
+
 // ─── Voice / TTS ────────────────────────────────────────────────────────────
 
 // Speak sends text to TTS playback (speaker locks mic during playback).
@@ -73,7 +92,9 @@ func StartVoice(cfg VoiceStartConfig) error {
 		"deepgram_api_key": cfg.DeepgramKey,
 		"llm_api_key":      cfg.LLMKey,
 		"llm_base_url":     cfg.LLMBaseURL,
-		"tts_voice":        cfg.TTSVoice,
+	}
+	if cfg.TTSVoice != "" {
+		payload["tts_voice"] = cfg.TTSVoice
 	}
 	if cfg.TTSInstructions != "" {
 		payload["tts_instructions"] = cfg.TTSInstructions
@@ -85,6 +106,34 @@ func StartVoice(cfg VoiceStartConfig) error {
 	return post("/voice/start", body)
 }
 
+// StopVoicePipeline stops the voice pipeline entirely (different from StopTTS
+// which only interrupts active playback). Used by healthwatch to clear a stuck
+// ALSA stream before restarting.
+func StopVoicePipeline() error {
+	return post("/voice/stop", []byte("{}"))
+}
+
+// ListVoices returns available TTS voices for the given provider.
+// Returns empty slice (no error) if LeLamp is reachable but returns non-200.
+func ListVoices(provider string) ([]string, error) {
+	resp, err := httpClient.Get(BaseURL + "/voice/voices?provider=" + provider)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, nil
+	}
+	var result struct {
+		Provider string   `json:"provider"`
+		Voices   []string `json:"voices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode /voice/voices: %w", err)
+	}
+	return result.Voices, nil
+}
+
 // SetVoiceConfig updates the voice pipeline config at runtime (e.g. wake words after rename).
 func SetVoiceConfig(wakeWords []string) {
 	b, err := json.Marshal(map[string]any{"wake_words": wakeWords})
@@ -92,6 +141,66 @@ func SetVoiceConfig(wakeWords []string) {
 		return
 	}
 	postSilent("/voice/config", string(b))
+}
+
+// ─── Health / Servo ─────────────────────────────────────────────────────────
+
+// Health mirrors the /health response from LeLamp.
+type Health struct {
+	Servo   bool `json:"servo"`
+	LED     bool `json:"led"`
+	Camera  bool `json:"camera"`
+	Audio   bool `json:"audio"`
+	Sensing bool `json:"sensing"`
+	Voice   bool `json:"voice"`
+	TTS     bool `json:"tts"`
+}
+
+// GetHealth returns the current health snapshot from LeLamp.
+func GetHealth() (*Health, error) {
+	resp, err := httpClient.Get(BaseURL + "/health")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var h Health
+	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
+		return nil, fmt.Errorf("decode /health: %w", err)
+	}
+	return &h, nil
+}
+
+// ServoInfo is a single servo in ServoStatus.
+type ServoInfo struct {
+	ID     int     `json:"id"`
+	Angle  float64 `json:"angle"`
+	Online bool    `json:"online"`
+	Error  *string `json:"error"`
+}
+
+// ServoStatus is the /servo/status response.
+type ServoStatus struct {
+	Servos map[string]ServoInfo `json:"servos"`
+}
+
+// GetServoStatus returns per-servo online state.
+func GetServoStatus() (*ServoStatus, error) {
+	resp, err := httpClient.Get(BaseURL + "/servo/status")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var ss ServoStatus
+	if err := json.NewDecoder(resp.Body).Decode(&ss); err != nil {
+		return nil, fmt.Errorf("decode /servo/status: %w", err)
+	}
+	return &ss, nil
+}
+
+// PlayServo plays a named servo recording.
+func PlayServo(recording string) error {
+	body, _ := json.Marshal(map[string]string{"recording": recording})
+	return post("/servo/play", body)
 }
 
 // ─── Emotion ────────────────────────────────────────────────────────────────
