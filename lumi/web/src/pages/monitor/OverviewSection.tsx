@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 
@@ -70,6 +70,26 @@ export function OverviewSection({
   const emotion = oc?.emotion ?? "";
   const emotionColor = EMOTION_COLOR[emotion] ?? "var(--lm-text-muted)";
   const emotionEmoji = EMOTION_EMOJI[emotion] ?? "✦";
+
+  // Volume slider: local state for smooth dragging, API call only on release
+  const [localVolume, setLocalVolume] = useState<number | null>(null);
+  const draggingVolume = useRef(false);
+
+  // Sync from server when not dragging
+  useEffect(() => {
+    if (!draggingVolume.current && audio?.volume != null) {
+      setLocalVolume(audio.volume);
+    }
+  }, [audio?.volume]);
+
+  const commitVolume = useCallback((vol: number) => {
+    draggingVolume.current = false;
+    fetch("/hw/audio/volume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ volume: vol }),
+    }).catch(() => {});
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -244,21 +264,20 @@ export function OverviewSection({
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text-dim)" }}>Volume</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "var(--lm-amber)", fontFamily: "monospace" }}>
-                    {audio?.volume ?? "—"}%
+                    {localVolume ?? audio?.volume ?? "—"}%
                   </span>
                 </div>
                 <input
                   type="range"
                   min={0}
                   max={100}
-                  value={audio?.volume ?? 50}
+                  value={localVolume ?? audio?.volume ?? 50}
                   onChange={(e) => {
-                    fetch("/hw/audio/volume", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ volume: Number(e.target.value) }),
-                    }).catch(() => {});
+                    draggingVolume.current = true;
+                    setLocalVolume(Number(e.target.value));
                   }}
+                  onMouseUp={(e) => commitVolume(Number((e.target as HTMLInputElement).value))}
+                  onTouchEnd={(e) => commitVolume(Number((e.target as HTMLInputElement).value))}
                   style={{
                     width: "100%", height: 6, cursor: "pointer",
                     accentColor: "var(--lm-amber)",
