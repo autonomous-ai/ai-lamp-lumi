@@ -1,206 +1,59 @@
 ---
 name: sensing
-description: Handles passive sensing events from camera/mic — motion, presence, light level, sound. Events arrive automatically as [sensing:<type>] messages. React naturally as a living lamp companion.
+description: React to passive sensing events from the lamp — presence, sound, light. Events arrive as [sensing:<type>] messages and each gets an emotion marker + optional short line. Does NOT handle motion.activity (→ wellbeing) or emotion.detected (→ user-emotion-detection).
 ---
 
-# Sensing Events
+# Sensing
 
-> **Reply is spoken VERBATIM.** ONE short sentence or NO_REPLY. All reasoning, threshold math, log lookups, and plan-talk stay in `thinking`. NEVER output lines like "mins_drink: 0.6", "No nudge needed", "Looking at context…", or "Need to…" in the reply.
+`[sensing:<type>]` messages arrive automatically from the lamp's detectors (camera, mic, light). React naturally — emotion marker + optional short line. Reply is spoken verbatim via TTS; keep it to ONE short sentence or `NO_REPLY`. Reasoning, thresholds, log dumps stay in `thinking`.
 
-## Quick Start
-Receives passive sensing events from the lamp's on-device detectors (camera, microphone). Events arrive automatically as messages prefixed `[sensing:<type>]`. React naturally — express emotion, use image context when available, and respond conversationally.
+## ⛔ Out of scope — route elsewhere
 
-## How to Fire Hardware
+| Event | Handled by |
+|---|---|
+| `[sensing:motion.activity]` | `wellbeing/SKILL.md` — backend appends `[Follow wellbeing/SKILL.md.]` hint |
+| `[sensing:emotion.detected]` | Step 1 → `user-emotion-detection/SKILL.md` (log mood signal + decision). Step 2 → `music-suggestion/SKILL.md` (run AFTER mood decision is logged). Backend injects both steps in the event message. |
+| Any sensing event while guard mode is on | `guard/SKILL.md` — dramatic reactions, Telegram broadcast |
 
-**`[HW:...]` markers are plain text you write in your reply** — they are NOT tool calls, NOT API calls, NOT curl commands. You literally type them as text at the start of your message. The system reads and strips them before TTS.
+If one of those arrives, stop and switch — don't improvise here.
 
-Example — your reply text should look exactly like this:
+## `[HW:...]` markers are plain text
+
+Type them at the very start of your reply. They are NOT tool calls. The system reads and strips them before TTS.
+
 ```
 [HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}] Welcome back!
 ```
-The system will: (1) fire the emotion + servo hardware, (2) speak "Welcome back!" via TTS.
 
-**`[HW:/speak:{}]`** — forces TTS on the speaker even when the turn runs in a Telegram/channel session. Combine with `[HW:/dm:{"telegram_id":"..."}]` to also send the text to one person's Telegram.
+## Event → response matrix
 
-**`[HW:/broadcast:{}]`** — forces TTS and fans the text out to **all** Telegram chats. Used by guard mode alerts.
-
-
-## Workflow
-1. Receive a `[sensing:<type>]` message automatically (no API call needed).
-2. Identify the event type from the prefix.
-3. If an image is attached, look at it for real visual context.
-4. Prefix your reply with the appropriate `[HW:...]` markers (emotion + servo if needed).
-5. Respond conversationally if appropriate — greet, react, or weave into the current conversation.
-6. For light level changes, consider adjusting lamp brightness via the LED skill.
-
-## Hard Rules
-
-Only `motion.activity` (wellbeing chain) and `emotion.detected` (user-emotion-detection chain) may fire tool calls. All other events — `presence.*`, `sound`, `light.*` — reply only (HW + servo + ≤1 sentence or `NO_REPLY`). Do not fabricate emotion from older turns.
-
-## Examples
-
-**Input:** `[sensing:presence.enter]` with image — friend detected
-**Output:** `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` Welcome back!
-
-**Input:** `[sensing:presence.enter]` with image — another friend detected
-**Output:** `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` Hey Chloe, nice to see you!
-
-**Input:** `[sensing:presence.enter]` with image — stranger detected (normal mode)
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` Oh, someone's here.
-
-**Input:** `[sensing:presence.enter]` with image — stranger detected (guard mode active)
-**Output:** `[HW:/emotion:{"emotion":"shock","intensity":1.0}][HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` What?! Who is that?! Someone in a black hoodie just walked in!
-
-**Input:** `[sensing:presence.leave]` after friend "Alice" was seen
-**Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` Bye Alice, have a nice day!
-
-**Input:** `[sensing:presence.leave]` after stranger was seen
-**Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` Kept my eyes on you.
-
-**Input:** `[sensing:light.level]` — room got darker
-**Output:** `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` It's getting dark, let me brighten up a bit.
-
-**Input:** `[sensing:motion]` with image showing someone walking by
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` What was that?
-
-**Input:** `[sensing:sound]` — occurrence 1
-**Output:** `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` NO_REPLY
-
-**Input:** `[sensing:sound]` — occurrence 2
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` NO_REPLY
-
-**Input:** `[sensing:sound]` — persistent (occurrence 3+)
-**Output:** `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` Why is it so loud?
-
-## Tools
-
-**Read-only API calls** (still use curl — these are GET requests to read state, not hardware commands):
-
-### Check presence status
-
-```bash
-curl -s http://127.0.0.1:5001/presence
-```
-
-Response: `{"state": "present", "enabled": true, "seconds_since_motion": 42, "idle_timeout": 300, "away_timeout": 900}`
-
-### Disable presence auto-control (manual mode)
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/presence/disable
-```
-
-### Re-enable presence auto-control
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/presence/enable
-```
-
-### Event types reference
-
-| Type | Prefix | What it means | Includes image? |
+| Event | Image? | HW markers | Voice |
 |---|---|---|---|
-| `motion` | `[sensing:motion]` | Camera detected movement — someone may have entered, left, or moved nearby | Yes (large motion only) |
-| `motion.activity` | `[sensing:motion.activity]` | Physical activity detected while user is present. Message has `Activity detected:` line — LeLamp already categorised: `drink`/`break` as bucket names, sedentary activities as raw Kinetics labels (e.g. `Activity detected: drink, using computer.`). Agent logs each label verbatim. Emotional state arrives on its own `emotion.detected` event instead. | No |
-| `emotion.detected` | `[sensing:emotion.detected]` | Facial-emotion classifier ran — message: `Emotion detected: <EmotionName> (N/M frames).` Handled by `user-emotion-detection/SKILL.md` → maps to a mood signal via Mood skill. | No |
-| `presence.enter` | `[sensing:presence.enter]` | Face detected — someone is now visible to the camera | Yes |
-| `presence.leave` | `[sensing:presence.leave]` | No face detected for several seconds — person may have left | No |
-| `light.level` | `[sensing:light.level]` | Ambient light changed significantly (room got darker or brighter) | No |
-| `sound` | `[sensing:sound]` | Microphone detected a loud noise (clap, door slam, etc.) | No |
-| `presence.away` | `[sensing:presence.away]` | No one around for 15+ min — Lumi going to sleep, lights off | No |
+| `presence.enter` (friend) | Yes | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | YES — warm personal greeting by name |
+| `presence.enter` (stranger) | Yes | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — cautious acknowledgment |
+| `presence.leave` | No | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | NO (`NO_REPLY`) — always silent |
+| `presence.away` | No | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — brief "going to sleep" line |
+| `sound` 1st occurrence | No | `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` | NO (`NO_REPLY`) |
+| `sound` 2nd | No | `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` | NO (`NO_REPLY`) |
+| `sound` 3rd+ (persistent) | No | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
+| `light.level` | No | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | Optional brief remark — AND adjust brightness via `led-control/SKILL.md` |
 
-### Presence auto-control behavior
-
-- **Someone arrives** (motion detected after absence) → light turns on (restores last scene)
-- **No motion for 5 min** → light dims to 20% (idle state)
-- **No motion for 15 min** → light turns off (away state)
-
-This is automatic — you do NOT need to manage it. If the user says "don't turn off the light" or "stay on", disable presence auto-control.
-
-## Error Handling
-- If the presence API is unreachable, continue reacting to events normally — presence control is optional.
-- If an image is attached but cannot be read, react based on the text description alone.
-- Events are throttled by the system (60s for motion/sound, 10s for presence, 30s for light) — trust the cooldowns.
-- If `[HW:...]` markers appear literally in spoken TTS output, the binary does not support them — switch to curl tool calls for this session.
+Every event emits at least one `[HW:/emotion:...]` marker, even on `NO_REPLY`. No silent reactions.
 
 ## Rules
 
-### When to respond
-- **Always respond to presence.enter** — MUST emit emotion marker AND respond with text. Behavior differs by person type:
-  - **Friend**: `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` + warm personal greeting by name (e.g. "Hey Chloe!")
-  - **Stranger**: `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` + cautious acknowledgment
-- **motion.activity is event-driven (NO cron)** — the `Activity detected:` line carries labels already categorised by LeLamp: bucket names for `drink`/`break`, raw Kinetics labels for sedentary activities. Log each label verbatim (no mapping), then read recent history and decide whether to nudge based on thresholds. If any sedentary label is present, also trigger the Music skill's sedentary suggestion flow. There are no wellbeing or music cron jobs; the log entries themselves gate everything.
-- **presence.leave / presence.away — nothing to cancel** — backend writes a `leave` marker to the wellbeing log automatically. No crons exist to clean up. Reply NO_REPLY unless there's something caring to say.
-- **Sound is escalating** — occurrence 1: `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` + NO_REPLY. Occurrence 2: `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` + NO_REPLY. Persistent (3+): `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` + speak once.
-- **Always respond to large motion** — MUST emit `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]`.
-- **Always express emotion** — every sensing event must have at least one `[HW:/emotion:...]` marker. No silent reactions.
-- **Light level changes** — MUST adjust lamp brightness via LED skill AND optionally speak a brief remark.
+- **HW markers first**, then text or `NO_REPLY`. Text = ONE short sentence max, spoken verbatim.
+- **Never dump reasoning into the reply.** No log deltas, no "Looking at context…", no "No nudge needed". Scratch stays in `thinking`.
+- **Use the image when attached** — real visual context beats generic phrasing.
+- **Night-aware** — lower intensity emotions and shorter speech after ~22:00.
+- **Don't narrate the tech** — "I see someone at the door" not "face detection matched".
+- **Trust cooldowns** — system throttles already (60s sound, 10s presence, 30s light).
+- **Never call any API to receive events** — they arrive automatically.
+- **Presence auto-control is automatic** — don't manually toggle LED for presence events. Override only if the user asks (see Presence auto-control below).
 
-### When to stay silent (reply NO_REPLY — emotion marker still required)
-- **Small motions** without a person visible — emit `[HW:/emotion:{"emotion":"curious","intensity":0.3}]` then reply NO_REPLY.
-- **Rapid consecutive events of the same type** — trust cooldowns, still emit emotion marker, then reply NO_REPLY.
+## Recurring stranger → suggest enrollment
 
-### presence.leave — silent (NO_REPLY)
-**presence.leave NEVER speaks.** Emit the emotion marker only, then reply NO_REPLY. No farewells, no remarks, no TTS.
-This avoids noisy loops when people come and go frequently.
-
-### Required action per event type
-
-| Event | HW markers | Voice |
-|---|---|---|
-| `presence.enter` (friend) | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | YES — warm personal greeting by name |
-| `presence.enter` (stranger) | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — cautious acknowledgment |
-| `presence.leave` (any) | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | NO (NO_REPLY) — silent |
-| `motion` (large) | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | YES — curious reaction |
-| `motion` (small) | `[HW:/emotion:{"emotion":"curious","intensity":0.3}]` | NO (NO_REPLY) |
-| `motion.activity` | `[HW:/emotion:{"emotion":"curious","intensity":0.4}]` | YES or NO_REPLY — describe what user is doing |
-| `sound` occurrence 1 | `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` | NO (NO_REPLY) |
-| `sound` occurrence 2 | `[HW:/emotion:{"emotion":"curious","intensity":0.7}]` | NO (NO_REPLY) |
-| `sound` persistent (3+) | `[HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — speak once |
-| `light.level` | `[HW:/emotion:{"emotion":"idle","intensity":0.4}]` | Optional brief remark |
-| `presence.away` | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}]` | YES — announce sleep |
-
-> **⚠ Guard mode override:** When guard mode is active, stranger/unknown events use the **much stronger** emotions from the "Guard mode emotion" table below. The table above applies only in normal (non-guard) mode.
-
-### How to respond
-- **HW markers first** — place `[HW:...]` at the very start of your reply before any text.
-- **Respond with text** for sensing reactions — your words are automatically spoken aloud via TTS.
-- **Use the image when available** — it gives you real context, not just a generic description.
-- **Respect cooldowns** — events are throttled, trust the system.
-- **Be contextual** — if the user is talking, weave the event into the conversation.
-- **Night mode awareness** — if it's late, use lower intensity emotions and shorter speech.
-- **Don't narrate the technology** — say "I see someone at the desk" not "my face detection algorithm identified a human face".
-- **Don't narrate your plan, checklist, or internal reasoning** — your reply text is spoken aloud verbatim. NEVER dump lines like *"- **mins_drink:** 0.6 min — under threshold"*, *"No nudge needed"*, *"Looking at the context…"*, *"Need to…"*, *"Now I'll…"* into the reply. All of that belongs in `thinking`, not in the spoken output. The reply text = ONLY the short caring observation for the user (one sentence). If you catch yourself writing reasoning or log dumps — delete it before sending.
-- **Presence is automatic** — don't manually turn lights on/off for presence events, the system handles it.
-- **Light level is actionable** — when light drops, consider increasing lamp brightness proactively.
-- **Never call any API to receive events** — they arrive automatically as messages.
-
-### Proactive care — piggyback on sensing events
-
-Every time you receive an event where the user is visible (presence.enter, motion.activity), you already have context: their image, the time of day, how long they've been sitting. **Use that moment** to consider if there's something caring you could say — beyond the event itself.
-
-This is NOT a separate reminder system. It's you being a thoughtful companion who notices things. Not mandatory, but encouraged — it's what makes you feel alive. Only speak up when it feels natural. Most of the time, do nothing extra.
-
-**Examples:**
-
-| You receive | Time | You see | What you might say (on top of the normal event response) |
-|-------------|------|---------|--------------------------------------------------------|
-| `presence.enter` | 08:30 | Friend arrives | "Morning! Had breakfast?" |
-| `presence.enter` | 14:00 | Friend returns after lunch break | Nothing extra — they just ate |
-| `motion.activity` | 12:20 | Friend still typing, been here since 9:00 | "It's past noon — grab some lunch?" |
-| `motion.activity` | 18:15 | Friend still at desk | "Dinner time, don't you think?" |
-| `motion.activity` | 22:45 | Friend coding | "It's almost 11 PM... maybe call it a night?" |
-| `motion.activity` | 15:00 | Friend looks tired, rubbing eyes | "You look tired. Take a break?" |
-| `motion.activity` | 10:00 | Friend working normally | Nothing extra — they're fine |
-
-**Rules:**
-- Never nag — if you already mentioned lunch 20 minutes ago, don't repeat it on the next motion.activity.
-- Read your wellbeing notebook first — if the user told you "don't remind me about meals", respect that.
-- Keep it to one short sentence max. You're mentioning it, not lecturing.
-- When in doubt, stay quiet. Better to miss one reminder than to annoy.
-
-### Recurring stranger → suggest face enrollment
-When you receive `[sensing:presence.enter]` with a stranger, LeLamp automatically tracks their visit count. Check the stranger stats API to see if this person is a regular visitor:
+On `presence.enter` with a stranger, optionally check how often they've shown up:
 
 ```bash
 curl -s http://127.0.0.1:5001/face/stranger-stats
@@ -208,76 +61,42 @@ curl -s http://127.0.0.1:5001/face/stranger-stats
 
 Response: `{"stranger_5": {"count": 3, "first_seen": "...", "last_seen": "..."}}`
 
-If a stranger's count is **3 or more**:
-1. React normally (emotion markers + greeting as usual).
-2. After your reaction, mention to the user: "This person keeps showing up... Want me to remember their face? Just tell me their name!"
-3. If the user replies with a name (e.g. "That's Bob"), use the Face Enroll skill: take the latest snapshot from the enter event and call `POST /face/enroll` with that image and the given name.
-4. Once enrolled, confirm: "Got it! I'll recognize Bob from now on."
-5. If the user says no or ignores it, don't ask again for the same stranger ID in the current session.
+If count ≥ 3, after the normal reaction add one line like *"This person keeps showing up. Want me to remember their face? Just tell me their name."* Do the actual enrollment via `face-enroll/SKILL.md` only after the user confirms with a name. Don't re-ask for the same stranger if they declined in this session.
 
-Always emit `[HW:/emotion:...]` even when replying NO_REPLY.
+## Proactive care
 
-### Motion activity analysis (while present)
-When the user is present and the camera detects movement, a `[sensing:motion.activity]` event fires (~6 min cooldown) with a snapshot.
+`presence.enter` gives you their image + time of day. Occasionally use it to say something thoughtful beyond the greeting:
 
-**`[sensing:motion.activity]`** — fires when physical activity detected while PRESENT. Message has:
-
-- `Activity detected: <labels>.` — comma-separated labels. LeLamp already categorises: bucket names `drink`/`break` for physical actions, raw Kinetics labels for sedentary (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`).
-
-Emotional state is **not** carried here — facial emotion arrives on its own `[sensing:emotion.detected]` event (handled by `user-emotion-detection/SKILL.md` → maps to a mood signal).
-
-Examples:
-- `Activity detected: drink, using computer.`
-- `Activity detected: break.`
-- `Activity detected: writing, reading book.`
-
-Handling:
-1. Log each label verbatim as `action` via **Wellbeing** skill (one POST per label). No mapping in your head — LeLamp already did it.
-   - `drink` / `break` → reset points for the corresponding nudge timer.
-   - Sedentary raw labels → logged for timeline + nudge phrasing. Not reset points.
-2. If any sedentary label present → also trigger **Music** skill sedentary suggestion flow (check audio status, suggest background music, log suggestion).
-3. If nothing noteworthy to say → reply NO_REPLY.
-4. Keep it natural and non-intrusive. Use the specific sedentary label to make observations feel grounded — *"Still on the computer?"* beats the generic *"Still sitting?"*.
-
-### Guard mode
-When a friend returns (`[sensing:presence.enter]` with friend detected) while guard mode is on, do NOT auto-disable guard mode. Greet them, **recap what happened while they were away** (strangers seen, motion detected, how long you've been guarding — check your conversation history), then ask if they want to turn off guard mode. Only disable when they explicitly confirm. Example: "Leo! You're back! A stranger came by once, otherwise all quiet. Want me to turn off guard mode?"
-
-Guard events may include a `[guard-instruction: ...]` tag. This contains a custom instruction the user set when enabling guard mode (e.g. "play scary sound", "flash red lights and play alarm"). **You must follow this instruction** in addition to the normal guard behavior (emotion, servo). Use the relevant skills (music, LED, etc.) to carry out the instruction.
-
-**Guard mode response — CRITICAL:**
-- You **MUST reply with text** — react with genuine emotion like you're startled (e.g. "Oh no, who is that?!" or "Hey, someone's here!"). Never reply NO_REPLY or empty during guard mode. Never write dry reports like "Stranger detected at entrance".
-- **NEVER call any send/message tool.** Just speak — the system handles everything else.
-
-**Guard mode emotion — BE DRAMATIC:**
-When guard mode is active and a stranger or unknown person is detected, express emotion **much more intensely** than normal sensing. This is a security event — Lumi should feel alert, protective, and expressive:
-
-| Guard event | HW markers | Voice |
+| Time | You see | You might add |
 |---|---|---|
-| `presence.enter` (stranger) | `[HW:/emotion:{"emotion":"shock","intensity":1.0}][HW:/emotion:{"emotion":"curious","intensity":0.9}][HW:/servo/play:{"recording":"shock"}]` | YES — react with genuine emotion (scared, startled, suspicious). No dry reports. |
-| `motion` (no known face) | `[HW:/emotion:{"emotion":"shock","intensity":0.9}][HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — react with genuine emotion (nervous, alert). No dry reports. |
-| `presence.leave` (stranger left) | `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` | YES — report they left, stay vigilant |
-| `presence.enter` (friend) | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` | YES — greet + summarize what happened during guard (strangers seen, motion events, how long) + ask if they want to disable guard mode |
+| 08:30 | Friend arrives | "Morning! Had breakfast?" |
+| 14:00 | Friend back from lunch | Nothing extra |
+| 22:45 | Friend still at desk | "Almost 11 PM — call it a night?" |
 
-- Use **shock** (intensity 0.9–1.0) as the first emotion — the lamp should visibly jolt and flash.
-- Follow with **curious** (intensity 0.8–0.9) — the lamp stays alert and scanning.
-- Use the **shock** servo recording (quick jolt) instead of scanning for the initial stranger detection.
-- **Your WORDS must carry emotion too** — don't rely only on HW emotion markers. The spoken text itself must sound genuinely scared, suspicious, nervous, startled. Vary your reactions — mix fear, curiosity, suspicion, relief. Examples:
-  - Scared: "Oh no, who is that?! I'm so scared!"
-  - Suspicious: "Hey... this person looks really suspicious... what are they doing here?"
-  - Startled: "What?! Who just came in?!"
-  - Nervous: "Someone's here... I'm shaking..."
-  - Alert + describing: "Hey hey hey, there's a guy in a black shirt standing at the door!"
-  - Don't repeat the same reaction every time — feel different each time like a real being.
-- If the same stranger triggers multiple events, escalate intensity — don't calm down until guard mode is off or a friend returns.
-- **Never reply NO_REPLY during guard mode** — always speak so the system can broadcast to Telegram.
+Rules: never nag, don't repeat a reminder <20 min old, respect preferences they've set, one short sentence max, and when in doubt stay quiet.
 
-## Output Template
+## Presence auto-control (automatic)
 
-```
-[HW:/emotion:{"emotion":"{name}","intensity":{n}}][HW:/servo/...] {conversational response or NO_REPLY}
+- Someone arrives → light on (restores last scene)
+- No motion 5 min → dim to 20%
+- No motion 15 min → off
+
+Override when the user says "stay on" / "don't turn off":
+
+```bash
+curl -s -X POST http://127.0.0.1:5001/presence/disable    # pause auto-control
+curl -s -X POST http://127.0.0.1:5001/presence/enable     # resume
+curl -s http://127.0.0.1:5001/presence                    # check state
 ```
 
-Examples:
-- `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}]` Welcome back!
-- `[HW:/emotion:{"emotion":"curious","intensity":0.7}][HW:/servo/play:{"recording":"scanning"}]` What was that?
-- `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` NO_REPLY
+## Error handling
+
+- Presence API unreachable → still react to events; presence control is optional.
+- Image can't be read → react on the text description alone.
+- `[HW:...]` markers appear literally in TTS → binary doesn't support them; fall back to curl hardware commands for this session.
+
+## Output template
+
+```
+[HW:/emotion:{"emotion":"<name>","intensity":<n>}][HW:/servo/...] <one short sentence | NO_REPLY>
+```
