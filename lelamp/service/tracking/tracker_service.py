@@ -34,14 +34,17 @@ _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 DEG_PER_PX_YAW = 0.02
 DEG_PER_PX_PITCH = 0.02
 
-# Dead zone in pixels — ignore small jitter around center
-DEAD_ZONE_PX = 25
+# Dead zone in pixels — stop nudging when object is within this range
+DEAD_ZONE_PX = 15
+
+# Wake zone — when settled, only resume nudging when object moves beyond this
+WAKE_ZONE_PX = 50
 
 # Maximum nudge per step (degrees) — prevents wild swings
-MAX_NUDGE_DEG = 2.0
+MAX_NUDGE_DEG = 1.5
 
-# Tracking loop target FPS
-TRACK_FPS = 8
+# Tracking loop target FPS — higher = smoother
+TRACK_FPS = 12
 
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
@@ -249,6 +252,7 @@ class TrackerService:
             self._track_wrist_pitch = 0.0
 
         prev_cx, prev_cy = None, None
+        self._settled = False
         frame_count = 0
         fps_t0 = time.perf_counter()
 
@@ -346,7 +350,17 @@ class TrackerService:
         dx = cx_obj - cx_frame
         dy = cy_obj - cy_frame
 
+        # Hysteresis: once settled, only wake when object moves far enough
+        if self._settled:
+            if abs(dx) < WAKE_ZONE_PX and abs(dy) < WAKE_ZONE_PX:
+                return
+            self._settled = False
+            logger.info("Tracking wake: object moved to offset (%.0f, %.0f)", dx, dy)
+
         if abs(dx) < DEAD_ZONE_PX and abs(dy) < DEAD_ZONE_PX:
+            if not self._settled:
+                self._settled = True
+                logger.info("Tracking settled: object near center (%.0f, %.0f)", dx, dy)
             return
 
         yaw_deg = dx * DEG_PER_PX_YAW
@@ -385,7 +399,8 @@ class TrackerService:
                 new_base_pitch, new_elbow_pitch, new_wrist_pitch,
             )
 
-            animation_service.move_to(target, duration=NUDGE_DURATION)
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(target)
 
             self._track_yaw = new_yaw
             self._track_base_pitch = new_base_pitch
