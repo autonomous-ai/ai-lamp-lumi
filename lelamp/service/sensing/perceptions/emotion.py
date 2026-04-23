@@ -40,7 +40,6 @@ class RemoteEmotionRecognizer:
         self._api_key = api_key
         self._threshold = threshold
         self._timeout = timeout
-        self.connected = False
 
     def _img2b64(self, frame: npt.NDArray[np.uint8]) -> str:
         _, buf = cv2.imencode(".jpg", frame)
@@ -69,10 +68,8 @@ class RemoteEmotionRecognizer:
                 logger.warning(
                     "[activity.emotion] HTTP %d: %s", resp.status_code, resp.text
                 )
-                self.connected = False
                 return None
 
-            self.connected = True
             detections = resp.json().get("detections", [])
             if not detections:
                 return None
@@ -82,7 +79,6 @@ class RemoteEmotionRecognizer:
             return top
         except requests.RequestException as e:
             logger.warning("[activity.emotion] request failed: %s", e)
-            self.connected = False
             return None
 
 
@@ -344,7 +340,6 @@ class EmotionPerception(Perception):
             last_sent = self._last_sent_key
             return {
                 "type": "emotion",
-                "connected": self._recognizer.connected,
                 "last_sent_emotion": last_sent[1] if last_sent else None,
                 "last_sent_user": last_sent[0] if last_sent else None,
                 "last_detected_emotion": self._last_emotion,
