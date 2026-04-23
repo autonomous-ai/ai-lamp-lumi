@@ -119,9 +119,9 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/servo/aim` | Aim lamp head (center, desk, wall, left, right, up, down, user) |
 | GET | `/servo/track/targets` | List suggested target names for YOLOWorld detection |
 | POST | `/servo/track` | Start tracking — `{"target":"cup"}` (auto-detect) or `{"bbox":[x,y,w,h]}`. See [vision-tracking.md](vision-tracking.md) |
-| DELETE | `/servo/track` | Stop current tracking session |
+| POST | `/servo/track/stop` | Stop current tracking session |
 | GET | `/servo/track` | Get tracking status (active, target, bbox, confidence) |
-| PUT | `/servo/track` | Re-initialize tracker with new bounding box |
+| POST | `/servo/track/update` | Re-initialize tracker with new bounding box |
 
 ### LED (64 WS2812, 8x5 grid)
 
