@@ -19,7 +19,7 @@ All data lives in `/root/local/users/{name}/`:
 | `mood/` | `YYYY-MM-DD.jsonl` | `signal` + `decision` rows with moods |
 | `music-suggestions/` | `YYYY-MM-DD.jsonl` | suggestion history + accepted/rejected status |
 
-**User names** are lowercase folder names under `/root/local/users/`. Known users: `leo`, `chloe`, `gray`, `lily`. Strangers use `unknown` in API logs but have no local folder.
+**User names** are lowercase folder names under `/root/local/users/`. Known users: `leo`, `chloe`, `gray`, `lily`. Strangers collapse to `unknown` — this is treated as a regular user with its own folder and its own habit patterns (aggregated across all strangers).
 
 JSONL line example (wellbeing):
 ```json
