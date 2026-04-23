@@ -387,7 +387,7 @@ export default function Monitor() {
                 const opts: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" } };
                 if (scene !== "off") opts.body = JSON.stringify({ scene });
                 fetch(url, opts).then((r) => r.json()).then((res) => {
-                  if (res.status === "ok") setSceneInfo((prev) => prev ? { ...prev, active: scene === "off" ? null : scene } : prev);
+                  if (res.status === "ok") setSceneInfo((prev) => prev ? { ...prev, active: scene === "off" ? undefined : scene } : prev);
                 }).catch(() => {});
               }}
             />
