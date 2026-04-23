@@ -109,18 +109,21 @@ class TrackerService:
             logger.error("tracker start: no frame available from camera")
             return False
 
-        # Create CSRT tracker (good accuracy, reasonable speed on Pi)
-        try:
-            tracker = cv2.TrackerCSRT.create()
-        except AttributeError:
-            # opencv-python (non-contrib) may not have CSRT; fall back to KCF
-            logger.warning("CSRT not available, falling back to KCF tracker")
-            tracker = cv2.TrackerKCF.create()
+        tracker = self._create_tracker()
+        if tracker is None:
+            logger.error("No OpenCV tracker available")
+            return False
 
-        ok = tracker.init(frame, bbox)
-        if not ok:
+        try:
+            ok = tracker.init(frame, bbox)
+        except Exception as e:
+            logger.error("tracker init exception for bbox %s: %s", bbox, e)
+            return False
+        # OpenCV 4.13+: init() returns None on success, older returns True
+        if ok is False:
             logger.error("tracker init failed for bbox %s", bbox)
             return False
+        logger.info("tracker init OK for bbox %s (frame %dx%d)", bbox, frame.shape[1], frame.shape[0])
 
         with self._lock:
             self._state = TrackingState(
@@ -162,17 +165,44 @@ class TrackerService:
             frame = camera_capture.last_frame if camera_capture else None
             if frame is None:
                 return False
+            tracker = self._create_tracker()
+            if tracker is None:
+                return False
             try:
-                tracker = cv2.TrackerCSRT.create()
-            except AttributeError:
-                tracker = cv2.TrackerKCF.create()
-            ok = tracker.init(frame, bbox)
-            if ok:
-                self._state.tracker = tracker
-                self._state.bbox = bbox
-                self._state.lost_frames = 0
-                logger.info("Tracker re-initialized with bbox %s", bbox)
-            return ok
+                ok = tracker.init(frame, bbox)
+            except Exception as e:
+                logger.error("Tracker re-init exception: %s", e)
+                return False
+            if ok is False:
+                return False
+            self._state.tracker = tracker
+            self._state.bbox = bbox
+            self._state.lost_frames = 0
+            logger.info("Tracker re-initialized with bbox %s", bbox)
+            return True
+
+    @staticmethod
+    def _create_tracker():
+        """Create the best available OpenCV tracker.
+
+        Priority: CSRT > KCF > TrackerNano > TrackerMIL (most widely available).
+        """
+        # CSRT/KCF: best quality, need opencv-contrib.
+        # MIL: always available, no extra models needed.
+        # Nano/Vit: need ONNX model files — skip unless present.
+        candidates = [
+            ("CSRT", lambda: cv2.TrackerCSRT.create()),
+            ("KCF", lambda: cv2.TrackerKCF.create()),
+            ("MIL", lambda: cv2.TrackerMIL.create()),
+        ]
+        for name, factory in candidates:
+            try:
+                tracker = factory()
+                logger.info("Using OpenCV tracker: %s", name)
+                return tracker
+            except (AttributeError, cv2.error, Exception):
+                continue
+        return None
 
     # --- Internal tracking loop ---
 
