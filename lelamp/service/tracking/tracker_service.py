@@ -312,9 +312,10 @@ class TrackerService:
         if abs(dx) < DEAD_ZONE_PX and abs(dy) < DEAD_ZONE_PX:
             return
 
-        # Convert to degrees — negate yaw because camera is mirrored
-        # (object moves right in frame → servo should turn right → positive yaw)
-        yaw_deg = -dx * DEG_PER_PX_YAW
+        # Convert to degrees
+        # Object left of center (dx < 0) → servo turn left (yaw < 0) → same sign
+        # Object below center (dy > 0) → servo tilt down (pitch < 0) → negate
+        yaw_deg = dx * DEG_PER_PX_YAW
         pitch_deg = -dy * DEG_PER_PX_PITCH
 
         # Clamp
