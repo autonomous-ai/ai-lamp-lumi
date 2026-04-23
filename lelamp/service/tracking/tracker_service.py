@@ -35,13 +35,13 @@ DEG_PER_PX_YAW = 0.02
 DEG_PER_PX_PITCH = 0.02
 
 # Dead zone in pixels — ignore small jitter around center
-DEAD_ZONE_PX = 25
+DEAD_ZONE_PX = 15
 
 # Maximum nudge per step (degrees) — prevents wild swings
-MAX_NUDGE_DEG = 2.0
+MAX_NUDGE_DEG = 1.5
 
-# Tracking loop target FPS
-TRACK_FPS = 8
+# Tracking loop target FPS — higher = smoother
+TRACK_FPS = 12
 
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
@@ -385,7 +385,8 @@ class TrackerService:
                 new_base_pitch, new_elbow_pitch, new_wrist_pitch,
             )
 
-            animation_service.move_to(target, duration=NUDGE_DURATION)
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(target)
 
             self._track_yaw = new_yaw
             self._track_base_pitch = new_base_pitch
