@@ -5,6 +5,7 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from typing import Any, override
 
 import cv2
@@ -13,10 +14,10 @@ import requests
 import lelamp.config as config
 from service.sensing.perceptions.models import (
     FaceDetectionData,
-    PerceptionStateObservers,
 )
 from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.presence_service import PresenceService, PresenceState
+from service.sensing.perceptions.utils import PerceptionStateObservers
+from service.sensing.presence_service import PresenceState, PresenseService
 
 from .base import Perception
 
@@ -108,13 +109,13 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self,
         perception_state: PerceptionStateObservers,
         send_event: SendEventCallable,
-        presence_service: PresenceService | None,
+        presense_service: PresenseService | None,
         base_url: str = config.DL_BACKEND_URL,
         api_key: str = config.DL_API_KEY,
     ):
         super().__init__(perception_state, send_event)
 
-        self._presence_service: PresenceService | None = presence_service
+        self._presence_service: PresenseService | None = presense_service
         self._base_url: str = base_url
         self._api_key: str = api_key
 
@@ -143,7 +144,9 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._cooldown_s: float = 60.0
         self._same_emotion_window_s: float = 300.0
 
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="emotion")
+        self._pool: ThreadPoolExecutor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="emotion"
+        )
 
     def _process_face(
         self,
@@ -220,9 +223,9 @@ class EmotionPerception(Perception[FaceDetectionData]):
 
             vis = frame.copy()
             x1, y1, x2, y2 = bbox
-            cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            _ = cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
             label = f"{emotion} {confidence:.2f}"
-            cv2.putText(
+            _ = cv2.putText(
                 vis,
                 label,
                 (x1, y1 - 10),
@@ -236,7 +239,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
             filepath = os.path.join(config.EMOTION_SNAPSHOT_DIR, filename)
             _, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 85])
             with open(filepath, "wb") as f:
-                f.write(buf.tobytes())
+                _ = f.write(buf.tobytes())
 
             # Rotate: remove oldest files if over max count
             files = sorted(
@@ -267,8 +270,8 @@ class EmotionPerception(Perception[FaceDetectionData]):
             if (cur_ts - self._last_flush_ts) < self._flush_interval:
                 return
 
-            buffer = self._emotion_buffer
-            snapshot_paths = self._snapshot_paths
+            buffer = copy(self._emotion_buffer)
+            snapshot_paths = copy(self._snapshot_paths)
             self._emotion_buffer.clear()
             self._snapshot_paths.clear()
             self._last_flush_ts = cur_ts
@@ -336,7 +339,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
 
             logger.info("[activity.emotion] flushing: %s", message)
-            self._send_event("emotion.detected", message)
+            self._send_event("emotion.detected", message, None, None)
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
