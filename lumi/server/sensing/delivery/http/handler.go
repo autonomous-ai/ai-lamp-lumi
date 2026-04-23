@@ -22,6 +22,7 @@ import (
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/usercanon"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -626,7 +627,7 @@ func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
 	if strings.TrimSpace(user) == "" {
 		user = mood.CurrentUser()
 	}
-	user = wellbeing.NormalizeUser(user)
+	user = usercanon.Resolve(user)
 
 	wellbeing.LogForUser(user, req.Action, req.Notes)
 	slog.Info("wellbeing logged", "component", "wellbeing", "user", user, "action", req.Action, "notes", req.Notes)
@@ -670,7 +671,7 @@ func (h *SensingHandler) PostMusicSuggestionLog(c *gin.Context) {
 		return
 	}
 
-	user := strings.ToLower(strings.TrimSpace(req.User))
+	user := usercanon.Resolve(req.User)
 	seq := musicsuggestion.Log(user, req.Trigger, req.Query, req.Message)
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"user": user,
@@ -698,7 +699,7 @@ func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
 		return
 	}
 
-	user := strings.ToLower(strings.TrimSpace(req.User))
+	user := usercanon.Resolve(req.User)
 	ok := musicsuggestion.UpdateStatus(user, req.Day, req.Seq, req.Status)
 	if !ok {
 		c.JSON(http.StatusNotFound, serializers.ResponseError("music suggestion not found"))
