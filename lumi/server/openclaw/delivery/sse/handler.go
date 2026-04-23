@@ -27,6 +27,7 @@ import (
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/usercanon"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -1388,10 +1389,7 @@ func (h *OpenClawHandler) FlowEvents(c *gin.Context) {
 //   last=<n>               (default 100, max 500)
 //   kind=signal|decision   (optional filter; default: all kinds)
 func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
-	user := strings.ToLower(strings.TrimSpace(c.DefaultQuery("user", mood.CurrentUser())))
-	if user == "" {
-		user = mood.DefaultUser
-	}
+	user := usercanon.Resolve(c.DefaultQuery("user", mood.CurrentUser()))
 	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 	last := 100
 	if s := c.Query("last"); s != "" {
@@ -1421,8 +1419,7 @@ func (h *OpenClawHandler) MoodHistory(c *gin.Context) {
 // WellbeingHistory returns wellbeing activity events for a user and day.
 // Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
 func (h *OpenClawHandler) WellbeingHistory(c *gin.Context) {
-	user := c.DefaultQuery("user", mood.CurrentUser())
-	user = wellbeing.NormalizeUser(user)
+	user := usercanon.Resolve(c.DefaultQuery("user", mood.CurrentUser()))
 	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 	last := 100
 	if s := c.Query("last"); s != "" {
@@ -1446,10 +1443,7 @@ func (h *OpenClawHandler) WellbeingHistory(c *gin.Context) {
 
 // MusicSuggestionHistory returns music suggestion events for a user.
 func (h *OpenClawHandler) MusicSuggestionHistory(c *gin.Context) {
-	user := strings.ToLower(strings.TrimSpace(c.DefaultQuery("user", mood.CurrentUser())))
-	if user == "" {
-		user = mood.DefaultUser
-	}
+	user := usercanon.Resolve(c.DefaultQuery("user", mood.CurrentUser()))
 	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 	last := 100
 	if s := c.Query("last"); s != "" {
