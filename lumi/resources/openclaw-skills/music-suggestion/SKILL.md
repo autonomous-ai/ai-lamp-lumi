@@ -1,6 +1,6 @@
 ---
 name: music-suggestion
-description: Proactive music suggestion. Runs as Step 2 of emotion.detected handling — AFTER user-emotion-detection/SKILL.md logs the mood signal and the Mood skill writes a suggestion-worthy decision (sad/stressed/tired/excited/happy/bored); the backend injects a Step 2 hint into the event message. Also fires when a motion.activity event's Activity detected line contains a sedentary raw label (using computer, writing, texting, reading book, reading newspaper, drawing, playing controller). NOT for user-initiated music requests (those use the music skill).
+description: Proactive music suggestion. Runs as Step 2 of emotion.detected handling — AFTER user-emotion-detection/SKILL.md logs the mood signal and the Mood skill writes a suggestion-worthy decision (sad/stressed/tired/excited/happy/bored); the backend injects a Step 2 hint into the event message. Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
 ---
 
 # Music Suggestion (Proactive)
@@ -20,8 +20,7 @@ Examples:
 
 ## Triggers
 
-1. **Mood** — after logging a mood `decision` that is suggestion-worthy: `sad`, `stressed`, `tired`, `excited`, `happy`, `bored`.
-2. **Sedentary** — `motion.activity` whose `Activity detected:` line contains a sedentary raw label: `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, or `playing controller`.
+Only one trigger: **Mood** — after logging a mood `decision` that is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`). Activity events (`[activity] Activity detected: ...`, whether sedentary or drink/break) route to `wellbeing/SKILL.md` and never to this skill.
 
 ## User attribution
 
