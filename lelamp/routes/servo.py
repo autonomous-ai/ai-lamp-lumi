@@ -480,7 +480,7 @@ def start_tracking(req: ServoTrackRequest):
     if not state.camera_capture:
         raise HTTPException(503, "Camera not available")
 
-    bbox = tuple(req.bbox)
+    bbox = tuple(req.bbox) if req.bbox else None
     ok = state.tracker_service.start(
         bbox=bbox,
         target_label=req.target,
@@ -488,13 +488,14 @@ def start_tracking(req: ServoTrackRequest):
         animation_service=state.animation_service,
     )
     if not ok:
-        raise HTTPException(400, "Failed to initialize tracker — check bbox and camera")
+        raise HTTPException(400, state.tracker_service.last_error or "Failed to initialize tracker")
 
+    s = state.tracker_service.status
     return {
         "status": "ok",
         "tracking": True,
         "target": req.target or None,
-        "bbox": list(bbox),
+        "bbox": s.get("bbox"),
     }
 
 

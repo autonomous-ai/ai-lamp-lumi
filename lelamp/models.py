@@ -446,15 +446,18 @@ class ServoMoveResponse(BaseModel):
 
 
 class ServoTrackRequest(BaseModel):
-    bbox: list[int] = Field(
-        ..., min_length=4, max_length=4,
-        description="Bounding box [x, y, w, h] in pixel coordinates on 640x480 frame",
+    bbox: Optional[list[int]] = Field(
+        None, min_length=4, max_length=4,
+        description="Bounding box [x, y, w, h]. If omitted, auto-detect using YOLOWorld.",
     )
-    target: str = Field("", description="Human-readable label of the object being tracked")
+    target: str = Field("", description="Object name to track (e.g. 'cup', 'book', 'person')")
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"bbox": [280, 200, 80, 80], "target": "water bottle"}]
+            "examples": [
+                {"target": "cup"},
+                {"bbox": [280, 200, 80, 80], "target": "water bottle"},
+            ]
         }
     }
 
