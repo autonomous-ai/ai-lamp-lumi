@@ -1,6 +1,6 @@
 ---
 name: music-suggestion
-description: Proactive music suggestion triggered by Mood decisions or sedentary activity. NOT for user-initiated music requests (those use the music skill).
+description: Proactive music suggestion. Runs as Step 2 of emotion.detected handling — AFTER user-emotion-detection/SKILL.md logs the mood signal and the Mood skill writes a suggestion-worthy decision (sad/stressed/tired/excited/happy/bored); the backend injects a Step 2 hint into the event message. Also fires when a motion.activity event's Activity detected line contains a sedentary raw label (using computer, writing, texting, reading book, reading newspaper, drawing, playing controller). NOT for user-initiated music requests (those use the music skill).
 ---
 
 # Music Suggestion (Proactive)
