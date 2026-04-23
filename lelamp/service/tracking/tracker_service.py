@@ -28,17 +28,17 @@ logger = logging.getLogger(__name__)
 # Degrees per pixel — controls how aggressively servo reacts to offset.
 # Depends on camera FOV; 640px width ≈ 60° horizontal → ~0.094 deg/px.
 # Keep low to avoid overshoot — servo feedback is slow.
-DEG_PER_PX_YAW = 0.03
-DEG_PER_PX_PITCH = 0.03
+DEG_PER_PX_YAW = 0.02
+DEG_PER_PX_PITCH = 0.02
 
 # Dead zone in pixels — ignore small jitter around center
-DEAD_ZONE_PX = 30
+DEAD_ZONE_PX = 25
 
 # Maximum nudge per step (degrees) — prevents wild swings
-MAX_NUDGE_DEG = 3.0
+MAX_NUDGE_DEG = 2.0
 
-# Tracking loop target FPS
-TRACK_FPS = 5
+# Tracking loop target FPS — higher = smoother but more CPU
+TRACK_FPS = 8
 
 # How many consecutive frames the tracker can fail before giving up
 MAX_LOST_FRAMES = 15  # ~3 seconds at 5 FPS
@@ -48,7 +48,9 @@ NUDGE_DURATION = 0.15
 
 # Servo position limits (degrees) — prevent runaway
 YAW_MIN, YAW_MAX = -135.0, 135.0
-PITCH_MIN, PITCH_MAX = -90.0, 30.0
+BASE_PITCH_MIN, BASE_PITCH_MAX = -90.0, 30.0
+ELBOW_PITCH_MIN, ELBOW_PITCH_MAX = -90.0, 90.0
+WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
 
 
 @dataclass
@@ -224,11 +226,16 @@ class TrackerService:
             with animation_service.bus_lock:
                 init_pos = _motor_positions_from_bus(animation_service.robot)
             self._track_yaw = init_pos.get("base_yaw.pos", 0.0)
-            self._track_pitch = init_pos.get("base_pitch.pos", 0.0)
+            self._track_base_pitch = init_pos.get("base_pitch.pos", 0.0)
+            self._track_elbow_pitch = init_pos.get("elbow_pitch.pos", 0.0)
+            self._track_wrist_pitch = init_pos.get("wrist_pitch.pos", 0.0)
         except Exception:
             self._track_yaw = 0.0
-            self._track_pitch = 0.0
-        logger.info("Tracking start servo pos: yaw=%.1f pitch=%.1f", self._track_yaw, self._track_pitch)
+            self._track_base_pitch = 0.0
+            self._track_elbow_pitch = 0.0
+            self._track_wrist_pitch = 0.0
+        logger.info("Tracking start servo pos: yaw=%.1f base_pitch=%.1f elbow=%.1f wrist=%.1f",
+                     self._track_yaw, self._track_base_pitch, self._track_elbow_pitch, self._track_wrist_pitch)
 
         frame_count = 0
         fps_t0 = time.perf_counter()
@@ -336,27 +343,34 @@ class TrackerService:
             return
 
         # Update internal position and send to servo
+        # Split pitch across 3 joints for full range of motion
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
-            new_pitch = max(PITCH_MIN, min(PITCH_MAX, self._track_pitch + pitch_deg))
+
+            pitch_each = pitch_deg / 3.0
+            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX, self._track_base_pitch + pitch_each))
+            new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_each))
+            new_wrist_pitch = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch + pitch_each))
 
             target = {
                 "base_yaw.pos": new_yaw,
-                "base_pitch.pos": new_pitch,
+                "base_pitch.pos": new_base_pitch,
+                "elbow_pitch.pos": new_elbow_pitch,
+                "wrist_pitch.pos": new_wrist_pitch,
             }
 
             logger.info(
-                "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
+                "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
                 dx, dy, yaw_deg, pitch_deg,
                 self._track_yaw, new_yaw,
-                self._track_pitch, new_pitch,
+                new_base_pitch, new_elbow_pitch, new_wrist_pitch,
             )
 
-            with animation_service.bus_lock:
-                animation_service.robot.send_action(target)
+            animation_service.move_to(target, duration=NUDGE_DURATION)
 
-            # Update internal state — don't re-read bus (too slow)
             self._track_yaw = new_yaw
-            self._track_pitch = new_pitch
+            self._track_base_pitch = new_base_pitch
+            self._track_elbow_pitch = new_elbow_pitch
+            self._track_wrist_pitch = new_wrist_pitch
         except Exception as e:
             logger.warning("Tracker nudge failed: %s", e)
