@@ -134,7 +134,12 @@ def audio_play(req: MusicPlayRequest):
         raise HTTPException(
             503, "Music service not available -- missing sounddevice or numpy"
         )
-    person = req.person.strip().lower()
+    from lelamp.service.voice.music_service import canonicalize_person
+
+    raw_person = req.person.strip()
+    person = canonicalize_person(raw_person) if raw_person else ""
+    if raw_person and person != raw_person.lower():
+        state.logger.info("POST /audio/play: canonicalized person '%s' -> '%s'", raw_person, person)
     state.logger.info("POST /audio/play: query='%s' person='%s'", req.query[:80], person)
     style = _detect_music_style(req.query)
     state.logger.info("music style detected: %s", style)
@@ -203,8 +208,9 @@ def audio_status():
 @router.get("/audio/history", tags=["Audio"])
 def audio_history(date: str | None = None, person: str = "", last: int = 50):
     """Return music playback history for AI to learn user preferences."""
-    from lelamp.service.voice.music_service import query_play_history
+    from lelamp.service.voice.music_service import canonicalize_person, query_play_history
 
-    norm_person = person.strip().lower() or state.DEFAULT_USER
+    raw_person = person.strip()
+    norm_person = canonicalize_person(raw_person) if raw_person else state.DEFAULT_USER
     entries = query_play_history(person=norm_person, date_str=date, last=min(last, 500))
     return {"date": date or "today", "person": norm_person, "entries": entries, "count": len(entries)}

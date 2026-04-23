@@ -189,8 +189,9 @@ def face_photo(label: str, filename: str):
 def face_file(label: str, filepath: str):
     """Serve any text file from a user's directory."""
     from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
+    from lelamp.service.voice.music_service import canonicalize_person
 
-    norm = FaceRecognizer.normalize_label(label)
+    norm = canonicalize_person(label)
     path = (USERS_DIR / norm / filepath).resolve()
     if not str(path).startswith(str(USERS_DIR.resolve())):
         raise HTTPException(400, "invalid path")

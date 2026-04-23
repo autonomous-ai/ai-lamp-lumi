@@ -25,14 +25,56 @@ _USERS_DIR = Path(os.environ.get("LELAMP_USERS_DIR", "/root/local/users"))
 _HISTORY_MAX_DAYS = 30
 
 
+def _slugify_person(person: str) -> str:
+    """Match FaceRecognizer.normalize_label so writer/reader agree on folder names."""
+    s = person.strip().lower()
+    s = re.sub(r"[^a-z0-9_-]+", "_", s)
+    s = s.strip("_")
+    return s[:64] if s else "unknown"
+
+
+def canonicalize_person(person: str) -> str:
+    """Resolve a raw person label (from AI, Telegram sender, etc.) to a canonical
+    user folder name. Tries, in order:
+
+      1. Exact slug match on an existing user dir.
+      2. Telegram id extracted from `NAME (123456)` → scan metadata.json files.
+      3. Longest alphanumeric token that matches an existing user dir
+         (e.g. "i am gray" → "gray").
+      4. Slug fallback (may create a new dir, but at least stays filesystem-safe).
+    """
+    if not person:
+        return "unknown"
+    slug = _slugify_person(person)
+    if _USERS_DIR.is_dir():
+        if slug and (_USERS_DIR / slug).is_dir():
+            return slug
+        m = re.search(r"\((\d+)\)", person)
+        if m:
+            tid = m.group(1)
+            for d in _USERS_DIR.iterdir():
+                if not d.is_dir():
+                    continue
+                meta_file = d / "metadata.json"
+                if not meta_file.is_file():
+                    continue
+                try:
+                    meta = json.loads(meta_file.read_text())
+                except Exception:
+                    continue
+                if str(meta.get("telegram_id") or "") == tid:
+                    return d.name
+        tokens = re.findall(r"[a-z0-9]+", person.lower())
+        tokens.sort(key=len, reverse=True)
+        for tok in tokens:
+            if (_USERS_DIR / tok).is_dir():
+                return tok
+    return slug
+
+
 def _history_dir(person: str = "") -> Path:
     """Return history directory for a person, or 'unknown' fallback."""
-    if not person:
-        person = "unknown"
-    # Normalize to lowercase — face recognition always uses lowercase person_id,
-    # but AI may capitalize names (e.g. "Gray" vs "gray").
-    person = person.lower()
-    return _USERS_DIR / person / "audio_history"
+    return _USERS_DIR / canonicalize_person(person) / "audio_history"
 
 
 def _history_path(person: str = "", date_str: str | None = None) -> Path:
@@ -52,7 +94,7 @@ def _log_play_event(
 ) -> None:
     """Append a play event to today's history file (per-user if person is set)."""
     try:
-        person = person.lower() if person else person
+        person = canonicalize_person(person) if person else person
         hist_dir = _history_dir(person)
         hist_dir.mkdir(parents=True, exist_ok=True)
         entry = {
