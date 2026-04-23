@@ -6,6 +6,7 @@ interface TrackStatus {
   tracking: boolean;
   target: string | null;
   bbox: number[] | null;
+  confidence: number | null;
 }
 
 export function CameraSection({
@@ -17,7 +18,7 @@ export function CameraSection({
   const [cameraDisabled, setCameraDisabled] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [track, setTrack] = useState<TrackStatus>({ tracking: false, target: null, bbox: null });
+  const [track, setTrack] = useState<TrackStatus>({ tracking: false, target: null, bbox: null, confidence: null });
   const [trackTarget, setTrackTarget] = useState("object");
   const [trackBbox, setTrackBbox] = useState("280,200,80,80");
 
@@ -69,7 +70,7 @@ export function CameraSection({
   const stopTracking = async () => {
     try {
       await fetch(`${HW}/servo/track`, { method: "DELETE" });
-      setTrack({ tracking: false, target: null, bbox: null });
+      setTrack({ tracking: false, target: null, bbox: null, confidence: null });
     } catch {}
   };
 
@@ -265,7 +266,7 @@ export function CameraSection({
             background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)",
             color: "var(--lm-green)", fontFamily: "monospace",
           }}>
-            Tracking "{track.target}" — bbox: [{track.bbox?.join(", ")}]
+            Tracking "{track.target}" — conf: {track.confidence?.toFixed(3) ?? "?"} — bbox: [{track.bbox?.join(", ")}]
           </div>
         )}
       </div>

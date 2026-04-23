@@ -520,6 +520,7 @@ def get_tracking_status():
         "tracking": s["tracking"],
         "target": s["target"],
         "bbox": s["bbox"],
+        "confidence": s.get("confidence"),
     }
 
 
