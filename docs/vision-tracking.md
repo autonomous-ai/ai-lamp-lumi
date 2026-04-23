@@ -1,19 +1,19 @@
 # Vision Tracking — Object Follow with Servo
 
-Lumi can track and follow any object the user describes in natural language. The system uses a hybrid approach: LLM vision for initial detection, TrackerVit (ViT-based ONNX) for real-time follow.
+Lumi can track and follow any object the user names. Two-stage approach: YOLOWorld API detects the object by name, TrackerVit follows it in real-time.
 
 ## Architecture
 
 ```
-User: "Lumi, follow my cup"
+User: "Lumi, follow the cup"
          |
-    OpenClaw Agent (understands intent)
+    POST /servo/track {"target": "cup"}
          |
-    1. Capture snapshot → LLM: "Find the cup, return bbox [x,y,w,h]"
+    1. YOLOWorld API: frame + "cup" → bbox [x,y,w,h]  (~1-2s, RunPod GPU)
          |
-    2. POST /servo/track {bbox, target}
+    2. TrackerVit init on bbox
          |
-    3. TrackerService (background loop @ 12 FPS)
+    3. Tracking loop @ 12 FPS
          |  grab frame → TrackerVit update → confidence check → pixel offset → servo nudge
          |
     4. Object moves → servo follows (yaw + 3 pitch joints)
@@ -21,15 +21,21 @@ User: "Lumi, follow my cup"
     5. Confidence < 0.3 for 5 frames → auto-stop + resume idle
 ```
 
-### Why hybrid?
+### Detection: YOLOWorld API
 
-| Approach | Speed | Flexibility | Problem |
-|----------|-------|-------------|---------|
-| LLM vision only | ~1-2s/frame | Any object via language | Too slow for tracking |
-| YOLO/ML only | ~30ms/frame | Fixed classes | Can't track "the blue cup on the left" |
-| **Hybrid** | **~15ms/frame** | **Any object** | — |
+Open-vocabulary object detection — detects any object by text label, not limited to fixed classes.
 
-LLM handles the "what" (natural language to bounding box). TrackerVit handles the "where" (real-time position tracking with confidence scoring).
+- **Endpoint:** `{DL_BACKEND_URL}/detect/yoloworld`
+- **Auth:** `x-api-key` header from `DL_API_KEY` config
+- **Request:** `{"image_b64": "...", "classes": ["cup"]}`
+- **Response:** `[{"class_name": "cup", "xywh": [cx, cy, w, h], "confidence": 0.98}]`
+- **Speed:** ~1-2s (RunPod GPU)
+
+Used automatically when `POST /servo/track` is called without `bbox`. Can also provide bbox manually to skip detection.
+
+### Tracking: TrackerVit
+
+Real-time object following after initial detection.
 
 ## Tracker: TrackerVit
 
@@ -113,11 +119,11 @@ All under `/servo/track`.
 ### POST /servo/track — Start tracking
 
 ```json
-// Request
-{
-  "bbox": [190, 50, 170, 300],
-  "target": "cup"
-}
+// Auto-detect (YOLOWorld finds the object)
+{"target": "cup"}
+
+// Manual bbox (skip detection)
+{"bbox": [190, 50, 170, 300], "target": "cup"}
 
 // Response
 {
@@ -161,14 +167,15 @@ Re-detect without stopping tracking session.
 
 ```
 1. User: "Lumi, follow the cup"
-2. OpenClaw agent:
-   a. Call /camera/snapshot → get frame
-   b. Send frame to LLM: "Find the cup, return bounding box [x, y, w, h]"
-   c. LLM returns: [190, 50, 170, 300]
-   d. Call POST /servo/track {"bbox": [190,50,170,300], "target": "cup"}
-3. TrackerVit follows the cup in real-time (confidence ~0.5-0.7)
-4. User: "OK stop" → agent calls DELETE /servo/track
-5. Servo resumes idle animation
+2. Agent calls POST /servo/track {"target": "cup"}
+3. LeLamp internally:
+   a. Captures current frame
+   b. Sends to YOLOWorld API → gets bbox (~1-2s)
+   c. Re-grabs fresh frame
+   d. TrackerVit init on bbox → starts tracking
+4. Servo follows the cup in real-time (confidence ~0.5-0.7)
+5. User: "OK stop" → agent calls DELETE /servo/track
+6. Servo resumes idle animation
 ```
 
 ### Auto-stop on lost
@@ -207,7 +214,8 @@ Camera section shows:
 
 - `opencv-python>=4.8.0` (already in `pyproject.toml`)
 - `vittrack.onnx` — checked into repo at `lelamp/service/tracking/vittrack.onnx`
-- No additional packages needed
+- `requests` (already in project)
+- **YOLOWorld API** — RunPod DL backend at `DL_BACKEND_URL/detect/yoloworld`
 
 ## Interaction with Other Systems
 
@@ -221,7 +229,7 @@ Camera section shows:
 
 ## Next Steps
 
-- **LLM detect integration** — OpenClaw skill to get bbox from natural language description
-- **Periodic re-detect** — auto PUT every N seconds to correct drift
+- **OpenClaw skill** — `track/SKILL.md` so agent can call tracking via voice
+- **Periodic re-detect** — auto YOLOWorld re-detect every N seconds to correct drift
 - **PID control** — smoother servo response instead of proportional-only
 - **Multi-object** — track multiple objects, switch between them
