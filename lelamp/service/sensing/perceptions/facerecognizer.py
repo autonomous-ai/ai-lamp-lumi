@@ -337,12 +337,15 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             max_strangers=max_strangers,
             model_name=model_name,
         )
+        self._face_recognizer.start()
         self._owners_forget_ts: float = owners_forget_ts
         self._strangers_forget_ts: float = strangers_forget_ts
 
         self._stranger_counter: int = 0
 
-        self._data_dict: dict[str, PersonData] = {}
+        self._faces_n: int = 0
+        self._face_present: bool = False
+        self._people_data_dict: dict[str, PersonData] = {}
         self._owners: set[str] = set()
         self._strangers: set[str] = set()
 
@@ -363,10 +366,8 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         # # stranger_38 while both are within the forget window would never
         # # produce a matching leave, and re-enters would stack duplicate rows.
         self._any_stranger_logged: bool = False
-        self._stranger_visit_counts: dict[str, dict] = self._load_stranger_stats()
+        self._stranger_visit_counts: dict[str, Any] = self._load_stranger_stats()
 
-        self._face_present: bool = False
-        self._faces_n: int = 0
 
         # Stranger snapshot buffer — flushed every FACE_STRANGER_FLUSH_S
         # Each entry: (raw_frame, annotations[(bbox, kind, label), ...])
@@ -377,19 +378,10 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
         self._callbacks: set[Callable[[FaceDetectionData], None]] = set()
 
-        ort.set_default_logger_severity(3)
-        sess_opts = ort.SessionOptions()
-        sess_opts.intra_op_num_threads = 1
-        sess_opts.inter_op_num_threads = 1
-
-        self.app: insightface.app.FaceAnalysis = insightface.app.FaceAnalysis(
-            name=model_name, session_options=sess_opts
-        )
-        self.app.prepare(ctx_id=-1)
+        self._state_lock: threading.RLock = threading.RLock()
+        self._callback_lock: threading.RLock = threading.RLock()
 
         self._start_watcher()
-        self._state_lock: threading.Lock = threading.Lock()
-        self._callback_lock: threading.Lock = threading.Lock()
 
     def register_callback(self, callback: Callable[[FaceDetectionData], None]):
         with self._callback_lock:
@@ -661,10 +653,12 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 continue
 
             person_id = f.person_id
-            if person_id not in self._data_dict:
-                self._data_dict[person_id] = PersonData(id=person_id, kind=f.kind)
+            if person_id not in self._people_data_dict:
+                self._people_data_dict[person_id] = PersonData(
+                    id=person_id, kind=f.kind
+                )
 
-            face_data = self._data_dict[person_id]
+            face_data = self._people_data_dict[person_id]
 
             if face_data.kind == PersonKind.FRIEND:
                 forget_ts = self._owners_forget_ts
@@ -682,9 +676,9 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 elif face_data.kind == PersonKind.STRANGER:
                     new_strangers.add(person_id)
 
-                self._data_dict[person_id].last_session_time = cur_ts
+                self._people_data_dict[person_id].last_session_time = cur_ts
 
-            self._data_dict[person_id].last_seen = cur_ts
+            self._people_data_dict[person_id].last_seen = cur_ts
 
         # "unknown" session enter: fire once when the first stranger appears
         # and stays un-logged until all strangers leave. Keeps multiple
@@ -740,30 +734,27 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
-            now = time.time()
-            # Last seen person (most recent across owners + strangers)
-            last_person = None
-            last_seen_ago = None
-            all_seen = {**self._owners_last_seen, **self._strangers_last_seen}
-            if all_seen:
-                most_recent = max(all_seen, key=all_seen.get)
-                last_person = most_recent
-                last_seen_ago = int(now - all_seen[most_recent])
+            cur_ts = time.time()
+            last_person: str | None = None
+            last_seen: float | None = None
+
+            for person_id, person_data in self._people_data_dict.items():
+                if person_data.last_seen is None:
+                    continue
+
+                if last_seen is None or last_seen < person_data.last_seen:
+                    last_seen = person_data.last_seen
+                    last_person = person_id
             # Currently visible people
-            visible = []
-            for pid, ts in self._owners_last_seen.items():
-                if (now - ts) < 10:
-                    visible.append(pid)
-            for pid, ts in self._strangers_last_seen.items():
-                if (now - ts) < 10:
-                    visible.append(pid)
             return {
                 "type": "face",
                 "face_present": self._face_present,
                 "faces_count": self._faces_n,
-                "visible": visible,
+                "visible": list(self._people_data_dict.keys()),
                 "last_person": last_person,
-                "last_seen_seconds_ago": last_seen_ago,
+                "last_seen_seconds_ago": (cur_ts - last_seen)
+                if last_seen is not None
+                else None,
                 "enrolled_count": self.enrolled_count(),
                 "stranger_count": len(self._face_recognizer.strangers),
             }
@@ -773,37 +764,38 @@ class FacePerception(Perception[cv2.typing.MatLike]):
     def _check_leaves(self, cur_ts: float) -> None:
         """Fire presence.leave for anyone not seen within their forget interval."""
         deleted_ids: set[str] = set()
-        for person_id, person_data in self._data_dict.items():
-            if person_data.kind == PersonKind.FRIEND:
-                if (
-                    person_data.last_seen is None
-                    or (cur_ts - person_data.last_seen) > self._owners_forget_ts
-                ):
-                    deleted_ids.add(person_id)
-                    # Per-friend leave row on their own timeline.
-                    self._post_wellbeing(self.normalize_label(person_id), "leave")
-                    self._send_leave_event(person_id, kind=person_data.kind)
-            elif person_data.kind == PersonKind.STRANGER:
-                if (
-                    person_data.last_seen is None
-                    or (cur_ts - person_data.last_seen) > self._strangers_forget_ts
-                ):
-                    deleted_ids.add(person_id)
+        with self._state_lock:
+            for person_id, person_data in self._people_data_dict.items():
+                if person_data.kind == PersonKind.FRIEND:
+                    if (
+                        person_data.last_seen is None
+                        or (cur_ts - person_data.last_seen) > self._owners_forget_ts
+                    ):
+                        deleted_ids.add(person_id)
+                        # Per-friend leave row on their own timeline.
+                        self._post_wellbeing(self.normalize_label(person_id), "leave")
+                        self._send_leave_event(person_id, kind=person_data.kind)
+                elif person_data.kind == PersonKind.STRANGER:
+                    if (
+                        person_data.last_seen is None
+                        or (cur_ts - person_data.last_seen) > self._strangers_forget_ts
+                    ):
+                        deleted_ids.add(person_id)
 
-        for id in deleted_ids:
-            del self._data_dict[id]
+            for id in deleted_ids:
+                del self._people_data_dict[id]
 
-        current_strangers = [
-            p for p in self._data_dict.values() if p.kind == PersonKind.STRANGER
-        ]
+            current_strangers = [
+                p for p in self._people_data_dict.values() if p.kind == PersonKind.STRANGER
+            ]
 
-        # "unknown" session leave: fire once when the last stranger has
-        # gone. Mirrors the enter in _check_impl — gives the unknown
-        # timeline matching enter/leave pairs even though individual
-        # stranger IDs don't emit presence.leave.
-        if self._any_stranger_logged and not current_strangers:
-            self._post_wellbeing("unknown", "leave")
-            self._any_stranger_logged = False
+            # "unknown" session leave: fire once when the last stranger has
+            # gone. Mirrors the enter in _check_impl — gives the unknown
+            # timeline matching enter/leave pairs even though individual
+            # stranger IDs don't emit presence.leave.
+            if self._any_stranger_logged and not current_strangers:
+                self._post_wellbeing("unknown", "leave")
+                self._any_stranger_logged = False
 
     def _send_leave_event(self, person_id: str, kind: PersonKind) -> None:
         self._send_event(
@@ -841,51 +833,62 @@ class FacePerception(Perception[cv2.typing.MatLike]):
     # -- Stranger visit tracking -------------------------------------------------
 
     @staticmethod
-    def _load_stranger_stats() -> dict[str, dict]:
+    def _load_stranger_stats() -> dict[str, Any]:
         try:
             return json.loads(_STRANGER_STATS_FILE.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
     def _save_stranger_stats(self) -> None:
-        try:
-            _STRANGER_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            _STRANGER_STATS_FILE.write_text(
-                json.dumps(self._stranger_visit_counts, indent=2)
-            )
-        except OSError as e:
-            logger.warning("Failed to save stranger stats: %s", e)
+        with self._state_lock:
+            try:
+                _STRANGER_STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+                _ = _STRANGER_STATS_FILE.write_text(
+                    json.dumps(self._stranger_visit_counts, indent=2)
+                )
+            except OSError as e:
+                logger.warning("Failed to save stranger stats: %s", e)
 
     def _track_stranger_visits(self, stranger_ids: set[str]) -> None:
         """Increment visit count for each stranger seen in this frame."""
         now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-        for sid in stranger_ids:
-            rec = self._stranger_visit_counts.get(sid)
-            if rec is None:
-                self._stranger_visit_counts[sid] = {
-                    "count": 1,
-                    "first_seen": now,
-                    "last_seen": now,
-                }
-            else:
-                rec["count"] += 1
-                rec["last_seen"] = now
-        if stranger_ids:
-            self._save_stranger_stats()
+        with self._state_lock:
+            for sid in stranger_ids:
+                rec = self._stranger_visit_counts.get(sid)
+                if rec is None:
+                    self._stranger_visit_counts[sid] = {
+                        "count": 1,
+                        "first_seen": now,
+                        "last_seen": now,
+                    }
+                else:
+                    rec["count"] += 1
+                    rec["last_seen"] = now
 
-    def stranger_stats(self) -> dict[str, dict]:
+            if stranger_ids:
+                self._save_stranger_stats()
+
+    def stranger_stats(self) -> dict[str, Any]:
         """Return visit counts for all tracked stranger IDs."""
-        return dict(self._stranger_visit_counts)
+        with self._state_lock:
+            return self._stranger_visit_counts
 
     def has_friend_present(self) -> bool:
         """Return True if any friend was seen within the forget interval."""
-        if not self._owners_last_seen:
-            return False
-        now = time.time()
-        return any(
-            (now - ts) <= self._owners_forget_ts
-            for ts in self._owners_last_seen.values()
-        )
+        with self._state_lock:
+            owners = {
+                p: d
+                for p, d in self._people_data_dict.items()
+                if d.kind == PersonKind.FRIEND
+            }
+            if not owners:
+                return False
+            now_ts = time.time()
+            return any(
+                (now_ts - d.last_seen) <= self._owners_forget_ts
+                for d in owners.values()
+                if d.last_seen is not None
+            )
 
     def current_user(self) -> str:
         """Return the name of the person currently "in front" of the lamp:
@@ -901,69 +904,87 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         so it can't distinguish them. See docs/plan-presence-logging.md.
         """
         now = time.time()
-        best_friend: tuple[float, str] | None = None
-        for person_id, last_seen in self._owners_last_seen.items():
-            if (now - last_seen) > self._owners_forget_ts:
-                continue
-            if self._known_face_kinds.get(person_id, "friend") != "friend":
-                continue
-            session_start = self._owners_session_start.get(person_id, last_seen)
-            if best_friend is None or session_start > best_friend[0]:
-                best_friend = (session_start, person_id)
-        if best_friend is not None:
-            return self.normalize_label(best_friend[1])
-        for last_seen in self._strangers_last_seen.values():
-            if (now - last_seen) <= self._strangers_forget_ts:
+        last_friend: str | None = None
+        last_friend_ts: float | None = None
+        have_stranger: bool = False
+        with self._state_lock:
+            for person_id, person_data in self._people_data_dict.items():
+                if person_data.last_seen is None:
+                    continue
+                if (
+                    person_data.kind == PersonKind.STRANGER
+                    and (now - person_data.last_seen) <= self._strangers_forget_ts
+                ):
+                    have_stranger = True
+
+                if person_data.kind != PersonKind.FRIEND:
+                    continue
+                if (now - person_data.last_seen) > self._owners_forget_ts:
+                    continue
+
+                session_start = person_data.last_session_time or person_data.last_seen
+                if last_friend_ts is None or last_friend_ts < session_start:
+                    last_friend = person_id
+                    last_friend_ts = session_start
+
+            if last_friend is not None:
+                return self.normalize_label(last_friend)
+
+            if have_stranger:
                 return "unknown"
-        return ""
+
+            return ""
 
     # -- Cooldown state / reset -------------------------------------------------
 
-    def cooldown_state(self) -> dict:
+    def cooldown_state(self) -> dict[str, Any]:
         """Return current cooldown state for all tracked persons."""
-        now = time.time()
+        cur_ts = time.time()
         owners = []
-        for person_id, last_seen in self._owners_last_seen.items():
-            elapsed = now - last_seen
-            remaining = max(0.0, self._owners_forget_ts - elapsed)
-            kind = self._known_face_kinds.get(person_id, "friend")
-            owners.append(
-                {
-                    "person_id": person_id,
-                    "kind": kind,
-                    "last_seen_ago": round(elapsed, 1),
-                    "cooldown_remaining": round(remaining, 1),
-                    "cooldown_total": self._owners_forget_ts,
-                }
-            )
         strangers = []
-        for person_id, last_seen in self._strangers_last_seen.items():
-            elapsed = now - last_seen
-            remaining = max(0.0, self._strangers_forget_ts - elapsed)
-            strangers.append(
-                {
-                    "person_id": person_id,
-                    "kind": "stranger",
-                    "last_seen_ago": round(elapsed, 1),
-                    "cooldown_remaining": round(remaining, 1),
-                    "cooldown_total": self._strangers_forget_ts,
-                }
-            )
-        return {
-            "owners": owners,
-            "strangers": strangers,
-            "owners_forget_s": self._owners_forget_ts,
-            "strangers_forget_s": self._strangers_forget_ts,
-        }
+        with self._state_lock:
+            for person_id, person_data in self._people_data_dict.items():
+                if person_data.last_seen is None:
+                    continue
+
+                elapsed = cur_ts - person_data.last_seen
+                if person_data.kind == PersonKind.FRIEND:
+                    remaining = max(0.0, self._owners_forget_ts - elapsed)
+                    kind = person_data.kind
+                    owners.append(
+                        {
+                            "person_id": person_id,
+                            "kind": kind,
+                            "last_seen_ago": round(elapsed, 1),
+                            "cooldown_remaining": round(remaining, 1),
+                            "cooldown_total": self._owners_forget_ts,
+                        }
+                    )
+                elif person_data.kind == PersonKind.STRANGER:
+                    remaining = max(0.0, self._strangers_forget_ts - elapsed)
+                    strangers.append(
+                        {
+                            "person_id": person_id,
+                            "kind": "stranger",
+                            "last_seen_ago": round(elapsed, 1),
+                            "cooldown_remaining": round(remaining, 1),
+                            "cooldown_total": self._strangers_forget_ts,
+                        }
+                    )
+
+            return {
+                "owners": owners,
+                "strangers": strangers,
+                "owners_forget_s": self._owners_forget_ts,
+                "strangers_forget_s": self._strangers_forget_ts,
+            }
 
     def reset_cooldowns(self) -> None:
         """Clear all last-seen timestamps so next detection fires events immediately."""
-        self._owners_last_seen.clear()
-        self._known_face_kinds.clear()
-        self._strangers_last_seen.clear()
-        self._owners_session_start.clear()
-        self._strangers_session_start.clear()
-        logger.info("Face recognition cooldowns reset")
+        with self._state_lock:
+            self._people_data_dict.clear()
+            _ = self._flush_stranger_buffer(time.time())
+            logger.info("Face recognition cooldowns reset")
 
     # -- Events -----------------------------------------------------------------
 
@@ -1004,18 +1025,19 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
         Returns ([(frame, annotations), ...], flushed_ids). Empty if not yet time to flush.
         """
-        if (cur_ts - self._last_stranger_flush_ts) < self._stranger_flush_interval:
-            return [], set()
+        with self._state_lock:
+            if (cur_ts - self._last_stranger_flush_ts) < self._stranger_flush_interval:
+                return [], set()
 
-        snapshots = list(self._stranger_snapshots_buffers)
-        ids = set(self._stranger_ids_buffer)
-        self._stranger_snapshots_buffers.clear()
-        self._stranger_ids_buffer.clear()
-        self._last_stranger_flush_ts = cur_ts
-        logger.info(
-            "[face] flushing %d stranger snapshot(s) for %s", len(snapshots), ids
-        )
-        return snapshots, ids
+            snapshots = list(self._stranger_snapshots_buffers)
+            ids = set(self._stranger_ids_buffer)
+            self._stranger_snapshots_buffers.clear()
+            self._stranger_ids_buffer.clear()
+            self._last_stranger_flush_ts = cur_ts
+            logger.info(
+                "[face] flushing %d stranger snapshot(s) for %s", len(snapshots), ids
+            )
+            return snapshots, ids
 
     def _send_enter_event(
         self,
@@ -1033,7 +1055,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         """
         self._send_event(
             "presence.enter",
-            f"Person detected — {total_faces} face(s) visible ({message})",
+            message,
             frames,
             config.FACE_COOLDOWN_S,
         )
