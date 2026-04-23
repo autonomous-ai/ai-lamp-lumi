@@ -164,12 +164,12 @@ try:
 except ImportError as e:
     logger.warning(f"Display service not available: {e}")
 
-_gpio_stop_button = None
+_gpio_button_handler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _gpio_stop_button
+    global _gpio_button_handler
 
     # --- Phase 1: Fire slow hardware init in background threads ---
 
@@ -409,41 +409,14 @@ async def lifespan(app: FastAPI):
             logger.warning(f"DisplayService failed to start: {e}")
             state.display_service = None
 
-    # GPIO17 stop-speaker button
+    # GPIO17 button (single=stop/unmute, double=reboot, long=shutdown)
     try:
-        import lgpio as _lgpio
+        from lelamp.service.gpio_button import GPIOButtonHandler
 
-        _h = _lgpio.gpiochip_open(0)
-        _lgpio.gpio_claim_alert(_h, 17, _lgpio.FALLING_EDGE, _lgpio.SET_PULL_UP)
-
-        _last_button_tick = [0]
-
-        def _on_stop_button(chip, gpio, level, tick):
-            if tick - _last_button_tick[0] < 500_000:
-                return
-            _last_button_tick[0] = tick
-
-            if state._mic_muted:
-                logger.info("GPIO17 button pressed -- unmuting mic")
-                from lelamp.routes.voice import unmute_mic
-                unmute_mic()
-                if state.tts_service and state.tts_service.available and not state._speaker_muted:
-                    threading.Thread(
-                        target=lambda: state.tts_service.speak("I'm listening!"),
-                        daemon=True,
-                        name="unmute-tts",
-                    ).start()
-                return
-            logger.info("GPIO17 stop button pressed -- stopping speaker")
-            from lelamp.routes.voice import stop_tts
-            from lelamp.routes.music import audio_stop
-            stop_tts()
-            audio_stop()
-
-        _gpio_stop_button = _lgpio.callback(_h, 17, _lgpio.FALLING_EDGE, _on_stop_button)
-        logger.info("GPIO stop button ready on pin 17")
+        _gpio_button_handler = GPIOButtonHandler()
+        _gpio_button_handler.start()
     except Exception as e:
-        logger.warning(f"GPIO stop button init failed: {e}")
+        logger.warning(f"GPIO button init failed: {e}")
 
     yield
 
