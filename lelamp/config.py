@@ -86,7 +86,7 @@ DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S",
 
 DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/ws/lelamp/api/dl/action-analysis/ws")
 DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/ws/lelamp/api/dl/emotion-analysis/ws")
-DL_EMOTION_RECOGNIZE_ENDPOINT = os.environ.get("DL_EMOTION_RECOGNIZE_ENDPOINT", "/ws/lelamp/api/dl/emotion-recognize")
+DL_EMOTION_RECOGNIZE_ENDPOINT = os.environ.get("DL_EMOTION_RECOGNIZE_ENDPOINT", "/lelamp/api/dl/emotion-recognize")
 DL_MOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_MOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 DL_EMOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_EMOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 
