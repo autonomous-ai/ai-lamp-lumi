@@ -1,211 +1,211 @@
-# Vision Tracking — Theo doi vat the bang servo
+# Vision Tracking — Theo dõi vật thể bằng servo
 
-Lumi co the theo doi va huong theo bat ky vat the nao ma nguoi dung mo ta bang ngon ngu tu nhien. He thong su dung cach tiep can hybrid: LLM vision de phat hien ban dau, OpenCV tracker de bam theo real-time.
+Lumi có thể theo dõi và hướng theo bất kỳ vật thể nào mà người dùng mô tả bằng ngôn ngữ tự nhiên. Hệ thống sử dụng cách tiếp cận hybrid: LLM vision để phát hiện ban đầu, OpenCV tracker để bám theo real-time.
 
-## Kien truc
+## Kiến trúc
 
 ```
-User: "Lumi, nhin theo tay minh di"
+User: "Lumi, nhìn theo tay mình đi"
          |
-    OpenClaw Agent (hieu y dinh)
+    OpenClaw Agent (hiểu ý định)
          |
-    1. Chup snapshot → LLM vision → bounding box [x, y, w, h]
+    1. Chụp snapshot → LLM vision → bounding box [x, y, w, h]
          |
     2. POST /servo/track {bbox, target}
          |
-    3. TrackerService (vong lap nen @ 10 FPS)
-         |  lay frame → OpenCV CSRT update → pixel offset → nudge servo
+    3. TrackerService (vòng lặp nền @ 10 FPS)
+         |  lấy frame → OpenCV CSRT update → pixel offset → nudge servo
          |
-    4. Vat di chuyen → servo bam theo
+    4. Vật di chuyển → servo bám theo
          |
-    5. Mat target → tu dong re-detect hoac dung
+    5. Mất target → tự động re-detect hoặc dừng
 ```
 
-### Tai sao hybrid?
+### Tại sao hybrid?
 
-| Cach tiep can | Toc do | Linh hoat | Van de |
-|---------------|--------|-----------|--------|
-| Chi LLM vision | ~1-2s/frame | Bat ky vat nao | Qua cham de tracking |
-| Chi YOLO/ML | ~30ms/frame | Chi cac class co dinh | Khong track duoc "cai ly xanh ben trai" |
-| **Hybrid** | **~100ms/frame** | **Bat ky vat nao** | — |
+| Cách tiếp cận | Tốc độ | Linh hoạt | Vấn đề |
+|----------------|--------|-----------|--------|
+| Chỉ LLM vision | ~1-2s/frame | Bất kỳ vật nào | Quá chậm để tracking |
+| Chỉ YOLO/ML | ~30ms/frame | Chỉ các class cố định | Không track được "cái ly xanh bên trái" |
+| **Hybrid** | **~100ms/frame** | **Bất kỳ vật nào** | — |
 
-LLM xu ly phan "cai gi" (ngon ngu tu nhien → bounding box). OpenCV xu ly phan "o dau" (vi tri real-time).
+LLM xử lý phần "cái gì" (ngôn ngữ tự nhiên → bounding box). OpenCV xử lý phần "ở đâu" (vị trí real-time).
 
-## Thanh phan
+## Thành phần
 
 ### TrackerService (`lelamp/service/tracking/tracker_service.py`)
 
-Engine tracking chinh. Quan ly mot phien tracking duy nhat.
+Engine tracking chính. Quản lý một phiên tracking duy nhất.
 
-**Vong doi:**
-1. `start(bbox, target_label, camera, servo)` — khoi tao OpenCV tracker tren bbox
-2. Thread nen chay o `TRACK_FPS` (mac dinh 10)
-3. Moi frame: update tracker → tinh offset tu tam frame → nudge servo
-4. `stop()` — ket thuc phien, tiep tuc animation idle
+**Vòng đời:**
+1. `start(bbox, target_label, camera, servo)` — khởi tạo OpenCV tracker trên bbox
+2. Thread nền chạy ở `TRACK_FPS` (mặc định 10)
+3. Mỗi frame: update tracker → tính offset từ tâm frame → nudge servo
+4. `stop()` — kết thúc phiên, tiếp tục animation idle
 
-**Dieu khien servo khi tracking:**
-- Bat `_hold_mode = True` de chan cac animation idle/ambient
-- Nudge `base_yaw` va `base_pitch` truc tiep qua `move_to()` (bo qua HTTP de nhanh hon)
-- Tat hold mode khi dung
+**Điều khiển servo khi tracking:**
+- Bật `_hold_mode = True` để chặn các animation idle/ambient
+- Nudge `base_yaw` và `base_pitch` trực tiếp qua `move_to()` (bỏ qua HTTP để nhanh hơn)
+- Tắt hold mode khi dừng
 
-**Tu dong dung:** Tracker mat target trong `MAX_LOST_FRAMES` (15 frame = ~1.5s) → tu dong dung.
+**Tự động dừng:** Tracker mất target trong `MAX_LOST_FRAMES` (15 frame = ~1.5s) → tự động dừng.
 
-### Chuyen doi Pixel sang Do (Degree)
+### Chuyển đổi Pixel sang Độ (Degree)
 
 ```
-Tam frame: (320, 240) cho 640x480
-Tam vat the: (cx, cy) tu tracker bbox
+Tâm frame: (320, 240) cho 640x480
+Tâm vật thể: (cx, cy) từ tracker bbox
 Offset: dx = cx - 320, dy = cy - 240
 
-yaw_degrees  = -dx * DEG_PER_PX_YAW   (mac dinh 0.08 deg/px)
-pitch_degrees = -dy * DEG_PER_PX_PITCH  (mac dinh 0.08 deg/px)
+yaw_degrees  = -dx * DEG_PER_PX_YAW   (mặc định 0.08 deg/px)
+pitch_degrees = -dy * DEG_PER_PX_PITCH  (mặc định 0.08 deg/px)
 ```
 
-**Cac hang so can chinh** (dau file `tracker_service.py`):
+**Các hằng số cần chỉnh** (đầu file `tracker_service.py`):
 
-| Hang so | Mac dinh | Mo ta |
+| Hằng số | Mặc định | Mô tả |
 |---------|----------|-------|
-| `DEG_PER_PX_YAW` | 0.08 | Do moi pixel ngang. ~60 do FOV / 640px |
-| `DEG_PER_PX_PITCH` | 0.08 | Do moi pixel doc |
-| `DEAD_ZONE_PX` | 20 | Bo qua offset nho hon gia tri nay (chong rung) |
-| `MAX_NUDGE_DEG` | 10.0 | Do toi da moi buoc nudge (chong giat manh) |
-| `TRACK_FPS` | 10 | Tan suat vong lap tracking |
-| `MAX_LOST_FRAMES` | 15 | So frame mat truoc khi tu dong dung (~1.5s o 10 FPS) |
-| `NUDGE_DURATION` | 0.15 | Thoi gian di chuyen servo moi buoc (giay) |
+| `DEG_PER_PX_YAW` | 0.08 | Độ mỗi pixel ngang. ~60 độ FOV / 640px |
+| `DEG_PER_PX_PITCH` | 0.08 | Độ mỗi pixel dọc |
+| `DEAD_ZONE_PX` | 20 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
+| `MAX_NUDGE_DEG` | 10.0 | Độ tối đa mỗi bước nudge (chống giật mạnh) |
+| `TRACK_FPS` | 10 | Tần suất vòng lặp tracking |
+| `MAX_LOST_FRAMES` | 15 | Số frame mất trước khi tự động dừng (~1.5s ở 10 FPS) |
+| `NUDGE_DURATION` | 0.15 | Thời gian di chuyển servo mỗi bước (giây) |
 
-Cac gia tri nay can calibrate tren Pi + camera thuc te.
+Các giá trị này cần calibrate trên Pi + camera thực tế.
 
 ## API Endpoints
 
-Tat ca duoi `/servo/track`.
+Tất cả dưới `/servo/track`.
 
-### POST /servo/track — Bat dau tracking
+### POST /servo/track — Bắt đầu tracking
 
 ```json
 // Request
 {
-  "bbox": [200, 150, 80, 100],  // [x, y, w, h] bang pixel tren frame 640x480
-  "target": "ly nuoc"           // nhan mo ta (tuy chon)
+  "bbox": [200, 150, 80, 100],  // [x, y, w, h] bằng pixel trên frame 640x480
+  "target": "ly nước"           // nhãn mô tả (tùy chọn)
 }
 
 // Response
 {
   "status": "ok",
   "tracking": true,
-  "target": "ly nuoc",
+  "target": "ly nước",
   "bbox": [200, 150, 80, 100]
 }
 ```
 
-### DELETE /servo/track — Dung tracking
+### DELETE /servo/track — Dừng tracking
 
 ```json
 // Response
 {"status": "ok", "tracking": false}
 ```
 
-### GET /servo/track — Kiem tra trang thai
+### GET /servo/track — Kiểm tra trạng thái
 
 ```json
 // Response
 {
   "status": "ok",
   "tracking": true,
-  "target": "ly nuoc",
-  "bbox": [210, 155, 78, 98]  // bbox cap nhat tu frame cuoi
+  "target": "ly nước",
+  "bbox": [210, 155, 78, 98]  // bbox cập nhật từ frame cuối
 }
 ```
 
-### PUT /servo/track — Khoi tao lai bbox
+### PUT /servo/track — Khởi tạo lại bbox
 
-Dung khi LLM phat hien lai vat the sau khi tracker mat.
+Dùng khi LLM phát hiện lại vật thể sau khi tracker mất.
 
 ```json
 // Request
 {
   "bbox": [250, 160, 75, 95],
-  "target": "ly nuoc"
+  "target": "ly nước"
 }
 ```
 
-## Luong End-to-End
+## Luồng End-to-End
 
-### Truong hop thanh cong
+### Trường hợp thành công
 
 ```
-1. User: "Lumi, nhin theo cai ly nuoc"
+1. User: "Lumi, nhìn theo cái ly nước"
 2. OpenClaw agent:
-   a. Goi /camera/snapshot → lay frame
-   b. Gui frame cho LLM: "Tim cai ly nuoc, tra ve bounding box [x, y, w, h]"
-   c. LLM tra ve: [200, 150, 80, 100]
-   d. Goi POST /servo/track {"bbox": [200,150,80,100], "target": "ly nuoc"}
-3. TrackerService bam theo ly nuoc real-time
-4. User: "Thoi di" → agent goi DELETE /servo/track
+   a. Gọi /camera/snapshot → lấy frame
+   b. Gửi frame cho LLM: "Tìm cái ly nước, trả về bounding box [x, y, w, h]"
+   c. LLM trả về: [200, 150, 80, 100]
+   d. Gọi POST /servo/track {"bbox": [200,150,80,100], "target": "ly nước"}
+3. TrackerService bám theo ly nước real-time
+4. User: "Thôi đi" → agent gọi DELETE /servo/track
 ```
 
-### Re-detect khi mat target
+### Re-detect khi mất target
 
 ```
-1. TrackerService mat target (MAX_LOST_FRAMES dat) → tracking dung
-2. Agent co the:
-   a. Thong bao user: "Minh mat cai ly roi"
-   b. Hoac tu dong re-detect: snapshot → LLM → bbox moi → POST /servo/track
+1. TrackerService mất target (MAX_LOST_FRAMES đạt) → tracking dừng
+2. Agent có thể:
+   a. Thông báo user: "Mình mất cái ly rồi"
+   b. Hoặc tự động re-detect: snapshot → LLM → bbox mới → POST /servo/track
 ```
 
-### Re-detect trong khi dang tracking (PUT)
+### Re-detect trong khi đang tracking (PUT)
 
 ```
-1. Dang tracking nhung do chinh xac giam dan
-2. Agent chup snapshot → LLM → bbox moi → PUT /servo/track
-3. Tracker khoi tao lai ma khong dung phien
+1. Đang tracking nhưng độ chính xác giảm dần
+2. Agent chụp snapshot → LLM → bbox mới → PUT /servo/track
+3. Tracker khởi tạo lại mà không dừng phiên
 ```
 
-## Lua chon OpenCV Tracker
+## Lựa chọn OpenCV Tracker
 
-**Chinh: CSRT** (Channel and Spatial Reliability Tracker)
-- Do chinh xac tot, xu ly duoc bi che 1 phan
-- ~20-30ms/frame tren Pi 5
-- Can `opencv-contrib-python`
+**Chính: CSRT** (Channel and Spatial Reliability Tracker)
+- Độ chính xác tốt, xử lý được bị che 1 phần
+- ~20-30ms/frame trên Pi 5
+- Cần `opencv-contrib-python`
 
-**Du phong: KCF** (Kernelized Correlation Filters)
-- Nhanh hon nhung kem chinh xac
-- Co san trong `opencv-python` co ban
-- Tu dong chon neu CSRT khong co
+**Dự phòng: KCF** (Kernelized Correlation Filters)
+- Nhanh hơn nhưng kém chính xác
+- Có sẵn trong `opencv-python` cơ bản
+- Tự động chọn nếu CSRT không có
 
-## Phu thuoc
+## Phụ thuộc
 
-- `opencv-python>=4.8.0` (da co trong `pyproject.toml`)
-- Cho CSRT: can `opencv-contrib-python` (thay the `opencv-python` trong pyproject.toml)
-- Khong can them ML model nao
+- `opencv-python>=4.8.0` (đã có trong `pyproject.toml`)
+- Cho CSRT: cần `opencv-contrib-python` (thay thế `opencv-python` trong pyproject.toml)
+- Không cần thêm ML model nào
 
-## Tuong tac voi cac he thong khac
+## Tương tác với các hệ thống khác
 
-| He thong | Khi dang tracking | Sau tracking |
+| Hệ thống | Khi đang tracking | Sau tracking |
 |----------|-------------------|--------------|
-| Servo idle animation | Bi chan (`_hold_mode`) | Tiep tuc |
-| Sensing (face, motion) | Tiep tuc — chia se camera | Tiep tuc |
-| Emotion animations | Bi chan boi hold mode | Tiep tuc |
-| Camera freeze (snapshot) | Tracker dung `last_frame`, khong anh huong | N/A |
-| TTS | Tiep tuc binh thuong | Tiep tuc binh thuong |
+| Servo idle animation | Bị chặn (`_hold_mode`) | Tiếp tục |
+| Sensing (face, motion) | Tiếp tục — chia sẻ camera | Tiếp tục |
+| Emotion animations | Bị chặn bởi hold mode | Tiếp tục |
+| Camera freeze (snapshot) | Tracker dùng `last_frame`, không ảnh hưởng | N/A |
+| TTS | Tiếp tục bình thường | Tiếp tục bình thường |
 
-## Huong dan Calibrate
+## Hướng dẫn Calibrate
 
-Sau khi deploy len Pi:
+Sau khi deploy lên Pi:
 
-1. **Test vat co dinh**: Dat vat o tam frame. Bat tracking. Vat nen giu nguyen o trung tam — servo khong nen di chuyen.
+1. **Test vật cố định**: Đặt vật ở tâm frame. Bật tracking. Vật nên giữ nguyên ở trung tâm — servo không nên di chuyển.
 
-2. **Test offset**: Dat vat o ria frame. Servo nen nudge ve phia vat. Neu qua cham → tang `DEG_PER_PX_*`. Neu vuot qua → giam.
+2. **Test offset**: Đặt vật ở rìa frame. Servo nên nudge về phía vật. Nếu quá chậm → tăng `DEG_PER_PX_*`. Nếu vượt quá → giảm.
 
-3. **Test di chuyen**: Tu tu di chuyen vat. Servo nen bam theo muot. Neu giat → tang `NUDGE_DURATION`. Neu lag → giam `NUDGE_DURATION` hoac tang `TRACK_FPS`.
+3. **Test di chuyển**: Từ từ di chuyển vật. Servo nên bám theo mượt. Nếu giật → tăng `NUDGE_DURATION`. Nếu lag → giảm `NUDGE_DURATION` hoặc tăng `TRACK_FPS`.
 
-4. **Test huong yaw**: Di chuyen vat sang phai trong frame. Servo nen quay phai. Neu nguoc → doi dau trong `_nudge_servo`.
+4. **Test hướng yaw**: Di chuyển vật sang phải trong frame. Servo nên quay phải. Nếu ngược → đổi dấu trong `_nudge_servo`.
 
-5. **Test huong pitch**: Di chuyen vat xuong duoi. Servo pitch nen nghieng xuong. Kiem tra dau tuong tu.
+5. **Test hướng pitch**: Di chuyển vật xuống dưới. Servo pitch nên nghiêng xuống. Kiểm tra dấu tương tự.
 
-## Cai tien trong tuong lai
+## Cải tiến trong tương lai
 
-- **PID control** thay vi chi proportional nudge
-- **Tracking du doan** — du doan huong di chuyen khi vat roi khoi ria frame
-- **Nhieu vat the** — track nhieu vat, chuyen doi giua chung
-- **Nguong confidence** — dung diem confidence cua tracker de re-detect truoc khi mat hoan toan
-- **Thich ung frame-rate** — giam TRACK_FPS khi CPU cao, tang khi load thap
+- **PID control** thay vì chỉ proportional nudge
+- **Tracking dự đoán** — dự đoán hướng di chuyển khi vật rời khỏi rìa frame
+- **Nhiều vật thể** — track nhiều vật, chuyển đổi giữa chúng
+- **Ngưỡng confidence** — dùng điểm confidence của tracker để re-detect trước khi mất hoàn toàn
+- **Thích ứng frame-rate** — giảm TRACK_FPS khi CPU cao, tăng khi load thấp
