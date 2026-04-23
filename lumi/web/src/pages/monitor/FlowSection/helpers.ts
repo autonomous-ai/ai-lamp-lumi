@@ -8,6 +8,35 @@ function isChannelType(type: string): boolean {
   return CHANNEL_TYPES.has(type);
 }
 
+// Lumi emits motion.activity/emotion.detected with domain-specific prefixes
+// ([activity]/[emotion]) instead of [sensing:*] so SOUL.md's [sensing:*] rule
+// doesn't force the sensing skill into context. Parsing here supports both.
+const SENSING_PREFIX_RE = /^\s*\[(?:sensing:([^\]]+)|(activity|emotion))\]/i;
+
+// Returns the internal sensing type ("motion.activity", "emotion.detected",
+// "presence.enter", …) from a message prefix, or null if the message doesn't
+// start with one.
+export function extractSensingType(msg: string): string | null {
+  const m = msg.match(SENSING_PREFIX_RE);
+  if (!m) return null;
+  if (m[1]) return m[1];                          // [sensing:<type>]
+  if (m[2] === "activity") return "motion.activity";
+  if (m[2] === "emotion") return "emotion.detected";
+  return null;
+}
+
+// True if the message starts with a sensing prefix (any taxonomy, anchored).
+export function hasSensingPrefix(msg: string): boolean {
+  return SENSING_PREFIX_RE.test(msg);
+}
+
+// Same as hasSensingPrefix but without the ^ anchor — matches anywhere in the
+// string. Useful for node-host echo detection where the prefix may be embedded.
+const SENSING_PREFIX_ANYWHERE_RE = /\[(?:sensing:[^\]]+|activity|emotion)\]/i;
+export function containsSensingPrefix(msg: string): boolean {
+  return SENSING_PREFIX_ANYWHERE_RE.test(msg);
+}
+
 // Derive active stage from most recent relevant events
 export function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
   const recent = events.slice(-30);
@@ -103,16 +132,15 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     let hasRealUser = false;
     let sensingType: string | null = null;
     let hasSystemMsg = false;
-    const systemPatterns = [/you just woke up/i, /\[sensing:[^\]]+\]/i];
     for (const ev of turn.events) {
       if (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input")) {
         const d = ev.detail as Record<string, any> | undefined;
         const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
         const sender = d?.sender ?? d?.data?.sender ?? "";
         if (sender && sender !== "node-host") hasRealUser = true;
-        const sensM = msg.match(/\[sensing:([^\]]+)\]/i);
-        if (sensM && !sensingType) sensingType = sensM[1];
-        if (systemPatterns.some((p) => p.test(msg))) hasSystemMsg = true;
+        const sensType = extractSensingType(msg);
+        if (sensType && !sensingType) sensingType = sensType;
+        if (sensType || /you just woke up/i.test(msg)) hasSystemMsg = true;
       }
     }
     if (hasRealUser) return; // keep as channel type
@@ -215,12 +243,12 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       // Skip node-host echo — Lumi's own chat.send echoed back via session.message.
       // These duplicate the sensing_input / voice_pipeline turn that already exists.
       // Detect by: sender is node-host + message contains Lumi-injected directives.
-      if (sender === "node-host" && (/\[sensing:[^\]]+\]/.test(msg) || /\[MANDATORY:/.test(msg) || /\[Follow /.test(msg) || /\[REPLY RULE:/.test(msg) || /\[context: current_user=/.test(msg))) {
+      if (sender === "node-host" && (containsSensingPrefix(msg) || /\[MANDATORY:/.test(msg) || /\[Follow /.test(msg) || /\[REPLY RULE:/.test(msg) || /\[context: current_user=/.test(msg))) {
         return null;
       }
-      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
-      if (sensingMatch) {
-        return { type: sensingMatch[1], path: "agent", boundary: "chat" as const };
+      const sensType = extractSensingType(msg);
+      if (sensType) {
+        return { type: sensType, path: "agent", boundary: "chat" as const };
       }
       // Extract channel name from summary prefix: [telegram], [discord], [slack], etc.
       const chMatch = ev.summary.match(/^\[([^\]:]+)/);
@@ -337,9 +365,9 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     if (current.type === "unknown" && (ev.type === "chat_input" || (ev.type === "flow_event" && ev.detail?.node === "chat_input"))) {
       const d = ev.detail as Record<string, any> | undefined;
       const msg = d?.message ?? d?.data?.message ?? ev.summary ?? "";
-      const sensingMatch = msg.match(/\[sensing:([^\]]+)\]/i);
-      if (sensingMatch) {
-        current.type = sensingMatch[1];
+      const sensType = extractSensingType(msg);
+      if (sensType) {
+        current.type = sensType;
       } else {
         const chM = ev.summary.match(/^\[([^\]:]+)/);
         current.type = chM ? chM[1] : "channel";
@@ -1142,7 +1170,8 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
         if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
       }
       if (!input) {
-        const m = raw.match(/^\[sensing:[^\]]+\]\s*(.*)$/is);
+        // Strip the sensing prefix ([sensing:<type>], [activity], or [emotion]) to get the payload body.
+        const m = raw.match(/^\s*\[(?:sensing:[^\]]+|activity|emotion)\]\s*(.*)$/is);
         const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
         if (extracted) input = extracted;
       }
