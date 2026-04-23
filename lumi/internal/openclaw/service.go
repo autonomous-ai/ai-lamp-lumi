@@ -276,7 +276,17 @@ func (s *Service) drainPendingEvents() {
 		if ev.eventType == "voice" {
 			msg = "[ambient] " + ev.msg
 		} else {
-			msg = "[sensing:" + ev.eventType + "] " + ev.msg
+			// motion.activity / emotion.detected use domain-specific prefixes
+			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
+			// rule (those events have dedicated handler skills).
+			switch ev.eventType {
+			case "motion.activity":
+				msg = "[activity] " + ev.msg
+			case "emotion.detected":
+				msg = "[emotion] " + ev.msg
+			default:
+				msg = "[sensing:" + ev.eventType + "] " + ev.msg
+			}
 			// Reply-hygiene rules live inside the respective SKILL.md files.
 			switch ev.eventType {
 			case "presence.leave", "presence.away":

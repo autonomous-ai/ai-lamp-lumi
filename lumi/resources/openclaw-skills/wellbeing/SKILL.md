@@ -1,6 +1,6 @@
 ---
 name: wellbeing
-description: Proactive hydration and break reminders. Use when a motion.activity event fires, when the user asks if they should drink water or take a break, or when checking whether it's time to nudge a specific user. Thresholds are computed from the per-user log, never guessed.
+description: Proactive hydration and break reminders. Use when an [activity] event fires (message starts with `[activity] Activity detected: <labels>.` — labels include drink, break, or sedentary raw labels like "using computer"), when the user asks if they should drink water or take a break, or when checking whether it's time to nudge a specific user. Thresholds are computed from the per-user log, never guessed.
 ---
 
 # Wellbeing
