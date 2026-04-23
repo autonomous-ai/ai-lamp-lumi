@@ -26,7 +26,7 @@ from lelamp.models import (
 # Lazy import
 FacePerception = None
 try:
-    from lelamp.service.sensing.perceptions.facerecognizer import FacePerception
+    from lelamp.service.sensing.perceptions.processors import FacePerception
 except ImportError:
     pass
 
@@ -34,10 +34,13 @@ router = APIRouter()
 
 
 def _require_face_recognizer():
-    """Return FaceRecognizer or raise 503."""
+    """Return FacePerception instance or raise 503."""
     if not state.sensing_service or FacePerception is None:
         raise HTTPException(503, "Sensing not available")
-    fr = getattr(state.sensing_service, "_face_recognizer", None)
+    try:
+        fr = state.sensing_service._perception_orchestrator._processors.face_recognizer
+    except AttributeError:
+        fr = None
     if fr is None:
         raise HTTPException(503, "Face recognition not available (no camera)")
     return fr

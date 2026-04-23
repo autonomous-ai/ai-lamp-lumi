@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -30,7 +30,7 @@ class PersonData:
 @dataclass
 class FaceDetectionData:
     frame: cv2.typing.MatLike | None = None
-    faces: list[Face] = []
+    faces: list[Face] = field(default_factory=list)
 
 
 @dataclass
