@@ -219,12 +219,14 @@ func (h *gelfHandler) Handle(_ context.Context, r slog.Record) error {
 	go func() {
 		req, err := http.NewRequest("POST", gelfURL, bytes.NewReader(body))
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[gelf] request error: %v\n", err)
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.SetBasicAuth(gelfUsername, gelfPassword)
 		resp, err := h.client.Do(req)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[gelf] send error: %v\n", err)
 			return
 		}
 		resp.Body.Close()
