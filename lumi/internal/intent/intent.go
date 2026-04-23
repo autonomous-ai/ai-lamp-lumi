@@ -6,7 +6,6 @@ package intent
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
@@ -285,20 +284,7 @@ func emotionExec(emotion, reply string) func(string) *Result {
 }
 
 func post(path, body string) {
-	url := lelamp.BaseURL + path
-	var resp *http.Response
-	var err error
-	if body == "" {
-		resp, err = http.Post(url, "application/json", nil)
-	} else {
-		resp, err = http.Post(url, "application/json", strings.NewReader(body))
-	}
-	if err != nil {
+	if err := lelamp.PostRaw(path, body); err != nil {
 		slog.Warn("[intent] lelamp call failed", "path", path, "error", err)
-		return
 	}
-	if resp.StatusCode >= 400 {
-		slog.Warn("[intent] lelamp returned error", "path", path, "status", resp.StatusCode)
-	}
-	resp.Body.Close()
 }

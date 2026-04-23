@@ -140,13 +140,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText, "rule": result.Rule, "actions": result.Actions}, localRunID)
 			if result.TTSText != "" {
 				go func() {
-					resp, err := http.Post(
-						lelamp.BaseURL+"/voice/speak",
-						"application/json",
-						strings.NewReader(`{"text":"`+result.TTSText+`"}`),
-					)
-					if err == nil {
-						resp.Body.Close()
+					if err := lelamp.Speak(result.TTSText); err != nil {
+						slog.Warn("intent TTS failed", "component", "sensing", "error", err)
 					}
 				}()
 			}
@@ -194,14 +189,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	if req.Type == "voice_command" && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("voice wake — firing greeting to wake LeLamp", "component", "sensing")
 		go func() {
-			resp, err := http.Post(lelamp.BaseURL+"/emotion", "application/json",
-				strings.NewReader(`{"emotion":"greeting","intensity":0.8}`))
-			if err != nil {
+			if err := lelamp.SetEmotion("greeting", 0.8); err != nil {
 				slog.Warn("voice wake greeting failed", "component", "sensing", "error", err)
 				return
 			}
-			resp.Body.Close()
-			slog.Info("voice wake greeting sent", "component", "sensing", "status", resp.StatusCode)
+			slog.Info("voice wake greeting sent", "component", "sensing")
 		}()
 	}
 
@@ -248,10 +240,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			if last := h.lastNotReadyTTS.Load(); now-last > 60_000 {
 				if h.lastNotReadyTTS.CompareAndSwap(last, now) {
 					go func() {
-						resp, err := http.Post(lelamp.BaseURL+"/voice/speak", "application/json",
-							strings.NewReader(`{"text":"Hold on, brain is restarting."}`))
-						if err == nil {
-							resp.Body.Close()
+						if err := lelamp.Speak("Hold on, brain is restarting."); err != nil {
+							slog.Warn("not-ready TTS failed", "component", "sensing", "error", err)
 						}
 					}()
 				}
