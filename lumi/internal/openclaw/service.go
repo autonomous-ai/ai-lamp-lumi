@@ -2123,7 +2123,7 @@ func (s *Service) CompactSession(sessionKey string) error {
 		"id":     reqID,
 		"method": "sessions.compact",
 		"params": map[string]interface{}{
-			"sessionKey": sessionKey,
+			"key": sessionKey,
 		},
 	}
 	body, err := json.Marshal(req)

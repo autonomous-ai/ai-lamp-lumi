@@ -14,7 +14,7 @@ Flow Monitor là lớp quan sát end-to-end cho agent turn: ghi JSONL (`local/fl
 
 **Log tương quan:** grep `flow correlation` — các `op`: `ws_chat_send`, `lelamp_agent_out`, `openclaw_uuid_map`, `chat_run_resolve`. Chi tiết bảng trong `docs/flow-monitor.md`.
 
-**Field `type` trong `chat_send`:** event `chat_send` có field `type` = `"user"` (user thật / sensing-driven) hoặc `"system"` (skill watcher, wake greeting, `/compact`). Phân biệt chỉ ở flow event — WS RPC `chat.send` gửi sang OpenClaw giống hệt nhau.
+**Field `type` trong `chat_send`:** event `chat_send` có field `type` = `"user"` (user thật / sensing-driven) hoặc `"system"` (skill watcher, wake greeting). Phân biệt chỉ ở flow event — WS RPC `chat.send` gửi sang OpenClaw giống hệt nhau. Auto-compact **không** sinh `chat_send`; nó gọi RPC `sessions.compact` trực tiếp qua `CompactSession`.
 
 ## Sơ đồ Turn Pipeline (SVG)
 
