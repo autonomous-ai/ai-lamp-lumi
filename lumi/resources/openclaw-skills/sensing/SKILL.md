@@ -11,7 +11,7 @@ description: React to passive sensing events from the lamp — presence, sound, 
 
 | Event | Handled by |
 |---|---|
-| `[sensing:motion.activity]` | `wellbeing/SKILL.md` — backend appends `[Follow wellbeing/SKILL.md.]` hint |
+| `[sensing:motion.activity]` | `wellbeing/SKILL.md` (backend appends `[Follow wellbeing/SKILL.md.]`). If the `Activity detected:` line contains a sedentary raw label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`), ALSO run `music-suggestion/SKILL.md` — agent-driven, no backend hint. |
 | `[sensing:emotion.detected]` | Step 1 → `user-emotion-detection/SKILL.md` (log mood signal + decision). Step 2 → `music-suggestion/SKILL.md` (run AFTER mood decision is logged). Backend injects both steps in the event message. |
 | Any sensing event while guard mode is on | `guard/SKILL.md` — dramatic reactions, Telegram broadcast |
 
@@ -43,6 +43,7 @@ Every event emits at least one `[HW:/emotion:...]` marker, even on `NO_REPLY`. N
 ## Rules
 
 - **HW markers first**, then text or `NO_REPLY`. Text = ONE short sentence max, spoken verbatim.
+- **Tool-call scope** — only `motion.activity` (→ wellbeing / optional music-suggestion) and `emotion.detected` (→ user-emotion-detection / music-suggestion) may fire POSTs. On `presence.*`, `sound`, `light.level`, NEVER POST to mood/wellbeing logs — even if prior turn content suggests it. Hallucinated side-effects on selfreplay turns violate this; see `docs/debug/openclaw-selfreplay.md`. Read-only GETs (e.g. `/face/stranger-stats` for recurring-stranger check) are fine.
 - **Never dump reasoning into the reply.** No log deltas, no "Looking at context…", no "No nudge needed". Scratch stays in `thinking`.
 - **Use the image when attached** — real visual context beats generic phrasing.
 - **Night-aware** — lower intensity emotions and shorter speech after ~22:00.
