@@ -69,6 +69,7 @@ var skills = []string{
 	"sensing",
 	"sensing-track",
 	"servo-control",
+	"servo-tracking",
 	"voice",
 	"wellbeing",
 	"mood",
