@@ -196,7 +196,8 @@ def face_file(label: str, filepath: str):
         raise HTTPException(400, "invalid path")
     if not path.is_file():
         raise HTTPException(404, "file not found")
-    mime = "application/json" if path.suffix in (".json", ".jsonl") else "text/plain"
+    mime_map = {".json": "application/json", ".jsonl": "application/json", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webm": "audio/webm"}
+    mime = mime_map.get(path.suffix, "text/plain")
     return Response(content=path.read_bytes(), media_type=mime)
 
 
