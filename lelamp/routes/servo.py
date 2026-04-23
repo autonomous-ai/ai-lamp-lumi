@@ -22,6 +22,8 @@ from lelamp.models import (
     ServoRequest,
     ServoStateResponse,
     ServoStatusResponse,
+    ServoTrackRequest,
+    ServoTrackResponse,
     StatusResponse,
 )
 from lelamp.presets import (
@@ -466,3 +468,77 @@ def nudge_servo(req: ServoNudgeRequest):
         return {"status": "ok", "direction": f"nudge yaw={req.yaw} pitch={req.pitch}", "positions": positions}
     except Exception as e:
         raise HTTPException(500, f"Servo nudge failed: {e}")
+
+
+@router.post("/servo/track", response_model=ServoTrackResponse)
+def start_tracking(req: ServoTrackRequest):
+    """Start tracking an object by bounding box. Servo follows the object in real-time."""
+    if not state.tracker_service:
+        raise HTTPException(503, "Tracker service not available")
+    if not state.animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not state.camera_capture:
+        raise HTTPException(503, "Camera not available")
+
+    bbox = tuple(req.bbox)
+    ok = state.tracker_service.start(
+        bbox=bbox,
+        target_label=req.target,
+        camera_capture=state.camera_capture,
+        animation_service=state.animation_service,
+    )
+    if not ok:
+        raise HTTPException(400, "Failed to initialize tracker — check bbox and camera")
+
+    return {
+        "status": "ok",
+        "tracking": True,
+        "target": req.target or None,
+        "bbox": list(bbox),
+    }
+
+
+@router.delete("/servo/track", response_model=ServoTrackResponse)
+def stop_tracking():
+    """Stop the current tracking session."""
+    if not state.tracker_service:
+        raise HTTPException(503, "Tracker service not available")
+
+    state.tracker_service.stop()
+    return {"status": "ok", "tracking": False}
+
+
+@router.get("/servo/track", response_model=ServoTrackResponse)
+def get_tracking_status():
+    """Get current tracking status."""
+    if not state.tracker_service:
+        raise HTTPException(503, "Tracker service not available")
+
+    s = state.tracker_service.status
+    return {
+        "status": "ok",
+        "tracking": s["tracking"],
+        "target": s["target"],
+        "bbox": s["bbox"],
+    }
+
+
+@router.put("/servo/track", response_model=ServoTrackResponse)
+def update_tracking_bbox(req: ServoTrackRequest):
+    """Re-initialize tracker with a new bounding box (e.g. after LLM re-detect)."""
+    if not state.tracker_service:
+        raise HTTPException(503, "Tracker service not available")
+    if not state.tracker_service.is_tracking:
+        raise HTTPException(400, "No active tracking session")
+
+    bbox = tuple(req.bbox)
+    ok = state.tracker_service.update_bbox(bbox, camera_capture=state.camera_capture)
+    if not ok:
+        raise HTTPException(400, "Failed to re-initialize tracker")
+
+    return {
+        "status": "ok",
+        "tracking": True,
+        "target": req.target or None,
+        "bbox": list(bbox),
+    }

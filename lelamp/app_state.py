@@ -39,6 +39,7 @@ voice_service = None
 display_service = None
 tts_service = None
 music_service = None
+tracker_service = None
 
 # --- Audio devices ---
 

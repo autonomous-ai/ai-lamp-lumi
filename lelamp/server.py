@@ -409,6 +409,11 @@ async def lifespan(app: FastAPI):
             logger.warning(f"DisplayService failed to start: {e}")
             state.display_service = None
 
+    # Object tracker (servo follow)
+    from lelamp.service.tracking import TrackerService
+    state.tracker_service = TrackerService()
+    logger.info("TrackerService initialized")
+
     # GPIO17 button (single=stop/unmute, double=reboot, long=shutdown)
     try:
         from lelamp.service.gpio_button import GPIOButtonHandler
@@ -426,6 +431,9 @@ async def lifespan(app: FastAPI):
         state.display_service.stop()
     if state.music_service and state.music_service.playing:
         state.music_service.stop()
+
+    if state.tracker_service and state.tracker_service.is_tracking:
+        state.tracker_service.stop()
 
     _shutdown_threads = []
     if state.voice_service:

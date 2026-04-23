@@ -445,6 +445,27 @@ class ServoMoveResponse(BaseModel):
     errors: Optional[dict[str, str]] = None
 
 
+class ServoTrackRequest(BaseModel):
+    bbox: list[int] = Field(
+        ..., min_length=4, max_length=4,
+        description="Bounding box [x, y, w, h] in pixel coordinates on 640x480 frame",
+    )
+    target: str = Field("", description="Human-readable label of the object being tracked")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"bbox": [200, 150, 80, 100], "target": "water bottle"}]
+        }
+    }
+
+
+class ServoTrackResponse(BaseModel):
+    status: str
+    tracking: bool
+    target: Optional[str] = None
+    bbox: Optional[list[int]] = None
+
+
 class DisplayEyesRequest(BaseModel):
     expression: str = Field(
         ...,
