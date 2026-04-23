@@ -163,6 +163,6 @@ SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
     "LELAMP_UNKNOWN_AUDIO_DIR",
     os.path.join(tempfile.gettempdir(), "lumi-unknown-voice"),
 )
-DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/api/dl/audio-recognizer/embed")
+DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/lelamp/api/dl/audio-recognizer/embed")
 SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 SPEAKER_EMBEDDING_API_KEY: str = DL_API_KEY
