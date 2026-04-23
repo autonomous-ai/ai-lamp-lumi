@@ -145,6 +145,17 @@ def camera_stream():
                     time.sleep(0.05)
                     continue
 
+                # Draw tracking bbox overlay if active
+                if state.tracker_service and state.tracker_service.is_tracking:
+                    ts = state.tracker_service.status
+                    bbox = ts.get("bbox")
+                    if bbox:
+                        x, y, w, h = bbox
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        label = ts.get("target") or "tracking"
+                        cv2.putText(frame, label, (x, y - 8),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
                 if stream_width and frame.shape[1] > stream_width:
                     scale = stream_width / float(frame.shape[1])
                     frame = cv2.resize(
