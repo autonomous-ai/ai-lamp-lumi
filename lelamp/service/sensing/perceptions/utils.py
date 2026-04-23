@@ -1,7 +1,7 @@
 import re
 import threading
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, TypeVar
 
 if TYPE_CHECKING:
@@ -14,15 +14,16 @@ T = TypeVar("T")
 
 class DataObserver[T]:
     def __init__(self):
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
         self._data: T | None = None
         self._subscriptors: set[Callable[[T], None]] = set()
 
     def _on_update(self):
-        data = self.data
-        if data is not None:
-            for s in self._subscriptors:
-                s(data)
+        with self._lock:
+            data = self.data
+            if data is not None:
+                for s in self._subscriptors:
+                    s(data)
 
     def register(self, subscriptor: Callable[[T], None]):
         with self._lock:
@@ -47,9 +48,11 @@ class DataObserver[T]:
 
 @dataclass
 class PerceptionStateObservers:
-    frame: DataObserver[cv2.typing.MatLike] = DataObserver[cv2.typing.MatLike]()
-    detected_faces: DataObserver[FaceDetectionData] = DataObserver[FaceDetectionData]()
-    current_user: DataObserver[str] = DataObserver[str]()
+    frame: DataObserver[cv2.typing.MatLike] = field(default_factory=DataObserver)
+    detected_faces: DataObserver[FaceDetectionData] = field(
+        default_factory=DataObserver
+    )
+    current_user: DataObserver[str] = field(default_factory=DataObserver)
 
 
 def normalize_label(label: str) -> str:

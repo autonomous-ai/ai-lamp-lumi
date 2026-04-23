@@ -4,7 +4,6 @@ import os
 import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from copy import copy
 from typing import Any, override
 
@@ -143,10 +142,6 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._last_sent_ts: float = 0.0
         self._cooldown_s: float = 60.0
         self._same_emotion_window_s: float = 300.0
-
-        self._pool: ThreadPoolExecutor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="emotion"
-        )
 
     def _process_face(
         self,
