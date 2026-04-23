@@ -75,7 +75,7 @@ export function CameraSection({
 
   const stopTracking = async () => {
     try {
-      await fetch(`${HW}/servo/track`, { method: "DELETE" });
+      await fetch(`${HW}/servo/track/stop`, { method: "POST" });
       setTrack({ tracking: false, target: null, bbox: null, confidence: null });
     } catch {}
   };

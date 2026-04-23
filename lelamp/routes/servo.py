@@ -499,7 +499,7 @@ def start_tracking(req: ServoTrackRequest):
     }
 
 
-@router.delete("/servo/track", response_model=ServoTrackResponse)
+@router.post("/servo/track/stop", response_model=ServoTrackResponse)
 def stop_tracking():
     """Stop the current tracking session."""
     if not state.tracker_service:
@@ -525,9 +525,9 @@ def get_tracking_status():
     }
 
 
-@router.put("/servo/track", response_model=ServoTrackResponse)
+@router.post("/servo/track/update", response_model=ServoTrackResponse)
 def update_tracking_bbox(req: ServoTrackRequest):
-    """Re-initialize tracker with a new bounding box (e.g. after LLM re-detect)."""
+    """Re-initialize tracker with a new bounding box."""
     if not state.tracker_service:
         raise HTTPException(503, "Tracker service not available")
     if not state.tracker_service.is_tracking:
