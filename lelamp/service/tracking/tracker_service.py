@@ -66,6 +66,9 @@ BBOX_JUMP_PX = 100
 # Servo move duration per nudge step (seconds)
 NUDGE_DURATION = 0.15
 
+# Maximum tracking duration (seconds) — auto-stop to save motor/CPU
+MAX_TRACK_DURATION_S = 300  # 5 minutes
+
 # Servo position limits (degrees) — prevent runaway
 YAW_MIN, YAW_MAX = -135.0, 135.0
 BASE_PITCH_MIN, BASE_PITCH_MAX = -90.0, 30.0
@@ -326,7 +329,8 @@ class TrackerService:
         init_area = state.bbox[2] * state.bbox[3] if state.bbox else 0
         self._settled = False
         frame_count = 0
-        fps_t0 = time.perf_counter()
+        track_start_t = time.perf_counter()
+        fps_t0 = track_start_t
 
         try:
             while state.running.is_set():
@@ -396,6 +400,22 @@ class TrackerService:
                     )
                     frame_count = 0
                     fps_t0 = time.perf_counter()
+
+                # Max duration check
+                if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
+                    logger.warning("Tracking timeout after %ds, stopping", MAX_TRACK_DURATION_S)
+                    break
+
+                # Servo at limit but object still far from center → unreachable
+                at_yaw_limit = self._track_yaw <= YAW_MIN + 1 or self._track_yaw >= YAW_MAX - 1
+                at_pitch_limit = self._track_base_pitch <= BASE_PITCH_MIN + 1 or self._track_base_pitch >= BASE_PITCH_MAX - 1
+                if at_yaw_limit or at_pitch_limit:
+                    h, w = frame.shape[:2]
+                    off = max(abs(cx - w / 2), abs(cy - h / 2))
+                    if off > w * 0.3:  # object still >30% off center
+                        logger.warning("Servo at limit (yaw=%.1f pitch=%.1f) but object far (off=%.0fpx), stopping",
+                                       self._track_yaw, self._track_base_pitch, off)
+                        break
 
                 # Maintain target FPS
                 dt = time.perf_counter() - t0
