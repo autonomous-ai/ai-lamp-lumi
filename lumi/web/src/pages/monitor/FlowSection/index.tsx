@@ -4,7 +4,7 @@ import { API, FLOW_EVENTS_MAX, HW } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
 import { FLOW_NODES, SOURCE_ICON } from "./types";
-import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs } from "./helpers";
+import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs, extractSensingType, hasSensingPrefix } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
@@ -268,17 +268,16 @@ export function FlowSection({
       (ev.type === "flow_enter" && ev.detail?.node === "sensing_input") ||
       (ev.type === "flow_event" && ev.detail?.node === "sensing_input");
     const fromSensingChatSend = (ev.type === "chat_send" || (ev.type === "flow_event" && ev.detail?.node === "chat_send")) &&
-      /^\[sensing:[^\]]+\]/i.test(ev.summary ?? "");
+      hasSensingPrefix(ev.summary ?? "");
     const d = ev.detail as Record<string, any> | undefined;
     const sensingType = d?.data?.type ?? d?.type;
     const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
       (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "emotion.detected" || sensingType === "sound");
     if (isSensingInput || fromSensingChatSend || fromSensingAgentCall) {
-      // Determine mic vs cam from sensing type or summary bracket
+      // Determine mic vs cam from sensing type or summary prefix
       let detectedType = sensingType;
       if (!detectedType && ev.summary) {
-        const m = ev.summary.match(/^\[([^\]]+)\]/);
-        detectedType = m?.[1]?.replace("sensing:", "") ?? "";
+        detectedType = extractSensingType(ev.summary) ?? "";
       }
       const isCam = /motion|presence|light|emotion/i.test(detectedType ?? "");
       visitedStages.add(isCam ? "cam_input" : "mic_input");
