@@ -11,7 +11,7 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 ## Workflow
 1. User names an object to track.
 2. Prefix reply with `[HW:/servo/track:{"target":"<object>"}]` — Lumi detects and follows.
-3. To stop, prefix with `[HW:/servo/track/stop:{}]`.
+3. To stop, prefix with `[HW:/servo/track/stop:{}] (POST)`.
 
 ## Examples
 
@@ -31,7 +31,7 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 **Output:** `[HW:/servo/track:{"target":"teddy bear"}]` Tracking the teddy bear!
 
 **Input:** "Stop following" / "Stop tracking"
-**Output:** `[HW:/servo/track/stop:{}]` Stopped tracking.
+**Output:** `[HW:/servo/track/stop:{}] (POST)` Stopped tracking.
 
 **Input:** "What can you track?"
 **Output:** I can track most common objects — cups, bottles, phones, laptops, books, people, bags, and more. Just tell me what to follow!
@@ -43,7 +43,7 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 ```
 [HW:/servo/track:{"target":"cup"}] Following the cup.
 [HW:/servo/track:{"target":"person"}] Tracking you now.
-[HW:/servo/track/stop:{}] Stopped tracking.
+[HW:/servo/track/stop:{}] (POST) Stopped tracking.
 ```
 
 ### Target names
