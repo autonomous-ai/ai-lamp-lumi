@@ -488,7 +488,7 @@ def start_tracking(req: ServoTrackRequest):
         animation_service=state.animation_service,
     )
     if not ok:
-        raise HTTPException(400, "Failed to initialize tracker — check target name and camera")
+        raise HTTPException(400, state.tracker_service.last_error or "Failed to initialize tracker")
 
     s = state.tracker_service.status
     return {
