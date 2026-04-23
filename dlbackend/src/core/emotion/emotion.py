@@ -60,6 +60,29 @@ class EmotionModel:
     def is_ready(self) -> bool:
         return self._running and self._face_detector.is_ready() and self._emonet.is_ready()
 
+    def detect_single_face(
+        self,
+        face: npt.NDArray[np.uint8],
+    ) -> list[EmotionDetection]:
+        if not self.is_ready():
+            return []
+
+        H, W = face.shape[:2]
+        results = []
+        cls = self._emonet.classify(face)
+        results.append(
+            EmotionDetection(
+                emotion=cls["emotion"],
+                confidence=cls["confidence"],
+                face_confidence=1,
+                bbox=[0, 0, W, H],
+                valence=cls["valence"],
+                arousal=cls["arousal"],
+            )
+        )
+
+        return results
+
     def detect(
         self,
         frame: npt.NDArray[np.uint8],

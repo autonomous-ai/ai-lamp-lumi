@@ -265,7 +265,7 @@ async def emotion_recognize(req: EmotionRecognizeRequest):
         raise HTTPException(status_code=503, detail="Emotion model not loaded")
 
     frame = decode_image(req.image_b64)
-    detections = emotion_model.detect(frame)
+    detections = emotion_model.detect_single_face(frame)
     filtered = [d for d in detections if d.confidence >= req.threshold]
     return EmotionRecognizeResponse(detections=filtered)
 
