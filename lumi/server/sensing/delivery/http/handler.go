@@ -282,13 +282,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Wake word confirmed — agent always responds conversationally.
 		msg = req.Message
 		// Unknown speaker with audio path → nudge agent to check speaker-recognizer skill
-		if strings.Contains(req.Message, "Unknown:") && strings.Contains(req.Message, "audio save at") {
+		if strings.Contains(req.Message, "Unknown Speaker:") && strings.Contains(req.Message, "audio save at") {
 			msg += "\n[REQUIRED: Follow speaker-recognizer/SKILL.md — check if user is introducing themselves. If yes, enroll voice immediately.]"
 		}
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = "[ambient] " + req.Message
-		if strings.Contains(req.Message, "Unknown:") && strings.Contains(req.Message, "audio save at") {
+		if strings.Contains(req.Message, "Unknown Speaker:") && strings.Contains(req.Message, "audio save at") {
 			msg += "\n[REQUIRED: Follow speaker-recognizer/SKILL.md — check if user is introducing themselves. If yes, enroll voice immediately.]"
 		}
 	} else if guardActive {
