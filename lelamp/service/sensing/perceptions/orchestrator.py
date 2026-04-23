@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from devices.video_capture_device import VideoCaptureDeviceBase
@@ -200,13 +200,11 @@ class PerceptionOrchestrator:
             self._presense_service.tick()
 
     def perceptions_state(self) -> list[dict[str, Any]]:
-        processors = asdict(self._processors)
-        return [p.to_dict() for p in processors.values() if p is not None]
+        return [p.to_dict() for p in vars(self._processors).values() if p is not None]
 
     def reset_dedup(self):
-        processors = asdict(self._processors)
-        for p in processors.values():
-            new_user = self._perception_state.current_user.data or ""
+        new_user = self._perception_state.current_user.data or ""
+        for p in vars(self._processors).values():
             if p is None:
                 continue
             reset = getattr(p, "reset_dedup", None)
