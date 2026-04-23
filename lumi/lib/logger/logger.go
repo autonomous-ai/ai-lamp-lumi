@@ -192,6 +192,9 @@ func (h *gelfHandler) Handle(_ context.Context, r slog.Record) error {
 		"short_message": r.Message,
 		"timestamp":     float64(r.Time.UnixNano()) / 1e9,
 		"level":         slogLevelToGELF(r.Level),
+		"_service_name": "lumi-golang",
+		"_level_name":   r.Level.String(),
+		"_pid":          os.Getpid(),
 	}
 
 	// Add attributes as GELF extra fields (prefixed with _)
