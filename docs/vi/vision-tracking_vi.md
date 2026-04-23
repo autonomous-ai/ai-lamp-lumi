@@ -108,13 +108,25 @@ TrackerVit cung cấp confidence scoring, khác với MIL/KCF chỉ drift âm th
 
 | Điều kiện | Hành động |
 |-----------|-----------|
-| `confidence < 0.3` trong 5 frame | Tự dừng, resume idle |
-| Tâm bbox nhảy > 100px trong 1 frame | Bỏ qua nudge (tracker glitch) |
+| `confidence < 0.3` trong 5 frame | Dừng — mất target |
+| Bbox > 3x kích thước ban đầu | Dừng — tracker drift/phình |
+| Bbox > 50% diện tích frame | Dừng — tracker drift |
+| Servo ở limit yaw/pitch + object vẫn lệch > 30% | Dừng — ngoài tầm |
+| Tracking > 5 phút | Dừng — timeout tiết kiệm motor/CPU |
+| Tâm bbox nhảy > 100px trong 1 frame | Bỏ qua nudge (tracker glitch, không dừng) |
 | `tracker.update()` trả `ok=False` | Tính là frame confidence thấp |
 
 ## API Endpoints
 
 Tất cả dưới `/servo/track`.
+
+### GET /servo/track/targets — Danh sách target gợi ý
+
+```json
+{"targets": ["person", "cup", "bottle", "glass", "phone", "laptop", ...]}
+```
+
+YOLOWorld là open-vocabulary — bất kỳ text nào cũng được, danh sách chỉ là gợi ý.
 
 ### POST /servo/track — Bắt đầu tracking
 

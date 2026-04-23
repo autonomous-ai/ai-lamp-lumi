@@ -102,19 +102,31 @@ pitch_deg = dy * 0.02   (same sign: down → down)
 | elbow_pitch | -90 | 90 |
 | wrist_pitch | -90 | 90 |
 
-## Loss Detection
+## Auto-Stop Conditions
 
-TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift.
+TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and resumes idle in these cases:
 
 | Condition | Action |
 |-----------|--------|
-| `confidence < 0.3` for 5 frames | Auto-stop, resume idle |
-| Bbox center jumps > 100px in 1 frame | Skip nudge (tracker glitch) |
+| `confidence < 0.3` for 5 frames | Stop — lost target |
+| Bbox area > 3x initial size | Stop — tracker drift/bloat |
+| Bbox covers > 50% of frame | Stop — tracker drift |
+| Servo at yaw/pitch limit + object still >30% off center | Stop — object unreachable |
+| Tracking duration > 5 minutes | Stop — timeout to save motor/CPU |
+| Bbox center jumps > 100px in 1 frame | Skip nudge (tracker glitch, not stop) |
 | `tracker.update()` returns `ok=False` | Count as low-confidence frame |
 
 ## API Endpoints
 
 All under `/servo/track`.
+
+### GET /servo/track/targets — List suggested targets
+
+```json
+{"targets": ["person", "cup", "bottle", "glass", "phone", "laptop", ...]}
+```
+
+YOLOWorld is open-vocabulary — any text works, this list is just suggestions.
 
 ### POST /servo/track — Start tracking
 
