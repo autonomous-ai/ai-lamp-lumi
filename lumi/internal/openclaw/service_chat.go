@@ -1,0 +1,260 @@
+package openclaw
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"go-lamp.autonomous.ai/domain"
+	"go-lamp.autonomous.ai/lib/flow"
+)
+
+// GetConfigJSON reads and returns the raw bytes of openclaw.json.
+func (s *Service) GetConfigJSON() (json.RawMessage, error) {
+	path := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	return json.RawMessage(data), nil
+}
+
+// GetConfiguredChannel reads openclaw.json and returns the first enabled channel name.
+// Falls back to "channel" if none can be determined.
+func (s *Service) GetConfiguredChannel() string {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "channel"
+	}
+	var cfg struct {
+		Channels map[string]struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"channels"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return "channel"
+	}
+	// Return the first enabled channel found. Priority order: telegram, discord, slack.
+	for _, name := range []string{"telegram", "discord", "slack"} {
+		if ch, ok := cfg.Channels[name]; ok {
+			if ch.Enabled == nil || *ch.Enabled {
+				return name
+			}
+		}
+	}
+	// Fallback: any channel present in config.
+	for name, ch := range cfg.Channels {
+		if ch.Enabled == nil || *ch.Enabled {
+			return name
+		}
+	}
+	return "channel"
+}
+
+// SendChatMessage sends a user message to the OpenClaw agent via WebSocket chat.send RPC.
+// Returns the reqID on success.
+func (s *Service) SendChatMessage(message string) (string, error) {
+	return s.sendChat(message, "", "", "", "user")
+}
+
+// SendSystemChatMessage sends a system-originated message (skill watcher notifications,
+// wake greeting, /compact, …) so Flow Monitor can distinguish it from real user input.
+// The WS RPC payload is identical to SendChatMessage — only the flow event `type` differs.
+func (s *Service) SendSystemChatMessage(message string) (string, error) {
+	return s.sendChat(message, "", "", "", "system")
+}
+
+// SendChatMessageWithImage sends a message with a base64 JPEG image to the OpenClaw agent.
+// The image is included as a vision content block so the LLM can analyze the camera snapshot.
+func (s *Service) SendChatMessageWithImage(message string, imageBase64 string) (string, error) {
+	return s.sendChat(message, imageBase64, "", "", "user")
+}
+
+// NextChatRunID allocates ids for the next chat.send so callers can flow.SetTrace(runID) before flow.Start.
+func (s *Service) NextChatRunID() (reqID string, runID string) {
+	reqID = fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
+	runID = fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+	return reqID, runID
+}
+
+// SendChatMessageWithRun sends using ids from NextChatRunID (must match that pair).
+func (s *Service) SendChatMessageWithRun(message string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, "", reqID, runID, "user")
+}
+
+// SendChatMessageWithImageAndRun sends with image using ids from NextChatRunID.
+func (s *Service) SendChatMessageWithImageAndRun(message string, imageBase64 string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, imageBase64, reqID, runID, "user")
+}
+
+// sendChat is the internal implementation for sending chat messages, optionally with an image.
+// If fixedReqID and fixedRunID are both non-empty, they are used (caller already incremented reqCounter via NextChatRunID).
+// sourceType labels the flow event ("user" for real user / sensing-driven input, "system" for
+// watcher / wake / compact notifications). Does not affect the WS RPC payload.
+func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string, sourceType string) (string, error) {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return "", fmt.Errorf("websocket not connected")
+	}
+
+	// reqID labels outbound chat.send from Lumi (sensing POST, wake greeting, etc.) — not "audio only".
+	// Idempotency key must stay stable for OpenClaw run_id mapping; use lumi-chat-* (not lumi-sensing-*)
+	// so logs are not mistaken for sound/voice-only turns vs Telegram.
+	var reqID string
+	var idempotencyKey string
+	if fixedReqID != "" && fixedRunID != "" {
+		reqID = fixedReqID
+		idempotencyKey = fixedRunID
+	} else {
+		reqID = fmt.Sprintf("chat-%d", s.reqCounter.Add(1))
+		idempotencyKey = fmt.Sprintf("lumi-%s-%d", reqID, time.Now().UnixMilli())
+	}
+
+	params := map[string]interface{}{
+		"idempotencyKey": idempotencyKey,
+	}
+	sessionKey := s.GetSessionKey()
+	if sessionKey != "" {
+		params["sessionKey"] = sessionKey
+	}
+
+	// Strip [snapshot: ...] paths from presence events before sending to agent —
+	// face recognition already ran, agent doesn't need file paths (wastes tokens).
+	// Keep original message for flow/monitor so UI can render snapshot thumbnails.
+	wsMessage := message
+	if strings.Contains(message, "[sensing:presence.enter]") || strings.Contains(message, "[sensing:presence.leave]") {
+		wsMessage = strings.TrimSpace(reSnapshotPath.ReplaceAllString(message, ""))
+	}
+	params["message"] = wsMessage
+	hasImage := imageBase64 != ""
+	if hasImage {
+		// OpenClaw chat.send accepts attachments[]{content, mimeType} — content is raw base64 string.
+		imgLen := len(imageBase64)
+		params["attachments"] = []map[string]interface{}{
+			{
+				"type":     "image",
+				"mimeType": "image/jpeg",
+				"content":  imageBase64,
+			},
+		}
+		slog.Info("[chat.send] attaching image", "component", "openclaw",
+			"reqId", reqID, "runId", idempotencyKey,
+			"base64Len", imgLen, "approxKB", imgLen*3/4/1024)
+	}
+
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "chat.send",
+		"params": params,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("marshal chat.send: %w", err)
+	}
+
+	// Log full payload (mask image content to avoid log spam)
+	slog.Info("[chat.send] full payload", "component", "openclaw", "reqId", reqID, "payload", string(body))
+	slog.Info("[chat.send] >>> sending to OpenClaw", "component", "openclaw",
+		"reqId", reqID, "runId", idempotencyKey,
+		"sessionKey", sessionKey,
+		"message", message,
+		"hasImage", hasImage,
+		"attachments", func() string {
+			if !hasImage {
+				return "none"
+			}
+			return fmt.Sprintf("1x image/jpeg ~%dKB", len(imageBase64)*3/4/1024)
+		}(),
+		"payloadBytes", len(body))
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	if conn == nil {
+		s.wsMu.Unlock()
+		return "", fmt.Errorf("websocket disconnected before send")
+	}
+	// Set busy before write — closes the timing gap where sensing IsBusy()=false
+	// because lifecycle_start SSE hasn't arrived yet. SSE lifecycle_end still clears it.
+	s.activeTurn.Store(true)
+	err = conn.WriteMessage(websocket.TextMessage, body)
+	s.wsMu.Unlock()
+	if err != nil {
+		s.activeTurn.Store(false) // write failed — no turn will start, clear immediately
+		slog.Error("[chat.send] write failed", "component", "openclaw",
+			"reqId", reqID, "runId", idempotencyKey, "error", err)
+		return "", fmt.Errorf("write chat.send: %w", err)
+	}
+
+	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
+		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
+	// Store pending trace so SSE handler can map OpenClaw UUID → device trace
+	// without relying on the race-prone global flow.GetTrace().
+	s.SetPendingChatTrace(idempotencyKey)
+	flow.Log("chat_send", map[string]any{
+		"run_id":      idempotencyKey,
+		"type":        sourceType,
+		"has_session": sessionKey != "",
+		"has_image":   hasImage,
+		"image_bytes": len(imageBase64),
+		"message":     message,
+	}, idempotencyKey)
+	slog.Info("flow correlation", "op", "ws_chat_send", "section", "lumi_to_openclaw_ws",
+		"device_run_id", idempotencyKey, "req_id", reqID, "has_image", hasImage)
+
+	s.monitorBus.Push(domain.MonitorEvent{
+		Type:    "chat_send",
+		Summary: message,
+		RunID:   idempotencyKey,
+	})
+
+	// Return idempotencyKey (not reqID) so trace_id matches OpenClaw's run_id.
+	return idempotencyKey, nil
+}
+
+// CompactSession sends a sessions.compact RPC to reduce conversation history.
+func (s *Service) CompactSession(sessionKey string) error {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	reqID := fmt.Sprintf("compact-%d", s.reqCounter.Add(1))
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "sessions.compact",
+		"params": map[string]interface{}{
+			"key": sessionKey,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal compact request: %w", err)
+	}
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		return fmt.Errorf("write compact request: %w", err)
+	}
+
+	slog.Info("sessions.compact sent", "component", "openclaw", "sessionKey", sessionKey)
+	return nil
+}
