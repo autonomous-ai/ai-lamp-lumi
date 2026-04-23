@@ -103,10 +103,12 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(true))
 }
 
-// GetVoices returns the list of available TTS voices.
-// Tries LeLamp /voice/voices first (source of truth), falls back to static list.
+// GetVoices returns the list of available TTS voices for the requested provider.
+// Tries LeLamp /voice/voices?provider= first (source of truth), falls back to static list.
 func (h *DeviceHandler) GetVoices(c *gin.Context) {
-	resp, err := http.Get(lelamp.BaseURL + "/voice/voices")
+	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
+
+	resp, err := http.Get(lelamp.BaseURL + "/voice/voices?provider=" + provider)
 	if err == nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
@@ -121,7 +123,6 @@ func (h *DeviceHandler) GetVoices(c *gin.Context) {
 		}
 	}
 	// Fallback to static list
-	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
 	voices, ok := domain.TTSVoicesByProvider[provider]
 	if !ok {
 		voices = domain.TTSVoices
