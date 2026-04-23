@@ -333,7 +333,7 @@ class TrackerService:
                 "base_pitch.pos": cur_pitch + pitch_deg,
             }
 
-            logger.debug(
+            logger.info(
                 "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
                 dx, dy, yaw_deg, pitch_deg,
                 cur_yaw, target["base_yaw.pos"],
