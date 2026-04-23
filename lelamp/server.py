@@ -143,7 +143,7 @@ except ImportError as e:
 SensingService = None
 FacePerception = None
 try:
-    from lelamp.service.sensing.perceptions.facerecognizer import FacePerception
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import FacePerception
     from lelamp.service.sensing.sensing_service import SensingService
 except ImportError as e:
     logger.warning(f"Sensing service not available: {e}")

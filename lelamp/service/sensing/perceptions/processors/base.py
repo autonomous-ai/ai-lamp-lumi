@@ -33,7 +33,7 @@ class Perception[T](ABC):
         self._perception_state: PerceptionStateObservers = perception_state
         self._send_event: SendEventCallable = send_event
         self._busy: bool = False
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
 
     def check(self, data: T) -> None:
         """Non-blocking entry point. Skips if a previous check is still queued or running."""
