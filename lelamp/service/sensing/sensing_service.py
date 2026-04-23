@@ -127,6 +127,10 @@ class SensingService:
         """Set TTS reference after late initialization (echo suppression)."""
         _ = self._perception_orchestrator.with_tts_service(tts_service)
 
+    @property
+    def presence(self) -> PresenseService:
+        return self._presense_service
+
     def start(self):
         if self._running:
             return

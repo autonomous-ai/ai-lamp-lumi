@@ -23,27 +23,18 @@ from service.voice.tts_service import TTSService
 try:
     import cv2
 except ImportError:
-    if TYPE_CHECKING:
-        import cv2
-    else:
-        cv2 = None
+    cv2 = None
 
 
 try:
     import numpy as np
 except ImportError:
-    if TYPE_CHECKING:
-        import numpy as np
-    else:
-        np = None
+    np = None
 
 try:
     import sounddevice as sd
 except ImportError:
-    if TYPE_CHECKING:
-        import sounddevice as sd
-    else:
-        sd = None
+    sd = None
 
 
 @dataclass
