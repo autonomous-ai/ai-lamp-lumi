@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+
+	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
 // Dead air filler — plays a short TTS cue via LeLamp after forwarding a voice
@@ -41,7 +43,7 @@ var Fillers = []string{
 }
 
 // LeLampSpeakURL is the endpoint to trigger TTS on LeLamp.
-const LeLampSpeakURL = "http://127.0.0.1:5001/voice/speak"
+var LeLampSpeakURL = lelamp.BaseURL + "/voice/speak"
 
 // PlayDeadAirFiller sends a random filler phrase to LeLamp TTS.
 // No-op if Fillers is empty. Safe to call from a goroutine.

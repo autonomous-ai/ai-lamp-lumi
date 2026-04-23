@@ -20,6 +20,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
 	"go-lamp.autonomous.ai/lib/usercanon"
@@ -140,7 +141,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			if result.TTSText != "" {
 				go func() {
 					resp, err := http.Post(
-						"http://127.0.0.1:5001/voice/speak",
+						lelamp.BaseURL+"/voice/speak",
 						"application/json",
 						strings.NewReader(`{"text":"`+result.TTSText+`"}`),
 					)
@@ -193,7 +194,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	if req.Type == "voice_command" && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("voice wake — firing greeting to wake LeLamp", "component", "sensing")
 		go func() {
-			resp, err := http.Post("http://127.0.0.1:5001/emotion", "application/json",
+			resp, err := http.Post(lelamp.BaseURL+"/emotion", "application/json",
 				strings.NewReader(`{"emotion":"greeting","intensity":0.8}`))
 			if err != nil {
 				slog.Warn("voice wake greeting failed", "component", "sensing", "error", err)
@@ -247,7 +248,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			if last := h.lastNotReadyTTS.Load(); now-last > 60_000 {
 				if h.lastNotReadyTTS.CompareAndSwap(last, now) {
 					go func() {
-						resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
+						resp, err := http.Post(lelamp.BaseURL+"/voice/speak", "application/json",
 							strings.NewReader(`{"text":"Hold on, brain is restarting."}`))
 						if err == nil {
 							resp.Body.Close()

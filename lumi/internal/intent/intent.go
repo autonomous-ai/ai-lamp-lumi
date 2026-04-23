@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
-)
 
-const lelampBase = "http://127.0.0.1:5001"
+	"go-lamp.autonomous.ai/lib/lelamp"
+)
 
 // Result holds what to do after a match: the LeLamp action + a TTS reply.
 type Result struct {
@@ -285,7 +285,7 @@ func emotionExec(emotion, reply string) func(string) *Result {
 }
 
 func post(path, body string) {
-	url := lelampBase + path
+	url := lelamp.BaseURL + path
 	var resp *http.Response
 	var err error
 	if body == "" {
