@@ -27,21 +27,21 @@ logger = logging.getLogger(__name__)
 
 # Degrees per pixel — controls how aggressively servo reacts to offset.
 # Depends on camera FOV; 640px width ≈ 60° horizontal → ~0.094 deg/px.
-# Start conservative; can be calibrated per device.
-DEG_PER_PX_YAW = 0.08
-DEG_PER_PX_PITCH = 0.08
+# Keep low to avoid overshoot — servo feedback is slow.
+DEG_PER_PX_YAW = 0.03
+DEG_PER_PX_PITCH = 0.03
 
 # Dead zone in pixels — ignore small jitter around center
-DEAD_ZONE_PX = 20
+DEAD_ZONE_PX = 30
 
 # Maximum nudge per step (degrees) — prevents wild swings
-MAX_NUDGE_DEG = 10.0
+MAX_NUDGE_DEG = 3.0
 
 # Tracking loop target FPS
-TRACK_FPS = 10
+TRACK_FPS = 5
 
 # How many consecutive frames the tracker can fail before giving up
-MAX_LOST_FRAMES = 15  # ~1.5 seconds at 10 FPS
+MAX_LOST_FRAMES = 15  # ~3 seconds at 5 FPS
 
 # Servo move duration per nudge step (seconds) — short for responsiveness
 NUDGE_DURATION = 0.15
@@ -214,6 +214,18 @@ class TrackerService:
         animation_service._hold_mode = True
         logger.info("Servo hold mode ON for tracking")
 
+        # Read initial servo position once — track internally after that
+        try:
+            from lelamp.service.motors.animation_service import _motor_positions_from_bus
+            with animation_service.bus_lock:
+                init_pos = _motor_positions_from_bus(animation_service.robot)
+            self._track_yaw = init_pos.get("base_yaw.pos", 0.0)
+            self._track_pitch = init_pos.get("base_pitch.pos", 0.0)
+        except Exception:
+            self._track_yaw = 0.0
+            self._track_pitch = 0.0
+        logger.info("Tracking start servo pos: yaw=%.1f pitch=%.1f", self._track_yaw, self._track_pitch)
+
         frame_count = 0
         fps_t0 = time.perf_counter()
 
@@ -318,29 +330,28 @@ class TrackerService:
         if yaw_deg == 0 and pitch_deg == 0:
             return
 
-        # Direct servo nudge — send_action for speed (no interpolation)
+        # Update internal position and send to servo
         try:
-            from lelamp.service.motors.animation_service import _motor_positions_from_bus
-            with animation_service.bus_lock:
-                current = _motor_positions_from_bus(animation_service.robot)
+            new_yaw = self._track_yaw + yaw_deg
+            new_pitch = self._track_pitch + pitch_deg
 
-            cur_yaw = current.get("base_yaw.pos", 0)
-            cur_pitch = current.get("base_pitch.pos", 0)
-
-            # Only move yaw + pitch, leave other joints untouched
             target = {
-                "base_yaw.pos": cur_yaw + yaw_deg,
-                "base_pitch.pos": cur_pitch + pitch_deg,
+                "base_yaw.pos": new_yaw,
+                "base_pitch.pos": new_pitch,
             }
 
             logger.info(
                 "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
                 dx, dy, yaw_deg, pitch_deg,
-                cur_yaw, target["base_yaw.pos"],
-                cur_pitch, target["base_pitch.pos"],
+                self._track_yaw, new_yaw,
+                self._track_pitch, new_pitch,
             )
 
             with animation_service.bus_lock:
                 animation_service.robot.send_action(target)
+
+            # Update internal state — don't re-read bus (too slow)
+            self._track_yaw = new_yaw
+            self._track_pitch = new_pitch
         except Exception as e:
             logger.warning("Tracker nudge failed: %s", e)
