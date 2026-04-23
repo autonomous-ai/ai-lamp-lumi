@@ -6,11 +6,8 @@ package ambient
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"math/rand"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -197,7 +194,7 @@ func (s *Service) breathingLoop(ctx context.Context) {
 				// Read the current LED color from LeLamp and start breathing with it.
 				// Fall back to soft blue-white if LeLamp returns black (just started, no color set).
 				color := [3]int{180, 220, 255} // fallback
-				if c, err := fetchLeLampColor(); err == nil && (c[0]+c[1]+c[2]) > 0 {
+				if c, err := lelamp.GetColor(); err == nil && (c[0]+c[1]+c[2]) > 0 {
 					color = c
 				}
 				startLeLampBreathing(color)
@@ -222,7 +219,9 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 		}
 
 		recording := safeRecordings[rand.Intn(len(safeRecordings))]
-		postLeLamp("/servo/play", fmt.Sprintf(`{"recording":"%s"}`, recording))
+		if err := lelamp.PlayServo(recording); err != nil {
+			slog.Debug("micro-movement servo failed", "component", "ambient", "error", err)
+		}
 		slog.Debug("micro-movement", "component", "ambient", "recording", recording)
 	}
 }
@@ -254,28 +253,14 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 		}
 
 		mumble := mumbles[rand.Intn(len(mumbles))]
-		postLeLamp("/voice/speak", fmt.Sprintf(`{"text":"%s"}`, mumble))
+		if err := lelamp.Speak(mumble); err != nil {
+			slog.Debug("mumble TTS failed", "component", "ambient", "error", err)
+		}
 		slog.Debug("mumble", "component", "ambient", "text", mumble)
 	}
 }
 
 // --- Helpers ---
-
-// fetchLeLampColor reads the current LED color from LeLamp.
-func fetchLeLampColor() ([3]int, error) {
-	resp, err := http.Get(lelamp.BaseURL + "/led/color")
-	if err != nil {
-		return [3]int{}, err
-	}
-	defer resp.Body.Close()
-	var result struct {
-		Color [3]int `json:"color"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return [3]int{}, err
-	}
-	return result.Color, nil
-}
 
 // startLeLampBreathing starts the built-in breathing effect on LeLamp with the given color.
 func startLeLampBreathing(color [3]int) {
@@ -285,16 +270,6 @@ func startLeLampBreathing(color [3]int) {
 // stopLeLampEffect stops any running LED effect on LeLamp.
 func stopLeLampEffect() {
 	lelamp.StopEffect()
-}
-
-// postLeLamp sends a fire-and-forget POST to LeLamp API.
-func postLeLamp(path, body string) {
-	url := lelamp.BaseURL + path
-	resp, err := http.Post(url, "application/json", strings.NewReader(body))
-	if err != nil {
-		return // silent fail — hardware may not be available
-	}
-	resp.Body.Close()
 }
 
 // sleepCtx sleeps for the given duration but returns early if ctx is cancelled.
