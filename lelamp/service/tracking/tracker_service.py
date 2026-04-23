@@ -11,6 +11,7 @@ Workflow:
      the loop exits and servos resume normal idle animation.
 """
 
+import base64
 import logging
 import os
 import threading
@@ -21,12 +22,18 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 import numpy.typing as npt
+import requests
 
 logger = logging.getLogger(__name__)
 
 # --- Model paths ---
 
 _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
+
+# --- YOLOWorld API ---
+
+_YOLO_ENDPOINT = "/detect/yoloworld"
+_YOLO_TIMEOUT = 10.0
 
 # --- Tuning knobs ---
 
@@ -99,14 +106,60 @@ class TrackerService:
             "confidence": round(s.confidence, 3),
         }
 
+    def detect_object(self, frame: npt.NDArray[np.uint8], target: str) -> Optional[Tuple[int, int, int, int]]:
+        """Detect an object by name using YOLOWorld API.
+
+        Returns (x, y, w, h) top-left bbox or None if not found.
+        """
+        from lelamp.config import DL_BACKEND_URL, DL_API_KEY
+        if not DL_BACKEND_URL:
+            logger.error("YOLOWorld: DL_BACKEND_URL not configured")
+            return None
+
+        url = DL_BACKEND_URL.rstrip("/") + "/" + _YOLO_ENDPOINT.strip("/")
+        try:
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            img_b64 = base64.b64encode(buf.tobytes()).decode()
+
+            resp = requests.post(
+                url,
+                json={"image_b64": img_b64, "classes": [target]},
+                headers={"x-api-key": DL_API_KEY} if DL_API_KEY else {},
+                timeout=_YOLO_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                logger.warning("YOLOWorld HTTP %d: %s", resp.status_code, resp.text[:200])
+                return None
+
+            detections = resp.json()
+            if not detections:
+                logger.info("YOLOWorld: '%s' not found in frame", target)
+                return None
+
+            # Pick highest confidence detection
+            best = max(detections, key=lambda d: d.get("confidence", 0))
+            cx, cy, w, h = best["xywh"]
+            # Convert center format to top-left format
+            x = int(cx - w / 2)
+            y = int(cy - h / 2)
+            bbox = (x, y, int(w), int(h))
+            logger.info("YOLOWorld: '%s' found at bbox=%s conf=%.3f", target, bbox, best["confidence"])
+            return bbox
+        except Exception as e:
+            logger.error("YOLOWorld detect failed: %s", e)
+            return None
+
     def start(
         self,
-        bbox: Tuple[int, int, int, int],
+        bbox: Optional[Tuple[int, int, int, int]] = None,
         target_label: str = "",
         camera_capture=None,
         animation_service=None,
     ) -> bool:
-        """Start tracking an object defined by *bbox* on the current frame."""
+        """Start tracking an object.
+
+        If bbox is provided, use it directly. Otherwise, auto-detect using YOLOWorld.
+        """
         if camera_capture is None or animation_service is None:
             logger.error("tracker start: camera or animation service not available")
             return False
@@ -117,6 +170,19 @@ class TrackerService:
         if frame is None:
             logger.error("tracker start: no frame available from camera")
             return False
+
+        # Auto-detect if no bbox provided
+        if bbox is None:
+            if not target_label:
+                logger.error("tracker start: need either bbox or target label")
+                return False
+            bbox = self.detect_object(frame, target_label)
+            if bbox is None:
+                return False
+            # Re-grab fresh frame right after detection
+            fresh = camera_capture.last_frame
+            if fresh is not None:
+                frame = fresh
 
         tracker = self._create_tracker()
         if tracker is None:
