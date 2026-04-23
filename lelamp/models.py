@@ -454,7 +454,7 @@ class ServoTrackRequest(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"bbox": [200, 150, 80, 100], "target": "water bottle"}]
+            "examples": [{"bbox": [280, 200, 80, 80], "target": "water bottle"}]
         }
     }
 
