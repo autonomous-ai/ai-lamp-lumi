@@ -1,5 +1,7 @@
 """Voice route handlers -- /voice/*, /tts/* endpoints."""
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 
 import lelamp.app_state as state
@@ -133,11 +135,12 @@ def update_voice_config(req: VoiceConfigRequest):
 
 
 @router.get("/voice/voices")
-def get_voices():
-    """Return available TTS voices for the current provider."""
+def get_voices(provider: Optional[str] = None):
+    """Return available TTS voices for the requested (or current) provider."""
     from lelamp.service.voice.tts_elevenlabs import ElevenLabsTTSBackend
     from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS, PROVIDER_OPENAI as _PO
-    provider = getattr(state.tts_service, "_provider", _PO) if state.tts_service else _PO
+    if provider is None:
+        provider = getattr(state.tts_service, "_provider", _PO) if state.tts_service else _PO
     if provider == PROVIDER_ELEVENLABS:
         return {"provider": provider, "voices": list(ElevenLabsTTSBackend.VOICE_IDS.keys())}
     return {"provider": provider, "voices": ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]}
