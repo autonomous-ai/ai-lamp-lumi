@@ -20,7 +20,7 @@ export function CameraSection({
   const [toggling, setToggling] = useState(false);
   const [track, setTrack] = useState<TrackStatus>({ tracking: false, target: null, bbox: null, confidence: null });
   const [trackTarget, setTrackTarget] = useState("object");
-  const [trackBbox, setTrackBbox] = useState("280,200,80,80");
+  const [trackBbox, setTrackBbox] = useState("");
 
   const checkStatus = useCallback(async () => {
     try {
@@ -55,13 +55,19 @@ export function CameraSection({
   };
 
   const startTracking = async () => {
-    const parts = trackBbox.split(",").map((s) => parseInt(s.trim(), 10));
-    if (parts.length !== 4 || parts.some(isNaN)) return;
+    const body: Record<string, unknown> = { target: trackTarget };
+    if (trackBbox.trim()) {
+      const parts = trackBbox.split(",").map((s) => parseInt(s.trim(), 10));
+      if (parts.length === 4 && !parts.some(isNaN)) {
+        body.bbox = parts;
+      }
+    }
+    if (!body.target && !body.bbox) return;
     try {
       const r = await fetch(`${HW}/servo/track`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bbox: parts, target: trackTarget }),
+        body: JSON.stringify(body),
       }).then((x) => x.json());
       setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
     } catch {}
