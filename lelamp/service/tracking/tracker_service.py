@@ -91,6 +91,7 @@ class TrackerService:
     def __init__(self):
         self._state = TrackingState()
         self._lock = threading.Lock()
+        self.last_error: str = ""
 
     @property
     def is_tracking(self) -> bool:
@@ -161,23 +162,27 @@ class TrackerService:
         If bbox is provided, use it directly. Otherwise, auto-detect using YOLOWorld.
         """
         if camera_capture is None or animation_service is None:
-            logger.error("tracker start: camera or animation service not available")
+            self.last_error = "camera or animation service not available"
+            logger.error("tracker start: %s", self.last_error)
             return False
 
         self.stop()
 
         frame = camera_capture.last_frame
         if frame is None:
-            logger.error("tracker start: no frame available from camera")
+            self.last_error = "no frame available from camera"
+            logger.error("tracker start: %s", self.last_error)
             return False
 
         # Auto-detect if no bbox provided
         if bbox is None:
             if not target_label:
-                logger.error("tracker start: need either bbox or target label")
+                self.last_error = "need either bbox or target label"
+                logger.error("tracker start: %s", self.last_error)
                 return False
             bbox = self.detect_object(frame, target_label)
             if bbox is None:
+                self.last_error = f"'{target_label}' not found in frame"
                 return False
             # Re-grab fresh frame right after detection
             fresh = camera_capture.last_frame
