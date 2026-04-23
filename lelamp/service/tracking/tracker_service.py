@@ -53,6 +53,9 @@ MAX_NUDGE_DEG = 1.5
 # Tracking loop target FPS — higher = smoother
 TRACK_FPS = 12
 
+# Re-detect interval (seconds) — periodically call YOLOWorld to correct drift
+REDETECT_INTERVAL_S = 5.0
+
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -330,6 +333,7 @@ class TrackerService:
         self._settled = False
         frame_count = 0
         track_start_t = time.perf_counter()
+        last_redetect_t = track_start_t
         fps_t0 = track_start_t
 
         try:
@@ -400,6 +404,39 @@ class TrackerService:
                     )
                     frame_count = 0
                     fps_t0 = time.perf_counter()
+
+                # Periodic re-detect to correct tracker drift (non-blocking)
+                now = time.perf_counter()
+                if (state.target_label
+                        and now - last_redetect_t >= REDETECT_INTERVAL_S
+                        and not getattr(self, '_redetecting', False)):
+                    last_redetect_t = now
+                    self._redetecting = True
+                    def _redetect(frm, target):
+                        try:
+                            det_bbox = self.detect_object(frm, target)
+                            if det_bbox is not None and state.running.is_set():
+                                new_tracker = self._create_tracker()
+                                if new_tracker is not None:
+                                    fresh = camera_capture.last_frame
+                                    if fresh is not None:
+                                        frm = fresh
+                                    try:
+                                        ok_r = new_tracker.init(frm, det_bbox)
+                                    except Exception:
+                                        ok_r = False
+                                    if ok_r is not False:
+                                        state.tracker = new_tracker
+                                        state.bbox = det_bbox
+                                        nonlocal init_area
+                                        init_area = det_bbox[2] * det_bbox[3]
+                                        logger.info("Re-detect OK: bbox=%s", det_bbox)
+                        except Exception as e:
+                            logger.warning("Re-detect failed: %s", e)
+                        finally:
+                            self._redetecting = False
+                    threading.Thread(target=_redetect, args=(frame.copy(), state.target_label),
+                                     daemon=True, name="tracker-redetect").start()
 
                 # Max duration check
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
