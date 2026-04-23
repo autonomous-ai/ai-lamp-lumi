@@ -88,13 +88,14 @@ The `nudge_*` row you POST in Step 5 acts as the next reset, so once you nudge, 
 
 ### Step 3b — Habit check (optional, after Step 3 only if no threshold nudge fired)
 
-1. Read `/root/local/users/{current_user}/habit/patterns.json`. If absent, skip.
-2. If `updated_at` older than 6 hours, invoke the `habit` skill to rebuild.
-3. For each entry in `wellbeing_patterns` with `strength` moderate or strong:
+1. Read `/root/local/users/{current_user}/habit/patterns.json`.
+   - **If absent:** check whether the user has ≥3 days of wellbeing history (`ls /root/local/users/{current_user}/wellbeing/*.jsonl | wc -l`). If yes, invoke `habit/SKILL.md` Flow A to bootstrap `patterns.json`, then continue with the freshly-built file. If fewer than 3 days, skip Step 3b entirely (not enough data yet).
+   - **If present but `updated_at` older than 6 hours:** invoke `habit/SKILL.md` Flow A to rebuild, then continue.
+2. For each entry in `wellbeing_patterns` with `strength` moderate or strong:
    - Is `now` within `typical_hour:typical_minute ± window_minutes`?
    - Has the `action` already appeared in today's log? → skip.
    - Has a matching `nudge_*` already been logged today? → skip.
-4. If a habit nudge fires, speak it and log per Step 5. Do NOT double-nudge if Step 3 already fired.
+3. If a habit nudge fires, speak it and log per Step 5. Do NOT double-nudge if Step 3 already fired.
 
 Example: *Leo usually drinks at 9am* → at 9:15 with no `drink` today, nudge even if the 5-min threshold hasn't been crossed.
 
