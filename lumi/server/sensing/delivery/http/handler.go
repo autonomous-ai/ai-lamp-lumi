@@ -215,11 +215,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// reaches Lumi it's genuinely new. Dropping it here would make LeLamp's
 		// dedup think "sent" while the agent never saw the event, blocking the
 		// next real transition for 5 min.
-		shouldQueue := req.Type == "presence.enter" || req.Type == "presence.leave" ||
-			req.Type == "voice" ||
-			req.Type == "motion.activity" || req.Type == "emotion.detected" ||
-			inVoiceWindow
-		if shouldQueue {
+		if shouldQueueEvent(req.Type, req.Message, inVoiceWindow) {
 			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
 			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
 			return
@@ -700,4 +696,18 @@ func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(nil))
+}
+
+// shouldQueueEvent returns true if this sensing event type should be queued
+// (not dropped) when the agent is busy.
+func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
+	switch eventType {
+	case "presence.enter", "presence.leave", "voice",
+		"motion.activity", "emotion.detected":
+		return true
+	case "sound":
+		return strings.Contains(message, "persistent")
+	default:
+		return inVoiceWindow
+	}
 }
