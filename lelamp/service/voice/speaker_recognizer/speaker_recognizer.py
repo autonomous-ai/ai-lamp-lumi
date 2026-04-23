@@ -69,7 +69,6 @@ _UNKNOWN_AUDIO_DIR = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR)
 _API_URL = config.SPEAKER_EMBEDDING_API_URL
 _API_KEY = config.SPEAKER_EMBEDDING_API_KEY
 _API_TIMEOUT_S = config.SPEAKER_EMBEDDING_API_TIMEOUT_S
-_EMBED_MAX_SECONDS = config.SPEAKER_EMBED_MAX_SECONDS
 _MATCH_THRESHOLD = config.SPEAKER_MATCH_THRESHOLD
 _ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
 
@@ -103,6 +102,47 @@ def _cosine_similarity(e1: np.ndarray, e2: np.ndarray) -> float:
     """
     raw_cos = float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
     return (raw_cos + 1.0) / 2.0
+
+
+def _l2(vec: np.ndarray) -> np.ndarray:
+    """L2-normalize; return unchanged if norm is ~0."""
+    arr = np.asarray(vec, dtype=np.float32)
+    n = float(np.linalg.norm(arr))
+    if n < 1e-12:
+        return arr
+    return (arr / n).astype(np.float32)
+
+
+def _weighted_aggregate(
+    embeddings: list[np.ndarray], *, power: float = 4.0
+) -> np.ndarray:
+    """Self-consistency weighted mean + L2-normalize.
+
+    Mirrors ``dlbackend.audio_preprocess.weighted_aggregate`` so pooling
+    per-sample embeddings client-side produces a vector comparable with one
+    the server would produce from the same samples — without the server-side
+    artifact of concatenating multiple WAVs into a single waveform before
+    VAD / chunking (which the /embed endpoint currently does).
+
+    Each embedding is weighted by its cosine sim to the L2-normalized
+    median centroid, mapped to [0, 1] and raised to ``power`` to sharpen —
+    outlier samples (a rejected-but-still-on-disk recording, for example)
+    contribute near zero to the final vector.
+    """
+    if not embeddings:
+        raise SpeakerRecognizerError("no embeddings to aggregate")
+    stack = np.stack([_l2(e) for e in embeddings], axis=0).astype(np.float32)
+    centroid = _l2(np.median(stack, axis=0))
+    sims = stack @ centroid
+    sims01 = np.clip((sims + 1.0) / 2.0, 0.0, 1.0)
+    weights = sims01.astype(np.float32) ** float(power)
+    total = float(weights.sum())
+    if total < 1e-9:
+        weights = np.full(stack.shape[0], 1.0 / stack.shape[0], dtype=np.float32)
+    else:
+        weights = (weights / total).astype(np.float32)
+    agg = (stack * weights[:, None]).sum(axis=0)
+    return _l2(agg)
 
 def _sample_origin(filename: str) -> str:
     """Parse the origin tag encoded in ``sample_<origin>_<ts>_<uuid>.wav``.
@@ -388,70 +428,42 @@ class SpeakerRecognizer:
             raise SpeakerRecognizerError("embedding has zero norm")
         return vec / norm
 
-    def _split_waveform_by_max_seconds(self, waveform: np.ndarray) -> list[np.ndarray]:
-        """Split waveform into max-duration chunks for robust embedding."""
-        wav = np.asarray(waveform, dtype=np.float32)
-        if wav.ndim != 1:
-            raise SpeakerRecognizerError("waveform must be 1-D")
-        if wav.size == 0:
-            return []
+    def _prepare_wav_for_embedding(self, wav_bytes: bytes) -> list[str]:
+        """Validate + wrap a single WAV as a one-element base64 list.
 
-        max_seconds = max(float(_EMBED_MAX_SECONDS), 0.1)
-        max_samples = max(1, int(max_seconds * _TARGET_SR))
-        if wav.shape[0] <= max_samples:
-            return [wav]
+        The ``/embed`` endpoint accepts a list of audios but concatenates
+        them into one waveform before preprocessing/VAD/chunking, so
+        pre-splitting long audio client-side would only add a lossy
+        float32 → PCM_16 round-trip per slice. Pass the whole WAV through
+        and let the server window it with its own chunk_with_stride.
 
-        chunks: list[np.ndarray] = []
-        for start in range(0, wav.shape[0], max_samples):
-            seg = wav[start : start + max_samples]
-            if seg.size > 0:
-                chunks.append(seg.astype(np.float32))
-        return chunks
+        Two gates before we hit the network:
 
-    def _expand_wav_for_embedding(self, wav_bytes: bytes, *, stem: str) -> list[str]:
-        """Return base64 WAV inputs; long audios are split in-memory (no disk I/O).
-
-        Validates that the audio is long enough and has audible signal before
-        returning — kaldi fbank on the embedding server needs at least ~25 ms
-        of non-silence to produce any feature frame; an empty feature tensor
-        crashes ONNX with ``Invalid input shape: {80, 0}``. Catch it here
-        where we can give a clear message instead of surfacing that cryptic
-        error back to the caller.
+        * **Duration ≥ 0.5s.** The server's windowing uses
+          ``min_chunk_sec ≈ 0.4s`` *after* VAD trims silence, so leaving a
+          100 ms headroom on the raw audio prevents the server from
+          silently returning "no embeddings produced".
+        * **RMS ≥ 1e-4 (~−80 dBFS).** A silent file would also pass 0.5s;
+          we check loudness on the raw signal to reject it early, even
+          though VAD might have caught it server-side. This also dodges
+          ONNX crashes (``Invalid input shape: {80, 0}``) when kaldi fbank
+          produces an empty feature tensor.
         """
         waveform = _wav_bytes_to_float32_16k_mono(wav_bytes)
 
-        # 250ms floor — well above kaldi's 25ms frame, and short enough to
-        # accept mic bursts that barely pass the SPEAKER_MIN_AUDIO_S gate.
-        min_samples = int(0.25 * _TARGET_SR)
+        min_samples = int(0.5 * _TARGET_SR)
         if waveform.shape[0] < min_samples:
             raise SpeakerRecognizerError(
-                f"audio too short for embedding: {waveform.shape[0]/_TARGET_SR:.2f}s < 0.25s"
+                f"audio too short for embedding: {waveform.shape[0]/_TARGET_SR:.2f}s < 0.5s"
             )
 
-        # RMS floor — reject near-silence. 1e-4 ≈ −80 dBFS on float32 PCM.
         rms = float(np.sqrt(np.mean(waveform.astype(np.float64) ** 2)))
         if rms < 1e-4:
             raise SpeakerRecognizerError(
                 f"audio too silent for embedding: rms={rms:.6f} < 1e-4"
             )
 
-        chunks = self._split_waveform_by_max_seconds(waveform)
-        if not chunks:
-            raise SpeakerRecognizerError("empty audio after decoding")
-
-        if len(chunks) == 1:
-            return [base64.b64encode(_float32_waveform_to_wav_bytes(chunks[0])).decode("ascii")]
-
-        logger.info(
-            "split long audio for embedding: stem=%s chunks=%d max_seconds=%.2f",
-            stem,
-            len(chunks),
-            _EMBED_MAX_SECONDS,
-        )
-        return [
-            base64.b64encode(_float32_waveform_to_wav_bytes(chunk)).decode("ascii")
-            for chunk in chunks
-        ]
+        return [base64.b64encode(_float32_waveform_to_wav_bytes(waveform)).decode("ascii")]
 
     # ------------------------------------------------------------- metadata
 
@@ -607,15 +619,13 @@ class SpeakerRecognizer:
             new_wavs.append(_ensure_wav_16k_mono(raw))
 
         # Step 2 — Compute embedding per NEW wav BEFORE writing to disk.
-        # _expand_wav_for_embedding will raise on too-short / silent audio,
+        # _prepare_wav_for_embedding will raise on too-short / silent audio,
         # so invalid inputs are rejected here without polluting the folder.
         new_embeddings: list[tuple[bytes, np.ndarray]] = []
         for idx, wb in enumerate(new_wavs):
             try:
-                chunks_b64 = self._expand_wav_for_embedding(
-                    wb, stem=f"{norm}_new{idx}"
-                )
-                emb = self._call_embedding_api(chunks_b64)
+                payload = self._prepare_wav_for_embedding(wb)
+                emb = self._call_embedding_api(payload)
                 new_embeddings.append((wb, emb))
             except SpeakerRecognizerError as e:
                 logger.warning(
@@ -635,10 +645,8 @@ class SpeakerRecognizer:
         existing_embs: dict[Path, np.ndarray] = {}
         for p in existing_on_disk:
             try:
-                chunks_b64 = self._expand_wav_for_embedding(
-                    p.read_bytes(), stem=f"{norm}_{p.stem}"
-                )
-                existing_embs[p] = self._call_embedding_api(chunks_b64)
+                payload = self._prepare_wav_for_embedding(p.read_bytes())
+                existing_embs[p] = self._call_embedding_api(payload)
             except SpeakerRecognizerError as e:
                 logger.warning(
                     "Enroll: removing broken existing sample %s — %s",
@@ -697,17 +705,19 @@ class SpeakerRecognizer:
             fpath.write_bytes(wb)
             written_new_paths.append(fpath)
 
-        # Step 7 — Final stored embedding mirrors dlbackend's register: send
-        # ALL kept WAVs in a single /embed call so the server runs its
-        # weighted attentive aggregation across every chunk of every kept
-        # sample, then collapses to one L2-normalized [D] vector. That same
-        # vector is what dlbackend's /recognize would compare against, so
-        # downstream per-chunk voting in lelamp.recognize() is apples-to-apples.
-        kept_wavs = [wb for _p, _e in kept_existing for wb in [_p.read_bytes()]] + [
-            wb for wb, _e in kept_new
+        # Step 7 — Aggregate the per-sample embeddings we already computed
+        # in Steps 2 + 3 instead of issuing one more /embed call with every
+        # kept WAV. Bundling all samples into one server call would concat
+        # them into a single waveform before VAD/chunking — a sample-level
+        # boundary loss that differs from what dlbackend's own register()
+        # does (preprocess each file separately, then pool chunks). Each
+        # per-sample embedding is already L2-normalized, so the self-
+        # consistency weighted mean below matches the server's aggregation
+        # math, minus the cross-file concat artifact.
+        kept_embeddings = [emb for _p, emb in kept_existing] + [
+            emb for _wb, emb in kept_new
         ]
-        kept_b64 = [base64.b64encode(wb).decode("ascii") for wb in kept_wavs]
-        embedding = self._call_embedding_api(kept_b64)  # [D] aggregated
+        embedding = _weighted_aggregate(kept_embeddings)
         np.save(self._embedding_path(norm), embedding)
 
         # Re-read the folder — it now contains ONLY samples that were valid
@@ -839,15 +849,12 @@ class SpeakerRecognizer:
             }
 
         try:
-            input_audios = self._expand_wav_for_embedding(
-                wav_bytes,
-                stem="incoming",
-            )
+            payload = self._prepare_wav_for_embedding(wav_bytes)
             # Per-chunk query embeddings — same per-chunk granularity that
             # dlbackend's /recognize uses internally, so per-chunk voting
             # below produces apples-to-apples confidence.
             query_chunks = self._call_embedding_api(
-                input_audios, return_chunks=True
+                payload, return_chunks=True
             )  # [M, D]
         except SpeakerRecognizerError as e:
             return {
