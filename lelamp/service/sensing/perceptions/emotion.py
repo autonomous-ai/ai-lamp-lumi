@@ -40,7 +40,7 @@ class RemoteEmotionRecognizer:
         self._api_key = api_key
         self._threshold = threshold
         self._timeout = timeout
-        self.connected = bool(base_url)
+        self.connected = False
 
     def _img2b64(self, frame: npt.NDArray[np.uint8]) -> str:
         _, buf = cv2.imencode(".jpg", frame)
