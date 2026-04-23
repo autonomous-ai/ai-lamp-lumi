@@ -1,6 +1,6 @@
 ---
 name: guard
-description: Toggle guard mode for security monitoring. Activates when a friend leaves. Use when they say "guard mode", "watch the house", "I'm going out", or similar.
+description: Guard mode for security monitoring. Two uses — (1) Toggle on/off when a friend says "guard mode", "watch the house", "I'm going out", or similar. (2) Handle any sensing event that carries a [guard-active] tag (e.g. [sensing:presence.enter][guard-active], [sensing:motion][guard-active]) with dramatic shock/curious emotion + Telegram broadcast. Do NOT fall back to normal sensing reactions while guard mode is on.
 ---
 
 # Guard Mode
