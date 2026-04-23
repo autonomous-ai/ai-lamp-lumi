@@ -7,9 +7,9 @@ description: Maps a detected user facial emotion (from emotion.detected events) 
 
 ## Strict Trigger
 
-Runs **only** when this turn's input has `[sensing:emotion.detected] Emotion detected: <EmotionName>`.
+Runs **only** when this turn's input has `[emotion] Emotion detected: <EmotionName>`.
 
-For any other event (`presence.*`, `motion.*`, `sound`, `light.*`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `emotion.detected` in THIS turn.
+For any other event (`[sensing:presence.*]`, `[activity]`, `[sensing:sound]`, `[sensing:light.*]`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `[emotion]` event in THIS turn.
 
 > **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST fire a `POST /api/mood/log` tool call for this event. Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no tool_call fires this turn, the skill failed. Every `emotion.detected` event = at least one `POST /api/mood/log` call. No exceptions, no skips, no "already logged recently" reasoning.
 
@@ -17,7 +17,7 @@ For any other event (`presence.*`, `motion.*`, `sound`, `light.*`, …) → **ST
 
 ## What this skill does
 
-On every `[sensing:emotion.detected]` event, turn the detected facial emotion into a mood signal for the user. Log it via the Mood skill, then stop.
+On every `[emotion]` event, turn the detected facial emotion into a mood signal for the user. Log it via the Mood skill, then stop.
 
 This skill does NOT:
 
@@ -27,10 +27,10 @@ This skill does NOT:
 
 ## Trigger
 
-`[sensing:emotion.detected]` where the message looks like:
+`[emotion]` event where the message looks like:
 
 ```
-Emotion detected: <EmotionName>.
+[emotion] Emotion detected: <EmotionName>.
 ```
 
 `<EmotionName>` is one of the standard FER labels: `Happy`, `Sad`, `Angry`, `Fear`, `Surprise`, `Disgust`, `Neutral`.

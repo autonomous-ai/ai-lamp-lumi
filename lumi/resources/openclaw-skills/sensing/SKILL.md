@@ -11,8 +11,8 @@ description: React to passive sensing events from the lamp — presence, sound, 
 
 | Event | Handled by |
 |---|---|
-| `[sensing:motion.activity]` | `wellbeing/SKILL.md` (backend appends `[Follow wellbeing/SKILL.md.]`). If the `Activity detected:` line contains a sedentary raw label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`), ALSO run `music-suggestion/SKILL.md` — agent-driven, no backend hint. |
-| `[sensing:emotion.detected]` | Step 1 → `user-emotion-detection/SKILL.md` (log mood signal + decision). Step 2 → `music-suggestion/SKILL.md` (run AFTER mood decision is logged). Backend injects both steps in the event message. |
+| `[activity]` (Activity detected: ...) | `wellbeing/SKILL.md`. If the `Activity detected:` line contains a sedentary raw label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`), ALSO run `music-suggestion/SKILL.md` — agent-driven, no backend hint. |
+| `[emotion]` (Emotion detected: ...) | Step 1 → `user-emotion-detection/SKILL.md` (log mood signal + decision). Step 2 → `music-suggestion/SKILL.md` (run AFTER mood decision is logged). Backend injects both steps in the event message. |
 | Any sensing event while guard mode is on | `guard/SKILL.md` — dramatic reactions, Telegram broadcast |
 
 If one of those arrives, stop and switch — don't improvise here.
