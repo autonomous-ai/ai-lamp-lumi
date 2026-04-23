@@ -1,5 +1,5 @@
 // Package statusled manages LED feedback states so users can see what Lumi is doing.
-// States have priority: error > ota > booting > connectivity > idle.
+// States have priority: connectivity > error > ota > booting > lelamp_down > agent_down > hardware.
 // When a state clears, the LED is turned off — ambient service will resume breathing.
 package statusled
 
@@ -43,13 +43,13 @@ var configs = map[State]stateConfig{
 
 // priority determines which state wins when multiple are active.
 var priority = map[State]int{
-	StateAgentDown:    1,
-	StateHardware:     2,
+	StateHardware:     1,
+	StateAgentDown:    2,
 	StateLeLampDown:   3,
-	StateConnectivity: 4,
-	StateBooting:      5,
-	StateOTA:          6,
+	StateBooting:      4,
+	StateOTA:          5,
 	StateError:        6,
+	StateConnectivity: 7,
 }
 
 // Service manages status LED states.

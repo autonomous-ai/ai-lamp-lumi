@@ -19,7 +19,7 @@ Lumi uses LED breathing patterns to communicate device status. Each state has a 
 When multiple states are active simultaneously, the highest-priority state is shown:
 
 ```
-Error (highest) > OTA > Booting > Connectivity > LeLamp Down > Hardware > Agent Down (lowest)
+Connectivity (highest) > Error > OTA > Booting > LeLamp Down > Agent Down > Hardware (lowest)
 ```
 
 Example: if Lumi has no internet AND agent is down, **No Internet** (orange) is shown because it has higher priority.
