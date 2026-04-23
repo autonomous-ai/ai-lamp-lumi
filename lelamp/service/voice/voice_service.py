@@ -646,6 +646,28 @@ class VoiceService:
             pre_frames_from_vad, device_rate,
         )
 
+        def _should_request_enroll(transcript: str, min_words: int = 25) -> bool:
+            """Decide whether to append enroll instructions to the message.
+
+            Short utterances don't carry enough audio for reliable enrollment
+            and cause the agent to repeatedly ask "who are you?" which is annoying.
+            """
+            return len(transcript.split()) >= min_words
+
+        def _format_unknown_speaker(transcript: str, audio_path: str) -> str:
+            """Format message for an unrecognized speaker.
+
+            Only appends the enroll instruction when the transcript is long
+            enough to be useful for enrollment.
+            """
+            if audio_path and _should_request_enroll(transcript):
+                return (
+                    f"Unknown Speaker: {transcript} "
+                    f"(audio save at {audio_path}, auto enroll this speaker "
+                    f"if having speaker name in transcript, else ask user's name)"
+                )
+            return f"Unknown Speaker: {transcript}"
+
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
 
@@ -692,9 +714,7 @@ class VoiceService:
             audio_path = result.get("unknown_audio_path", "")
             if err:
                 logger.warning("Speaker ID skipped — embedding server issue: %s", err)
-                if audio_path:
-                    return f"Unknown Speaker: {transcript} (audio save at {audio_path}, auto enroll this speaker if having speaker name in transcript, else ask user's name)"
-                return transcript
+                return _format_unknown_speaker(transcript, audio_path) if audio_path else transcript
 
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
@@ -707,9 +727,7 @@ class VoiceService:
                 return f"Speaker - {display}: {transcript}"
 
             logger.info("Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path or "-")
-            if audio_path:
-                return f"Unknown Speaker: {transcript} (audio save at {audio_path}, auto enroll this speaker if having speaker name in transcript, else ask user's name)"
-            return f"Unknown Speaker: {transcript}"
+            return _format_unknown_speaker(transcript, audio_path)
 
         def _send_best(best: str):
             # Run speaker recognition BEFORE wake word logic so the sent
