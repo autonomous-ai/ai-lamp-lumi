@@ -28,7 +28,7 @@ JSONL line example (wellbeing):
 
 JSONL line example (music-suggestions):
 ```json
-{"ts": 1234567, "hour": 14, "trigger": "sedentary:using computer", "message": "Want some lo-fi?", "status": "accepted"}
+{"ts": 1234567, "hour": 14, "trigger": "mood:tired", "message": "Want some calm piano?", "status": "accepted"}
 ```
 
 ## Storage (Output)

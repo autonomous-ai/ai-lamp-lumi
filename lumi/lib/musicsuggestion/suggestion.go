@@ -25,7 +25,7 @@ type Event struct {
 	TS      float64 `json:"ts"`      // Unix seconds
 	Seq     int64   `json:"seq"`     // Unix nanoseconds (unique across restarts)
 	Hour    int     `json:"hour"`    // hour of day (0-23)
-	Trigger string  `json:"trigger"` // what triggered: "mood:tired", "activity:sedentary"
+	Trigger string  `json:"trigger"` // what triggered: "mood:tired" (mood is the only supported trigger — activity events route to wellbeing, not here)
 	Query   string  `json:"query"`   // suggested song query (empty if text-only suggestion)
 	Message string  `json:"message"` // suggestion text sent to user
 	Status  string  `json:"status"`  // "pending", "accepted", "rejected", "expired"
