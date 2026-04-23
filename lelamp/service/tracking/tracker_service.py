@@ -46,6 +46,10 @@ MAX_LOST_FRAMES = 15  # ~3 seconds at 5 FPS
 # Servo move duration per nudge step (seconds) — short for responsiveness
 NUDGE_DURATION = 0.15
 
+# Servo position limits (degrees) — prevent runaway
+YAW_MIN, YAW_MAX = -135.0, 135.0
+PITCH_MIN, PITCH_MAX = -90.0, 30.0
+
 
 @dataclass
 class TrackingState:
@@ -333,8 +337,8 @@ class TrackerService:
 
         # Update internal position and send to servo
         try:
-            new_yaw = self._track_yaw + yaw_deg
-            new_pitch = self._track_pitch + pitch_deg
+            new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
+            new_pitch = max(PITCH_MIN, min(PITCH_MAX, self._track_pitch + pitch_deg))
 
             target = {
                 "base_yaw.pos": new_yaw,
