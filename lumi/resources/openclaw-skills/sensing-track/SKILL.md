@@ -25,7 +25,7 @@ Each line is a JSON object:
 Key fields:
 - `node` — filter on `"sensing_input"` for sensing events
 - `kind` — `"enter"` = event received, `"exit"` = event processed (with `duration_ms`)
-- `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `motion.activity`, `sound`, `light.level`, `voice`, `voice_command`, `wellbeing.hydration`, `wellbeing.break`, `music.mood`
+- `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `motion.activity`, `sound`, `light.level`, `voice`, `voice_command`, `emotion.detected`
 - `data.message` — natural-language description; may contain `[snapshot: /var/log/lumi/snapshots/...]`
 - `data.path` — in `exit` records: `"agent"` (forwarded), `"local"` (handled locally), or has `"error"` key (failed/dropped)
 - `ts` — Unix timestamp (seconds with fractional ms)
