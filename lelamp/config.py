@@ -85,10 +85,10 @@ DL_API_KEY = _lumi_cfg_get("llm_api_key") or os.environ.get("DL_API_KEY", "")
 DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
 
 DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/ws/lelamp/api/dl/action-analysis/ws")
-DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/ws/lelamp/api/dl/emotion-analysis/ws")
+# DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/ws/lelamp/api/dl/emotion-analysis/ws")
 DL_EMOTION_RECOGNIZE_ENDPOINT = os.environ.get("DL_EMOTION_RECOGNIZE_ENDPOINT", "/lelamp/api/dl/emotion-recognize")
 DL_MOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_MOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
-DL_EMOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_EMOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+# DL_EMOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_EMOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 
 # --- Sensing: Motion detection (action recognition via dlbackend) ---
 MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
