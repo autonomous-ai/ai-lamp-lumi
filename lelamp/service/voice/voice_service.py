@@ -693,7 +693,7 @@ class VoiceService:
             if err:
                 logger.warning("Speaker ID skipped — embedding server issue: %s", err)
                 if audio_path:
-                    return f"Unknown: {transcript} (audio save at {audio_path})"
+                    return f"Unknown Speaker: {transcript} (audio save at {audio_path}, auto enroll this speaker if having speaker name in transcript, else ask user's name)"
                 return transcript
 
             name = result.get("name", "unknown")
@@ -704,12 +704,12 @@ class VoiceService:
                 # normalized label only when the field is absent.
                 display = result.get("display_name") or name.capitalize()
                 logger.info("Speaker ID: %s (confidence=%.2f, audio=%s)", name, confidence, audio_path or "-")
-                return f"{display}: {transcript}"
+                return f"Speaker - {display}: {transcript}"
 
             logger.info("Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path or "-")
             if audio_path:
-                return f"Unknown: {transcript} (audio save at {audio_path})"
-            return f"Unknown: {transcript}"
+                return f"Unknown Speaker: {transcript} (audio save at {audio_path}, auto enroll this speaker if having speaker name in transcript, else ask user's name)"
+            return f"Unknown Speaker: {transcript}"
 
         def _send_best(best: str):
             # Run speaker recognition BEFORE wake word logic so the sent

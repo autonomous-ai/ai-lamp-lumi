@@ -155,7 +155,6 @@ SPEAKER_MATCH_THRESHOLD: float = float(os.environ.get("SPEAKER_MATCH_THRESHOLD",
 SPEAKER_ENROLL_CONSISTENCY_THRESHOLD: float = float(
     os.environ.get("SPEAKER_ENROLL_CONSISTENCY_THRESHOLD", "0.7")
 )
-SPEAKER_EMBED_MAX_SECONDS: float = float(os.environ.get("SPEAKER_EMBED_MAX_SECONDS", "6.0")) # seconds
 SPEAKER_EMBEDDING_API_TIMEOUT_S: float = float(
     os.environ.get("SPEAKER_EMBEDDING_API_TIMEOUT_S", "15")
 )
