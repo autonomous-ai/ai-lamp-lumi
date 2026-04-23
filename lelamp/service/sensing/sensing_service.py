@@ -23,17 +23,17 @@ import os
 import shutil
 import threading
 import time
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import requests
 
 import lelamp.config as config
 from devices.video_capture_device import VideoCaptureDeviceBase
 from lelamp.service.sensing.perceptions import (
+    ActionPerception,
     EmotionPerception,
     FacePerception,
     LightLevelPerception,
-    ActionPerception,
     PoseMotionPerception,
     SoundPerception,
     WellbeingPerception,
@@ -50,17 +50,27 @@ logger.setLevel(logging.DEBUG)
 try:
     import cv2
 except ImportError:
-    cv2 = None
+    if TYPE_CHECKING:
+        import cv2
+    else:
+        cv2 = None
+
 
 try:
     import numpy as np
 except ImportError:
-    np = None
+    if TYPE_CHECKING:
+        import numpy as np
+    else:
+        np = None
 
 try:
     import sounddevice as sd
 except ImportError:
-    sd = None
+    if TYPE_CHECKING:
+        import sounddevice as sd
+    else:
+        sd = None
 
 
 class SensingService:
@@ -343,9 +353,8 @@ class SensingService:
         self,
         event_type: str,
         message: str,
-        image=None,
-        images: list | None = None,
-        cooldown: Optional[float] = None,
+        images: list[cv2.typing.MatLike] | None = None,
+        cooldown: float | None = None,
     ):
         # Suppress sensing events while sleeping — only allow presence.enter to wake up
         if self._is_sleeping and self._is_sleeping() and event_type != "presence.enter":
@@ -390,11 +399,7 @@ class SensingService:
                 return
 
         # Collect all images to save (single image or list)
-        frames = []
-        if images:
-            frames = list(images)
-        elif image is not None:
-            frames = [image]
+        frames = images or []
 
         # Save each frame and append snapshot paths to the message.
         for frame in frames:
