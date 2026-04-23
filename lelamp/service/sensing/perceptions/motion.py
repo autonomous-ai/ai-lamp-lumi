@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import requests
-from websockets import ConnectionClosedError
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import ClientConnection, connect
 
 import lelamp.config as config
@@ -139,17 +139,19 @@ class RemoteMotionChecker:
         now = time.time()
         if now - self._last_heartbeat_ts < self._heartbeat_interval:
             return
+
+        self._last_heartbeat_ts = now
+
         if self._ws_session is None:
             return
         try:
             self._ws_session.send(json.dumps({"type": "heartbeat", "task": "action"}))
             resp = json.loads(self._ws_session.recv())
             if resp.get("status") == "ok":
-                self._last_heartbeat_ts = now
                 logger.debug("[motion] heartbeat ok")
             else:
                 logger.warning("[motion] heartbeat unexpected response: %s", resp)
-        except ConnectionClosedError:
+        except ConnectionClosed:
             logger.warning("[motion] heartbeat failed — connection lost")
             self._ws_session = None
 
@@ -174,7 +176,13 @@ class RemoteMotionChecker:
         if self._ws_session is not None:
             try:
                 self._ws_session.send(
-                    json.dumps({"type": "frame", "task": "action", "frame_b64": self._img2b64(frame)})
+                    json.dumps(
+                        {
+                            "type": "frame",
+                            "task": "action",
+                            "frame_b64": self._img2b64(frame),
+                        }
+                    )
                 )
                 resp = json.loads(self._ws_session.recv())
                 detected_classes = sorted(
@@ -183,7 +191,7 @@ class RemoteMotionChecker:
                     reverse=True,
                 )
                 return detected_classes
-            except ConnectionClosedError:
+            except ConnectionClosed:
                 logger.warning(
                     "[%s] connection lost, will retry on next tick",
                     self.__class__.__name__,
@@ -296,8 +304,13 @@ class MotionPerception(Perception):
         for det in detections:
             label = f"{det['class_name']} ({det['conf']:.2f})"
             cv2.putText(
-                vis, label, (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2,
+                vis,
+                label,
+                (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
             )
             y_offset += 30
         return vis
@@ -458,7 +471,9 @@ class MotionPerception(Perception):
                 if resp.status_code != 200:
                     logger.warning(
                         "[motion] wellbeing log %s returned %d: %s",
-                        label, resp.status_code, resp.text,
+                        label,
+                        resp.status_code,
+                        resp.text,
                     )
             except requests.RequestException as e:
                 logger.debug("[motion] wellbeing log %s failed: %s", label, e)
@@ -485,7 +500,8 @@ class MotionPerception(Perception):
             return
         logger.info(
             "[motion] dedup reset (user %r → %r)",
-            last_user, new_user,
+            last_user,
+            new_user,
         )
         self._last_sent_key = None
         self._last_sent_ts = 0.0
