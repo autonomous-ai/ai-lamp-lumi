@@ -11,6 +11,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
 // StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
@@ -18,7 +19,7 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, tt
 	if deepgramKey == "" {
 		return nil
 	}
-	url := "http://127.0.0.1:5001/voice/start"
+	url := lelamp.BaseURL + "/voice/start"
 	payload := map[string]string{
 		"deepgram_api_key": deepgramKey,
 		"llm_api_key":      llmKey,
@@ -65,7 +66,7 @@ func stripForTTS(text string) string {
 // SetVolume sets speaker volume on LeLamp (0-100).
 func (s *Service) SetVolume(pct int) error {
 	body, _ := json.Marshal(map[string]int{"volume": pct})
-	resp, err := http.Post("http://127.0.0.1:5001/audio/volume", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(lelamp.BaseURL+"/audio/volume", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("POST /audio/volume: %w", err)
 	}
@@ -77,14 +78,14 @@ func (s *Service) SetVolume(pct int) error {
 // StopTTS interrupts active TTS playback and music on LeLamp immediately,
 // freeing the speaker so the voice mic can receive new commands.
 func (s *Service) StopTTS() error {
-	ttsResp, err := http.Post("http://127.0.0.1:5001/tts/stop", "application/json", nil)
+	ttsResp, err := http.Post(lelamp.BaseURL+"/tts/stop", "application/json", nil)
 	if err != nil {
 		return fmt.Errorf("POST /tts/stop: %w", err)
 	}
 	defer ttsResp.Body.Close()
 
 	// Also stop any music playing — speaker is shared, mic is locked while either runs.
-	musicResp, err := http.Post("http://127.0.0.1:5001/audio/stop", "application/json", nil)
+	musicResp, err := http.Post(lelamp.BaseURL+"/audio/stop", "application/json", nil)
 	if err != nil {
 		slog.Warn("POST /audio/stop failed", "component", "openclaw", "error", err)
 	} else {
@@ -102,7 +103,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 	if text == "" {
 		return nil
 	}
-	url := "http://127.0.0.1:5001/voice/speak"
+	url := lelamp.BaseURL + "/voice/speak"
 	body, _ := json.Marshal(map[string]string{"text": text})
 	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
 	if err != nil {

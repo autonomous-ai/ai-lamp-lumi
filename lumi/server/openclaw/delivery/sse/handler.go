@@ -25,6 +25,7 @@ import (
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/internal/statusled"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
 	"go-lamp.autonomous.ai/lib/usercanon"
@@ -259,7 +260,7 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			if c.path == "/broadcast" || c.path == "/speak" || c.path == "/dm" {
 				continue
 			}
-			resp, err := http.Post("http://127.0.0.1:5001"+c.path, "application/json", strings.NewReader(c.body))
+			resp, err := http.Post(lelamp.BaseURL+c.path, "application/json", strings.NewReader(c.body))
 			if err != nil {
 				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
 				continue
@@ -741,7 +742,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 											h.compacting.Store(false)
 										}()
 										// Notify user via TTS
-										resp, err := http.Post("http://127.0.0.1:5001/voice/speak", "application/json",
+										resp, err := http.Post(lelamp.BaseURL+"/voice/speak", "application/json",
 											strings.NewReader(`{"text":"Hold on, tidying up a bit.","interruptible":true}`))
 										if err == nil {
 											resp.Body.Close()
@@ -1280,7 +1281,7 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 // fetchLeLampEmotion calls LeLamp /emotion/status to get the current emotion.
 // Falls back to lastEmotion if LeLamp is unreachable.
 func (h *OpenClawHandler) fetchLeLampEmotion() string {
-	resp, err := http.Get("http://127.0.0.1:5001/emotion/status")
+	resp, err := http.Get(lelamp.BaseURL + "/emotion/status")
 	if err != nil {
 		h.lastEmotionMu.Lock()
 		defer h.lastEmotionMu.Unlock()
