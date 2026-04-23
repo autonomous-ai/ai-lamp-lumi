@@ -5,6 +5,8 @@ description: Self-enroll voices for speaker recognition. Triggered when a mic tr
 
 # Speaker Recognizer
 
+> **MANDATORY: If transcript has `Unknown:` + `(audio save at <path>)` + a name ("I'm X", "my name is X", "this is X", "call me X") → enroll IMMEDIATELY. Do not just greet — call POST /speaker/enroll with the audio path and name.**
+
 ## Quick Start
 Manage voice profiles for the lamp's speaker recognition system. Each mic transcript is prefixed with `Name:` when the speaker is recognized or `Unknown: ... (audio save at <path>)` otherwise. Use the saved path to enroll the voice when the user introduces themselves.
 
