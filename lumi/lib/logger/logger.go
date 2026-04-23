@@ -1,15 +1,25 @@
 package logger
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+// GELF centralized logging
+const (
+	gelfURL      = "https://lumi-logs.autonomousdev.xyz/gelf"
+	gelfUsername = "lumi-client"
+	gelfPassword = "24b4aab7c741156f2a68d3d3980057b3"
 )
 
 // ANSI color codes
@@ -141,6 +151,115 @@ func (m *multiHandler) WithGroup(name string) slog.Handler {
 	return &multiHandler{handlers: handlers}
 }
 
+// gelfHandler sends log records to a centralized GELF endpoint over HTTP.
+type gelfHandler struct {
+	level  slog.Level
+	host   string
+	client *http.Client
+	attrs  []slog.Attr
+	group  string
+}
+
+func newGELFHandler(level slog.Level, host string) *gelfHandler {
+	return &gelfHandler{
+		level:  level,
+		host:   host,
+		client: &http.Client{Timeout: 3 * time.Second},
+	}
+}
+
+func (h *gelfHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level
+}
+
+func slogLevelToGELF(level slog.Level) int {
+	switch {
+	case level >= slog.LevelError:
+		return 3 // error
+	case level >= slog.LevelWarn:
+		return 4 // warning
+	case level >= slog.LevelInfo:
+		return 6 // info
+	default:
+		return 7 // debug
+	}
+}
+
+func (h *gelfHandler) Handle(_ context.Context, r slog.Record) error {
+	msg := map[string]any{
+		"version":       "1.1",
+		"host":          h.host,
+		"short_message": r.Message,
+		"timestamp":     float64(r.Time.UnixNano()) / 1e9,
+		"level":         slogLevelToGELF(r.Level),
+	}
+
+	// Add attributes as GELF extra fields (prefixed with _)
+	for _, a := range h.attrs {
+		key := a.Key
+		if h.group != "" {
+			key = h.group + "." + key
+		}
+		msg["_"+key] = a.Value.String()
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		key := a.Key
+		if h.group != "" {
+			key = h.group + "." + key
+		}
+		msg["_"+key] = a.Value.String()
+		return true
+	})
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return nil // don't block on marshal errors
+	}
+
+	go func() {
+		req, err := http.NewRequest("POST", gelfURL, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.SetBasicAuth(gelfUsername, gelfPassword)
+		resp, err := h.client.Do(req)
+		if err != nil {
+			return
+		}
+		resp.Body.Close()
+	}()
+
+	return nil
+}
+
+func (h *gelfHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newAttrs := make([]slog.Attr, len(h.attrs), len(h.attrs)+len(attrs))
+	copy(newAttrs, h.attrs)
+	newAttrs = append(newAttrs, attrs...)
+	return &gelfHandler{level: h.level, host: h.host, client: h.client, attrs: newAttrs, group: h.group}
+}
+
+func (h *gelfHandler) WithGroup(name string) slog.Handler {
+	g := name
+	if h.group != "" {
+		g = h.group + "." + name
+	}
+	newAttrs := make([]slog.Attr, len(h.attrs))
+	copy(newAttrs, h.attrs)
+	return &gelfHandler{level: h.level, host: h.host, client: h.client, attrs: newAttrs, group: g}
+}
+
+// activeGELF holds the GELF handler so SetGELFHost can update host after config loads.
+var activeGELF *gelfHandler
+
+// SetGELFHost updates the GELF host field (call after config is loaded with device_id).
+func SetGELFHost(host string) {
+	if activeGELF != nil && host != "" {
+		activeGELF.host = host
+	}
+}
+
 // Init sets up the global slog default logger with colored console output.
 // If logFilePath is non-empty, logs are also written to that file (plain text, no color).
 // Returns a cleanup function to close the log file (call via defer).
@@ -169,8 +288,11 @@ func Init(level slog.Level, logFilePath string) func() {
 		level: level,
 	}
 
+	gelf := newGELFHandler(slog.LevelInfo, "lumi")
+	activeGELF = gelf
+
 	slog.SetDefault(slog.New(&multiHandler{
-		handlers: []slog.Handler{consoleHandler, fileHandler},
+		handlers: []slog.Handler{consoleHandler, fileHandler, gelf},
 	}))
 
 	return func() { rotatingWriter.Close() }
