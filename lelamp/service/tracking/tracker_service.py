@@ -109,13 +109,10 @@ class TrackerService:
             logger.error("tracker start: no frame available from camera")
             return False
 
-        # Create CSRT tracker (good accuracy, reasonable speed on Pi)
-        try:
-            tracker = cv2.TrackerCSRT.create()
-        except AttributeError:
-            # opencv-python (non-contrib) may not have CSRT; fall back to KCF
-            logger.warning("CSRT not available, falling back to KCF tracker")
-            tracker = cv2.TrackerKCF.create()
+        tracker = self._create_tracker()
+        if tracker is None:
+            logger.error("No OpenCV tracker available")
+            return False
 
         ok = tracker.init(frame, bbox)
         if not ok:
@@ -162,10 +159,9 @@ class TrackerService:
             frame = camera_capture.last_frame if camera_capture else None
             if frame is None:
                 return False
-            try:
-                tracker = cv2.TrackerCSRT.create()
-            except AttributeError:
-                tracker = cv2.TrackerKCF.create()
+            tracker = self._create_tracker()
+            if tracker is None:
+                return False
             ok = tracker.init(frame, bbox)
             if ok:
                 self._state.tracker = tracker
@@ -173,6 +169,28 @@ class TrackerService:
                 self._state.lost_frames = 0
                 logger.info("Tracker re-initialized with bbox %s", bbox)
             return ok
+
+    @staticmethod
+    def _create_tracker():
+        """Create the best available OpenCV tracker.
+
+        Priority: CSRT > KCF > TrackerNano > TrackerMIL (most widely available).
+        """
+        candidates = [
+            ("CSRT", lambda: cv2.TrackerCSRT.create()),
+            ("KCF", lambda: cv2.TrackerKCF.create()),
+            ("Nano", lambda: cv2.TrackerNano.create()),
+            ("MIL", lambda: cv2.TrackerMIL.create()),
+            ("Vit", lambda: cv2.TrackerVit.create()),
+        ]
+        for name, factory in candidates:
+            try:
+                tracker = factory()
+                logger.info("Using OpenCV tracker: %s", name)
+                return tracker
+            except (AttributeError, cv2.error):
+                continue
+        return None
 
     # --- Internal tracking loop ---
 
