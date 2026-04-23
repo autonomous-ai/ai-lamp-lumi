@@ -128,7 +128,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._last_emotion: str | None = None
 
         # Lock protects all mutable state below
-        self._state_lock: threading.Lock = threading.Lock()
+        self._state_lock: threading.RLock = threading.RLock()
 
         # Buffer per person — flushed every EMOTION_FLUSH_S
         self._flush_interval: float = config.EMOTION_FLUSH_S

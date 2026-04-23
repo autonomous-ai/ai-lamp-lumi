@@ -64,7 +64,7 @@ class FaceRecognizer:
         self._stranger_embeddings: npt.NDArray[np.float32] | None = None
         self._stranger_labels: npt.NDArray[np.str_] | None = None
 
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
         self._running: bool = False
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
