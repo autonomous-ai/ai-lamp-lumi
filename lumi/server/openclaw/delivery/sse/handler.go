@@ -742,10 +742,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 											h.compacting.Store(false)
 										}()
 										// Notify user via TTS
-										resp, err := http.Post(lelamp.BaseURL+"/voice/speak", "application/json",
-											strings.NewReader(`{"text":"Hold on, tidying up a bit.","interruptible":true}`))
-										if err == nil {
-											resp.Body.Close()
+										if err := lelamp.SpeakInterruptible("Hold on, tidying up a bit."); err != nil {
+											slog.Warn("compaction notice TTS failed", "component", "openclaw", "error", err)
 										}
 										sessionKey := h.agentGateway.GetSessionKey()
 										if sessionKey == "" {
@@ -1281,23 +1279,13 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 // fetchLeLampEmotion calls LeLamp /emotion/status to get the current emotion.
 // Falls back to lastEmotion if LeLamp is unreachable.
 func (h *OpenClawHandler) fetchLeLampEmotion() string {
-	resp, err := http.Get(lelamp.BaseURL + "/emotion/status")
+	emotion, err := lelamp.GetEmotion()
 	if err != nil {
 		h.lastEmotionMu.Lock()
 		defer h.lastEmotionMu.Unlock()
 		return h.lastEmotion
 	}
-	defer resp.Body.Close()
-
-	var result struct {
-		CurrentEmotion string `json:"current_emotion"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		h.lastEmotionMu.Lock()
-		defer h.lastEmotionMu.Unlock()
-		return h.lastEmotion
-	}
-	return result.CurrentEmotion
+	return emotion
 }
 
 // Recent returns the latest flow events from today's JSONL file only.

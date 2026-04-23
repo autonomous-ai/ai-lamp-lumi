@@ -3,8 +3,6 @@ package http
 import (
 	"log/slog"
 	"math/rand"
-	"net/http"
-	"strings"
 
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
@@ -42,9 +40,6 @@ var Fillers = []string{
 	"Oh, let me check that",
 }
 
-// LeLampSpeakURL is the endpoint to trigger TTS on LeLamp.
-var LeLampSpeakURL = lelamp.BaseURL + "/voice/speak"
-
 // PlayDeadAirFiller sends a random filler phrase to LeLamp TTS.
 // No-op if Fillers is empty. Safe to call from a goroutine.
 func PlayDeadAirFiller() {
@@ -53,15 +48,9 @@ func PlayDeadAirFiller() {
 	}
 	filler := Fillers[rand.Intn(len(Fillers))]
 	slog.Info("dead air filler", "component", "sensing", "filler", filler)
-	resp, err := http.Post(
-		LeLampSpeakURL,
-		"application/json",
-		strings.NewReader(`{"text":"`+filler+`","interruptible":true}`),
-	)
-	if err != nil {
+	if err := lelamp.SpeakInterruptible(filler); err != nil {
 		slog.Warn("dead air filler failed", "component", "sensing", "error", err)
 		return
 	}
-	resp.Body.Close()
 	slog.Info("dead air filler sent", "component", "sensing", "filler", filler)
 }

@@ -1,11 +1,8 @@
 package openclaw
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -19,29 +16,18 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, tt
 	if deepgramKey == "" {
 		return nil
 	}
-	url := lelamp.BaseURL + "/voice/start"
-	payload := map[string]string{
-		"deepgram_api_key": deepgramKey,
-		"llm_api_key":      llmKey,
-		"llm_base_url":     llmBaseURL,
-		"tts_voice":        ttsVoice,
+	if err := lelamp.StartVoice(lelamp.VoiceStartConfig{
+		DeepgramKey:     deepgramKey,
+		LLMKey:          llmKey,
+		LLMBaseURL:      llmBaseURL,
+		TTSVoice:        ttsVoice,
+		TTSInstructions: ttsInstructions,
+		TTSProvider:     ttsProvider,
+	}); err != nil {
+		return err
 	}
-	if ttsInstructions != "" {
-		payload["tts_instructions"] = ttsInstructions
-	}
-	if ttsProvider != "" {
-		payload["tts_provider"] = ttsProvider
-	}
-	body, _ := json.Marshal(payload)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		return fmt.Errorf("POST /voice/start: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		slog.Info("LeLamp voice pipeline started", "component", "openclaw")
-		flow.Log("voice_pipeline_start", nil)
-	}
+	slog.Info("LeLamp voice pipeline started", "component", "openclaw")
+	flow.Log("voice_pipeline_start", nil)
 	return nil
 }
 
@@ -65,12 +51,9 @@ func stripForTTS(text string) string {
 
 // SetVolume sets speaker volume on LeLamp (0-100).
 func (s *Service) SetVolume(pct int) error {
-	body, _ := json.Marshal(map[string]int{"volume": pct})
-	resp, err := http.Post(lelamp.BaseURL+"/audio/volume", "application/json", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("POST /audio/volume: %w", err)
+	if err := lelamp.SetVolume(pct); err != nil {
+		return err
 	}
-	defer resp.Body.Close()
 	slog.Info("speaker volume set", "component", "openclaw", "pct", pct)
 	return nil
 }
@@ -78,20 +61,13 @@ func (s *Service) SetVolume(pct int) error {
 // StopTTS interrupts active TTS playback and music on LeLamp immediately,
 // freeing the speaker so the voice mic can receive new commands.
 func (s *Service) StopTTS() error {
-	ttsResp, err := http.Post(lelamp.BaseURL+"/tts/stop", "application/json", nil)
-	if err != nil {
-		return fmt.Errorf("POST /tts/stop: %w", err)
+	if err := lelamp.StopTTS(); err != nil {
+		return err
 	}
-	defer ttsResp.Body.Close()
-
 	// Also stop any music playing — speaker is shared, mic is locked while either runs.
-	musicResp, err := http.Post(lelamp.BaseURL+"/audio/stop", "application/json", nil)
-	if err != nil {
-		slog.Warn("POST /audio/stop failed", "component", "openclaw", "error", err)
-	} else {
-		defer musicResp.Body.Close()
+	if err := lelamp.StopAudio(); err != nil {
+		slog.Warn("stop audio failed", "component", "openclaw", "error", err)
 	}
-
 	slog.Info("speaker stopped (TTS + music)", "component", "openclaw")
 	return nil
 }
@@ -103,15 +79,8 @@ func (s *Service) SendToLeLampTTS(text string) error {
 	if text == "" {
 		return nil
 	}
-	url := lelamp.BaseURL + "/voice/speak"
-	body, _ := json.Marshal(map[string]string{"text": text})
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		return fmt.Errorf("POST /voice/speak: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("POST /voice/speak returned %d", resp.StatusCode)
+	if err := lelamp.Speak(text); err != nil {
+		return fmt.Errorf("speak: %w", err)
 	}
 	slog.Info("TTS sent", "component", "openclaw", "text", text[:min(len(text), 80)])
 
