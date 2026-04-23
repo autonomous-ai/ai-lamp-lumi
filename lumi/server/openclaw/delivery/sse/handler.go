@@ -745,7 +745,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										if err == nil {
 											resp.Body.Close()
 										}
-										if _, err := h.agentGateway.SendSystemChatMessage("/compact"); err != nil {
+										sessionKey := h.agentGateway.GetSessionKey()
+										if sessionKey == "" {
+											slog.Error("auto-compact failed: no session key", "component", "agent")
+											return
+										}
+										if err := h.agentGateway.CompactSession(sessionKey); err != nil {
 											slog.Error("auto-compact failed", "component", "agent", "error", err)
 										}
 									}()

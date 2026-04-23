@@ -229,7 +229,7 @@ lumi_gate → tts_speak          (Gate passes if not suppressed → LeLamp TTS)
 
 Node info extracted from turn events:
 - `sensing_input` → Sensing node (type + message). Detail: `{ type }`.
-- `chat_send` → outbound `chat.send` from Lumi. Detail: `{ type, run_id, has_session, has_image, image_bytes, message }`. `type` is `"user"` for real user / sensing-driven input, or `"system"` for internal notifications (skill watcher, wake greeting, `/compact`). The WS RPC payload sent to OpenClaw is identical in both cases — `type` only labels the flow event so the UI can distinguish them.
+- `chat_send` → outbound `chat.send` from Lumi. Detail: `{ type, run_id, has_session, has_image, image_bytes, message }`. `type` is `"user"` for real user / sensing-driven input, or `"system"` for internal notifications (skill watcher, wake greeting). The WS RPC payload sent to OpenClaw is identical in both cases — `type` only labels the flow event so the UI can distinguish them. Auto-compact does **not** emit a `chat_send`; it calls the `sessions.compact` RPC directly via `CompactSession`.
 - `sound_tracker` → pushed by LeLamp Python directly via `POST /api/monitor/event`. Appears alongside `sensing_input` turns to show escalation state:
   - `{ action: "silent", occurrence: 1 }` — forwarded, agent stays silent
   - `{ action: "persistent", occurrence: 3 }` — forwarded, agent will speak
