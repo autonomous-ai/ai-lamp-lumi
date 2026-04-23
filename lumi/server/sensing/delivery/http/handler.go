@@ -328,7 +328,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[Follow wellbeing/SKILL.md.]"
 		case "emotion.detected":
 			currentUser := req.CurrentUser
 			if currentUser == "" {
