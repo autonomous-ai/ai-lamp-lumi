@@ -1,14 +1,14 @@
 ---
 name: speaker-recognizer
-description: Self-enroll voices for speaker recognition. Triggered when a mic transcript arrives prefixed with "Unknown:" and the user is introducing themselves, or when a Telegram voice-note attachment carries an introduction. Telegram identity is saved for DM targeting. Self-enrollment only.
+description: Self-enroll voices for speaker recognition. Triggered when a mic transcript arrives prefixed with "Unknown Speaker:" and the user is introducing themselves, or when a Telegram voice-note attachment carries an introduction. Telegram identity is saved for DM targeting. Self-enrollment only.
 ---
 
 # Speaker Recognizer
 
-> **MANDATORY: If transcript has `Unknown:` + `(audio save at <path>)` + a name ("I'm X", "my name is X", "this is X", "call me X") → enroll IMMEDIATELY. Do not just greet — call POST /speaker/enroll with the audio path and name.**
+> **MANDATORY: If transcript has `Unknown Speaker:` + `(audio save at <path>, auto enroll this speaker if having speaker name in transcript, else ask user's name)` + a name ("I'm X", "my name is X", "this is X", "call me X") → enroll IMMEDIATELY. Do not just greet — call POST /speaker/enroll with the audio path and name.**
 
 ## Quick Start
-Manage voice profiles for the lamp's speaker recognition system. Each mic transcript is prefixed with `Name:` when the speaker is recognized or `Unknown: ... (audio save at <path>)` otherwise. Use the saved path to enroll the voice when the user introduces themselves.
+Manage voice profiles for the lamp's speaker recognition system. Each mic transcript is prefixed with `Name:` when the speaker is recognized or `Unknown Speaker: ... (audio save at <path>)` otherwise. Use the saved path to enroll the voice when the user introduces themselves.
 
 **Self-enrollment only** — each person enrolls their own voice. The audio path contains whoever was speaking in that turn — never enroll one person's voice under another person's name.
 
@@ -16,8 +16,8 @@ Manage voice profiles for the lamp's speaker recognition system. Each mic transc
 
 Activate this skill when any of these fire:
 
-- **Mic, one-turn intro**: final transcript starts with `Unknown: ... (audio save at <path>)` AND includes a self-introduction: "I'm X", "my name is X", "this is X", "call me X", "tôi là X", "mình là X".
-- **Mic, two-turn**: previous final transcript was `Unknown: ... (audio save at <pathA>)` with no name -> ask exactly "Who are you?" or "Tell me your name." -> this turn user gives their name with `Unknown: ... (audio save at <pathB>)`. Enroll once with BOTH paths: `[<pathA>, <pathB>]`.
+- **Mic, one-turn intro**: final transcript starts with `Unknown Speaker: ... (audio save at <path>,  auto enroll this speaker if having speaker name in transcript, else ask user's name)` AND includes a self-introduction: "I'm X", "my name is X", "this is X", "call me X", "tôi là X", "mình là X".
+- **Mic, two-turn**: previous final transcript was `Unknown Speaker: ... (audio save at <pathA>, ...)` with no name -> ask exactly "Who are you?" or "Tell me your name." -> this turn user gives their name with `Unknown Speaker: ... (audio save at <pathB>, ...)`. Enroll once with BOTH paths: `[<pathA>, <pathB>]`.
 - **Telegram voice note + intro**: message carries `[mediaPaths: .../xxx.ogg|.wav|.m4a|.mp3|.opus]` AND the user is introducing themselves.
 - **User asks about registered voices**: "who do you know?" / "list voices" / "do you remember my voice?".
 - **User asks to forget their voice**: "forget my voice" / "remove Darren".
@@ -31,14 +31,14 @@ Do NOT activate when:
 ## Workflow
 
 ### Enroll a voice (mic, one-turn)
-1. Parse the `(audio save at <path>)` marker from the `Unknown:` final transcript.
+1. Parse the `(audio save at <path>)` marker from the `Unknown Speaker:` final transcript.
 2. Extract the **name** from the intro.
 3. Call `POST /speaker/enroll` with that one path. No Telegram fields (origin auto = `"mic"`).
 
 ### Enroll a voice (mic, two-turn)
-1. Turn A was `Unknown: ... (audio save at <pathA>)` and no name was detected.
+1. Turn A was `Unknown Speaker: ... (audio save at <pathA>)` and no name was detected.
 2. Ask one follow-up: "Who are you?" or "Tell me your name."
-3. Turn B has user name + `Unknown: ... (audio save at <pathB>)`.
+3. Turn B has user name + `Unknown Speaker: ... (audio save at <pathB>)`.
 4. Call `POST /speaker/enroll` exactly once with `wav_paths=[<pathA>, <pathB>]`.
 
 ### Enroll from Telegram voice note ("remember my voice")
@@ -143,7 +143,7 @@ curl -s -X POST http://127.0.0.1:5001/speaker/reset
 - **Lowercase normalized names** — use the same `name` as `face-enroll` for the same person (folder `/root/local/users/<name>/` is shared across skills).
 - **Always include Telegram identity when the message came from Telegram** — pass `telegram_username` + `telegram_id`. Omit (don't send empty strings) when unknown.
 - **Unknown final transcript rule**:
-  - If transcript has `Unknown: ... (audio save at <path>)` and user self-introduces -> enroll immediately with that path.
+  - If transcript has `Unknown Speaker: ... (audio save at <path>)` and user self-introduces -> enroll immediately with that path.
   - If no name is detected -> ask "Who are you?" or "Tell me your name.", then enroll once using both path A and path B.
 - **Use `/speaker/identity`, not re-enroll**, when you just want to link Telegram info to a mic-only profile (no new audio).
 - **Telegram audio must be 16 kHz mono WAV** before calling the API — convert with `ffmpeg -ar 16000 -ac 1 -y "${SRC%.*}.wav"` (same folder as the source). Skip conversion if the source is already `.wav`. Non-WAV media files (`.ogg`, `.m4a`, `.mp3`, `.opus`) are rejected by the embedding backend.
