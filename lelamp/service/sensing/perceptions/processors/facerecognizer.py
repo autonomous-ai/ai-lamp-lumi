@@ -19,12 +19,12 @@ import lelamp.config as config
 from service.sensing.perceptions.models import (
     Face,
     FaceDetectionData,
-    PerceptionStateObservers,
     PersonData,
     PersonKind,
 )
 from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.presence_service import PresenceService
+from service.sensing.perceptions.utils import PerceptionStateObservers
+from service.sensing.presence_service import PresenseService
 
 from .base import Perception
 
@@ -320,7 +320,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         self,
         perception_state: PerceptionStateObservers,
         send_event: SendEventCallable,
-        presense_service: PresenceService | None = None,
+        presense_service: PresenseService | None = None,
         threshold: float = 0.4,
         negative_threshold: float | None = 0.2,
         max_strangers: int = 50,
@@ -330,7 +330,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
     ):
         super().__init__(perception_state, send_event)
 
-        self._presense_service: PresenceService | None = presense_service
+        self._presense_service: PresenseService | None = presense_service
         self._face_recognizer: FaceRecognizer = FaceRecognizer(
             threshold=threshold,
             negative_threshold=negative_threshold,
@@ -367,7 +367,6 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         # # produce a matching leave, and re-enters would stack duplicate rows.
         self._any_stranger_logged: bool = False
         self._stranger_visit_counts: dict[str, Any] = self._load_stranger_stats()
-
 
         # Stranger snapshot buffer — flushed every FACE_STRANGER_FLUSH_S
         # Each entry: (raw_frame, annotations[(bbox, kind, label), ...])
@@ -520,7 +519,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 )
 
         n_owners = len(self._face_recognizer.owners)
-        n_strangers = len(self._face_recognizer.owners)
+        n_strangers = len(self._face_recognizer.strangers)
         logger.info(
             "Load from disk done — %d image(s), %d enrolled owners(s), %d enrolled strangers(s)",
             loaded_total,
@@ -542,8 +541,6 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if img is None:
             raise ValueError("could not decode image")
-        if not self.app.get(img):
-            raise ValueError("no face detected in image")
         ok, buf = cv2.imencode(".jpg", img)
         if not ok:
             raise ValueError("could not encode image")
@@ -554,7 +551,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
     @staticmethod
     def _resolve_person_dir(label: str) -> Path | None:
         """Find the actual person directory on disk, handling case mismatches."""
-        norm = FaceRecognizer.normalize_label(label)
+        norm = FacePerception.normalize_label(label)
         direct = USERS_DIR / norm
         if direct.is_dir():
             return direct
@@ -626,111 +623,120 @@ class FacePerception(Perception[cv2.typing.MatLike]):
 
         faces = self._face_recognizer.detect(frame)
 
-        _ = self._state_lock.acquire()
-        if not faces:
-            self._face_present = False
-            self._faces_n = 0
-            self._check_leaves(cur_ts)
-            return
-        else:
-            self._faces_n = len(faces)
-            self._face_present = len(faces) > 0
-
-        owners_seen = set([f.person_id for f in faces if f.kind == PersonKind.FRIEND])
-        strangers_seen = set(
-            [f.person_id for f in faces if f.kind == PersonKind.STRANGER]
-        )
-
-        logger.info(
-            f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
-        )
-
-        new_owners: set[str] = set()
-        new_strangers: set[str] = set()
-
-        for f in faces:
-            if f.kind == PersonKind.UNSURE:
-                continue
-
-            person_id = f.person_id
-            if person_id not in self._people_data_dict:
-                self._people_data_dict[person_id] = PersonData(
-                    id=person_id, kind=f.kind
-                )
-
-            face_data = self._people_data_dict[person_id]
-
-            if face_data.kind == PersonKind.FRIEND:
-                forget_ts = self._owners_forget_ts
-            elif face_data.kind == PersonKind.STRANGER:
-                forget_ts = self._strangers_forget_ts
+        with self._state_lock:
+            if not faces:
+                self._face_present = False
+                self._faces_n = 0
+                self._check_leaves(cur_ts)
+                return
             else:
-                forget_ts = 0
+                self._faces_n = len(faces)
+                self._face_present = len(faces) > 0
 
-            if (
-                face_data.last_seen is None
-                or (cur_ts - face_data.last_seen) > forget_ts
-            ):
-                if face_data.kind == PersonKind.FRIEND:
-                    new_owners.add(person_id)
-                elif face_data.kind == PersonKind.STRANGER:
-                    new_strangers.add(person_id)
-
-                self._people_data_dict[person_id].last_session_time = cur_ts
-
-            self._people_data_dict[person_id].last_seen = cur_ts
-
-        # "unknown" session enter: fire once when the first stranger appears
-        # and stays un-logged until all strangers leave. Keeps multiple
-        # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
-        # into one session row for the "unknown" user timeline.
-        if len(new_strangers) > 0 and not self._any_stranger_logged:
-            self._post_wellbeing("unknown", "enter")
-            self._any_stranger_logged = True
-
-        if self._face_present and self._presense_service is not None:
-            self._presense_service.on_motion()
-
-        # Strangers: always buffer snapshots; flush decides when to send
-        annotated_frame = self._annotate_frame(frame, faces)
-        annotated_frames_to_send: list[cv2.typing.MatLike] = []
-        if len(new_owners) > 0:
-            annotated_frames_to_send.append(annotated_frame)
-        else:
-            if new_strangers:
-                self._stranger_snapshots_buffers.append(annotated_frame)
-                self._stranger_ids_buffer.update(new_strangers)
-
-        if new_strangers:
-            self._track_stranger_visits(new_strangers)
-
-        flushed_stranger_snapshots, flushed_stranger_ids = self._flush_stranger_buffer(
-            cur_ts
-        )
-
-        annotated_frames_to_send = annotated_frames_to_send + flushed_stranger_snapshots
-        stranger_ids_to_send = new_strangers.union(flushed_stranger_ids)
-
-        if annotated_frames_to_send:
-            parts = []
-            if new_owners:
-                parts.append(f"friend ({', '.join(new_owners)})")
-            if stranger_ids_to_send:
-                parts.append(f"stranger ({', '.join(stranger_ids_to_send)})")
-            summary = ", ".join(parts)
-            total_faces = len(new_owners) + len(stranger_ids_to_send)
-            self._send_enter_event(
-                frames=annotated_frames_to_send,
-                message=f"Person detected — {total_faces} face(s) visible ({summary})",
+            owners_seen = set(
+                [f.person_id for f in faces if f.kind == PersonKind.FRIEND]
+            )
+            strangers_seen = set(
+                [f.person_id for f in faces if f.kind == PersonKind.STRANGER]
             )
 
-        self._check_leaves(cur_ts)
+            logger.info(
+                f"Detected friends={list(owners_seen)} and strangers={list(strangers_seen)}"
+            )
 
-        self._state_lock.release()
+            new_owners: set[str] = set()
+            new_strangers: set[str] = set()
+
+            for f in faces:
+                if f.kind == PersonKind.UNSURE:
+                    continue
+
+                person_id = f.person_id
+                if person_id not in self._people_data_dict:
+                    self._people_data_dict[person_id] = PersonData(
+                        id=person_id, kind=f.kind
+                    )
+
+                face_data = self._people_data_dict[person_id]
+
+                if face_data.kind == PersonKind.FRIEND:
+                    forget_ts = self._owners_forget_ts
+                elif face_data.kind == PersonKind.STRANGER:
+                    forget_ts = self._strangers_forget_ts
+                else:
+                    forget_ts = 0
+
+                if (
+                    face_data.last_seen is None
+                    or (cur_ts - face_data.last_seen) > forget_ts
+                ):
+                    if face_data.kind == PersonKind.FRIEND:
+                        new_owners.add(person_id)
+                    elif face_data.kind == PersonKind.STRANGER:
+                        new_strangers.add(person_id)
+
+                    self._people_data_dict[person_id].last_session_time = cur_ts
+
+                self._people_data_dict[person_id].last_seen = cur_ts
+
+            # "unknown" session enter: fire once when the first stranger appears
+            # and stays un-logged until all strangers leave. Keeps multiple
+            # stranger IDs (stranger_37 → stranger_38 → stranger_52) collapsed
+            # into one session row for the "unknown" user timeline.
+            if len(new_strangers) > 0 and not self._any_stranger_logged:
+                self._post_wellbeing("unknown", "enter")
+                self._any_stranger_logged = True
+
+            if self._face_present and self._presense_service is not None:
+                self._presense_service.on_motion()
+
+            # Strangers: always buffer snapshots; flush decides when to send
+            annotated_frame = self._annotate_frame(frame, faces)
+            annotated_frames_to_send: list[cv2.typing.MatLike] = []
+            if len(new_owners) > 0:
+                annotated_frames_to_send.append(annotated_frame)
+            else:
+                if new_strangers:
+                    self._stranger_snapshots_buffers.append(annotated_frame)
+                    self._stranger_ids_buffer.update(new_strangers)
+
+            if new_strangers:
+                self._track_stranger_visits(new_strangers)
+
+            flushed_stranger_snapshots, flushed_stranger_ids = (
+                self._flush_stranger_buffer(cur_ts)
+            )
+
+            annotated_frames_to_send = (
+                annotated_frames_to_send + flushed_stranger_snapshots
+            )
+            stranger_ids_to_send = new_strangers.union(flushed_stranger_ids)
+
+            if annotated_frames_to_send:
+                parts = []
+                if new_owners:
+                    parts.append(f"friend ({', '.join(new_owners)})")
+                if stranger_ids_to_send:
+                    parts.append(f"stranger ({', '.join(stranger_ids_to_send)})")
+                summary = ", ".join(parts)
+                total_faces = len(new_owners) + len(stranger_ids_to_send)
+                self._send_enter_event(
+                    frames=annotated_frames_to_send,
+                    message=f"Person detected — {total_faces} face(s) visible ({summary})",
+                )
+
+            self._check_leaves(cur_ts)
+
+            face_detection_data = FaceDetectionData(
+                frame=frame.copy(), faces=copy(faces)
+            )
+
+            self._perception_state.detected_faces.data = face_detection_data
+            self._perception_state.current_user.data = self.current_user()
 
         with self._callback_lock:
             for callback in self._callbacks:
-                callback(FaceDetectionData(frame=frame.copy(), faces=copy(faces)))
+                callback(face_detection_data)
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
@@ -786,7 +792,9 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 del self._people_data_dict[id]
 
             current_strangers = [
-                p for p in self._people_data_dict.values() if p.kind == PersonKind.STRANGER
+                p
+                for p in self._people_data_dict.values()
+                if p.kind == PersonKind.STRANGER
             ]
 
             # "unknown" session leave: fire once when the last stranger has
@@ -1029,8 +1037,8 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             if (cur_ts - self._last_stranger_flush_ts) < self._stranger_flush_interval:
                 return [], set()
 
-            snapshots = list(self._stranger_snapshots_buffers)
-            ids = set(self._stranger_ids_buffer)
+            snapshots = copy(self._stranger_snapshots_buffers)
+            ids = copy(self._stranger_ids_buffer)
             self._stranger_snapshots_buffers.clear()
             self._stranger_ids_buffer.clear()
             self._last_stranger_flush_ts = cur_ts

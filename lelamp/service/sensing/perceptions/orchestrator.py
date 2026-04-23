@@ -1,25 +1,23 @@
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any
 
 from devices.video_capture_device import VideoCaptureDeviceBase
-from service.sensing.perceptions import (
-    ActionPerception,
+from service.sensing.perceptions.models import (
+    PerceptionConfig,
+)
+from service.sensing.perceptions.processors import (
     EmotionPerception,
     FacePerception,
     LightLevelPerception,
-    PoseMotionPerception,
+    MotionPerception,
     SoundPerception,
-    WellbeingPerception,
-)
-from service.sensing.perceptions.models import (
-    PerceptionConfig,
-    PerceptionProcessors,
-    PerceptionStateObservers,
 )
 from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.presence_service import PresenceService
+from service.sensing.perceptions.utils import PerceptionStateObservers
+from service.sensing.presence_service import PresenseService
 from service.voice.tts_service import TTSService
 
 try:
@@ -48,6 +46,15 @@ except ImportError:
         sd = None
 
 
+@dataclass
+class PerceptionProcessors:
+    face_recognizer: FacePerception | None = None
+    motion_processor: MotionPerception | None = None
+    emotion_processor: EmotionPerception | None = None
+    light_processor: LightLevelPerception | None = None
+    sound_recognizer: SoundPerception | None = None
+
+
 class PerceptionOrchestrator:
     def __init__(
         self,
@@ -64,7 +71,7 @@ class PerceptionOrchestrator:
         self._sound_device_id: int | str | None = sound_device_id
 
         self._camera_capture: VideoCaptureDeviceBase | None = None
-        self._presence_service: PresenceService | None = None
+        self._presense_service: PresenseService | None = None
         self._tts_service: TTSService | None = None
 
         self._stopped: threading.Event = threading.Event()
@@ -78,78 +85,55 @@ class PerceptionOrchestrator:
         self._camera_capture = camera_capture
         return self
 
-    def with_presence_service(self, presence_service: PresenceService):
-        self._presence_service = presence_service
+    def with_presence_service(self, presence_service: PresenseService):
+        self._presense_service = presence_service
         return self
 
     def with_tts_service(self, tts_service: TTSService):
         self._tts_service = tts_service
+
+        if self._processors.sound_recognizer is not None:
+            self._processors.sound_recognizer.set_tts_service(tts_service)
+
         return self
 
     def _register_processors(self):
-        def on_motion():
-            if self._presence_service is not None:
-                self._presence_service.on_motion()
-
         # Perception detectors
         if cv2 is not None:
             if self._config.enable_face:
                 self._processors.face_recognizer = FacePerception(
                     perception_state=self._perception_state,
                     send_event=self._send_event,
-                    on_motion=on_motion,
+                    presense_service=self._presense_service,
                 )
                 _ = self._processors.face_recognizer.load_from_disk()
                 self._perception_state.frame.register(
                     self._processors.face_recognizer.check
                 )
 
-            if self._config.enable_action:
-                self._processors.action_processor = ActionPerception(
+            if self._config.enable_motion:
+                self._processors.motion_processor = MotionPerception(
                     perception_state=self._perception_state,
                     send_event=self._send_event,
-                    on_motion=on_motion,
+                    presense_service=self._presense_service,
                 )
                 self._perception_state.frame.register(
-                    self._processors.action_processor.check
-                )
-
-            if self._config.enable_pose_motion:
-                self._processors.pose_motion_processor = PoseMotionPerception(
-                    cv2=cv2,
-                    perception_state=self._perception_state,
-                    send_event=self._send_event,
-                    on_motion=on_motion,
-                )
-                self._perception_state.frame.register(
-                    self._processors.pose_motion_processor.check
+                    self._processors.motion_processor.check
                 )
 
             if self._config.enable_emotion:
                 self._processors.emotion_processor = EmotionPerception(
                     perception_state=self._perception_state,
                     send_event=self._send_event,
-                    on_motion=on_motion,
+                    presense_service=self._presense_service,
                 )
                 self._perception_state.detected_faces.register(
                     self._processors.emotion_processor.check
                 )
 
-            if self._config.enable_wellbeing:
-                self._processors.wellbeing_processor = WellbeingPerception(
-                    perception_state=self._perception_state,
-                    cv2=cv2,
-                    send_event=self._send_event,
-                )
-                self._perception_state.frame.register(
-                    self._processors.wellbeing_processor.check
-                )
-
             if self._config.enable_light:
                 self._processors.light_processor = LightLevelPerception(
                     perception_state=self._perception_state,
-                    cv2=cv2,
-                    np_module=np,
                     send_event=self._send_event,
                 )
                 self._perception_state.frame.register(
@@ -160,6 +144,7 @@ class PerceptionOrchestrator:
             self._processors.sound_recognizer = SoundPerception(
                 sd=sd,
                 np_module=np,
+                perception_state=self._perception_state,
                 send_event=self._send_event,
                 input_device=self._sound_device_id,
                 tts_service=self._tts_service,
@@ -211,5 +196,30 @@ class PerceptionOrchestrator:
                 self._perception_state.frame.data = response.frame
 
         # Presence timeout check (dim/off)
-        if self._presence_service is not None:
-            self._presence_service.tick()
+        if self._presense_service is not None:
+            self._presense_service.tick()
+
+    def perceptions_state(self) -> list[dict[str, Any]]:
+        processors = asdict(self._processors)
+        return [p.to_dict() for p in processors.values() if p is not None]
+
+    def reset_dedup(self):
+        processors = asdict(self._processors)
+        for p in processors.values():
+            new_user = self._perception_state.current_user.data or ""
+            if p is None:
+                continue
+            reset = getattr(p, "reset_dedup", None)
+            if callable(reset):
+                try:
+                    _ = reset(new_user)
+                except Exception:
+                    self._logger.exception(
+                        "[%s] %s.reset_dedup() failed",
+                        self.__class__.__name__,
+                        p.__class__.__name__,
+                    )
+
+    @property
+    def current_user(self):
+        return self._perception_state.current_user.data
