@@ -68,10 +68,35 @@ export function FaceOwnersSection() {
 
   const toggleDir = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  // Audio playback state
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null); // "label/path"
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const playAudio = (label: string, filepath: string) => {
+    const key = `${label}/${filepath}`;
+    if (playingAudio === key) {
+      audioRef.current?.pause();
+      setPlayingAudio(null);
+      return;
+    }
+    if (audioRef.current) audioRef.current.pause();
+    const audio = new Audio(`${HW}/face/file/${label}/${filepath}`);
+    audio.onended = () => setPlayingAudio(null);
+    audio.onerror = () => setPlayingAudio(null);
+    audio.play().catch(() => setPlayingAudio(null));
+    audioRef.current = audio;
+    setPlayingAudio(key);
+  };
+
   const openFile = async (label: string, filepath: string) => {
     const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(filepath);
     if (isImg) {
       window.open(`${HW}/face/photo/${label}/${filepath}`, "_blank");
+      return;
+    }
+    const isAudio = /\.(wav|mp3|ogg|webm)$/i.test(filepath);
+    if (isAudio) {
+      playAudio(label, filepath);
       return;
     }
     // Already showing this file? close it
@@ -599,6 +624,9 @@ export function FaceOwnersSection() {
                             const childBranch = ci === (item.children?.length ?? 0) - 1 ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
                             const childPath = `${item.name}/${child}`;
                             const isActive = preview?.label === person.label && preview?.path === childPath;
+                            const isChildAudio = /\.(wav|mp3|ogg|webm)$/i.test(child);
+                            const audioKey = `${person.label}/${childPath}`;
+                            const isPlaying = playingAudio === audioKey;
                             return (
                               <div key={child}>
                                 <span
@@ -606,8 +634,13 @@ export function FaceOwnersSection() {
                                   onClick={() => openFile(person.label, childPath)}
                                 >
                                   <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
+                                  {isChildAudio && (
+                                    <span style={{ color: isPlaying ? "var(--lm-amber)" : "rgb(168,85,247)", marginRight: 4 }}>
+                                      {isPlaying ? "⏸" : "▶"}
+                                    </span>
+                                  )}
                                   <span style={{
-                                    color: isActive ? "var(--lm-amber)" : "inherit",
+                                    color: isActive || isPlaying ? "var(--lm-amber)" : "inherit",
                                     textDecoration: "underline",
                                     textDecorationStyle: "dotted" as const,
                                     textUnderlineOffset: 3,
