@@ -26,8 +26,7 @@ logger = logging.getLogger(__name__)
 
 # --- Model paths ---
 
-_MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "models")
-_VIT_MODEL = os.path.join(_MODELS_DIR, "vittrack.onnx")
+_VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 
 # --- Tuning knobs ---
 
