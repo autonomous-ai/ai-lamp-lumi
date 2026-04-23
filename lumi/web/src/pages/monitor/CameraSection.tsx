@@ -33,7 +33,7 @@ export function CameraSection({
   const fetchTrackStatus = useCallback(async () => {
     try {
       const r = await fetch(`${HW}/servo/track`).then((x) => x.json());
-      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox });
+      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
     } catch {}
   }, []);
 
@@ -63,7 +63,7 @@ export function CameraSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bbox: parts, target: trackTarget }),
       }).then((x) => x.json());
-      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox });
+      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
     } catch {}
   };
 
