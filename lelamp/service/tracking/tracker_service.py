@@ -262,8 +262,19 @@ class TrackerService:
         finally:
             # Resume idle animations
             animation_service._hold_mode = False
-            logger.info("Servo hold mode OFF — tracking ended")
             state.running.clear()
+
+            # Restart animation event loop + play idle
+            from lelamp.presets import SERVO_CMD_PLAY
+            if not animation_service._running.is_set():
+                import threading as _threading
+                animation_service._running.set()
+                animation_service._event_thread = _threading.Thread(
+                    target=animation_service._event_loop, daemon=True
+                )
+                animation_service._event_thread.start()
+            animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
+            logger.info("Servo resumed idle — tracking ended")
 
     def _nudge_servo(
         self,
