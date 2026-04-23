@@ -299,8 +299,18 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 		msg = guardTag + " " + req.Message
 	} else {
-		// Passive sensing (sound, motion, light, presence) — agent may choose not to respond.
-		msg = "[sensing:" + req.Type + "] " + req.Message
+		// Passive sensing. motion.activity and emotion.detected use domain-specific
+		// prefixes so SOUL.md's "[sensing:*] → load sensing/SKILL.md" rule doesn't
+		// force sensing skill (~100 lines) into context when the event has a
+		// dedicated handler skill (wellbeing / user-emotion-detection + music-suggestion).
+		switch req.Type {
+		case "motion.activity":
+			msg = "[activity] " + req.Message
+		case "emotion.detected":
+			msg = "[emotion] " + req.Message
+		default:
+			msg = "[sensing:" + req.Type + "] " + req.Message
+		}
 		// Reply-hygiene rules live inside the respective SKILL.md files.
 		switch req.Type {
 		case "presence.leave", "presence.away":
