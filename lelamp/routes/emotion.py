@@ -6,18 +6,32 @@ import lelamp.app_state as state
 from lelamp.models import EmotionRequest, EmotionResponse
 from lelamp.presets import (
     EMOTION_PRESETS,
+    EMO_CARING,
+    EMO_CONFUSED,
+    EMO_CURIOUS,
+    EMO_EXCITED,
     EMO_GREETING,
+    EMO_HAPPY,
     EMO_IDLE,
+    EMO_LAUGH,
+    EMO_SAD,
     EMO_SHOCK,
+    EMO_SHY,
     EMO_SLEEPY,
     EMO_STRETCHING,
     LST_OFF,
     SERVO_CMD_PLAY,
 )
 
-# Only these emotions can wake the lamp from sleep.
-# All others are silently ignored when sleeping.
-_WAKE_EMOTIONS = {EMO_GREETING, EMO_STRETCHING, EMO_SLEEPY}
+# Emotions that can wake the lamp from sleep.
+# greeting/stretching/sleepy = direct wake triggers.
+# happy/excited/caring/laugh/curious/sad/shy/shock/confused = agent responding to user interaction.
+# thinking/idle/acknowledge/nod/headshake/scan/music_* do NOT wake (background processing).
+_WAKE_EMOTIONS = {
+    EMO_GREETING, EMO_STRETCHING, EMO_SLEEPY,
+    EMO_HAPPY, EMO_EXCITED, EMO_CARING, EMO_LAUGH, EMO_CURIOUS,
+    EMO_SAD, EMO_SHY, EMO_SHOCK, EMO_CONFUSED,
+}
 
 router = APIRouter(tags=["Emotion"])
 
@@ -64,8 +78,15 @@ def express_emotion(req: EmotionRequest):
         state.logger.info("POST /emotion: ignored %s while sleeping", req.emotion)
         return {"status": "ignored", "emotion": req.emotion, "servo": None, "led": None}
 
+    was_sleeping = state._sleeping
     state._sleeping = req.emotion == EMO_SLEEPY
     state._current_emotion = req.emotion
+
+    # Auto-off scene when waking from sleep (e.g. Night mode → restore peripherals)
+    if was_sleeping and not state._sleeping and state._active_scene:
+        from lelamp.routes.scene import deactivate_scene
+        state.logger.info("POST /emotion: waking from sleep, auto scene off (%s)", state._active_scene)
+        deactivate_scene()
 
     # When servo is in hold mode (focus/reading scene), suppress emotion
     # animations to avoid distraction. Only scene-changing emotions pass through.

@@ -29,6 +29,12 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 **Input:** "Nod for me"
 **Output:** `[HW:/servo/play:{"recording":"nod"}]` Nodding!
 
+**Input:** "Turn left 15 degrees"
+**Output:** `[HW:/servo/nudge:{"yaw":-15}]` Turned a bit to the left.
+
+**Input:** "Tilt up a little"
+**Output:** `[HW:/servo/nudge:{"pitch":10}]` Tilted up slightly.
+
 **Input:** "Release the motors"
 **Output:** `[HW:/servo/release:{}]` Servos released — you can move the lamp by hand now.
 
@@ -54,6 +60,20 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 ```
 
 `duration` on `/servo/aim` controls move speed in seconds (default 2.0, 0 = instant).
+
+### Nudge by degrees (relative movement)
+
+```
+[HW:/servo/nudge:{"yaw":-15}] Turned left 15 degrees.
+[HW:/servo/nudge:{"pitch":10}] Tilted up a bit.
+[HW:/servo/nudge:{"yaw":30,"pitch":-5,"duration":1.5}] Moved right and down.
+```
+
+| Parameter | Range | Description |
+|---|---|---|
+| `yaw` | -180 to 180 | Negative = left, positive = right |
+| `pitch` | -90 to 90 | Negative = down, positive = up |
+| `duration` | 0 to 10 | Move speed in seconds (default 2.0) |
 
 ### Available directions
 
