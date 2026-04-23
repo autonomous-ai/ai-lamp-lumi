@@ -21,11 +21,11 @@ class DataObserver[T]:
         self._subscriptors: set[Callable[[T], None]] = set()
 
     def _on_update(self):
-        with self._lock:
-            data = self.data
-            if data is not None:
-                for s in self._subscriptors:
-                    s(data)
+        data = self.data
+
+        if data is not None:
+            for s in self._subscriptors:
+                s(data)
 
     def register(self, subscriptor: Callable[[T], None]):
         with self._lock:
