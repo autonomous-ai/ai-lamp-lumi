@@ -30,6 +30,7 @@ import (
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/statusled"
 	devicebutton "go-lamp.autonomous.ai/lib/devicebutton"
+	"go-lamp.autonomous.ai/lib/logger"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/lib/safego"
 	"go-lamp.autonomous.ai/server/config"
@@ -200,6 +201,11 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Serve(closeFn func()) error {
+	// Set GELF host to device_id for centralized logging
+	if s.config.DeviceID != "" {
+		logger.SetGELFHost(s.config.DeviceID)
+	}
+
 	// Signal booting state so the LED shows a slow blue pulse while initializing.
 	s.statusLED.Set(statusled.StateBooting)
 
