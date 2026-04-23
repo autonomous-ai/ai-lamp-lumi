@@ -85,6 +85,21 @@ _file = logging.handlers.RotatingFileHandler(
 _file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
 _root.addHandler(_file)
 
+
+# GELF handler: send INFO+ logs to centralized Graylog
+try:
+    from lelamp.service.gelf_handler import GELFHandler
+    from lelamp.config import _lumi_cfg_get
+
+    _gelf = GELFHandler()
+    _gelf.setFormatter(logging.Formatter("%(message)s"))
+    _device_id = _lumi_cfg_get("device_id")
+    if _device_id:
+        _gelf.set_host(_device_id)
+    _root.addHandler(_gelf)
+except Exception:
+    pass
+
 logger = logging.getLogger("lelamp.server")
 logger.info("Logging to %s/server.log", LOG_DIR)
 
