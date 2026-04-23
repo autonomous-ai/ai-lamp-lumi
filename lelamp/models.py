@@ -464,6 +464,7 @@ class ServoTrackResponse(BaseModel):
     tracking: bool
     target: Optional[str] = None
     bbox: Optional[list[int]] = None
+    confidence: Optional[float] = None
 
 
 class DisplayEyesRequest(BaseModel):

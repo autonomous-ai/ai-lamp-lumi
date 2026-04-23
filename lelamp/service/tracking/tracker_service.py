@@ -3,15 +3,16 @@
 Workflow:
   1. Caller provides an initial bounding box (x, y, w, h) on the current frame.
      The bbox can come from any source: LLM vision, YOLO, manual selection, etc.
-  2. An OpenCV CSRT tracker locks onto the object.
+  2. TrackerVit (ViT-based, ONNX) locks onto the object with confidence scoring.
   3. A background loop grabs frames from the camera, updates the tracker,
      computes the pixel offset from frame center, converts it to yaw/pitch
      degrees, and nudges the servo to keep the object centered.
-  4. When the tracker loses confidence or the caller stops tracking, the loop
-     exits and servos resume normal idle animation.
+  4. When confidence drops below threshold or the caller stops tracking,
+     the loop exits and servos resume normal idle animation.
 """
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -23,11 +24,14 @@ import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
+# --- Model paths ---
+
+_MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "models")
+_VIT_MODEL = os.path.join(_MODELS_DIR, "vittrack.onnx")
+
 # --- Tuning knobs ---
 
-# Degrees per pixel — controls how aggressively servo reacts to offset.
-# Depends on camera FOV; 640px width ≈ 60° horizontal → ~0.094 deg/px.
-# Keep low to avoid overshoot — servo feedback is slow.
+# Degrees per pixel — keep low to avoid overshoot.
 DEG_PER_PX_YAW = 0.02
 DEG_PER_PX_PITCH = 0.02
 
@@ -37,13 +41,20 @@ DEAD_ZONE_PX = 25
 # Maximum nudge per step (degrees) — prevents wild swings
 MAX_NUDGE_DEG = 2.0
 
-# Tracking loop target FPS — higher = smoother but more CPU
+# Tracking loop target FPS
 TRACK_FPS = 8
 
-# How many consecutive frames the tracker can fail before giving up
-MAX_LOST_FRAMES = 15  # ~3 seconds at 5 FPS
+# TrackerVit confidence threshold — below this = lost
+CONFIDENCE_THRESHOLD = 0.3
 
-# Servo move duration per nudge step (seconds) — short for responsiveness
+# How many consecutive low-confidence frames before stopping
+MAX_LOW_CONFIDENCE_FRAMES = 5
+
+# Bbox jump threshold — if center moves more than this many pixels in one
+# frame, consider it a tracker glitch and skip the nudge
+BBOX_JUMP_PX = 100
+
+# Servo move duration per nudge step (seconds)
 NUDGE_DURATION = 0.15
 
 # Servo position limits (degrees) — prevent runaway
@@ -59,7 +70,8 @@ class TrackingState:
     target_label: str = ""
     tracker: Optional[cv2.Tracker] = None
     bbox: Optional[Tuple[int, int, int, int]] = None  # (x, y, w, h)
-    lost_frames: int = 0
+    confidence: float = 0.0
+    low_confidence_frames: int = 0
     running: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -82,7 +94,7 @@ class TrackerService:
             "tracking": s.running.is_set(),
             "target": s.target_label or None,
             "bbox": list(s.bbox) if s.bbox else None,
-            "lost_frames": s.lost_frames,
+            "confidence": round(s.confidence, 3),
         }
 
     def start(
@@ -92,22 +104,11 @@ class TrackerService:
         camera_capture=None,
         animation_service=None,
     ) -> bool:
-        """Start tracking an object defined by *bbox* on the current frame.
-
-        Args:
-            bbox: (x, y, w, h) bounding box in pixel coordinates.
-            target_label: human-readable label (for logging / status).
-            camera_capture: LocalVideoCaptureDevice instance (app_state.camera_capture).
-            animation_service: AnimationService instance (app_state.animation_service).
-
-        Returns:
-            True if tracking started successfully.
-        """
+        """Start tracking an object defined by *bbox* on the current frame."""
         if camera_capture is None or animation_service is None:
             logger.error("tracker start: camera or animation service not available")
             return False
 
-        # Stop any existing session
         self.stop()
 
         frame = camera_capture.last_frame
@@ -125,7 +126,6 @@ class TrackerService:
         except Exception as e:
             logger.error("tracker init exception for bbox %s: %s", bbox, e)
             return False
-        # OpenCV 4.13+: init() returns None on success, older returns True
         if ok is False:
             logger.error("tracker init failed for bbox %s", bbox)
             return False
@@ -136,7 +136,8 @@ class TrackerService:
                 target_label=target_label,
                 tracker=tracker,
                 bbox=bbox,
-                lost_frames=0,
+                confidence=1.0,
+                low_confidence_frames=0,
             )
             self._state.running.set()
             self._state.thread = threading.Thread(
@@ -183,19 +184,26 @@ class TrackerService:
                 return False
             self._state.tracker = tracker
             self._state.bbox = bbox
-            self._state.lost_frames = 0
+            self._state.confidence = 1.0
+            self._state.low_confidence_frames = 0
             logger.info("Tracker re-initialized with bbox %s", bbox)
             return True
 
     @staticmethod
     def _create_tracker():
-        """Create the best available OpenCV tracker.
+        """Create TrackerVit (best available) or fall back to MIL."""
+        # TrackerVit: ViT-based, has confidence score, good accuracy
+        if os.path.exists(_VIT_MODEL):
+            try:
+                params = cv2.TrackerVit_Params()
+                params.net = _VIT_MODEL
+                tracker = cv2.TrackerVit.create(params)
+                logger.info("Using OpenCV tracker: Vit (model=%s)", _VIT_MODEL)
+                return tracker
+            except Exception as e:
+                logger.warning("TrackerVit failed: %s", e)
 
-        Priority: CSRT > KCF > TrackerNano > TrackerMIL (most widely available).
-        """
-        # CSRT/KCF: best quality, need opencv-contrib.
-        # MIL: always available, no extra models needed.
-        # Nano/Vit: need ONNX model files — skip unless present.
+        # Fallback chain
         candidates = [
             ("CSRT", lambda: cv2.TrackerCSRT.create()),
             ("KCF", lambda: cv2.TrackerKCF.create()),
@@ -204,11 +212,18 @@ class TrackerService:
         for name, factory in candidates:
             try:
                 tracker = factory()
-                logger.info("Using OpenCV tracker: %s", name)
+                logger.info("Using OpenCV tracker: %s (no confidence scoring)", name)
                 return tracker
             except (AttributeError, cv2.error, Exception):
                 continue
         return None
+
+    def _get_confidence(self) -> float:
+        """Get tracker confidence score. Only TrackerVit supports this."""
+        try:
+            return self._state.tracker.getTrackingScore()
+        except (AttributeError, Exception):
+            return 1.0  # assume OK for trackers without confidence
 
     # --- Internal tracking loop ---
 
@@ -216,7 +231,6 @@ class TrackerService:
         """Background loop: grab frame → update tracker → nudge servo."""
         state = self._state
 
-        # Suppress idle animations during tracking
         animation_service._hold_mode = True
         logger.info("Servo hold mode ON for tracking")
 
@@ -234,9 +248,8 @@ class TrackerService:
             self._track_base_pitch = 0.0
             self._track_elbow_pitch = 0.0
             self._track_wrist_pitch = 0.0
-        logger.info("Tracking start servo pos: yaw=%.1f base_pitch=%.1f elbow=%.1f wrist=%.1f",
-                     self._track_yaw, self._track_base_pitch, self._track_elbow_pitch, self._track_wrist_pitch)
 
+        prev_cx, prev_cy = None, None
         frame_count = 0
         fps_t0 = time.perf_counter()
 
@@ -246,33 +259,52 @@ class TrackerService:
 
                 frame = camera_capture.last_frame
                 if frame is None:
-                    logger.debug("Tracker: no frame from camera, skipping")
                     time.sleep(1.0 / TRACK_FPS)
                     continue
 
                 ok, new_bbox = state.tracker.update(frame)
                 tracker_dt = time.perf_counter() - t0
+                confidence = self._get_confidence()
+                state.confidence = confidence
 
-                if ok:
-                    state.bbox = tuple(int(v) for v in new_bbox)
-                    state.lost_frames = 0
-                    self._nudge_servo(frame, state.bbox, animation_service)
-                else:
-                    state.lost_frames += 1
-                    logger.debug("Tracker lost frame %d/%d", state.lost_frames, MAX_LOST_FRAMES)
-                    if state.lost_frames >= MAX_LOST_FRAMES:
-                        logger.warning("Tracker lost target '%s' for %d frames, stopping",
-                                       state.target_label, MAX_LOST_FRAMES)
+                if not ok or confidence < CONFIDENCE_THRESHOLD:
+                    state.low_confidence_frames += 1
+                    logger.info("Tracker low confidence: %.3f (frame %d/%d) target='%s'",
+                                confidence, state.low_confidence_frames,
+                                MAX_LOW_CONFIDENCE_FRAMES, state.target_label)
+                    if state.low_confidence_frames >= MAX_LOW_CONFIDENCE_FRAMES:
+                        logger.warning("Tracker lost target '%s' (confidence=%.3f), stopping",
+                                       state.target_label, confidence)
                         break
+                    time.sleep(1.0 / TRACK_FPS)
+                    continue
 
-                # Log FPS + bbox every ~2 seconds
+                state.low_confidence_frames = 0
+                state.bbox = tuple(int(v) for v in new_bbox)
+                bx, by, bw, bh = state.bbox
+                cx = bx + bw / 2
+                cy = by + bh / 2
+
+                # Detect bbox jump (tracker glitch)
+                if prev_cx is not None:
+                    jump = ((cx - prev_cx) ** 2 + (cy - prev_cy) ** 2) ** 0.5
+                    if jump > BBOX_JUMP_PX:
+                        logger.warning("Bbox jump %.0fpx, skipping nudge", jump)
+                        prev_cx, prev_cy = cx, cy
+                        time.sleep(1.0 / TRACK_FPS)
+                        continue
+                prev_cx, prev_cy = cx, cy
+
+                self._nudge_servo(frame, state.bbox, animation_service)
+
+                # Log every ~2 seconds
                 frame_count += 1
                 fps_elapsed = time.perf_counter() - fps_t0
                 if fps_elapsed >= 2.0:
-                    actual_fps = frame_count / fps_elapsed
                     logger.info(
-                        "Tracker: fps=%.1f tracker_dt=%.0fms bbox=%s lost=%d target='%s'",
-                        actual_fps, tracker_dt * 1000, state.bbox, state.lost_frames, state.target_label,
+                        "Tracker: fps=%.1f dt=%.0fms conf=%.3f bbox=%s target='%s'",
+                        frame_count / fps_elapsed, tracker_dt * 1000,
+                        confidence, state.bbox, state.target_label,
                     )
                     frame_count = 0
                     fps_t0 = time.perf_counter()
@@ -283,11 +315,9 @@ class TrackerService:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
         finally:
-            # Resume idle animations
             animation_service._hold_mode = False
             state.running.clear()
 
-            # Restart animation event loop + play idle
             from lelamp.presets import SERVO_CMD_PLAY
             if not animation_service._running.is_set():
                 import threading as _threading
@@ -310,30 +340,22 @@ class TrackerService:
         cx_frame = w / 2
         cy_frame = h / 2
 
-        # Object center
         bx, by, bw, bh = bbox
         cx_obj = bx + bw / 2
         cy_obj = by + bh / 2
 
-        # Pixel offset (positive = object is right/below center)
         dx = cx_obj - cx_frame
         dy = cy_obj - cy_frame
 
-        # Dead zone
         if abs(dx) < DEAD_ZONE_PX and abs(dy) < DEAD_ZONE_PX:
             return
 
-        # Convert to degrees
-        # Object left of center (dx < 0) → servo turn left (yaw < 0) → same sign
-        # Object below center (dy > 0) → servo tilt down (pitch < 0) → negate
         yaw_deg = dx * DEG_PER_PX_YAW
-        pitch_deg = -dy * DEG_PER_PX_PITCH
+        pitch_deg = dy * DEG_PER_PX_PITCH
 
-        # Clamp
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
 
-        # Apply dead zone per axis
         if abs(dx) < DEAD_ZONE_PX:
             yaw_deg = 0
         if abs(dy) < DEAD_ZONE_PX:
@@ -342,8 +364,6 @@ class TrackerService:
         if yaw_deg == 0 and pitch_deg == 0:
             return
 
-        # Update internal position and send to servo
-        # Split pitch across 3 joints for full range of motion
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
 
@@ -359,8 +379,8 @@ class TrackerService:
                 "wrist_pitch.pos": new_wrist_pitch,
             }
 
-            logger.info(
-                "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
+            logger.debug(
+                "Nudge: px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
                 dx, dy, yaw_deg, pitch_deg,
                 self._track_yaw, new_yaw,
                 new_base_pitch, new_elbow_pitch, new_wrist_pitch,
