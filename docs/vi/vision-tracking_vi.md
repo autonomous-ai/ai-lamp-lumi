@@ -1,19 +1,19 @@
 # Vision Tracking — Theo dõi vật thể bằng servo
 
-Lumi có thể theo dõi và hướng theo bất kỳ vật thể nào mà người dùng mô tả bằng ngôn ngữ tự nhiên. Hệ thống sử dụng cách tiếp cận hybrid: LLM vision để phát hiện ban đầu, TrackerVit (ViT-based ONNX) để bám theo real-time.
+Lumi có thể theo dõi và hướng theo bất kỳ vật thể nào mà người dùng gọi tên. Hai giai đoạn: YOLOWorld API phát hiện vật thể theo tên, TrackerVit bám theo real-time.
 
 ## Kiến trúc
 
 ```
 User: "Lumi, nhìn theo cái ly đi"
          |
-    OpenClaw Agent (hiểu ý định)
+    POST /servo/track {"target": "cup"}
          |
-    1. Chụp snapshot → LLM: "Tìm cái ly, trả về bbox [x,y,w,h]"
+    1. YOLOWorld API: frame + "cup" → bbox [x,y,w,h]  (~1-2s, RunPod GPU)
          |
-    2. POST /servo/track {bbox, target}
+    2. TrackerVit init trên bbox
          |
-    3. TrackerService (vòng lặp nền @ 12 FPS)
+    3. Vòng lặp tracking @ 12 FPS
          |  lấy frame → TrackerVit update → kiểm tra confidence → pixel offset → nudge servo
          |
     4. Vật di chuyển → servo bám theo (yaw + 3 pitch joints)
@@ -21,15 +21,21 @@ User: "Lumi, nhìn theo cái ly đi"
     5. Confidence < 0.3 trong 5 frame → tự động dừng + resume idle
 ```
 
-### Tại sao hybrid?
+### Phát hiện: YOLOWorld API
 
-| Cách tiếp cận | Tốc độ | Linh hoạt | Vấn đề |
-|----------------|--------|-----------|--------|
-| Chỉ LLM vision | ~1-2s/frame | Bất kỳ vật nào | Quá chậm để tracking |
-| Chỉ YOLO/ML | ~30ms/frame | Chỉ các class cố định | Không track được "cái ly xanh bên trái" |
-| **Hybrid** | **~15ms/frame** | **Bất kỳ vật nào** | — |
+Phát hiện vật thể open-vocabulary — detect bất kỳ vật nào bằng tên, không giới hạn class cố định.
 
-LLM xử lý phần "cái gì" (ngôn ngữ tự nhiên → bounding box). TrackerVit xử lý phần "ở đâu" (vị trí real-time với confidence scoring).
+- **Endpoint:** `{DL_BACKEND_URL}/detect/yoloworld`
+- **Auth:** header `x-api-key` từ `DL_API_KEY` config
+- **Request:** `{"image_b64": "...", "classes": ["cup"]}`
+- **Response:** `[{"class_name": "cup", "xywh": [cx, cy, w, h], "confidence": 0.98}]`
+- **Tốc độ:** ~1-2s (RunPod GPU)
+
+Tự động gọi khi `POST /servo/track` không có `bbox`. Có thể truyền bbox thủ công để bỏ qua detection.
+
+### Tracking: TrackerVit
+
+Bám theo vật thể real-time sau khi phát hiện.
 
 ## Tracker: TrackerVit
 
@@ -113,11 +119,14 @@ Tất cả dưới `/servo/track`.
 ### POST /servo/track — Bắt đầu tracking
 
 ```json
-// Request
-{"bbox": [190, 50, 170, 300], "target": "ly nước"}
+// Tự detect (YOLOWorld tìm vật thể)
+{"target": "cup"}
+
+// Bbox thủ công (bỏ qua detection)
+{"bbox": [190, 50, 170, 300], "target": "cup"}
 
 // Response
-{"status": "ok", "tracking": true, "target": "ly nước", "bbox": [190, 50, 170, 300], "confidence": 1.0}
+{"status": "ok", "tracking": true, "target": "cup", "bbox": [190, 50, 170, 300], "confidence": 1.0}
 ```
 
 ### DELETE /servo/track — Dừng tracking
@@ -146,14 +155,15 @@ Re-detect mà không dừng phiên tracking.
 
 ```
 1. User: "Lumi, nhìn theo cái ly"
-2. OpenClaw agent:
-   a. Gọi /camera/snapshot → lấy frame
-   b. Gửi frame cho LLM: "Tìm cái ly, trả về bounding box [x, y, w, h]"
-   c. LLM trả về: [190, 50, 170, 300]
-   d. Gọi POST /servo/track {"bbox": [190,50,170,300], "target": "ly nước"}
-3. TrackerVit bám theo ly nước real-time (confidence ~0.5-0.7)
-4. User: "Thôi đi" → agent gọi DELETE /servo/track
-5. Servo resume idle animation
+2. Agent gọi POST /servo/track {"target": "cup"}
+3. LeLamp nội bộ:
+   a. Chụp frame hiện tại
+   b. Gửi YOLOWorld API → lấy bbox (~1-2s)
+   c. Lấy frame mới nhất
+   d. TrackerVit init trên bbox → bắt đầu tracking
+4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
+5. User: "Thôi đi" → agent gọi DELETE /servo/track
+6. Servo resume idle animation
 ```
 
 ### Tự dừng khi mất
@@ -192,7 +202,8 @@ Camera section hiển thị:
 
 - `opencv-python>=4.8.0` (đã có trong `pyproject.toml`)
 - `vittrack.onnx` — nằm trong repo tại `lelamp/service/tracking/vittrack.onnx`
-- Không cần thêm package nào
+- `requests` (đã có trong project)
+- **YOLOWorld API** — RunPod DL backend tại `DL_BACKEND_URL/detect/yoloworld`
 
 ## Tương tác với các hệ thống khác
 
@@ -206,7 +217,7 @@ Camera section hiển thị:
 
 ## Bước tiếp theo
 
-- **LLM detect integration** — OpenClaw skill để lấy bbox từ mô tả ngôn ngữ tự nhiên
-- **Re-detect định kỳ** — tự PUT mỗi N giây để sửa drift
+- **OpenClaw skill** — `track/SKILL.md` để agent gọi tracking bằng giọng nói
+- **Re-detect định kỳ** — tự YOLOWorld re-detect mỗi N giây để sửa drift
 - **PID control** — servo phản hồi mượt hơn thay vì chỉ proportional
 - **Nhiều vật thể** — track nhiều vật, chuyển đổi giữa chúng
