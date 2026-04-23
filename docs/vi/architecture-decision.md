@@ -198,6 +198,7 @@ workspace/skills/
 | `/servo/release` | POST | Tắt torque tất cả servo |
 | `/servo/position` | GET | Vị trí servo hiện tại |
 | `/servo/aim` | GET/POST | Aim đầu đèn (center, desk, wall, left, right, up, down, user) |
+| `/servo/track` | POST/DELETE/GET/PUT | Tracking vật thể bằng vision. Xem [vision-tracking_vi.md](vi/vision-tracking_vi.md) |
 
 #### Camera
 

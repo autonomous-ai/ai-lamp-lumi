@@ -117,6 +117,10 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | GET | `/servo/position` | Current servo positions |
 | GET | `/servo/aim` | List aim directions |
 | POST | `/servo/aim` | Aim lamp head (center, desk, wall, left, right, up, down, user) |
+| POST | `/servo/track` | Start vision-guided object tracking by bounding box. See [vision-tracking.md](vision-tracking.md) |
+| DELETE | `/servo/track` | Stop current tracking session |
+| GET | `/servo/track` | Get tracking status (active, target, bbox) |
+| PUT | `/servo/track` | Re-initialize tracker with new bounding box |
 
 ### LED (64 WS2812, 8x5 grid)
 
