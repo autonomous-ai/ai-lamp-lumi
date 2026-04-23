@@ -413,6 +413,16 @@ export function OverviewSection({
                   textTransform: "capitalize",
                 }}>{s}</span>
               ))}
+              <span role="button" onClick={() => onSceneActivate("off")} style={{
+                fontSize: 11,
+                padding: "3px 9px",
+                borderRadius: 6,
+                background: !sceneInfo.active ? "var(--lm-red)" : "var(--lm-surface)",
+                border: `1px solid ${!sceneInfo.active ? "var(--lm-red)" : "var(--lm-border)"}`,
+                color: !sceneInfo.active ? "#fff" : "var(--lm-text-dim)",
+                cursor: "pointer",
+                fontWeight: !sceneInfo.active ? 600 : 400,
+              }}>Off</span>
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>

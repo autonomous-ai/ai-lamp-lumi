@@ -383,12 +383,11 @@ export default function Monitor() {
               ledColor={ledColor}
               sceneInfo={sceneInfo}
               onSceneActivate={(scene) => {
-                fetch(`${HW}/scene`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ scene }),
-                }).then((r) => r.json()).then((res) => {
-                  if (res.status === "ok") setSceneInfo((prev) => prev ? { ...prev, active: scene } : prev);
+                const url = scene === "off" ? `${HW}/scene/off` : `${HW}/scene`;
+                const opts: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" } };
+                if (scene !== "off") opts.body = JSON.stringify({ scene });
+                fetch(url, opts).then((r) => r.json()).then((res) => {
+                  if (res.status === "ok") setSceneInfo((prev) => prev ? { ...prev, active: scene === "off" ? null : scene } : prev);
                 }).catch(() => {});
               }}
             />
