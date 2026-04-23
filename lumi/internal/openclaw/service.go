@@ -273,8 +273,12 @@ func (s *Service) drainPendingEvents() {
 		turnStart := flow.Start("sensing_input", startPayload, runID)
 
 		var msg string
-		if ev.eventType == "voice" {
-			msg = "[ambient] " + ev.msg
+		if ev.eventType == "voice" || ev.eventType == "voice_command" {
+			prefix := ""
+			if ev.eventType == "voice" {
+				prefix = "[ambient] "
+			}
+			msg = domain.AppendEnrollNudge(prefix + ev.msg)
 		} else {
 			// motion.activity / emotion.detected use domain-specific prefixes
 			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
