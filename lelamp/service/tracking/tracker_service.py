@@ -184,16 +184,21 @@ class TrackerService:
         animation_service._hold_mode = True
         logger.info("Servo hold mode ON for tracking")
 
+        frame_count = 0
+        fps_t0 = time.perf_counter()
+
         try:
             while state.running.is_set():
                 t0 = time.perf_counter()
 
                 frame = camera_capture.last_frame
                 if frame is None:
+                    logger.debug("Tracker: no frame from camera, skipping")
                     time.sleep(1.0 / TRACK_FPS)
                     continue
 
                 ok, new_bbox = state.tracker.update(frame)
+                tracker_dt = time.perf_counter() - t0
 
                 if ok:
                     state.bbox = tuple(int(v) for v in new_bbox)
@@ -206,6 +211,18 @@ class TrackerService:
                         logger.warning("Tracker lost target '%s' for %d frames, stopping",
                                        state.target_label, MAX_LOST_FRAMES)
                         break
+
+                # Log FPS + bbox every ~2 seconds
+                frame_count += 1
+                fps_elapsed = time.perf_counter() - fps_t0
+                if fps_elapsed >= 2.0:
+                    actual_fps = frame_count / fps_elapsed
+                    logger.info(
+                        "Tracker: fps=%.1f tracker_dt=%.0fms bbox=%s lost=%d target='%s'",
+                        actual_fps, tracker_dt * 1000, state.bbox, state.lost_frames, state.target_label,
+                    )
+                    frame_count = 0
+                    fps_t0 = time.perf_counter()
 
                 # Maintain target FPS
                 dt = time.perf_counter() - t0
@@ -266,9 +283,19 @@ class TrackerService:
                 obs = animation_service.robot.get_observation()
             current = {k: v for k, v in obs.items() if k.endswith(".pos")}
 
+            cur_yaw = current.get("base_yaw.pos", 0)
+            cur_pitch = current.get("base_pitch.pos", 0)
+
             positions = dict(current)
-            positions["base_yaw.pos"] = current.get("base_yaw.pos", 0) + yaw_deg
-            positions["base_pitch.pos"] = current.get("base_pitch.pos", 0) + pitch_deg
+            positions["base_yaw.pos"] = cur_yaw + yaw_deg
+            positions["base_pitch.pos"] = cur_pitch + pitch_deg
+
+            logger.debug(
+                "Nudge: offset_px=(%.0f,%.0f) → deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
+                dx, dy, yaw_deg, pitch_deg,
+                cur_yaw, positions["base_yaw.pos"],
+                cur_pitch, positions["base_pitch.pos"],
+            )
 
             animation_service.move_to(positions, duration=NUDGE_DURATION)
         except Exception as e:
