@@ -26,6 +26,11 @@ const (
 	networkMonitorFailsRequired = 5
 	networkMonitorInterval      = 5 * time.Second
 	networkMonitorPingTimeout   = 3 * time.Second
+	// After this many consecutive failures, attempt WiFi reconnect.
+	networkMonitorReconnectAt       = 10 // ~50s of downtime
+	networkMonitorReconnectCooldown = 2 * time.Minute
+	// After this many reconnect failures, reboot the device.
+	networkMonitorMaxReconnects = 5 // 5 attempts × 2min cooldown = ~10min before reboot
 )
 
 // Service provides network scan, current network, and setup. When wifiManager is non-nil (production Pi),
@@ -41,6 +46,9 @@ type Service struct {
 	// connectivity callbacks; set once by StartNetworkMonitor before the goroutine starts.
 	onConnectivityLost     func()
 	onConnectivityRestored func()
+
+	lastReconnectAttempt time.Time
+	reconnectAttempts    int
 }
 
 // ProvideService returns a network service. Pass nil for wifiManager when not using WiFi manager (e.g. dev with NM).
@@ -225,6 +233,7 @@ func (s *Service) runNetworkMonitorTick() {
 		s.networkMonitorMu.Lock()
 		prev := s.networkMonitorConsecutive
 		s.networkMonitorConsecutive = 0
+		s.reconnectAttempts = 0
 		s.networkMonitorMu.Unlock()
 		if prev >= networkMonitorFailsRequired {
 			slog.Info("internet restored", "component", "network-monitor", "previousFails", prev)
@@ -242,6 +251,51 @@ func (s *Service) runNetworkMonitorTick() {
 	slog.Warn("no internet", "component", "network-monitor", "target", networkMonitorPingTarget, "fails", n, "required", networkMonitorFailsRequired)
 	if n == networkMonitorFailsRequired && s.onConnectivityLost != nil {
 		s.onConnectivityLost()
+	}
+
+	// Auto-reconnect: restart wlan0 after sustained outage
+	if n >= networkMonitorReconnectAt && time.Since(s.lastReconnectAttempt) >= networkMonitorReconnectCooldown {
+		s.lastReconnectAttempt = time.Now()
+		go s.reconnectWiFi()
+	}
+}
+
+// reconnectWiFi restarts wpa_supplicant and wlan0 to recover from WiFi drops.
+// After networkMonitorMaxReconnects failed attempts, reboots the device.
+func (s *Service) reconnectWiFi() {
+	s.networkMonitorMu.Lock()
+	s.reconnectAttempts++
+	attempt := s.reconnectAttempts
+	s.networkMonitorMu.Unlock()
+
+	slog.Warn("attempting WiFi reconnect", "component", "network-monitor", "attempt", attempt)
+
+	// Restart wpa_supplicant to re-associate with the AP
+	_ = exec.Command("systemctl", "restart", "wpa_supplicant@wlan0").Run()
+	time.Sleep(3 * time.Second)
+
+	// Bounce the interface
+	_ = exec.Command("ip", "link", "set", defaultInterface, "down").Run()
+	time.Sleep(2 * time.Second)
+	_ = exec.Command("ip", "link", "set", defaultInterface, "up").Run()
+	time.Sleep(5 * time.Second)
+
+	// Disable power save after interface restart
+	_ = exec.Command("iw", "dev", defaultInterface, "set", "power_save", "off").Run()
+
+	if s.pingNetworkMonitor(networkMonitorPingTarget) {
+		slog.Info("WiFi reconnect succeeded", "component", "network-monitor", "attempt", attempt)
+		s.networkMonitorMu.Lock()
+		s.reconnectAttempts = 0
+		s.networkMonitorMu.Unlock()
+		return
+	}
+
+	slog.Warn("WiFi reconnect failed", "component", "network-monitor", "attempt", attempt, "max", networkMonitorMaxReconnects)
+
+	if attempt >= networkMonitorMaxReconnects {
+		slog.Error("WiFi reconnect exhausted — rebooting device", "component", "network-monitor", "attempts", attempt)
+		_ = exec.Command("sudo", "reboot").Run()
 	}
 }
 
