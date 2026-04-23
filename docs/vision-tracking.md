@@ -147,7 +147,7 @@ YOLOWorld is open-vocabulary — any text works, this list is just suggestions.
 }
 ```
 
-### DELETE /servo/track — Stop tracking
+### POST /servo/track/stop — Stop tracking
 
 ```json
 {"status": "ok", "tracking": false}
@@ -165,13 +165,15 @@ YOLOWorld is open-vocabulary — any text works, this list is just suggestions.
 }
 ```
 
-### PUT /servo/track — Re-initialize bbox
+### POST /servo/track/update — Re-initialize bbox
 
-Re-detect without stopping tracking session.
+Manual re-detect without stopping tracking session.
 
 ```json
 {"bbox": [250, 160, 75, 95], "target": "cup"}
 ```
+
+Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint is for manual override only.
 
 ## End-to-End Flow
 
@@ -186,7 +188,7 @@ Re-detect without stopping tracking session.
    c. Re-grabs fresh frame
    d. TrackerVit init on bbox → starts tracking
 4. Servo follows the cup in real-time (confidence ~0.5-0.7)
-5. User: "OK stop" → agent calls DELETE /servo/track
+5. User: "OK stop" → agent calls POST /servo/track/stop
 6. Servo resumes idle animation
 ```
 
@@ -200,12 +202,12 @@ Re-detect without stopping tracking session.
 5. Agent can notify user or auto re-detect
 ```
 
-### Periodic re-detect (PUT)
+### Auto re-detect (built-in)
 
 ```
-1. Tracking active but bbox drifting (scale change, partial occlusion)
-2. Agent takes snapshot → LLM → new bbox → PUT /servo/track
-3. TrackerVit re-initializes on fresh bbox, session continues
+1. Every 5 seconds, tracking loop calls YOLOWorld in background thread
+2. If object found → TrackerVit re-initializes with fresh bbox
+3. Corrects drift without interrupting tracking
 ```
 
 ## Camera Stream Overlay
@@ -242,6 +244,6 @@ Camera section shows:
 ## Next Steps
 
 - **OpenClaw skill** — `track/SKILL.md` so agent can call tracking via voice
-- **Periodic re-detect** — auto YOLOWorld re-detect every N seconds to correct drift
+- ~~**Periodic re-detect**~~ — done, auto re-detect every 5s built into tracking loop
 - **PID control** — smoother servo response instead of proportional-only
 - **Multi-object** — track multiple objects, switch between them

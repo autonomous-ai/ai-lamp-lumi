@@ -141,7 +141,7 @@ YOLOWorld là open-vocabulary — bất kỳ text nào cũng được, danh sác
 {"status": "ok", "tracking": true, "target": "cup", "bbox": [190, 50, 170, 300], "confidence": 1.0}
 ```
 
-### DELETE /servo/track — Dừng tracking
+### POST /servo/track/stop — Dừng tracking
 
 ```json
 {"status": "ok", "tracking": false}
@@ -153,13 +153,15 @@ YOLOWorld là open-vocabulary — bất kỳ text nào cũng được, danh sác
 {"status": "ok", "tracking": true, "target": "ly nước", "bbox": [195, 55, 175, 295], "confidence": 0.612}
 ```
 
-### PUT /servo/track — Khởi tạo lại bbox
+### POST /servo/track/update — Khởi tạo lại bbox
 
-Re-detect mà không dừng phiên tracking.
+Re-detect thủ công mà không dừng phiên tracking.
 
 ```json
 {"bbox": [250, 160, 75, 95], "target": "ly nước"}
 ```
+
+Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint này chỉ dùng cho override thủ công.
 
 ## Luồng End-to-End
 
@@ -174,7 +176,7 @@ Re-detect mà không dừng phiên tracking.
    c. Lấy frame mới nhất
    d. TrackerVit init trên bbox → bắt đầu tracking
 4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
-5. User: "Thôi đi" → agent gọi DELETE /servo/track
+5. User: "Thôi đi" → agent gọi POST /servo/track/stop
 6. Servo resume idle animation
 ```
 
@@ -192,8 +194,9 @@ Re-detect mà không dừng phiên tracking.
 
 ```
 1. Đang tracking nhưng bbox trôi dần (thay đổi scale, bị che 1 phần)
-2. Agent chụp snapshot → LLM → bbox mới → PUT /servo/track
-3. TrackerVit khởi tạo lại trên bbox mới, phiên tiếp tục
+2. Mỗi 5 giây, tracking loop gọi YOLOWorld trong background thread
+3. Nếu tìm được → TrackerVit khởi tạo lại với bbox mới
+4. Sửa drift mà không gián đoạn tracking
 ```
 
 ## Camera Stream Overlay
@@ -230,6 +233,6 @@ Camera section hiển thị:
 ## Bước tiếp theo
 
 - **OpenClaw skill** — `track/SKILL.md` để agent gọi tracking bằng giọng nói
-- **Re-detect định kỳ** — tự YOLOWorld re-detect mỗi N giây để sửa drift
+- ~~**Re-detect định kỳ**~~ — done, tự re-detect mỗi 5s trong tracking loop
 - **PID control** — servo phản hồi mượt hơn thay vì chỉ proportional
 - **Nhiều vật thể** — track nhiều vật, chuyển đổi giữa chúng

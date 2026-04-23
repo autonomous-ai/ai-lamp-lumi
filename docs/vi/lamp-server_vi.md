@@ -119,9 +119,9 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | POST | `/servo/aim` | Aim đầu đèn (center, desk, wall, left, right, up, down, user) |
 | GET | `/servo/track/targets` | Danh sách target gợi ý cho YOLOWorld |
 | POST | `/servo/track` | Bắt đầu tracking — `{"target":"cup"}` (tự detect) hoặc `{"bbox":[x,y,w,h]}`. Xem [vision-tracking_vi.md](vision-tracking_vi.md) |
-| DELETE | `/servo/track` | Dừng phiên tracking |
+| POST | `/servo/track/stop` | Dừng phiên tracking |
 | GET | `/servo/track` | Trạng thái tracking (active, target, bbox, confidence) |
-| PUT | `/servo/track` | Khởi tạo lại tracker với bbox mới |
+| POST | `/servo/track/update` | Khởi tạo lại tracker với bbox mới |
 
 ### LED (64 WS2812, grid 8x5)
 
