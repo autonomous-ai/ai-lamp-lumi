@@ -15,6 +15,7 @@ import lelamp.app_state as state
 from lelamp.models import (
     ServoAimRequest,
     ServoAimResponse,
+    ServoNudgeRequest,
     ServoMoveRequest,
     ServoMoveResponse,
     ServoPositionResponse,
@@ -435,3 +436,33 @@ def aim_servo(req: ServoAimRequest):
             state.animation_service._event_thread.start()
             if not hold_pos:
                 state.animation_service.dispatch(SERVO_CMD_PLAY, state.animation_service.idle_recording)
+
+
+@router.post("/servo/nudge", response_model=ServoAimResponse)
+def nudge_servo(req: ServoNudgeRequest):
+    """Move servo by relative degrees from current position."""
+    if not state.animation_service:
+        raise HTTPException(503, "Servo not available")
+    if not state.animation_service.robot:
+        raise HTTPException(503, "Servo robot not connected")
+
+    try:
+        with state.animation_service.bus_lock:
+            obs = state.animation_service.robot.get_observation()
+        current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+
+        positions = dict(current)
+        if req.yaw != 0:
+            positions["base_yaw.pos"] = current.get("base_yaw.pos", 0) + req.yaw
+        if req.pitch != 0:
+            positions["base_pitch.pos"] = current.get("base_pitch.pos", 0) + req.pitch
+
+        if req.duration > 0:
+            state.animation_service.move_to(positions, duration=req.duration)
+        else:
+            with state.animation_service.bus_lock:
+                state.animation_service.robot.send_action(positions)
+
+        return {"status": "ok", "direction": f"nudge yaw={req.yaw} pitch={req.pitch}", "positions": positions}
+    except Exception as e:
+        raise HTTPException(500, f"Servo nudge failed: {e}")
