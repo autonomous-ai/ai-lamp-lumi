@@ -80,13 +80,13 @@ def _lumi_cfg_get(key: str, default: str = "") -> str:
     except Exception:
         return default
 
-DL_BACKEND_URL = os.environ.get("DL_BACKEND_URL", "") or _lumi_cfg_get("llm_base_url")
-DL_API_KEY = os.environ.get("DL_API_KEY", "") or _lumi_cfg_get("llm_api_key")
+DL_BACKEND_URL = _lumi_cfg_get("llm_base_url") or os.environ.get("DL_BACKEND_URL", "")
+DL_API_KEY = _lumi_cfg_get("llm_api_key") or os.environ.get("DL_API_KEY", "")
 DL_HEARTBEAT_INTERVAL_S = float(os.environ.get("LELAMP_DL_HEARTBEAT_INTERVAL_S", "60.0"))
 
-DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/lelamp/api/dl/action-analysis/ws")
-DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/lelamp/api/dl/emotion-analysis/ws")
-DL_EMOTION_RECOGNIZE_ENDPOINT = os.environ.get("DL_EMOTION_RECOGNIZE_ENDPOINT", "/lelamp/api/dl/emotion-recognize")
+DL_MOTION_ENDPOINT = os.environ.get("DL_MOTION_ENDPOINT", "/ws/lelamp/api/dl/action-analysis/ws")
+DL_EMOTION_ENDPOINT = os.environ.get("DL_EMOTION_ENDPOINT", "/ws/lelamp/api/dl/emotion-analysis/ws")
+DL_EMOTION_RECOGNIZE_ENDPOINT = os.environ.get("DL_EMOTION_RECOGNIZE_ENDPOINT", "/ws/lelamp/api/dl/emotion-recognize")
 DL_MOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_MOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 DL_EMOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_EMOTION_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 
