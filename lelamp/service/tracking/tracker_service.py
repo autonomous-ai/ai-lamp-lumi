@@ -318,26 +318,29 @@ class TrackerService:
         if yaw_deg == 0 and pitch_deg == 0:
             return
 
-        # Direct servo nudge — bypass HTTP for speed
+        # Direct servo nudge — send_action for speed (no interpolation)
         try:
+            from lelamp.service.motors.animation_service import _motor_positions_from_bus
             with animation_service.bus_lock:
-                obs = animation_service.robot.get_observation()
-            current = {k: v for k, v in obs.items() if k.endswith(".pos")}
+                current = _motor_positions_from_bus(animation_service.robot)
 
             cur_yaw = current.get("base_yaw.pos", 0)
             cur_pitch = current.get("base_pitch.pos", 0)
 
-            positions = dict(current)
-            positions["base_yaw.pos"] = cur_yaw + yaw_deg
-            positions["base_pitch.pos"] = cur_pitch + pitch_deg
+            # Only move yaw + pitch, leave other joints untouched
+            target = {
+                "base_yaw.pos": cur_yaw + yaw_deg,
+                "base_pitch.pos": cur_pitch + pitch_deg,
+            }
 
             logger.debug(
-                "Nudge: offset_px=(%.0f,%.0f) → deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
+                "Nudge: offset_px=(%.0f,%.0f) deg=(%.2f,%.2f) servo=(%.1f→%.1f, %.1f→%.1f)",
                 dx, dy, yaw_deg, pitch_deg,
-                cur_yaw, positions["base_yaw.pos"],
-                cur_pitch, positions["base_pitch.pos"],
+                cur_yaw, target["base_yaw.pos"],
+                cur_pitch, target["base_pitch.pos"],
             )
 
-            animation_service.move_to(positions, duration=NUDGE_DURATION)
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(target)
         except Exception as e:
             logger.warning("Tracker nudge failed: %s", e)
