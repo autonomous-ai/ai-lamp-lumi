@@ -2,23 +2,23 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from devices.video_capture_device import VideoCaptureDeviceBase
-from service.sensing.perceptions.models import (
+from lelamp.service.sensing.perceptions.models import (
     PerceptionConfig,
 )
-from service.sensing.perceptions.processors import (
+from lelamp.service.sensing.perceptions.processors import (
     EmotionPerception,
     FacePerception,
     LightLevelPerception,
     MotionPerception,
     SoundPerception,
 )
-from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.perceptions.utils import PerceptionStateObservers
-from service.sensing.presence_service import PresenseService
-from service.voice.tts_service import TTSService
+from lelamp.service.sensing.perceptions.typing import SendEventCallable
+from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
+from lelamp.service.sensing.presence_service import PresenseService
+from lelamp.service.voice.tts_service import TTSService
 
 try:
     import cv2

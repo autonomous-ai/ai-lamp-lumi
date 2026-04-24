@@ -16,9 +16,9 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import ClientConnection, connect
 
 import lelamp.config as config
-from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.perceptions.utils import PerceptionStateObservers
-from service.sensing.presence_service import PresenceState, PresenseService
+from lelamp.service.sensing.perceptions.typing import SendEventCallable
+from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
+from lelamp.service.sensing.presence_service import PresenceState, PresenseService
 
 from .base import Perception
 

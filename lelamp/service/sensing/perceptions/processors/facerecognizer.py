@@ -16,15 +16,15 @@ import onnxruntime as ort
 import requests
 
 import lelamp.config as config
-from service.sensing.perceptions.models import (
+from lelamp.service.sensing.perceptions.models import (
     Face,
     FaceDetectionData,
     PersonData,
     PersonKind,
 )
-from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.perceptions.utils import PerceptionStateObservers
-from service.sensing.presence_service import PresenseService
+from lelamp.service.sensing.perceptions.typing import SendEventCallable
+from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
+from lelamp.service.sensing.presence_service import PresenseService
 
 from .base import Perception
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable, TypeVar
 if TYPE_CHECKING:
     import cv2
 
-from service.sensing.perceptions.models import FaceDetectionData
+from lelamp.service.sensing.perceptions.models import FaceDetectionData
 
 T = TypeVar("T")
 

@@ -29,12 +29,12 @@ import requests
 
 import lelamp.config as config
 from devices.video_capture_device import VideoCaptureDeviceBase
+from lelamp.service.motors.animation_service import AnimationService
+from lelamp.service.rgb.rgb_service import RGBService
+from lelamp.service.sensing.perceptions.models import PerceptionConfig
+from lelamp.service.sensing.perceptions.orchestrator import PerceptionOrchestrator
 from lelamp.service.sensing.presence_service import PresenseService
-from service.motors.animation_service import AnimationService
-from service.rgb.rgb_service import RGBService
-from service.sensing.perceptions.models import PerceptionConfig
-from service.sensing.perceptions.orchestrator import PerceptionOrchestrator
-from service.voice.tts_service import TTSService
+from lelamp.service.voice.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
