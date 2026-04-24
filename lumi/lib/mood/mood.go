@@ -28,6 +28,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go-lamp.autonomous.ai/lib/usercanon"
 )
 
 // Event is one mood history record persisted to JSONL.
@@ -81,10 +83,11 @@ func Init() {
 // SetCurrentUser sets the user who is currently present.
 // Call on presence.enter with the recognized user name.
 func SetCurrentUser(name string) {
+	resolved := usercanon.Resolve(name)
 	global.currentUserMu.Lock()
-	global.currentUser = strings.ToLower(strings.TrimSpace(name))
+	global.currentUser = resolved
 	global.currentUserMu.Unlock()
-	slog.Info("mood: current user set", "user", name)
+	slog.Info("mood: current user set", "user", resolved, "raw", name)
 }
 
 // ClearCurrentUser clears the current user.
