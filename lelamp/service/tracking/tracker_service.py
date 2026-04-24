@@ -184,18 +184,25 @@ class TrackerService:
     def start(
         self,
         bbox: Optional[Tuple[int, int, int, int]] = None,
-        target_label: str = "",
+        target_label="",
         camera_capture=None,
         animation_service=None,
     ) -> bool:
         """Start tracking an object.
 
         If bbox is provided, use it directly. Otherwise, auto-detect using YOLOWorld.
+        `target_label` accepts str or list[str] — first non-empty label is used
+        for detection/display. List support matches models.ServoTrackRequest which
+        accepts candidate synonyms from LLM skills.
         """
         if camera_capture is None or animation_service is None:
             self.last_error = "camera or animation service not available"
             logger.error("tracker start: %s", self.last_error)
             return False
+
+        # Normalize list[str] → first non-empty str.
+        if isinstance(target_label, (list, tuple)):
+            target_label = next((t for t in target_label if t), "")
 
         self.stop()
 
@@ -336,7 +343,13 @@ class TrackerService:
         state = self._state
 
         animation_service._hold_mode = True
-        logger.info("Servo hold mode ON for tracking")
+        # Stricter than hold_mode: animation_service drops any in-progress
+        # recording (emotion reactions, idle interpolation) while this is
+        # set, and emotion.py blocks its own servo writes. Required so
+        # emotion animations triggered during tracking don't fight the
+        # tracker's nudges.
+        animation_service._tracking_active = True
+        logger.info("Servo hold mode + tracking lock ON")
 
         # Read initial servo position once — track internally after that
         try:
@@ -501,6 +514,7 @@ class TrackerService:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
         finally:
+            animation_service._tracking_active = False
             animation_service._hold_mode = False
             state.running.clear()
 
