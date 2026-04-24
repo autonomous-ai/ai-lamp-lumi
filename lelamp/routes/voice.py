@@ -1,10 +1,15 @@
 """Voice route handlers -- /voice/*, /tts/* endpoints."""
 
+import re
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 import lelamp.app_state as state
+from lelamp import config
 from lelamp.config import AUDIO_INPUT_ALSA, TTS_SPEED, TTS_VOICE, TTS_INSTRUCTIONS
 from lelamp.models import (
     SpeakRequest,
@@ -13,6 +18,9 @@ from lelamp.models import (
     VoiceStartRequest,
     VoiceStatusResponse,
 )
+
+_STRANGER_HASH_RE = re.compile(r"^voice_\d+$")
+_STRANGER_SAMPLE_RE = re.compile(r"^[A-Za-z0-9_.-]+\.wav$")
 
 router = APIRouter(tags=["Voice"])
 
@@ -237,3 +245,86 @@ def voice_status():
         "tts_detail": tts_detail,
         "mic_muted": state._mic_muted,
     }
+
+
+# --------------------------------------------------- Unknown-voice clusters
+
+
+class StrangerSample(BaseModel):
+    filename: str
+    size_bytes: int
+    mtime: float
+
+
+class StrangerCluster(BaseModel):
+    hash: str
+    sample_count: int
+    latest_mtime: float
+    samples: list[StrangerSample]
+
+
+class StrangersResponse(BaseModel):
+    total: int
+    clusters: list[StrangerCluster]
+
+
+@router.get("/voice/strangers", response_model=StrangersResponse)
+def voice_strangers() -> StrangersResponse:
+    """List unknown-voice clusters with their saved WAV samples.
+
+    Scans the per-cluster sub-dirs the speaker service writes under
+    ``SPEAKER_UNKNOWN_AUDIO_DIR/voice_<N>/`` so the web UI can play back
+    clips the lamp has grouped as "same unknown voice" before deciding to
+    enroll them as a known speaker.
+    """
+    root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR)
+    if not root.is_dir():
+        return StrangersResponse(total=0, clusters=[])
+
+    clusters: list[StrangerCluster] = []
+    for sub in sorted(root.iterdir()):
+        if not sub.is_dir() or not _STRANGER_HASH_RE.match(sub.name):
+            continue
+        samples: list[StrangerSample] = []
+        for wav in sub.glob("*.wav"):
+            try:
+                st = wav.stat()
+            except OSError:
+                continue
+            samples.append(StrangerSample(
+                filename=wav.name,
+                size_bytes=int(st.st_size),
+                mtime=float(st.st_mtime),
+            ))
+        if not samples:
+            continue
+        samples.sort(key=lambda s: s.mtime, reverse=True)
+        clusters.append(StrangerCluster(
+            hash=sub.name,
+            sample_count=len(samples),
+            latest_mtime=samples[0].mtime,
+            samples=samples,
+        ))
+    clusters.sort(key=lambda c: c.latest_mtime, reverse=True)
+    return StrangersResponse(total=len(clusters), clusters=clusters)
+
+
+@router.get("/voice/strangers/audio/{hash}/{filename}")
+def voice_stranger_audio(hash: str, filename: str) -> FileResponse:
+    """Stream a stranger-cluster WAV by cluster hash + filename.
+
+    Path components are whitelisted (``voice_<digits>`` / ``<safe>.wav``) and
+    the resolved file must sit inside ``SPEAKER_UNKNOWN_AUDIO_DIR`` — blocks
+    path-traversal attempts like ``../../etc/passwd``.
+    """
+    if not _STRANGER_HASH_RE.match(hash) or not _STRANGER_SAMPLE_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid path")
+    root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR).resolve()
+    target = (root / hash / filename).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid path") from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="sample not found")
+    return FileResponse(str(target), media_type="audio/wav", filename=filename)

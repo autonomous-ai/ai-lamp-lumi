@@ -551,9 +551,10 @@ app.include_router(voice.router)
 app.include_router(music.router)
 app.include_router(system.router)
 
-# Speaker recognition routes (lazy import)
+# Speaker recognition routes (lazy import — import failure tolerated so the
+# rest of the server still boots if speaker deps are missing).
 try:
-    from lelamp.speaker_recognizer import router as speaker_router
+    from lelamp.routes.speaker import router as speaker_router
 
     app.include_router(speaker_router)
 except Exception as _speaker_import_err:  # noqa: BLE001
