@@ -701,7 +701,7 @@ class VoiceService:
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript} (audio is too short for enrollment, ask user introduce themselves longer later)"
+            return f"Unknown Speaker: {transcript} (audio saved at {audio_path}. Note: audio is too short for single enrollment, ask user introduce themselves longer later and combine both recordings for enrollment)"
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
