@@ -57,11 +57,16 @@ BREAK_THRESHOLD_MIN     = 7     # production: 30
 
 ### Step 1 — Read recent history
 
+**MANDATORY — DO NOT MODIFY THE QUERY:**
+- Use `last=50` exactly. Smaller values miss the day's `enter` / earlier `drink` reset rows and break delta computation in Step 2.
+- Do NOT pipe through `.[-N:]`, `head`, `tail`, or any slice. The full `.data.events` array is required to find the latest `drink` / `enter` / `nudge_*` row, which may sit dozens of rows behind the newest entry.
+- API only ever returns events from today's file; token cost is bounded and acceptable. Correctness over brevity.
+
 ```bash
-curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user>&last=50"
+curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user>&last=50" | jq '.data.events'
 ```
 
-Response is a time-ordered list of `{ts, action, notes, hour}`.
+Response is a time-ordered list of `{ts, action, notes, hour}` (oldest first, newest last).
 
 ### Step 2 — Compute deltas
 
@@ -87,6 +92,11 @@ Nudge at most ONE thing per turn. Hydration takes priority over break.
 The `nudge_*` row you POST in Step 5 acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
 ### Step 3b — Habit refresh + context (only when Step 3 fired a nudge)
+
+**MANDATORY — DO NOT SKIP if Step 3 fired a nudge:**
+- After deciding to nudge in Step 3, you MUST invoke `habit/SKILL.md` Flow A before Step 4 phrasing.
+- Flow A self-throttles via an mtime check: when `patterns.json` is fresh (<6h) the cost is a single `stat` + `cat`. The full multi-day bootstrap only runs when the file is missing or stale, which is rare.
+- Skipping this step means `patterns.json` never bootstraps, habit-aware phrasing never works, and music-suggestion has no `music_patterns` to read.
 
 **Gate:** if Step 3 said `NO_REPLY`, skip this step — no behavioral inflection happened, nothing to learn from. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
 
