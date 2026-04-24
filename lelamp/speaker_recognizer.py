@@ -155,6 +155,9 @@ class RecognizeResponse(BaseModel):
     telegram_id: Optional[str] = None
     has_telegram_identity: bool = False
     unknown_audio_path: Optional[str] = None
+    # Stable cluster label for unknown voices (e.g. "voice_7"). Null when the
+    # speaker matched a known user — their name already serves as identity.
+    voiceprint_hash: Optional[str] = None
     candidates: list[dict[str, Any]] = []
     error: Optional[str] = None
 
