@@ -1,6 +1,6 @@
 ---
 name: habit
-description: Tracks and analyzes behavioral patterns (habits) for known users based on their wellbeing, presence, and activity history. Use when proactively checking if it's time to nudge based on learned habits (e.g. "Leo usually drinks at 9am"), detecting habit breaks, or answering questions like "What are Leo's habits?", "Has Leo been keeping to his routine?", "Notice anything about my patterns?" Also plug this skill in from wellbeing/SKILL.md and music-suggestion/SKILL.md when computing proactive suggestions — habit context improves nudge timing and personalization.
+description: Tracks and analyzes behavioral patterns (habits) for known users based on their wellbeing, presence, and activity history. Use when answering questions about a user's routines ("What are Leo's habits?", "Has Leo been keeping to his routine?", "Notice anything about my patterns?"), or when invoked from wellbeing/SKILL.md on a threshold nudge to refresh patterns and provide habit-aware phrasing. Also feeds music-suggestion/SKILL.md with `music_patterns` for personalized genre. Habit does NOT fire its own standalone nudge — it enriches wellbeing's threshold nudge phrasing.
 ---
 
 # Habit Skill
@@ -172,19 +172,14 @@ This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on eve
    }
    ```
 
-### B — Proactive habit check (called from wellbeing or music skills)
+### B — Habit match (helper for wellbeing/SKILL.md Step 3b)
 
-The calling skill reads `patterns.json` directly. No API needed.
+`wellbeing/SKILL.md` calls this after a threshold nudge fires. Read `patterns.json` directly (no API), find the matching habit for the nudge action, and let wellbeing weave the context into Step 4 phrasing. Habit itself never speaks or writes a `nudge_*` row — wellbeing owns the nudge.
 
 1. Get current time (hour + minute).
-2. For each strong/moderate habit: is it within the `window_minutes` of `typical_hour:typical_minute`?
-3. If yes AND the action hasn't occurred yet today → proactive nudge opportunity.
-
-**Rules:**
-- Only nudge habits with `frequency >= 0.5` (moderate+).
-- Only nudge if the expected action is ABSENT from today's log so far.
-- Only nudge once per habit per day (check for existing `nudge_*` entry).
-- Do not nudge during the first 30 min of a user's day (just arrived).
+2. For the action wellbeing is about to nudge (`drink` or `break`), find any habit entry with the same `action` and `strength` moderate+ (`frequency >= 0.5`).
+3. Is `now` within `typical_hour:typical_minute ± window_minutes`?
+4. If yes → return the matched habit so wellbeing can phrase as *"you usually drink around now…"*. If no match → wellbeing falls back to its generic phrasing table.
 
 Window sizes by action:
 

@@ -110,7 +110,7 @@ Tab Users hiện badge **habit** cho mỗi user khi `patterns.json` tồn tại.
 |------|----------|
 | `lumi/resources/openclaw-skills/habit/SKILL.md` | Skill definition — Flow A–D, algorithm, storage |
 | `lumi/internal/openclaw/resources/SOUL.md` | Section "Observing Habits" — ghi intent từ hội thoại |
-| `lumi/resources/openclaw-skills/wellbeing/SKILL.md` | Step 3b — đọc patterns.json để nhắc dự đoán |
+| `lumi/resources/openclaw-skills/wellbeing/SKILL.md` | Step 3b — invoke Flow A khi có nudge; dùng patterns.json để enrich phrasing nudge |
 | `lumi/internal/openclaw/onboarding.go` | Đăng ký habit vào danh sách skills |
 | `lelamp/models.py` | Field `habit_patterns` trong FacePersonDetail |
 | `lelamp/routes/sensing.py` | Check habit/patterns.json trong face/owners API |

@@ -20,7 +20,7 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
    | OTA, bootstrap | `docs/bootstrap-ota.md` | `docs/vi/bootstrap-ota.md` |
    | Sensing behavior, sound escalation, reactions | `docs/sensing-behavior.md` | `docs/vi/sensing-behavior_vi.md` |
    | Sensing threshold tuning (LeLamp config) | `docs/sensing-tuning.md` | — |
-   | Habit tracking, pattern building, predictive nudge | `docs/habit-tracking.md` | `docs/vi/habit-tracking_vi.md` |
+   | Habit tracking, pattern building, habit-aware nudge phrasing | `docs/habit-tracking.md` | `docs/vi/habit-tracking_vi.md` |
    | Vision tracking, object follow, servo track | `docs/vision-tracking.md` | `docs/vi/vision-tracking_vi.md` |
 
 2. **Comments in English** — Project standard.

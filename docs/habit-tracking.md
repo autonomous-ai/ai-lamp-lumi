@@ -160,7 +160,7 @@ The Users tab shows a **habit** badge per user when `patterns.json` exists. The 
 |------|---------|
 | `lumi/resources/openclaw-skills/habit/SKILL.md` | Skill definition — Flows A–D, algorithm, storage |
 | `lumi/internal/openclaw/resources/SOUL.md` | "Observing Habits" section — conversation intent logging |
-| `lumi/resources/openclaw-skills/wellbeing/SKILL.md` | Step 3b — reads patterns.json for predictive nudge |
+| `lumi/resources/openclaw-skills/wellbeing/SKILL.md` | Step 3b — invokes Flow A on nudge fire; uses patterns.json to enrich nudge phrasing |
 | `lumi/internal/openclaw/onboarding.go` | Registers habit in skills list |
 | `lelamp/models.py` | `habit_patterns` field in FacePersonDetail |
 | `lelamp/routes/sensing.py` | Checks habit/patterns.json in face/owners API |
