@@ -69,6 +69,12 @@ TRACK_FPS = 7
 # MAX_NUDGE_DEG. Only applied when a nudge was actually sent.
 SERVO_SETTLE_S = 0.08
 
+# Feature flag: if False, tracker only moves yaw (left/right). Used to
+# isolate the pitch-sign direction question — yaw is known-good (morning
+# test confirmed horizontal tracking works), so disabling pitch lets us
+# test yaw in isolation and re-enable pitch once the sign is verified.
+TRACK_PITCH_ENABLED = True
+
 # Pitch driven entirely by base_pitch — a single joint, symmetric with how
 # yaw uses base_yaw. Earlier versions split pitch across 3 joints (base /
 # elbow / wrist) but the elbow and wrist joints *translate* the camera as
@@ -101,11 +107,6 @@ CLOSE_OBJECT_GAIN = 0.5
 DETECT_MIN_AREA_RATIO = 0.003  # below this tracker has too few pixels
 DETECT_MAX_AREA_RATIO = 0.30   # above this the box is too loose to trust
 
-# Reject YOLO detections below this confidence — in logs, real matches
-# sit at 0.65+ while noise ranges 0.1-0.4. 0.3 rejects the obvious
-# spurious detections without being aggressive.
-DETECT_MIN_CONFIDENCE = 0.3
-
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -115,20 +116,11 @@ MAX_LOW_CONFIDENCE_FRAMES = 5
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU
 MAX_TRACK_DURATION_S = 300  # 5 minutes
 
-# Hardware servo position limits (degrees) — absolute safety bounds.
+# Servo position limits (degrees) — prevent runaway
 YAW_MIN, YAW_MAX = -135.0, 135.0
 BASE_PITCH_MIN, BASE_PITCH_MAX = -90.0, 30.0
 ELBOW_PITCH_MIN, ELBOW_PITCH_MAX = -90.0, 90.0
 WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
-
-# Tracker-allowed range for base_pitch — narrower than the hardware limits so
-# the tracker stops reaching for the physical extreme. Observed on-device:
-# after /servo/aim desk (base_pitch=+5), tracker chasing a cup near the top
-# edge of the frame could drive base_pitch to the hardware MAX (+30) in ~1s.
-# The motor then held torque at that limit — the lamp felt "stuck". Keeping
-# ~15° headroom on each side gives a graceful stop via the at-limit check.
-TRACK_BASE_PITCH_MIN = -75.0
-TRACK_BASE_PITCH_MAX = 15.0
 
 
 @dataclass
@@ -204,9 +196,8 @@ class TrackerService:
                 logger.info("YOLOWorld: '%s' not found in frame", label)
                 return None
 
-            # Filter detections by size AND confidence. Log every candidate
-            # with ACCEPTED / REJECTED (reason) so we can see what YOLO
-            # actually returned and why it was kept or dropped.
+            # Size-filter detections. Log every candidate so we can see what
+            # YOLO actually returned and why we picked (or rejected) each.
             frame_area = float(frame.shape[0] * frame.shape[1])
             valid = []
             for d in detections:
@@ -214,25 +205,21 @@ class TrackerService:
                 area_ratio = (w * h) / frame_area if frame_area > 0 else 0.0
                 conf = d.get("confidence", 0)
                 cname = d.get("class_name", "?")
-                if conf < DETECT_MIN_CONFIDENCE:
-                    reason = "REJECTED (conf)"
-                elif not (DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO):
-                    reason = "REJECTED (size)"
-                else:
-                    reason = "ACCEPTED"
-                    valid.append(d)
+                accepted = DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO
                 logger.info(
                     "  YOLO candidate: class='%s' conf=%.3f bbox=(%d,%d,%d,%d) area=%.1f%% %s",
                     cname, conf, int(cx - w / 2), int(cy - h / 2), int(w), int(h),
-                    area_ratio * 100, reason,
+                    area_ratio * 100,
+                    "ACCEPTED" if accepted else "REJECTED (size)",
                 )
+                if accepted:
+                    valid.append(d)
 
             if not valid:
                 logger.warning(
-                    "YOLOWorld: '%s' — %d detection(s) but none passed filters "
-                    "[conf >= %.2f, size %.1f%%–%.1f%% of frame]",
+                    "YOLOWorld: '%s' — %d detection(s) but none passed size filter "
+                    "[%.1f%%–%.1f%% of frame]",
                     label, len(detections),
-                    DETECT_MIN_CONFIDENCE,
                     DETECT_MIN_AREA_RATIO * 100, DETECT_MAX_AREA_RATIO * 100,
                 )
                 return None
@@ -279,29 +266,6 @@ class TrackerService:
         display_label = " | ".join(targets) if targets else ""
 
         self.stop()
-
-        # Wait for any in-progress animation (typically a preceding
-        # /servo/aim) to finish before grabbing the frame for YOLO.
-        # Without this, the camera captures a frame mid-motion — YOLO is
-        # robust enough to still return *a* detection, but the tracker
-        # can't lock because the next frame looks materially different
-        # once the servo settles. A 50ms extra idle pad covers the motor's
-        # own settle time after the animation loop has released the pose.
-        # Wait only for an active interpolation (e.g. /servo/aim transitioning
-        # to its target pose) to finish. Don't wait on _current_recording in
-        # general — idle is always "playing" on the animation event loop and
-        # that made the old check treat the lamp as permanently busy, hitting
-        # the timeout and starting tracking from a half-moved aim pose.
-        animation_wait_budget_s = 7.0
-        animation_idle_deadline = time.perf_counter() + animation_wait_budget_s
-        while time.perf_counter() < animation_idle_deadline:
-            if getattr(animation_service, "_interpolation_frames", 0) <= 0:
-                break
-            time.sleep(0.05)
-        else:
-            logger.warning("tracker start: interpolation still running after %.0fs, proceeding anyway",
-                           animation_wait_budget_s)
-        time.sleep(0.05)
 
         # Snapshot a single frame and keep it throughout detect + tracker init.
         # The YOLO call takes 1-2s, during which the scene may change. The
@@ -515,15 +479,11 @@ class TrackerService:
                 state.bbox = tuple(int(v) for v in new_bbox)
                 bx, by, bw, bh = state.bbox
 
-                # Detect bbox bloat — tracker drifting toward full frame.
-                # Was 3x; tightened to 2x because on-device every lost session
-                # ended here, and by the time 3x hit the servo had already
-                # been pushed to an extreme pose. Stopping earlier keeps the
-                # lamp closer to the last good pose.
+                # Detect bbox bloat — tracker drifting to full frame
                 bbox_area = bw * bh
                 frame_area = frame.shape[0] * frame.shape[1]
-                if init_area > 0 and bbox_area > init_area * 2:
-                    logger.warning("Bbox bloated to %.1fx initial (area=%d vs init=%d), stopping",
+                if init_area > 0 and bbox_area > init_area * 3:
+                    logger.warning("Bbox bloated to %.0fx initial (area=%d vs init=%d), stopping",
                                    bbox_area / init_area, bbox_area, init_area)
                     break
                 if bbox_area > frame_area * 0.5:
@@ -557,12 +517,9 @@ class TrackerService:
                     logger.warning("Tracking timeout after %ds, stopping", MAX_TRACK_DURATION_S)
                     break
 
-                # Servo at limit but object still far from center → unreachable.
-                # Compare against the tracker-allowed pitch range (narrower
-                # than hardware) so we bail out before the motor hits a stop.
+                # Servo at limit but object still far from center → unreachable
                 at_yaw_limit = self._track_yaw <= YAW_MIN + 1 or self._track_yaw >= YAW_MAX - 1
-                at_pitch_limit = (self._track_base_pitch <= TRACK_BASE_PITCH_MIN + 1
-                                  or self._track_base_pitch >= TRACK_BASE_PITCH_MAX - 1)
+                at_pitch_limit = self._track_base_pitch <= BASE_PITCH_MIN + 1 or self._track_base_pitch >= BASE_PITCH_MAX - 1
                 if at_yaw_limit or at_pitch_limit:
                     h, w = frame.shape[:2]
                     off = max(abs(cx - w / 2), abs(cy - h / 2))
@@ -598,13 +555,10 @@ class TrackerService:
                 )
                 animation_service._event_thread.start()
 
-            # Resume idle animation to recover the lamp to a safe pose.
-            # Previously we held at the last tracked position to avoid the
-            # snap back to idle looking jerky — but if the tracker ended
-            # while base_pitch was at or near its safety limit, holding
-            # means leaving the motor torqued against a hard-to-reach pose
-            # and the lamp feels physically stuck. Recovering via idle is
-            # the safer default; the idle interpolation smooths the move.
+            # Resume idle on stop so the lamp doesn't sit torqued against
+            # an awkward pose near a servo limit (user-reported "kẹt"
+            # when tracking ended at an extreme). Idle's own interpolation
+            # smooths the move back to a neutral posture.
             try:
                 from lelamp.presets import SERVO_CMD_PLAY
                 animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
@@ -628,20 +582,10 @@ class TrackerService:
         gain_mult = CLOSE_OBJECT_GAIN if close else 1.0
 
         yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
-
-        # Pitch sign (same-sign as dy). An earlier fix negated dy based on
-        # the naive reading of AIM_UP (base_pitch=+10) vs AIM_DOWN (-50),
-        # but that ignored how the arm's kinematic chain actually works:
-        # base_pitch is the joint at the *base* of the arm, so increasing
-        # it leans the whole arm forward and the head drops — decreasing
-        # leans backward and the head rises. AIM_UP achieves "look up"
-        # mainly via wrist_pitch=+25, not base_pitch. So to bring a cup
-        # sitting at the TOP of the frame (dy < 0) toward centre, we need
-        # base_pitch to DECREASE (head rises, camera tilts up). That is
-        # what `pitch_deg = dy * k` already does: dy < 0 → pitch_deg < 0
-        # → new_base_pitch smaller. The flip caused "cúi quá sâu" because
-        # it drove the head *down* whenever the cup was above centre.
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
+        if not TRACK_PITCH_ENABLED:
+            pitch_deg = 0.0
+        else:
+            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
@@ -655,9 +599,7 @@ class TrackerService:
             # Pitch on base joint only. Elbow/wrist weights are 0 so they
             # stay at their start pose, matching how yaw leaves the other
             # joints alone.
-            # Clamp to tracker-allowed range (narrower than hardware limits)
-            # so tracking never drives the motor against a physical stop.
-            new_base_pitch = max(TRACK_BASE_PITCH_MIN, min(TRACK_BASE_PITCH_MAX,
+            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
                 self._track_base_pitch + pitch_deg * PITCH_WEIGHT_BASE))
             new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
                 self._track_elbow_pitch + pitch_deg * PITCH_WEIGHT_ELBOW))
