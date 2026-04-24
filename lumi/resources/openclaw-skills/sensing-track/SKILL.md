@@ -11,14 +11,22 @@ The primary data source is the **flow events JSONL** at `/root/local/flow_events
 
 > **Important:** Always use the absolute path `/root/local/` — the `read` tool cannot access files outside the workspace, so use `exec` (Bash) for all JSONL queries.
 
-Persistent camera snapshots are stored under `/var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg` (72h TTL, 50 MB cap) — one subdir per event prefix (e.g. `sensing_motion_activity/`, `sensing_presence/`, `sensing_emotion/`). Reference these when the user asks what happened visually.
+Persistent camera snapshots are stored under `/var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg` (72h TTL, 50 MB cap) — one subdir per event kind:
+
+| Event type | Folder |
+|---|---|
+| `presence.enter`, `presence.leave` | `sensing_face/` |
+| `motion.activity` | `sensing_motion_activity/` |
+| `emotion.detected` | `sensing_emotion/` |
+
+Reference these when the user asks what happened visually.
 
 ## JSONL format
 
 Each line is a JSON object:
 
 ```json
-{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_presence/1712345678123.jpg]"},"version":"1.2.3"}
+{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_face/1712345678123.jpg]"},"version":"1.2.3"}
 {"kind":"exit","node":"sensing_input","ts":1712345678.456,"seq":43,"trace_id":"run-abc","duration_ms":332,"data":{"path":"agent","run_id":"run-abc"},"version":"1.2.3"}
 ```
 
@@ -112,7 +120,7 @@ jq -c 'select(.node=="sensing_input" and .kind=="exit" and .data.error != null)'
 
 ### List snapshots (72h TTL — older files may be purged)
 
-Snapshots are bucketed by event prefix (`sensing_motion_activity/`, `sensing_presence/`, `sensing_emotion/`, …). Recurse into subdirs:
+Snapshots are bucketed into `sensing_face/` (presence), `sensing_motion_activity/`, `sensing_emotion/`. Recurse into subdirs:
 
 ```bash
 # Most-recent snapshots across all categories

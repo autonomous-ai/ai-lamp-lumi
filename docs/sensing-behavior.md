@@ -467,7 +467,7 @@ See `user-emotion-detection/SKILL.md` for the agent's full response rules.
 
 ## Snapshot Storage (two-tier)
 
-Sensing events that include a camera frame (motion, presence.enter, presence.leave, music.mood) save snapshots in two locations. Note: `motion.activity` no longer sends images — only action names.
+Sensing events that include a camera frame (`motion`, `presence.enter`, `presence.leave`, `motion.activity`, `emotion.detected`, `music.mood`) save snapshots in two locations.
 
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
