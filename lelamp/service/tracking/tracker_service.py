@@ -83,6 +83,15 @@ PITCH_WEIGHT_WRIST = 0.15
 # Re-detect interval (seconds) — periodically call YOLOWorld to correct drift
 REDETECT_INTERVAL_S = 5.0
 
+# YOLOWorld detection filters. Without these, noisy low-confidence hits
+# (e.g. 14x18 px bbox conf=0.27) at the frame edge pass through and
+# re-seed the tracker with garbage, killing the session. Observed on-
+# device (2026-04-24 15:04): periodic re-detect picked a 15x21 bbox at
+# conf 0.305 and the tracker collapsed in the next cycle.
+DETECT_MIN_AREA_RATIO = 0.003   # reject bbox smaller than 0.3% of frame
+DETECT_MAX_AREA_RATIO = 0.30    # reject bbox larger than 30% (loose/merged)
+DETECT_MIN_CONFIDENCE = 0.5     # reject detections under 0.5 (noise floor)
+
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -168,10 +177,40 @@ class TrackerService:
                 logger.info("YOLOWorld: '%s' not found in frame", target)
                 return None
 
-            # Pick highest confidence detection
-            best = max(detections, key=lambda d: d.get("confidence", 0))
+            # Filter out garbage detections. Log every candidate with the
+            # decision so we can diagnose mis-detections from the log.
+            frame_area = float(frame.shape[0] * frame.shape[1])
+            valid = []
+            for d in detections:
+                cx, cy, w, h = d["xywh"]
+                conf = d.get("confidence", 0)
+                area_ratio = (w * h) / frame_area if frame_area > 0 else 0.0
+                cname = d.get("class_name", "?")
+                if conf < DETECT_MIN_CONFIDENCE:
+                    reason = "REJECTED (conf)"
+                elif not (DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO):
+                    reason = "REJECTED (size)"
+                else:
+                    reason = "ACCEPTED"
+                logger.info(
+                    "  YOLO candidate: class='%s' conf=%.3f bbox=(%d,%d,%d,%d) area=%.1f%% %s",
+                    cname, conf, int(cx - w / 2), int(cy - h / 2), int(w), int(h),
+                    area_ratio * 100, reason,
+                )
+                if reason == "ACCEPTED":
+                    valid.append(d)
+
+            if not valid:
+                logger.warning(
+                    "YOLOWorld: '%s' — %d detection(s) but none passed filters "
+                    "(conf >= %.2f, area %.1f%%–%.1f%%)",
+                    target, len(detections), DETECT_MIN_CONFIDENCE,
+                    DETECT_MIN_AREA_RATIO * 100, DETECT_MAX_AREA_RATIO * 100,
+                )
+                return None
+
+            best = max(valid, key=lambda d: d.get("confidence", 0))
             cx, cy, w, h = best["xywh"]
-            # Convert center format to top-left format
             x = int(cx - w / 2)
             y = int(cy - h / 2)
             bbox = (x, y, int(w), int(h))
