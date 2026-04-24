@@ -1,6 +1,16 @@
 ---
 name: servo-tracking
-description: Use when the user asks Lumi to follow, track, watch, or look at a specific object (e.g. "follow my cup", "look at the bottle", "track that person", "watch my hand").
+description: |
+  Use ONLY when the user asks Lumi to follow/track/watch a MOVABLE PHYSICAL OBJECT that vision can recognize. Examples of valid targets: cup, bottle, phone, hand, person, pen, book, remote, toy, keys, wallet, a specific face, a pet. The target must be a COUNT noun for a discrete object — the tracker locks onto pixels.
+
+  NEVER use this skill for:
+  - Fixed locations or furniture: desk, table, wall, floor, ceiling, door, window, workspace, corner, room. Those are directions, not objects. Use servo-control /servo/aim instead.
+  - Direction words: left, right, up, down, center, forward, backward. Use servo-control /servo/aim.
+  - The user's view ("look here", "look at me" without a specific object noun). Use servo-control /servo/aim direction=user.
+
+  If the user combines a direction AND an object in one sentence (e.g. "look at the desk and follow the cup", "point at the table and track the phone"), fire TWO markers in order: first servo-control /servo/aim for the direction, then this /servo/track for the object.
+
+  Verb "look at" is ambiguous — if the thing following "look at" is in the NEVER list above, route to servo-control /servo/aim instead of here.
 ---
 
 # Vision Tracking
@@ -10,12 +20,19 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 
 ## Workflow
 1. User names an object to track.
-2. Prefix reply with `[HW:/servo/track:{"target":["<label1>","<label2>"]}]` — Lumi detects and follows.
+2. **If the user also hints at a direction** ("look at desk and follow cup", "point at the table and watch the phone"), fire `/servo/aim` FIRST so the camera is pointing at the right region before YOLO detection runs. Then fire `/servo/track`. The aim should complete in ~2s before the track call takes over.
+3. Prefix reply with `[HW:/servo/track:{"target":["<label1>","<label2>"]}]` — Lumi detects and follows.
    - `target` accepts a list of candidate labels. Pass 2-4 synonyms/variants to maximise the chance YOLOWorld finds the object on the first try.
    - A single string also works (`{"target":"cup"}`) for backward compatibility, but the list form is preferred when the object could reasonably have multiple names.
-3. To stop, prefix with `[HW:/servo/track/stop:{}] (POST)`.
+4. To stop, prefix with `[HW:/servo/track/stop:{}] (POST)`.
 
 ## Examples
+
+**Input:** "Look at the desk and follow the cup"
+**Output:** `[HW:/servo/aim:{"direction":"desk"}][HW:/servo/track:{"target":["cup","mug","coffee cup"]}]` Looking at the desk and locking onto the cup.
+
+**Input:** "Point at the table and track my phone"
+**Output:** `[HW:/servo/aim:{"direction":"desk"}][HW:/servo/track:{"target":["phone","smartphone","mobile phone"]}]` Aimed at the table, tracking your phone.
 
 **Input:** "Follow the cup"
 **Output:** `[HW:/servo/track:{"target":["cup","mug","coffee cup"]}]` OK, following the cup!
