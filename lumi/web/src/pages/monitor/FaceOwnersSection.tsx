@@ -133,56 +133,41 @@ export function FaceOwnersSection() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 5000);
+    const t = setInterval(refresh, 10000);
     return () => {
       clearInterval(t);
       abortRef.current?.abort();
     };
   }, [refresh]);
 
-  // Cooldown polling — every 2s for live countdown
-  const refreshCooldowns = useCallback(async () => {
-    try {
-      const r = await fetch(`${HW}/face/cooldowns`);
-      if (!r.ok) throw new Error();
-      setCooldowns(await r.json());
+  const refreshFaceState = useCallback(async () => {
+    const [cdRes, cuRes] = await Promise.allSettled([
+      fetch(`${HW}/face/cooldowns`),
+      fetch(`${HW}/face/current-user`),
+    ]);
+    if (cdRes.status === "fulfilled" && cdRes.value.ok) {
+      setCooldowns(await cdRes.value.json());
       setCdError(false);
-    } catch {
+    } else {
       setCdError(true);
     }
-  }, []);
-
-  useEffect(() => {
-    refreshCooldowns();
-    const t = setInterval(refreshCooldowns, 2000);
-    return () => clearInterval(t);
-  }, [refreshCooldowns]);
-
-  // Current user polling — every 2s, same cadence as cooldowns, but hits
-  // the dedicated /face/current-user endpoint so we don't re-derive it
-  // from the cooldown payload.
-  const refreshCurrentUser = useCallback(async () => {
-    try {
-      const r = await fetch(`${HW}/face/current-user`);
-      if (!r.ok) return;
-      const j = await r.json();
+    if (cuRes.status === "fulfilled" && cuRes.value.ok) {
+      const j = await cuRes.value.json();
       setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
-    } catch {
-      // ignore — keep last known value
     }
   }, []);
 
   useEffect(() => {
-    refreshCurrentUser();
-    const t = setInterval(refreshCurrentUser, 2000);
+    refreshFaceState();
+    const t = setInterval(refreshFaceState, 5000);
     return () => clearInterval(t);
-  }, [refreshCurrentUser]);
+  }, [refreshFaceState]);
 
   const handleResetCooldowns = async () => {
     setResetting(true);
     try {
       await fetch(`${HW}/face/cooldowns/reset`, { method: "POST" });
-      await refreshCooldowns();
+      await refreshFaceState();
     } catch {
       // ignore
     } finally {
