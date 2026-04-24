@@ -1012,7 +1012,7 @@ export function ChatSection({ events, isActive }: Props) {
         ),
       );
     }
-  }, [activeId, sending, updateMessages]);
+  }, [activeId, sending, updateMessages, filePreview, fileBase64, fileIsImage, fileName, fileSize]);
 
   const send = () => { sendText(input.trim(), fileBase64); };
 

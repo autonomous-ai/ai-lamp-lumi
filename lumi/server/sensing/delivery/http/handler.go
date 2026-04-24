@@ -336,6 +336,17 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	msg = strings.ReplaceAll(msg, "\n\n\n", "\n\n")
 	msg = strings.TrimSpace(msg)
 
+	// Web chat with image: save to temp file so agent can reference the path
+	// (e.g. for face enrollment). Tag uses [image:] not [snapshot:] to avoid strip.
+	if req.Source == "web" && req.Image != "" {
+		if imgData, err := base64.StdEncoding.DecodeString(req.Image); err == nil {
+			tmpPath := fmt.Sprintf("/tmp/web-chat-%d.jpg", time.Now().UnixMilli())
+			if err := os.WriteFile(tmpPath, imgData, 0644); err == nil {
+				msg += "\n[image: " + tmpPath + "]"
+			}
+		}
+	}
+
 	var err error
 	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
 	if req.Image != "" && req.Type != "motion.activity" {
