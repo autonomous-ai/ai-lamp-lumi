@@ -55,7 +55,13 @@ export function CameraSection({
   };
 
   const startTracking = async () => {
-    const body: Record<string, unknown> = { target: trackTarget };
+    // Split on commas so the user can enter synonyms as "cup, mug, coffee cup".
+    // A single label with no commas is sent as a plain string for readability
+    // in the request body; multiple labels are sent as an array.
+    const labels = trackTarget.split(",").map((s) => s.trim()).filter(Boolean);
+    const body: Record<string, unknown> = {};
+    if (labels.length === 1) body.target = labels[0];
+    else if (labels.length > 1) body.target = labels;
     if (trackBbox.trim()) {
       const parts = trackBbox.split(",").map((s) => parseInt(s.trim(), 10));
       if (parts.length === 4 && !parts.some(isNaN)) {
@@ -200,13 +206,13 @@ export function CameraSection({
       <div style={S.card}>
         <div style={S.cardLabel}>Vision Tracking</div>
         <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
-          Track any object by bounding box [x, y, w, h] on camera frame
+          Enter one label or several comma-separated (sent as an array of candidates). Optional bbox [x, y, w, h] skips YOLO detection.
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
           <input
             value={trackTarget}
             onChange={(e) => setTrackTarget(e.target.value)}
-            placeholder="target label"
+            placeholder="cup, mug, coffee cup"
             style={{
               flex: 1, minWidth: 100, padding: "5px 8px", borderRadius: 6, fontSize: 12,
               background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
