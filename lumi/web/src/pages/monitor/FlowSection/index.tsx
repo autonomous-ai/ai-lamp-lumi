@@ -666,13 +666,9 @@ export function FlowSection({
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div style={{ ...S.card, flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span style={S.cardLabel}>Turn Pipeline</span>
-              {selectedTurn && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                    {selectedTurn.type} · {selectedTurn.events.length} events
-                    {selectedTurn.endTime ? ` · done` : ` · active`}
-                  </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={S.cardLabel}>Turn Pipeline</span>
+                {selectedTurn && (
                   <button
                     onClick={() => setCompactionAt({
                       at: selectedTurn.startTime,
@@ -685,9 +681,15 @@ export function FlowSection({
                       color: "#fff", cursor: "pointer", fontWeight: 700,
                     }}
                   >
-                    📋 summary @ this turn
+                    📋 summary prompt of this turn
                   </button>
-                </div>
+                )}
+              </div>
+              {selectedTurn && (
+                <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                  {selectedTurn.type} · {selectedTurn.events.length} events
+                  {selectedTurn.endTime ? ` · done` : ` · active`}
+                </span>
               )}
             </div>
             {selectedTurn?.endTime && (() => {
