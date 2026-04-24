@@ -168,13 +168,13 @@ func (s *Service) breathingLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			if running {
-				stopLeLampEffect()
+				lelamp.StopEffect()
 			}
 			return
 		case <-ticker.C:
 			if s.isPaused() {
 				if running {
-					stopLeLampEffect()
+					lelamp.StopEffect()
 					running = false
 				}
 				continue
@@ -185,7 +185,7 @@ func (s *Service) breathingLoop(ctx context.Context) {
 			s.mu.Unlock()
 			if locked {
 				if running {
-					stopLeLampEffect()
+					lelamp.StopEffect()
 					running = false
 				}
 				continue
@@ -197,7 +197,7 @@ func (s *Service) breathingLoop(ctx context.Context) {
 				if c, err := lelamp.GetColor(); err == nil && (c[0]+c[1]+c[2]) > 0 {
 					color = c
 				}
-				startLeLampBreathing(color)
+				lelamp.SetEffect("breathing", color[0], color[1], color[2], 0.3)
 				running = true
 			}
 		}
@@ -261,16 +261,6 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 }
 
 // --- Helpers ---
-
-// startLeLampBreathing starts the built-in breathing effect on LeLamp with the given color.
-func startLeLampBreathing(color [3]int) {
-	lelamp.SetEffect("breathing", color[0], color[1], color[2], 0.3)
-}
-
-// stopLeLampEffect stops any running LED effect on LeLamp.
-func stopLeLampEffect() {
-	lelamp.StopEffect()
-}
 
 // sleepCtx sleeps for the given duration but returns early if ctx is cancelled.
 // Returns false if ctx was cancelled.
