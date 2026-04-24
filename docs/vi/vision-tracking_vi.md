@@ -71,33 +71,35 @@ Bám theo vật thể real-time sau khi phát hiện.
 
 ## Điều khiển Servo
 
-Tracking sử dụng 4 trong 5 servo:
-- **base_yaw** (ID 1) — quay trái/phải
-- **base_pitch** (ID 2) — nghiêng lên/xuống (100% pitch — 1 joint duy nhất)
-- **elbow_pitch** (ID 3) — không dùng khi tracking (giữ pose ban đầu)
-- **wrist_pitch** (ID 5) — không dùng khi tracking (giữ pose ban đầu)
+Tracking sử dụng cả 4 servo pitch/yaw:
+- **base_yaw** (ID 1) — quay trái/phải (100% yaw)
+- **base_pitch** (ID 2) — nghiêng lên/xuống, 55% pitch
+- **elbow_pitch** (ID 3) — nghiêng lên/xuống, 30% pitch
+- **wrist_pitch** (ID 5) — nghiêng lên/xuống, 15% pitch
 
-Pitch chỉ dùng base_pitch, đối xứng với cách yaw dùng base_yaw. Các phiên bản trước chia pitch qua cả 3 joint nhưng elbow/wrist nghiêng còn *dịch chuyển* vị trí camera chứ không chỉ xoay → arc motion khác với model pixel-to-degree (tệ nhất khi object gần). Pitch 1 joint = xoay sạch quanh trục camera. Trade-off: range base_pitch -90°..+30° (120°) hẹp hơn yaw ±135°, pitch sẽ hit limit sớm hơn — motion dừng sạch trong trường hợp đó.
+Pitch chia đều trên 3 joint cánh tay (base 0.55 / elbow 0.30 / wrist 0.15). Tilt chính ở base, phụ ở elbow, ít ở wrist — giảm nhiễu cơ học và làm đầu đèn *dẫn* motion thay vì 3 joint giật giật cùng lúc.
 
 **Khi đang tracking:**
-- `_hold_mode = True` + `_tracking_active = True` — `_tracking_active` nghiêm ngặt hơn: animation loop sẽ drop mọi recording đang chạy (vd shock từ loud noise) để không có gì đấu với tracker hoặc giật tiếp khi tracking kết thúc. `/emotion` khi tracking vẫn update LED nhưng servo bị suppress.
-- `send_action()` — ghi servo trực tiếp, không blocking (servo P-gain tự smooth)
-- Re-sync vị trí bus mỗi cycle — đầu mỗi vòng lặp đọc lại vị trí thật từ bus, nếu có thứ gì ngoài tracker move servo (scene change, stale animation, lệnh tay) thì tracker sẽ lấy pose thật thay vì cộng dồn delta stale.
-
-**Khi dừng:** giữ servo ở vị trí cuối cùng khi tracking. Đèn *không* tự snap về idle pose — đã bỏ vì gây giật ngay sau khi tracking kết thúc. Idle animation sẽ resume ở lần tương tác kế tiếp của user.
+- `_hold_mode = True` — suppress idle animation để tracker sở hữu servo.
+- EMA smoothing trên tâm bbox (`EMA_ALPHA = 0.3`) — lọc jitter TrackerVit trước khi đổi sang độ.
+- Fallback khi bbox nhảy (`BBOX_JUMP_PX = 120`) — nếu tracker báo tâm dịch >120px/frame, coi là glitch tạm thời, dùng tâm EMA-smoothed thay vì bỏ frame.
+- YOLO re-detect định kỳ (`REDETECT_INTERVAL_S = 5.0`) — gọi YOLOWorld mỗi 5s để sửa drift bằng cách re-seed bbox.
+- Re-sync vị trí bus mỗi cycle — đọc lại pose thật từ hardware, tránh cộng dồn delta stale khi có motion bên ngoài.
 
 ### Chuyển đổi Pixel sang Độ
 
 ```
 Tâm frame: (320, 240) cho 640x480
-Tâm vật thể: tracker bbox (không smooth — cadence move-then-freeze ~143ms
-                            đã tự khử jitter của tracker)
+Tâm vật thể: tracker bbox đã EMA-smoothed (alpha = 0.3)
 
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-yaw_deg   = dx * 0.022   (clamp ±6.0°, bằng 0 nếu |dx| < 18)
-pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
+yaw_deg   = dx * 0.022   (clamp ±4.5°, bằng 0 nếu |dx| < 12)
+pitch_deg = dy * 0.022   (clamp ±4.5°, bằng 0 nếu |dy| < 12)
+
+Adaptive gain: khi |dx| hoặc |dy| > 120px thì nhân gain 1.3x
+để bắt kịp nhanh mà không overshoot. Giữ 1.0 khi gần tâm.
 ```
 
 ### Hằng số Tuning
@@ -106,17 +108,18 @@ pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
 |---------|---------|-------|
 | `DEG_PER_PX_YAW` | 0.022 | Độ mỗi pixel ngang |
 | `DEG_PER_PX_PITCH` | 0.022 | Độ mỗi pixel dọc |
-| `DEAD_ZONE_PX` | 18 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
-| `MAX_NUDGE_DEG` | 6.0 | Độ tối đa mỗi bước |
-| `TRACK_FPS` | 7 | Tần suất vòng lặp tracking (~143ms/cycle) |
-| `SERVO_SETTLE_S` | 0.08 | Sleep sau nudge trước khi đọc frame kế tiếp |
+| `DEAD_ZONE_PX` | 12 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
+| `WAKE_ZONE_PX` | 40 | Khi đã settle, chỉ resume nudge khi object dịch vượt ngưỡng |
+| `ADAPTIVE_GAIN_PX` | 120 | Offset vượt ngưỡng → boost gain bắt kịp |
+| `ADAPTIVE_GAIN_MULT` | 1.3 | Hệ số nhân gain khi object xa tâm |
+| `MAX_NUDGE_DEG` | 4.5 | Độ tối đa mỗi bước (tune cho TRACK_FPS=20) |
+| `TRACK_FPS` | 20 | Tần suất vòng lặp tracking (~50ms/cycle) |
+| `EMA_ALPHA` | 0.3 | Hệ số smoothing tâm bbox |
+| `BBOX_JUMP_PX` | 120 | Ngưỡng bbox jump — fallback sang tâm EMA |
+| `REDETECT_INTERVAL_S` | 5.0 | YOLO re-detect định kỳ để sửa drift |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Dưới ngưỡng này = "mất" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Số frame confidence thấp liên tiếp trước khi dừng |
-| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch chỉ trên base (1 joint, đối xứng yaw) |
-| `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area vượt ngưỡng → giảm gain |
-| `CLOSE_OBJECT_GAIN` | 0.5 | Hệ số nhân gain khi object gần |
-| `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox nhỏ hơn (quá ít pixel để track) |
-| `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox lớn hơn (lỏng, thường là detection gộp) |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Pitch chia 3 joint |
 
 ### Giới hạn vị trí Servo
 

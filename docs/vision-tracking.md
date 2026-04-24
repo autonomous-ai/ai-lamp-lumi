@@ -71,33 +71,35 @@ Real-time object following after initial detection.
 
 ## Servo Control
 
-Tracking uses 4 of 5 servos:
-- **base_yaw** (ID 1) — left/right pan
-- **base_pitch** (ID 2) — up/down tilt (100% of pitch — single joint)
-- **elbow_pitch** (ID 3) — unused during tracking (held at start pose)
-- **wrist_pitch** (ID 5) — unused during tracking (held at start pose)
+Tracking uses all 4 pitch/yaw servos:
+- **base_yaw** (ID 1) — left/right pan (100% of yaw)
+- **base_pitch** (ID 2) — up/down tilt, 55% of pitch
+- **elbow_pitch** (ID 3) — up/down tilt, 30% of pitch
+- **wrist_pitch** (ID 5) — up/down tilt, 15% of pitch
 
-Pitch is driven by base_pitch only, symmetric with how yaw uses base_yaw. Earlier versions split pitch across all 3 joints, but elbow/wrist tilt also *translates* the camera as it rotates, producing arc motion that the pixel-to-degree model didn't predict (worse on close objects). Single-joint pitch gives clean rotation around the camera's own axis. Trade-off: base_pitch range -90°..+30° (120°) is narrower than yaw's ±135°, so pitch hits servo limit sooner — motion stops cleanly in that case.
+Pitch is distributed across the 3 arm joints (base 0.55 / elbow 0.30 / wrist 0.15). Primary tilt on base, secondary on elbow, minimal on wrist — reduces mechanical interference and makes the lamp head *lead* the motion instead of three joints twitching together.
 
 **During tracking:**
-- `_hold_mode = True` + `_tracking_active = True` — `_tracking_active` is strict: the animation loop drops any in-progress recording (e.g. a shock reaction from a loud noise) so nothing fights the tracker or resumes jerking when tracking ends. `/emotion` calls during tracking still update the LED but their servo animation is suppressed.
-- `send_action()` — direct servo write, non-blocking (servo P-gain handles smoothing)
-- Bus position re-read each cycle — internal pose state is re-synced from the hardware bus at the start of every loop iteration, so if anything external (scene change, stale animation, manual command) did move the servo, the tracker picks up the real pose instead of compounding stale deltas.
-
-**On stop:** holds servo at the last tracked position. The lamp does *not* snap back to idle pose — that was removed because it caused a visible jerk right after tracking ended. Idle animation resumes on the next user interaction.
+- `_hold_mode = True` — suppresses idle animation so the tracker owns the servos.
+- EMA smoothing on bbox center (`EMA_ALPHA = 0.3`) — filters TrackerVit jitter before converting to degrees.
+- Bbox-jump fallback (`BBOX_JUMP_PX = 120`) — if the tracker reports the center moved more than 120px in one frame, treat it as a partial glitch and fall back to EMA-smoothed center rather than dropping the frame.
+- Periodic YOLO re-detect (`REDETECT_INTERVAL_S = 5.0`) — call YOLOWorld every 5s to correct tracker drift by re-seeding the bbox.
+- Bus position re-read each cycle — resync internal pose from hardware so external motion (scene change, stale animation, manual command) doesn't compound stale deltas.
 
 ### Pixel-to-Degree Conversion
 
 ```
 Frame center: (320, 240) for 640x480
-Object center: tracker bbox (no smoothing — the ~143ms move-then-freeze
-                             cadence suppresses tracker jitter naturally)
+Object center: EMA-smoothed tracker bbox center (alpha = 0.3)
 
 dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
-yaw_deg   = dx * 0.022   (clamped to ±6.0°, zero if |dx| < 18)
-pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
+yaw_deg   = dx * 0.022   (clamped to ±4.5°, zero if |dx| < 12)
+pitch_deg = dy * 0.022   (clamped to ±4.5°, zero if |dy| < 12)
+
+Adaptive gain: when |dx| or |dy| > 120px, multiply gain by 1.3x
+to catch up faster without overshoot. Stays at 1.0 when closer.
 ```
 
 ### Tuning Constants
@@ -106,17 +108,18 @@ pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 |----------|-------|-------------|
 | `DEG_PER_PX_YAW` | 0.022 | Degrees per pixel horizontal |
 | `DEG_PER_PX_PITCH` | 0.022 | Degrees per pixel vertical |
-| `DEAD_ZONE_PX` | 18 | Ignore offsets smaller than this (anti-jitter) |
-| `MAX_NUDGE_DEG` | 6.0 | Max degrees per step |
-| `TRACK_FPS` | 7 | Tracking loop frequency (~143ms/cycle) |
-| `SERVO_SETTLE_S` | 0.08 | Sleep after nudge before reading next frame |
+| `DEAD_ZONE_PX` | 12 | Ignore offsets smaller than this (anti-jitter) |
+| `WAKE_ZONE_PX` | 40 | When settled, only resume nudging when object moves beyond this |
+| `ADAPTIVE_GAIN_PX` | 120 | Above this offset, boost gain to catch up |
+| `ADAPTIVE_GAIN_MULT` | 1.3 | Gain multiplier when object is far from center |
+| `MAX_NUDGE_DEG` | 4.5 | Max degrees per step (tuned for TRACK_FPS=20) |
+| `TRACK_FPS` | 20 | Tracking loop frequency (~50ms/cycle) |
+| `EMA_ALPHA` | 0.3 | Bbox center smoothing factor |
+| `BBOX_JUMP_PX` | 120 | Tracker jump threshold — fallback to EMA-smoothed center |
+| `REDETECT_INTERVAL_S` | 5.0 | Periodic YOLO re-detect to correct drift |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Below this = "lost" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Consecutive low-confidence frames before auto-stop |
-| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch on base only (single joint, symmetric with yaw) |
-| `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area above this → reduce gain |
-| `CLOSE_OBJECT_GAIN` | 0.5 | Gain multiplier when object is close |
-| `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox smaller than this (too few pixels to track) |
-| `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox larger than this (loose, likely merged) |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Pitch distributed across 3 joints |
 
 ### Servo Position Limits
 
