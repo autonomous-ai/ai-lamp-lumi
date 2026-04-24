@@ -1,6 +1,8 @@
 declare const __WEB_VERSION__: string;
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/lib/useTheme";
+import { usePolling } from "../../hooks/usePolling";
+import { useEventSource } from "../../hooks/useEventSource";
 
 function fmtDur(s: number): string {
   if (s < 60) return `${s}s`;
@@ -192,102 +194,89 @@ export default function Monitor() {
   const sectionRef = useRef(section);
   useEffect(() => { sectionRef.current = section; }, [section]);
 
-  // Section-aware polling: only fetch APIs the active section needs.
-  // Sidebar info polls at 10s, overview hardware at 5s.
-  useEffect(() => {
-    // Sidebar: openclaw status + system info (needed for all tabs)
-    const fetchSidebar = async () => {
-      try {
-        const [ocR, sysR] = await Promise.all([
-          fetch(`${API}/openclaw/status`).then((r) => r.json()),
-          fetch(`${API}/system/info`).then((r) => r.json()),
-        ]);
-        if (ocR.status === 1) setOc(ocR.data);
-        if (sysR.status === 1) {
-          const d = sysR.data;
-          setSys(d);
-          const s = sectionRef.current;
-          if (s === "overview" || s === "system") {
-            setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
-            setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
-          }
-        }
-        setLastUpdate(new Date().toLocaleTimeString());
-      } catch {}
-    };
-
-    // Section-specific data
-    const fetchSection = async () => {
+  // Sidebar polling: openclaw status + system info (needed for all tabs).
+  // Runs at 10s via the shared usePolling hook, which adds a 4s hard
+  // timeout, skips ticks that overlap a previous in-flight call, and
+  // pauses entirely while the tab is hidden — that combination is what
+  // keeps the monitor page from saturating Chrome's 6-per-origin HTTP/1.1
+  // connection pool and freezing.
+  usePolling(async (signal) => {
+    const [ocR, sysR] = await Promise.all([
+      fetch(`${API}/openclaw/status`, { signal }).then((r) => r.json()),
+      fetch(`${API}/system/info`, { signal }).then((r) => r.json()),
+    ]);
+    if (ocR.status === 1) setOc(ocR.data);
+    if (sysR.status === 1) {
+      const d = sysR.data;
+      setSys(d);
       const s = sectionRef.current;
-
       if (s === "overview" || s === "system") {
-        try {
-          const netR = await fetch(`${API}/system/network`).then((r) => r.json());
-          if (netR.status === 1) setNet(netR.data);
-        } catch {}
+        setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
+        setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
       }
+    }
+    setLastUpdate(new Date().toLocaleTimeString());
+  }, 10_000);
 
-      if (s === "overview") {
+  // Section-specific polling at 5s. The fetcher branches on the active
+  // section so hidden sections don't pull data they won't show.
+  usePolling(async (signal) => {
+    const s = sectionRef.current;
+
+    if (s === "overview" || s === "system") {
+      const netR = await fetch(`${API}/system/network`, { signal }).then((r) => r.json());
+      if (netR.status === 1) setNet(netR.data);
+    }
+
+    if (s === "overview") {
+      const [hwR, presR, sceneR] = await Promise.all([
+        fetch(`${HW}/health`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/presence`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/scene`, { signal }).then((r) => r.json()),
+      ]);
+      setHw(hwR);
+      setPresence(presR);
+      if (sceneR.scenes) setSceneInfo(sceneR);
+
+      const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
+        fetch(`${HW}/voice/status`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/servo`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/display`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/audio/volume`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/audio/status`, { signal }).then((r) => r.json()),
+        fetch(`${HW}/led/color`, { signal }).then((r) => r.json()),
+      ]);
+      setVoice(voiceR);
+      setServo(servoR);
+      setDisplayState(dispR);
+      setAudio(audioR);
+      if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
+      if (musicR.speaker_muted !== undefined) setSpeakerMuted(musicR.speaker_muted);
+      if (ledR.hex) setLedColor(ledR);
+      setDisplayTs(Date.now());
+    }
+  }, 5_000, { timeoutMs: 8000 });
+
+  // Flow SSE: only open when flow or chat section is active. useEventSource
+  // auto-closes the stream on tab-hidden / unmount, freeing its connection
+  // slot (one per stream against Chrome's 6-per-origin cap).
+  const needsFlow = section === "flow" || section === "chat";
+  useEventSource(
+    needsFlow ? `${API}/openclaw/flow-stream` : null,
+    {
+      onMessage: (msg) => {
         try {
-          const [hwR, presR, sceneR] = await Promise.all([
-            fetch(`${HW}/health`).then((r) => r.json()),
-            fetch(`${HW}/presence`).then((r) => r.json()),
-            fetch(`${HW}/scene`).then((r) => r.json()),
-          ]);
-          setHw(hwR);
-          setPresence(presR);
-          if (sceneR.scenes) setSceneInfo(sceneR);
+          const payload = JSON.parse(msg.data) as { events?: MonitorEvent[] };
+          if (!Array.isArray(payload.events)) return;
+          const next = payload.events
+            .slice(-FLOW_EVENTS_MAX)
+            .map((ev, i) => ({ ...ev, _seq: i }));
+          setEvents(next);
+          evtIdRef.current = next.length;
         } catch {}
-
-        try {
-          const [voiceR, servoR, dispR, audioR, musicR, ledR] = await Promise.all([
-            fetch(`${HW}/voice/status`).then((r) => r.json()),
-            fetch(`${HW}/servo`).then((r) => r.json()),
-            fetch(`${HW}/display`).then((r) => r.json()),
-            fetch(`${HW}/audio/volume`).then((r) => r.json()),
-            fetch(`${HW}/audio/status`).then((r) => r.json()),
-            fetch(`${HW}/led/color`).then((r) => r.json()),
-          ]);
-          setVoice(voiceR);
-          setServo(servoR);
-          setDisplayState(dispR);
-          setAudio(audioR);
-          if (musicR.playing !== undefined) setMusicPlaying(musicR.playing);
-          if (musicR.speaker_muted !== undefined) setSpeakerMuted(musicR.speaker_muted);
-          if (ledR.hex) setLedColor(ledR);
-          setDisplayTs(Date.now());
-        } catch {}
-      }
-    };
-
-    fetchSidebar();
-    fetchSection();
-    const tSidebar = setInterval(fetchSidebar, 10_000);
-    const tSection = setInterval(fetchSection, 5_000);
-    return () => { clearInterval(tSidebar); clearInterval(tSection); };
-  }, []);
-
-  // Flow data: only connect when flow or chat section is active
-  useEffect(() => {
-    const s = section;
-    const needsFlow = s === "flow" || s === "chat";
-    if (!needsFlow) return;
-
-    // SSE only — EventSource auto-reconnects on disconnect, no polling fallback needed
-    const es = new EventSource(`${API}/openclaw/flow-stream`);
-    es.onmessage = (msg) => {
-      try {
-        const payload = JSON.parse(msg.data) as { events?: MonitorEvent[] };
-        if (!Array.isArray(payload.events)) return;
-        const next = payload.events
-          .slice(-FLOW_EVENTS_MAX)
-          .map((ev, i) => ({ ...ev, _seq: i }));
-        setEvents(next);
-        evtIdRef.current = next.length;
-      } catch {}
-    };
-    return () => { es.close(); };
-  }, [section]);
+      },
+    },
+  );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);

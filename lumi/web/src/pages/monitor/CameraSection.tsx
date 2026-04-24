@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePolling } from "../../hooks/usePolling";
 import { S } from "./styles";
 import { HW } from "./types";
 
@@ -34,72 +35,23 @@ export function CameraSection({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  // In-flight guards — skip a scheduled poll if the previous request for
-  // the same endpoint hasn't returned yet. Without this, every 3s tick
-  // started a new fetch even if the Pi was slow, and pending fetches
-  // piled up against Chrome's 6-connection-per-origin cap until the
-  // MJPEG stream and fresh fetches starved.
-  const checkInFlight = useRef(false);
-  const trackInFlight = useRef(false);
-
-  // Fetch with hard timeout via AbortController. Network stalls without
-  // this leave fetches "pending" forever and consume connection slots.
-  const fetchWithTimeout = useCallback(async (url: string, init: RequestInit = {}, timeoutMs = 4000) => {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const fetchTrackStatus = useCallback(async () => {
     try {
-      return await fetch(url, { ...init, signal: ac.signal });
-    } finally {
-      clearTimeout(timer);
-    }
+      const r = await fetch(`${HW}/servo/track`).then((x) => x.json());
+      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
+    } catch {}
   }, []);
 
-  const checkStatus = useCallback(async () => {
-    if (checkInFlight.current) return;
-    checkInFlight.current = true;
-    try {
-      const r = await fetchWithTimeout(`${HW}/camera`).then((x) => x.json());
-      setCameraDisabled(!!r.disabled);
-      setManualOverride(!!r.manual_override);
-    } catch {} finally {
-      checkInFlight.current = false;
-    }
-  }, [fetchWithTimeout]);
+  usePolling(async (signal) => {
+    const r = await fetch(`${HW}/camera`, { signal }).then((x) => x.json());
+    setCameraDisabled(!!r.disabled);
+    setManualOverride(!!r.manual_override);
+  }, 3000);
 
-  const fetchTrackStatus = useCallback(async () => {
-    if (trackInFlight.current) return;
-    trackInFlight.current = true;
-    try {
-      const r = await fetchWithTimeout(`${HW}/servo/track`).then((x) => x.json());
-      setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
-    } catch {} finally {
-      trackInFlight.current = false;
-    }
-  }, [fetchWithTimeout]);
-
-  // Poll camera + track state every 3s. Pauses while the tab is hidden
-  // so a backgrounded tab doesn't keep hammering the Pi.
-  useEffect(() => {
-    let id: ReturnType<typeof setInterval> | null = null;
-    const start = () => {
-      if (id !== null) return;
-      checkStatus();
-      fetchTrackStatus();
-      id = setInterval(() => { checkStatus(); fetchTrackStatus(); }, 3000);
-    };
-    const stop = () => {
-      if (id !== null) { clearInterval(id); id = null; }
-    };
-    const onVisibility = () => {
-      if (document.hidden) stop(); else start();
-    };
-    if (!document.hidden) start();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      stop();
-    };
-  }, [checkStatus, fetchTrackStatus]);
+  usePolling(async (signal) => {
+    const r = await fetch(`${HW}/servo/track`, { signal }).then((x) => x.json());
+    setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
+  }, 3000);
 
   const toggleCamera = async () => {
     setToggling(true);
