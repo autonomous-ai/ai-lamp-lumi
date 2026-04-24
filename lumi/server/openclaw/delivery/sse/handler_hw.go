@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,31 @@ import (
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
+
+// parseTrackTarget pulls the first candidate label out of a
+// [HW:/servo/track:{"target":...}] body. Accepts string or []string forms.
+// Returns "it" if parsing fails so fallback TTS still reads naturally.
+func parseTrackTarget(body string) string {
+	var req struct {
+		Target any `json:"target"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return "it"
+	}
+	switch v := req.Target.(type) {
+	case string:
+		if v != "" {
+			return v
+		}
+	case []any:
+		for _, t := range v {
+			if s, ok := t.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return "it"
+}
 
 // prunedImageMarkerRe matches bracket markers echoed by the LLM after OpenClaw
 // strips image payloads from conversation history (e.g. "[image description removed]").
@@ -59,6 +85,20 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 				errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 				resp.Body.Close()
 				slog.Warn("HW marker error response", "component", "openclaw", "path", c.path, "status", resp.StatusCode, "body", string(errBody))
+
+				// /servo/track start has ~800ms latency (freeze + YOLO). By
+				// the time this goroutine sees the 400, the LLM's optimistic
+				// TTS ("Following the cup") has already played. Speak a
+				// corrective apology so the user doesn't think tracking
+				// succeeded. Only for the exact start path — /stop and
+				// /update have different semantics.
+				if c.path == "/servo/track" {
+					target := parseTrackTarget(c.body)
+					fallback := "I can't see " + target + " right now. Try pointing me toward it, or try a different name."
+					if err := lelamp.Speak(fallback); err != nil {
+						slog.Warn("track fallback TTS failed", "component", "openclaw", "error", err)
+					}
+				}
 			} else {
 				resp.Body.Close()
 				slog.Info("HW marker fired", "component", "openclaw", "path", c.path)
