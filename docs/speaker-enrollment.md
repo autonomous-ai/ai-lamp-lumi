@@ -136,6 +136,17 @@ Three layers prevent the agent from repeatedly asking "who are you?":
 | `POST` | `/speaker/reset` | Remove all voice profiles |
 | `GET`  | `/speaker/list` | List enrolled speakers |
 
+### Error contract
+
+`/speaker/enroll` distinguishes two failure classes:
+
+| HTTP | When | Skill behavior |
+|------|------|----------------|
+| `400` | Audio-level reject (too short, silent, VAD found no speech, dlbackend returned 4xx) | Ask user to re-record / speak more clearly |
+| `503` | Embedding service unreachable (network, 5xx, malformed response) | Tell user to try again shortly — nothing on disk was modified |
+
+`/speaker/recognize` never fails with 5xx for embedding outages — it returns `200` with `{name: "unknown", error: "<reason>"}` so the skill can gracefully degrade. Only input-level problems (missing WAV, bad base64) return `400`.
+
 ## Key Code Locations
 
 | Component | File | Function/Struct |
