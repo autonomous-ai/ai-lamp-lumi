@@ -1,6 +1,6 @@
 ---
 name: servo-control
-description: Use when the user asks to aim/point the lamp light in a direction, stop/freeze/hold movement ("stand still", "stop moving", "freeze", "hold still"), resume movement, or when a specific servo animation is needed without LED/display changes.
+description: Use when the user asks to aim/point/look the lamp in a DIRECTION ("look at desk", "point at the wall", "look left", "aim at the ceiling", "turn right"), stop/freeze/hold movement ("stand still", "stop moving", "freeze", "hold still"), resume movement, or when a specific servo animation is needed without LED/display changes. Directions are fixed names like desk/wall/left/right/up/down/center/user. For following a moving OBJECT by vision ("follow the cup", "track the phone"), use the servo-tracking skill. If the user asks for both in one sentence ("look at desk and follow the cup"), fire THIS aim skill first, then the tracking skill — see servo-tracking for the compound example.
 ---
 
 # Servo Control
