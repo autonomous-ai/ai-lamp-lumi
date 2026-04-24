@@ -25,7 +25,12 @@ dependencies = [
     "webrtcvad>=2.0.10",
     "yt-dlp>=2025.3.0",
     "Pillow>=10.0.0",
-    "opencv-python>=4.8.0",
+    # Use the contrib build so cv2.TrackerCSRT / TrackerKCF are available
+    # for vision tracking. The base opencv-python only ships MIL (plus
+    # TrackerVit via an external ONNX file), and on-device MIL drifts
+    # silently while TrackerVit can't hold lock when the YOLO init box is
+    # loose — CSRT is the only reliable option we have.
+    "opencv-contrib-python>=4.8.0",
     "soundfile>=0.12",
     "scipy>=1.8",
     "sounddevice",
