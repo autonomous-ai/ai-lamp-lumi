@@ -494,7 +494,7 @@ def start_tracking(req: ServoTrackRequest):
     return {
         "status": "ok",
         "tracking": True,
-        "target": req.target or None,
+        "target": s.get("target"),
         "bbox": s.get("bbox"),
     }
 
@@ -538,9 +538,10 @@ def update_tracking_bbox(req: ServoTrackRequest):
     if not ok:
         raise HTTPException(400, "Failed to re-initialize tracker")
 
+    s = state.tracker_service.status
     return {
         "status": "ok",
         "tracking": True,
-        "target": req.target or None,
+        "target": s.get("target"),
         "bbox": list(bbox),
     }

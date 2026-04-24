@@ -450,12 +450,21 @@ class ServoTrackRequest(BaseModel):
         None, min_length=4, max_length=4,
         description="Bounding box [x, y, w, h]. If omitted, auto-detect using YOLOWorld.",
     )
-    target: str = Field("", description="Object name to track (e.g. 'cup', 'book', 'person')")
+    target: Union[str, list[str]] = Field(
+        "",
+        description=(
+            "Object name(s) to track. Pass a single string (e.g. 'cup') or a list "
+            "of candidate labels (e.g. ['cup', 'mug', 'coffee cup']) when the caller "
+            "is unsure of the exact word — YOLOWorld evaluates all candidates and "
+            "the highest-confidence detection is used."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {"target": "cup"},
+                {"target": ["cup", "mug", "coffee cup"]},
                 {"bbox": [280, 200, 80, 80], "target": "water bottle"},
             ]
         }

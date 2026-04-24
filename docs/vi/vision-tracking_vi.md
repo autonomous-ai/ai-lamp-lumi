@@ -73,11 +73,11 @@ Bám theo vật thể real-time sau khi phát hiện.
 
 Tracking sử dụng 4 trong 5 servo:
 - **base_yaw** (ID 1) — quay trái/phải
-- **base_pitch** (ID 2) — nghiêng lên/xuống (55% pitch — dẫn đầu chuyển động)
-- **elbow_pitch** (ID 3) — nghiêng lên/xuống (30% pitch)
-- **wrist_pitch** (ID 5) — nghiêng lên/xuống (15% pitch)
+- **base_pitch** (ID 2) — nghiêng lên/xuống (100% pitch — 1 joint duy nhất)
+- **elbow_pitch** (ID 3) — không dùng khi tracking (giữ pose ban đầu)
+- **wrist_pitch** (ID 5) — không dùng khi tracking (giữ pose ban đầu)
 
-Pitch được chia có trọng số cho 3 joint (55/30/15): base dẫn trước, elbow theo sau, wrist hoàn thiện. Smooth hơn chia đều.
+Pitch chỉ dùng base_pitch, đối xứng với cách yaw dùng base_yaw. Các phiên bản trước chia pitch qua cả 3 joint nhưng elbow/wrist nghiêng còn *dịch chuyển* vị trí camera chứ không chỉ xoay → arc motion khác với model pixel-to-degree (tệ nhất khi object gần). Pitch 1 joint = xoay sạch quanh trục camera. Trade-off: range base_pitch -90°..+30° (120°) hẹp hơn yaw ±135°, pitch sẽ hit limit sớm hơn — motion dừng sạch trong trường hợp đó.
 
 **Khi đang tracking:**
 - `_hold_mode = True` — chặn idle animations
@@ -112,7 +112,9 @@ pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
 | `SERVO_SETTLE_S` | 0.08 | Sleep sau nudge trước khi đọc frame kế tiếp |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Dưới ngưỡng này = "mất" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Số frame confidence thấp liên tiếp trước khi dừng |
-| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Phân bổ pitch cho 3 joint |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch chỉ trên base (1 joint, đối xứng yaw) |
+| `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area vượt ngưỡng → giảm gain |
+| `CLOSE_OBJECT_GAIN` | 0.5 | Hệ số nhân gain khi object gần |
 
 ### Giới hạn vị trí Servo
 
@@ -150,15 +152,20 @@ YOLOWorld là open-vocabulary — bất kỳ text nào cũng được, danh sác
 
 ### POST /servo/track — Bắt đầu tracking
 
+`target` chấp nhận chuỗi đơn hoặc list nhiều candidate label. Khi truyền list, YOLOWorld đánh giá tất cả label và chọn detection có confidence cao nhất. Hữu ích khi caller (ví dụ LLM skill) không chắc label chính xác.
+
 ```json
-// Tự detect (YOLOWorld tìm vật thể)
+// Tự detect, 1 label
 {"target": "cup"}
 
-// Bbox thủ công (bỏ qua detection)
+// Tự detect, list candidate label (ưu tiên từ LLM skill)
+{"target": ["cup", "mug", "ly cà phê"]}
+
+// Bbox thủ công (bỏ qua detection — target chỉ dùng để hiển thị)
 {"bbox": [190, 50, 170, 300], "target": "cup"}
 
 // Response
-{"status": "ok", "tracking": true, "target": "cup", "bbox": [190, 50, 170, 300], "confidence": 1.0}
+{"status": "ok", "tracking": true, "target": "cup | mug | ly cà phê", "bbox": [190, 50, 170, 300], "confidence": 1.0}
 ```
 
 ### POST /servo/track/stop — Dừng tracking

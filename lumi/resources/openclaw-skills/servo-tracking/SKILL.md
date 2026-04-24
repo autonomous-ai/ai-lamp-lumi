@@ -10,25 +10,27 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 
 ## Workflow
 1. User names an object to track.
-2. Prefix reply with `[HW:/servo/track:{"target":"<object>"}]` — Lumi detects and follows.
+2. Prefix reply with `[HW:/servo/track:{"target":["<label1>","<label2>"]}]` — Lumi detects and follows.
+   - `target` accepts a list of candidate labels. Pass 2-4 synonyms/variants to maximise the chance YOLOWorld finds the object on the first try.
+   - A single string also works (`{"target":"cup"}`) for backward compatibility, but the list form is preferred when the object could reasonably have multiple names.
 3. To stop, prefix with `[HW:/servo/track/stop:{}] (POST)`.
 
 ## Examples
 
 **Input:** "Follow the cup"
-**Output:** `[HW:/servo/track:{"target":"cup"}]` OK, following the cup!
+**Output:** `[HW:/servo/track:{"target":["cup","mug","coffee cup"]}]` OK, following the cup!
 
 **Input:** "Look at the bottle"
-**Output:** `[HW:/servo/track:{"target":"bottle"}]` Watching the bottle.
+**Output:** `[HW:/servo/track:{"target":["bottle","water bottle","plastic bottle"]}]` Watching the bottle.
 
 **Input:** "Track that person"
-**Output:** `[HW:/servo/track:{"target":"person"}]` Following them now.
+**Output:** `[HW:/servo/track:{"target":["person","man","woman"]}]` Following them now.
 
 **Input:** "Watch my phone"
-**Output:** `[HW:/servo/track:{"target":"phone"}]` Got it, tracking your phone.
+**Output:** `[HW:/servo/track:{"target":["phone","smartphone","mobile phone"]}]` Got it, tracking your phone.
 
 **Input:** "Follow the teddy bear"
-**Output:** `[HW:/servo/track:{"target":"teddy bear"}]` Tracking the teddy bear!
+**Output:** `[HW:/servo/track:{"target":["teddy bear","stuffed animal","plush toy"]}]` Tracking the teddy bear!
 
 **Input:** "Stop following" / "Stop tracking"
 **Output:** `[HW:/servo/track/stop:{}] (POST)` Stopped tracking.
@@ -41,24 +43,26 @@ Tracks and follows any object by name. YOLOWorld detects the object in the camer
 **No exec/curl needed.** Inline markers at start of reply:
 
 ```
-[HW:/servo/track:{"target":"cup"}] Following the cup.
-[HW:/servo/track:{"target":"person"}] Tracking you now.
+[HW:/servo/track:{"target":["cup","mug","coffee cup"]}] Following the cup.
+[HW:/servo/track:{"target":["person"]}] Tracking you now.
 [HW:/servo/track/stop:{}] (POST) Stopped tracking.
 ```
 
 ### Target names
 
-Use common English object names. Works best with:
-person, cup, bottle, glass, phone, laptop, keyboard, mouse, book, pen, notebook, bag, chair, monitor, remote control, plate, bowl, plant, vase, clock, lamp, speaker, headphones, watch, glasses, hat, shoe, toy, ball, teddy bear.
+Prefer a **list of 2-4 candidate labels** in English. YOLOWorld evaluates all candidates and picks the highest-confidence detection across the set — synonyms increase the chance of a successful first-try detection when the user's wording doesn't exactly match COCO/training vocabulary.
 
-Any name works (open-vocabulary detection) but common objects have higher accuracy.
+Common objects: person, cup, bottle, glass, phone, laptop, keyboard, mouse, book, pen, notebook, bag, chair, monitor, remote control, plate, bowl, plant, vase, clock, lamp, speaker, headphones, watch, glasses, hat, shoe, toy, ball, teddy bear.
+
+Any label works (open-vocabulary detection). Don't include too many unrelated items in the list — that risks matching a nearby but wrong object.
 
 ### How it works internally
 1. Camera captures current frame
-2. YOLOWorld API detects the named object (~1-2s)
-3. TrackerVit locks on and follows at 12 FPS
-4. Servo (yaw + 3 pitch joints) nudges to keep object centered
-5. Auto-stops when object is lost, out of range, or after 5 minutes
+2. YOLOWorld API evaluates all candidate labels (~1-2s)
+3. Highest-confidence detection becomes the initial bbox
+4. TrackerVit locks on and follows in a move-then-freeze loop (~7 FPS)
+5. Servo base_yaw + base_pitch nudges to keep object centered
+6. Auto-stops when object is lost, out of range, or after 5 minutes
 
 ## Error Handling
 - If the object is not found: "I can't see a {target} right now. Try pointing me toward it, or try a different name."
@@ -68,6 +72,6 @@ Any name works (open-vocabulary detection) but common objects have higher accura
 ## Rules
 - Only one object can be tracked at a time. Starting a new track stops the previous one.
 - Tracking auto-stops when the object leaves the frame, gets occluded, or after 5 minutes.
-- When tracking stops, servo resumes idle animation automatically.
+- When tracking stops, the servo holds its last position (no snap back to idle).
 - Do NOT use this for emotional reactions — use the Emotion skill instead.
-- Use simple, common object names for best results.
+- Prefer `target` as a list of 2-4 English synonyms for better first-try detection. Avoid packing unrelated labels into the list.

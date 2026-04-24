@@ -73,11 +73,11 @@ Real-time object following after initial detection.
 
 Tracking uses 4 of 5 servos:
 - **base_yaw** (ID 1) — left/right pan
-- **base_pitch** (ID 2) — up/down tilt (55% of pitch — leads the motion)
-- **elbow_pitch** (ID 3) — up/down tilt (30% of pitch)
-- **wrist_pitch** (ID 5) — up/down tilt (15% of pitch)
+- **base_pitch** (ID 2) — up/down tilt (100% of pitch — single joint)
+- **elbow_pitch** (ID 3) — unused during tracking (held at start pose)
+- **wrist_pitch** (ID 5) — unused during tracking (held at start pose)
 
-Pitch is weighted across 3 joints (55/30/15): base leads, elbow follows, wrist finishes. This gives smoother head motion than splitting equally.
+Pitch is driven by base_pitch only, symmetric with how yaw uses base_yaw. Earlier versions split pitch across all 3 joints, but elbow/wrist tilt also *translates* the camera as it rotates, producing arc motion that the pixel-to-degree model didn't predict (worse on close objects). Single-joint pitch gives clean rotation around the camera's own axis. Trade-off: base_pitch range -90°..+30° (120°) is narrower than yaw's ±135°, so pitch hits servo limit sooner — motion stops cleanly in that case.
 
 **During tracking:**
 - `_hold_mode = True` — suppresses idle animations
@@ -112,7 +112,9 @@ pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 | `SERVO_SETTLE_S` | 0.08 | Sleep after nudge before reading next frame |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Below this = "lost" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Consecutive low-confidence frames before auto-stop |
-| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Pitch distribution across 3 joints |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch on base only (single joint, symmetric with yaw) |
+| `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area above this → reduce gain |
+| `CLOSE_OBJECT_GAIN` | 0.5 | Gain multiplier when object is close |
 
 ### Servo Position Limits
 
@@ -150,18 +152,23 @@ YOLOWorld is open-vocabulary — any text works, this list is just suggestions.
 
 ### POST /servo/track — Start tracking
 
+`target` accepts either a single string or a list of candidate labels. When a list is passed, YOLOWorld evaluates all labels and the single highest-confidence detection is used. Useful when the caller (e.g. an LLM skill) is unsure which exact label will match.
+
 ```json
-// Auto-detect (YOLOWorld finds the object)
+// Auto-detect, single label
 {"target": "cup"}
 
-// Manual bbox (skip detection)
+// Auto-detect, list of candidate labels (preferred from LLM skills)
+{"target": ["cup", "mug", "coffee cup"]}
+
+// Manual bbox (skip detection — target is for display only)
 {"bbox": [190, 50, 170, 300], "target": "cup"}
 
 // Response
 {
   "status": "ok",
   "tracking": true,
-  "target": "cup",
+  "target": "cup | mug | coffee cup",
   "bbox": [190, 50, 170, 300],
   "confidence": 1.0
 }

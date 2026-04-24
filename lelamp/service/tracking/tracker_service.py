@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -69,12 +69,28 @@ TRACK_FPS = 7
 # MAX_NUDGE_DEG. Only applied when a nudge was actually sent.
 SERVO_SETTLE_S = 0.08
 
-# Pitch distribution across 3 joints. Primary tilt on base, secondary on
-# elbow, minimal on wrist — reduces mechanical interference and makes the
-# lamp head lead the motion instead of three joints twitching together.
-PITCH_WEIGHT_BASE = 0.55
-PITCH_WEIGHT_ELBOW = 0.30
-PITCH_WEIGHT_WRIST = 0.15
+# Pitch driven entirely by base_pitch — a single joint, symmetric with how
+# yaw uses base_yaw. Earlier versions split pitch across 3 joints (base /
+# elbow / wrist) but the elbow and wrist joints *translate* the camera as
+# they tilt, not just rotate it, so the view shifted in ways the pixel-
+# to-degree model didn't predict. Single joint = clean rotation around
+# the camera's own axis, same mental model as yaw.
+#
+# Trade-off: base_pitch range is -90°..+30° (120°), narrower than yaw's
+# ±135°. Pitch will hit the servo limit sooner, but motion within range
+# is stable and predictable.
+PITCH_WEIGHT_BASE = 1.0
+PITCH_WEIGHT_ELBOW = 0.0
+PITCH_WEIGHT_WRIST = 0.0
+
+# Close-object gain attenuation. When the bbox covers a large fraction of
+# the frame, the object is physically close to the camera. In that regime:
+#   - bbox noise (±a few pixels) produces a large apparent offset
+#   - a given servo rotation shifts the object by many more pixels in view
+# Both push the tracker to overcorrect. Lowering gain in this regime makes
+# close-range tracking feel much less twitchy.
+CLOSE_OBJECT_RATIO = 0.35
+CLOSE_OBJECT_GAIN = 0.5
 
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
@@ -126,8 +142,13 @@ class TrackerService:
             "confidence": round(s.confidence, 3),
         }
 
-    def detect_object(self, frame: npt.NDArray[np.uint8], target: str) -> Optional[Tuple[int, int, int, int]]:
-        """Detect an object by name using YOLOWorld API.
+    def detect_object(self, frame: npt.NDArray[np.uint8], targets: List[str]) -> Optional[Tuple[int, int, int, int]]:
+        """Detect an object by name(s) using YOLOWorld API.
+
+        `targets` is a list of candidate labels. YOLOWorld evaluates all of
+        them and we pick the single highest-confidence detection across the
+        set. Useful when the caller (e.g. an LLM skill) is unsure of the
+        right word for the object — passing synonyms increases hit rate.
 
         Returns (x, y, w, h) top-left bbox or None if not found.
         """
@@ -135,7 +156,11 @@ class TrackerService:
         if not DL_BACKEND_URL:
             logger.error("YOLOWorld: DL_BACKEND_URL not configured")
             return None
+        if not targets:
+            logger.error("YOLOWorld: empty target list")
+            return None
 
+        label = " | ".join(targets)
         url = DL_BACKEND_URL.rstrip("/") + "/" + _YOLO_ENDPOINT.strip("/")
         try:
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -143,7 +168,7 @@ class TrackerService:
 
             resp = requests.post(
                 url,
-                json={"image_b64": img_b64, "classes": [target]},
+                json={"image_b64": img_b64, "classes": list(targets)},
                 headers={"x-api-key": DL_API_KEY} if DL_API_KEY else {},
                 timeout=_YOLO_TIMEOUT,
             )
@@ -153,17 +178,19 @@ class TrackerService:
 
             detections = resp.json()
             if not detections:
-                logger.info("YOLOWorld: '%s' not found in frame", target)
+                logger.info("YOLOWorld: '%s' not found in frame", label)
                 return None
 
-            # Pick highest confidence detection
+            # Pick highest confidence detection across all candidate classes
             best = max(detections, key=lambda d: d.get("confidence", 0))
             cx, cy, w, h = best["xywh"]
             # Convert center format to top-left format
             x = int(cx - w / 2)
             y = int(cy - h / 2)
             bbox = (x, y, int(w), int(h))
-            logger.info("YOLOWorld: '%s' found at bbox=%s conf=%.3f", target, bbox, best["confidence"])
+            matched = best.get("class_name", "?")
+            logger.info("YOLOWorld: '%s' matched '%s' at bbox=%s conf=%.3f",
+                        label, matched, bbox, best["confidence"])
             return bbox
         except Exception as e:
             logger.error("YOLOWorld detect failed: %s", e)
@@ -172,18 +199,29 @@ class TrackerService:
     def start(
         self,
         bbox: Optional[Tuple[int, int, int, int]] = None,
-        target_label: str = "",
+        target_label: Union[str, List[str]] = "",
         camera_capture=None,
         animation_service=None,
     ) -> bool:
         """Start tracking an object.
 
-        If bbox is provided, use it directly. Otherwise, auto-detect using YOLOWorld.
+        `target_label` can be a single string or a list of candidate labels
+        (e.g. synonyms from an LLM that's unsure of the exact word). If
+        `bbox` is provided, `target_label` is only used for display and
+        logging; otherwise YOLOWorld auto-detects using these labels.
         """
         if camera_capture is None or animation_service is None:
             self.last_error = "camera or animation service not available"
             logger.error("tracker start: %s", self.last_error)
             return False
+
+        # Normalize target_label → list of non-empty strings, plus a
+        # human-readable display form.
+        if isinstance(target_label, str):
+            targets = [target_label] if target_label else []
+        else:
+            targets = [t for t in target_label if t]
+        display_label = " | ".join(targets) if targets else ""
 
         self.stop()
 
@@ -201,13 +239,13 @@ class TrackerService:
 
         # Auto-detect if no bbox provided
         if bbox is None:
-            if not target_label:
+            if not targets:
                 self.last_error = "need either bbox or target label"
                 logger.error("tracker start: %s", self.last_error)
                 return False
-            bbox = self.detect_object(frame, target_label)
+            bbox = self.detect_object(frame, targets)
             if bbox is None:
-                self.last_error = f"'{target_label}' not found in frame"
+                self.last_error = f"'{display_label}' not found in frame"
                 return False
 
         tracker = self._create_tracker()
@@ -227,7 +265,7 @@ class TrackerService:
 
         with self._lock:
             self._state = TrackingState(
-                target_label=target_label,
+                target_label=display_label,
                 tracker=tracker,
                 bbox=bbox,
                 confidence=1.0,
@@ -242,7 +280,7 @@ class TrackerService:
             )
             self._state.thread.start()
 
-        logger.info("Tracking started: '%s' bbox=%s", target_label, bbox)
+        logger.info("Tracking started: '%s' bbox=%s", display_label, bbox)
         return True
 
     def stop(self):
@@ -398,7 +436,11 @@ class TrackerService:
                 cx = bx + bw / 2
                 cy = by + bh / 2
 
-                moved = self._nudge_servo(frame, cx, cy, animation_service)
+                # Object is physically close when bbox occupies a big chunk
+                # of the frame — reduce gain to avoid twitchy overcorrection.
+                close = bbox_area > CLOSE_OBJECT_RATIO * frame_area
+
+                moved = self._nudge_servo(frame, cx, cy, close, animation_service)
 
                 # Log every ~2 seconds
                 frame_count += 1
@@ -464,6 +506,7 @@ class TrackerService:
         frame: npt.NDArray[np.uint8],
         cx_obj: float,
         cy_obj: float,
+        close: bool,
         animation_service,
     ) -> bool:
         """Nudge servo toward object center. Returns True if a command was sent."""
@@ -471,8 +514,10 @@ class TrackerService:
         dx = cx_obj - w / 2
         dy = cy_obj - h / 2
 
-        yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH
+        gain_mult = CLOSE_OBJECT_GAIN if close else 1.0
+
+        yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
+        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
@@ -483,8 +528,9 @@ class TrackerService:
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
 
-            # Weighted pitch split — base leads the motion, elbow follows,
-            # wrist finishes. Avoids the 3-joint twitch of equal thirds.
+            # Pitch on base joint only. Elbow/wrist weights are 0 so they
+            # stay at their start pose, matching how yaw leaves the other
+            # joints alone.
             new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
                 self._track_base_pitch + pitch_deg * PITCH_WEIGHT_BASE))
             new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
@@ -500,10 +546,10 @@ class TrackerService:
             }
 
             logger.debug(
-                "Nudge: px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
-                dx, dy, yaw_deg, pitch_deg,
+                "Nudge: px=(%.0f,%.0f) close=%s gain=%.1f deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f→%.1f",
+                dx, dy, close, gain_mult, yaw_deg, pitch_deg,
                 self._track_yaw, new_yaw,
-                new_base_pitch, new_elbow_pitch, new_wrist_pitch,
+                self._track_base_pitch, new_base_pitch,
             )
 
             with animation_service.bus_lock:
