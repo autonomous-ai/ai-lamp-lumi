@@ -91,7 +91,7 @@ export function FaceOwnersSection() {
   // Timeline modal state
   const [timelineUser, setTimelineUser] = useState<string | null>(null);
 
-  // Unknown voice clusters (/speaker/strangers).
+  // Unknown voice clusters (/voice/strangers).
   const [strangers, setStrangers] = useState<StrangersData | null>(null);
   const [strangersError, setStrangersError] = useState(false);
   const [expandedCluster, setExpandedCluster] = useState<Record<string, boolean>>({});
@@ -200,7 +200,7 @@ export function FaceOwnersSection() {
 
   const refreshStrangers = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${HW}/speaker/strangers`, { signal });
+      const res = await fetch(`${HW}/voice/strangers`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json();
       setStrangers({
@@ -862,7 +862,7 @@ export function FaceOwnersSection() {
                           <audio
                             controls
                             preload="none"
-                            src={`${HW}/speaker/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
+                            src={`${HW}/voice/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
                             style={{ height: 28, flexShrink: 0 }}
                           />
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

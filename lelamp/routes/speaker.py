@@ -1,11 +1,17 @@
-"""FastAPI router for the speaker recognition service.
+"""FastAPI router for speaker (voice-identity) enrollment.
 
-Exposes 4 endpoints under ``/speaker/*`` that accept local WAV filepaths only
-(no base64 — keeps the HTTP surface minimal; internally the service handles
-both). Mounted by :mod:`lelamp.server` on application startup.
+Routes accept local WAV filepaths only (no base64 — keeps the HTTP surface
+minimal; internally the service handles both). Mounted by
+:mod:`lelamp.server` on application startup.
+
+Browsing of unknown-voice clusters lives in :mod:`lelamp.routes.voice`
+under ``/voice/strangers*`` — "speaker" in Lumi lexicon leans toward the
+loudspeaker hardware, so input-side browsing belongs under ``/voice``.
 
 Routes:
     POST   /speaker/enroll      — enroll / re-enroll a user from WAV paths
+    POST   /speaker/identity    — attach Telegram identity to existing profile
+    POST   /speaker/reset       — wipe all voice profiles
     POST   /speaker/remove      — delete a user's voice folder
     POST   /speaker/recognize   — identify the speaker of a WAV file
     GET    /speaker/list        — list users with registered voice
@@ -14,23 +20,17 @@ Routes:
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from lelamp import config
 from lelamp.service.voice.speaker_recognizer import (
     EmbeddingAPIUnavailableError,
     SpeakerRecognizer,
     SpeakerRecognizerError,
 )
-
-_STRANGER_HASH_RE = re.compile(r"^voice_\d+$")
-_STRANGER_SAMPLE_RE = re.compile(r"^[A-Za-z0-9_.-]+\.wav$")
 
 logger = logging.getLogger("lelamp.speaker_router")
 
@@ -44,8 +44,7 @@ _recognizer: Optional[SpeakerRecognizer] = None
 def get_speaker_recognizer() -> SpeakerRecognizer:
     """Lazy accessor — raises 503 if unusable.
 
-    Exposed so :mod:`lelamp.server` and :mod:`lelamp.service.voice.voice_service`
-    can share the same instance.
+    Exposed so other routers / services can share the same instance.
     """
     global _recognizer
     if _recognizer is None:
@@ -172,24 +171,6 @@ class ListResponse(BaseModel):
     total: int
     enrolled_names: list[str]
     speakers: list[SpeakerListItem]
-
-
-class StrangerSample(BaseModel):
-    filename: str
-    size_bytes: int
-    mtime: float
-
-
-class StrangerCluster(BaseModel):
-    hash: str
-    sample_count: int
-    latest_mtime: float
-    samples: list[StrangerSample]
-
-
-class StrangersResponse(BaseModel):
-    total: int
-    clusters: list[StrangerCluster]
 
 
 # ------------------------------------------------------------------ helpers
@@ -341,65 +322,3 @@ def speaker_list() -> ListResponse:
         enrolled_names=[item.name for item in public_items],
         speakers=public_items,
     )
-
-
-@router.get("/speaker/strangers", response_model=StrangersResponse)
-def speaker_strangers() -> StrangersResponse:
-    """List unknown-voice clusters with their saved WAV samples.
-
-    Scans the per-cluster sub-dirs created by ``_move_to_cluster`` in the
-    speaker service (``SPEAKER_UNKNOWN_AUDIO_DIR/voice_<N>/*.wav``). Lets the
-    web UI show who the lamp has been hearing but hasn't enrolled yet so a
-    user can play samples back and decide to enroll them as a known speaker.
-    """
-    root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR)
-    if not root.is_dir():
-        return StrangersResponse(total=0, clusters=[])
-
-    clusters: list[StrangerCluster] = []
-    for sub in sorted(root.iterdir()):
-        if not sub.is_dir() or not _STRANGER_HASH_RE.match(sub.name):
-            continue
-        samples: list[StrangerSample] = []
-        for wav in sub.glob("*.wav"):
-            try:
-                st = wav.stat()
-            except OSError:
-                continue
-            samples.append(StrangerSample(
-                filename=wav.name,
-                size_bytes=int(st.st_size),
-                mtime=float(st.st_mtime),
-            ))
-        if not samples:
-            continue
-        samples.sort(key=lambda s: s.mtime, reverse=True)
-        clusters.append(StrangerCluster(
-            hash=sub.name,
-            sample_count=len(samples),
-            latest_mtime=samples[0].mtime,
-            samples=samples,
-        ))
-    clusters.sort(key=lambda c: c.latest_mtime, reverse=True)
-    return StrangersResponse(total=len(clusters), clusters=clusters)
-
-
-@router.get("/speaker/strangers/audio/{hash}/{filename}")
-def speaker_stranger_audio(hash: str, filename: str) -> FileResponse:
-    """Stream a stranger-cluster WAV by cluster hash + filename.
-
-    Path components are whitelisted (``voice_<digits>`` / ``<safe>.wav``) and
-    the resolved file must sit inside ``SPEAKER_UNKNOWN_AUDIO_DIR`` — blocks
-    path-traversal attempts like ``../../etc/passwd``.
-    """
-    if not _STRANGER_HASH_RE.match(hash) or not _STRANGER_SAMPLE_RE.match(filename):
-        raise HTTPException(status_code=400, detail="invalid path")
-    root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR).resolve()
-    target = (root / hash / filename).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="invalid path") from exc
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="sample not found")
-    return FileResponse(str(target), media_type="audio/wav", filename=filename)
