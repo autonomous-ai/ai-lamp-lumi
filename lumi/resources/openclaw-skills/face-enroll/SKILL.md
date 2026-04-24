@@ -31,7 +31,7 @@ Do NOT activate when the user tries to enroll someone else (e.g. "this is Alice"
    - `telegram_username`: the sender's Telegram username (e.g. `chloe_92`)
    - `telegram_id`: the sender's numeric Telegram user ID (e.g. `123456789`)
    These are available in the message metadata provided by the channel.
-4. Base64-encode the photo from `mediaPaths`.
+4. Base64-encode the photo: use `mediaPaths` (Telegram) or the path from `[image: /path/to/file]` tag in the message (web chat).
 5. Call `POST /face/enroll` with the base64 image, label, telegram_username, and telegram_id.
 6. Confirm to user with the enrolled count.
 
@@ -89,7 +89,11 @@ curl -s -X POST http://127.0.0.1:5001/face/reset
 
 ## How to base64-encode the photo
 
-When the user sends a photo, it arrives in `mediaPaths`. Read the file and base64-encode it:
+When the user sends a photo, the file path is available from:
+- **Telegram**: `mediaPaths` in conversation context
+- **Web chat**: `[image: /path/to/file]` tag in the message text
+
+Read the file and base64-encode it:
 
 ```bash
 curl -s -X POST http://127.0.0.1:5001/face/enroll \
