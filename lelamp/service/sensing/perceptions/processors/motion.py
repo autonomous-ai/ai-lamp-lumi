@@ -465,7 +465,7 @@ class MotionPerception(Perception[cv2.typing.MatLike]):
 
         logger.info("[motion] flushing: %s", message)
 
-        self._send_event("motion.activity", message, [snapshots_buffer[-1]], None)
+        self._send_event("motion.activity", message, "motion_activity",[snapshots_buffer[-1]], None)
 
     def _post_wellbeing_labels(self, user: str, labels: set[str]) -> None:
         """POST each activity label to Lumi wellbeing log.

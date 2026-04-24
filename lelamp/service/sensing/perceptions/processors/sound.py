@@ -179,7 +179,7 @@ class SoundPerception(Perception[Any]):
                     {"action": "silent", "occurrence": occurrence},
                 )
 
-            self._send_event("sound", msg, None, None)
+            self._send_event("sound", msg, "", None, None)
         except Exception as e:
             logger.debug("Sound check failed: %s", e)
 
