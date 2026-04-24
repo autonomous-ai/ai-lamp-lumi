@@ -71,7 +71,7 @@ Bám theo vật thể real-time sau khi phát hiện.
 | Xử lý scale | Tự điều chỉnh kích thước bbox |
 | Phát hiện mất | Trả `ok=False` + score thấp khi vật biến mất |
 
-**Fallback chain:** TrackerVit → CSRT (cần opencv-contrib) → KCF → MIL
+**Tracker chain:** CSRT (primary, cần opencv-contrib) → KCF → MIL. TrackerVit là default trước kia nhưng thực tế trên Pi bbox phình từ ~14% lên ~80% frame trong 1 frame khi YOLO bbox lỏng chứa background. CSRT chậm hơn mỗi frame nhưng giữ lock tốt hơn ở 7 Hz. Mất `getTrackingScore()` — chỉ còn bbox-bloat và `ok=False` để detect loss.
 
 ## Điều khiển Servo
 
