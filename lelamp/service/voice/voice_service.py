@@ -693,15 +693,25 @@ class VoiceService:
                     )
                     return f"Unknown Speaker: {transcript}"
 
+            # Surface the voice cluster id so the enrollment skill can combine
+            # multiple short recordings from the same unknown speaker across
+            # turns, instead of treating each turn as a fresh unknown.
+            hash_tag = f" [voice:{voiceprint_hash}]" if voiceprint_hash else ""
             if audio_path and _should_request_enroll(transcript, duration_s):
                 if voiceprint_hash:
                     self._last_nudge_time[voiceprint_hash] = now
                 return (
-                    f"Unknown Speaker: {transcript} "
+                    f"Unknown Speaker:{hash_tag} {transcript} "
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript} (audio saved at {audio_path}. Note: audio is too short for single enrollment, ask user introduce themselves longer later and combine both recordings for enrollment)"
+            return (
+                f"Unknown Speaker:{hash_tag} {transcript} "
+                f"(audio saved at {audio_path}. Note: audio is too short for "
+                f"single enrollment. If prior turns tagged the same {voiceprint_hash or 'voice cluster'}, "
+                f"combine their saved paths with this one when enrolling; "
+                f"otherwise ask the user to introduce themselves longer.)"
+            )
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
