@@ -73,7 +73,7 @@ SERVO_SETTLE_S = 0.08
 # isolate the pitch-sign direction question — yaw is known-good (morning
 # test confirmed horizontal tracking works), so disabling pitch lets us
 # test yaw in isolation and re-enable pitch once the sign is verified.
-TRACK_PITCH_ENABLED = False
+TRACK_PITCH_ENABLED = True
 
 # Pitch driven entirely by base_pitch — a single joint, symmetric with how
 # yaw uses base_yaw. Earlier versions split pitch across 3 joints (base /
@@ -582,7 +582,10 @@ class TrackerService:
         gain_mult = CLOSE_OBJECT_GAIN if close else 1.0
 
         yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
+        if not TRACK_PITCH_ENABLED:
+            pitch_deg = 0.0
+        else:
+            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
