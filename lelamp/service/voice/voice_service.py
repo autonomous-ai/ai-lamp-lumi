@@ -860,6 +860,12 @@ class VoiceService:
             self._listening = True
             last_speech_time = time.time()
             session_start = time.time()
+            # Track index of last frame with speech energy — used to trim
+            # trailing silence from the speaker-recognition buffer at session
+            # end. SILENCE_TIMEOUT_S holds the session open for ~2.5s after
+            # the user stops, so without this the voiceprint ends up 30-50%
+            # silence and the embedding degrades.
+            last_speech_idx: int = len(audio_buffer) - 1
             # Signal Lumi to show listening LED as soon as mic session opens (before transcript arrives)
             try:
                 requests.post("http://127.0.0.1:5000/api/sensing/event",
@@ -898,6 +904,7 @@ class VoiceService:
                 rms = self._rms(data)
                 if rms >= RMS_THRESHOLD:
                     last_speech_time = time.time()
+                    last_speech_idx = len(audio_buffer) - 1
                 elif (time.time() - last_speech_time) > SILENCE_TIMEOUT_S:
                     logger.info("Silence detected, disconnecting STT")
                     break
@@ -911,6 +918,24 @@ class VoiceService:
             if longest_partial[0]:
                 final_segments.append(longest_partial[0])
             combined = " ".join(final_segments).strip()
+
+            # Trim trailing silence from the speaker-recognition buffer.
+            # The session stays open for SILENCE_TIMEOUT_S (~2.5s) after the
+            # user stops, so without this ~30-50% of a short utterance is
+            # silence — the voiceprint ends up heavily diluted and cluster
+            # similarity suffers. Keep a 200ms tail so consonant decay and
+            # word endings aren't cut mid-phoneme. STT buffer is untouched
+            # (it doesn't use audio_buffer anyway).
+            if last_speech_idx >= 0:
+                tail_frames = int(200 / FRAME_DURATION_MS) + 1
+                trim_end = min(last_speech_idx + tail_frames + 1, len(audio_buffer))
+                dropped = len(audio_buffer) - trim_end
+                if dropped > 0:
+                    del audio_buffer[trim_end:]
+                    logger.info(
+                        "Session TRIM — dropped %d trailing-silence frames (~%.2fs)",
+                        dropped, dropped * FRAME_DURATION_MS / 1000,
+                    )
 
             # Final snapshot of the buffer for traceability before it goes
             # out of scope. 1 session = 1 speaking turn = this many frames.
