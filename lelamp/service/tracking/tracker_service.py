@@ -75,19 +75,17 @@ SERVO_SETTLE_S = 0.08
 # test yaw in isolation and re-enable pitch once the sign is verified.
 TRACK_PITCH_ENABLED = True
 
-# Pitch driven entirely by base_pitch — a single joint, symmetric with how
-# yaw uses base_yaw. Earlier versions split pitch across 3 joints (base /
-# elbow / wrist) but the elbow and wrist joints *translate* the camera as
-# they tilt, not just rotate it, so the view shifted in ways the pixel-
-# to-degree model didn't predict. Single joint = clean rotation around
-# the camera's own axis, same mental model as yaw.
-#
-# Trade-off: base_pitch range is -90°..+30° (120°), narrower than yaw's
-# ±135°. Pitch will hit the servo limit sooner, but motion within range
-# is stable and predictable.
-PITCH_WEIGHT_BASE = 1.0
-PITCH_WEIGHT_ELBOW = 0.0
-PITCH_WEIGHT_WRIST = 0.0
+# Pitch distributed across 3 joints. Single-joint on base_pitch was tried
+# (commit 52018d87) on the theory that elbow/wrist translate the camera,
+# but in practice base_pitch swings the whole arm around the base — at
+# ~30cm arm length, 1° of base_pitch shifts the camera several cm + tilts
+# it, producing parallax shifts the pixel-to-degree model can't predict.
+# Empirically (2026-04-24): distributed weights gave stable tracking in
+# the morning; switching to 1.0/0/0 produced rapid bbox bloat as the
+# camera-view shift outran the tracker. Back to the distributed recipe.
+PITCH_WEIGHT_BASE = 0.55
+PITCH_WEIGHT_ELBOW = 0.30
+PITCH_WEIGHT_WRIST = 0.15
 
 # Close-object gain attenuation. When the bbox covers a large fraction of
 # the frame, the object is physically close to the camera. In that regime:
@@ -598,13 +596,14 @@ class TrackerService:
         if not TRACK_PITCH_ENABLED:
             pitch_deg = 0.0
         else:
-            # Sign verified from per-cycle trace log (v0.0.509):
-            # dy=-150 (cup at top) with `dy * k` → pitch decreased -7.8 →
-            # -22, and user observed lamp going DOWN. So base_pitch
-            # DECREASE = physical DOWN, INCREASE = physical UP. To bring
-            # cup from top toward centre we need pitch INCREASE → must
-            # negate dy.
-            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else -dy * DEG_PER_PX_PITCH * gain_mult
+            # Same-sign-as-dy (no negation). Verified morning 2026-04-24
+            # working state (commit ec1b04d7): distributed 3-joint pitch
+            # with `pitch_deg = dy * k` tracked stably. Afternoon attempts
+            # to flip to `-dy * k` coincided with single-joint pitch and
+            # the bbox-bloat regression — sign flipping chased a symptom
+            # of the single-joint change, not the cause. With distributed
+            # joints restored, the morning sign is correct.
+            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
