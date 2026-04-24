@@ -11,14 +11,14 @@ The primary data source is the **flow events JSONL** at `/root/local/flow_events
 
 > **Important:** Always use the absolute path `/root/local/` — the `read` tool cannot access files outside the workspace, so use `exec` (Bash) for all JSONL queries.
 
-Persistent camera snapshots are stored in `/var/log/lumi/snapshots/` (72h TTL, 50 MB cap). Reference these when the user asks what happened visually.
+Persistent camera snapshots are stored under `/var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg` (72h TTL, 50 MB cap) — one subdir per event prefix (e.g. `sensing_motion_activity/`, `sensing_presence/`, `sensing_emotion/`). Reference these when the user asks what happened visually.
 
 ## JSONL format
 
 Each line is a JSON object:
 
 ```json
-{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_1712345678123.jpg]"},"version":"1.2.3"}
+{"kind":"enter","node":"sensing_input","ts":1712345678.123,"seq":42,"trace_id":"run-abc","data":{"type":"presence.enter","message":"Person detected — 1 face(s) visible (friend (gray))\n[snapshot: /var/log/lumi/snapshots/sensing_presence/1712345678123.jpg]"},"version":"1.2.3"}
 {"kind":"exit","node":"sensing_input","ts":1712345678.456,"seq":43,"trace_id":"run-abc","duration_ms":332,"data":{"path":"agent","run_id":"run-abc"},"version":"1.2.3"}
 ```
 
@@ -26,7 +26,7 @@ Key fields:
 - `node` — filter on `"sensing_input"` for sensing events
 - `kind` — `"enter"` = event received, `"exit"` = event processed (with `duration_ms`)
 - `data.type` — event type: `presence.enter`, `presence.leave`, `motion`, `motion.activity`, `sound`, `light.level`, `voice`, `voice_command`, `emotion.detected`
-- `data.message` — natural-language description; may contain `[snapshot: /var/log/lumi/snapshots/...]`
+- `data.message` — natural-language description; may contain `[snapshot: /var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg]`
 - `data.path` — in `exit` records: `"agent"` (forwarded), `"local"` (handled locally), or has `"error"` key (failed/dropped)
 - `ts` — Unix timestamp (seconds with fractional ms)
 - `trace_id` — correlates enter/exit and links to agent turn
@@ -112,8 +112,14 @@ jq -c 'select(.node=="sensing_input" and .kind=="exit" and .data.error != null)'
 
 ### List snapshots (72h TTL — older files may be purged)
 
+Snapshots are bucketed by event prefix (`sensing_motion_activity/`, `sensing_presence/`, `sensing_emotion/`, …). Recurse into subdirs:
+
 ```bash
-ls -lt /var/log/lumi/snapshots/ | head -20
+# Most-recent snapshots across all categories
+find /var/log/lumi/snapshots -type f -name '*.jpg' -printf '%T@ %p\n' | sort -rn | head -20 | cut -d' ' -f2-
+
+# Only a specific category
+ls -lt /var/log/lumi/snapshots/sensing_motion_activity/ | head -20
 ```
 
 ---
@@ -164,7 +170,7 @@ Storage: `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention).
 - **Resolve relative times** — translate "last hour", "this morning", "while I was away" into concrete Unix timestamps using `date -d` before filtering.
 - **Span multiple days** — for questions covering more than today, `cat` multiple JSONL files together.
 - **Parse the message field** for who/what details — `friend (gray)`, `friend (chloe)`, `stranger (stranger_1)`, `Large movement detected`, etc.
-- **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message. Snapshots have 72h TTL — check the file exists before referencing (`test -f <path>`). Viewable at `/var/log/lumi/snapshots/`.
+- **Reference snapshots** — when the user asks "what did you see?", extract the `[snapshot: ...]` path from the message. Path format is `/var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg` (category subdir per event kind). Snapshots have 72h TTL — check the file exists before referencing (`test -f <path>`).
 
 ---
 
