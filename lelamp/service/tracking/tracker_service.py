@@ -37,21 +37,48 @@ _YOLO_TIMEOUT = 10.0
 
 # --- Tuning knobs ---
 
-# Degrees per pixel — keep low to avoid overshoot.
-DEG_PER_PX_YAW = 0.02
-DEG_PER_PX_PITCH = 0.02
+# Base degrees per pixel. Frame assumed ~640 wide; object at edge ≈ 320px →
+# ~7° nudge before clamp. Tuned down from 0.03 to reduce overshoot oscillation
+# (observed on Pi: offset ping-ponged ±40-55px when gain was too high).
+DEG_PER_PX_YAW = 0.022
+DEG_PER_PX_PITCH = 0.022
+
+# Adaptive gain: when object is far from center, multiply gain by this factor
+# to catch up faster. Below the threshold, stays at 1.0 for smoothness.
+# Reduced from 1.6 to 1.3 — 1.6 was contributing to overshoot (servo moved
+# before camera caught up, then had to reverse).
+ADAPTIVE_GAIN_PX = 120
+ADAPTIVE_GAIN_MULT = 1.3
 
 # Dead zone in pixels — stop nudging when object is within this range
-DEAD_ZONE_PX = 15
+DEAD_ZONE_PX = 12
 
-# Wake zone — when settled, only resume nudging when object moves beyond this
-WAKE_ZONE_PX = 50
+# Wake zone — when settled, only resume nudging when object moves beyond this.
+# Raised from 22 to 40: TrackerVit bbox naturally jitters ±30-50px between
+# frames, and a too-small wake zone caused a wake/settle/wake cycle every
+# 100ms. 40px is wider than natural jitter, so only real motion wakes it.
+WAKE_ZONE_PX = 40
 
-# Maximum nudge per step (degrees) — prevents wild swings
-MAX_NUDGE_DEG = 1.5
+# Maximum nudge per step (degrees) — prevents wild swings while allowing
+# catch-up on fast-moving objects. Tuned for TRACK_FPS=20.
+MAX_NUDGE_DEG = 4.5
 
-# Tracking loop target FPS — higher = smoother
-TRACK_FPS = 12
+# Tracking loop target FPS — higher = smoother. TrackerVit on Pi runs at
+# ~15-25ms/frame so 20 FPS is reachable.
+TRACK_FPS = 20
+
+# EMA smoothing factor for bbox center (0-1). Higher = more responsive but
+# more jitter; lower = smoother but laggier. Dropped from 0.55 to 0.3:
+# previous value let too much tracker noise through, causing servo to chase
+# jitter instead of real motion.
+EMA_ALPHA = 0.3
+
+# Pitch distribution across 3 joints. Primary tilt on base, secondary on
+# elbow, minimal on wrist — reduces mechanical interference and makes the
+# lamp head lead the motion instead of three joints twitching together.
+PITCH_WEIGHT_BASE = 0.55
+PITCH_WEIGHT_ELBOW = 0.30
+PITCH_WEIGHT_WRIST = 0.15
 
 # Re-detect interval (seconds) — periodically call YOLOWorld to correct drift
 REDETECT_INTERVAL_S = 5.0
@@ -63,11 +90,9 @@ CONFIDENCE_THRESHOLD = 0.3
 MAX_LOW_CONFIDENCE_FRAMES = 5
 
 # Bbox jump threshold — if center moves more than this many pixels in one
-# frame, consider it a tracker glitch and skip the nudge
-BBOX_JUMP_PX = 100
-
-# Servo move duration per nudge step (seconds)
-NUDGE_DURATION = 0.15
+# frame, treat it as partial glitch: fall back to EMA-smoothed center so we
+# don't drop the frame entirely.
+BBOX_JUMP_PX = 120
 
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU
 MAX_TRACK_DURATION_S = 300  # 5 minutes
@@ -329,6 +354,9 @@ class TrackerService:
             self._track_wrist_pitch = 0.0
 
         prev_cx, prev_cy = None, None
+        # EMA-smoothed center — reset on start, seeded with first raw center
+        self._ema_cx = None
+        self._ema_cy = None
         init_area = state.bbox[2] * state.bbox[3] if state.bbox else 0
         self._settled = False
         frame_count = 0
@@ -381,17 +409,30 @@ class TrackerService:
                 cx = bx + bw / 2
                 cy = by + bh / 2
 
-                # Detect bbox jump (tracker glitch)
+                # Bbox jump handling: instead of dropping the frame (which
+                # causes visible stutter), fall back to the EMA-smoothed
+                # center so the servo keeps moving toward the last-known
+                # good position. Real glitches get absorbed; genuine fast
+                # motion still nudges via smoothed trajectory.
                 if prev_cx is not None:
                     jump = ((cx - prev_cx) ** 2 + (cy - prev_cy) ** 2) ** 0.5
-                    if jump > BBOX_JUMP_PX:
-                        logger.warning("Bbox jump %.0fpx, skipping nudge", jump)
-                        prev_cx, prev_cy = cx, cy
-                        time.sleep(1.0 / TRACK_FPS)
-                        continue
+                    if jump > BBOX_JUMP_PX and self._ema_cx is not None:
+                        logger.debug("Bbox jump %.0fpx, using smoothed center", jump)
+                        cx = self._ema_cx
+                        cy = self._ema_cy
                 prev_cx, prev_cy = cx, cy
 
-                self._nudge_servo(frame, state.bbox, animation_service)
+                # EMA smoothing on center — reduces tracker jitter before
+                # it reaches the servo, so motion looks continuous rather
+                # than frame-stepped.
+                if self._ema_cx is None:
+                    self._ema_cx = cx
+                    self._ema_cy = cy
+                else:
+                    self._ema_cx = EMA_ALPHA * cx + (1 - EMA_ALPHA) * self._ema_cx
+                    self._ema_cy = EMA_ALPHA * cy + (1 - EMA_ALPHA) * self._ema_cy
+
+                self._nudge_servo(frame, self._ema_cx, self._ema_cy, animation_service)
 
                 # Log every ~2 seconds
                 frame_count += 1
@@ -463,7 +504,8 @@ class TrackerService:
             animation_service._hold_mode = False
             state.running.clear()
 
-            from lelamp.presets import SERVO_CMD_PLAY
+            # Restart the animation event thread if it stopped, so future
+            # commands (user requests, reactions) still work.
             if not animation_service._running.is_set():
                 import threading as _threading
                 animation_service._running.set()
@@ -471,23 +513,23 @@ class TrackerService:
                     target=animation_service._event_loop, daemon=True
                 )
                 animation_service._event_thread.start()
-            animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
-            logger.info("Servo resumed idle — tracking ended")
+
+            # Hold servo at current tracked position. Dispatching idle here
+            # used to snap the lamp back to its start pose, which looked like
+            # a hard jerk right after tracking ended.
+            logger.info("Tracking ended — holding servo at current position")
 
     def _nudge_servo(
         self,
         frame: npt.NDArray[np.uint8],
-        bbox: Tuple[int, int, int, int],
+        cx_obj: float,
+        cy_obj: float,
         animation_service,
     ):
-        """Compute offset from frame center and nudge servo."""
+        """Nudge servo toward EMA-smoothed object center."""
         h, w = frame.shape[:2]
         cx_frame = w / 2
         cy_frame = h / 2
-
-        bx, by, bw, bh = bbox
-        cx_obj = bx + bw / 2
-        cy_obj = by + bh / 2
 
         dx = cx_obj - cx_frame
         dy = cy_obj - cy_frame
@@ -505,8 +547,13 @@ class TrackerService:
                 logger.info("Tracking settled: object near center (%.0f, %.0f)", dx, dy)
             return
 
-        yaw_deg = dx * DEG_PER_PX_YAW
-        pitch_deg = dy * DEG_PER_PX_PITCH
+        # Adaptive gain: boost when object is far so we catch up quickly,
+        # fall back to base gain near center for smoothness.
+        offset_max = max(abs(dx), abs(dy))
+        gain_mult = ADAPTIVE_GAIN_MULT if offset_max > ADAPTIVE_GAIN_PX else 1.0
+
+        yaw_deg = dx * DEG_PER_PX_YAW * gain_mult
+        pitch_deg = dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
@@ -522,10 +569,14 @@ class TrackerService:
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
 
-            pitch_each = pitch_deg / 3.0
-            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX, self._track_base_pitch + pitch_each))
-            new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_each))
-            new_wrist_pitch = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch + pitch_each))
+            # Weighted pitch split — base leads the motion, elbow follows,
+            # wrist finishes. Avoids the 3-joint twitch of equal thirds.
+            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
+                self._track_base_pitch + pitch_deg * PITCH_WEIGHT_BASE))
+            new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
+                self._track_elbow_pitch + pitch_deg * PITCH_WEIGHT_ELBOW))
+            new_wrist_pitch = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX,
+                self._track_wrist_pitch + pitch_deg * PITCH_WEIGHT_WRIST))
 
             target = {
                 "base_yaw.pos": new_yaw,
@@ -535,8 +586,8 @@ class TrackerService:
             }
 
             logger.debug(
-                "Nudge: px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
-                dx, dy, yaw_deg, pitch_deg,
+                "Nudge: px=(%.0f,%.0f) gain=%.1f deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
+                dx, dy, gain_mult, yaw_deg, pitch_deg,
                 self._track_yaw, new_yaw,
                 new_base_pitch, new_elbow_pitch, new_wrist_pitch,
             )

@@ -13,12 +13,12 @@ User: "Lumi, follow the cup"
          |
     2. TrackerVit init on bbox
          |
-    3. Tracking loop @ 12 FPS
+    3. Tracking loop @ 20 FPS
          |  grab frame → TrackerVit update → confidence check → pixel offset → servo nudge
          |
     4. Object moves → servo follows (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 for 5 frames → auto-stop + resume idle
+    5. Confidence < 0.3 for 5 frames → auto-stop + hold servo at current pose
 ```
 
 ### Detection: YOLOWorld API
@@ -54,44 +54,51 @@ Real-time object following after initial detection.
 
 Tracking uses 4 of 5 servos:
 - **base_yaw** (ID 1) — left/right pan
-- **base_pitch** (ID 2) — up/down tilt (1/3 of pitch)
-- **elbow_pitch** (ID 3) — up/down tilt (1/3 of pitch)
-- **wrist_pitch** (ID 5) — up/down tilt (1/3 of pitch)
+- **base_pitch** (ID 2) — up/down tilt (55% of pitch — leads the motion)
+- **elbow_pitch** (ID 3) — up/down tilt (30% of pitch)
+- **wrist_pitch** (ID 5) — up/down tilt (15% of pitch)
 
-Pitch is split equally across 3 joints for full range of vertical motion.
+Pitch is weighted across 3 joints (55/30/15): base leads, elbow follows, wrist finishes. This gives smoother head motion than splitting equally.
 
 **During tracking:**
 - `_hold_mode = True` — suppresses idle animations
 - `send_action()` — direct servo write, non-blocking (servo P-gain handles smoothing)
 - Internal position tracking — reads bus once at start, tracks deltas internally
 
-**On stop:** resumes idle animation via `dispatch(SERVO_CMD_PLAY, idle_recording)`.
+**On stop:** holds servo at the last tracked position. The lamp does *not* snap back to idle pose — that was removed because it caused a visible jerk right after tracking ended. Idle animation resumes on the next user interaction.
 
 ### Pixel-to-Degree Conversion
 
 ```
 Frame center: (320, 240) for 640x480
-Object center: (cx, cy) from tracker bbox
+Object center: EMA-smoothed from tracker bbox
 
 dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
-yaw_deg   = dx * 0.02   (same sign: right → right)
-pitch_deg = dy * 0.02   (same sign: down → down)
+gain = 1.3 if max(|dx|,|dy|) > 120 else 1.0   (adaptive: catch up when far)
+
+yaw_deg   = dx * 0.022 * gain
+pitch_deg = dy * 0.022 * gain
 ```
 
 ### Tuning Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `DEG_PER_PX_YAW` | 0.02 | Degrees per pixel horizontal |
-| `DEG_PER_PX_PITCH` | 0.02 | Degrees per pixel vertical |
-| `DEAD_ZONE_PX` | 15 | Ignore offsets smaller than this (anti-jitter) |
-| `MAX_NUDGE_DEG` | 1.5 | Max degrees per step |
-| `TRACK_FPS` | 12 | Tracking loop frequency |
+| `DEG_PER_PX_YAW` | 0.022 | Degrees per pixel horizontal |
+| `DEG_PER_PX_PITCH` | 0.022 | Degrees per pixel vertical |
+| `ADAPTIVE_GAIN_PX` | 120 | Offset threshold to boost gain |
+| `ADAPTIVE_GAIN_MULT` | 1.3 | Gain multiplier when object is far |
+| `EMA_ALPHA` | 0.3 | Smoothing factor on bbox center (higher = more responsive) |
+| `DEAD_ZONE_PX` | 12 | Ignore offsets smaller than this (anti-jitter) |
+| `WAKE_ZONE_PX` | 40 | Once settled, wake only when offset exceeds this |
+| `MAX_NUDGE_DEG` | 4.5 | Max degrees per step |
+| `TRACK_FPS` | 20 | Tracking loop frequency |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Below this = "lost" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Consecutive low-confidence frames before auto-stop |
-| `BBOX_JUMP_PX` | 100 | Skip nudge if bbox center jumps more than this |
+| `BBOX_JUMP_PX` | 120 | On jump, fall back to EMA-smoothed center (no nudge drop) |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Pitch distribution across 3 joints |
 
 ### Servo Position Limits
 
@@ -104,7 +111,7 @@ pitch_deg = dy * 0.02   (same sign: down → down)
 
 ## Auto-Stop Conditions
 
-TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and resumes idle in these cases:
+TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and holds the servo at its last position in these cases:
 
 | Condition | Action |
 |-----------|--------|
@@ -113,7 +120,7 @@ TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tra
 | Bbox covers > 50% of frame | Stop — tracker drift |
 | Servo at yaw/pitch limit + object still >30% off center | Stop — object unreachable |
 | Tracking duration > 5 minutes | Stop — timeout to save motor/CPU |
-| Bbox center jumps > 100px in 1 frame | Skip nudge (tracker glitch, not stop) |
+| Bbox center jumps > 120px in 1 frame | Fall back to EMA-smoothed center (keep nudging) |
 | `tracker.update()` returns `ok=False` | Count as low-confidence frame |
 
 ## API Endpoints
@@ -189,7 +196,7 @@ Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint i
    d. TrackerVit init on bbox → starts tracking
 4. Servo follows the cup in real-time (confidence ~0.5-0.7)
 5. User: "OK stop" → agent calls POST /servo/track/stop
-6. Servo resumes idle animation
+6. Servo holds at current position (no snap-back to idle)
 ```
 
 ### Auto-stop on lost
@@ -198,7 +205,7 @@ Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint i
 1. Object leaves frame or is occluded
 2. TrackerVit confidence drops below 0.3
 3. After 5 consecutive low-confidence frames → auto-stop
-4. Servo resumes idle animation
+4. Servo holds at last known position (no snap-back)
 5. Agent can notify user or auto re-detect
 ```
 

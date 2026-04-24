@@ -13,12 +13,12 @@ User: "Lumi, nhìn theo cái ly đi"
          |
     2. TrackerVit init trên bbox
          |
-    3. Vòng lặp tracking @ 12 FPS
+    3. Vòng lặp tracking @ 20 FPS
          |  lấy frame → TrackerVit update → kiểm tra confidence → pixel offset → nudge servo
          |
     4. Vật di chuyển → servo bám theo (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 trong 5 frame → tự động dừng + resume idle
+    5. Confidence < 0.3 trong 5 frame → tự động dừng + giữ servo tại vị trí
 ```
 
 ### Phát hiện: YOLOWorld API
@@ -54,44 +54,51 @@ Bám theo vật thể real-time sau khi phát hiện.
 
 Tracking sử dụng 4 trong 5 servo:
 - **base_yaw** (ID 1) — quay trái/phải
-- **base_pitch** (ID 2) — nghiêng lên/xuống (1/3 pitch)
-- **elbow_pitch** (ID 3) — nghiêng lên/xuống (1/3 pitch)
-- **wrist_pitch** (ID 5) — nghiêng lên/xuống (1/3 pitch)
+- **base_pitch** (ID 2) — nghiêng lên/xuống (55% pitch — dẫn đầu chuyển động)
+- **elbow_pitch** (ID 3) — nghiêng lên/xuống (30% pitch)
+- **wrist_pitch** (ID 5) — nghiêng lên/xuống (15% pitch)
 
-Pitch được chia đều cho 3 joint để có toàn bộ range chuyển động theo chiều dọc.
+Pitch được chia có trọng số cho 3 joint (55/30/15): base dẫn trước, elbow theo sau, wrist hoàn thiện. Smooth hơn chia đều.
 
 **Khi đang tracking:**
 - `_hold_mode = True` — chặn idle animations
 - `send_action()` — ghi servo trực tiếp, không blocking (servo P-gain tự smooth)
 - Theo dõi vị trí nội bộ — đọc bus 1 lần lúc bắt đầu, track delta nội bộ
 
-**Khi dừng:** resume idle animation qua `dispatch(SERVO_CMD_PLAY, idle_recording)`.
+**Khi dừng:** giữ servo ở vị trí cuối cùng khi tracking. Đèn *không* tự snap về idle pose — đã bỏ vì gây giật ngay sau khi tracking kết thúc. Idle animation sẽ resume ở lần tương tác kế tiếp của user.
 
 ### Chuyển đổi Pixel sang Độ
 
 ```
 Tâm frame: (320, 240) cho 640x480
-Tâm vật thể: (cx, cy) từ tracker bbox
+Tâm vật thể: EMA-smoothed từ tracker bbox
 
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-yaw_deg   = dx * 0.02   (cùng dấu: phải → phải)
-pitch_deg = dy * 0.02   (cùng dấu: xuống → xuống)
+gain = 1.3 nếu max(|dx|,|dy|) > 120 ngược lại 1.0   (adaptive: tăng tốc khi xa)
+
+yaw_deg   = dx * 0.022 * gain
+pitch_deg = dy * 0.022 * gain
 ```
 
 ### Hằng số Tuning
 
 | Hằng số | Giá trị | Mô tả |
 |---------|---------|-------|
-| `DEG_PER_PX_YAW` | 0.02 | Độ mỗi pixel ngang |
-| `DEG_PER_PX_PITCH` | 0.02 | Độ mỗi pixel dọc |
-| `DEAD_ZONE_PX` | 15 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
-| `MAX_NUDGE_DEG` | 1.5 | Độ tối đa mỗi bước |
-| `TRACK_FPS` | 12 | Tần suất vòng lặp tracking |
+| `DEG_PER_PX_YAW` | 0.022 | Độ mỗi pixel ngang |
+| `DEG_PER_PX_PITCH` | 0.022 | Độ mỗi pixel dọc |
+| `ADAPTIVE_GAIN_PX` | 120 | Ngưỡng offset để boost gain |
+| `ADAPTIVE_GAIN_MULT` | 1.3 | Hệ số nhân gain khi object ở xa |
+| `EMA_ALPHA` | 0.3 | Hệ số smooth cho tâm bbox (cao = nhạy hơn) |
+| `DEAD_ZONE_PX` | 12 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
+| `WAKE_ZONE_PX` | 40 | Khi đã settle, chỉ wake khi offset vượt ngưỡng này |
+| `MAX_NUDGE_DEG` | 4.5 | Độ tối đa mỗi bước |
+| `TRACK_FPS` | 20 | Tần suất vòng lặp tracking |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Dưới ngưỡng này = "mất" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Số frame confidence thấp liên tiếp trước khi dừng |
-| `BBOX_JUMP_PX` | 100 | Bỏ qua nudge nếu bbox nhảy hơn mức này |
+| `BBOX_JUMP_PX` | 120 | Khi nhảy vượt ngưỡng, fallback về tâm đã EMA (không drop nudge) |
+| `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Phân bổ pitch cho 3 joint |
 
 ### Giới hạn vị trí Servo
 
@@ -113,7 +120,7 @@ TrackerVit cung cấp confidence scoring, khác với MIL/KCF chỉ drift âm th
 | Bbox > 50% diện tích frame | Dừng — tracker drift |
 | Servo ở limit yaw/pitch + object vẫn lệch > 30% | Dừng — ngoài tầm |
 | Tracking > 5 phút | Dừng — timeout tiết kiệm motor/CPU |
-| Tâm bbox nhảy > 100px trong 1 frame | Bỏ qua nudge (tracker glitch, không dừng) |
+| Tâm bbox nhảy > 120px trong 1 frame | Fallback về tâm đã EMA (tiếp tục nudge) |
 | `tracker.update()` trả `ok=False` | Tính là frame confidence thấp |
 
 ## API Endpoints
@@ -177,7 +184,7 @@ Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint 
    d. TrackerVit init trên bbox → bắt đầu tracking
 4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
 5. User: "Thôi đi" → agent gọi POST /servo/track/stop
-6. Servo resume idle animation
+6. Servo giữ tại vị trí hiện tại (không snap về idle)
 ```
 
 ### Tự dừng khi mất
@@ -186,7 +193,7 @@ Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint 
 1. Vật rời khỏi frame hoặc bị che
 2. TrackerVit confidence giảm dưới 0.3
 3. Sau 5 frame confidence thấp liên tiếp → tự dừng
-4. Servo resume idle animation
+4. Servo giữ tại vị trí cuối (không snap về idle)
 5. Agent có thể thông báo user hoặc tự re-detect
 ```
 
