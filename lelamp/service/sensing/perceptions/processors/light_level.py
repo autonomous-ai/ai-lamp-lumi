@@ -55,6 +55,7 @@ class LightLevelPerception(Perception[cv2.typing.MatLike]):
                 self._send_event(
                     "light.level",
                     msg,
+                    "light",
                     None,
                     config.LIGHT_LEVEL_INTERVAL_S,
                 )

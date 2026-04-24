@@ -23,6 +23,7 @@ import os
 import shutil
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import requests
@@ -171,7 +172,7 @@ class SensingService:
     _snapshot_tmp_paths: list[str] = []
     # Persist: survives reboot, agent can look back (TTL + size rotation)
 
-    def _save_frame(self, frame: cv2.typing.MatLike) -> str | None:
+    def _save_frame(self, prefix: str, frame: cv2.typing.MatLike) -> str | None:
         """Save a camera frame as a JPEG to the tmp snapshot dir at original resolution.
 
         Keeps at most SNAPSHOT_TMP_MAX_COUNT files; deletes the oldest when exceeded.
@@ -179,15 +180,18 @@ class SensingService:
         """
         try:
             os.makedirs(config.SNAPSHOT_TMP_DIR, exist_ok=True)
+            tmp_dir = Path(config.SNAPSHOT_TMP_DIR)
 
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
-            filename = f"sensing_{int(time.time() * 1000)}.jpg"
-            filepath = os.path.join(config.SNAPSHOT_TMP_DIR, filename)
+            filename = f"{int(time.time() * 1000)}.jpg"
+            subdir = tmp_dir / f"sensing_{prefix}"
+            subdir.mkdir(exist_ok=True, parents=True)
+            filepath = subdir / filename
             with open(filepath, "wb") as f:
                 _ = f.write(buf.tobytes())
 
-            self._snapshot_tmp_paths.append(filepath)
+            self._snapshot_tmp_paths.append(str(filepath))
 
             # Evict oldest files if over the limit
             while len(self._snapshot_tmp_paths) > config.SNAPSHOT_TMP_MAX_COUNT:
@@ -197,7 +201,7 @@ class SensingService:
                 except OSError:
                     pass
 
-            return filepath
+            return str(filepath)
         except Exception as e:
             logger.debug("Frame save failed: %s", e)
             return None
@@ -264,6 +268,7 @@ class SensingService:
         self,
         event_type: str,
         message: str,
+        prefix: str = "",
         images: list[cv2.typing.MatLike] | None = None,
         cooldown: float | None = None,
     ):
@@ -299,7 +304,7 @@ class SensingService:
 
         # Save each frame and append snapshot paths to the message.
         for frame in frames:
-            tmp_path = self._save_frame(frame)
+            tmp_path = self._save_frame(prefix, frame)
             if tmp_path:
                 persist_path = self._persist_snapshot(tmp_path)
                 ref = persist_path or tmp_path

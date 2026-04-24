@@ -144,7 +144,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._last_flush_ts: float = 0.0
         # {person_id: [emotion_str, ...]}
         self._emotion_buffer: dict[str, EmotionData] = {}
-        self._snapshot_paths: list[str] = []
+        self._snapshots_buffer: list[cv2.typing.MatLike] = []
 
         # Dedup: per-user cooldown + same-emotion suppression
         self._last_sent_key: tuple[str, str] | None = None  # (user, emotion)
@@ -189,7 +189,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
             self._presence_service.on_motion()
 
         # Save annotated snapshot (I/O — outside lock)
-        snapshot_path = self._save_annotated(frame, face.bbox, emotion, confidence)
+        snapshot = self._save_annotated(frame, face.bbox, emotion, confidence)
 
         with self._state_lock:
             self._last_detection_time = time.time()
@@ -201,8 +201,8 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 )
             self._emotion_buffer[face.person_id].emotions.append(emotion)
 
-            if snapshot_path:
-                self._snapshot_paths.append(snapshot_path)
+            if snapshot is not None:
+                self._snapshots_buffer.append(snapshot)
 
         logger.debug(
             "[activity.emotion] %s: %s (%.2f)", face.person_id, emotion, confidence
@@ -223,7 +223,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         bbox: list[int],
         emotion: str,
         confidence: float,
-    ) -> str | None:
+    ) -> cv2.typing.MatLike | None:
         """Draw annotation and save to snapshot dir. Rotates old files."""
         try:
             os.makedirs(config.EMOTION_SNAPSHOT_DIR, exist_ok=True)
@@ -242,28 +242,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 2,
             )
 
-            filename = f"emotion_{int(time.time() * 1000)}.jpg"
-            filepath = os.path.join(config.EMOTION_SNAPSHOT_DIR, filename)
-            _, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            with open(filepath, "wb") as f:
-                _ = f.write(buf.tobytes())
-
-            # Rotate: remove oldest files if over max count
-            files = sorted(
-                (
-                    os.path.join(config.EMOTION_SNAPSHOT_DIR, f)
-                    for f in os.listdir(config.EMOTION_SNAPSHOT_DIR)
-                    if f.endswith(".jpg")
-                ),
-                key=os.path.getmtime,
-            )
-            while len(files) > config.EMOTION_SNAPSHOT_MAX_COUNT:
-                try:
-                    os.remove(files.pop(0))
-                except OSError:
-                    pass
-
-            return filepath
+            return vis
         except Exception as e:
             logger.debug("[activity.emotion] snapshot save failed: %s", e)
             return None
@@ -278,9 +257,9 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 return
 
             buffer = copy(self._emotion_buffer)
-            snapshot_paths = copy(self._snapshot_paths)
+            snapshots_buffer = copy(self._snapshots_buffer)
             self._emotion_buffer.clear()
-            self._snapshot_paths.clear()
+            self._snapshots_buffer.clear()
             self._last_flush_ts = cur_ts
 
         if (
@@ -345,11 +324,10 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 self._last_sent_key = (person_id, dominant_emotion)
                 self._last_sent_ts = cur_ts
 
-            if snapshot_paths:
-                message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
-
             logger.info("[activity.emotion] flushing: %s", message)
-            self._send_event("emotion.detected", message, None, None)
+            self._send_event(
+                "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
+            )
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
