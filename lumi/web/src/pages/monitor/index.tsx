@@ -398,7 +398,7 @@ export default function Monitor() {
           {section === "logs"      && <LogsSection />}
           {/* Chat is always mounted to preserve history across tab switches */}
           <div style={{ display: section === "chat" ? "contents" : "none" }}>
-            <ChatSection events={events} />
+            <ChatSection events={events} isActive={section === "chat"} />
           </div>
           {section === "cli" && <CliSection />}
         </div>
