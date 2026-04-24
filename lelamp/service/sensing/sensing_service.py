@@ -206,13 +206,13 @@ class SensingService:
             logger.debug("Frame save failed: %s", e)
             return None
 
-    def _persist_snapshot(self, tmp_path: str) -> str | None:
+    def _persist_snapshot(self, prefix: str, tmp_path: str) -> str | None:
         """Copy a tmp snapshot to the persistent dir with TTL + size rotation.
 
         Returns the persistent file path, or None on failure.
         """
         try:
-            persist_dir = config.SNAPSHOT_PERSIST_DIR
+            persist_dir = os.path.join(config.SNAPSHOT_PERSIST_DIR, f"sensing_{prefix}")
             os.makedirs(persist_dir, exist_ok=True)
 
             # Rotate: remove files older than TTL
@@ -245,6 +245,7 @@ class SensingService:
 
             # Copy snapshot to persistent dir
             dest = os.path.join(persist_dir, os.path.basename(tmp_path))
+
             _ = shutil.copy2(tmp_path, dest)
             return dest
         except Exception as e:
@@ -306,7 +307,7 @@ class SensingService:
         for frame in frames:
             tmp_path = self._save_frame(prefix, frame)
             if tmp_path:
-                persist_path = self._persist_snapshot(tmp_path)
+                persist_path = self._persist_snapshot(prefix, tmp_path)
                 ref = persist_path or tmp_path
                 message = f"{message}\n[snapshot: {ref}]"
 

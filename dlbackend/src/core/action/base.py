@@ -1,6 +1,7 @@
 """Abstract base class for human action recognizers."""
 
 import logging
+import secrets
 import time
 from abc import ABC, abstractmethod
 from collections import deque
@@ -223,6 +224,7 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         self._last_ts: float = 0
         self._last_detected: list[tuple[str, float]] = []
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
+        self._session_id: str = secrets.token_hex(4)
 
     def update(self, frame: npt.NDArray[np.uint8]) -> ActionResponse | None:
         """Buffer a frame and optionally run inference.
@@ -234,6 +236,9 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             ActionResponse if inference was run this cycle, None otherwise.
         """
         cur_ts = time.time()
+        self._logger.info(
+            "[%s] Received new frame (mean=%f, std=%f)", self._session_id, frame.mean(), frame.std()
+        )
         if cur_ts - self._last_ts >= self._frame_interval:
             self._frame_buffer = self._model.preprocess(frame, self._frame_buffer)
             self._last_detected = self._model.predict(self._frame_buffer, self._class_mask)
@@ -246,7 +251,8 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         ]
         if len(detected_classes) > 0:
             self._logger.info(
-                "Detected top-%d :%s",
+                "[%s] Detected top-%d :%s",
+                self._session_id,
                 min(3, len(detected_classes)),
                 ", ".join([f"{d.class_name} ({d.conf:.2f})" for d in detected_classes[:3]]),
             )
@@ -266,7 +272,8 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         self._threshold = threshold
 
         self._logger.info(
-            "Config updated — %d classes enabled, threshold=%f",
+            "[%s] Config updated — %d classes enabled, threshold=%f",
+            self._session_id,
             int(self._class_mask.sum()),
             round(threshold, 2),
         )
