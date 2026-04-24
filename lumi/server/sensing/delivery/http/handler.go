@@ -545,13 +545,11 @@ func (h *SensingHandler) PostMoodLog(c *gin.Context) {
 		return
 	}
 
-	user := strings.ToLower(strings.TrimSpace(req.User))
-	if user == "" {
+	user := req.User
+	if strings.TrimSpace(user) == "" {
 		user = mood.CurrentUser()
 	}
-	if user == "" {
-		user = mood.DefaultUser
-	}
+	user = usercanon.Resolve(user)
 
 	evt := mood.Event{
 		Kind:      kind,
