@@ -43,7 +43,7 @@ If any check says skip → reply `<say></say>`. Do not narrate why.
 cat /root/local/users/{name}/habit/patterns.json 2>/dev/null
 ```
 
-If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below.
+If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below. The file is bootstrapped lazily by wellbeing on its first threshold nudge; absent file = no habit data yet, fall back to the table without invoking habit Flow A here.
 
 **Otherwise, fall back to default genre table:**
 

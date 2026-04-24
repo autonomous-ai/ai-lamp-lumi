@@ -15,7 +15,7 @@ Play music through the lamp speaker by searching YouTube. Use this when the user
    cat /root/local/users/{name}/habit/patterns.json 2>/dev/null
    ```
    If `music_patterns` exists and current hour is within `peak_hour ± 1` → use `preferred_genre` to pick a song, no need to ask.
-   Otherwise → ask: *"What are you in the mood for?"*
+   Otherwise → ask: *"What are you in the mood for?"*. The file is bootstrapped lazily by wellbeing on its first threshold nudge; do not invoke habit Flow A from here.
 3. Reply format:
    ```
    [HW:/audio/play:{"query":"Bohemian Rhapsody Queen","person":"alice"}][HW:/emotion:{"emotion":"excited","intensity":0.8}] Playing Bohemian Rhapsody!
