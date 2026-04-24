@@ -92,6 +92,7 @@ _MAX_VOICE_STRANGERS = int(
     os.environ.get("LELAMP_MAX_VOICE_STRANGERS", "50")
 )
 _VOICE_STRANGER_PREFIX = "voice_"
+_VOICE_STRANGER_DIR_RE = re.compile(r"^voice_\d+$")
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
@@ -845,6 +846,13 @@ class SpeakerRecognizer:
         }
         self._write_metadata(norm, meta)
         self._update_registry(norm, meta)
+
+        # Drop any stranger clusters whose WAVs were just enrolled. Keeping
+        # them would leave stale centroids that re-label the now-known
+        # speaker as voice_<N> on any recognition below the main threshold.
+        if source_type == "filepath":
+            self._drop_consumed_clusters(sources)
+
         logger.info(
             "Enrolled speaker '%s' — %d total samples, dim=%d",
             norm,
@@ -852,6 +860,66 @@ class SpeakerRecognizer:
             meta["embedding_dim"],
         )
         return meta
+
+    def _drop_consumed_clusters(self, wav_paths: list[str]) -> None:
+        """Remove stranger clusters whose WAVs were consumed by enroll().
+
+        Looks at each ``wav_path``'s parent dir — if it's a ``voice_<N>``
+        sub-dir inside ``SPEAKER_UNKNOWN_AUDIO_DIR``, that cluster is now
+        redundant (the speaker is known) and we drop both:
+          - centroid row from ``_stranger_embeds`` / ``_stranger_labels``,
+          - the cluster sub-dir on disk.
+
+        Safe no-op if the caller passed paths from outside the cluster tree
+        (e.g. Telegram enroll writes into a session temp dir).
+        """
+        try:
+            unknown_root = _UNKNOWN_AUDIO_DIR.resolve()
+        except OSError:
+            return
+        consumed: set[str] = set()
+        for p in wav_paths:
+            try:
+                resolved = Path(p).resolve()
+                resolved.relative_to(unknown_root)
+            except (OSError, ValueError):
+                continue
+            parent_name = resolved.parent.name
+            if _VOICE_STRANGER_DIR_RE.match(parent_name):
+                consumed.add(parent_name)
+        if not consumed:
+            return
+
+        with self._stranger_lock:
+            if (
+                self._stranger_labels is not None
+                and self._stranger_embeds is not None
+                and len(self._stranger_labels) > 0
+            ):
+                mask = np.array(
+                    [lbl not in consumed for lbl in self._stranger_labels],
+                    dtype=bool,
+                )
+                if not mask.all():
+                    self._stranger_embeds = self._stranger_embeds[mask]
+                    self._stranger_labels = self._stranger_labels[mask]
+                    self._save_strangers()
+                    logger.info(
+                        "Enroll: dropped %d stranger centroid(s) %s after enrollment",
+                        int((~mask).sum()), sorted(consumed),
+                    )
+
+        for label in consumed:
+            cluster_dir = _UNKNOWN_AUDIO_DIR / label
+            if not cluster_dir.is_dir():
+                continue
+            try:
+                shutil.rmtree(cluster_dir)
+                logger.info("Enroll: removed cluster dir %s", cluster_dir)
+            except OSError as e:
+                logger.warning(
+                    "Enroll: failed to remove cluster dir %s: %s", cluster_dir, e,
+                )
 
     # --------------------------------------------------------- public: remove
 
