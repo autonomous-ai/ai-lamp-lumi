@@ -62,15 +62,16 @@ Lumi nhận diện người nói qua **WeSpeaker ResNet34** (vector nhúng 256 c
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Chống spam — Ba lớp bảo vệ
+## Chống spam — Bốn lớp bảo vệ
 
-Ba lớp ngăn agent hỏi "bạn là ai?" liên tục:
+Bốn lớp ngăn agent hỏi "bạn là ai?" liên tục:
 
 | Lớp | Vị trí | Điều kiện | Mục đích |
 |-----|--------|-----------|----------|
 | **Thời lượng audio** | LeLamp `voice_service.py` | `duration_s < SPEAKER_MIN_AUDIO_S` (0.8s) | Bỏ qua nhận diện hoàn toàn cho audio quá ngắn |
-| **Yêu cầu đăng ký** | LeLamp `_should_request_enroll()` | `≥ 25 từ VÀ ≥ 5s audio` | Không kèm instruction đăng ký cho câu ngắn |
-| **Cooldown nhắc nhở** | Lumi `domain/voice.go` | `5 phút kể từ lần nhắc trước` | Không chèn SKILL.md instruction quá 1 lần mỗi 5 phút |
+| **Yêu cầu đăng ký** | LeLamp `_should_request_enroll()` | `≥ 15 từ VÀ ≥ 2s audio` | Không kèm instruction đăng ký đầy đủ cho câu ngắn (biến thể ngắn kèm gợi ý combine vẫn được gửi) |
+| **Cooldown nhắc nhở phía Lumi** | Lumi `domain/voice.go` | `5 phút kể từ lần nhắc trước` | Không chèn SKILL.md instruction quá 1 lần mỗi 5 phút |
+| **Cooldown theo voiceprint** | LeLamp `voice_service.py` | `30 phút mỗi voiceprint_hash` (`LELAMP_ENROLL_NUDGE_COOLDOWN_S`) | Không lặp lại "hỏi tên user" cho cùng một cluster giọng lạ; gửi message `Unknown Speaker:` trần |
 
 ## Model & Embedding
 
@@ -99,6 +100,22 @@ Ba lớp ngăn agent hỏi "bạn là ai?" liên tục:
 3. Tổng hợp embedding còn lại qua trung bình có trọng số
 4. Lưu vector chuẩn hoá L2 tại `/root/local/users/{tên}/voice/embedding.npy`
 
+### Theo dõi cụm giọng lạ (`voiceprint_hash`)
+
+Mọi giọng lạ được gom cụm local để server biết "đây là cùng một người đã nghe cách đây 3 phút" mà không cần backend hỗ trợ. Cho phép agent gộp nhiều câu ngắn thành 1 lần enroll.
+
+1. Sau khi embedding audio, recognizer tổng hợp embedding theo chunk thành 1 vector chuẩn hoá L2.
+2. So với các centroid cụm stranger đã lưu (cosine similarity).
+3. Match ≥ `LELAMP_VOICE_STRANGER_MATCH_THRESHOLD` (mặc định `0.65`, thấp hơn 0.7 của known-speaker để cùng giọng gom chung thay vì phân mảnh) → dùng lại label `voice_N`.
+4. Không match → tạo label mới `voice_{counter}`, thêm centroid vào state trên đĩa.
+5. Giới hạn `LELAMP_MAX_VOICE_STRANGERS` (mặc định `50`) — evict oldest khi vượt.
+6. Hash được:
+   - trả trong response recognize dưới field `voiceprint_hash: "voice_N"` (null cho known speaker)
+   - gắn vào message nudge dạng tag `[voice:voice_N]` để skill đối chiếu qua các turn
+   - dùng để group WAV vào subdir (xem Lưu trữ)
+
+**Trim silence cuối**: trước khi WAV đi qua embedding API, buffer speaker-ID được cắt tại frame speech cuối cùng + 200ms tail. Nếu không, câu 3s sẽ thành ~5.5s với ~45% silence, làm loãng embedding. Chỉ ảnh hưởng path speaker-ID — STT vẫn nhận đủ stream.
+
 ## Cấu hình
 
 | Tham số | Mặc định | Biến môi trường | Mô tả |
@@ -107,9 +124,13 @@ Ba lớp ngăn agent hỏi "bạn là ai?" liên tục:
 | Ngưỡng consistency khi đăng ký | 0.7 | `SPEAKER_ENROLL_CONSISTENCY_THRESHOLD` | Cosine similarity tối thiểu giữa các mẫu |
 | Timeout API | 15s | `SPEAKER_EMBEDDING_API_TIMEOUT_S` | Timeout HTTP cho embedding API |
 | Audio tối thiểu cho nhận diện | 0.8s | `LELAMP_SPEAKER_MIN_AUDIO_S` | Bỏ qua nhận diện dưới ngưỡng này |
-| Số từ tối thiểu cho nudge đăng ký | 25 | Hardcoded trong `_should_request_enroll()` | Cổng số từ transcript |
-| Thời lượng tối thiểu cho nudge đăng ký | 5.0s | Hardcoded trong `_should_request_enroll()` | Cổng thời lượng audio |
-| Cooldown nhắc nhở | 5 phút | Hardcoded trong `domain/voice.go` | Cooldown phía Lumi giữa các lần nhắc đăng ký |
+| Số từ tối thiểu cho nudge đăng ký | 15 | Hardcoded trong `_should_request_enroll()` | Cổng số từ transcript |
+| Thời lượng tối thiểu cho nudge đăng ký | 2.0s | Hardcoded trong `_should_request_enroll()` | Cổng thời lượng audio |
+| Cooldown nhắc nhở phía Lumi | 5 phút | Hardcoded trong `domain/voice.go` | Không inject SKILL instruction toàn cục quá 1 lần/5 phút |
+| Cooldown nhắc nhở theo voiceprint | 30 phút | `LELAMP_ENROLL_NUDGE_COOLDOWN_S` | Không hỏi lại tên cho cùng cluster voiceprint |
+| Ngưỡng match voice stranger | 0.65 | `LELAMP_VOICE_STRANGER_MATCH_THRESHOLD` | Cosine similarity để gom giọng lạ vào `voice_N` đã có |
+| Số voice stranger tối đa | 50 | `LELAMP_MAX_VOICE_STRANGERS` | Giới hạn cluster; evict oldest khi vượt |
+| Thư mục voice strangers | `/root/local/voice_strangers` | `LELAMP_VOICE_STRANGERS_DIR` | Persist embedding cluster (tồn tại qua reboot) |
 | Bật/tắt nhận diện giọng nói | false | `LELAMP_SPEAKER_RECOGNITION_ENABLED` | Công tắc tổng |
 
 ## Lưu trữ
@@ -123,7 +144,14 @@ Ba lớp ngăn agent hỏi "bạn là ai?" liên tục:
     sample_{origin}_{ts}_{uuid}.wav  # Các mẫu đăng ký (16kHz mono)
 
 /tmp/lumi-unknown-voice/
-  incoming_{ts}_{uuid}.wav           # Audio chưa nhận diện (tự dọn dẹp)
+  incoming_{ts}_{uuid}.wav           # Audio known-speaker (phẳng)
+  voice_{N}/
+    incoming_{ts}_{uuid}.wav         # Audio unknown — gom theo cụm voiceprint
+
+/root/local/voice_strangers/
+  embeds.npy                         # Centroid các cluster stranger [N, 256]
+  labels.npy                         # Label cluster ["voice_1", "voice_2", ...]
+  counter.npy                        # Counter tăng cho label mới
 ```
 
 ## API Endpoints (LeLamp, port 5001)
@@ -180,6 +208,23 @@ User nói: "bật đèn lên đi" (4 từ, 3s audio)
 → Message: "Unknown Speaker: bật đèn lên đi"
 → Lumi: không có "audio save at" → AppendEnrollNudge giữ nguyên
 → Agent: phản hồi bình thường, không hỏi user là ai
+```
+
+### Gộp nhiều turn ngắn (cùng cluster giọng)
+```
+Turn 1: "nice to meet you today. Okay." (5 từ)
+→ LeLamp: recognize → unknown, voiceprint_hash=voice_5
+→ WAV chuyển vào /tmp/lumi-unknown-voice/voice_5/incoming_A.wav
+→ Message: "Unknown Speaker: [voice:voice_5] nice to meet you today. Okay. (audio saved at ..._A.wav. Note: audio is too short for single enrollment. If prior turns tagged the same voice_5, combine their saved paths...)"
+→ Agent: hỏi "Cho mình biết tên bạn với?"
+
+Turn 2: "I'm Lily." (2 từ)
+→ LeLamp: voiceprint_hash=voice_5 (cùng cluster, sim=0.75)
+→ WAV chuyển vào /tmp/lumi-unknown-voice/voice_5/incoming_B.wav
+→ Message: "Unknown Speaker: [voice:voice_5] I'm Lily. (audio saved at ..._B.wav...)"
+→ Agent: quét các turn trước cùng tag [voice:voice_5] → tìm thấy path A
+→ Agent: POST /speaker/enroll với wav_paths=[path_A, path_B], name="Lily"
+→ Agent: "Rất vui được biết bạn, Lily!"
 ```
 
 ### Câu dài (luồng đăng ký đầy đủ)
