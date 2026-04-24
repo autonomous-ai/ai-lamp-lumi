@@ -65,7 +65,7 @@ Track which features have been manually tested on the Raspberry Pi 4.
 | # | Use Case | How to test | Status | Notes |
 |---|---|---|---|---|
 | EX-09 | Speaker recognition | Nói gì đó → xem transcript có prefix `Name:` (recognized) hoặc `Unknown:` (chưa enroll) | ✅ | LeLamp `speaker_recognizer.py` + Lumi `speaker-recognizer` skill |
-| EX-10 | Voice self-enrollment | Nói **"I'm Leo"** hoặc **"tôi là Leo"** khi chưa enroll → agent tự enroll voice profile từ audio path | ✅ | Skill triggers on `Unknown: ... (audio save at <path>)` + self-intro |
+| EX-10 | Voice self-enrollment | Nói **"I'm Leo"** hoặc **"tôi là Leo"** khi chưa enroll → agent tự enroll voice profile từ audio path | ✅ | Skill triggers on `Unknown Speaker:... (audio save at <path>)` + self-intro |
 | EX-11 | Telegram voice enrollment | Gửi voice note trên Telegram kèm giới thiệu tên → agent enroll voice + link Telegram identity | ✅ | Skill handles `[mediaPaths: ...]` + intro detection |
 
 ---
