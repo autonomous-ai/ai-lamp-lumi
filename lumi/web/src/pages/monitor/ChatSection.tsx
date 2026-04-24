@@ -351,9 +351,15 @@ function copyToClipboard(text: string): Promise<void> {
 
 interface Props {
   events: DisplayEvent[];
+  // ChatSection stays mounted (display:none) across section switches so
+  // chat state and scroll position persist. isActive tells it whether
+  // the user is actually viewing the Chat tab right now — when false,
+  // we don't open the live /openclaw/events SSE, which otherwise would
+  // hold an HTTP/1.1 connection slot from every other section.
+  isActive: boolean;
 }
 
-export function ChatSection({ events }: Props) {
+export function ChatSection({ events, isActive }: Props) {
   const [convos, setConvos] = useState<Conversation[]>(loadConvos);
   const [activeId, setActiveId] = useState<string | null>(() => {
     const saved = loadActiveId();
@@ -636,11 +642,12 @@ export function ChatSection({ events }: Props) {
     const close = () => {
       if (es !== null) { es.close(); es = null; }
     };
+    const shouldBeOpen = () => isActive && !document.hidden;
     const onVisibility = () => {
-      if (document.hidden) close(); else open();
+      if (shouldBeOpen()) open(); else close();
     };
 
-    if (!document.hidden) open();
+    if (shouldBeOpen()) open();
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
@@ -648,7 +655,7 @@ export function ChatSection({ events }: Props) {
       close();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [updateMessages]);
+  }, [updateMessages, isActive]);
 
   // Watch flow events for final response (tts_send, no_reply from JSONL)
   // This catches responses that only appear in flow logs, not on the live bus
