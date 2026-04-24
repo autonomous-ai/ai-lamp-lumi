@@ -49,6 +49,8 @@ DARREN_1 = DATA_DIR / "Darren" / "record_1.wav"
 DARREN_2 = DATA_DIR / "Darren" / "record_2.wav"
 DARREN_3 = DATA_DIR / "Darren" / "record_3.wav"
 DARREN_4 = DATA_DIR / "Darren" / "record_4.wav"
+DARREN_5 = DATA_DIR / "Darren" / "record_5.wav"
+LILY_1 = DATA_DIR / "Lily" / "lily.wav"
 
 
 def _deps_ready() -> bool:
@@ -171,17 +173,28 @@ def test_recognize_from_wav_path(tmp_path):
     result = _timed_call("recognize(Khanh_4.wav)", recognizer.recognize, KHANH_4)
     print("[Action] recognize(Khanh_4.wav) ->", result)
     assert result["name"] == "Khanh"
-    assert 0.0 <= result["confidence"] <= 1.0
+    assert 0.75 <= result["confidence"] <= 1.0
     
     result = _timed_call("recognize(Darren_4.wav)", recognizer.recognize, DARREN_4)
     print("[Action] recognize(Darren_4.wav) ->", result)
     assert result["name"] == "Darren"
-    assert 0.0 <= result["confidence"] <= 1.0
+    assert 0.75 <= result["confidence"] <= 1.0
+    
+    result = _timed_call("recognize(Lily.wav)", recognizer.recognize, LILY_1)
+    print("[Action] recognize(Lily.wav) ->", result)
+    assert result["name"] != "Lily"
+    assert 0.0 <= result["confidence"] <= 0.75
+    
+    result = _timed_call("recognize(Darren_5.wav)", recognizer.recognize, DARREN_5)
+    print("[Action] recognize(Darren_5.wav) ->", result)
+    assert result["name"] == "Darren"
+    assert 0.75 <= result["confidence"] <= 1.0
+    
     
     result = _timed_call("recognize(Bao_2.wav)", recognizer.recognize, BAO_2)
     print("[Action] recognize(Bao_2.wav) ->", result)
     assert result["name"] == "Bao"
-    assert 0.0 <= result["confidence"] <= 1.0
+    assert 0.75 <= result["confidence"] <= 1.0
 
 @pytest.mark.integration
 @pytest.mark.skipif(
@@ -237,7 +250,7 @@ def test_recognize_from_audio_chunks(tmp_path):
     )
     print("[Action] recognize(chunks Bao_2.wav) ->", result_bao_2)
     assert result_bao_2["name"] == "Bao"
-    assert 0.0 <= result_bao_2["confidence"] <= 1.0
+    assert 0.75 <= result_bao_2["confidence"] <= 1.0
 
     result_darren_4 = _timed_call(
         "recognize(chunks from record_4.wav)",
@@ -247,7 +260,7 @@ def test_recognize_from_audio_chunks(tmp_path):
     )
     print("[Action] recognize(chunks record_4.wav) ->", result_darren_4)
     assert result_darren_4["name"] == "Darren"
-    assert 0.0 <= result_darren_4["confidence"] <= 1.0
+    assert 0.75 <= result_darren_4["confidence"] <= 1.0
     
 
 
