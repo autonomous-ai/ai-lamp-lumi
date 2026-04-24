@@ -100,8 +100,8 @@ Tâm vật thể: tracker bbox (không smooth — cadence move-then-freeze ~143m
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-yaw_deg   = dx * 0.022    (clamp ±6.0°, bằng 0 nếu |dx| < 18)
-pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
+yaw_deg   = dx * 0.022   (clamp ±6.0°, bằng 0 nếu |dx| < 18)
+pitch_deg = dy * 0.022   (cùng dấu dy; xem "Pitch sign" bên dưới)
 ```
 
 ### Hằng số Tuning
@@ -128,7 +128,9 @@ pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
 
 ### Pitch sign
 
-`base_pitch` dương khi lamp tilt *lên* (xem `AIM_UP` có `base_pitch=+10`, `AIM_DOWN` có `-50`). Để kéo object từ mép top frame (dy < 0) về center, lamp phải tilt lên — base_pitch phải *tăng* — nên công thức pixel-to-degree đảo dấu dy. Không đảo dấu thì tracker đẩy lamp **ra xa** object theo chiều dọc và cuối cùng pin base_pitch vào hardware MAX.
+`base_pitch` là joint ở **đáy** cánh tay. Tăng base_pitch = lean arm forward = đầu lamp **drop xuống**; giảm = lean backward = đầu **rise lên**. (Preset AIM_UP có `base_pitch=+10` nhưng hiệu ứng "nhìn lên" chủ yếu nhờ `wrist_pitch=+25`, không phải base_pitch.)
+
+Để kéo cup ở **top** frame (dy < 0) về center, đầu phải rise lên → base_pitch phải **giảm**. Đúng như `pitch_deg = dy * k`: dy < 0 → pitch_deg < 0 → new_base_pitch giảm. Một phiên bản trước đảo dấu dy dựa vào cách đọc naive bảng AIM preset, làm đầu lamp **cúi xuống** mỗi khi cup ở trên center ("cúi quá sâu"). Công thức same-sign-as-dy hiện tại mới đúng.
 
 ### Giới hạn vị trí Servo
 
