@@ -101,6 +101,11 @@ CLOSE_OBJECT_GAIN = 0.5
 DETECT_MIN_AREA_RATIO = 0.003  # below this tracker has too few pixels
 DETECT_MAX_AREA_RATIO = 0.30   # above this the box is too loose to trust
 
+# Reject YOLO detections below this confidence — in logs, real matches
+# sit at 0.65+ while noise ranges 0.1-0.4. 0.3 rejects the obvious
+# spurious detections without being aggressive.
+DETECT_MIN_CONFIDENCE = 0.3
+
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -199,8 +204,9 @@ class TrackerService:
                 logger.info("YOLOWorld: '%s' not found in frame", label)
                 return None
 
-            # Size-filter detections. Log every candidate so we can see what
-            # YOLO actually returned and why we picked (or rejected) each.
+            # Filter detections by size AND confidence. Log every candidate
+            # with ACCEPTED / REJECTED (reason) so we can see what YOLO
+            # actually returned and why it was kept or dropped.
             frame_area = float(frame.shape[0] * frame.shape[1])
             valid = []
             for d in detections:
@@ -208,21 +214,25 @@ class TrackerService:
                 area_ratio = (w * h) / frame_area if frame_area > 0 else 0.0
                 conf = d.get("confidence", 0)
                 cname = d.get("class_name", "?")
-                accepted = DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO
+                if conf < DETECT_MIN_CONFIDENCE:
+                    reason = "REJECTED (conf)"
+                elif not (DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO):
+                    reason = "REJECTED (size)"
+                else:
+                    reason = "ACCEPTED"
+                    valid.append(d)
                 logger.info(
                     "  YOLO candidate: class='%s' conf=%.3f bbox=(%d,%d,%d,%d) area=%.1f%% %s",
                     cname, conf, int(cx - w / 2), int(cy - h / 2), int(w), int(h),
-                    area_ratio * 100,
-                    "ACCEPTED" if accepted else "REJECTED (size)",
+                    area_ratio * 100, reason,
                 )
-                if accepted:
-                    valid.append(d)
 
             if not valid:
                 logger.warning(
-                    "YOLOWorld: '%s' — %d detection(s) but none passed size filter "
-                    "[%.1f%%–%.1f%% of frame]",
+                    "YOLOWorld: '%s' — %d detection(s) but none passed filters "
+                    "[conf >= %.2f, size %.1f%%–%.1f%% of frame]",
                     label, len(detections),
+                    DETECT_MIN_CONFIDENCE,
                     DETECT_MIN_AREA_RATIO * 100, DETECT_MAX_AREA_RATIO * 100,
                 )
                 return None

@@ -121,6 +121,7 @@ pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
 | `CLOSE_OBJECT_GAIN` | 0.5 | Hệ số nhân gain khi object gần |
 | `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox nhỏ hơn (quá ít pixel để track) |
 | `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox lớn hơn (lỏng, thường là detection gộp) |
+| `DETECT_MIN_CONFIDENCE` | 0.30 | Reject YOLO detection có confidence dưới ngưỡng |
 | `TRACK_BASE_PITCH_MIN/MAX` | -75 / +15 | Range pitch tracker cho phép (hẹp hơn hardware -90/+30) — auto-stop trước khi chạm giới hạn vật lý |
 | `animation_wait_budget_s` | 7 | Wait tối đa trong `start()` cho animation /servo/aim hoàn tất |
 | Bbox bloat stop ratio | 2× initial | Auto-stop khi bbox phình tới mức này so với init |
