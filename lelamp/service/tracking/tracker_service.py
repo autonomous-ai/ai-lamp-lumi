@@ -287,16 +287,19 @@ class TrackerService:
         # can't lock because the next frame looks materially different
         # once the servo settles. A 50ms extra idle pad covers the motor's
         # own settle time after the animation loop has released the pose.
+        # Wait only for an active interpolation (e.g. /servo/aim transitioning
+        # to its target pose) to finish. Don't wait on _current_recording in
+        # general — idle is always "playing" on the animation event loop and
+        # that made the old check treat the lamp as permanently busy, hitting
+        # the timeout and starting tracking from a half-moved aim pose.
         animation_wait_budget_s = 7.0
         animation_idle_deadline = time.perf_counter() + animation_wait_budget_s
         while time.perf_counter() < animation_idle_deadline:
-            busy = bool(getattr(animation_service, "_current_recording", None)) \
-                or getattr(animation_service, "_interpolation_frames", 0) > 0
-            if not busy:
+            if getattr(animation_service, "_interpolation_frames", 0) <= 0:
                 break
             time.sleep(0.05)
         else:
-            logger.warning("tracker start: animation still busy after %.0fs, proceeding anyway",
+            logger.warning("tracker start: interpolation still running after %.0fs, proceeding anyway",
                            animation_wait_budget_s)
         time.sleep(0.05)
 
