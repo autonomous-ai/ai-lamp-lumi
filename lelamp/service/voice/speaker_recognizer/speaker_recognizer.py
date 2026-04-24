@@ -861,6 +861,49 @@ class SpeakerRecognizer:
         )
         return meta
 
+    def drop_stranger_cluster(self, label: str) -> bool:
+        """Drop a single stranger cluster by label.
+
+        Removes the centroid row from the in-memory tables (persisting the
+        reduced tables), then ``rmtree`` the on-disk cluster sub-dir.
+        Returns ``True`` if anything was removed, ``False`` when the label
+        wasn't known and no dir existed (route uses that for 404).
+        """
+        if not label or not _VOICE_STRANGER_DIR_RE.match(label):
+            return False
+        removed_centroid = False
+        with self._stranger_lock:
+            if (
+                self._stranger_labels is not None
+                and self._stranger_embeds is not None
+                and len(self._stranger_labels) > 0
+            ):
+                mask = np.array(
+                    [lbl != label for lbl in self._stranger_labels],
+                    dtype=bool,
+                )
+                if not mask.all():
+                    self._stranger_embeds = self._stranger_embeds[mask]
+                    self._stranger_labels = self._stranger_labels[mask]
+                    self._save_strangers()
+                    removed_centroid = True
+        removed_dir = False
+        cluster_dir = _UNKNOWN_AUDIO_DIR / label
+        if cluster_dir.is_dir():
+            try:
+                shutil.rmtree(cluster_dir)
+                removed_dir = True
+            except OSError as e:
+                logger.warning(
+                    "drop_stranger_cluster %s: rmtree failed: %s", label, e,
+                )
+        if removed_centroid or removed_dir:
+            logger.info(
+                "drop_stranger_cluster %s (centroid=%s, dir=%s)",
+                label, removed_centroid, removed_dir,
+            )
+        return removed_centroid or removed_dir
+
     def _drop_consumed_clusters(self, wav_paths: list[str]) -> None:
         """Remove stranger clusters whose WAVs were consumed by enroll().
 
