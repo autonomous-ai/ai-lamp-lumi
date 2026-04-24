@@ -56,7 +56,7 @@ DEFAULT_RMS_TARGET = 0.1
 
 # Speech-gate thresholds applied after VAD strips head/tail silence.
 DEFAULT_MIN_DURATION_SEC = 0.5
-DEFAULT_MIN_VOICE_RATIO = 0.7
+DEFAULT_MIN_VOICE_RATIO = 0.4
 
 # Desired per-chunk duration range when splitting long audio. Short audio
 # (<= max, or <= 2*min when that exceeds max) stays as a single window.

@@ -352,7 +352,7 @@ def preprocess_for_embedding(
     hpf_cutoff_hz: float = 80.0,
     rms_target: float = 0.1,
     min_duration_sec: float = 0.5,
-    min_voice_ratio: float = 0.7,
+    min_voice_ratio: float = 0.4,
 ) -> np.ndarray:
     """Run (optional HPF) -> noisereduce -> strip-VAD + gate -> RMS.
 
