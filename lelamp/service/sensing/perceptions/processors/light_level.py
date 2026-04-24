@@ -7,8 +7,8 @@ import numpy as np
 import numpy.typing as npt
 
 import lelamp.config as config
-from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.perceptions.utils import PerceptionStateObservers
+from lelamp.service.sensing.perceptions.typing import SendEventCallable
+from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
 
 from .base import Perception
 

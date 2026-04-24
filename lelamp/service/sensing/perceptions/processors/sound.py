@@ -6,8 +6,8 @@ from typing import Any, override
 import requests
 
 import lelamp.config as config
-from service.sensing.perceptions.typing import SendEventCallable
-from service.sensing.perceptions.utils import PerceptionStateObservers
+from lelamp.service.sensing.perceptions.typing import SendEventCallable
+from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
 
 from .base import Perception
 
