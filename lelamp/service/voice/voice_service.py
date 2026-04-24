@@ -151,6 +151,18 @@ class VoiceService:
 
         self._backchannel = Backchannel(tts_service)
 
+        # Enroll-nudge cooldown per voiceprint_hash. When the recognizer
+        # assigns a stable cluster label to an unknown voice, we stop
+        # asking the agent to ask that voice's name again for
+        # _NUDGE_COOLDOWN_S so the agent doesn't repeat "who are you?"
+        # to the same person every short utterance.
+        # In-memory only — resets on restart (acceptable; worst case is
+        # one extra prompt after reboot).
+        self._last_nudge_time: dict[str, float] = {}
+        self._nudge_cooldown_s: float = float(
+            os.environ.get("LELAMP_ENROLL_NUDGE_COOLDOWN_S", str(30 * 60))
+        )
+
         # Speaker recognizer (optional). Lazy-initialized — if embedding API
         # isn't configured the prefix is simply skipped.
         self._speaker = None
@@ -658,13 +670,32 @@ class VoiceService:
             """
             return len(transcript.split()) >= min_words and duration_s >= min_duration_s
 
-        def _format_unknown_speaker(transcript: str, audio_path: str, duration_s: float = 0.0) -> str:
+        def _format_unknown_speaker(
+            transcript: str, audio_path: str, duration_s: float = 0.0,
+            voiceprint_hash: Optional[str] = None,
+        ) -> str:
             """Format message for an unrecognized speaker.
 
             Only appends the enroll instruction when the transcript is long
-            enough and audio duration is sufficient for enrollment.
+            enough AND the same voice cluster hasn't been nudged recently.
+            The nudge-per-hash cooldown stops the agent from asking "who
+            are you?" every short utterance when the same unknown speaker
+            keeps talking.
             """
+            # Skip nudge entirely if we've already asked this voice recently.
+            now = time.time()
+            if voiceprint_hash:
+                last = self._last_nudge_time.get(voiceprint_hash, 0.0)
+                if now - last < self._nudge_cooldown_s:
+                    logger.info(
+                        "Enroll nudge skipped for %s — asked %.0fs ago (cooldown %.0fs)",
+                        voiceprint_hash, now - last, self._nudge_cooldown_s,
+                    )
+                    return f"Unknown Speaker: {transcript}"
+
             if audio_path and _should_request_enroll(transcript, duration_s):
+                if voiceprint_hash:
+                    self._last_nudge_time[voiceprint_hash] = now
                 return (
                     f"Unknown Speaker: {transcript} "
                     f"(audio save at {audio_path}, auto enroll this speaker "
@@ -716,9 +747,10 @@ class VoiceService:
             logger.info("Speaker recognize result: %r", result)
             err = result.get("error")
             audio_path = result.get("unknown_audio_path", "")
+            vp_hash = result.get("voiceprint_hash")
             if err:
                 logger.warning("Speaker ID skipped — embedding server issue: %s", err)
-                return _format_unknown_speaker(transcript, audio_path, duration_s) if audio_path else transcript
+                return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash) if audio_path else transcript
 
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
@@ -730,8 +762,8 @@ class VoiceService:
                 logger.info("Speaker ID: %s (confidence=%.2f, audio=%s)", name, confidence, audio_path or "-")
                 return f"Speaker - {display}: {transcript}"
 
-            logger.info("Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path or "-")
-            return _format_unknown_speaker(transcript, audio_path, duration_s)
+            logger.info("Speaker ID: unknown (best=%.2f, audio=%s, hash=%s)", confidence, audio_path or "-", vp_hash or "-")
+            return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash)
 
         def _send_best(best: str):
             # Run speaker recognition BEFORE wake word logic so the sent
