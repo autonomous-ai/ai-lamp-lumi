@@ -81,11 +81,25 @@ _ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
 _VOICE_STRANGERS_DIR = Path(
     os.environ.get("LELAMP_VOICE_STRANGERS_DIR", "/root/local/voice_strangers")
 )
-# Lower than _MATCH_THRESHOLD (0.7) — we want same voice to gather into one
-# cluster even at looser similarity. False grouping is less bad than infinite
-# fragmentation.
+# Stranger clustering + merge use RAW cosine sim in [-1, 1] (see
+# _assign_voiceprint_hash, _match_stranger_clusters: they do
+# `stranger_embeds @ query` on already-L2-normalized vectors, so the
+# dot-product IS raw cosine).
+#
+# MATCH / CONSISTENCY thresholds elsewhere are in SCALED [0, 1] space
+# (see _cosine_similarity: returns (raw+1)/2). So do NOT set the two
+# values below just "a bit lower than 0.7" — they aren't in the same
+# unit. The earlier defaults (0.65, 0.55) looked looser but were
+# actually STRICTER than MATCH, which caused same-person-different-
+# distance to fragment into separate clusters (root cause of the
+# voice_6 / voice_7 bug).
+#
+# ECAPA-TDNN same-speaker raw cosine on VoxCeleb clusters around 0.3–0.5
+# (EER ≈ 0.3–0.4). Values below sit slightly below the EER band on
+# purpose — false grouping at loose thresholds is bounded by the Step 5
+# consistency filter in enroll() and by the MATCH gate in recognize().
 _VOICE_STRANGER_MATCH_THRESHOLD = float(
-    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.65")
+    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.35")
 )
 # Cap cluster count so disk doesn't grow unbounded. Oldest evicted first.
 _MAX_VOICE_STRANGERS = int(
@@ -716,8 +730,12 @@ class SpeakerRecognizer:
         # outliers dropped; and _drop_consumed_clusters at the tail cleans
         # up every merged cluster regardless of how many samples survived.
         if source_type == "filepath" and new_embeddings:
+            # Threshold is RAW cosine (both sides L2-normalized). 0.25 sits
+            # below the EER band so same-person-different-distance gets
+            # absorbed; the Step 5 consistency filter below catches false
+            # merges from loose matches.
             merge_threshold = float(
-                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.55")
+                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.25")
             )
             query_mean = _weighted_aggregate(
                 [emb for _wb, emb in new_embeddings]
