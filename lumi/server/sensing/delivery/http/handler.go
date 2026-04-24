@@ -478,19 +478,24 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 }
 
 // GetSnapshot serves a sensing snapshot image.
+// LeLamp writes snapshots as <dir>/<category>/<name>, where <category> is
+// sensing_<prefix> (e.g. sensing_motion_activity) and <name> is <ms>.jpg.
 // Checks persistent dir first (/var/log/lumi/snapshots/), falls back to tmp.
 func (h *SensingHandler) GetSnapshot(c *gin.Context) {
+	category := c.Param("category")
 	name := c.Param("name")
-	validPrefix := strings.HasPrefix(name, "sensing_") ||
-		strings.HasPrefix(name, "emotion_") ||
-		strings.HasPrefix(name, "motion_")
-	if !validPrefix || !strings.HasSuffix(name, ".jpg") || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+	validCategory := strings.HasPrefix(category, "sensing_") ||
+		strings.HasPrefix(category, "emotion_") ||
+		strings.HasPrefix(category, "motion_")
+	if !validCategory || strings.ContainsAny(category, "/\\") || strings.Contains(category, "..") {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// Prefer persistent dir (survives reboot), fall back to tmp buffers.
-	// lumi-sensing-snapshots: presence; lumi-emotion-snapshots: FER; lumi-motion-snapshots: activity.
-	persistPath := filepath.Join("/var/log/lumi/snapshots", name)
+	if !strings.HasSuffix(name, ".jpg") || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	persistPath := filepath.Join("/var/log/lumi/snapshots", category, name)
 	if _, err := os.Stat(persistPath); err == nil {
 		c.File(persistPath)
 		return
@@ -500,7 +505,7 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 		"/tmp/lumi-emotion-snapshots",
 		"/tmp/lumi-motion-snapshots",
 	} {
-		p := filepath.Join(dir, name)
+		p := filepath.Join(dir, category, name)
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
