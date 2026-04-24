@@ -387,11 +387,11 @@ async def embed_audio(req: EmbedAudioRequest):
 
         # Inline _extract_embedding_from_chunks so we keep the per-chunk
         # embeddings around (the wrapper throws them away after aggregation).
+        # Speech-gate failures raise PreprocessRejected below, which the
+        # outer handler maps to a structured 400 body.
         waveforms = recognizer._prepare_waveforms_from_chunks(
             merged_chunks, chunk_sample_rate=last_sr
         )
-        if not waveforms:
-            raise ValueError("all chunks empty after preprocessing")
         chunk_embs = recognizer._extract_embeddings_from_waveforms_batch(waveforms)
         if not chunk_embs:
             raise ValueError("no embeddings produced")
