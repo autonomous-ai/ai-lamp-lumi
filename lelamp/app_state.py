@@ -352,12 +352,18 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
 
 
 def _auto_camera_off(reason: str) -> bool:
-    """Auto-disable camera. Respects manual override."""
+    """Auto-disable camera. Respects manual override + active tracking."""
     global _camera_disabled
     if _camera_manual_override:
         logger.debug(
             "Auto camera off skipped -- manual override active (reason: %s)", reason
         )
+        return False
+    # Guard against sleepy-emotion / scene-change turning the camera off
+    # mid-tracking. Tracker needs the frame stream, so any auto-off
+    # triggered while tracking is active must be ignored.
+    if tracker_service and tracker_service.is_tracking:
+        logger.info("Auto camera off skipped -- tracking active (reason: %s)", reason)
         return False
     if not camera_capture or _camera_disabled:
         return False
