@@ -30,6 +30,10 @@ Earlier iterations ran the loop at 20 FPS, commanding servo nudges every 50ms. T
 
 The current design reads a frame, decides one nudge, sends it, then explicitly waits for the servo to physically complete the move (~80ms) before reading the next frame. Each frame is sharp and coordinates match the current pose. Fewer commands, bigger deliberate steps, no hunting.
 
+### Start-up waits for animation idle
+
+If the caller fires `/servo/aim` just before `/servo/track` (e.g. the agent handling "look at the desk and follow the cup"), tracking `.start()` blocks until the in-progress recording has completed and a short settle pad has elapsed (capped at 4s). Without the wait, YOLO captured a frame mid-motion — YOLO still returned a detection, but the tracker couldn't lock because the next (settled) frame looked materially different. The wait makes the init frame and the first tracker.update frame both reflect the same stable pose.
+
 ### Why there is no periodic YOLO re-detect
 
 Earlier versions called YOLOWorld every 5 seconds during active tracking to correct drift. This was removed because the YOLO round-trip is 1-2 seconds, during which:

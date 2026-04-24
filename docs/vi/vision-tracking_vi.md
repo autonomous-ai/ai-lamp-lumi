@@ -30,6 +30,10 @@ Các phiên bản trước chạy loop 20 FPS, gửi nudge mỗi 50ms. Hai vấn
 
 Thiết kế hiện tại: đọc 1 frame, quyết định 1 nudge, gửi lệnh, rồi đợi servo hoàn thành chuyển động vật lý (~80ms) trước khi đọc frame kế tiếp. Mỗi frame đều sắc nét và tọa độ match với pose. Ít lệnh hơn, bước lớn có chủ đích, không hunting.
 
+### Start-up đợi animation idle
+
+Nếu caller fire `/servo/aim` ngay trước `/servo/track` (ví dụ agent xử lý "look at the desk and follow the cup"), tracking `.start()` sẽ block cho đến khi recording đang chạy hoàn tất + short settle pad (tối đa 4s). Không có wait này thì YOLO chụp frame giữa lúc servo đang di chuyển — YOLO vẫn ra detection nhưng tracker không lock được vì frame kế tiếp (servo đã dừng) trông khác hẳn. Wait giúp frame init và frame đầu của tracker.update đều reflect cùng 1 pose ổn định.
+
 ### Tại sao không có periodic YOLO re-detect
 
 Các phiên bản trước gọi YOLOWorld mỗi 5 giây khi đang tracking để sửa drift. Đã bỏ vì YOLO round-trip mất 1-2 giây, trong đó:
