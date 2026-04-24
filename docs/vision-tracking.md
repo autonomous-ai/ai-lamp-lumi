@@ -18,7 +18,7 @@ User: "Lumi, follow the cup"
          |
     4. Object moves → servo follows (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 for 5 frames → auto-stop + dispatch idle to recover pose
+    5. Confidence < 0.3 for 5 frames → auto-stop + hold servo at current pose
 ```
 
 ### Why move-then-freeze (not high-FPS chasing)
@@ -29,10 +29,6 @@ Earlier iterations ran the loop at 20 FPS, commanding servo nudges every 50ms. T
 2. **Command stacking.** Small nudges (~0.5°) every 50ms stacked up faster than the motor could reach targets, producing visible hunting and twitching.
 
 The current design reads a frame, decides one nudge, sends it, then explicitly waits for the servo to physically complete the move (~80ms) before reading the next frame. Each frame is sharp and coordinates match the current pose. Fewer commands, bigger deliberate steps, no hunting.
-
-### Start-up waits for animation idle
-
-If the caller fires `/servo/aim` just before `/servo/track` (e.g. the agent handling "look at the desk and follow the cup"), tracking `.start()` blocks until the in-progress recording has completed and a short settle pad has elapsed (capped at 4s). Without the wait, YOLO captured a frame mid-motion — YOLO still returned a detection, but the tracker couldn't lock because the next (settled) frame looked materially different. The wait makes the init frame and the first tracker.update frame both reflect the same stable pose.
 
 ### Why there is no periodic YOLO re-detect
 
@@ -88,7 +84,7 @@ Pitch is driven by base_pitch only, symmetric with how yaw uses base_yaw. Earlie
 - `send_action()` — direct servo write, non-blocking (servo P-gain handles smoothing)
 - Bus position re-read each cycle — internal pose state is re-synced from the hardware bus at the start of every loop iteration, so if anything external (scene change, stale animation, manual command) did move the servo, the tracker picks up the real pose instead of compounding stale deltas.
 
-**On stop:** dispatches the idle recording to recover the lamp to a safe pose. An earlier iteration held the last tracked position (to avoid the snap-back looking jerky), but that meant the lamp could be left torqued against an awkward pose near a servo limit — the motor felt physically stuck. Resuming idle is the safer default; the idle recording's interpolation smooths the transition.
+**On stop:** holds servo at the last tracked position. The lamp does *not* snap back to idle pose — that was removed because it caused a visible jerk right after tracking ended. Idle animation resumes on the next user interaction.
 
 ### Pixel-to-Degree Conversion
 
@@ -101,7 +97,7 @@ dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
 yaw_deg   = dx * 0.022   (clamped to ±6.0°, zero if |dx| < 18)
-pitch_deg = dy * 0.022   (same-sign as dy; see "Pitch sign" below)
+pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 ```
 
 ### Tuning Constants
@@ -121,16 +117,6 @@ pitch_deg = dy * 0.022   (same-sign as dy; see "Pitch sign" below)
 | `CLOSE_OBJECT_GAIN` | 0.5 | Gain multiplier when object is close |
 | `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox smaller than this (too few pixels to track) |
 | `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox larger than this (loose, likely merged) |
-| `DETECT_MIN_CONFIDENCE` | 0.30 | Reject YOLO detections below this confidence |
-| `TRACK_BASE_PITCH_MIN/MAX` | -75 / +15 | Tracker-allowed pitch range (narrower than hardware -90/+30) — auto-stops before hitting a physical stop |
-| `animation_wait_budget_s` | 7 | Max wait in `start()` for a preceding /servo/aim animation to finish |
-| Bbox bloat stop ratio | 2× initial | Auto-stop when tracker bbox grows to this multiple of init area |
-
-### Pitch sign
-
-`base_pitch` is the joint at the *base* of the arm. Increasing it leans the whole arm forward and the head drops; decreasing it leans backward and the head rises. (The AIM_UP preset is +10 only because the dominant "look up" effect comes from `wrist_pitch=+25`, not from base_pitch itself.)
-
-To bring a cup sitting at the *top* of the frame (dy < 0) toward the centre, the head needs to rise — so `base_pitch` must *decrease*. That is exactly what `pitch_deg = dy * k` does: dy < 0 → pitch_deg < 0 → new_base_pitch smaller. An earlier iteration negated dy based on the naive reading of the AIM preset table and it drove the head *down* whenever the cup was above centre ("cúi quá sâu"). The current same-sign-as-dy formula is correct.
 
 ### Servo Position Limits
 
@@ -143,7 +129,7 @@ To bring a cup sitting at the *top* of the frame (dy < 0) toward the centre, the
 
 ## Auto-Stop Conditions
 
-TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and dispatches the idle recording to recover in these cases:
+TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and holds the servo at its last position in these cases:
 
 | Condition | Action |
 |-----------|--------|
@@ -232,7 +218,7 @@ Note: there is no automatic periodic YOLO re-detect — the caller decides when 
    d. Starts the move-then-freeze tracking loop
 4. Servo follows the cup in real-time (confidence ~0.5-0.7)
 5. User: "OK stop" → agent calls POST /servo/track/stop
-6. Servo dispatches idle to recover to a safe pose
+6. Servo holds at current position (no snap-back to idle)
 ```
 
 ### Auto-stop on lost
@@ -241,7 +227,7 @@ Note: there is no automatic periodic YOLO re-detect — the caller decides when 
 1. Object leaves frame or is occluded
 2. TrackerVit confidence drops below 0.3
 3. After 5 consecutive low-confidence frames → auto-stop
-4. Servo dispatches idle to recover to a safe pose
+4. Servo holds at last known position (no snap-back)
 5. Agent can notify user or auto re-detect
 ```
 
