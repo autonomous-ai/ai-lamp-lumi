@@ -2,19 +2,23 @@ import base64
 import json
 import logging
 import os
+import threading
 import time
+from copy import copy
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, override
+from typing import Any, override
 
 import cv2
-import numpy as np
-import numpy.typing as npt
 import requests
 from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import ClientConnection, connect
 
 import lelamp.config as config
+from service.sensing.perceptions.typing import SendEventCallable
+from service.sensing.perceptions.utils import PerceptionStateObservers
+from service.sensing.presence_service import PresenceState, PresenseService
 
 from .base import Perception
 
@@ -81,6 +85,17 @@ class MoveEnum(Enum):
     NONE = "none"
 
 
+@dataclass
+class MotionDetection:
+    class_name: str
+    conf: float
+
+
+@dataclass
+class ActionResponse:
+    detected_classes: list[MotionDetection]
+
+
 class RemoteMotionChecker:
     """Video action recognition-based motion detector."""
 
@@ -125,12 +140,12 @@ class RemoteMotionChecker:
                 )
             )
             # Consume the config_updated response so it doesn't pollute frame responses
-            self._ws_session.recv()
+            _ = self._ws_session.recv()
         except Exception:
             logger.exception("Failed to connect to remote motion recognition backend")
             self._ws_session = None
 
-    def _img2b64(self, frame: npt.NDArray[np.uint8]):
+    def _img2b64(self, frame: cv2.typing.MatLike):
         _, buf = cv2.imencode(".jpg", frame)
         return base64.b64encode(buf.tobytes()).decode()
 
@@ -155,7 +170,7 @@ class RemoteMotionChecker:
             logger.warning("[motion] heartbeat failed — connection lost")
             self._ws_session = None
 
-    def update(self, frame: npt.NDArray[np.uint8]) -> list[dict] | None:
+    def update(self, frame: cv2.typing.MatLike) -> list[MotionDetection] | None:
         """Send a frame for action recognition inference.
 
         Returns list of dicts with keys: class_name, conf.
@@ -190,7 +205,10 @@ class RemoteMotionChecker:
                     key=lambda x: x["conf"],
                     reverse=True,
                 )
-                return detected_classes
+                return [
+                    MotionDetection(class_name=dc["class_name"], conf=dc["conf"])
+                    for dc in detected_classes
+                ]
             except ConnectionClosed:
                 logger.warning(
                     "[%s] connection lost, will retry on next tick",
@@ -200,12 +218,15 @@ class RemoteMotionChecker:
 
         return None
 
+    def ready(self):
+        return self._ws_session is not None
+
     @property
     def last_action(self) -> str | None:
         return self._last_action
 
 
-class MotionPerception(Perception):
+class MotionPerception(Perception[cv2.typing.MatLike]):
     """Detects motion via remote DL backend action recognition.
 
     Snapshots are buffered and flushed every MOTION_FLUSH_S seconds,
@@ -214,22 +235,19 @@ class MotionPerception(Perception):
 
     def __init__(
         self,
-        send_event: Callable,
-        on_motion: Callable,
-        capture_stable_frame: Callable,
-        presence_service,
-        face_recognizer=None,
+        perception_state: PerceptionStateObservers,
+        send_event: SendEventCallable,
+        presense_service: PresenseService | None = None,
         base_url: str = config.DL_MOTION_BACKEND_URL,
         api_key: str = config.DL_API_KEY,
     ):
-        super().__init__(send_event)
-        self._on_motion = on_motion
-        self._capture_stable_frame = capture_stable_frame
-        self._presence = presence_service
-        self._face_recognizer = face_recognizer
-        self._last_motion_time: Optional[float] = None
+        super().__init__(perception_state, send_event)
+        self._presense_service: PresenseService | None = presense_service
+        self._last_motion_time: float | None = None
+
         whitelist = self._load_whitelist()
-        self._checker = RemoteMotionChecker(
+
+        self._checker: RemoteMotionChecker = RemoteMotionChecker(
             base_url=base_url,
             api_key=api_key,
             whitelist=whitelist,
@@ -238,10 +256,10 @@ class MotionPerception(Perception):
 
         # Snapshot buffer — flushed every MOTION_FLUSH_S
         self._flush_interval: float = config.MOTION_FLUSH_S
-        self._snapshot_buffer: list[npt.NDArray[np.uint8]] = []
-        self._actions_buffer: list[str] = []
-        self._snapshot_paths: list[str] = []
         self._last_flush_ts: float = 0.0
+        self._snapshot_paths: list[str] = []
+        self._snapshots_buffer: list[cv2.typing.MatLike] = []
+        self._actions_buffer: list[str] = []
 
         # Dedup state for outbound motion.activity events.
         # Key = (current_user, frozenset(labels)) where `labels` matches what
@@ -257,6 +275,8 @@ class MotionPerception(Perception):
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
 
+        self._state_lock: threading.RLock = threading.RLock()
+
     @staticmethod
     def _load_whitelist() -> list[str] | None:
         whitelist_path = RESOURCES_DIR / "white_list.txt"
@@ -269,7 +289,8 @@ class MotionPerception(Perception):
         return whitelist
 
     @override
-    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, data: cv2.typing.MatLike) -> None:
+        frame = data
         if frame is None:
             return
 
@@ -279,31 +300,31 @@ class MotionPerception(Perception):
             logger.exception("[motion] inference error")
             return
 
-        if detections:
-            self._last_motion_time = time.time()
-            self._on_motion()
+        with self._state_lock:
+            if detections:
+                self._last_motion_time = time.time()
+                if self._presense_service is not None:
+                    self._presense_service.on_motion()
 
-            stable = self._capture_stable_frame()
-            image = stable if stable is not None else frame
-            self._snapshot_buffer.append(image)
-            self._actions_buffer.extend(d["class_name"] for d in detections)
+                self._snapshots_buffer.append(frame)
+                self._actions_buffer.extend([d.class_name for d in detections])
 
-            # Save annotated snapshot
-            snapshot_path = self._save_annotated(image, detections)
-            if snapshot_path:
-                self._snapshot_paths.append(snapshot_path)
+                # Save annotated snapshot
+                snapshot_path = self._save_annotated(frame, detections)
+                if snapshot_path:
+                    self._snapshot_paths.append(snapshot_path)
 
-        self._flush_buffer()
+            self._flush_buffer()
 
     def _draw_annotations(
-        self, frame: npt.NDArray[np.uint8], detections: list[dict]
-    ) -> npt.NDArray[np.uint8]:
+        self, frame: cv2.typing.MatLike, detections: list[MotionDetection]
+    ) -> cv2.typing.MatLike:
         """Draw detected action labels on a copy of the frame."""
         vis = frame.copy()
         y_offset = 30
         for det in detections:
-            label = f"{det['class_name']} ({det['conf']:.2f})"
-            cv2.putText(
+            label = f"{det.class_name} ({det.conf:.2f})"
+            _ = cv2.putText(
                 vis,
                 label,
                 (10, y_offset),
@@ -316,8 +337,8 @@ class MotionPerception(Perception):
         return vis
 
     def _save_annotated(
-        self, frame: npt.NDArray[np.uint8], detections: list[dict]
-    ) -> Optional[str]:
+        self, frame: cv2.typing.MatLike, detections: list[MotionDetection]
+    ) -> str | None:
         """Draw annotations and save to snapshot dir. Rotates old files."""
         try:
             os.makedirs(config.MOTION_SNAPSHOT_DIR, exist_ok=True)
@@ -327,7 +348,7 @@ class MotionPerception(Perception):
             filepath = os.path.join(config.MOTION_SNAPSHOT_DIR, filename)
             _, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
             with open(filepath, "wb") as f:
-                f.write(buf.tobytes())
+                _ = f.write(buf.tobytes())
 
             # Rotate: remove oldest files if over max count
             files = sorted(
@@ -350,19 +371,20 @@ class MotionPerception(Perception):
             return None
 
     def _flush_buffer(self) -> None:
-        if not self._snapshot_buffer:
-            return
+        with self._state_lock:
+            if not self._snapshots_buffer:
+                return
 
-        cur_ts = time.time()
-        if (cur_ts - self._last_flush_ts) < self._flush_interval:
-            return
+            cur_ts = time.time()
+            if (cur_ts - self._last_flush_ts) < self._flush_interval:
+                return
 
-        actions = list(self._actions_buffer)
-        snapshot_paths = list(self._snapshot_paths)
-        self._snapshot_buffer.clear()
-        self._actions_buffer.clear()
-        self._snapshot_paths.clear()
-        self._last_flush_ts = cur_ts
+            actions = copy(self._actions_buffer)
+            snapshots_buffer = copy(self._snapshots_buffer)
+            self._snapshots_buffer.clear()
+            self._snapshot_paths.clear()
+            self._actions_buffer.clear()
+            self._last_flush_ts = cur_ts
 
         # Log raw detections in this flush window — useful for tuning
         # the whitelist / ACTIVITY_GROUP mapping and for diagnosing why a
@@ -398,12 +420,13 @@ class MotionPerception(Perception):
         if not labels:
             return
 
-        from ..presence_service import PresenceState
-
-        if self._presence.state != PresenceState.PRESENT:
+        if (
+            self._presense_service is not None
+            and self._presense_service.state != PresenceState.PRESENT
+        ):
             logger.info(
                 "[motion] skipping event — no presence (presence=%s)",
-                self._presence.state,
+                self._presense_service.state,
             )
             return
 
@@ -414,16 +437,9 @@ class MotionPerception(Perception):
         # A user change or a label-set change flips the key — those always
         # pass through. After 5 min the same key passes through anyway so
         # Lumi agent wakes up and reruns the threshold check.
-        current_user = ""
-        if self._face_recognizer is not None:
-            try:
-                current_user = self._face_recognizer.current_user() or ""
-            except Exception:
-                logger.exception("[motion] face_recognizer.current_user() failed")
-        key = (
-            current_user,
-            frozenset(labels),
-        )
+        current_user = self._perception_state.current_user.data or ""
+
+        key = (current_user, frozenset(labels))
         if (
             self._last_sent_key == key
             and (cur_ts - self._last_sent_ts) < self._dedup_window_s
@@ -446,12 +462,10 @@ class MotionPerception(Perception):
         self._post_wellbeing_labels(current_user, labels)
 
         # Attach latest snapshot path
-        if snapshot_paths:
-            message = f"{message}\n[snapshot: {snapshot_paths[-1]}]"
 
         logger.info("[motion] flushing: %s", message)
 
-        self._send_event("motion.activity", message)
+        self._send_event("motion.activity", message, [snapshots_buffer[-1]], None)
 
     def _post_wellbeing_labels(self, user: str, labels: set[str]) -> None:
         """POST each activity label to Lumi wellbeing log.
@@ -506,7 +520,7 @@ class MotionPerception(Perception):
         self._last_sent_key = None
         self._last_sent_ts = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         seconds_since = (
             int(time.time() - self._last_motion_time)
             if self._last_motion_time is not None
@@ -515,10 +529,10 @@ class MotionPerception(Perception):
         last_key = self._last_sent_key
         return {
             "type": "motion",
-            "connected": self._checker._ws_session is not None,
+            "connected": self._checker.ready(),
             "last_raw_actions": sorted(last_key[1]) if last_key else [],
             "last_user": last_key[0] if last_key else None,
-            "buffered_snapshots": len(self._snapshot_buffer),
+            "buffered_snapshots": len(self._snapshots_buffer),
             "motion_detected": self._last_motion_time is not None,
             "seconds_since_motion": seconds_since,
         }

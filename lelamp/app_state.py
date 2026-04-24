@@ -10,12 +10,11 @@ import csv
 import logging
 import os
 import threading
-from pathlib import Path
 from typing import Optional
 
 from lelamp.presets import (
-    EMOTION_PRESETS,
     EMO_IDLE,
+    EMOTION_PRESETS,
     FX_SPEAKING_WAVE,
     LST_EFFECT,
     LST_OFF,
@@ -23,7 +22,6 @@ from lelamp.presets import (
     LST_SOLID,
     RGB_CMD_SOLID,
     SCENE_PRESETS,
-    VALID_LED_EFFECTS,
 )
 from lelamp.service.rgb.effects import run_effect as _run_effect
 
@@ -172,7 +170,10 @@ def _restore_user_led():
 
     state = _user_led_state
     if state is None or state.get("type") == LST_OFF:
-        logger.info("LED restore: no active user state (state=%s) -- keeping emotion color", state)
+        logger.info(
+            "LED restore: no active user state (state=%s) -- keeping emotion color",
+            state,
+        )
         return
 
     stype = state.get("type")
@@ -198,10 +199,12 @@ def _restore_user_led():
                 name=f"led-restore-{effect}",
             )
             _effect_thread.start()
-            logger.info("LED restore: effect=%s color=%s speed=%s", effect, color, speed)
+            logger.info(
+                "LED restore: effect=%s color=%s speed=%s", effect, color, speed
+            )
         elif stype == LST_SCENE:
-            from lelamp.routes.servo import aim_servo
             from lelamp.models import ServoAimRequest
+            from lelamp.routes.servo import aim_servo
 
             preset = SCENE_PRESETS.get(state["scene"])
             if preset:
@@ -209,7 +212,12 @@ def _restore_user_led():
                 scaled = tuple(int(c * preset["brightness"]) for c in preset["color"])
                 rgb_service.dispatch(RGB_CMD_SOLID, scaled)
                 aim_dir = preset.get("aim")
-                logger.info("LED restore: scene=%s color=%s aim=%s", state["scene"], scaled, aim_dir)
+                logger.info(
+                    "LED restore: scene=%s color=%s aim=%s",
+                    state["scene"],
+                    scaled,
+                    aim_dir,
+                )
                 if aim_dir and animation_service:
                     threading.Thread(
                         target=aim_servo,
@@ -218,7 +226,9 @@ def _restore_user_led():
                         name=f"restore-aim-{aim_dir}",
                     ).start()
             else:
-                logger.warning("LED restore: scene=%s not found in SCENE_PRESETS", state["scene"])
+                logger.warning(
+                    "LED restore: scene=%s not found in SCENE_PRESETS", state["scene"]
+                )
     except Exception as e:
         logger.warning("LED restore failed: %s", e)
 
@@ -345,7 +355,9 @@ def _auto_camera_off(reason: str) -> bool:
     """Auto-disable camera. Respects manual override."""
     global _camera_disabled
     if _camera_manual_override:
-        logger.debug("Auto camera off skipped -- manual override active (reason: %s)", reason)
+        logger.debug(
+            "Auto camera off skipped -- manual override active (reason: %s)", reason
+        )
         return False
     if not camera_capture or _camera_disabled:
         return False
@@ -359,7 +371,9 @@ def _auto_camera_on(reason: str) -> bool:
     """Auto-enable camera. Respects manual override."""
     global _camera_disabled
     if _camera_manual_override:
-        logger.debug("Auto camera on skipped -- manual override active (reason: %s)", reason)
+        logger.debug(
+            "Auto camera on skipped -- manual override active (reason: %s)", reason
+        )
         return False
     if not camera_capture or not _camera_disabled:
         return False
@@ -378,7 +392,13 @@ def _read_agent_name(lumi_cfg: dict) -> str:
                 lower = line.lower()
                 idx = lower.find("**name:**")
                 if idx >= 0:
-                    name = line[idx + len("**name:**"):].strip().split("\u2014")[0].split("-")[0].strip()
+                    name = (
+                        line[idx + len("**name:**") :]
+                        .strip()
+                        .split("\u2014")[0]
+                        .split("-")[0]
+                        .strip()
+                    )
                     if name:
                         return name.lower()
     except Exception:
@@ -407,6 +427,7 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
     try:
         import re
         import subprocess
+
         devices = list(sd.query_devices())
         for keyword in names:
             for i, d in enumerate(devices):
@@ -424,16 +445,22 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
             if not output and any(s in name for s in input_skip):
                 continue
             if output and d["max_output_channels"] > 0:
-                logger.info("Audio fallback: using USB device %d '%s' for output", i, d["name"])
+                logger.info(
+                    "Audio fallback: using USB device %d '%s' for output", i, d["name"]
+                )
                 return i
             if not output and d["max_input_channels"] > 0:
-                logger.info("Audio fallback: using USB device %d '%s' for input", i, d["name"])
+                logger.info(
+                    "Audio fallback: using USB device %d '%s' for input", i, d["name"]
+                )
                 return i
         if not output:
             for i, d in enumerate(devices):
                 name = d["name"].lower()
                 if "usb" in name and d["max_input_channels"] > 0:
-                    logger.info("Audio last-resort: using %d '%s' for input", i, d["name"])
+                    logger.info(
+                        "Audio last-resort: using %d '%s' for input", i, d["name"]
+                    )
                     return i
         alsa_cmd = ["aplay", "-l"] if output else ["arecord", "-l"]
         try:
@@ -453,10 +480,16 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
                         dname = d["name"].lower()
                         if any(w in dname for w in label_words):
                             if output and d["max_output_channels"] > 0:
-                                logger.info("ALSA probe: device %d '%s' for output", i, d["name"])
+                                logger.info(
+                                    "ALSA probe: device %d '%s' for output",
+                                    i,
+                                    d["name"],
+                                )
                                 return i
                             if not output and d["max_input_channels"] > 0:
-                                logger.info("ALSA probe: device %d '%s' for input", i, d["name"])
+                                logger.info(
+                                    "ALSA probe: device %d '%s' for input", i, d["name"]
+                                )
                                 return i
         except Exception:
             pass
@@ -466,10 +499,14 @@ def _find_audio_device(output: bool = True) -> Optional[int]:
             if any(s in dname for s in skip):
                 continue
             if output and d["max_output_channels"] > 0:
-                logger.info("Audio fallback (any): device %d '%s' for output", i, d["name"])
+                logger.info(
+                    "Audio fallback (any): device %d '%s' for output", i, d["name"]
+                )
                 return i
             if not output and d["max_input_channels"] > 0:
-                logger.info("Audio fallback (any): device %d '%s' for input", i, d["name"])
+                logger.info(
+                    "Audio fallback (any): device %d '%s' for input", i, d["name"]
+                )
                 return i
     except Exception:
         pass

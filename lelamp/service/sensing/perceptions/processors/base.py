@@ -1,16 +1,18 @@
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from abc import ABC, abstractmethod
-from typing import Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, TypeVar
 
-import numpy as np
-import numpy.typing as npt
+from service.sensing.perceptions.typing import SendEventCallable
+from service.sensing.perceptions.utils import PerceptionStateObservers
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
 
-class Perception(ABC):
+
+class Perception[T](ABC):
     """Base class for a single camera-frame perception check.
 
     check() is non-blocking: it submits _check_impl() to a shared thread
@@ -21,12 +23,19 @@ class Perception(ABC):
 
     _pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=2)
 
-    def __init__(self, send_event: Callable):
-        self._send_event = send_event
+    def __init__(
+        self,
+        perception_state: PerceptionStateObservers,
+        send_event: SendEventCallable,
+        *args: Any,
+        **kwargs: Any,
+    ):
+        self._perception_state: PerceptionStateObservers = perception_state
+        self._send_event: SendEventCallable = send_event
         self._busy: bool = False
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
 
-    def check(self, frame: npt.NDArray[np.uint8]) -> None:
+    def check(self, data: T) -> None:
         """Non-blocking entry point. Skips if a previous check is still queued or running."""
         with self._lock:
             if self._busy:
@@ -34,14 +43,14 @@ class Perception(ABC):
             self._busy = True
 
         try:
-            Perception._pool.submit(self._run, frame)
+            _ = Perception._pool.submit(self._run, data)
         except RuntimeError:
             with self._lock:
                 self._busy = False
 
-    def _run(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _run(self, data: T) -> None:
         try:
-            self._check_impl(frame)
+            self._check_impl(data)
         except Exception:
             logger.exception("[%s] check error", type(self).__name__)
         finally:
@@ -49,5 +58,5 @@ class Perception(ABC):
                 self._busy = False
 
     @abstractmethod
-    def _check_impl(self, frame: npt.NDArray[np.uint8]) -> None:
+    def _check_impl(self, data: T) -> None:
         """Run detection on a single frame. Called in the shared thread pool."""
