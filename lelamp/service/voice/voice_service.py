@@ -670,7 +670,7 @@ class VoiceService:
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript}"
+            return f"Unknown Speaker: {transcript} (audio is too short for enrollment, ask user introduce themselves longer later)"
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
@@ -932,7 +932,7 @@ class VoiceService:
 
         ``message`` is already the output of ``_identify_and_decorate`` — it
         contains ``"<Name>: <text>"`` for a known speaker or
-        ``"Unknown: <text> (audio save at <path>)"`` for an unenrolled one.
+        ``"Unknown Speaker:<text> (audio save at <path>)"`` for an unenrolled one.
         """
         # Layer 3: transcript self-filter — drop if it's echo of our own TTS
         if self._is_echo(message):
