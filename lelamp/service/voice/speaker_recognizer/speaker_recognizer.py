@@ -647,6 +647,7 @@ class SpeakerRecognizer:
         # EmbeddingAPIUnavailableError for network/5xx (bubble up so the
         # whole enroll aborts cleanly and nothing on disk is touched).
         new_embeddings: list[tuple[bytes, np.ndarray]] = []
+        per_sample_errors: list[tuple[int, str]] = []
         for idx, wb in enumerate(new_wavs):
             try:
                 payload = self._prepare_wav_for_embedding(wb)
@@ -655,15 +656,21 @@ class SpeakerRecognizer:
             except EmbeddingAPIUnavailableError:
                 raise
             except SpeakerRecognizerError as e:
+                per_sample_errors.append((idx, str(e)))
                 logger.warning(
                     "Enroll: rejected new sample #%d — %s (not saved to disk)",
                     idx, e,
                 )
 
         if not new_embeddings:
-            raise SpeakerRecognizerError(
-                "no valid new samples — all provided audio was too short / silent / unreadable"
+            # Surface the actual reason from dlbackend (VAD reject text, etc.)
+            # or from local gates (too short / silent) — no hardcoded summary.
+            if len(per_sample_errors) == 1:
+                raise SpeakerRecognizerError(per_sample_errors[0][1])
+            details = "; ".join(
+                f"sample #{i}: {msg}" for i, msg in per_sample_errors
             )
+            raise SpeakerRecognizerError(f"no valid new samples — {details}")
 
         # Step 3 — Load EXISTING samples on disk + compute their embeddings.
         # Two failure modes, handled separately:

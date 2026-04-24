@@ -28,11 +28,96 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Rejection reporting
+# ---------------------------------------------------------------------------
+
+# Taxonomy of gate-rejection reasons. Clients can switch on these values
+# without parsing free-form messages.
+REJECT_EMPTY_INPUT = "empty_input"
+REJECT_VAD_REMOVED_ALL = "vad_removed_all"
+REJECT_TOO_SHORT = "too_short"
+REJECT_LOW_VOICE_RATIO = "low_voice_ratio"
+
+
+class PreprocessRejected(ValueError):
+    """Raised when the speech gate rejects an audio clip.
+
+    Carries structured measurements so the HTTP layer can surface exact
+    numbers (duration before/after VAD strip, voice ratio, applied
+    thresholds) back to the client instead of a free-form error string.
+
+    Attributes:
+        reason: One of ``REJECT_*`` taxonomy constants.
+        input_duration_sec: Length of the waveform entering the preprocess
+            pipeline.
+        stripped_duration_sec: Length after strip-VAD (0 when VAD removed
+            everything or ran before we measured).
+        voice_ratio: Fraction of speech samples over ``stripped`` length.
+        min_duration_sec: Threshold that was applied.
+        min_voice_ratio: Threshold that was applied.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        input_duration_sec: float = 0.0,
+        stripped_duration_sec: float = 0.0,
+        voice_ratio: float = 0.0,
+        min_duration_sec: float = 0.0,
+        min_voice_ratio: float = 0.0,
+    ) -> None:
+        self.reason = reason
+        self.input_duration_sec = float(input_duration_sec)
+        self.stripped_duration_sec = float(stripped_duration_sec)
+        self.voice_ratio = float(voice_ratio)
+        self.min_duration_sec = float(min_duration_sec)
+        self.min_voice_ratio = float(min_voice_ratio)
+        super().__init__(self._format_message())
+
+    def _format_message(self) -> str:
+        if self.reason == REJECT_EMPTY_INPUT:
+            return "Empty audio input (0 samples)."
+        if self.reason == REJECT_VAD_REMOVED_ALL:
+            return (
+                "VAD detected no speech "
+                f"(input_duration={self.input_duration_sec:.2f}s)."
+            )
+        if self.reason == REJECT_TOO_SHORT:
+            return (
+                f"Stripped audio is {self.stripped_duration_sec:.2f}s, "
+                f"below minimum {self.min_duration_sec:.2f}s "
+                f"(input_duration={self.input_duration_sec:.2f}s, "
+                f"voice_ratio={self.voice_ratio:.2f})."
+            )
+        if self.reason == REJECT_LOW_VOICE_RATIO:
+            return (
+                f"voice_ratio={self.voice_ratio:.2f} below minimum "
+                f"{self.min_voice_ratio:.2f} "
+                f"(stripped_duration={self.stripped_duration_sec:.2f}s, "
+                f"input_duration={self.input_duration_sec:.2f}s)."
+            )
+        return f"Preprocess rejected: {self.reason}."
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializable payload for HTTP error responses."""
+        return {
+            "reason": self.reason,
+            "message": self._format_message(),
+            "input_duration_sec": round(self.input_duration_sec, 3),
+            "stripped_duration_sec": round(self.stripped_duration_sec, 3),
+            "voice_ratio": round(self.voice_ratio, 3),
+            "min_duration_sec": round(self.min_duration_sec, 3),
+            "min_voice_ratio": round(self.min_voice_ratio, 3),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -283,15 +368,23 @@ def preprocess_for_embedding(
     * Strip-VAD before RMS so loudness is measured on the speech portion.
     * RMS last so embedding input has a consistent energy scale.
 
-    Returns an **empty** ``float32`` array when the speech gate rejects the
-    clip (VAD removed everything, stripped clip shorter than
-    ``min_duration_sec``, or voice/total ratio below ``min_voice_ratio``).
-    Callers should treat the empty return as "no embedding" and surface that
-    back to the client.
+    Raises:
+        PreprocessRejected: The speech gate rejected the clip. The exception
+            carries structured measurements (``input_duration_sec``,
+            ``stripped_duration_sec``, ``voice_ratio`` and the applied
+            thresholds) so HTTP callers can surface exact numbers.
     """
     out = np.asarray(waveform, dtype=np.float32)
+    sr = max(1, int(sample_rate))
+    input_duration = out.size / float(sr)
+
     if out.size == 0:
-        return out
+        raise PreprocessRejected(
+            REJECT_EMPTY_INPUT,
+            input_duration_sec=0.0,
+            min_duration_sec=float(min_duration_sec),
+            min_voice_ratio=float(min_voice_ratio),
+        )
 
     if use_hpf:
         out = high_pass_filter(out, sample_rate, cutoff_hz=hpf_cutoff_hz)
@@ -300,25 +393,34 @@ def preprocess_for_embedding(
 
     if use_vad:
         stripped, voice_ratio = strip_nonvoice(out, sample_rate)
+        stripped_duration = stripped.size / float(sr)
         if stripped.size == 0:
-            logger.debug("preprocess gate: VAD removed all audio")
-            return np.zeros(0, dtype=np.float32)
-        duration = stripped.size / max(1, int(sample_rate))
-        if duration < float(min_duration_sec):
-            logger.debug(
-                "preprocess gate: stripped=%.3fs < min=%.3fs",
-                duration,
-                float(min_duration_sec),
+            raise PreprocessRejected(
+                REJECT_VAD_REMOVED_ALL,
+                input_duration_sec=input_duration,
+                stripped_duration_sec=0.0,
+                voice_ratio=0.0,
+                min_duration_sec=float(min_duration_sec),
+                min_voice_ratio=float(min_voice_ratio),
             )
-            return np.zeros(0, dtype=np.float32)
+        if stripped_duration < float(min_duration_sec):
+            raise PreprocessRejected(
+                REJECT_TOO_SHORT,
+                input_duration_sec=input_duration,
+                stripped_duration_sec=stripped_duration,
+                voice_ratio=voice_ratio,
+                min_duration_sec=float(min_duration_sec),
+                min_voice_ratio=float(min_voice_ratio),
+            )
         if voice_ratio < float(min_voice_ratio):
-            logger.debug(
-                "preprocess gate: voice_ratio=%.3f < min=%.3f (dur=%.2fs)",
-                voice_ratio,
-                float(min_voice_ratio),
-                duration,
+            raise PreprocessRejected(
+                REJECT_LOW_VOICE_RATIO,
+                input_duration_sec=input_duration,
+                stripped_duration_sec=stripped_duration,
+                voice_ratio=voice_ratio,
+                min_duration_sec=float(min_duration_sec),
+                min_voice_ratio=float(min_voice_ratio),
             )
-            return np.zeros(0, dtype=np.float32)
         out = stripped
 
     if use_rms:

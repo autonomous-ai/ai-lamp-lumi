@@ -336,17 +336,17 @@ class BaseAudioRecognizer:
     def _preprocess_and_split(self, waveform: np.ndarray) -> List[np.ndarray]:
         """Run preprocess + speech gate, then emit one or a few windows.
 
-        Returns an empty list when the speech gate rejects the clip (too
-        short after strip-VAD or voice/total ratio below threshold).
         Short / mid-length audio yields a single window (matches WeSpeaker
         CLI behavior); longer audio is split into equal contiguous chunks
         in ``[self.min_chunk_sec, self.max_chunk_sec]``.
+
+        Raises:
+            audio_preprocess.PreprocessRejected: Speech gate rejected the
+                clip. Propagated up so the HTTP layer can surface the
+                structured measurements (duration, voice_ratio, ...).
         """
-        arr = np.asarray(waveform, dtype=np.float32)
-        if arr.size == 0:
-            return []
         clean = audio_preprocess.preprocess_for_embedding(
-            arr,
+            np.asarray(waveform, dtype=np.float32),
             self.sample_rate,
             use_hpf=self.use_hpf,
             use_noisereduce=self.use_noisereduce,
@@ -357,8 +357,6 @@ class BaseAudioRecognizer:
             min_duration_sec=self.min_duration_sec,
             min_voice_ratio=self.min_voice_ratio,
         )
-        if clean.size == 0:
-            return []
         return audio_preprocess.split_by_duration(
             clean,
             self.sample_rate,
@@ -369,13 +367,29 @@ class BaseAudioRecognizer:
     def _prepare_waveforms_from_paths(self, wav_paths: List[AudioInput]) -> List[np.ndarray]:
         """Load each wav path, preprocess + gate, emit one-or-few windows.
 
-        Each rejected file contributes zero windows; the caller decides how
-        to treat a fully-empty result (typically: raise or return empty).
+        Multi-file tolerance: a single file that fails the speech gate is
+        logged and skipped so a good file can still enroll. If **every**
+        file is rejected the first rejection is re-raised so the client
+        gets the concrete measurements back.
+
+        Raises:
+            audio_preprocess.PreprocessRejected: Every input path was
+                rejected by the speech gate.
         """
         out: List[np.ndarray] = []
+        first_rejection: audio_preprocess.PreprocessRejected | None = None
         for path in wav_paths:
             waveform = self._load_waveform(path)
-            out.extend(self._preprocess_and_split(waveform))
+            try:
+                out.extend(self._preprocess_and_split(waveform))
+            except audio_preprocess.PreprocessRejected as exc:
+                logger.warning(
+                    "[AudioRecognizer] Skip %s: %s", path, exc
+                )
+                if first_rejection is None:
+                    first_rejection = exc
+        if not out and first_rejection is not None:
+            raise first_rejection
         return out
 
     def _prepare_waveforms_from_chunks(
@@ -386,6 +400,10 @@ class BaseAudioRecognizer:
         Incoming ``chunks`` are often mic frames (20-40 ms each). We join
         them into a single waveform so VAD / noisereduce / RMS see the full
         signal before gating and any length-cap split.
+
+        Raises:
+            audio_preprocess.PreprocessRejected: Empty chunks input or the
+                speech gate rejected the merged waveform.
         """
         pieces: List[np.ndarray] = []
         for chunk in chunks:
@@ -396,7 +414,12 @@ class BaseAudioRecognizer:
                 arr = self._resample(arr, orig_sr=chunk_sample_rate, new_sr=self.sample_rate)
             pieces.append(arr)
         if not pieces:
-            return []
+            raise audio_preprocess.PreprocessRejected(
+                audio_preprocess.REJECT_EMPTY_INPUT,
+                input_duration_sec=0.0,
+                min_duration_sec=self.min_duration_sec,
+                min_voice_ratio=self.min_voice_ratio,
+            )
         waveform = np.concatenate(pieces).astype(np.float32)
         return self._preprocess_and_split(waveform)
 
@@ -441,13 +464,9 @@ class BaseAudioRecognizer:
         if not chunks:
             raise ValueError("chunks is empty.")
 
+        # Speech-gate failures raise PreprocessRejected with concrete
+        # measurements; let the HTTP layer translate it into a 400 body.
         waveforms = self._prepare_waveforms_from_chunks(chunks, chunk_sample_rate)
-        if not waveforms:
-            raise ValueError(
-                "No valid speech found after preprocessing "
-                f"(min_duration={self.min_duration_sec:.2f}s, "
-                f"min_voice_ratio={self.min_voice_ratio:.2f})."
-            )
 
         # Run chunk embeddings in mini-batches, then aggregate into one query embedding.
         query_embeddings = self._extract_embeddings_from_waveforms_batch(waveforms)
@@ -534,13 +553,13 @@ class BaseAudioRecognizer:
         if not paths:
             raise ValueError("wav_paths is empty.")
 
+        # Speech-gate failures raise PreprocessRejected with concrete
+        # measurements; let the HTTP layer translate it into a 400 body.
         embeddings = self._extract_embeddings_from_paths_batch(paths)
         if not embeddings:
-            raise ValueError(
-                "No valid speech found after preprocessing "
-                f"(min_duration={self.min_duration_sec:.2f}s, "
-                f"min_voice_ratio={self.min_voice_ratio:.2f})."
-            )
+            # Defensive: _prepare_waveforms_from_paths should have raised
+            # already; this only fires if an engine returns empty batches.
+            raise RuntimeError("Embedding batch produced no vectors.")
         self.db.set(name, self._aggregate_embeddings(embeddings))
         saved = self.db.get(name)
         if saved is None:
@@ -576,10 +595,18 @@ class BaseAudioRecognizer:
         if len(self.db) == 0:
             return {"name": "", "confidence": 0.0}
 
-        if isinstance(audio, (str, Path)):
-            query_waveforms = self._prepare_waveforms_from_paths([audio])
-        else:
-            query_waveforms = self._prepare_waveforms_from_chunks(audio, chunk_sample_rate)
+        # Recognize keeps the "no speech -> empty result with 200" contract
+        # for backwards compat; we log the rejection reason for debugging
+        # but do not surface it to the client. Clients that want details
+        # should use the /embed endpoint instead.
+        try:
+            if isinstance(audio, (str, Path)):
+                query_waveforms = self._prepare_waveforms_from_paths([audio])
+            else:
+                query_waveforms = self._prepare_waveforms_from_chunks(audio, chunk_sample_rate)
+        except audio_preprocess.PreprocessRejected as exc:
+            logger.info("[AudioRecognizer] recognize gated: %s", exc)
+            return {"name": "", "confidence": 0.0}
 
         if not query_waveforms:
             return {"name": "", "confidence": 0.0}
