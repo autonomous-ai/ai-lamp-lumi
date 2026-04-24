@@ -809,6 +809,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         self._send_event(
             "presence.leave",
             f"Person no longer visible — {kind} ({person_id})",
+            "face",
             None,
             config.FACE_COOLDOWN_S,
         )
@@ -1064,6 +1065,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         self._send_event(
             "presence.enter",
             message,
+            "face",
             frames,
             config.FACE_COOLDOWN_S,
         )

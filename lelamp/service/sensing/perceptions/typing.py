@@ -5,7 +5,7 @@ if TYPE_CHECKING:
 
 
 type SendEventCallable = Callable[
-    [str, str, list[cv2.typing.MatLike] | None, float | None], None
+    [str, str, str, list[cv2.typing.MatLike] | None, float | None], None
 ]
 
 type OnMotionCallable = Callable[[], None]

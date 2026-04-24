@@ -201,7 +201,7 @@ export function FlowSection({
       }
     };
     tick();
-    const t = setInterval(tick, 2000);
+    const t = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
