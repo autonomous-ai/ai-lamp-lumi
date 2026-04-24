@@ -359,6 +359,13 @@ class MusicService:
                     self._on_complete()
                 except Exception as e:
                     logger.warning("on_complete callback failed: %s", e)
+            # User-facing feedback on failure — silent failure is worse, user
+            # can't tell if the agent ignored the command or just failed.
+            if _stopped_by == "error" and self._tts_service and self._tts_service.available:
+                try:
+                    self._tts_service.speak("Sorry, I can't play that right now.")
+                except Exception as e:
+                    logger.warning("failure apology speak failed: %s", e)
 
     def _play_sync(self, query: str, person: str = ""):
         """Search, resolve audio URL, play via ffmpeg directly to ALSA."""
@@ -481,6 +488,13 @@ class MusicService:
                     self._on_complete()
                 except Exception as e:
                     logger.warning("on_complete callback failed: %s", e)
+            # User-facing feedback on failure — silent failure is worse, user
+            # can't tell if the agent ignored the command or just failed.
+            if _stopped_by == "error" and self._tts_service and self._tts_service.available:
+                try:
+                    self._tts_service.speak("Sorry, I can't play that right now.")
+                except Exception as e:
+                    logger.warning("failure apology speak failed: %s", e)
 
     def _resolve_audio_url(self, query: str) -> tuple[Optional[str], Optional[str]]:
         """Use yt-dlp to search YouTube and return (watch_url, title)."""
