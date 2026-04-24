@@ -80,8 +80,18 @@ PITCH_WEIGHT_BASE = 0.55
 PITCH_WEIGHT_ELBOW = 0.30
 PITCH_WEIGHT_WRIST = 0.15
 
-# Re-detect interval (seconds) — periodically call YOLOWorld to correct drift
-REDETECT_INTERVAL_S = 5.0
+# Re-detect interval (seconds) — periodically call YOLOWorld to correct drift.
+# Shorter interval catches drift faster (TrackerVit can bloat 3x in 1-2s on
+# texture-rich cups); freeze during each re-detect is ~650ms so 2s interval
+# leaves ~70% of time actively tracking.
+REDETECT_INTERVAL_S = 2.0
+
+# If YOLO's re-detect bbox center is within this many pixels of the current
+# tracker bbox center, skip the tracker re-init. The tracker already has
+# feature lock; re-initializing needlessly causes a confidence dip and a
+# few frames of wobble. Only re-init when YOLO actually disagrees with the
+# tracker (indicating real drift).
+REDETECT_AGREEMENT_PX = 60
 
 # YOLOWorld detection filters. Without these, noisy low-confidence hits
 # (e.g. 14x18 px bbox conf=0.27) at the frame edge pass through and
@@ -543,18 +553,38 @@ class TrackerService:
                             det_frame = det_frame.copy()
                             det_bbox = self.detect_object(det_frame, state.target_label)
                             if det_bbox is not None and state.running.is_set():
-                                new_tracker = self._create_tracker()
-                                if new_tracker is not None:
-                                    try:
-                                        ok_r = new_tracker.init(det_frame, det_bbox)
-                                    except Exception:
-                                        ok_r = False
-                                    if ok_r is not False:
-                                        state.tracker = new_tracker
-                                        state.bbox = det_bbox
-                                        state.low_confidence_frames = 0
-                                        init_area = det_bbox[2] * det_bbox[3]
-                                        logger.info("Re-detect OK: bbox=%s", det_bbox)
+                                # Compare YOLO bbox with tracker's current
+                                # bbox. If they agree, the tracker is on
+                                # target — don't disturb it; re-initing
+                                # causes a transient conf dip that then
+                                # bloats on the next cup motion.
+                                should_reinit = True
+                                if state.bbox is not None:
+                                    cur_cx = state.bbox[0] + state.bbox[2] / 2
+                                    cur_cy = state.bbox[1] + state.bbox[3] / 2
+                                    det_cx = det_bbox[0] + det_bbox[2] / 2
+                                    det_cy = det_bbox[1] + det_bbox[3] / 2
+                                    delta_px = ((cur_cx - det_cx) ** 2 + (cur_cy - det_cy) ** 2) ** 0.5
+                                    if delta_px < REDETECT_AGREEMENT_PX:
+                                        should_reinit = False
+                                        logger.info(
+                                            "Re-detect agrees with tracker (delta=%.0fpx < %.0fpx), keep tracker",
+                                            delta_px, REDETECT_AGREEMENT_PX,
+                                        )
+
+                                if should_reinit:
+                                    new_tracker = self._create_tracker()
+                                    if new_tracker is not None:
+                                        try:
+                                            ok_r = new_tracker.init(det_frame, det_bbox)
+                                        except Exception:
+                                            ok_r = False
+                                        if ok_r is not False:
+                                            state.tracker = new_tracker
+                                            state.bbox = det_bbox
+                                            state.low_confidence_frames = 0
+                                            init_area = det_bbox[2] * det_bbox[3]
+                                            logger.info("Re-detect OK (drift corrected): bbox=%s", det_bbox)
                     except Exception as e:
                         logger.warning("Re-detect failed: %s", e)
                     finally:
