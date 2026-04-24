@@ -13,13 +13,32 @@ User: "Lumi, follow the cup"
          |
     2. TrackerVit init on bbox
          |
-    3. Tracking loop @ 20 FPS
-         |  grab frame → TrackerVit update → confidence check → pixel offset → servo nudge
+    3. Tracking loop @ 7 FPS (move-then-freeze cadence)
+         |  grab frame (servo stationary) → TrackerVit update → nudge → wait for servo to settle
          |
     4. Object moves → servo follows (yaw + 3 pitch joints)
          |
     5. Confidence < 0.3 for 5 frames → auto-stop + hold servo at current pose
 ```
+
+### Why move-then-freeze (not high-FPS chasing)
+
+Earlier iterations ran the loop at 20 FPS, commanding servo nudges every 50ms. Two problems:
+
+1. **Camera ego-motion blur.** The camera is mounted on the moving lamp head. Commanding the servo faster than it can physically execute means frames are captured mid-motion — blurred or offset from what the tracker "sees". The tracker then computes bbox from a frame that no longer represents the current servo pose, and the nudge overshoots.
+2. **Command stacking.** Small nudges (~0.5°) every 50ms stacked up faster than the motor could reach targets, producing visible hunting and twitching.
+
+The current design reads a frame, decides one nudge, sends it, then explicitly waits for the servo to physically complete the move (~80ms) before reading the next frame. Each frame is sharp and coordinates match the current pose. Fewer commands, bigger deliberate steps, no hunting.
+
+### Why there is no periodic YOLO re-detect
+
+Earlier versions called YOLOWorld every 5 seconds during active tracking to correct drift. This was removed because the YOLO round-trip is 1-2 seconds, during which:
+
+- The servo continues moving — the returned bbox is in coordinates that no longer match the current frame.
+- The object itself may have moved.
+- The scene can change arbitrarily.
+
+Using that bbox to re-init the tracker caused more harm than good. Drift is now handled by the TrackerVit confidence score: if it drops below threshold for 5 frames, tracking stops cleanly and the caller can re-issue the follow command.
 
 ### Detection: YOLOWorld API
 
@@ -71,15 +90,14 @@ Pitch is weighted across 3 joints (55/30/15): base leads, elbow follows, wrist f
 
 ```
 Frame center: (320, 240) for 640x480
-Object center: EMA-smoothed from tracker bbox
+Object center: tracker bbox (no smoothing — the ~143ms move-then-freeze
+                             cadence suppresses tracker jitter naturally)
 
 dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
-gain = 1.3 if max(|dx|,|dy|) > 120 else 1.0   (adaptive: catch up when far)
-
-yaw_deg   = dx * 0.022 * gain
-pitch_deg = dy * 0.022 * gain
+yaw_deg   = dx * 0.022   (clamped to ±6.0°, zero if |dx| < 18)
+pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 ```
 
 ### Tuning Constants
@@ -88,16 +106,12 @@ pitch_deg = dy * 0.022 * gain
 |----------|-------|-------------|
 | `DEG_PER_PX_YAW` | 0.022 | Degrees per pixel horizontal |
 | `DEG_PER_PX_PITCH` | 0.022 | Degrees per pixel vertical |
-| `ADAPTIVE_GAIN_PX` | 120 | Offset threshold to boost gain |
-| `ADAPTIVE_GAIN_MULT` | 1.3 | Gain multiplier when object is far |
-| `EMA_ALPHA` | 0.3 | Smoothing factor on bbox center (higher = more responsive) |
-| `DEAD_ZONE_PX` | 12 | Ignore offsets smaller than this (anti-jitter) |
-| `WAKE_ZONE_PX` | 40 | Once settled, wake only when offset exceeds this |
-| `MAX_NUDGE_DEG` | 4.5 | Max degrees per step |
-| `TRACK_FPS` | 20 | Tracking loop frequency |
+| `DEAD_ZONE_PX` | 18 | Ignore offsets smaller than this (anti-jitter) |
+| `MAX_NUDGE_DEG` | 6.0 | Max degrees per step |
+| `TRACK_FPS` | 7 | Tracking loop frequency (~143ms/cycle) |
+| `SERVO_SETTLE_S` | 0.08 | Sleep after nudge before reading next frame |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Below this = "lost" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Consecutive low-confidence frames before auto-stop |
-| `BBOX_JUMP_PX` | 120 | On jump, fall back to EMA-smoothed center (no nudge drop) |
 | `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Pitch distribution across 3 joints |
 
 ### Servo Position Limits
@@ -120,7 +134,6 @@ TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tra
 | Bbox covers > 50% of frame | Stop — tracker drift |
 | Servo at yaw/pitch limit + object still >30% off center | Stop — object unreachable |
 | Tracking duration > 5 minutes | Stop — timeout to save motor/CPU |
-| Bbox center jumps > 120px in 1 frame | Fall back to EMA-smoothed center (keep nudging) |
 | `tracker.update()` returns `ok=False` | Count as low-confidence frame |
 
 ## API Endpoints
@@ -174,13 +187,13 @@ YOLOWorld is open-vocabulary — any text works, this list is just suggestions.
 
 ### POST /servo/track/update — Re-initialize bbox
 
-Manual re-detect without stopping tracking session.
+Manual re-init of the tracker with a new bbox without stopping the session.
 
 ```json
 {"bbox": [250, 160, 75, 95], "target": "cup"}
 ```
 
-Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint is for manual override only.
+Note: there is no automatic periodic YOLO re-detect — the caller decides when to re-init. See "Why there is no periodic YOLO re-detect" above.
 
 ## End-to-End Flow
 
@@ -190,10 +203,10 @@ Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint i
 1. User: "Lumi, follow the cup"
 2. Agent calls POST /servo/track {"target": "cup"}
 3. LeLamp internally:
-   a. Captures current frame
-   b. Sends to YOLOWorld API → gets bbox (~1-2s)
-   c. Re-grabs fresh frame
-   d. TrackerVit init on bbox → starts tracking
+   a. Snapshots a frame and holds on to it
+   b. Sends that frame to YOLOWorld API → gets bbox (~1-2s)
+   c. TrackerVit init uses the *same* frame + bbox (coordinates match)
+   d. Starts the move-then-freeze tracking loop
 4. Servo follows the cup in real-time (confidence ~0.5-0.7)
 5. User: "OK stop" → agent calls POST /servo/track/stop
 6. Servo holds at current position (no snap-back to idle)
@@ -207,14 +220,6 @@ Note: Automatic re-detect runs every 5 seconds via YOLOWorld — this endpoint i
 3. After 5 consecutive low-confidence frames → auto-stop
 4. Servo holds at last known position (no snap-back)
 5. Agent can notify user or auto re-detect
-```
-
-### Auto re-detect (built-in)
-
-```
-1. Every 5 seconds, tracking loop calls YOLOWorld in background thread
-2. If object found → TrackerVit re-initializes with fresh bbox
-3. Corrects drift without interrupting tracking
 ```
 
 ## Camera Stream Overlay
@@ -251,6 +256,6 @@ Camera section shows:
 ## Next Steps
 
 - **OpenClaw skill** — `track/SKILL.md` so agent can call tracking via voice
-- ~~**Periodic re-detect**~~ — done, auto re-detect every 5s built into tracking loop
+- ~~**Periodic re-detect**~~ — tried, rolled back. 1-2s YOLO round-trip desyncs from servo motion (see "Why there is no periodic YOLO re-detect" above)
 - **PID control** — smoother servo response instead of proportional-only
 - **Multi-object** — track multiple objects, switch between them

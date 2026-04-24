@@ -36,42 +36,38 @@ _YOLO_ENDPOINT = "/detect/yoloworld"
 _YOLO_TIMEOUT = 10.0
 
 # --- Tuning knobs ---
+#
+# Architecture note: this service uses a "move-then-freeze" loop. Each cycle
+# reads a camera frame while the servo is stationary, decides on a nudge,
+# sends it, then waits long enough for the servo to physically complete the
+# motion before the next frame is read. This avoids motion-blurred frames
+# and the camera-ego-motion feedback loop that comes from commanding servo
+# targets faster than the motor can execute them.
 
-# Base degrees per pixel. Frame assumed ~640 wide; object at edge ≈ 320px →
-# ~7° nudge before clamp. Tuned down from 0.03 to reduce overshoot oscillation
-# (observed on Pi: offset ping-ponged ±40-55px when gain was too high).
+# Base degrees per pixel. Frame assumed ~640 wide; object at edge ≈ 320px.
 DEG_PER_PX_YAW = 0.022
 DEG_PER_PX_PITCH = 0.022
 
-# Adaptive gain: when object is far from center, multiply gain by this factor
-# to catch up faster. Below the threshold, stays at 1.0 for smoothness.
-# Reduced from 1.6 to 1.3 — 1.6 was contributing to overshoot (servo moved
-# before camera caught up, then had to reverse).
-ADAPTIVE_GAIN_PX = 120
-ADAPTIVE_GAIN_MULT = 1.3
+# Dead zone in pixels — skip nudge when object is within this range of center.
+# Small value is fine because the move-then-freeze cadence already suppresses
+# micro-jitter without needing a hysteresis wake zone.
+DEAD_ZONE_PX = 18
 
-# Dead zone in pixels — stop nudging when object is within this range
-DEAD_ZONE_PX = 12
+# Maximum nudge per step (degrees). Higher than the 20-FPS value because each
+# cycle is now longer (~150ms) and needs to make bigger, deliberate moves.
+MAX_NUDGE_DEG = 6.0
 
-# Wake zone — when settled, only resume nudging when object moves beyond this.
-# Raised from 22 to 40: TrackerVit bbox naturally jitters ±30-50px between
-# frames, and a too-small wake zone caused a wake/settle/wake cycle every
-# 100ms. 40px is wider than natural jitter, so only real motion wakes it.
-WAKE_ZONE_PX = 40
+# Tracking loop target FPS. Dropped from 20 to 7 so the servo has time to
+# physically finish each command before the next frame is read. At 20 FPS,
+# commands were stacking up faster than the motor could execute them, and
+# the camera was capturing blurred frames mid-motion. ~7 Hz = 143ms/cycle.
+TRACK_FPS = 7
 
-# Maximum nudge per step (degrees) — prevents wild swings while allowing
-# catch-up on fast-moving objects. Tuned for TRACK_FPS=20.
-MAX_NUDGE_DEG = 4.5
-
-# Tracking loop target FPS — higher = smoother. TrackerVit on Pi runs at
-# ~15-25ms/frame so 20 FPS is reachable.
-TRACK_FPS = 20
-
-# EMA smoothing factor for bbox center (0-1). Higher = more responsive but
-# more jitter; lower = smoother but laggier. Dropped from 0.55 to 0.3:
-# previous value let too much tracker noise through, causing servo to chase
-# jitter instead of real motion.
-EMA_ALPHA = 0.3
+# Settling delay (seconds) after sending a nudge, before reading the next
+# frame. Gives the motor time to stop so the tracker reads a sharp frame.
+# Tuned to roughly match a typical servo step duration for moves up to
+# MAX_NUDGE_DEG. Only applied when a nudge was actually sent.
+SERVO_SETTLE_S = 0.08
 
 # Pitch distribution across 3 joints. Primary tilt on base, secondary on
 # elbow, minimal on wrist — reduces mechanical interference and makes the
@@ -80,19 +76,11 @@ PITCH_WEIGHT_BASE = 0.55
 PITCH_WEIGHT_ELBOW = 0.30
 PITCH_WEIGHT_WRIST = 0.15
 
-# Re-detect interval (seconds) — periodically call YOLOWorld to correct drift
-REDETECT_INTERVAL_S = 5.0
-
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
 # How many consecutive low-confidence frames before stopping
 MAX_LOW_CONFIDENCE_FRAMES = 5
-
-# Bbox jump threshold — if center moves more than this many pixels in one
-# frame, treat it as partial glitch: fall back to EMA-smoothed center so we
-# don't drop the frame entirely.
-BBOX_JUMP_PX = 120
 
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU
 MAX_TRACK_DURATION_S = 300  # 5 minutes
@@ -199,11 +187,17 @@ class TrackerService:
 
         self.stop()
 
+        # Snapshot a single frame and keep it throughout detect + tracker init.
+        # The YOLO call takes 1-2s, during which the scene may change. The
+        # returned bbox is in *this* frame's coordinates — re-grabbing a
+        # fresh frame for init would pair bbox with a different image and
+        # start the tracker mis-aligned.
         frame = camera_capture.last_frame
         if frame is None:
             self.last_error = "no frame available from camera"
             logger.error("tracker start: %s", self.last_error)
             return False
+        frame = frame.copy()
 
         # Auto-detect if no bbox provided
         if bbox is None:
@@ -215,10 +209,6 @@ class TrackerService:
             if bbox is None:
                 self.last_error = f"'{target_label}' not found in frame"
                 return False
-            # Re-grab fresh frame right after detection
-            fresh = camera_capture.last_frame
-            if fresh is not None:
-                frame = fresh
 
         tracker = self._create_tracker()
         if tracker is None:
@@ -353,24 +343,23 @@ class TrackerService:
             self._track_elbow_pitch = 0.0
             self._track_wrist_pitch = 0.0
 
-        prev_cx, prev_cy = None, None
-        # EMA-smoothed center — reset on start, seeded with first raw center
-        self._ema_cx = None
-        self._ema_cy = None
         init_area = state.bbox[2] * state.bbox[3] if state.bbox else 0
-        self._settled = False
         frame_count = 0
         track_start_t = time.perf_counter()
-        last_redetect_t = track_start_t
         fps_t0 = track_start_t
+
+        cycle_period = 1.0 / TRACK_FPS
 
         try:
             while state.running.is_set():
                 t0 = time.perf_counter()
 
+                # Read one frame while servo is stationary. Move-then-freeze
+                # cadence guarantees this: the previous iteration finished
+                # with a SERVO_SETTLE_S sleep after the motor command.
                 frame = camera_capture.last_frame
                 if frame is None:
-                    time.sleep(1.0 / TRACK_FPS)
+                    time.sleep(cycle_period)
                     continue
 
                 ok, new_bbox = state.tracker.update(frame)
@@ -387,7 +376,7 @@ class TrackerService:
                         logger.warning("Tracker lost target '%s' (confidence=%.3f), stopping",
                                        state.target_label, confidence)
                         break
-                    time.sleep(1.0 / TRACK_FPS)
+                    time.sleep(cycle_period)
                     continue
 
                 state.low_confidence_frames = 0
@@ -409,30 +398,7 @@ class TrackerService:
                 cx = bx + bw / 2
                 cy = by + bh / 2
 
-                # Bbox jump handling: instead of dropping the frame (which
-                # causes visible stutter), fall back to the EMA-smoothed
-                # center so the servo keeps moving toward the last-known
-                # good position. Real glitches get absorbed; genuine fast
-                # motion still nudges via smoothed trajectory.
-                if prev_cx is not None:
-                    jump = ((cx - prev_cx) ** 2 + (cy - prev_cy) ** 2) ** 0.5
-                    if jump > BBOX_JUMP_PX and self._ema_cx is not None:
-                        logger.debug("Bbox jump %.0fpx, using smoothed center", jump)
-                        cx = self._ema_cx
-                        cy = self._ema_cy
-                prev_cx, prev_cy = cx, cy
-
-                # EMA smoothing on center — reduces tracker jitter before
-                # it reaches the servo, so motion looks continuous rather
-                # than frame-stepped.
-                if self._ema_cx is None:
-                    self._ema_cx = cx
-                    self._ema_cy = cy
-                else:
-                    self._ema_cx = EMA_ALPHA * cx + (1 - EMA_ALPHA) * self._ema_cx
-                    self._ema_cy = EMA_ALPHA * cy + (1 - EMA_ALPHA) * self._ema_cy
-
-                self._nudge_servo(frame, self._ema_cx, self._ema_cy, animation_service)
+                moved = self._nudge_servo(frame, cx, cy, animation_service)
 
                 # Log every ~2 seconds
                 frame_count += 1
@@ -445,39 +411,6 @@ class TrackerService:
                     )
                     frame_count = 0
                     fps_t0 = time.perf_counter()
-
-                # Periodic re-detect to correct tracker drift (non-blocking)
-                now = time.perf_counter()
-                if (state.target_label
-                        and now - last_redetect_t >= REDETECT_INTERVAL_S
-                        and not getattr(self, '_redetecting', False)):
-                    last_redetect_t = now
-                    self._redetecting = True
-                    def _redetect(frm, target):
-                        try:
-                            det_bbox = self.detect_object(frm, target)
-                            if det_bbox is not None and state.running.is_set():
-                                new_tracker = self._create_tracker()
-                                if new_tracker is not None:
-                                    fresh = camera_capture.last_frame
-                                    if fresh is not None:
-                                        frm = fresh
-                                    try:
-                                        ok_r = new_tracker.init(frm, det_bbox)
-                                    except Exception:
-                                        ok_r = False
-                                    if ok_r is not False:
-                                        state.tracker = new_tracker
-                                        state.bbox = det_bbox
-                                        nonlocal init_area
-                                        init_area = det_bbox[2] * det_bbox[3]
-                                        logger.info("Re-detect OK: bbox=%s", det_bbox)
-                        except Exception as e:
-                            logger.warning("Re-detect failed: %s", e)
-                        finally:
-                            self._redetecting = False
-                    threading.Thread(target=_redetect, args=(frame.copy(), state.target_label),
-                                     daemon=True, name="tracker-redetect").start()
 
                 # Max duration check
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
@@ -495,9 +428,16 @@ class TrackerService:
                                        self._track_yaw, self._track_base_pitch, off)
                         break
 
-                # Maintain target FPS
+                # If a nudge was actually sent, wait for the servo to finish
+                # physically moving before reading the next frame. This is
+                # the "freeze" half of the move-then-freeze loop — without
+                # it the next frame is motion-blurred and the tracker lies.
+                if moved:
+                    time.sleep(SERVO_SETTLE_S)
+
+                # Pad the rest of the cycle to hit TRACK_FPS cadence.
                 dt = time.perf_counter() - t0
-                sleep_time = (1.0 / TRACK_FPS) - dt
+                sleep_time = cycle_period - dt
                 if sleep_time > 0:
                     time.sleep(sleep_time)
         finally:
@@ -525,46 +465,20 @@ class TrackerService:
         cx_obj: float,
         cy_obj: float,
         animation_service,
-    ):
-        """Nudge servo toward EMA-smoothed object center."""
+    ) -> bool:
+        """Nudge servo toward object center. Returns True if a command was sent."""
         h, w = frame.shape[:2]
-        cx_frame = w / 2
-        cy_frame = h / 2
+        dx = cx_obj - w / 2
+        dy = cy_obj - h / 2
 
-        dx = cx_obj - cx_frame
-        dy = cy_obj - cy_frame
-
-        # Hysteresis: once settled, only wake when object moves far enough
-        if self._settled:
-            if abs(dx) < WAKE_ZONE_PX and abs(dy) < WAKE_ZONE_PX:
-                return
-            self._settled = False
-            logger.info("Tracking wake: object moved to offset (%.0f, %.0f)", dx, dy)
-
-        if abs(dx) < DEAD_ZONE_PX and abs(dy) < DEAD_ZONE_PX:
-            if not self._settled:
-                self._settled = True
-                logger.info("Tracking settled: object near center (%.0f, %.0f)", dx, dy)
-            return
-
-        # Adaptive gain: boost when object is far so we catch up quickly,
-        # fall back to base gain near center for smoothness.
-        offset_max = max(abs(dx), abs(dy))
-        gain_mult = ADAPTIVE_GAIN_MULT if offset_max > ADAPTIVE_GAIN_PX else 1.0
-
-        yaw_deg = dx * DEG_PER_PX_YAW * gain_mult
-        pitch_deg = dy * DEG_PER_PX_PITCH * gain_mult
+        yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW
+        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
 
-        if abs(dx) < DEAD_ZONE_PX:
-            yaw_deg = 0
-        if abs(dy) < DEAD_ZONE_PX:
-            pitch_deg = 0
-
         if yaw_deg == 0 and pitch_deg == 0:
-            return
+            return False
 
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
@@ -586,8 +500,8 @@ class TrackerService:
             }
 
             logger.debug(
-                "Nudge: px=(%.0f,%.0f) gain=%.1f deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
-                dx, dy, gain_mult, yaw_deg, pitch_deg,
+                "Nudge: px=(%.0f,%.0f) deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
+                dx, dy, yaw_deg, pitch_deg,
                 self._track_yaw, new_yaw,
                 new_base_pitch, new_elbow_pitch, new_wrist_pitch,
             )
@@ -599,5 +513,7 @@ class TrackerService:
             self._track_base_pitch = new_base_pitch
             self._track_elbow_pitch = new_elbow_pitch
             self._track_wrist_pitch = new_wrist_pitch
+            return True
         except Exception as e:
             logger.warning("Tracker nudge failed: %s", e)
+            return False
