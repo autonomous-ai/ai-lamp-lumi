@@ -261,6 +261,24 @@ class TrackerService:
 
         self.stop()
 
+        # Wait for any in-progress animation (typically a preceding
+        # /servo/aim) to finish before grabbing the frame for YOLO.
+        # Without this, the camera captures a frame mid-motion — YOLO is
+        # robust enough to still return *a* detection, but the tracker
+        # can't lock because the next frame looks materially different
+        # once the servo settles. A 50ms extra idle pad covers the motor's
+        # own settle time after the animation loop has released the pose.
+        animation_idle_deadline = time.perf_counter() + 4.0
+        while time.perf_counter() < animation_idle_deadline:
+            busy = bool(getattr(animation_service, "_current_recording", None)) \
+                or getattr(animation_service, "_interpolation_frames", 0) > 0
+            if not busy:
+                break
+            time.sleep(0.05)
+        else:
+            logger.warning("tracker start: animation still busy after 4s, proceeding anyway")
+        time.sleep(0.05)
+
         # Snapshot a single frame and keep it throughout detect + tracker init.
         # The YOLO call takes 1-2s, during which the scene may change. The
         # returned bbox is in *this* frame's coordinates — re-grabbing a
