@@ -18,7 +18,7 @@ User: "Lumi, nhìn theo cái ly đi"
          |
     4. Vật di chuyển → servo bám theo (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 trong 5 frame → tự động dừng + giữ servo tại vị trí
+    5. Confidence < 0.3 trong 5 frame → tự động dừng + dispatch idle để về pose
 ```
 
 ### Tại sao chọn move-then-freeze (thay vì high-FPS chasing)
@@ -88,7 +88,7 @@ Pitch chỉ dùng base_pitch, đối xứng với cách yaw dùng base_yaw. Các
 - `send_action()` — ghi servo trực tiếp, không blocking (servo P-gain tự smooth)
 - Re-sync vị trí bus mỗi cycle — đầu mỗi vòng lặp đọc lại vị trí thật từ bus, nếu có thứ gì ngoài tracker move servo (scene change, stale animation, lệnh tay) thì tracker sẽ lấy pose thật thay vì cộng dồn delta stale.
 
-**Khi dừng:** giữ servo ở vị trí cuối cùng khi tracking. Đèn *không* tự snap về idle pose — đã bỏ vì gây giật ngay sau khi tracking kết thúc. Idle animation sẽ resume ở lần tương tác kế tiếp của user.
+**Khi dừng:** dispatch idle recording để lamp về pose an toàn. Phiên bản trước giữ pose cuối (tránh snap-back giật), nhưng nếu tracker kết thúc khi base_pitch gần limit thì motor bị torque ở pose khó → feel kẹt vật lý. Resume idle an toàn hơn; interpolation của idle recording smooth lại chuyển động.
 
 ### Chuyển đổi Pixel sang Độ
 
@@ -218,7 +218,7 @@ Lưu ý: không có re-detect YOLO định kỳ tự động — caller tự quy
    d. Bắt đầu vòng lặp move-then-freeze
 4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
 5. User: "Thôi đi" → agent gọi POST /servo/track/stop
-6. Servo giữ tại vị trí hiện tại (không snap về idle)
+6. Servo dispatch idle để về pose an toàn
 ```
 
 ### Tự dừng khi mất
@@ -227,7 +227,7 @@ Lưu ý: không có re-detect YOLO định kỳ tự động — caller tự quy
 1. Vật rời khỏi frame hoặc bị che
 2. TrackerVit confidence giảm dưới 0.3
 3. Sau 5 frame confidence thấp liên tiếp → tự dừng
-4. Servo giữ tại vị trí cuối (không snap về idle)
+4. Servo dispatch idle để về pose an toàn
 5. Agent có thể thông báo user hoặc tự re-detect
 ```
 

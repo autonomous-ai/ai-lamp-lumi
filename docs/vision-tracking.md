@@ -18,7 +18,7 @@ User: "Lumi, follow the cup"
          |
     4. Object moves → servo follows (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 for 5 frames → auto-stop + hold servo at current pose
+    5. Confidence < 0.3 for 5 frames → auto-stop + dispatch idle to recover pose
 ```
 
 ### Why move-then-freeze (not high-FPS chasing)
@@ -88,7 +88,7 @@ Pitch is driven by base_pitch only, symmetric with how yaw uses base_yaw. Earlie
 - `send_action()` — direct servo write, non-blocking (servo P-gain handles smoothing)
 - Bus position re-read each cycle — internal pose state is re-synced from the hardware bus at the start of every loop iteration, so if anything external (scene change, stale animation, manual command) did move the servo, the tracker picks up the real pose instead of compounding stale deltas.
 
-**On stop:** holds servo at the last tracked position. The lamp does *not* snap back to idle pose — that was removed because it caused a visible jerk right after tracking ended. Idle animation resumes on the next user interaction.
+**On stop:** dispatches the idle recording to recover the lamp to a safe pose. An earlier iteration held the last tracked position (to avoid the snap-back looking jerky), but that meant the lamp could be left torqued against an awkward pose near a servo limit — the motor felt physically stuck. Resuming idle is the safer default; the idle recording's interpolation smooths the transition.
 
 ### Pixel-to-Degree Conversion
 
@@ -141,7 +141,7 @@ pitch_deg = -dy * 0.022   (negated; see "Pitch sign" below)
 
 ## Auto-Stop Conditions
 
-TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and holds the servo at its last position in these cases:
+TrackerVit provides confidence scoring, unlike MIL/KCF which silently drift. Tracking auto-stops and dispatches the idle recording to recover in these cases:
 
 | Condition | Action |
 |-----------|--------|
@@ -230,7 +230,7 @@ Note: there is no automatic periodic YOLO re-detect — the caller decides when 
    d. Starts the move-then-freeze tracking loop
 4. Servo follows the cup in real-time (confidence ~0.5-0.7)
 5. User: "OK stop" → agent calls POST /servo/track/stop
-6. Servo holds at current position (no snap-back to idle)
+6. Servo dispatches idle to recover to a safe pose
 ```
 
 ### Auto-stop on lost
@@ -239,7 +239,7 @@ Note: there is no automatic periodic YOLO re-detect — the caller decides when 
 1. Object leaves frame or is occluded
 2. TrackerVit confidence drops below 0.3
 3. After 5 consecutive low-confidence frames → auto-stop
-4. Servo holds at last known position (no snap-back)
+4. Servo dispatches idle to recover to a safe pose
 5. Agent can notify user or auto re-detect
 ```
 
