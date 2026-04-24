@@ -67,6 +67,15 @@ MAX_NUDGE_DEG = 4.5
 # ~15-25ms/frame so 20 FPS is reachable.
 TRACK_FPS = 20
 
+# Settle delay (seconds) after a servo nudge before reading the next frame,
+# applied ONLY when _nudge_servo actually dispatched a command (not in dead
+# zone / settled hysteresis). Without this, each frame was captured while
+# the servo was still rotating from the previous nudge — TrackerVit saw the
+# full scene shifting and couldn't distinguish cup motion from camera ego-
+# motion, so the bbox bloated within 1-2s on fast-tracked cycles. 50ms is
+# enough for a ~2-4° servo step to complete on this STS3215 chain.
+SERVO_SETTLE_S = 0.05
+
 # EMA smoothing factor for bbox center (0-1). Higher = more responsive but
 # more jitter; lower = smoother but laggier. Dropped from 0.55 to 0.3:
 # previous value let too much tracker noise through, causing servo to chase
@@ -519,7 +528,12 @@ class TrackerService:
                     self._ema_cx = EMA_ALPHA * cx + (1 - EMA_ALPHA) * self._ema_cx
                     self._ema_cy = EMA_ALPHA * cy + (1 - EMA_ALPHA) * self._ema_cy
 
-                self._nudge_servo(frame, self._ema_cx, self._ema_cy, animation_service)
+                moved = self._nudge_servo(frame, self._ema_cx, self._ema_cy, animation_service)
+                if moved:
+                    # Let the servo finish its step before the next frame
+                    # read so the tracker sees a static scene rather than
+                    # one being rotated by ongoing camera ego-motion.
+                    time.sleep(SERVO_SETTLE_S)
 
                 # Log every ~2 seconds
                 frame_count += 1
@@ -637,8 +651,14 @@ class TrackerService:
         cx_obj: float,
         cy_obj: float,
         animation_service,
-    ):
-        """Nudge servo toward EMA-smoothed object center."""
+    ) -> bool:
+        """Nudge servo toward EMA-smoothed object center.
+
+        Returns True if a servo command was actually dispatched, False if
+        the call was a no-op (settled / dead zone / clipped to zero / send
+        failed). The loop uses this to decide whether to sleep for servo
+        settle time before the next frame read.
+        """
         h, w = frame.shape[:2]
         cx_frame = w / 2
         cy_frame = h / 2
@@ -649,7 +669,7 @@ class TrackerService:
         # Hysteresis: once settled, only wake when object moves far enough
         if self._settled:
             if abs(dx) < WAKE_ZONE_PX and abs(dy) < WAKE_ZONE_PX:
-                return
+                return False
             self._settled = False
             logger.info("Tracking wake: object moved to offset (%.0f, %.0f)", dx, dy)
 
@@ -657,7 +677,7 @@ class TrackerService:
             if not self._settled:
                 self._settled = True
                 logger.info("Tracking settled: object near center (%.0f, %.0f)", dx, dy)
-            return
+            return False
 
         # Adaptive gain: boost when object is far so we catch up quickly,
         # fall back to base gain near center for smoothness.
@@ -676,7 +696,7 @@ class TrackerService:
             pitch_deg = 0
 
         if yaw_deg == 0 and pitch_deg == 0:
-            return
+            return False
 
         try:
             new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
@@ -711,5 +731,7 @@ class TrackerService:
             self._track_base_pitch = new_base_pitch
             self._track_elbow_pitch = new_elbow_pitch
             self._track_wrist_pitch = new_wrist_pitch
+            return True
         except Exception as e:
             logger.warning("Tracker nudge failed: %s", e)
+            return False
