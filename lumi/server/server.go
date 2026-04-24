@@ -262,7 +262,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	sensing := api.Group("sensing")
 	sensing.POST("event", s.sensingHandler.PostEvent)
-	sensing.GET("snapshot/:name", s.sensingHandler.GetSnapshot)
+	sensing.GET("snapshot/:category/:name", s.sensingHandler.GetSnapshot)
 
 	guard := api.Group("guard")
 	guard.POST("enable", s.sensingHandler.EnableGuard)
