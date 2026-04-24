@@ -144,7 +144,7 @@ export function FaceOwnersSection() {
     await refresh();
   }, 10_000, { timeoutMs: 8000 });
 
-  usePolling(async (signal) => {
+  const refreshFaceState = useCallback(async (signal?: AbortSignal) => {
     const [cdRes, cuRes] = await Promise.allSettled([
       fetch(`${HW}/face/cooldowns`, { signal }),
       fetch(`${HW}/face/current-user`, { signal }),
@@ -159,7 +159,9 @@ export function FaceOwnersSection() {
       const j = await cuRes.value.json();
       setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
     }
-  }, 5000);
+  }, []);
+
+  usePolling(async (signal) => { await refreshFaceState(signal); }, 5000);
 
   const handleResetCooldowns = async () => {
     setResetting(true);

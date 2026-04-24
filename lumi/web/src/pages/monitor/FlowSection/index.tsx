@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { S } from "../styles";
 import { API, FLOW_EVENTS_MAX, HW } from "../types";
 import type { DisplayEvent } from "../types";
