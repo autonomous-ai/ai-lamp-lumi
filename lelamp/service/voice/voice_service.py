@@ -648,7 +648,7 @@ class VoiceService:
 
         def _should_request_enroll(
             transcript: str, duration_s: float = 0.0,
-            min_words: int = 15, min_duration_s: float = 2.0,
+            min_words: int = 10, min_duration_s: float = 2.0,
         ) -> bool:
             """Decide whether to append enroll instructions to the message.
 
@@ -670,7 +670,7 @@ class VoiceService:
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript} (audio is too short for enrollment, ask user introduce themselves longer later)"
+            return f"Unknown Speaker: {transcript} (audio save at {audio_path}. Note: audio is too short for single enrollment, ask user introduce themselves longer later and combine both recordings for enrollment)"
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
