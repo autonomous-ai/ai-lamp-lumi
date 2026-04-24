@@ -957,6 +957,7 @@ class SpeakerRecognizer:
             # stable cluster hash so repeat speakers can be tracked before
             # anyone is enrolled.
             vp_hash = self._assign_voiceprint_hash(query_chunks)
+            saved_path = self._move_to_cluster(saved_path, vp_hash)
             return {
                 "name": "unknown",
                 "confidence": 0.0,
@@ -1002,6 +1003,10 @@ class SpeakerRecognizer:
         # Only assign a stranger cluster hash for unknowns — known speakers
         # already have a stable identity (their name).
         vp_hash = None if is_match else (self._assign_voiceprint_hash(query_chunks) or None)
+        # Move WAV into per-cluster sub-dir so later inspection can group
+        # samples by cluster. Known-speaker WAVs stay in the flat dir.
+        if vp_hash:
+            saved_path = self._move_to_cluster(saved_path, vp_hash)
         result: dict[str, Any] = {
             "name": resolved_name,
             "confidence": round(best_conf, 4),
@@ -1204,6 +1209,31 @@ class SpeakerRecognizer:
             logger.warning("failed to save incoming audio: %s", e)
             return ""
         return str(fpath)
+
+    def _move_to_cluster(self, saved_path: str, vp_hash: Optional[str]) -> str:
+        """Move a saved WAV into a per-cluster sub-dir, return the new path.
+
+        Called right after voiceprint_hash is assigned so later tools (web UI,
+        diagnostic scripts) can list all audio for a given cluster via a
+        single directory listing. No-op when hash is empty or file missing —
+        known-speaker WAVs stay in the flat _UNKNOWN_AUDIO_DIR.
+        """
+        if not vp_hash or not saved_path:
+            return saved_path
+        src = Path(saved_path)
+        if not src.exists():
+            return saved_path
+        try:
+            cluster_dir = src.parent / vp_hash
+            cluster_dir.mkdir(parents=True, exist_ok=True)
+            dst = cluster_dir / src.name
+            src.rename(dst)
+            return str(dst)
+        except OSError as e:
+            logger.warning(
+                "move %s to cluster %s failed: %s", saved_path, vp_hash, e,
+            )
+            return saved_path
 
     # ------------------------------------------------- voice stranger clustering
 
