@@ -35,6 +35,9 @@ _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 _YOLO_ENDPOINT = "/detect/yoloworld"
 _YOLO_TIMEOUT = 10.0
 
+# "owlv2"
+# "yoloe"
+
 # --- Tuning knobs ---
 
 # Base degrees per pixel. Frame assumed ~640 wide; object at edge ≈ 320px →
