@@ -206,39 +206,60 @@ class TrackerService:
 
         self.stop()
 
-        frame = camera_capture.last_frame
-        if frame is None:
-            self.last_error = "no frame available from camera"
-            logger.error("tracker start: %s", self.last_error)
-            return False
+        # Freeze animation servo writes and wait for the arm to settle, so
+        # YOLO detection + tracker init run on a sharp (non-motion-blurred)
+        # frame. Idle animation or a just-completed /servo/aim interpolation
+        # would otherwise leave the arm moving when we grab last_frame, and
+        # both the YOLO bbox and TrackerVit feature lock would start
+        # misaligned. The track loop sets _tracking_active shortly after
+        # this, which supersedes the freeze; we unfreeze only on early-exit
+        # failure paths.
+        settle_s = 0.30
+        animation_service.freeze()
+        try:
+            time.sleep(settle_s)
 
-        # Auto-detect if no bbox provided
-        if bbox is None:
-            if not target_label:
-                self.last_error = "need either bbox or target label"
+            frame = camera_capture.last_frame
+            if frame is None:
+                self.last_error = "no frame available from camera"
                 logger.error("tracker start: %s", self.last_error)
+                animation_service.unfreeze()
                 return False
-            bbox = self.detect_object(frame, target_label)
+            frame = frame.copy()
+
+            # Auto-detect if no bbox provided. YOLO round-trip is 1-2s; the
+            # arm stays frozen throughout so the returned bbox coordinates
+            # match the same frame we keep for tracker.init (no re-grab).
             if bbox is None:
-                self.last_error = f"'{target_label}' not found in frame"
-                return False
-            # Re-grab fresh frame right after detection
-            fresh = camera_capture.last_frame
-            if fresh is not None:
-                frame = fresh
+                if not target_label:
+                    self.last_error = "need either bbox or target label"
+                    logger.error("tracker start: %s", self.last_error)
+                    animation_service.unfreeze()
+                    return False
+                bbox = self.detect_object(frame, target_label)
+                if bbox is None:
+                    self.last_error = f"'{target_label}' not found in frame"
+                    animation_service.unfreeze()
+                    return False
+        except Exception:
+            animation_service.unfreeze()
+            raise
 
         tracker = self._create_tracker()
         if tracker is None:
             logger.error("No OpenCV tracker available")
+            animation_service.unfreeze()
             return False
 
         try:
             ok = tracker.init(frame, bbox)
         except Exception as e:
             logger.error("tracker init exception for bbox %s: %s", bbox, e)
+            animation_service.unfreeze()
             return False
         if ok is False:
             logger.error("tracker init failed for bbox %s", bbox)
+            animation_service.unfreeze()
             return False
         logger.info("tracker init OK for bbox %s (frame %dx%d)", bbox, frame.shape[1], frame.shape[0])
 
@@ -258,6 +279,10 @@ class TrackerService:
                 name="servo-tracker",
             )
             self._state.thread.start()
+
+        # Track loop now owns the servo via _tracking_active; drop the
+        # start-time freeze so the loop can send its own nudges.
+        animation_service.unfreeze()
 
         logger.info("Tracking started: '%s' bbox=%s", target_label, bbox)
         return True
