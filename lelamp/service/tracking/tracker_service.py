@@ -498,19 +498,32 @@ class TrackerService:
                 # of the frame — reduce gain to avoid twitchy overcorrection.
                 close = bbox_area > CLOSE_OBJECT_RATIO * frame_area
 
+                # DEBUG: per-cycle trace. bbox + conf + dy/dx offset from
+                # center + servo pose before/after nudge. Identifies whether
+                # bloat comes from tracker drift or servo disturbance.
+                h, w = frame.shape[:2]
+                dx_dbg = cx - w / 2
+                dy_dbg = cy - h / 2
+                bp_before = self._track_base_pitch
+                by_before = self._track_yaw
+                logger.info(
+                    "TRK cyc: bbox=(%d,%d,%d,%d) area=%d(x%.1f) conf=%.3f "
+                    "dx=%.0f dy=%.0f yaw=%.1f pitch=%.1f",
+                    bx, by, bw, bh, bbox_area,
+                    bbox_area / init_area if init_area > 0 else 0,
+                    confidence, dx_dbg, dy_dbg, by_before, bp_before,
+                )
+
                 moved = self._nudge_servo(frame, cx, cy, close, animation_service)
 
-                # Log every ~2 seconds
-                frame_count += 1
-                fps_elapsed = time.perf_counter() - fps_t0
-                if fps_elapsed >= 2.0:
+                if moved:
                     logger.info(
-                        "Tracker: fps=%.1f dt=%.0fms conf=%.3f bbox=%s target='%s'",
-                        frame_count / fps_elapsed, tracker_dt * 1000,
-                        confidence, state.bbox, state.target_label,
+                        "TRK nudge: yaw=%.1f→%.1f pitch=%.1f→%.1f",
+                        by_before, self._track_yaw,
+                        bp_before, self._track_base_pitch,
                     )
-                    frame_count = 0
-                    fps_t0 = time.perf_counter()
+
+                frame_count += 1
 
                 # Max duration check
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
@@ -585,6 +598,11 @@ class TrackerService:
         if not TRACK_PITCH_ENABLED:
             pitch_deg = 0.0
         else:
+            # Empirically (v0.0.507 test): with `-dy * k` camera went DOWN
+            # when cup was at TOP — wrong direction. Meaning base_pitch
+            # INCREASE = head tilts DOWN physically. So for cup at top
+            # (dy < 0) we need base_pitch to DECREASE → pitch_deg negative
+            # → pitch_deg = dy * k (same-sign-as-dy) is correct.
             pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
