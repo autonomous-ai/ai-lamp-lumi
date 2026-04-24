@@ -629,15 +629,19 @@ class TrackerService:
 
         yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
 
-        # Pitch sign is NEGATED because base_pitch increases = lamp tilts UP
-        # (per AIM_UP base_pitch=+10 vs AIM_DOWN base_pitch=-50 in presets).
-        # To bring an object at the TOP of the frame (dy < 0) toward the
-        # centre, the lamp must tilt UP → base_pitch must INCREASE →
-        # pitch_deg must be POSITIVE. Without this negation, tracker drove
-        # the lamp *away* from the object on the vertical axis, observed as
-        # "cup near top edge, servo keeps tilting down until it hits MAX
-        # and stalls".
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else -dy * DEG_PER_PX_PITCH * gain_mult
+        # Pitch sign (same-sign as dy). An earlier fix negated dy based on
+        # the naive reading of AIM_UP (base_pitch=+10) vs AIM_DOWN (-50),
+        # but that ignored how the arm's kinematic chain actually works:
+        # base_pitch is the joint at the *base* of the arm, so increasing
+        # it leans the whole arm forward and the head drops — decreasing
+        # leans backward and the head rises. AIM_UP achieves "look up"
+        # mainly via wrist_pitch=+25, not base_pitch. So to bring a cup
+        # sitting at the TOP of the frame (dy < 0) toward centre, we need
+        # base_pitch to DECREASE (head rises, camera tilts up). That is
+        # what `pitch_deg = dy * k` already does: dy < 0 → pitch_deg < 0
+        # → new_base_pitch smaller. The flip caused "cúi quá sâu" because
+        # it drove the head *down* whenever the cup was above centre.
+        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))

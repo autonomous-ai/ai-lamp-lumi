@@ -100,8 +100,8 @@ Object center: tracker bbox (no smoothing — the ~143ms move-then-freeze
 dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
-yaw_deg   = dx * 0.022    (clamped to ±6.0°, zero if |dx| < 18)
-pitch_deg = -dy * 0.022   (negated; see "Pitch sign" below)
+yaw_deg   = dx * 0.022   (clamped to ±6.0°, zero if |dx| < 18)
+pitch_deg = dy * 0.022   (same-sign as dy; see "Pitch sign" below)
 ```
 
 ### Tuning Constants
@@ -128,7 +128,9 @@ pitch_deg = -dy * 0.022   (negated; see "Pitch sign" below)
 
 ### Pitch sign
 
-`base_pitch` grows positive as the lamp tilts *up* (see `AIM_UP` has `base_pitch=+10`, `AIM_DOWN` has `-50`). To bring an object from the top of the frame (dy < 0) toward the centre, the lamp must tilt up — base_pitch must *increase* — so the pixel-to-degree conversion negates dy. Without this negation the tracker drove the lamp away from the target on the vertical axis and eventually pinned base_pitch against its hardware maximum.
+`base_pitch` is the joint at the *base* of the arm. Increasing it leans the whole arm forward and the head drops; decreasing it leans backward and the head rises. (The AIM_UP preset is +10 only because the dominant "look up" effect comes from `wrist_pitch=+25`, not from base_pitch itself.)
+
+To bring a cup sitting at the *top* of the frame (dy < 0) toward the centre, the head needs to rise — so `base_pitch` must *decrease*. That is exactly what `pitch_deg = dy * k` does: dy < 0 → pitch_deg < 0 → new_base_pitch smaller. An earlier iteration negated dy based on the naive reading of the AIM preset table and it drove the head *down* whenever the cup was above centre ("cúi quá sâu"). The current same-sign-as-dy formula is correct.
 
 ### Servo Position Limits
 
