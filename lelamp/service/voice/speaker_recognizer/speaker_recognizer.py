@@ -80,6 +80,17 @@ class SpeakerRecognizerError(Exception):
     """Raised on invalid input or external API failure."""
 
 
+class EmbeddingAPIUnavailableError(SpeakerRecognizerError):
+    """Raised when the embedding API is unreachable / 5xx / protocol-broken.
+
+    Distinct from audio-level rejections: the audio itself may be perfectly
+    fine — the caller should retry rather than ask the user to re-record.
+    Callers that batch over multiple samples MUST abort on this error
+    instead of skipping the sample, to avoid misattributing an outage to
+    bad audio and to avoid destructive cleanup of valid on-disk samples.
+    """
+
+
 def _normalize_label(name: str) -> str:
     """Folder-safe lowercase label — matches FaceRecognizer.normalize_label.
 
@@ -380,7 +391,7 @@ class SpeakerRecognizer:
             )
         except requests.RequestException as e:
             logger.warning("Embedding server unreachable at %s: %s", self._api_url, e)
-            raise SpeakerRecognizerError(
+            raise EmbeddingAPIUnavailableError(
                 f"embedding API unreachable: {e}"
             ) from e
 
@@ -389,6 +400,13 @@ class SpeakerRecognizer:
                 "Embedding server returned HTTP %d: %s",
                 resp.status_code, resp.text[:120],
             )
+            # 5xx = server broken → transient, caller should retry.
+            # 4xx = server rejected THIS audio (VAD, decode, etc.) → audio-level,
+            # caller should skip this sample / re-record.
+            if resp.status_code >= 500:
+                raise EmbeddingAPIUnavailableError(
+                    f"embedding API {resp.status_code}: {resp.text[:200]}"
+                )
             raise SpeakerRecognizerError(
                 f"embedding API error {resp.status_code}: {resp.text[:200]}"
             )
@@ -396,17 +414,19 @@ class SpeakerRecognizer:
         try:
             payload = resp.json()
         except ValueError as e:
-            raise SpeakerRecognizerError(f"embedding API returned non-JSON: {e}") from e
+            raise EmbeddingAPIUnavailableError(
+                f"embedding API returned non-JSON: {e}"
+            ) from e
 
         if return_chunks:
             chunks = payload.get("chunk_embeddings")
             if not chunks:
-                raise SpeakerRecognizerError(
+                raise EmbeddingAPIUnavailableError(
                     "embedding API response missing 'chunk_embeddings'"
                 )
             mat = np.asarray(chunks, dtype=np.float32)
             if mat.ndim != 2 or mat.size == 0:
-                raise SpeakerRecognizerError(
+                raise EmbeddingAPIUnavailableError(
                     f"chunk_embeddings must be a non-empty 2-D array, got shape {mat.shape}"
                 )
             norms = np.linalg.norm(mat, axis=1, keepdims=True)
@@ -415,17 +435,19 @@ class SpeakerRecognizer:
 
         emb = payload.get("embedding")
         if emb is None:
-            raise SpeakerRecognizerError("embedding API response missing 'embedding'")
+            raise EmbeddingAPIUnavailableError(
+                "embedding API response missing 'embedding'"
+            )
 
         vec = np.asarray(emb, dtype=np.float32)
         if vec.ndim != 1 or vec.size == 0:
-            raise SpeakerRecognizerError(
+            raise EmbeddingAPIUnavailableError(
                 f"embedding must be a non-empty 1-D array, got shape {vec.shape}"
             )
 
         norm = float(np.linalg.norm(vec))
         if norm == 0.0:
-            raise SpeakerRecognizerError("embedding has zero norm")
+            raise EmbeddingAPIUnavailableError("embedding has zero norm")
         return vec / norm
 
     def _prepare_wav_for_embedding(self, wav_bytes: bytes) -> list[str]:
@@ -619,34 +641,52 @@ class SpeakerRecognizer:
             new_wavs.append(_ensure_wav_16k_mono(raw))
 
         # Step 2 — Compute embedding per NEW wav BEFORE writing to disk.
-        # _prepare_wav_for_embedding will raise on too-short / silent audio,
-        # so invalid inputs are rejected here without polluting the folder.
+        # _prepare_wav_for_embedding raises on too-short/silent audio;
+        # _call_embedding_api raises SpeakerRecognizerError for 4xx
+        # (audio-level reject — skip this sample) or
+        # EmbeddingAPIUnavailableError for network/5xx (bubble up so the
+        # whole enroll aborts cleanly and nothing on disk is touched).
         new_embeddings: list[tuple[bytes, np.ndarray]] = []
+        per_sample_errors: list[tuple[int, str]] = []
         for idx, wb in enumerate(new_wavs):
             try:
                 payload = self._prepare_wav_for_embedding(wb)
                 emb = self._call_embedding_api(payload)
                 new_embeddings.append((wb, emb))
+            except EmbeddingAPIUnavailableError:
+                raise
             except SpeakerRecognizerError as e:
+                per_sample_errors.append((idx, str(e)))
                 logger.warning(
                     "Enroll: rejected new sample #%d — %s (not saved to disk)",
                     idx, e,
                 )
 
         if not new_embeddings:
-            raise SpeakerRecognizerError(
-                "no valid new samples — all provided audio was too short / silent / unreadable"
+            # Surface the actual reason from dlbackend (VAD reject text, etc.)
+            # or from local gates (too short / silent) — no hardcoded summary.
+            if len(per_sample_errors) == 1:
+                raise SpeakerRecognizerError(per_sample_errors[0][1])
+            details = "; ".join(
+                f"sample #{i}: {msg}" for i, msg in per_sample_errors
             )
+            raise SpeakerRecognizerError(f"no valid new samples — {details}")
 
         # Step 3 — Load EXISTING samples on disk + compute their embeddings.
-        # Pre-existing files that fail validation are deleted so the folder
-        # stays in a valid-only state even if a legacy file is broken.
+        # Two failure modes, handled separately:
+        #   a) _prepare_wav_for_embedding fails → the WAV file itself is
+        #      corrupt / silent / too short. Safe to delete so the folder
+        #      doesn't carry a permanently broken sample.
+        #   b) _call_embedding_api fails → the server rejected or is down.
+        #      NEVER delete: the file was previously accepted and may be
+        #      fine once the API recovers. EmbeddingAPIUnavailableError
+        #      also aborts the whole enroll so we don't proceed with a
+        #      partial view of existing samples.
         existing_on_disk = sorted(voice_dir.glob("sample_*.wav"))
         existing_embs: dict[Path, np.ndarray] = {}
         for p in existing_on_disk:
             try:
                 payload = self._prepare_wav_for_embedding(p.read_bytes())
-                existing_embs[p] = self._call_embedding_api(payload)
             except SpeakerRecognizerError as e:
                 logger.warning(
                     "Enroll: removing broken existing sample %s — %s",
@@ -656,6 +696,16 @@ class SpeakerRecognizer:
                     p.unlink()
                 except OSError as ose:
                     logger.warning("Enroll: failed to delete %s: %s", p, ose)
+                continue
+            try:
+                existing_embs[p] = self._call_embedding_api(payload)
+            except EmbeddingAPIUnavailableError:
+                raise
+            except SpeakerRecognizerError as e:
+                logger.warning(
+                    "Enroll: skipping existing sample %s — server rejected (%s), file kept",
+                    p.name, e,
+                )
 
         # Step 4 — Reference = the LATEST NEW wav (user's most recent intent
         # wins). All other samples (new + existing) are scored against it.

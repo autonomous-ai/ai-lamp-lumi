@@ -45,21 +45,23 @@ DEFAULT_DITHER = 0.0
 DEFAULT_WAVEFORM_NORM = False
 DEFAULT_INTRA_OP_THREADS = 4
 DEFAULT_BATCH_SIZE = 8
-DEFAULT_MAX_SECOND = 4.0
 
 # Robust embedding preprocessing defaults (see audio_preprocess.py).
 DEFAULT_USE_NOISEREDUCE = True
 DEFAULT_USE_VAD = True
-DEFAULT_USE_HPF = True
+DEFAULT_USE_HPF = False
 DEFAULT_USE_RMS_NORMALIZE = True
 DEFAULT_HPF_CUTOFF_HZ = 80.0
 DEFAULT_RMS_TARGET = 0.1
 
-# Short-chunk + fine-stride windowing applied at embedding time. Kept small
-# so 0.3-1s interferer words get isolated into a minority of chunks.
-DEFAULT_CHUNK_SEC = 1.0
-DEFAULT_STRIDE_SEC = 0.25
-DEFAULT_MIN_CHUNK_SEC = 0.4
+# Speech-gate thresholds applied after VAD strips head/tail silence.
+DEFAULT_MIN_DURATION_SEC = 0.5
+DEFAULT_MIN_VOICE_RATIO = 0.7
+
+# Desired per-chunk duration range when splitting long audio. Short audio
+# (<= max, or <= 2*min when that exceeds max) stays as a single window.
+DEFAULT_MIN_CHUNK_SEC = 5.0
+DEFAULT_MAX_CHUNK_SEC = 8.0
 
 # Environment variable used by `create_audio_recognizer` to pick the engine.
 ENV_AUDIO_RECOGNIZER_ENGINE = "AUDIO_RECOGNIZER_ENGINE"
@@ -89,7 +91,6 @@ class BaseAudioRecognizer:
         waveform_norm: bool = DEFAULT_WAVEFORM_NORM,
         intra_op_threads: int = DEFAULT_INTRA_OP_THREADS,
         batch_size: int = DEFAULT_BATCH_SIZE,
-        max_second: float = DEFAULT_MAX_SECOND,
         *,
         use_noisereduce: bool = DEFAULT_USE_NOISEREDUCE,
         use_vad: bool = DEFAULT_USE_VAD,
@@ -97,9 +98,10 @@ class BaseAudioRecognizer:
         use_rms_normalize: bool = DEFAULT_USE_RMS_NORMALIZE,
         hpf_cutoff_hz: float = DEFAULT_HPF_CUTOFF_HZ,
         rms_target: float = DEFAULT_RMS_TARGET,
-        chunk_sec: float = DEFAULT_CHUNK_SEC,
-        stride_sec: float = DEFAULT_STRIDE_SEC,
+        min_duration_sec: float = DEFAULT_MIN_DURATION_SEC,
+        min_voice_ratio: float = DEFAULT_MIN_VOICE_RATIO,
         min_chunk_sec: float = DEFAULT_MIN_CHUNK_SEC,
+        max_chunk_sec: float = DEFAULT_MAX_CHUNK_SEC,
     ) -> None:
         """
         Args:
@@ -111,16 +113,20 @@ class BaseAudioRecognizer:
             waveform_norm: Whether to peak-normalize input waveform.
             intra_op_threads: ONNX Runtime intra-op thread count.
             batch_size: Mini-batch size for ONNX embedding inference.
-            max_second: Max duration (seconds) per sample before embedding.
-            use_noisereduce: Enable Layer 0 noise reduction before embedding.
-            use_vad: Enable silero-VAD to keep only speech regions.
+            use_noisereduce: Enable ``noisereduce`` before VAD.
+            use_vad: Enable silero-VAD to strip head/tail non-voice and gate.
             use_hpf: Enable 80 Hz high-pass filter (rumble / DC removal).
             use_rms_normalize: Scale waveform to a fixed RMS loudness.
             hpf_cutoff_hz: High-pass cutoff frequency in Hz.
             rms_target: Target RMS magnitude after normalization.
-            chunk_sec: Window length (seconds) for short-chunk embedding.
-            stride_sec: Hop size (seconds) for short-chunk embedding.
-            min_chunk_sec: Minimum chunk length kept after windowing.
+            min_duration_sec: Reject audio shorter than this after strip-VAD.
+            min_voice_ratio: Reject audio when voice/total ratio is below.
+            min_chunk_sec: Lower bound for per-chunk duration when splitting
+                long audio. Short/mid-length audio is kept as one window.
+            max_chunk_sec: Upper bound for per-chunk duration when splitting;
+                audio longer than ``max(max_chunk_sec, 2*min_chunk_sec)`` is
+                split into equal contiguous chunks in
+                ``[min_chunk_sec, max_chunk_sec]``.
         """
         self.model_path = self._prepare_model(model_path)
         self.db_path = Path(db_path)
@@ -129,18 +135,17 @@ class BaseAudioRecognizer:
         self.dither = dither
         self.waveform_norm = waveform_norm
         self.batch_size = max(1, int(batch_size))
-        self.max_second = float(max_second)
 
-        # Robust-embedding config (see audio_preprocess.py).
         self.use_noisereduce = bool(use_noisereduce)
         self.use_vad = bool(use_vad)
         self.use_hpf = bool(use_hpf)
         self.use_rms_normalize = bool(use_rms_normalize)
         self.hpf_cutoff_hz = float(hpf_cutoff_hz)
         self.rms_target = float(rms_target)
-        self.chunk_sec = float(chunk_sec)
-        self.stride_sec = float(stride_sec)
+        self.min_duration_sec = float(min_duration_sec)
+        self.min_voice_ratio = float(min_voice_ratio)
         self.min_chunk_sec = float(min_chunk_sec)
+        self.max_chunk_sec = float(max_chunk_sec)
 
         self.session = self._create_session(self.model_path, intra_op_threads)
         self.input_name = self.session.get_inputs()[0].name
@@ -328,98 +333,77 @@ class BaseAudioRecognizer:
         return np.asarray(feat[None, :, :], dtype=np.float32)  # [1, T, 80]
 
 
-    def _extract_embedding_from_waveform(self, waveform: np.ndarray) -> np.ndarray:
-        """Extract L2-normalized embedding from waveform array."""
-        feats = self._compute_fbank(waveform)  # [1, T, 80]
-        emb = self.session.run([self.output_name], {self.input_name: feats})[0][0]  # [D]
-        return self._l2_normalize(emb)  # [D]
+    def _preprocess_and_split(self, waveform: np.ndarray) -> List[np.ndarray]:
+        """Run preprocess + speech gate, then emit one or a few windows.
 
-    def _extract_embedding_from_path(self, wav_path: AudioInput) -> np.ndarray:
-        """Extract L2-normalized embedding from an audio file path."""
-        waveform = self._load_waveform(wav_path)
-        return self._extract_embedding_from_waveform(waveform)
+        Short / mid-length audio yields a single window (matches WeSpeaker
+        CLI behavior); longer audio is split into equal contiguous chunks
+        in ``[self.min_chunk_sec, self.max_chunk_sec]``.
 
-    def _split_waveform_by_max_seconds(self, waveform: np.ndarray) -> List[np.ndarray]:
-        """Split waveform into samples with max length `self.max_second`."""
-        wav = np.asarray(waveform, dtype=np.float32)
-        if wav.ndim != 1:
-            raise ValueError("waveform must be 1D [time].")
-        if wav.size == 0:
-            return []
-
-        max_samples = max(1, int(self.max_second * self.sample_rate))
-        if wav.shape[0] <= max_samples:
-            return [wav]
-
-        segments: List[np.ndarray] = []
-        for start in range(0, wav.shape[0], max_samples):
-            seg = wav[start : start + max_samples]
-            if seg.size > 0:
-                segments.append(seg.astype(np.float32))
-        return segments
-
-    def _preprocess_waveform_for_embedding(self, waveform: np.ndarray) -> np.ndarray:
-        """Run Layer 0 (noise reduce) + Layer 1 (HPF / VAD / RMS) pipeline.
-
-        If VAD strips the whole signal, retry without VAD so downstream
-        aggregation still has something to work with (weighted aggregation
-        will down-weight the noisy chunks anyway).
+        Raises:
+            audio_preprocess.PreprocessRejected: Speech gate rejected the
+                clip. Propagated up so the HTTP layer can surface the
+                structured measurements (duration, voice_ratio, ...).
         """
-        arr = np.asarray(waveform, dtype=np.float32)
-        if arr.size == 0:
-            return arr
-        clean = audio_preprocess.preprocess_waveform(
-            arr,
+        clean = audio_preprocess.preprocess_for_embedding(
+            np.asarray(waveform, dtype=np.float32),
             self.sample_rate,
+            use_hpf=self.use_hpf,
             use_noisereduce=self.use_noisereduce,
             use_vad=self.use_vad,
-            use_hpf=self.use_hpf,
             use_rms=self.use_rms_normalize,
             hpf_cutoff_hz=self.hpf_cutoff_hz,
             rms_target=self.rms_target,
+            min_duration_sec=self.min_duration_sec,
+            min_voice_ratio=self.min_voice_ratio,
         )
-        if clean.size == 0 and self.use_vad:
-            clean = audio_preprocess.preprocess_waveform(
-                arr,
-                self.sample_rate,
-                use_noisereduce=self.use_noisereduce,
-                use_vad=False,
-                use_hpf=self.use_hpf,
-                use_rms=self.use_rms_normalize,
-                hpf_cutoff_hz=self.hpf_cutoff_hz,
-                rms_target=self.rms_target,
-            )
-        return clean if clean.size > 0 else arr
-
-    def _preprocess_and_chunk(self, waveform: np.ndarray) -> List[np.ndarray]:
-        """Preprocess then slice into short, overlapping chunks for embedding."""
-        clean = self._preprocess_waveform_for_embedding(waveform)
-        if clean.size == 0:
-            return []
-        return audio_preprocess.chunk_with_stride(
+        return audio_preprocess.split_by_duration(
             clean,
             self.sample_rate,
-            chunk_sec=self.chunk_sec,
-            stride_sec=self.stride_sec,
-            min_chunk_sec=self.min_chunk_sec,
+            min_sec=self.min_chunk_sec,
+            max_sec=self.max_chunk_sec,
         )
 
     def _prepare_waveforms_from_paths(self, wav_paths: List[AudioInput]) -> List[np.ndarray]:
-        """Load wav paths, apply embedding preprocessing, emit short chunks."""
+        """Load each wav path, preprocess + gate, emit one-or-few windows.
+
+        Multi-file tolerance: a single file that fails the speech gate is
+        logged and skipped so a good file can still enroll. If **every**
+        file is rejected the first rejection is re-raised so the client
+        gets the concrete measurements back.
+
+        Raises:
+            audio_preprocess.PreprocessRejected: Every input path was
+                rejected by the speech gate.
+        """
         out: List[np.ndarray] = []
+        first_rejection: audio_preprocess.PreprocessRejected | None = None
         for path in wav_paths:
             waveform = self._load_waveform(path)
-            out.extend(self._preprocess_and_chunk(waveform))
+            try:
+                out.extend(self._preprocess_and_split(waveform))
+            except audio_preprocess.PreprocessRejected as exc:
+                logger.warning(
+                    "[AudioRecognizer] Skip %s: %s", path, exc
+                )
+                if first_rejection is None:
+                    first_rejection = exc
+        if not out and first_rejection is not None:
+            raise first_rejection
         return out
 
     def _prepare_waveforms_from_chunks(
         self, chunks: List[ChunkType], chunk_sample_rate: int
     ) -> List[np.ndarray]:
-        """Concatenate input chunks, preprocess, then emit short chunks.
+        """Concatenate input chunks, preprocess + gate, emit one-or-few windows.
 
         Incoming ``chunks`` are often mic frames (20-40 ms each). We join
-        them into one waveform so VAD / noise reduce / RMS see the full
-        signal, then re-chunk with the embedding-time window.
+        them into a single waveform so VAD / noisereduce / RMS see the full
+        signal before gating and any length-cap split.
+
+        Raises:
+            audio_preprocess.PreprocessRejected: Empty chunks input or the
+                speech gate rejected the merged waveform.
         """
         pieces: List[np.ndarray] = []
         for chunk in chunks:
@@ -430,9 +414,14 @@ class BaseAudioRecognizer:
                 arr = self._resample(arr, orig_sr=chunk_sample_rate, new_sr=self.sample_rate)
             pieces.append(arr)
         if not pieces:
-            return []
+            raise audio_preprocess.PreprocessRejected(
+                audio_preprocess.REJECT_EMPTY_INPUT,
+                input_duration_sec=0.0,
+                min_duration_sec=self.min_duration_sec,
+                min_voice_ratio=self.min_voice_ratio,
+            )
         waveform = np.concatenate(pieces).astype(np.float32)
-        return self._preprocess_and_chunk(waveform)
+        return self._preprocess_and_split(waveform)
 
     def _extract_embeddings_from_paths_batch(self, wav_paths: List[AudioInput]) -> List[np.ndarray]:
         """Extract embeddings from many paths using batched ONNX inference.
@@ -475,9 +464,9 @@ class BaseAudioRecognizer:
         if not chunks:
             raise ValueError("chunks is empty.")
 
+        # Speech-gate failures raise PreprocessRejected with concrete
+        # measurements; let the HTTP layer translate it into a 400 body.
         waveforms = self._prepare_waveforms_from_chunks(chunks, chunk_sample_rate)
-        if not waveforms:
-            raise ValueError("All chunks are empty.")
 
         # Run chunk embeddings in mini-batches, then aggregate into one query embedding.
         query_embeddings = self._extract_embeddings_from_waveforms_batch(waveforms)
@@ -516,15 +505,14 @@ class BaseAudioRecognizer:
         return float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2) + 1e-12))
 
     def _aggregate_embeddings(self, embeddings: List[np.ndarray]) -> np.ndarray:
-        """Attentive aggregation via self-consistency weights + L2 normalize.
+        """Mean-pool then L2-normalize.
 
-        Each chunk embedding is weighted by its cosine similarity to the
-        provisional median centroid, so a handful of interferer chunks
-        contribute negligibly to the final vector.
+        Matches WeSpeaker's "one embedding per utterance" assumption: when
+        audio fits in one window this is a no-op on the single embedding;
+        for very long audio split into a few same-length chunks a simple
+        mean is the expected aggregator.
         """
-        if not embeddings:
-            raise ValueError("No embeddings to aggregate.")
-        return audio_preprocess.weighted_aggregate(embeddings)
+        return audio_preprocess.mean_aggregate(embeddings)
 
     @staticmethod
     def _chunk_to_numpy(chunk: ChunkType) -> np.ndarray:
@@ -565,9 +553,13 @@ class BaseAudioRecognizer:
         if not paths:
             raise ValueError("wav_paths is empty.")
 
+        # Speech-gate failures raise PreprocessRejected with concrete
+        # measurements; let the HTTP layer translate it into a 400 body.
         embeddings = self._extract_embeddings_from_paths_batch(paths)
         if not embeddings:
-            raise ValueError("No valid samples found after splitting by max_second.")
+            # Defensive: _prepare_waveforms_from_paths should have raised
+            # already; this only fires if an engine returns empty batches.
+            raise RuntimeError("Embedding batch produced no vectors.")
         self.db.set(name, self._aggregate_embeddings(embeddings))
         saved = self.db.get(name)
         if saved is None:
@@ -603,10 +595,18 @@ class BaseAudioRecognizer:
         if len(self.db) == 0:
             return {"name": "", "confidence": 0.0}
 
-        if isinstance(audio, (str, Path)):
-            query_waveforms = self._prepare_waveforms_from_paths([audio])
-        else:
-            query_waveforms = self._prepare_waveforms_from_chunks(audio, chunk_sample_rate)
+        # Recognize keeps the "no speech -> empty result with 200" contract
+        # for backwards compat; we log the rejection reason for debugging
+        # but do not surface it to the client. Clients that want details
+        # should use the /embed endpoint instead.
+        try:
+            if isinstance(audio, (str, Path)):
+                query_waveforms = self._prepare_waveforms_from_paths([audio])
+            else:
+                query_waveforms = self._prepare_waveforms_from_chunks(audio, chunk_sample_rate)
+        except audio_preprocess.PreprocessRejected as exc:
+            logger.info("[AudioRecognizer] recognize gated: %s", exc)
+            return {"name": "", "confidence": 0.0}
 
         if not query_waveforms:
             return {"name": "", "confidence": 0.0}

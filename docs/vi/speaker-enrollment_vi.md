@@ -137,6 +137,17 @@ Ba lớp ngăn agent hỏi "bạn là ai?" liên tục:
 | `POST` | `/speaker/reset` | Xoá tất cả profile giọng nói |
 | `GET`  | `/speaker/list` | Liệt kê người nói đã đăng ký |
 
+### Hợp đồng lỗi (error contract)
+
+`/speaker/enroll` phân biệt hai loại thất bại:
+
+| HTTP | Khi nào | Hành vi skill |
+|------|---------|---------------|
+| `400` | Audio bị reject (quá ngắn, im lặng, VAD không tìm thấy speech, dlbackend trả 4xx) | Yêu cầu user thu lại / nói rõ hơn |
+| `503` | Embedding service không reachable (network, 5xx, response malformed) | Báo user thử lại sau — disk không bị thay đổi gì |
+
+`/speaker/recognize` **không bao giờ** trả 5xx khi embedding API chết — nó trả `200` với `{name: "unknown", error: "<lý do>"}` để skill tự xử graceful. Chỉ lỗi input (thiếu WAV, base64 sai) mới trả `400`.
+
 ## Vị trí code chính
 
 | Thành phần | File | Hàm/Struct |
