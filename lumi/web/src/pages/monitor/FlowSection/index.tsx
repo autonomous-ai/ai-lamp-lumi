@@ -52,6 +52,7 @@ export function FlowSection({
 }) {
   const [showCanvas, setShowCanvas] = useState(false);
   const [showCompaction, setShowCompaction] = useState(false);
+  const [compactionAt, setCompactionAt] = useState<{ at: string; label: string } | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   // Opt-out model: store what user has EXCLUDED. Empty = show all.
   const [excludedTypes, setExcludedTypes] = useState<Set<string>>(() => {
@@ -319,6 +320,13 @@ export function FlowSection({
       )}
 
       {showCompaction && <CompactionModal onClose={() => setShowCompaction(false)} />}
+      {compactionAt && (
+        <CompactionModal
+          at={compactionAt.at}
+          turnLabel={compactionAt.label}
+          onClose={() => setCompactionAt(null)}
+        />
+      )}
 
       {/* Header card */}
       <div style={{ ...S.card, padding: "12px 16px" }}>
@@ -657,13 +665,29 @@ export function FlowSection({
         {/* Center: flow diagram */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div style={{ ...S.card, flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={S.cardLabel}>Turn Pipeline</span>
               {selectedTurn && (
-                <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                  {selectedTurn.type} · {selectedTurn.events.length} events
-                  {selectedTurn.endTime ? ` · done` : ` · active`}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                    {selectedTurn.type} · {selectedTurn.events.length} events
+                    {selectedTurn.endTime ? ` · done` : ` · active`}
+                  </span>
+                  <button
+                    onClick={() => setCompactionAt({
+                      at: selectedTurn.startTime,
+                      label: `${selectedTurn.type} @ ${new Date(selectedTurn.startTime).toLocaleTimeString()}`,
+                    })}
+                    title="Show the OpenClaw compaction summary that was active at the moment this turn fired — the text injected at the top of this turn's prompt."
+                    style={{
+                      fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                      background: "var(--lm-purple)", border: "1px solid var(--lm-purple)",
+                      color: "#fff", cursor: "pointer", fontWeight: 700,
+                    }}
+                  >
+                    📋 summary @ this turn
+                  </button>
+                </div>
               )}
             </div>
             {selectedTurn?.endTime && (() => {
