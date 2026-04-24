@@ -13,13 +13,32 @@ User: "Lumi, nhìn theo cái ly đi"
          |
     2. TrackerVit init trên bbox
          |
-    3. Vòng lặp tracking @ 20 FPS
-         |  lấy frame → TrackerVit update → kiểm tra confidence → pixel offset → nudge servo
+    3. Vòng lặp tracking @ 7 FPS (cadence move-then-freeze)
+         |  lấy frame (servo đứng yên) → TrackerVit update → nudge → đợi servo settle
          |
     4. Vật di chuyển → servo bám theo (yaw + 3 pitch joints)
          |
     5. Confidence < 0.3 trong 5 frame → tự động dừng + giữ servo tại vị trí
 ```
+
+### Tại sao chọn move-then-freeze (thay vì high-FPS chasing)
+
+Các phiên bản trước chạy loop 20 FPS, gửi nudge mỗi 50ms. Hai vấn đề:
+
+1. **Camera ego-motion blur.** Camera gắn trên lamp đang di chuyển. Lệnh servo gửi nhanh hơn khả năng thực thi của motor → frame bị mờ hoặc lệch so với pose thực tế. Tracker tính bbox từ frame không match với servo hiện tại → nudge overshoot.
+2. **Command stacking.** Nudge nhỏ (~0.5°) mỗi 50ms chồng lên nhau nhanh hơn motor có thể đạt target → hunting và giật.
+
+Thiết kế hiện tại: đọc 1 frame, quyết định 1 nudge, gửi lệnh, rồi đợi servo hoàn thành chuyển động vật lý (~80ms) trước khi đọc frame kế tiếp. Mỗi frame đều sắc nét và tọa độ match với pose. Ít lệnh hơn, bước lớn có chủ đích, không hunting.
+
+### Tại sao không có periodic YOLO re-detect
+
+Các phiên bản trước gọi YOLOWorld mỗi 5 giây khi đang tracking để sửa drift. Đã bỏ vì YOLO round-trip mất 1-2 giây, trong đó:
+
+- Servo vẫn di chuyển → bbox trả về ở tọa độ không còn match frame hiện tại.
+- Bản thân vật thể có thể đã di chuyển.
+- Scene có thể thay đổi bất kỳ.
+
+Dùng bbox đó re-init tracker gây hại nhiều hơn lợi. Drift giờ được xử lý bởi TrackerVit confidence: nếu xuống dưới threshold 5 frame thì dừng hẳn, caller tự re-issue lệnh follow.
 
 ### Phát hiện: YOLOWorld API
 
@@ -71,15 +90,14 @@ Pitch được chia có trọng số cho 3 joint (55/30/15): base dẫn trước
 
 ```
 Tâm frame: (320, 240) cho 640x480
-Tâm vật thể: EMA-smoothed từ tracker bbox
+Tâm vật thể: tracker bbox (không smooth — cadence move-then-freeze ~143ms
+                            đã tự khử jitter của tracker)
 
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-gain = 1.3 nếu max(|dx|,|dy|) > 120 ngược lại 1.0   (adaptive: tăng tốc khi xa)
-
-yaw_deg   = dx * 0.022 * gain
-pitch_deg = dy * 0.022 * gain
+yaw_deg   = dx * 0.022   (clamp ±6.0°, bằng 0 nếu |dx| < 18)
+pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
 ```
 
 ### Hằng số Tuning
@@ -88,16 +106,12 @@ pitch_deg = dy * 0.022 * gain
 |---------|---------|-------|
 | `DEG_PER_PX_YAW` | 0.022 | Độ mỗi pixel ngang |
 | `DEG_PER_PX_PITCH` | 0.022 | Độ mỗi pixel dọc |
-| `ADAPTIVE_GAIN_PX` | 120 | Ngưỡng offset để boost gain |
-| `ADAPTIVE_GAIN_MULT` | 1.3 | Hệ số nhân gain khi object ở xa |
-| `EMA_ALPHA` | 0.3 | Hệ số smooth cho tâm bbox (cao = nhạy hơn) |
-| `DEAD_ZONE_PX` | 12 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
-| `WAKE_ZONE_PX` | 40 | Khi đã settle, chỉ wake khi offset vượt ngưỡng này |
-| `MAX_NUDGE_DEG` | 4.5 | Độ tối đa mỗi bước |
-| `TRACK_FPS` | 20 | Tần suất vòng lặp tracking |
+| `DEAD_ZONE_PX` | 18 | Bỏ qua offset nhỏ hơn giá trị này (chống rung) |
+| `MAX_NUDGE_DEG` | 6.0 | Độ tối đa mỗi bước |
+| `TRACK_FPS` | 7 | Tần suất vòng lặp tracking (~143ms/cycle) |
+| `SERVO_SETTLE_S` | 0.08 | Sleep sau nudge trước khi đọc frame kế tiếp |
 | `CONFIDENCE_THRESHOLD` | 0.3 | Dưới ngưỡng này = "mất" |
 | `MAX_LOW_CONFIDENCE_FRAMES` | 5 | Số frame confidence thấp liên tiếp trước khi dừng |
-| `BBOX_JUMP_PX` | 120 | Khi nhảy vượt ngưỡng, fallback về tâm đã EMA (không drop nudge) |
 | `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 0.55 / 0.30 / 0.15 | Phân bổ pitch cho 3 joint |
 
 ### Giới hạn vị trí Servo
@@ -120,7 +134,6 @@ TrackerVit cung cấp confidence scoring, khác với MIL/KCF chỉ drift âm th
 | Bbox > 50% diện tích frame | Dừng — tracker drift |
 | Servo ở limit yaw/pitch + object vẫn lệch > 30% | Dừng — ngoài tầm |
 | Tracking > 5 phút | Dừng — timeout tiết kiệm motor/CPU |
-| Tâm bbox nhảy > 120px trong 1 frame | Fallback về tâm đã EMA (tiếp tục nudge) |
 | `tracker.update()` trả `ok=False` | Tính là frame confidence thấp |
 
 ## API Endpoints
@@ -162,13 +175,13 @@ YOLOWorld là open-vocabulary — bất kỳ text nào cũng được, danh sác
 
 ### POST /servo/track/update — Khởi tạo lại bbox
 
-Re-detect thủ công mà không dừng phiên tracking.
+Re-init thủ công tracker với bbox mới mà không dừng phiên tracking.
 
 ```json
 {"bbox": [250, 160, 75, 95], "target": "ly nước"}
 ```
 
-Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint này chỉ dùng cho override thủ công.
+Lưu ý: không có re-detect YOLO định kỳ tự động — caller tự quyết định khi nào re-init. Xem "Tại sao không có periodic YOLO re-detect" ở trên.
 
 ## Luồng End-to-End
 
@@ -178,10 +191,10 @@ Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint 
 1. User: "Lumi, nhìn theo cái ly"
 2. Agent gọi POST /servo/track {"target": "cup"}
 3. LeLamp nội bộ:
-   a. Chụp frame hiện tại
-   b. Gửi YOLOWorld API → lấy bbox (~1-2s)
-   c. Lấy frame mới nhất
-   d. TrackerVit init trên bbox → bắt đầu tracking
+   a. Snapshot 1 frame và giữ lại
+   b. Gửi frame đó cho YOLOWorld API → lấy bbox (~1-2s)
+   c. TrackerVit init dùng *cùng* frame + bbox (tọa độ match)
+   d. Bắt đầu vòng lặp move-then-freeze
 4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
 5. User: "Thôi đi" → agent gọi POST /servo/track/stop
 6. Servo giữ tại vị trí hiện tại (không snap về idle)
@@ -195,15 +208,6 @@ Lưu ý: Re-detect tự động chạy mỗi 5 giây qua YOLOWorld — endpoint 
 3. Sau 5 frame confidence thấp liên tiếp → tự dừng
 4. Servo giữ tại vị trí cuối (không snap về idle)
 5. Agent có thể thông báo user hoặc tự re-detect
-```
-
-### Re-detect định kỳ (PUT)
-
-```
-1. Đang tracking nhưng bbox trôi dần (thay đổi scale, bị che 1 phần)
-2. Mỗi 5 giây, tracking loop gọi YOLOWorld trong background thread
-3. Nếu tìm được → TrackerVit khởi tạo lại với bbox mới
-4. Sửa drift mà không gián đoạn tracking
 ```
 
 ## Camera Stream Overlay
@@ -240,6 +244,6 @@ Camera section hiển thị:
 ## Bước tiếp theo
 
 - **OpenClaw skill** — `track/SKILL.md` để agent gọi tracking bằng giọng nói
-- ~~**Re-detect định kỳ**~~ — done, tự re-detect mỗi 5s trong tracking loop
+- ~~**Re-detect định kỳ**~~ — đã thử, rollback. Round-trip YOLO 1-2s desync với chuyển động servo (xem "Tại sao không có periodic YOLO re-detect" ở trên)
 - **PID control** — servo phản hồi mượt hơn thay vì chỉ proportional
 - **Nhiều vật thể** — track nhiều vật, chuyển đổi giữa chúng
