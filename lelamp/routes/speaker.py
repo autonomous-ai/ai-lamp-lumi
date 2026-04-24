@@ -313,12 +313,19 @@ def speaker_recognize(req: RecognizeSpeakerRequest) -> RecognizeResponse:
     threshold, along with ``unknown_audio_path`` so the skill can reuse that
     path for a later enrollment call.
     """
+    logger.info("POST /speaker/recognize wav_path=%r", req.wav_path)
     _validate_paths([req.wav_path])
     sr = get_speaker_recognizer()
     try:
         result = sr.recognize(req.wav_path, source_type="filepath")
     except SpeakerRecognizerError as e:
+        logger.warning("POST /speaker/recognize failed for %r: %s", req.wav_path, e)
         raise HTTPException(status_code=400, detail=str(e)) from e
+    logger.info(
+        "POST /speaker/recognize -> name=%r confidence=%.3f match=%s cluster=%s",
+        result.get("name"), float(result.get("confidence", 0.0)),
+        bool(result.get("match", False)), result.get("voiceprint_hash") or "(none)",
+    )
     return RecognizeResponse(**result)
 
 
@@ -363,8 +370,10 @@ def voice_strangers() -> StrangersResponse:
     clips the lamp has grouped as "same unknown voice" before deciding to
     enroll them as a known speaker.
     """
+    logger.info("GET /voice/strangers")
     root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR)
     if not root.is_dir():
+        logger.info("GET /voice/strangers: dir %s does not exist", root)
         return StrangersResponse(total=0, clusters=[])
 
     clusters: list[StrangerCluster] = []
@@ -392,6 +401,11 @@ def voice_strangers() -> StrangersResponse:
             samples=samples,
         ))
     clusters.sort(key=lambda c: c.latest_mtime, reverse=True)
+    logger.info(
+        "GET /voice/strangers -> %d cluster(s): %s",
+        len(clusters),
+        ", ".join(f"{c.hash}({c.sample_count})" for c in clusters) or "(none)",
+    )
     return StrangersResponse(total=len(clusters), clusters=clusters)
 
 
@@ -472,13 +486,22 @@ def voice_stranger_audio(hash: str, filename: str) -> FileResponse:
     path-traversal attempts like ``../../etc/passwd``.
     """
     if not _STRANGER_HASH_RE.match(hash) or not _STRANGER_SAMPLE_RE.match(filename):
+        logger.warning(
+            "GET /voice/strangers/audio: invalid path hash=%r filename=%r",
+            hash, filename,
+        )
         raise HTTPException(status_code=400, detail="invalid path")
     root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR).resolve()
     target = (root / hash / filename).resolve()
     try:
         target.relative_to(root)
     except ValueError as exc:
+        logger.warning(
+            "GET /voice/strangers/audio: path-traversal rejected target=%s", target,
+        )
         raise HTTPException(status_code=400, detail="invalid path") from exc
     if not target.is_file():
+        logger.warning("GET /voice/strangers/audio: not found %s", target)
         raise HTTPException(status_code=404, detail="sample not found")
+    logger.info("GET /voice/strangers/audio/%s/%s -> %s", hash, filename, target)
     return FileResponse(str(target), media_type="audio/wav", filename=filename)

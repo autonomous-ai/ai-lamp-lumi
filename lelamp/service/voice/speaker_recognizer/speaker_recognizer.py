@@ -1092,6 +1092,12 @@ class SpeakerRecognizer:
                 f"invalid source_type {source_type!r}"
             )
 
+        logger.info(
+            "Recognize start: source_type=%s source=%s",
+            source_type,
+            wav_source if source_type == "filepath" else f"<base64 {len(wav_source)}B>",
+        )
+
         if source_type == "filepath":
             raw = _read_bytes(wav_source)
         else:
@@ -1127,6 +1133,9 @@ class SpeakerRecognizer:
                 payload, return_chunks=True
             )  # [M, D]
         except SpeakerRecognizerError as e:
+            logger.warning(
+                "Recognize: embedding failed for %s — %s", saved_path, e,
+            )
             return {
                 "name": "unknown",
                 "confidence": 0.0,
@@ -1137,13 +1146,23 @@ class SpeakerRecognizer:
                 "error": str(e),
             }
 
+        logger.info(
+            "Recognize: query embedding chunks=%d dim=%d saved=%s",
+            int(query_chunks.shape[0]), int(query_chunks.shape[1]), saved_path,
+        )
+
         known = self._load_all_embeddings()
         if not known:
             # No enrolled users — every voice is unknown. Still assign a
             # stable cluster hash so repeat speakers can be tracked before
             # anyone is enrolled.
+            logger.info("Recognize: no enrolled users — unknown + cluster-only path")
             vp_hash = self._assign_voiceprint_hash(query_chunks)
             saved_path = self._move_to_cluster(saved_path, vp_hash)
+            logger.info(
+                "Recognize result: name=unknown confidence=0.00 cluster=%s path=%s",
+                vp_hash or "(none)", saved_path,
+            )
             return {
                 "name": "unknown",
                 "confidence": 0.0,
@@ -1186,6 +1205,18 @@ class SpeakerRecognizer:
 
         is_match = best_conf >= self._match_threshold
         resolved_name = best_name if is_match else "unknown"
+
+        # Full per-speaker breakdown — lets operator see why a near-miss
+        # happened (e.g. Lily scored 0.68 with 5 votes vs Chloe 0.64 with
+        # 4 votes against threshold 0.70 → both lose, tag as unknown).
+        scores_str = ", ".join(
+            f"{n}={c:.3f}(v={v})" for n, c, v in scores[:5]
+        )
+        logger.info(
+            "Recognize scores: threshold=%.2f match=%s -> name=%s | %s",
+            self._match_threshold, is_match, resolved_name, scores_str,
+        )
+
         # Only assign a stranger cluster hash for unknowns — known speakers
         # already have a stable identity (their name).
         vp_hash = None if is_match else (self._assign_voiceprint_hash(query_chunks) or None)
@@ -1193,6 +1224,11 @@ class SpeakerRecognizer:
         # samples by cluster. Known-speaker WAVs stay in the flat dir.
         if vp_hash:
             saved_path = self._move_to_cluster(saved_path, vp_hash)
+
+        logger.info(
+            "Recognize result: name=%s confidence=%.3f match=%s cluster=%s path=%s",
+            resolved_name, best_conf, is_match, vp_hash or "(none)", saved_path,
+        )
         result: dict[str, Any] = {
             "name": resolved_name,
             "confidence": round(best_conf, 4),
@@ -1499,6 +1535,7 @@ class SpeakerRecognizer:
         """
         q = _l2(query_embedding)
         if float(np.linalg.norm(q)) == 0.0:
+            logger.info("Auto-merge scan: query embedding has zero norm — skip")
             return []
         with self._stranger_lock:
             if (
@@ -1506,8 +1543,20 @@ class SpeakerRecognizer:
                 or self._stranger_labels is None
                 or len(self._stranger_embeds) == 0
             ):
+                logger.info("Auto-merge scan: no stranger centroids to compare")
                 return []
             sims = self._stranger_embeds @ q
+            # Log every cluster's similarity (not just matches) so operators
+            # can tune threshold from real data: e.g. see that voice_5 missed
+            # at sim=0.23 and decide to lower threshold to 0.20.
+            breakdown = ", ".join(
+                f"{self._stranger_labels[i]}={float(sims[i]):+.3f}"
+                for i in range(len(sims))
+            )
+            logger.info(
+                "Auto-merge scan: threshold=%.2f query=[%s]",
+                threshold, breakdown,
+            )
             return [
                 str(self._stranger_labels[i])
                 for i, s in enumerate(sims)
