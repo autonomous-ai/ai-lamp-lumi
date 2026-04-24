@@ -8,13 +8,17 @@ Habit tracking thêm **hành vi dự đoán** cho hệ thống wellbeing và mus
 Nguồn dữ liệu (input)               Habit skill                    Consumer (output)
 ─────────────────────                ─────────────                  ──────────────────
 Wellbeing logs (sensing)  ──┐                                      Wellbeing Step 3b
-  drink, break, enter,      ├──→  Flow A: build patterns  ──→      (nhắc dự đoán)
-  leave, sedentary           │       ↓
-                             │    patterns.json               ──→  Music-suggestion
+  drink, break, enter,      ├──→  Flow A: build patterns  ──→      (enrich phrasing
+  leave, sedentary          │      (gọi khi có nudge,                cho nudge)
+                            │       self-throttle <6h)
+                            │       ↓
+                            │    patterns.json               ──→  Music-suggestion
 SOUL (conversation)     ──┘       per user                        (genre ưa thích)
   meal, coffee, sleep,
   exercise
 ```
+
+**Trigger Flow A:** Step 3b của wellbeing chỉ invoke Flow A khi Step 3 fire một threshold nudge (sự kiện hành vi thực sự). Flow A self-throttle bằng mtime — nếu `patterns.json` còn fresh (<6h), trả ngay không recompute. `motion.activity` tick rảnh không bao giờ trigger rebuild.
 
 ## Nguồn dữ liệu
 
@@ -74,16 +78,18 @@ Rebuild khi:
 
 ## Consumer
 
-### Wellbeing — nhắc dự đoán (Step 3b)
+### Wellbeing — enrich phrasing nudge (Step 3b)
 
-Sau khi check threshold bình thường (uống nước > 45 min? nghỉ > 30 min?), wellbeing đọc `patterns.json`:
+Khi Step 3 threshold check fire một nudge (uống nước > 45 min? nghỉ > 30 min?), wellbeing invoke habit Flow A. Flow A self-throttle (no-op nếu `patterns.json` < 6h; bootstrap nếu thiếu file và có ≥3 ngày data). `wellbeing_patterns` trả về được dùng để enrich câu nói:
 
-1. Giờ hiện tại có nằm trong `typical_hour:typical_minute ± window_minutes` không?
-2. Action đã xảy ra hôm nay chưa? → bỏ qua
-3. Đã nudge hôm nay chưa? → bỏ qua
-4. Nếu chưa → nhắc chủ động
+1. Action đang nudge có phải habit moderate+ (`frequency ≥ 0.5`) không?
+2. `now` có nằm trong `typical_hour:typical_minute ± window_minutes` của habit đó không?
+3. Có → lồng habit context vào câu nói (*"bạn thường uống nước giờ này — ổn không?"*)
+4. Không → dùng câu generic từ bảng
 
-**Ví dụ:** Leo thường uống nước lúc 9h. 9h15 chưa thấy entry `drink` → Lumi nhắc, dù threshold chưa vượt.
+Không có nudge habit-only riêng — habit chỉ enrich phrasing cho threshold nudge, không phải trigger thứ hai. Tránh double-nudge và giữ chi phí bootstrap của Flow A trên hot path nudge (rare), không phải trên mỗi `motion.activity` tick.
+
+**Ví dụ:** Hydration timer của Leo vượt threshold lúc 9h15. Flow A trả `drink @ hour=9 typical_minute=10 strength=moderate`. Lumi nói *"bạn thường uống nước giờ này — làm 1 ly nhé?"* thay vì câu generic *"lâu rồi chưa uống nước — làm 1 ly nha?"*.
 
 ### Music-suggestion — genre ưa thích (Flow C)
 
