@@ -9,12 +9,14 @@ type CompactionPayload = {
   id?: string | number;
   parentId?: string | number;
   timestamp?: string;
+  nextTimestamp?: string;
   tokensBefore?: number;
   summaryChars?: number;
   summary?: string;
   details?: { readFiles?: string[]; modifiedFiles?: string[] } & Record<string, unknown>;
   fromHook?: boolean;
   firstKeptEntryId?: string | number;
+  atQuery?: string;
 };
 
 type ApiEnvelope = {
@@ -23,7 +25,7 @@ type ApiEnvelope = {
   message?: string | null;
 };
 
-export function CompactionModal({ onClose }: { onClose: () => void }) {
+export function CompactionModal({ onClose, at, turnLabel }: { onClose: () => void; at?: string; turnLabel?: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CompactionPayload | null>(null);
@@ -34,7 +36,10 @@ export function CompactionModal({ onClose }: { onClose: () => void }) {
       try {
         setLoading(true);
         setError(null);
-        const r = await fetch(`${API}/openclaw/compaction-latest`, { signal: ac.signal });
+        const url = at
+          ? `${API}/openclaw/compaction-latest?at=${encodeURIComponent(at)}`
+          : `${API}/openclaw/compaction-latest`;
+        const r = await fetch(url, { signal: ac.signal });
         const j: ApiEnvelope = await r.json();
         if (!r.ok || j?.status !== 1 || !j.data) {
           throw new Error(j?.message || `HTTP ${r.status}`);
@@ -48,9 +53,11 @@ export function CompactionModal({ onClose }: { onClose: () => void }) {
       }
     })();
     return () => ac.abort();
-  }, []);
+  }, [at]);
 
   const tsLocal = data?.timestamp ? new Date(data.timestamp).toLocaleString() : "";
+  const nextLocal = data?.nextTimestamp ? new Date(data.nextTimestamp).toLocaleString() : "";
+  const atLocal = at ? new Date(at).toLocaleString() : "";
 
   return (
     <div
@@ -71,9 +78,13 @@ export function CompactionModal({ onClose }: { onClose: () => void }) {
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" as const }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--lm-text)" }}>📋 Active Compaction Summary</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--lm-text)" }}>
+              📋 {at ? "Summary active at this turn" : "Active Compaction Summary"}
+            </span>
             <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>
-              ⚡ injected at top of every agent turn until the next compact
+              {at
+                ? `⚡ the summary injected when ${turnLabel ?? "this turn"} fired (${atLocal})`
+                : "⚡ injected at top of every agent turn until the next compact"}
             </span>
           </div>
           <button onClick={onClose} style={{
@@ -116,7 +127,12 @@ export function CompactionModal({ onClose }: { onClose: () => void }) {
               gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
               gap: 8, marginBottom: 14, fontSize: 11,
             }}>
-              <Field label="timestamp" value={tsLocal} mono />
+              <Field label="compacted at" value={tsLocal} mono />
+              <Field
+                label={nextLocal ? "superseded at" : "active until"}
+                value={nextLocal || "still active"}
+                mono
+              />
               <Field label="summary chars" value={String(data.summaryChars ?? "?")} mono />
               <Field label="session file" value={data.sessionFile ?? "?"} mono />
             </div>

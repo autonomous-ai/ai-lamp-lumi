@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,12 +35,17 @@ type compactionRecord struct {
 	FirstKeptEntryID any            `json:"firstKeptEntryId"`
 }
 
-// CompactionLatest returns the most recent compaction summary for an OpenClaw agent session.
-// This summary is injected at the top of every subsequent turn's prompt until the next compaction,
-// so rules accidentally copied into it can override SKILL.md. Exposing it lets the UI surface what's
-// actually driving agent behavior vs what the SKILLs claim.
+// CompactionLatest returns the compaction summary that was active at a given time for an OpenClaw
+// agent session — i.e. the most recent compaction record with timestamp ≤ ?at (default: now, which
+// resolves to the latest record). This summary is injected at the top of every subsequent turn's
+// prompt until the next compaction, so rules accidentally copied into it can override SKILL.md.
+// Exposing it lets the UI surface what's actually driving agent behavior vs what the SKILLs claim.
 //
-// Query: ?session=<key> (default: agent:main:main).
+// Query:
+//
+//	?session=<key>  (default: agent:main:main)
+//	?at=<iso-ts>    (default: empty → newest record; when set, returns the compaction active
+//	                 at that moment, used to debug a specific turn)
 func (h *OpenClawHandler) CompactionLatest(c *gin.Context) {
 	raw, err := os.ReadFile(openclawSessionsIndex)
 	if err != nil {
@@ -67,7 +73,8 @@ func (h *OpenClawHandler) CompactionLatest(c *gin.Context) {
 		sessionFile = filepath.Join(filepath.Dir(openclawSessionsIndex), sid+".jsonl")
 	}
 
-	latest, err := scanLatestCompaction(sessionFile)
+	atCutoff := strings.TrimSpace(c.Query("at"))
+	latest, nextTs, err := scanActiveCompaction(sessionFile, atCutoff)
 	if err != nil {
 		c.JSON(http.StatusNotFound, serializers.ResponseError("session file scan failed: "+err.Error()))
 		return
@@ -77,6 +84,7 @@ func (h *OpenClawHandler) CompactionLatest(c *gin.Context) {
 			"found":       false,
 			"sessionKey":  sessionKey,
 			"sessionFile": sessionFile,
+			"atQuery":     atCutoff,
 		}))
 		return
 	}
@@ -89,19 +97,26 @@ func (h *OpenClawHandler) CompactionLatest(c *gin.Context) {
 		"id":               latest.ID,
 		"parentId":         latest.ParentID,
 		"timestamp":        latest.Timestamp,
+		"nextTimestamp":    nextTs, // "" if this is still the active compaction
 		"tokensBefore":     latest.TokensBefore,
 		"summaryChars":     len(latest.Summary),
 		"summary":          latest.Summary,
 		"details":          latest.Details,
 		"fromHook":         latest.FromHook,
 		"firstKeptEntryId": latest.FirstKeptEntryID,
+		"atQuery":          atCutoff,
 	}))
 }
 
-func scanLatestCompaction(path string) (*compactionRecord, error) {
+// scanActiveCompaction returns the compaction record that was active at `atCutoff` (ISO timestamp).
+// An empty atCutoff means "whichever compaction is active right now" = the newest record.
+// It also returns the timestamp of the NEXT compaction after the matched one — "" if the matched
+// record is still the active one (no successor yet). The caller can use this to display the window
+// of time a given summary was in effect.
+func scanActiveCompaction(path, atCutoff string) (*compactionRecord, string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer f.Close()
 
@@ -109,7 +124,8 @@ func scanLatestCompaction(path string) (*compactionRecord, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), compactionLineBufMax)
 
-	var latest *compactionRecord
+	var active *compactionRecord
+	var nextTs string
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if !bytes.Contains(line, needle) {
@@ -122,11 +138,21 @@ func scanLatestCompaction(path string) (*compactionRecord, error) {
 		if rec.Type != "compaction" {
 			continue
 		}
+		if atCutoff != "" && rec.Timestamp > atCutoff {
+			// Past the cutoff. If we already locked in an active record, this is the successor
+			// that ends its window — record it and stop.
+			if active != nil {
+				nextTs = rec.Timestamp
+				break
+			}
+			// No earlier record qualifies — cutoff predates all compactions in this session.
+			continue
+		}
 		cp := rec
-		latest = &cp
+		active = &cp
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return latest, nil
+	return active, nextTs, nil
 }
