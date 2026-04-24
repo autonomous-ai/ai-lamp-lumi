@@ -114,7 +114,8 @@ func StopVoicePipeline() error {
 }
 
 // ListVoices returns available TTS voices for the given provider.
-// Returns empty slice (no error) if LeLamp is reachable but returns non-200.
+// Returns an error if LeLamp is unreachable or returns non-2xx — callers
+// should fall back to a static list in that case.
 func ListVoices(provider string) ([]string, error) {
 	resp, err := httpClient.Get(BaseURL + "/voice/voices?provider=" + provider)
 	if err != nil {
@@ -122,7 +123,7 @@ func ListVoices(provider string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil
+		return nil, fmt.Errorf("GET /voice/voices returned %d", resp.StatusCode)
 	}
 	var result struct {
 		Provider string   `json:"provider"`
@@ -163,6 +164,9 @@ func GetHealth() (*Health, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("GET /health returned %d", resp.StatusCode)
+	}
 	var h Health
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
 		return nil, fmt.Errorf("decode /health: %w", err)
@@ -190,6 +194,9 @@ func GetServoStatus() (*ServoStatus, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("GET /servo/status returned %d", resp.StatusCode)
+	}
 	var ss ServoStatus
 	if err := json.NewDecoder(resp.Body).Decode(&ss); err != nil {
 		return nil, fmt.Errorf("decode /servo/status: %w", err)

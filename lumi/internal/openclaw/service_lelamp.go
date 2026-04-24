@@ -11,6 +11,19 @@ import (
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
+// Regex for stripForTTS — precompiled once at package init. Compiling per-call
+// costs ~7 MustCompile per TTS message; at wake-word → reply latency this adds
+// measurable overhead.
+var (
+	reEmoji       = regexp.MustCompile(`[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}\x{E0020}-\x{E007F}]`)
+	reMDBold      = regexp.MustCompile(`\*{1,3}([^*]+)\*{1,3}`)
+	reMDItalic    = regexp.MustCompile(`_{1,3}([^_]+)_{1,3}`)
+	reMDLink      = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`)
+	reCodeBlock   = regexp.MustCompile("```[\\s\\S]*?```")
+	reInlineCode  = regexp.MustCompile("`([^`]+)`")
+	reWhitespace  = regexp.MustCompile(`\s+`)
+)
+
 // StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
 func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error {
 	if deepgramKey == "" {
@@ -33,20 +46,23 @@ func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, tt
 
 // stripForTTS removes markdown formatting and emoji so TTS reads clean spoken text.
 func stripForTTS(text string) string {
-	// Remove emoji (Unicode emoji ranges)
-	emojiRe := regexp.MustCompile(`[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}\x{E0020}-\x{E007F}]`)
-	text = emojiRe.ReplaceAllString(text, "")
-	// Remove markdown bold/italic markers
-	text = regexp.MustCompile(`\*{1,3}([^*]+)\*{1,3}`).ReplaceAllString(text, "$1")
-	text = regexp.MustCompile(`_{1,3}([^_]+)_{1,3}`).ReplaceAllString(text, "$1")
-	// Remove markdown links [text](url) → text
-	text = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`).ReplaceAllString(text, "$1")
-	// Remove code blocks and inline code
-	text = regexp.MustCompile("```[\\s\\S]*?```").ReplaceAllString(text, "")
-	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
-	// Collapse whitespace
-	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+	text = reEmoji.ReplaceAllString(text, "")
+	text = reMDBold.ReplaceAllString(text, "$1")
+	text = reMDItalic.ReplaceAllString(text, "$1")
+	text = reMDLink.ReplaceAllString(text, "$1")
+	text = reCodeBlock.ReplaceAllString(text, "")
+	text = reInlineCode.ReplaceAllString(text, "$1")
+	text = reWhitespace.ReplaceAllString(text, " ")
 	return strings.TrimSpace(text)
+}
+
+// truncRunes returns the first n runes of s (UTF-8 safe, never cuts mid-char).
+func truncRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // SetVolume sets speaker volume on LeLamp (0-100).
@@ -82,7 +98,7 @@ func (s *Service) SendToLeLampTTS(text string) error {
 	if err := lelamp.Speak(text); err != nil {
 		return fmt.Errorf("speak: %w", err)
 	}
-	slog.Info("TTS sent", "component", "openclaw", "text", text[:min(len(text), 80)])
+	slog.Info("TTS sent", "component", "openclaw", "text", truncRunes(text, 80))
 
 	s.monitorBus.Push(domain.MonitorEvent{
 		Type:    "tts",
