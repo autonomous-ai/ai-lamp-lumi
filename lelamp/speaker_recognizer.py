@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from lelamp.service.voice.speaker_recognizer import (
+    EmbeddingAPIUnavailableError,
     SpeakerRecognizer,
     SpeakerRecognizerError,
 )
@@ -199,6 +200,12 @@ def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
             telegram_id=req.telegram_id or "",
             origin=req.origin or "",
         )
+    except EmbeddingAPIUnavailableError as e:
+        logger.warning("POST /speaker/enroll API unavailable for %r: %s", req.name, e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"embedding service unavailable — please try again: {e}",
+        ) from e
     except SpeakerRecognizerError as e:
         logger.warning("POST /speaker/enroll failed for %r: %s", req.name, e)
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -1,5 +1,13 @@
 """Speaker voice recognition package."""
 
-from .speaker_recognizer import SpeakerRecognizer, SpeakerRecognizerError
+from .speaker_recognizer import (
+    EmbeddingAPIUnavailableError,
+    SpeakerRecognizer,
+    SpeakerRecognizerError,
+)
 
-__all__ = ["SpeakerRecognizer", "SpeakerRecognizerError"]
+__all__ = [
+    "EmbeddingAPIUnavailableError",
+    "SpeakerRecognizer",
+    "SpeakerRecognizerError",
+]
