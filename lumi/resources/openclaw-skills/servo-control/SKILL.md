@@ -1,6 +1,21 @@
 ---
 name: servo-control
-description: Use when the user asks to aim/point/look the lamp in a DIRECTION ("look at desk", "point at the wall", "look left", "aim at the ceiling", "turn right"), stop/freeze/hold movement ("stand still", "stop moving", "freeze", "hold still"), resume movement, or when a specific servo animation is needed without LED/display changes. Directions are fixed names like desk/wall/left/right/up/down/center/user. For following a moving OBJECT by vision ("follow the cup", "track the phone"), use the servo-tracking skill. If the user asks for both in one sentence ("look at desk and follow the cup"), fire THIS aim skill first, then the tracking skill — see servo-tracking for the compound example.
+description: |
+  Use when the user asks to aim/point/look the lamp in a DIRECTION, or to toggle servo state (hold/resume/release), or to play a named servo animation (nod/shake/etc).
+
+  Direction = a fixed named location or axis. The supported direction names are exactly: desk, table, workspace (all map to "desk"), wall, left, right, up, down, center, user. Furniture, surfaces, and rooms ("desk", "table", "floor", "wall", "door") are ALWAYS directions, never tracking targets. Pick the closest matching direction name for any furniture/location phrase.
+
+  Examples that MUST use /servo/aim (not /servo/track):
+    "look at the desk" → direction=desk
+    "point at my table" → direction=desk
+    "look at the wall" → direction=wall
+    "look left" / "turn right" → direction=left / right
+    "point up" → direction=up
+    "look at me" → direction=user
+
+  For following a movable OBJECT by vision (cup, phone, hand, person, pet, etc.) use the servo-tracking skill instead.
+
+  Compound: if the user names a direction AND an object in one sentence ("look at the desk and follow the cup"), fire THIS aim skill first so the camera is pointing at the right region, then the tracking skill. See the compound example in servo-tracking.
 ---
 
 # Servo Control
@@ -19,6 +34,15 @@ Controls the lamp's 5-axis servo motors for aiming light direction and playing p
 
 **Input:** "Point the light at my desk"
 **Output:** `[HW:/servo/aim:{"direction":"desk"}]` Done, aimed the light at your desk.
+
+**Input:** "Look at the desk" / "Look at my table" / "Look at my workspace"
+**Output:** `[HW:/servo/aim:{"direction":"desk"}]` Looking at the desk now.
+
+**Input:** "Look at the wall"
+**Output:** `[HW:/servo/aim:{"direction":"wall"}]` Looking at the wall.
+
+**Input:** "Look at me"
+**Output:** `[HW:/servo/aim:{"direction":"user"}]` Looking at you!
 
 **Input:** "Look to the left"
 **Output:** `[HW:/servo/aim:{"direction":"left"}]` Looking left now.
