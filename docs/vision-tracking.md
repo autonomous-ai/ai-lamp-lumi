@@ -71,7 +71,7 @@ Real-time object following after initial detection.
 | Scale handling | Auto-adjusts bbox size |
 | Loss detection | Returns `ok=False` + low score when object disappears |
 
-**Fallback chain:** TrackerVit → CSRT (needs opencv-contrib) → KCF → MIL
+**Tracker chain:** CSRT (primary, needs opencv-contrib) → KCF → MIL. TrackerVit was the previous default but on-device its bbox inflated from ~14% to ~80% of the frame within a single frame on a cup with a loose YOLO initial box. CSRT is slower per frame but keeps lock much better at 7 Hz. We lose `getTrackingScore()` — loss is now caught only by bbox-bloat and `ok=False`.
 
 ## Servo Control
 

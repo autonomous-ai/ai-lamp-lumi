@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # --- Model paths ---
 
+# NOTE: `vittrack.onnx` is still checked into the repo; kept there in
+# case we want to re-enable TrackerVit as a fallback for scenes where
+# CSRT struggles. See _create_tracker() for the current order.
 _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 
 # --- YOLOWorld API ---
@@ -401,19 +404,17 @@ class TrackerService:
 
     @staticmethod
     def _create_tracker():
-        """Create TrackerVit (best available) or fall back to MIL."""
-        # TrackerVit: ViT-based, has confidence score, good accuracy
-        if os.path.exists(_VIT_MODEL):
-            try:
-                params = cv2.TrackerVit_Params()
-                params.net = _VIT_MODEL
-                tracker = cv2.TrackerVit.create(params)
-                logger.info("Using OpenCV tracker: Vit (model=%s)", _VIT_MODEL)
-                return tracker
-            except Exception as e:
-                logger.warning("TrackerVit failed: %s", e)
+        """Create CSRT tracker (best default) with fallbacks.
 
-        # Fallback chain
+        Order changed based on on-device evidence: TrackerVit's bbox
+        inflated from 14% → 80% of the frame within a single frame on a
+        cup with a fairly loose YOLO bbox, losing lock instantly. CSRT is
+        slower per frame but noticeably more robust for rigid objects
+        with mixed foreground/background in the initial box, and the
+        tracking loop runs at ~7 Hz so the extra cost is fine. We lose
+        TrackerVit's `getTrackingScore()` — _get_confidence() falls back
+        to 1.0, and bbox-bloat / low-frame-conf-count still catch loss.
+        """
         candidates = [
             ("CSRT", lambda: cv2.TrackerCSRT.create()),
             ("KCF", lambda: cv2.TrackerKCF.create()),
@@ -422,7 +423,7 @@ class TrackerService:
         for name, factory in candidates:
             try:
                 tracker = factory()
-                logger.info("Using OpenCV tracker: %s (no confidence scoring)", name)
+                logger.info("Using OpenCV tracker: %s", name)
                 return tracker
             except (AttributeError, cv2.error, Exception):
                 continue
