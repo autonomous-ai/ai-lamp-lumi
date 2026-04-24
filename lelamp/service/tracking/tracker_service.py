@@ -110,11 +110,20 @@ MAX_LOW_CONFIDENCE_FRAMES = 5
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU
 MAX_TRACK_DURATION_S = 300  # 5 minutes
 
-# Servo position limits (degrees) — prevent runaway
+# Hardware servo position limits (degrees) — absolute safety bounds.
 YAW_MIN, YAW_MAX = -135.0, 135.0
 BASE_PITCH_MIN, BASE_PITCH_MAX = -90.0, 30.0
 ELBOW_PITCH_MIN, ELBOW_PITCH_MAX = -90.0, 90.0
 WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
+
+# Tracker-allowed range for base_pitch — narrower than the hardware limits so
+# the tracker stops reaching for the physical extreme. Observed on-device:
+# after /servo/aim desk (base_pitch=+5), tracker chasing a cup near the top
+# edge of the frame could drive base_pitch to the hardware MAX (+30) in ~1s.
+# The motor then held torque at that limit — the lamp felt "stuck". Keeping
+# ~15° headroom on each side gives a graceful stop via the at-limit check.
+TRACK_BASE_PITCH_MIN = -75.0
+TRACK_BASE_PITCH_MAX = 15.0
 
 
 @dataclass
@@ -268,7 +277,8 @@ class TrackerService:
         # can't lock because the next frame looks materially different
         # once the servo settles. A 50ms extra idle pad covers the motor's
         # own settle time after the animation loop has released the pose.
-        animation_idle_deadline = time.perf_counter() + 4.0
+        animation_wait_budget_s = 7.0
+        animation_idle_deadline = time.perf_counter() + animation_wait_budget_s
         while time.perf_counter() < animation_idle_deadline:
             busy = bool(getattr(animation_service, "_current_recording", None)) \
                 or getattr(animation_service, "_interpolation_frames", 0) > 0
@@ -276,7 +286,8 @@ class TrackerService:
                 break
             time.sleep(0.05)
         else:
-            logger.warning("tracker start: animation still busy after 4s, proceeding anyway")
+            logger.warning("tracker start: animation still busy after %.0fs, proceeding anyway",
+                           animation_wait_budget_s)
         time.sleep(0.05)
 
         # Snapshot a single frame and keep it throughout detect + tracker init.
@@ -491,11 +502,15 @@ class TrackerService:
                 state.bbox = tuple(int(v) for v in new_bbox)
                 bx, by, bw, bh = state.bbox
 
-                # Detect bbox bloat — tracker drifting to full frame
+                # Detect bbox bloat — tracker drifting toward full frame.
+                # Was 3x; tightened to 2x because on-device every lost session
+                # ended here, and by the time 3x hit the servo had already
+                # been pushed to an extreme pose. Stopping earlier keeps the
+                # lamp closer to the last good pose.
                 bbox_area = bw * bh
                 frame_area = frame.shape[0] * frame.shape[1]
-                if init_area > 0 and bbox_area > init_area * 3:
-                    logger.warning("Bbox bloated to %.0fx initial (area=%d vs init=%d), stopping",
+                if init_area > 0 and bbox_area > init_area * 2:
+                    logger.warning("Bbox bloated to %.1fx initial (area=%d vs init=%d), stopping",
                                    bbox_area / init_area, bbox_area, init_area)
                     break
                 if bbox_area > frame_area * 0.5:
@@ -529,9 +544,12 @@ class TrackerService:
                     logger.warning("Tracking timeout after %ds, stopping", MAX_TRACK_DURATION_S)
                     break
 
-                # Servo at limit but object still far from center → unreachable
+                # Servo at limit but object still far from center → unreachable.
+                # Compare against the tracker-allowed pitch range (narrower
+                # than hardware) so we bail out before the motor hits a stop.
                 at_yaw_limit = self._track_yaw <= YAW_MIN + 1 or self._track_yaw >= YAW_MAX - 1
-                at_pitch_limit = self._track_base_pitch <= BASE_PITCH_MIN + 1 or self._track_base_pitch >= BASE_PITCH_MAX - 1
+                at_pitch_limit = (self._track_base_pitch <= TRACK_BASE_PITCH_MIN + 1
+                                  or self._track_base_pitch >= TRACK_BASE_PITCH_MAX - 1)
                 if at_yaw_limit or at_pitch_limit:
                     h, w = frame.shape[:2]
                     off = max(abs(cx - w / 2), abs(cy - h / 2))
@@ -588,7 +606,16 @@ class TrackerService:
         gain_mult = CLOSE_OBJECT_GAIN if close else 1.0
 
         yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
+
+        # Pitch sign is NEGATED because base_pitch increases = lamp tilts UP
+        # (per AIM_UP base_pitch=+10 vs AIM_DOWN base_pitch=-50 in presets).
+        # To bring an object at the TOP of the frame (dy < 0) toward the
+        # centre, the lamp must tilt UP → base_pitch must INCREASE →
+        # pitch_deg must be POSITIVE. Without this negation, tracker drove
+        # the lamp *away* from the object on the vertical axis, observed as
+        # "cup near top edge, servo keeps tilting down until it hits MAX
+        # and stalls".
+        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else -dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
@@ -602,7 +629,9 @@ class TrackerService:
             # Pitch on base joint only. Elbow/wrist weights are 0 so they
             # stay at their start pose, matching how yaw leaves the other
             # joints alone.
-            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
+            # Clamp to tracker-allowed range (narrower than hardware limits)
+            # so tracking never drives the motor against a physical stop.
+            new_base_pitch = max(TRACK_BASE_PITCH_MIN, min(TRACK_BASE_PITCH_MAX,
                 self._track_base_pitch + pitch_deg * PITCH_WEIGHT_BASE))
             new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
                 self._track_elbow_pitch + pitch_deg * PITCH_WEIGHT_ELBOW))

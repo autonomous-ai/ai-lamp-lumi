@@ -100,8 +100,8 @@ Object center: tracker bbox (no smoothing — the ~143ms move-then-freeze
 dx = cx - 320   (positive = right)
 dy = cy - 240   (positive = below)
 
-yaw_deg   = dx * 0.022   (clamped to ±6.0°, zero if |dx| < 18)
-pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
+yaw_deg   = dx * 0.022    (clamped to ±6.0°, zero if |dx| < 18)
+pitch_deg = -dy * 0.022   (negated; see "Pitch sign" below)
 ```
 
 ### Tuning Constants
@@ -121,6 +121,13 @@ pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 | `CLOSE_OBJECT_GAIN` | 0.5 | Gain multiplier when object is close |
 | `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox smaller than this (too few pixels to track) |
 | `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox larger than this (loose, likely merged) |
+| `TRACK_BASE_PITCH_MIN/MAX` | -75 / +15 | Tracker-allowed pitch range (narrower than hardware -90/+30) — auto-stops before hitting a physical stop |
+| `animation_wait_budget_s` | 7 | Max wait in `start()` for a preceding /servo/aim animation to finish |
+| Bbox bloat stop ratio | 2× initial | Auto-stop when tracker bbox grows to this multiple of init area |
+
+### Pitch sign
+
+`base_pitch` grows positive as the lamp tilts *up* (see `AIM_UP` has `base_pitch=+10`, `AIM_DOWN` has `-50`). To bring an object from the top of the frame (dy < 0) toward the centre, the lamp must tilt up — base_pitch must *increase* — so the pixel-to-degree conversion negates dy. Without this negation the tracker drove the lamp away from the target on the vertical axis and eventually pinned base_pitch against its hardware maximum.
 
 ### Servo Position Limits
 
