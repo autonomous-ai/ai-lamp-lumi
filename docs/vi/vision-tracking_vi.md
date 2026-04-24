@@ -18,7 +18,7 @@ User: "Lumi, nhìn theo cái ly đi"
          |
     4. Vật di chuyển → servo bám theo (yaw + 3 pitch joints)
          |
-    5. Confidence < 0.3 trong 5 frame → tự động dừng + giữ servo tại vị trí
+    5. Confidence < 0.3 trong 5 frame → tự động dừng + dispatch idle để về pose
 ```
 
 ### Tại sao chọn move-then-freeze (thay vì high-FPS chasing)
@@ -71,7 +71,7 @@ Bám theo vật thể real-time sau khi phát hiện.
 | Xử lý scale | Tự điều chỉnh kích thước bbox |
 | Phát hiện mất | Trả `ok=False` + score thấp khi vật biến mất |
 
-**Fallback chain:** TrackerVit → CSRT (cần opencv-contrib) → KCF → MIL
+**Tracker chain:** CSRT (primary, cần opencv-contrib) → KCF → MIL. TrackerVit là default trước kia nhưng thực tế trên Pi bbox phình từ ~14% lên ~80% frame trong 1 frame khi YOLO bbox lỏng chứa background. CSRT chậm hơn mỗi frame nhưng giữ lock tốt hơn ở 7 Hz. Mất `getTrackingScore()` — chỉ còn bbox-bloat và `ok=False` để detect loss.
 
 ## Điều khiển Servo
 
@@ -88,7 +88,7 @@ Pitch chỉ dùng base_pitch, đối xứng với cách yaw dùng base_yaw. Các
 - `send_action()` — ghi servo trực tiếp, không blocking (servo P-gain tự smooth)
 - Re-sync vị trí bus mỗi cycle — đầu mỗi vòng lặp đọc lại vị trí thật từ bus, nếu có thứ gì ngoài tracker move servo (scene change, stale animation, lệnh tay) thì tracker sẽ lấy pose thật thay vì cộng dồn delta stale.
 
-**Khi dừng:** giữ servo ở vị trí cuối cùng khi tracking. Đèn *không* tự snap về idle pose — đã bỏ vì gây giật ngay sau khi tracking kết thúc. Idle animation sẽ resume ở lần tương tác kế tiếp của user.
+**Khi dừng:** dispatch idle recording để lamp về pose an toàn. Phiên bản trước giữ pose cuối (tránh snap-back giật), nhưng nếu tracker kết thúc khi base_pitch gần limit thì motor bị torque ở pose khó → feel kẹt vật lý. Resume idle an toàn hơn; interpolation của idle recording smooth lại chuyển động.
 
 ### Chuyển đổi Pixel sang Độ
 
@@ -100,8 +100,8 @@ Tâm vật thể: tracker bbox (không smooth — cadence move-then-freeze ~143m
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-yaw_deg   = dx * 0.022    (clamp ±6.0°, bằng 0 nếu |dx| < 18)
-pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
+yaw_deg   = dx * 0.022   (clamp ±6.0°, bằng 0 nếu |dx| < 18)
+pitch_deg = dy * 0.022   (cùng dấu dy; xem "Pitch sign" bên dưới)
 ```
 
 ### Hằng số Tuning
@@ -128,7 +128,9 @@ pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
 
 ### Pitch sign
 
-`base_pitch` dương khi lamp tilt *lên* (xem `AIM_UP` có `base_pitch=+10`, `AIM_DOWN` có `-50`). Để kéo object từ mép top frame (dy < 0) về center, lamp phải tilt lên — base_pitch phải *tăng* — nên công thức pixel-to-degree đảo dấu dy. Không đảo dấu thì tracker đẩy lamp **ra xa** object theo chiều dọc và cuối cùng pin base_pitch vào hardware MAX.
+`base_pitch` là joint ở **đáy** cánh tay. Tăng base_pitch = lean arm forward = đầu lamp **drop xuống**; giảm = lean backward = đầu **rise lên**. (Preset AIM_UP có `base_pitch=+10` nhưng hiệu ứng "nhìn lên" chủ yếu nhờ `wrist_pitch=+25`, không phải base_pitch.)
+
+Để kéo cup ở **top** frame (dy < 0) về center, đầu phải rise lên → base_pitch phải **giảm**. Đúng như `pitch_deg = dy * k`: dy < 0 → pitch_deg < 0 → new_base_pitch giảm. Một phiên bản trước đảo dấu dy dựa vào cách đọc naive bảng AIM preset, làm đầu lamp **cúi xuống** mỗi khi cup ở trên center ("cúi quá sâu"). Công thức same-sign-as-dy hiện tại mới đúng.
 
 ### Giới hạn vị trí Servo
 
@@ -218,7 +220,7 @@ Lưu ý: không có re-detect YOLO định kỳ tự động — caller tự quy
    d. Bắt đầu vòng lặp move-then-freeze
 4. Servo bám theo ly nước real-time (confidence ~0.5-0.7)
 5. User: "Thôi đi" → agent gọi POST /servo/track/stop
-6. Servo giữ tại vị trí hiện tại (không snap về idle)
+6. Servo dispatch idle để về pose an toàn
 ```
 
 ### Tự dừng khi mất
@@ -227,7 +229,7 @@ Lưu ý: không có re-detect YOLO định kỳ tự động — caller tự quy
 1. Vật rời khỏi frame hoặc bị che
 2. TrackerVit confidence giảm dưới 0.3
 3. Sau 5 frame confidence thấp liên tiếp → tự dừng
-4. Servo giữ tại vị trí cuối (không snap về idle)
+4. Servo dispatch idle để về pose an toàn
 5. Agent có thể thông báo user hoặc tự re-detect
 ```
 

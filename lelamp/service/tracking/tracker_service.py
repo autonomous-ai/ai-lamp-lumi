@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # --- Model paths ---
 
+# NOTE: `vittrack.onnx` is still checked into the repo; kept there in
+# case we want to re-enable TrackerVit as a fallback for scenes where
+# CSRT struggles. See _create_tracker() for the current order.
 _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 
 # --- YOLOWorld API ---
@@ -287,16 +290,19 @@ class TrackerService:
         # can't lock because the next frame looks materially different
         # once the servo settles. A 50ms extra idle pad covers the motor's
         # own settle time after the animation loop has released the pose.
+        # Wait only for an active interpolation (e.g. /servo/aim transitioning
+        # to its target pose) to finish. Don't wait on _current_recording in
+        # general — idle is always "playing" on the animation event loop and
+        # that made the old check treat the lamp as permanently busy, hitting
+        # the timeout and starting tracking from a half-moved aim pose.
         animation_wait_budget_s = 7.0
         animation_idle_deadline = time.perf_counter() + animation_wait_budget_s
         while time.perf_counter() < animation_idle_deadline:
-            busy = bool(getattr(animation_service, "_current_recording", None)) \
-                or getattr(animation_service, "_interpolation_frames", 0) > 0
-            if not busy:
+            if getattr(animation_service, "_interpolation_frames", 0) <= 0:
                 break
             time.sleep(0.05)
         else:
-            logger.warning("tracker start: animation still busy after %.0fs, proceeding anyway",
+            logger.warning("tracker start: interpolation still running after %.0fs, proceeding anyway",
                            animation_wait_budget_s)
         time.sleep(0.05)
 
@@ -398,19 +404,17 @@ class TrackerService:
 
     @staticmethod
     def _create_tracker():
-        """Create TrackerVit (best available) or fall back to MIL."""
-        # TrackerVit: ViT-based, has confidence score, good accuracy
-        if os.path.exists(_VIT_MODEL):
-            try:
-                params = cv2.TrackerVit_Params()
-                params.net = _VIT_MODEL
-                tracker = cv2.TrackerVit.create(params)
-                logger.info("Using OpenCV tracker: Vit (model=%s)", _VIT_MODEL)
-                return tracker
-            except Exception as e:
-                logger.warning("TrackerVit failed: %s", e)
+        """Create CSRT tracker (best default) with fallbacks.
 
-        # Fallback chain
+        Order changed based on on-device evidence: TrackerVit's bbox
+        inflated from 14% → 80% of the frame within a single frame on a
+        cup with a fairly loose YOLO bbox, losing lock instantly. CSRT is
+        slower per frame but noticeably more robust for rigid objects
+        with mixed foreground/background in the initial box, and the
+        tracking loop runs at ~7 Hz so the extra cost is fine. We lose
+        TrackerVit's `getTrackingScore()` — _get_confidence() falls back
+        to 1.0, and bbox-bloat / low-frame-conf-count still catch loss.
+        """
         candidates = [
             ("CSRT", lambda: cv2.TrackerCSRT.create()),
             ("KCF", lambda: cv2.TrackerKCF.create()),
@@ -419,7 +423,7 @@ class TrackerService:
         for name, factory in candidates:
             try:
                 tracker = factory()
-                logger.info("Using OpenCV tracker: %s (no confidence scoring)", name)
+                logger.info("Using OpenCV tracker: %s", name)
                 return tracker
             except (AttributeError, cv2.error, Exception):
                 continue
@@ -595,10 +599,19 @@ class TrackerService:
                 )
                 animation_service._event_thread.start()
 
-            # Hold servo at current tracked position. Dispatching idle here
-            # used to snap the lamp back to its start pose, which looked like
-            # a hard jerk right after tracking ended.
-            logger.info("Tracking ended — holding servo at current position")
+            # Resume idle animation to recover the lamp to a safe pose.
+            # Previously we held at the last tracked position to avoid the
+            # snap back to idle looking jerky — but if the tracker ended
+            # while base_pitch was at or near its safety limit, holding
+            # means leaving the motor torqued against a hard-to-reach pose
+            # and the lamp feels physically stuck. Recovering via idle is
+            # the safer default; the idle interpolation smooths the move.
+            try:
+                from lelamp.presets import SERVO_CMD_PLAY
+                animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
+                logger.info("Tracking ended — resuming idle")
+            except Exception as e:
+                logger.warning("Tracking ended — idle resume failed: %s", e)
 
     def _nudge_servo(
         self,
@@ -617,15 +630,19 @@ class TrackerService:
 
         yaw_deg = 0.0 if abs(dx) < DEAD_ZONE_PX else dx * DEG_PER_PX_YAW * gain_mult
 
-        # Pitch sign is NEGATED because base_pitch increases = lamp tilts UP
-        # (per AIM_UP base_pitch=+10 vs AIM_DOWN base_pitch=-50 in presets).
-        # To bring an object at the TOP of the frame (dy < 0) toward the
-        # centre, the lamp must tilt UP → base_pitch must INCREASE →
-        # pitch_deg must be POSITIVE. Without this negation, tracker drove
-        # the lamp *away* from the object on the vertical axis, observed as
-        # "cup near top edge, servo keeps tilting down until it hits MAX
-        # and stalls".
-        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else -dy * DEG_PER_PX_PITCH * gain_mult
+        # Pitch sign (same-sign as dy). An earlier fix negated dy based on
+        # the naive reading of AIM_UP (base_pitch=+10) vs AIM_DOWN (-50),
+        # but that ignored how the arm's kinematic chain actually works:
+        # base_pitch is the joint at the *base* of the arm, so increasing
+        # it leans the whole arm forward and the head drops — decreasing
+        # leans backward and the head rises. AIM_UP achieves "look up"
+        # mainly via wrist_pitch=+25, not base_pitch. So to bring a cup
+        # sitting at the TOP of the frame (dy < 0) toward centre, we need
+        # base_pitch to DECREASE (head rises, camera tilts up). That is
+        # what `pitch_deg = dy * k` already does: dy < 0 → pitch_deg < 0
+        # → new_base_pitch smaller. The flip caused "cúi quá sâu" because
+        # it drove the head *down* whenever the cup was above centre.
+        pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
