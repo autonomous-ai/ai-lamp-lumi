@@ -301,6 +301,36 @@ Observed on multiple Telegram turns: user asks for a device action (e.g. LED col
 - **Current status**: OpenClaw raw payload logging is enabled (`source: "openclaw_raw"`), but some runs still show no `stream:"tool"` payload.
 - **Open question**: OpenClaw may be executing an internal path that does not emit tool stream, or action may be inferred from assistant text without explicit tool invocation.
 
+## Compaction summary inspector
+
+The OpenClaw agent session auto-compacts when context tokens cross ~80k. Every compaction writes a `type:"compaction"` record into `/root/.openclaw/agents/main/sessions/<sessionId>.jsonl` containing a `summary` string that is then prepended to every subsequent turn's prompt until the next compaction. Rules accidentally copied or generalized into that summary can override SKILL.md (the summary sits earlier in the prompt and is framed as "established context").
+
+**UI:** Flow Monitor header exposes a `📋 Summary` button. Click → fetch + render modal showing the latest compaction record: timestamp, `tokensBefore`, `summaryChars`, `compactionCount`, `readFiles` fed into the compaction prompt, and the full `summary` text.
+
+**Endpoint:** `GET /api/openclaw/compaction-latest?session=<key>` (default session key `agent:main:main`). Returns:
+
+```json
+{
+  "status": 1,
+  "data": {
+    "found": true,
+    "sessionKey": "agent:main:main",
+    "sessionFile": "/root/.openclaw/agents/main/sessions/<id>.jsonl",
+    "compactionCount": 18,
+    "id": 17170331,
+    "timestamp": "2026-04-24T03:21:30.305Z",
+    "tokensBefore": 80458,
+    "summaryChars": 14263,
+    "summary": "...",
+    "details": { "readFiles": ["..."], "modifiedFiles": ["..."] },
+    "fromHook": true,
+    "firstKeptEntryId": 17170331
+  }
+}
+```
+
+Use when Lumi cites rules that cannot be found in any `lumi/resources/openclaw-skills/**/SKILL.md` — the source is almost always the compaction summary, not the loaded skill. Handler: `lumi/server/openclaw/delivery/sse/handler_api_compaction.go`.
+
 ## Turns list vs downloaded log
 
 | Source | Scope |
