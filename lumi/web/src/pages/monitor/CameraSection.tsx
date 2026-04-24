@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 
@@ -22,27 +22,83 @@ export function CameraSection({
   const [trackTarget, setTrackTarget] = useState("object");
   const [trackBbox, setTrackBbox] = useState("");
 
-  const checkStatus = useCallback(async () => {
+  // Gate the MJPEG stream on tab visibility. <img src="/camera/stream">
+  // holds one persistent HTTP/1.1 connection open for as long as the
+  // element is mounted — if the tab is backgrounded or the component
+  // unmounts, keeping it alive steals one of Chrome's 6 per-origin
+  // connection slots and also wastes Pi bandwidth.
+  const [streamActive, setStreamActive] = useState(!document.hidden);
+  useEffect(() => {
+    const onVis = () => setStreamActive(!document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // In-flight guards — skip a scheduled poll if the previous request for
+  // the same endpoint hasn't returned yet. Without this, every 3s tick
+  // started a new fetch even if the Pi was slow, and pending fetches
+  // piled up against Chrome's 6-connection-per-origin cap until the
+  // MJPEG stream and fresh fetches starved.
+  const checkInFlight = useRef(false);
+  const trackInFlight = useRef(false);
+
+  // Fetch with hard timeout via AbortController. Network stalls without
+  // this leave fetches "pending" forever and consume connection slots.
+  const fetchWithTimeout = useCallback(async (url: string, init: RequestInit = {}, timeoutMs = 4000) => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const r = await fetch(`${HW}/camera`).then((x) => x.json());
+      return await fetch(url, { ...init, signal: ac.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }, []);
+
+  const checkStatus = useCallback(async () => {
+    if (checkInFlight.current) return;
+    checkInFlight.current = true;
+    try {
+      const r = await fetchWithTimeout(`${HW}/camera`).then((x) => x.json());
       setCameraDisabled(!!r.disabled);
       setManualOverride(!!r.manual_override);
-    } catch {}
-  }, []);
+    } catch {} finally {
+      checkInFlight.current = false;
+    }
+  }, [fetchWithTimeout]);
 
   const fetchTrackStatus = useCallback(async () => {
+    if (trackInFlight.current) return;
+    trackInFlight.current = true;
     try {
-      const r = await fetch(`${HW}/servo/track`).then((x) => x.json());
+      const r = await fetchWithTimeout(`${HW}/servo/track`).then((x) => x.json());
       setTrack({ tracking: !!r.tracking, target: r.target, bbox: r.bbox, confidence: r.confidence ?? null });
-    } catch {}
-  }, []);
+    } catch {} finally {
+      trackInFlight.current = false;
+    }
+  }, [fetchWithTimeout]);
 
-  // Poll camera state every 5s to stay in sync with auto triggers (scene/emotion)
+  // Poll camera + track state every 3s. Pauses while the tab is hidden
+  // so a backgrounded tab doesn't keep hammering the Pi.
   useEffect(() => {
-    checkStatus();
-    fetchTrackStatus();
-    const id = setInterval(() => { checkStatus(); fetchTrackStatus(); }, 3000);
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id !== null) return;
+      checkStatus();
+      fetchTrackStatus();
+      id = setInterval(() => { checkStatus(); fetchTrackStatus(); }, 3000);
+    };
+    const stop = () => {
+      if (id !== null) { clearInterval(id); id = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop(); else start();
+    };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
   }, [checkStatus, fetchTrackStatus]);
 
   const toggleCamera = async () => {
@@ -133,18 +189,33 @@ export function CameraSection({
               letterSpacing: "0.05em",
             }}>{track.tracking ? `TRACKING: ${track.target || "?"}` : "LIVE"}</span>
           </div>
-          <img
-            src={`${HW}/camera/stream`}
-            alt="camera"
-            style={{
+          {streamActive ? (
+            <img
+              src={`${HW}/camera/stream`}
+              alt="camera"
+              style={{
+                width: "100%",
+                borderRadius: 8,
+                border: `1px solid ${track.tracking ? "var(--lm-green)" : "var(--lm-border)"}`,
+                display: "block",
+                background: "var(--lm-surface)",
+              }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          ) : (
+            <div style={{
               width: "100%",
+              aspectRatio: "4 / 3",
               borderRadius: 8,
-              border: `1px solid ${track.tracking ? "var(--lm-green)" : "var(--lm-border)"}`,
-              display: "block",
+              border: `1px solid var(--lm-border)`,
               background: "var(--lm-surface)",
-            }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-          />
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 11,
+              color: "var(--lm-text-muted)",
+            }}>Stream paused (tab hidden)</div>
+          )}
           {track.tracking && track.bbox && (
             <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginTop: 6 }}>
               bbox: [{track.bbox.join(", ")}]
