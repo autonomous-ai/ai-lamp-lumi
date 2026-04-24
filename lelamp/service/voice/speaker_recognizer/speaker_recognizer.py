@@ -706,6 +706,63 @@ class SpeakerRecognizer:
             )
             raise SpeakerRecognizerError(f"no valid new samples — {details}")
 
+        # Step 2b — Auto-merge stranger clusters whose centroid matches this
+        # speaker. Captures distance / volume drift where the same person got
+        # fragmented across voice_<N> clusters (centroid sim with each other
+        # < 0.65 strangers threshold but sim to this enrollment > merge
+        # threshold). Filepath sources only — no path to resolve for base64
+        # callers. Samples pulled in go through the same consistency filter
+        # (Step 5) as any other sample, so a false cluster match gets its
+        # outliers dropped; and _drop_consumed_clusters at the tail cleans
+        # up every merged cluster regardless of how many samples survived.
+        if source_type == "filepath" and new_embeddings:
+            merge_threshold = float(
+                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.55")
+            )
+            query_mean = _weighted_aggregate(
+                [emb for _wb, emb in new_embeddings]
+            )
+            matched_hashes = self._match_stranger_clusters(
+                query_mean, merge_threshold,
+            )
+            merged_added = 0
+            for h in matched_hashes:
+                cluster_dir_path = _UNKNOWN_AUDIO_DIR / h
+                if not cluster_dir_path.is_dir():
+                    continue
+                for wav in sorted(cluster_dir_path.glob("*.wav")):
+                    wav_str = str(wav)
+                    if wav_str in sources:
+                        continue  # caller already passed this path in
+                    try:
+                        raw = _read_bytes(wav_str)
+                    except Exception as e:
+                        logger.warning(
+                            "Auto-merge: cannot read %s — %s", wav_str, e,
+                        )
+                        continue
+                    try:
+                        wb = _ensure_wav_16k_mono(raw)
+                        payload = self._prepare_wav_for_embedding(wb)
+                        emb = self._call_embedding_api(payload)
+                    except EmbeddingAPIUnavailableError:
+                        raise
+                    except SpeakerRecognizerError as e:
+                        logger.info(
+                            "Auto-merge: skip %s — %s", wav.name, e,
+                        )
+                        continue
+                    new_wavs.append(wb)
+                    new_embeddings.append((wb, emb))
+                    sources.append(wav_str)
+                    merged_added += 1
+            if matched_hashes:
+                logger.info(
+                    "Auto-merge: pulled %d WAV(s) from %d cluster(s) %s (sim > %.2f)",
+                    merged_added, len(matched_hashes), matched_hashes,
+                    merge_threshold,
+                )
+
         # Step 3 — Load EXISTING samples on disk + compute their embeddings.
         # Two failure modes, handled separately:
         #   a) _prepare_wav_for_embedding fails → the WAV file itself is
@@ -1409,6 +1466,35 @@ class SpeakerRecognizer:
                 label, len(self._stranger_embeds),
             )
             return label
+
+    def _match_stranger_clusters(
+        self, query_embedding: np.ndarray, threshold: float,
+    ) -> list[str]:
+        """Return stranger labels whose centroid cosine-sim to query > threshold.
+
+        Used by enroll() to auto-include clusters that belong to the same
+        speaker but fragmented (e.g. distance / volume drift pushed centroids
+        below the stranger-match 0.65 so they landed in different clusters
+        even though it's one person). Pass a looser threshold than 0.65 so
+        the fragmented siblings get pulled back together; the consistency
+        filter downstream in enroll() handles any false positive.
+        """
+        q = _l2(query_embedding)
+        if float(np.linalg.norm(q)) == 0.0:
+            return []
+        with self._stranger_lock:
+            if (
+                self._stranger_embeds is None
+                or self._stranger_labels is None
+                or len(self._stranger_embeds) == 0
+            ):
+                return []
+            sims = self._stranger_embeds @ q
+            return [
+                str(self._stranger_labels[i])
+                for i, s in enumerate(sims)
+                if float(s) > threshold
+            ]
 
     def _save_strangers(self) -> None:
         """Persist stranger state to disk. Caller must hold _stranger_lock."""
