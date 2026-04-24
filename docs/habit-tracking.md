@@ -8,13 +8,17 @@ Habit tracking adds **predictive behavior** to Lumi's wellbeing and music system
 Data sources (input)                  Habit skill                    Consumers (output)
 ─────────────────────                ─────────────                  ──────────────────
 Wellbeing logs (sensing)  ──┐                                      Wellbeing Step 3b
-  drink, break, enter,      ├──→  Flow A: build patterns  ──→      (predictive nudge)
-  leave, sedentary           │       ↓
-                             │    patterns.json               ──→  Music-suggestion
+  drink, break, enter,      ├──→  Flow A: build patterns  ──→      (enrich nudge
+  leave, sedentary          │      (invoked on nudge,                phrasing)
+                            │       self-throttled <6h)
+                            │       ↓
+                            │    patterns.json               ──→  Music-suggestion
 SOUL (conversation)     ──┘       per user                        (preferred genre)
   meal, coffee, sleep,
   exercise
 ```
+
+**Flow A trigger:** wellbeing's Step 3b invokes Flow A only when Step 3 fires a threshold nudge (real behavioral inflection). Flow A self-throttles via mtime check — if `patterns.json` is fresh (<6h), it returns immediately without recomputing. Idle `motion.activity` ticks never trigger a rebuild.
 
 ## Data Sources
 
@@ -111,21 +115,18 @@ Rebuilt when:
 
 ## Consumers
 
-### Wellbeing — predictive nudging (Step 3b)
+### Wellbeing — habit-aware nudge phrasing (Step 3b)
 
-After the normal threshold check (drink > 45 min? break > 30 min?), wellbeing reads `patterns.json`:
+When Step 3's threshold check fires a nudge (drink > 45 min? break > 30 min?), wellbeing invokes habit Flow A. Flow A self-throttles (no-op if `patterns.json` < 6h old; bootstraps if missing and ≥3 days of data exist). The returned `wellbeing_patterns` are then used to enrich the nudge phrasing:
 
-1. Is the current time within a habit's `typical_hour:typical_minute ± window_minutes`?
-2. Has the action already occurred today? → skip
-3. Has a nudge already been logged today? → skip
-4. If not → proactive nudge
+1. Is the nudge action a moderate+ habit (`frequency ≥ 0.5`)?
+2. Is `now` within `typical_hour:typical_minute ± window_minutes` for that habit?
+3. If yes → weave habit context into the speech (*"you usually drink around now — everything okay?"*)
+4. Otherwise → use the generic phrasing table
 
-**Example:** Leo usually drinks water at 9am. At 9:15 with no `drink` entry today, Lumi nudges — even if the hydration threshold hasn't been crossed yet.
+There is no separate habit-only nudge — habit acts as a phrasing enricher on the threshold nudge, not a second trigger. This avoids double-nudging and keeps Flow A's bootstrap cost on the rare nudge path, not on every `motion.activity` tick.
 
-Rules:
-- Only nudge moderate+ habits (frequency ≥ 0.5)
-- No double-nudge if threshold already fired
-- Skip first 30 min of user's day
+**Example:** Leo's hydration timer crosses threshold at 9:15. Flow A returns `drink @ hour=9 typical_minute=10 strength=moderate`. Lumi speaks *"you usually have water around now — grab a glass?"* instead of the generic *"been a while — grab some water?"*.
 
 ### Music-suggestion — personal genre preference (Flow C)
 

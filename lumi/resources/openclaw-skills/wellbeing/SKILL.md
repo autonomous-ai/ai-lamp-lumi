@@ -86,18 +86,19 @@ Nudge at most ONE thing per turn. Hydration takes priority over break.
 
 The `nudge_*` row you POST in Step 5 acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
-### Step 3b — Habit check (optional, after Step 3 only if no threshold nudge fired)
+### Step 3b — Habit refresh + context (only when Step 3 fired a nudge)
 
-1. Read `/root/local/users/{current_user}/habit/patterns.json`.
-   - **If absent:** check whether the user has ≥3 days of wellbeing history (`ls /root/local/users/{current_user}/wellbeing/*.jsonl | wc -l`). If yes, invoke `habit/SKILL.md` Flow A to bootstrap `patterns.json`, then continue with the freshly-built file. If fewer than 3 days, skip Step 3b entirely (not enough data yet).
-   - **If present but `updated_at` older than 6 hours:** invoke `habit/SKILL.md` Flow A to rebuild, then continue.
-2. For each entry in `wellbeing_patterns` with `strength` moderate or strong:
-   - Is `now` within `typical_hour:typical_minute ± window_minutes`?
-   - Has the `action` already appeared in today's log? → skip.
-   - Has a matching `nudge_*` already been logged today? → skip.
-3. If a habit nudge fires, speak it and log per Step 5. Do NOT double-nudge if Step 3 already fired.
+**Gate:** if Step 3 said `NO_REPLY`, skip this step — no behavioral inflection happened, nothing to learn from. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
 
-Example: *Leo usually drinks at 9am* → at 9:15 with no `drink` today, nudge even if the 5-min threshold hasn't been crossed.
+When Step 3 fires a nudge, invoke `habit/SKILL.md` Flow A. Flow A self-throttles: if `patterns.json` exists and is fresh (mtime < 6h), it returns immediately without recomputing. Otherwise, if the user has ≥3 days of wellbeing history, it (re)builds `patterns.json` from the multi-day log.
+
+Use the returned `wellbeing_patterns` to enrich Step 4's phrasing:
+- If a pattern matches `(action == nudge_target, now within typical_hour:typical_minute ± window_minutes)` and `strength` is moderate or strong → weave it into the speech (*"you usually drink around now — everything okay?"*).
+- No matching pattern, or no patterns yet → use the generic phrasing in the Step 4 table.
+
+Either way, proceed to Step 4 — you've already decided to nudge in Step 3. Do NOT double-nudge.
+
+Example: *hydration nudge fires at 9:15am, patterns.json says drink @ hour=9 typical_minute=10 → "you usually have water around now — grab a glass?"*
 
 ### Step 4 — Speak (if nudging)
 

@@ -74,6 +74,20 @@ Habits require **at least 3 days of data** to form. With fewer days, skip proact
 
 ### A — Build Patterns (discovery / answering questions)
 
+**Self-throttle guard (run first, always):**
+
+```bash
+PATTERNS=/root/local/users/{name}/habit/patterns.json
+if [ -f "$PATTERNS" ] && [ $(( $(date +%s) - $(stat -c %Y "$PATTERNS") )) -lt 21600 ]; then
+  cat "$PATTERNS"   # fresh < 6h — return existing, skip rebuild
+  exit 0
+fi
+DAYS=$(ls /root/local/users/{name}/wellbeing/*.jsonl 2>/dev/null | wc -l)
+[ "$DAYS" -lt 3 ] && { echo "insufficient_data: $DAYS days"; exit 0; }
+```
+
+This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on every nudge. Cost is one `stat` + integer compare on the hot path; only the cold path (missing or stale patterns, ≥3 days of data) runs the full multi-day read below.
+
 1. **Load multi-day data**: Read the last 7–14 days of wellbeing JSONL files for the user.
    ```bash
    ls /root/local/users/{name}/wellbeing/*.jsonl | sort | tail -14
@@ -240,7 +254,7 @@ curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&last=5
 
 ## Integration Points
 
-**From `wellbeing/SKILL.md`:** After checking threshold-based nudges, read `habit/patterns.json`. If a habit-based nudge fires AND the threshold hasn't been crossed yet, the habit nudge takes priority (more personalized). If threshold already fired, skip habit nudge (don't double-remind).
+**From `wellbeing/SKILL.md`:** When wellbeing's Step 3 fires a threshold nudge, it invokes Flow A (which self-throttles via the freshness guard). Flow A returns the current `wellbeing_patterns`; wellbeing uses any matching pattern for the nudge action to enrich Step 4's phrasing (e.g. *"you usually drink around now"*). No separate habit-only nudge — habit context piggybacks on the threshold nudge. This keeps bootstrap cost on the rare nudge path, not on every `motion.activity` tick.
 
 **From `music-suggestion/SKILL.md`:** Read `habit/patterns.json` → `music_patterns`. If habit data exists and current hour matches, use preferred genre instead of default genre table.
 
