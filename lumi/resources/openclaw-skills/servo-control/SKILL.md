@@ -1,21 +1,6 @@
 ---
 name: servo-control
-description: |
-  Use when the user asks to aim/point/look the lamp in a DIRECTION, or to toggle servo state (hold/resume/release), or to play a named servo animation (nod/shake/etc).
-
-  Direction = a fixed named location or axis. The supported direction names are exactly: desk, table, workspace (all map to "desk"), wall, left, right, up, down, center, user. Furniture, surfaces, and rooms ("desk", "table", "floor", "wall", "door") are ALWAYS directions, never tracking targets. Pick the closest matching direction name for any furniture/location phrase.
-
-  Examples that MUST use /servo/aim (not /servo/track):
-    "look at the desk" → direction=desk
-    "point at my table" → direction=desk
-    "look at the wall" → direction=wall
-    "look left" / "turn right" → direction=left / right
-    "point up" → direction=up
-    "look at me" → direction=user
-
-  For following a movable OBJECT by vision (cup, phone, hand, person, pet, etc.) use the servo-tracking skill instead.
-
-  Compound: if the user names a direction AND an object in one sentence ("look at the desk and follow the cup"), fire THIS aim skill first so the camera is pointing at the right region, then the tracking skill. See the compound example in servo-tracking.
+description: Use to aim/point/look the lamp in a DIRECTION, toggle servo state (hold/resume/release), or play a named servo animation (nod/shake/etc). Directions are fixed named locations or axes — supported: desk, wall, left, right, up, down, center, user. Furniture and surfaces ("desk", "table", "floor", "ceiling", "wall", "door", "workspace") are ALWAYS directions, never tracking targets — map them to the closest of the supported names (table/workspace → desk). MUST use /servo/aim (not /servo/track) for: "look at the desk"→desk, "point at my table"→desk, "look at the wall"→wall, "look left"→left, "point up"→up, "look at me"→user. For following a movable OBJECT by vision (cup, phone, hand, person, pet) use servo-tracking instead. Compound: if user names a direction AND an object ("look at desk and follow cup"), fire THIS aim skill first, then tracking.
 ---
 
 # Servo Control

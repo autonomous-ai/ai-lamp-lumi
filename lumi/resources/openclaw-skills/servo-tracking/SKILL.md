@@ -1,16 +1,6 @@
 ---
 name: servo-tracking
-description: |
-  Use ONLY when the user asks Lumi to follow/track/watch a MOVABLE PHYSICAL OBJECT that vision can recognize. Examples of valid targets: cup, bottle, phone, hand, person, pen, book, remote, toy, keys, wallet, a specific face, a pet. The target must be a COUNT noun for a discrete object — the tracker locks onto pixels.
-
-  NEVER use this skill for:
-  - Fixed locations or furniture: desk, table, wall, floor, ceiling, door, window, workspace, corner, room. Those are directions, not objects. Use servo-control /servo/aim instead.
-  - Direction words: left, right, up, down, center, forward, backward. Use servo-control /servo/aim.
-  - The user's view ("look here", "look at me" without a specific object noun). Use servo-control /servo/aim direction=user.
-
-  If the user combines a direction AND an object in one sentence (e.g. "look at the desk and follow the cup", "point at the table and track the phone"), fire TWO markers in order: first servo-control /servo/aim for the direction, then this /servo/track for the object.
-
-  Verb "look at" is ambiguous — if the thing following "look at" is in the NEVER list above, route to servo-control /servo/aim instead of here.
+description: Use ONLY to follow/track/watch a movable physical OBJECT vision can recognize (cup, bottle, phone, hand, person, pen, book, remote, toy, keys, pet, a specific face). NEVER use for furniture or fixed locations (desk, table, wall, floor, ceiling, door, window, workspace, room) — those are directions; use servo-control /servo/aim. NEVER use for direction words (left, right, up, down, center). If the user combines a direction AND an object ("look at the desk and follow the cup", "point at the table and track the phone"), fire TWO markers in order — servo-control /servo/aim first, then /servo/track here. The verb "look at" is ambiguous — if what follows is furniture/location, route to servo-control instead.
 ---
 
 # Vision Tracking
