@@ -116,6 +116,16 @@ Khi OpenClaw emit `event:"cron"` với `action:"started"` (xem `src/cron/service
 
 Chi tiết run ID, `runIDMap`, stitching turn, edge case: đọc bản tiếng Anh.
 
+## Compaction summary inspector
+
+Session OpenClaw agent auto-compact khi context vượt ~80k tokens. Mỗi lần compact ghi 1 record `type:"compaction"` vào `/root/.openclaw/agents/main/sessions/<sessionId>.jsonl`, chứa field `summary` dạng text — text này được **chèn đầu mỗi turn kế tiếp** cho đến lần compact sau. Rule bị copy/generalize nhầm vào summary có thể đè SKILL.md (summary nằm trước trong prompt, đóng vai trò "context đã chốt").
+
+**UI:** header Flow Monitor có nút `📋 Summary`. Click → fetch + render modal show: `timestamp`, `tokensBefore`, `summaryChars`, `compactionCount`, `readFiles` (file nào được đọc vào compaction prompt), và toàn văn `summary`.
+
+**Endpoint:** `GET /api/openclaw/compaction-latest?session=<key>` (mặc định `agent:main:main`). Response format: `{status:1, data:{found, sessionFile, timestamp, tokensBefore, summary, details:{readFiles}, ...}}`.
+
+Dùng khi Lumi viện rule mà grep không thấy trong bất kỳ `lumi/resources/openclaw-skills/**/SKILL.md` — gần như 100% nguồn là compaction summary, không phải skill đang load. Handler: `lumi/server/openclaw/delivery/sse/handler_api_compaction.go`.
+
 ## Issue đang mở
 
 ### OpenClaw built-in `tts` tool bypass speaker LeLamp (ĐÃ FIX)
