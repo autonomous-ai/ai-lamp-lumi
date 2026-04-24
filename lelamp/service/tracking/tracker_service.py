@@ -598,12 +598,13 @@ class TrackerService:
         if not TRACK_PITCH_ENABLED:
             pitch_deg = 0.0
         else:
-            # Empirically (v0.0.507 test): with `-dy * k` camera went DOWN
-            # when cup was at TOP — wrong direction. Meaning base_pitch
-            # INCREASE = head tilts DOWN physically. So for cup at top
-            # (dy < 0) we need base_pitch to DECREASE → pitch_deg negative
-            # → pitch_deg = dy * k (same-sign-as-dy) is correct.
-            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else dy * DEG_PER_PX_PITCH * gain_mult
+            # Sign verified from per-cycle trace log (v0.0.509):
+            # dy=-150 (cup at top) with `dy * k` → pitch decreased -7.8 →
+            # -22, and user observed lamp going DOWN. So base_pitch
+            # DECREASE = physical DOWN, INCREASE = physical UP. To bring
+            # cup from top toward centre we need pitch INCREASE → must
+            # negate dy.
+            pitch_deg = 0.0 if abs(dy) < DEAD_ZONE_PX else -dy * DEG_PER_PX_PITCH * gain_mult
 
         yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
         pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
