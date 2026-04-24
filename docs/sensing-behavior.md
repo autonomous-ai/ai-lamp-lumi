@@ -76,20 +76,20 @@ Python pushes `sound_tracker` events directly to the monitor bus via `POST /api/
 Always triggers a full reaction — no exceptions. The agent **must** do all three:
 
 1. `/emotion greeting` (0.9) for friend — `/emotion curious` (0.8) for stranger
-2. `/servo/aim {"direction": "user"}` for friend — `/servo/play {"recording": "scanning"}` for stranger
+2. For friend: `/servo/aim {"direction": "user"}` then `/servo/track {"target": ["person"]}` — aim orients the camera toward the user's region first (~2s), then the vision tracker locks onto the person and follows them around the room. Stranger: `/servo/play {"recording": "scanning"}` (no auto-follow — caution)
 3. Speak: warm greeting for friend (by name), cautious acknowledgment for stranger
 
 The system handles cooldowns on the LeLamp side. If the event reached the agent, enough time has passed — react fully.
 
 ### Leave (`presence.leave`)
 
-Agent calls `/emotion idle` (0.4) and replies **NO_REPLY** (silent — no TTS). This avoids noisy loops when people come and go frequently. The agent still processes the event internally to cancel wellbeing crons and update daily logs.
+Agent calls `/emotion idle` (0.4), fires `/servo/track/stop` to release any active follow from a prior `presence.enter`, and replies **NO_REPLY** (silent — no TTS). This avoids noisy loops when people come and go frequently. The agent still processes the event internally to cancel wellbeing crons and update daily logs.
 
 ### Away (`presence.away`)
 
 Sent automatically by LeLamp's `PresenceService` when **no motion is detected for 15 minutes** (after already dimming at 5 min). By this point the lights are already off — the agent's job is to **announce going to sleep** via TTS and Telegram.
 
-Agent calls `/emotion sleepy` (0.8) and speaks a cozy sleepy farewell (e.g. "No one's around… I'm going to sleep now. Goodnight!"). This is the last action before Lumi goes fully idle.
+Agent calls `/emotion sleepy` (0.8), fires `/servo/track/stop` so any stale follow from earlier in the session is released, and speaks a cozy sleepy farewell (e.g. "No one's around… I'm going to sleep now. Goodnight!"). This is the last action before Lumi goes fully idle.
 
 The full presence auto-control timeline:
 1. **5 min no motion** → light dims to 20% (automatic, no agent involvement)
