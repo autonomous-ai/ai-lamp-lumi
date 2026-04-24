@@ -648,7 +648,7 @@ class VoiceService:
 
         def _should_request_enroll(
             transcript: str, duration_s: float = 0.0,
-            min_words: int = 15, min_duration_s: float = 2.0,
+            min_words: int = 10, min_duration_s: float = 2.0,
         ) -> bool:
             """Decide whether to append enroll instructions to the message.
 
