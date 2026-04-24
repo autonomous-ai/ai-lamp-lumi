@@ -595,10 +595,19 @@ class TrackerService:
                 )
                 animation_service._event_thread.start()
 
-            # Hold servo at current tracked position. Dispatching idle here
-            # used to snap the lamp back to its start pose, which looked like
-            # a hard jerk right after tracking ended.
-            logger.info("Tracking ended — holding servo at current position")
+            # Resume idle animation to recover the lamp to a safe pose.
+            # Previously we held at the last tracked position to avoid the
+            # snap back to idle looking jerky — but if the tracker ended
+            # while base_pitch was at or near its safety limit, holding
+            # means leaving the motor torqued against a hard-to-reach pose
+            # and the lamp feels physically stuck. Recovering via idle is
+            # the safer default; the idle interpolation smooths the move.
+            try:
+                from lelamp.presets import SERVO_CMD_PLAY
+                animation_service.dispatch(SERVO_CMD_PLAY, animation_service.idle_recording)
+                logger.info("Tracking ended — resuming idle")
+            except Exception as e:
+                logger.warning("Tracking ended — idle resume failed: %s", e)
 
     def _nudge_servo(
         self,
