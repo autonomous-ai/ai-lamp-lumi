@@ -350,18 +350,15 @@ export function FlowSection({
                 "Xem 'bộ nhớ tóm tắt' mà OpenClaw tự sinh và chèn vào đầu prompt của MỖI turn agent.\n\n" +
                 "• Vì sao cần: khi context vượt ~80k tokens, OpenClaw auto-compact — gộp history cũ thành 1 đoạn summary, rồi dùng summary này thay cho history đến lần compact tiếp theo.\n" +
                 "• Rủi ro: nếu summary vô tình copy/méo rule từ SKILL.md, KNOWLEDGE.md, SOUL.md → agent sẽ theo summary (đứng đầu prompt) thay vì SKILL.md → Lumi trả lời sai lý do không giải thích nổi.\n\n" +
-                "Click để xem: timestamp, token count, các file được đọc vào, và TOÀN VĂN summary đang điều khiển Lumi."
+                "Click để xem: timestamp, summary chars, session file, và TOÀN VĂN summary đang điều khiển Lumi."
               }
               style={{
-                fontSize: 15, padding: "8px 18px", borderRadius: 8,
-                background: "var(--lm-purple)", border: "2px solid var(--lm-purple)",
-                color: "#fff", cursor: "pointer", fontWeight: 800,
-                boxShadow: "0 0 0 3px rgba(167,139,250,0.28), 0 2px 10px rgba(167,139,250,0.35)",
-                letterSpacing: 0.3,
-                textTransform: "uppercase" as const,
+                fontSize: 11, padding: "4px 10px", borderRadius: 6,
+                background: "var(--lm-purple)", border: "1px solid var(--lm-purple)",
+                color: "#fff", cursor: "pointer", fontWeight: 700,
               }}
             >
-              📋 Summary
+              📋 Summary prompt
             </button>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
