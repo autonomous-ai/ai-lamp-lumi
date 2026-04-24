@@ -100,8 +100,8 @@ Tâm vật thể: tracker bbox (không smooth — cadence move-then-freeze ~143m
 dx = cx - 320   (dương = bên phải)
 dy = cy - 240   (dương = bên dưới)
 
-yaw_deg   = dx * 0.022   (clamp ±6.0°, bằng 0 nếu |dx| < 18)
-pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
+yaw_deg   = dx * 0.022    (clamp ±6.0°, bằng 0 nếu |dx| < 18)
+pitch_deg = -dy * 0.022   (đảo dấu; xem "Pitch sign" bên dưới)
 ```
 
 ### Hằng số Tuning
@@ -121,6 +121,13 @@ pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
 | `CLOSE_OBJECT_GAIN` | 0.5 | Hệ số nhân gain khi object gần |
 | `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox nhỏ hơn (quá ít pixel để track) |
 | `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox lớn hơn (lỏng, thường là detection gộp) |
+| `TRACK_BASE_PITCH_MIN/MAX` | -75 / +15 | Range pitch tracker cho phép (hẹp hơn hardware -90/+30) — auto-stop trước khi chạm giới hạn vật lý |
+| `animation_wait_budget_s` | 7 | Wait tối đa trong `start()` cho animation /servo/aim hoàn tất |
+| Bbox bloat stop ratio | 2× initial | Auto-stop khi bbox phình tới mức này so với init |
+
+### Pitch sign
+
+`base_pitch` dương khi lamp tilt *lên* (xem `AIM_UP` có `base_pitch=+10`, `AIM_DOWN` có `-50`). Để kéo object từ mép top frame (dy < 0) về center, lamp phải tilt lên — base_pitch phải *tăng* — nên công thức pixel-to-degree đảo dấu dy. Không đảo dấu thì tracker đẩy lamp **ra xa** object theo chiều dọc và cuối cùng pin base_pitch vào hardware MAX.
 
 ### Giới hạn vị trí Servo
 
