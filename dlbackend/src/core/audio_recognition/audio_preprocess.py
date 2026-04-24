@@ -1,26 +1,34 @@
 """Utility helpers for audio preprocessing before speaker embedding.
 
-Organized as thin, dependency-tolerant layers that ``BaseAudioRecognizer``
-calls in the embedding extraction path. Each layer degrades to a no-op when
-its optional dependency is missing so the service never hard-fails just
-because ``noisereduce`` / ``silero-vad`` / ``scipy`` / ``torch`` is absent.
+Thin, dependency-tolerant layers that ``BaseAudioRecognizer`` calls in the
+embedding path. Each optional layer (``noisereduce``, ``silero-vad``,
+``scipy``, ``torch``) degrades to a no-op when its dependency is missing so
+the service never hard-fails.
 
-Layers
-------
-- Layer 0 : stationary / non-stationary noise reduction (``noisereduce``).
-- Layer 1 : 80 Hz high-pass, silero-VAD, RMS loudness normalization.
-- Chunk   : short-chunk + fine-stride windowing for robust aggregation.
-- Agg     : self-consistency weighted aggregation (robust to 1-2 interferer
-            words chen vào that only poison a minority of chunks).
-- Anchor  : percentile / margin based chunk filter when an enrolled centroid
-            is available (kept here as a pure helper; not wired into the
-            recognize flow to avoid touching matching logic).
+Pipeline (applied in order by :func:`preprocess_for_embedding`):
+
+1. High-pass filter (80 Hz)  -- opt-in (``use_hpf=False`` by default);
+                                when enabled, removes DC / rumble before
+                                the noise profile is estimated.
+2. ``noisereduce``           -- attenuate stationary background noise.
+3. Strip-VAD + gate          -- trim leading/trailing non-voice, keep the
+                                internal silence; reject audio when the
+                                remaining clip is too short or too noisy.
+4. RMS loudness normalize    -- align enroll/query loudness.
+
+After preprocessing the waveform is fed as a **single window** to the
+embedding model. Long audio is cut into contiguous chunks with each piece
+constrained to ``[min_sec, max_sec]`` (default 5-8 s) by
+:func:`split_by_duration`; short audio is passed through as-is. This
+matches the behavior of the WeSpeaker CLI instead of doing short-chunk
+sliding-window aggregation.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence
+import math
+from typing import List, Sequence, Tuple
 
 import numpy as np
 
@@ -28,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Layer 0 - noise reduction
+# Layer 1 - noise reduction (``noisereduce`` non-stationary)
 # ---------------------------------------------------------------------------
 
 def reduce_noise(waveform: np.ndarray, sample_rate: int) -> np.ndarray:
@@ -49,7 +57,7 @@ def reduce_noise(waveform: np.ndarray, sample_rate: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Layer 1a - silero VAD
+# Silero-VAD loader (shared lazy cache)
 # ---------------------------------------------------------------------------
 
 _SILERO_STATE: dict = {"tried": False, "model": None, "utils": None}
@@ -60,7 +68,6 @@ def _load_silero_vad():
     if _SILERO_STATE["tried"]:
         return _SILERO_STATE["model"], _SILERO_STATE["utils"]
     _SILERO_STATE["tried"] = True
-    # Preferred path: pip install silero-vad
     try:
         from silero_vad import load_silero_vad, get_speech_timestamps  # type: ignore
 
@@ -69,7 +76,6 @@ def _load_silero_vad():
         return _SILERO_STATE["model"], _SILERO_STATE["utils"]
     except Exception as exc:
         logger.debug("silero-vad pip package not usable: %s", exc)
-    # Fallback: torch.hub
     try:
         import torch  # noqa: F401
 
@@ -87,34 +93,32 @@ def _load_silero_vad():
     return _SILERO_STATE["model"], _SILERO_STATE["utils"]
 
 
-def apply_vad(
+def _silero_timestamps(
     waveform: np.ndarray,
     sample_rate: int,
     *,
-    min_speech_sec: float = 0.2,
-    min_silence_sec: float = 0.3,
-    speech_pad_sec: float = 0.1,
-) -> np.ndarray:
-    """Keep only speech regions detected by silero-vad.
+    min_speech_sec: float,
+    min_silence_sec: float,
+    speech_pad_sec: float,
+) -> List[dict]:
+    """Run silero-vad and return raw ``[{start, end}]`` in sample indices.
 
-    Falls back to the original waveform when VAD is unavailable or detects
-    nothing (we prefer "keep everything" over "return empty audio").
+    Returns an empty list when the model or ``torch`` is unavailable, or when
+    inference fails.
     """
     arr = np.asarray(waveform, dtype=np.float32)
     if arr.size == 0:
-        return arr
+        return []
     model, utils = _load_silero_vad()
     if model is None or utils is None:
-        return arr
+        return []
     try:
         import torch
     except ImportError:
-        return arr
-
-    wav_tensor = torch.from_numpy(arr)
+        return []
     try:
-        timestamps = utils["get_speech_timestamps"](
-            wav_tensor,
+        ts = utils["get_speech_timestamps"](
+            torch.from_numpy(arr),
             model,
             sampling_rate=int(sample_rate),
             min_speech_duration_ms=int(min_speech_sec * 1000),
@@ -124,20 +128,77 @@ def apply_vad(
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("silero-vad inference failed: %s", exc)
-        return arr
+        return []
+    return list(ts) if ts else []
 
-    if not timestamps:
-        return arr
 
-    pieces: List[np.ndarray] = []
-    for ts in timestamps:
-        start = int(ts.get("start", 0))
-        end = int(ts.get("end", 0))
-        if end > start:
-            pieces.append(arr[start:end])
-    if not pieces:
-        return arr
-    return np.concatenate(pieces).astype(np.float32)
+def strip_nonvoice(
+    waveform: np.ndarray,
+    sample_rate: int,
+    *,
+    min_speech_sec: float = 0.2,
+    min_silence_sec: float = 0.3,
+    speech_pad_sec: float = 0.1,
+) -> Tuple[np.ndarray, float]:
+    """Trim only leading and trailing non-voice regions.
+
+    Internal silence between speech regions is **kept**, matching WeSpeaker's
+    assumption of only head/tail silence. Returns ``(stripped, voice_ratio)``
+    where ``voice_ratio`` is the fraction of speech samples over the length
+    of ``stripped``.
+
+    Fallback behavior:
+
+    * Empty input: ``(empty, 0.0)``.
+    * VAD unavailable (``silero-vad``/``torch`` missing): ``(waveform, 1.0)``
+      so the embedding gate does not reject on a missing dependency.
+    * VAD ran but detected no speech: ``(empty, 0.0)``.
+    """
+    arr = np.asarray(waveform, dtype=np.float32)
+    if arr.size == 0:
+        return np.zeros(0, dtype=np.float32), 0.0
+
+    model, utils = _load_silero_vad()
+    if model is None or utils is None:
+        return arr, 1.0
+
+    segs = _silero_timestamps(
+        arr,
+        sample_rate,
+        min_speech_sec=min_speech_sec,
+        min_silence_sec=min_silence_sec,
+        speech_pad_sec=speech_pad_sec,
+    )
+    if not segs:
+        return np.zeros(0, dtype=np.float32), 0.0
+
+    first_start = max(0, int(segs[0].get("start", 0)))
+    last_end = min(int(arr.size), int(segs[-1].get("end", arr.size)))
+    if last_end <= first_start:
+        return np.zeros(0, dtype=np.float32), 0.0
+
+    stripped = arr[first_start:last_end]
+    # Merge overlapping intervals before counting: silero-vad's
+    # ``speech_pad_ms`` pads each segment on both sides, so two segments
+    # separated by a silence shorter than ``2 * speech_pad_ms`` overlap in
+    # the returned list. Summing ``e - s`` directly would double-count the
+    # overlap and inflate ``voice_ratio`` past the gate.
+    intervals = []
+    for ts in segs:
+        s = max(first_start, int(ts.get("start", 0)))
+        e = min(last_end, int(ts.get("end", 0)))
+        if e > s:
+            intervals.append((s, e))
+    intervals.sort()
+    speech_samples = 0
+    prev_end = first_start
+    for s, e in intervals:
+        s = max(s, prev_end)
+        if e > s:
+            speech_samples += e - s
+            prev_end = e
+    ratio = float(speech_samples) / float(max(1, stripped.size))
+    return stripped.astype(np.float32, copy=False), float(min(1.0, max(0.0, ratio)))
 
 
 # ---------------------------------------------------------------------------
@@ -192,90 +253,150 @@ def rms_normalize(
 
 
 # ---------------------------------------------------------------------------
-# Full preprocessing pipeline (Layer 0 + Layer 1)
+# Full preprocessing pipeline with gate
 # ---------------------------------------------------------------------------
 
-def preprocess_waveform(
+def preprocess_for_embedding(
     waveform: np.ndarray,
     sample_rate: int,
     *,
+    use_hpf: bool = False,
     use_noisereduce: bool = True,
     use_vad: bool = True,
-    use_hpf: bool = True,
     use_rms: bool = True,
     hpf_cutoff_hz: float = 80.0,
     rms_target: float = 0.1,
+    min_duration_sec: float = 0.5,
+    min_voice_ratio: float = 0.7,
 ) -> np.ndarray:
-    """Run the full preprocessing chain. Order chosen intentionally:
+    """Run (optional HPF) -> noisereduce -> strip-VAD + gate -> RMS.
 
-    1. HPF: kill DC / rumble first so later stages work on clean bands.
-    2. Noise reduce: attenuate stationary background.
-    3. VAD: drop silence / breath / non-speech (most-aggressive last so that
-       any denoise artifacts are removed rather than embedded).
-    4. RMS normalize: finally match loudness between enroll and query.
+    HPF is opt-in (``use_hpf=False`` default) because the WeSpeaker /
+    ECAPA-TDNN fbank front-end already attenuates sub-80 Hz bands; enable
+    it only for domains with heavy DC / rumble.
+
+    Order rationale:
+
+    * HPF (when enabled) first so DC/rumble doesn't pollute
+      ``noisereduce``'s noise profile.
+    * ``noisereduce`` before VAD so the voice/silence boundary is sharper.
+    * Strip-VAD before RMS so loudness is measured on the speech portion.
+    * RMS last so embedding input has a consistent energy scale.
+
+    Returns an **empty** ``float32`` array when the speech gate rejects the
+    clip (VAD removed everything, stripped clip shorter than
+    ``min_duration_sec``, or voice/total ratio below ``min_voice_ratio``).
+    Callers should treat the empty return as "no embedding" and surface that
+    back to the client.
     """
     out = np.asarray(waveform, dtype=np.float32)
     if out.size == 0:
         return out
+
     if use_hpf:
         out = high_pass_filter(out, sample_rate, cutoff_hz=hpf_cutoff_hz)
     if use_noisereduce:
         out = reduce_noise(out, sample_rate)
+
     if use_vad:
-        out = apply_vad(out, sample_rate)
+        stripped, voice_ratio = strip_nonvoice(out, sample_rate)
+        if stripped.size == 0:
+            logger.debug("preprocess gate: VAD removed all audio")
+            return np.zeros(0, dtype=np.float32)
+        duration = stripped.size / max(1, int(sample_rate))
+        if duration < float(min_duration_sec):
+            logger.debug(
+                "preprocess gate: stripped=%.3fs < min=%.3fs",
+                duration,
+                float(min_duration_sec),
+            )
+            return np.zeros(0, dtype=np.float32)
+        if voice_ratio < float(min_voice_ratio):
+            logger.debug(
+                "preprocess gate: voice_ratio=%.3f < min=%.3f (dur=%.2fs)",
+                voice_ratio,
+                float(min_voice_ratio),
+                duration,
+            )
+            return np.zeros(0, dtype=np.float32)
+        out = stripped
+
     if use_rms:
         out = rms_normalize(out, target_rms=rms_target)
     return out
 
 
 # ---------------------------------------------------------------------------
-# Short-chunk + fine-stride windowing
+# Length-cap split (only used for long audio)
 # ---------------------------------------------------------------------------
 
-def chunk_with_stride(
+def split_by_duration(
     waveform: np.ndarray,
     sample_rate: int,
-    chunk_sec: float = 1.0,
-    stride_sec: float = 0.25,
-    min_chunk_sec: float = 0.4,
+    min_sec: float = 5.0,
+    max_sec: float = 8.0,
 ) -> List[np.ndarray]:
-    """Split a 1-D waveform into overlapping chunks.
+    """Split into contiguous chunks so every chunk is in ``[min_sec, max_sec]``.
 
-    Short chunks (~1s) with fine stride (~0.25s) concentrate any 0.3-1s
-    interferer into a minority of chunks, which outlier / self-consistency
-    rejection can then drop.
+    Given the stripped + preprocessed waveform of length ``T`` seconds:
+
+    * ``T <= max_sec``                 -> single window ``[T]`` (no split).
+    * ``max_sec < T <= 2 * min_sec``   -> **still a single window** (``T`` up
+      to roughly ``2 * min_sec`` seconds). Splitting into two pieces here
+      would produce chunks shorter than ``min_sec``, so we prefer one
+      slightly-long window over two under-sized ones. Matches WeSpeaker's
+      "one utterance, one embedding" behavior for mid-length audio.
+    * ``T > 2 * min_sec``              -> ``n = ceil(T / max_sec)`` equal
+      pieces of length ``T / n``. By construction
+      ``min_sec <= T/n <= max_sec`` in this branch.
+
+    With defaults ``min_sec=5``, ``max_sec=8`` this means:
+
+    * <= 8 s  -> 1 window
+    * 8-10 s  -> 1 window (length 8-10 s)
+    * > 10 s  -> 2+ windows, each in [5, 8] s (last one also in range)
+
+    Args:
+        waveform: 1D float array (any sample rate).
+        sample_rate: samples per second.
+        min_sec: minimum desired chunk length when splitting (seconds).
+        max_sec: maximum desired chunk length when splitting (seconds).
+
+    Returns:
+        List of float32 waveform chunks; empty if input is empty.
     """
     arr = np.asarray(waveform, dtype=np.float32)
-    if arr.ndim != 1:
-        raise ValueError("waveform must be 1D [time].")
     if arr.size == 0:
         return []
-    chunk_samples = max(1, int(round(chunk_sec * sample_rate)))
-    stride_samples = max(1, int(round(stride_sec * sample_rate)))
-    min_samples = max(1, int(round(min_chunk_sec * sample_rate)))
+    if min_sec <= 0 or max_sec <= 0 or max_sec < min_sec:
+        raise ValueError(
+            f"Invalid split range: min_sec={min_sec}, max_sec={max_sec}"
+        )
 
-    # Short input: return as a single chunk (better than dropping).
-    if arr.size <= chunk_samples:
-        if arr.size < min_samples:
-            return [arr.copy()]
-        return [arr.copy()]
+    duration_sec = arr.size / float(max(1, sample_rate))
 
+    # Short / mid-length audio: single window. The 2*min_sec cap is the
+    # longest T for which equal-splitting into 2 pieces would still drop
+    # each piece below min_sec; keeping it as one window avoids that.
+    if duration_sec <= max(max_sec, 2.0 * min_sec):
+        return [arr.astype(np.float32, copy=True)]
+
+    # Long audio: equal split, piece length in [min_sec, max_sec].
+    n_chunks = max(2, math.ceil(duration_sec / max_sec))
+    # Sample-accurate boundaries using linspace so the final chunk covers
+    # the exact tail and all chunks differ by <= 1 sample.
+    boundaries = np.linspace(0, arr.size, n_chunks + 1, dtype=np.int64)
     chunks: List[np.ndarray] = []
-    for start in range(0, arr.size, stride_samples):
-        end = start + chunk_samples
-        seg = arr[start:end]
-        if seg.size < min_samples:
-            break
-        chunks.append(seg.astype(np.float32, copy=True))
-        if end >= arr.size:
-            break
-    if not chunks:
-        chunks.append(arr.copy())
+    for i in range(n_chunks):
+        start = int(boundaries[i])
+        end = int(boundaries[i + 1])
+        if end > start:
+            chunks.append(arr[start:end].astype(np.float32, copy=True))
     return chunks
 
 
 # ---------------------------------------------------------------------------
-# Aggregation helpers
+# Aggregation
 # ---------------------------------------------------------------------------
 
 def _l2(x: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -286,75 +407,22 @@ def _l2(x: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     return (arr / n).astype(np.float32)
 
 
-def self_consistency_weights(
-    embeddings: Sequence[np.ndarray],
-    power: float = 4.0,
-    eps: float = 1e-9,
-) -> np.ndarray:
-    """Weight each embedding by its cosine sim to the provisional centroid.
+def mean_aggregate(embeddings: Sequence[np.ndarray]) -> np.ndarray:
+    """Simple L2-normalize -> mean -> L2-normalize.
 
-    Uses the L2-normalized median as a noise-robust centroid, maps sims
-    from ``[-1, 1]`` to ``[0, 1]``, then raises to ``power`` to sharpen.
-    Outlier chunks (interferer / heavy noise) get near-zero weight.
-    """
-    if not embeddings:
-        return np.zeros(0, dtype=np.float32)
-    stack = np.stack([_l2(e) for e in embeddings], axis=0)
-    centroid = _l2(np.median(stack, axis=0))
-    sims = stack @ centroid
-    sims01 = np.clip((sims + 1.0) / 2.0, 0.0, 1.0)
-    weights = sims01 ** float(power)
-    total = float(weights.sum())
-    if total < eps:
-        return np.full(stack.shape[0], 1.0 / stack.shape[0], dtype=np.float32)
-    return (weights / total).astype(np.float32)
+    Used whenever multiple embeddings must collapse into one vector:
 
+    * multi-utterance enroll (several wav files per speaker in ``register``),
+    * single long utterance split by :func:`split_by_duration` into 5-8 s
+      windows,
+    * both combined.
 
-def weighted_aggregate(
-    embeddings: Sequence[np.ndarray],
-    weights: Optional[np.ndarray] = None,
-) -> np.ndarray:
-    """Aggregate embeddings via weighted mean + L2 normalize.
-
-    When ``weights`` is ``None`` we derive them with
-    :func:`self_consistency_weights`, which is the attentive aggregation
-    described in Layer 3.
+    When the input fits in a single window this function is not called --
+    the lone embedding is returned as-is (matches WeSpeaker's "one
+    embedding per utterance" behavior). The per-input L2 step is kept as
+    a safety net in case callers pass un-normalized embeddings.
     """
     if not embeddings:
         raise ValueError("No embeddings to aggregate.")
     stack = np.stack([_l2(e) for e in embeddings], axis=0)
-    if weights is None:
-        weights = self_consistency_weights(embeddings)
-    w = np.asarray(weights, dtype=np.float32).reshape(-1)
-    if w.size != stack.shape[0]:
-        raise ValueError("weights length must equal number of embeddings.")
-    agg = (stack * w[:, None]).sum(axis=0)
-    return _l2(agg)
-
-
-# ---------------------------------------------------------------------------
-# Anchor-based filtering (pure helper, not wired into recognize)
-# ---------------------------------------------------------------------------
-
-def anchor_filter_indices(
-    embeddings: Sequence[np.ndarray],
-    anchor: np.ndarray,
-    percentile: float = 70.0,
-    min_delta: float = 0.05,
-) -> np.ndarray:
-    """Indices of chunks with cos(chunk, anchor) in the top-tail.
-
-    Keeps a chunk when its similarity is at least the looser of two cutoffs:
-    the ``percentile`` quantile, or ``max(sims) - min_delta``. That matches
-    the "p70 OR max-δ" rule from the design doc, keeping more chunks when
-    the per-query spread is narrow.
-    """
-    if not embeddings:
-        return np.zeros(0, dtype=np.int64)
-    stack = np.stack([_l2(e) for e in embeddings], axis=0)
-    a = _l2(anchor)
-    sims = stack @ a
-    pct_threshold = float(np.percentile(sims, percentile))
-    delta_threshold = float(sims.max()) - float(min_delta)
-    threshold = min(pct_threshold, delta_threshold)
-    return np.where(sims >= threshold)[0]
+    return _l2(stack.mean(axis=0))
