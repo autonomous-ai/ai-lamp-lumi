@@ -445,7 +445,12 @@ export function ChatSection({ events }: Props) {
   const tokenUsageRef = useRef<ChatMessage["tokenUsage"]>(undefined); // token usage for current run
 
   useEffect(() => {
-    const es = new EventSource(`${API}/openclaw/events`);
+    // EventSource holds one HTTP/1.1 connection slot for its lifetime.
+    // ChatSection is always mounted (hidden via display:none to preserve
+    // scroll/input when switching tabs), so keeping this open when the
+    // whole browser tab is backgrounded burns a slot + Pi CPU for nothing.
+    // Close it while hidden, reopen on visible.
+    let es: EventSource | null = null;
 
     // Batch delta/thinking updates into a single render per animation frame
     const scheduleFlush = () => {
@@ -491,7 +496,7 @@ export function ChatSection({ events }: Props) {
       return { text, savedChips, usage };
     };
 
-    es.onmessage = (msg) => {
+    const onMessage = (msg: MessageEvent) => {
       try {
         const ev = JSON.parse(msg.data) as MonitorEvent;
         if (!ev.type) return;
@@ -623,8 +628,24 @@ export function ChatSection({ events }: Props) {
       }
     };
 
+    const open = () => {
+      if (es !== null) return;
+      es = new EventSource(`${API}/openclaw/events`);
+      es.onmessage = onMessage;
+    };
+    const close = () => {
+      if (es !== null) { es.close(); es = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) close(); else open();
+    };
+
+    if (!document.hidden) open();
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
-      es.close();
+      document.removeEventListener("visibilitychange", onVisibility);
+      close();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
   }, [updateMessages]);

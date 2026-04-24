@@ -3,6 +3,7 @@ import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
 import { UserTimelineModal } from "./UserTimelineModal";
+import { usePolling } from "../../hooks/usePolling";
 
 interface CooldownEntry {
   person_id: string;
@@ -132,18 +133,21 @@ export function FaceOwnersSection() {
   }, []);
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 10000);
-    return () => {
-      clearInterval(t);
-      abortRef.current?.abort();
-    };
-  }, [refresh]);
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
-  const refreshFaceState = useCallback(async () => {
+  usePolling(async (signal) => {
+    // Delegate to refresh(), but we can't pass the signal because refresh
+    // uses its own AbortController. The usePolling timeout will still fire
+    // its own abort — refresh's internal controller handles staleness.
+    void signal;
+    await refresh();
+  }, 10_000, { timeoutMs: 8000 });
+
+  usePolling(async (signal) => {
     const [cdRes, cuRes] = await Promise.allSettled([
-      fetch(`${HW}/face/cooldowns`),
-      fetch(`${HW}/face/current-user`),
+      fetch(`${HW}/face/cooldowns`, { signal }),
+      fetch(`${HW}/face/current-user`, { signal }),
     ]);
     if (cdRes.status === "fulfilled" && cdRes.value.ok) {
       setCooldowns(await cdRes.value.json());
@@ -155,13 +159,7 @@ export function FaceOwnersSection() {
       const j = await cuRes.value.json();
       setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
     }
-  }, []);
-
-  useEffect(() => {
-    refreshFaceState();
-    const t = setInterval(refreshFaceState, 5000);
-    return () => clearInterval(t);
-  }, [refreshFaceState]);
+  }, 5000);
 
   const handleResetCooldowns = async () => {
     setResetting(true);
