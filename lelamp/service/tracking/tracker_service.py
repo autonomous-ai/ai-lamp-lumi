@@ -523,38 +523,42 @@ class TrackerService:
                     frame_count = 0
                     fps_t0 = time.perf_counter()
 
-                # Periodic re-detect to correct tracker drift (non-blocking)
+                # Periodic re-detect to correct tracker drift. Runs
+                # synchronously with servo frozen so the YOLO bbox and
+                # the tracker.init frame share coordinates — previously
+                # this ran on a background thread while the main loop
+                # kept nudging servos, so the returned bbox was from a
+                # ~500ms-stale frame while tracker.init used the fresh
+                # one, producing an immediate coord mismatch that looked
+                # like "lost tracking" right after each re-detect.
                 now = time.perf_counter()
-                if (state.target_label
-                        and now - last_redetect_t >= REDETECT_INTERVAL_S
-                        and not getattr(self, '_redetecting', False)):
+                if state.target_label and now - last_redetect_t >= REDETECT_INTERVAL_S:
                     last_redetect_t = now
-                    self._redetecting = True
-                    def _redetect(frm, target):
-                        try:
-                            det_bbox = self.detect_object(frm, target)
+                    redetect_settle_s = 0.15
+                    animation_service.freeze()
+                    try:
+                        time.sleep(redetect_settle_s)
+                        det_frame = camera_capture.last_frame
+                        if det_frame is not None:
+                            det_frame = det_frame.copy()
+                            det_bbox = self.detect_object(det_frame, state.target_label)
                             if det_bbox is not None and state.running.is_set():
                                 new_tracker = self._create_tracker()
                                 if new_tracker is not None:
-                                    fresh = camera_capture.last_frame
-                                    if fresh is not None:
-                                        frm = fresh
                                     try:
-                                        ok_r = new_tracker.init(frm, det_bbox)
+                                        ok_r = new_tracker.init(det_frame, det_bbox)
                                     except Exception:
                                         ok_r = False
                                     if ok_r is not False:
                                         state.tracker = new_tracker
                                         state.bbox = det_bbox
-                                        nonlocal init_area
+                                        state.low_confidence_frames = 0
                                         init_area = det_bbox[2] * det_bbox[3]
                                         logger.info("Re-detect OK: bbox=%s", det_bbox)
-                        except Exception as e:
-                            logger.warning("Re-detect failed: %s", e)
-                        finally:
-                            self._redetecting = False
-                    threading.Thread(target=_redetect, args=(frame.copy(), state.target_label),
-                                     daemon=True, name="tracker-redetect").start()
+                    except Exception as e:
+                        logger.warning("Re-detect failed: %s", e)
+                    finally:
+                        animation_service.unfreeze()
 
                 # Max duration check
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
