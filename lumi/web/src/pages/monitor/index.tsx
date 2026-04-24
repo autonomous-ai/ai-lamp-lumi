@@ -190,31 +190,27 @@ export default function Monitor() {
     }).catch(() => {});
   }, []);
 
+  // One-shot fetch for system info on mount — populates sidebar version /
+  // uptime labels without needing a recurring poll on every section.
+  useEffect(() => {
+    fetch(`${API}/system/info`).then((r) => r.json()).then((r) => {
+      if (r.status === 1) setSys(r.data);
+    }).catch(() => {});
+  }, []);
+
   // Section ref so polling callback always sees current section without re-mounting
   const sectionRef = useRef(section);
   useEffect(() => { sectionRef.current = section; }, [section]);
 
-  // Sidebar polling: openclaw status + system info (needed for all tabs).
+  // Sidebar polling: openclaw status only (needed for all tabs).
   // Runs at 10s via the shared usePolling hook, which adds a 4s hard
   // timeout, skips ticks that overlap a previous in-flight call, and
   // pauses entirely while the tab is hidden — that combination is what
   // keeps the monitor page from saturating Chrome's 6-per-origin HTTP/1.1
   // connection pool and freezing.
   usePolling(async (signal) => {
-    const [ocR, sysR] = await Promise.all([
-      fetch(`${API}/openclaw/status`, { signal }).then((r) => r.json()),
-      fetch(`${API}/system/info`, { signal }).then((r) => r.json()),
-    ]);
+    const ocR = await fetch(`${API}/openclaw/status`, { signal }).then((r) => r.json());
     if (ocR.status === 1) setOc(ocR.data);
-    if (sysR.status === 1) {
-      const d = sysR.data;
-      setSys(d);
-      const s = sectionRef.current;
-      if (s === "overview" || s === "system") {
-        setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
-        setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
-      }
-    }
     setLastUpdate(new Date().toLocaleTimeString());
   }, 10_000);
 
@@ -224,7 +220,16 @@ export default function Monitor() {
     const s = sectionRef.current;
 
     if (s === "overview" || s === "system") {
-      const netR = await fetch(`${API}/system/network`, { signal }).then((r) => r.json());
+      const [sysR, netR] = await Promise.all([
+        fetch(`${API}/system/info`, { signal }).then((r) => r.json()),
+        fetch(`${API}/system/network`, { signal }).then((r) => r.json()),
+      ]);
+      if (sysR.status === 1) {
+        const d = sysR.data;
+        setSys(d);
+        setCpuHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.cpuLoad]);
+        setRamHistory((h) => [...h.slice(-(HISTORY_LEN - 1)), d.memPercent]);
+      }
       if (netR.status === 1) setNet(netR.data);
     }
 
