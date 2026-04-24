@@ -77,16 +77,34 @@ function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterC
   useEffect(() => {
     if (paused) return;
 
-    const es = new EventSource(`${API}/logs/stream?source=${source}`);
-    sseRef.current = es;
-    es.addEventListener("log", (e) => {
+    // Gate the log-stream EventSource on tab visibility. Without this the
+    // stream stays connected (and a TCP slot occupied) even when the user
+    // is on another browser tab, contributing to the monitor page's
+    // connection-pool starvation.
+    let es: EventSource | null = null;
+    const onLog = (e: Event) => {
       const line = stripAnsi((e as MessageEvent).data);
       if (line) setLines((prev) => [...prev.slice(-4999), line]);
-    });
-    es.addEventListener("error", () => {
-      // EventSource reconnects automatically
-    });
-    return () => { es.close(); sseRef.current = null; };
+    };
+    const open = () => {
+      if (es !== null) return;
+      es = new EventSource(`${API}/logs/stream?source=${source}`);
+      sseRef.current = es;
+      es.addEventListener("log", onLog);
+      es.addEventListener("error", () => { /* EventSource auto-reconnects */ });
+    };
+    const close = () => {
+      if (es !== null) { es.close(); es = null; sseRef.current = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) close(); else open();
+    };
+    if (!document.hidden) open();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      close();
+    };
   }, [source, paused, fetchLines]);
 
   const filtered = useMemo(() => {

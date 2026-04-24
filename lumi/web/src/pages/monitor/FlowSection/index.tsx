@@ -3,6 +3,7 @@ import { S } from "../styles";
 import { API, FLOW_EVENTS_MAX, HW } from "../types";
 import type { DisplayEvent } from "../types";
 import type { FlowStage } from "./types";
+import { usePolling } from "../../../hooks/usePolling";
 import { FLOW_NODES, SOURCE_ICON } from "./types";
 import { deriveActiveStage, groupIntoTurns, turnIO, extractTurnTiming, turnBilledTokens, turnDurationMs, extractSensingType, hasSensingPrefix } from "./helpers";
 import { FlowDiagram } from "./FlowDiagram";
@@ -188,22 +189,12 @@ export function FlowSection({
   // busy and no motion/emotion event has streamed through, the last tagged
   // turn can be minutes old and show the wrong person.
   const [currentUser, setCurrentUser] = useState<string>("");
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const r = await fetch(`${HW}/face/current-user`);
-        if (!r.ok || cancelled) return;
-        const j = await r.json();
-        if (!cancelled) setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
-      } catch {
-        // keep last known value on transient error
-      }
-    };
-    tick();
-    const t = setInterval(tick, 5000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  usePolling(async (signal) => {
+    const r = await fetch(`${HW}/face/current-user`, { signal });
+    if (!r.ok) return;
+    const j = await r.json();
+    setCurrentUser(typeof j?.current_user === "string" ? j.current_user : "");
+  }, 5000);
 
   // Sub-types that actually appear in the current turns list
   const availableTypes = useMemo(() => {

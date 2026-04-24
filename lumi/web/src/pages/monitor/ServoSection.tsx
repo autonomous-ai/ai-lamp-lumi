@@ -32,13 +32,19 @@ export function ServoSection() {
   }, []);
 
   useEffect(() => {
-    refresh();
     fetch(`${HW}/servo/aim`).then((r) => r.json()).then((r) => {
       if (r?.directions) setAims(r.directions);
     }).catch(() => {});
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, [refresh]);
+  }, []);
+
+  usePolling(async (signal) => {
+    const [sr, st] = await Promise.all([
+      fetch(`${HW}/servo`, { signal }).then((r) => r.json()).catch(() => null),
+      fetch(`${HW}/servo/status`, { signal }).then((r) => r.json()).catch(() => null),
+    ]);
+    if (sr) setServo(sr);
+    if (st?.servos) setServos(st.servos);
+  }, 3000);
 
   const flash = (msg: string) => {
     setActionMsg(msg);
