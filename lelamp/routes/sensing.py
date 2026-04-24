@@ -24,9 +24,9 @@ from lelamp.models import (
 )
 
 # Lazy import
-FaceRecognizer = None
+FacePerception = None
 try:
-    from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer
+    from lelamp.service.sensing.perceptions.processors import FacePerception
 except ImportError:
     pass
 
@@ -34,10 +34,13 @@ router = APIRouter()
 
 
 def _require_face_recognizer():
-    """Return FaceRecognizer or raise 503."""
-    if not state.sensing_service or FaceRecognizer is None:
+    """Return FacePerception instance or raise 503."""
+    if not state.sensing_service or FacePerception is None:
         raise HTTPException(503, "Sensing not available")
-    fr = getattr(state.sensing_service, "_face_recognizer", None)
+    try:
+        fr = state.sensing_service._perception_orchestrator._processors.face_recognizer
+    except AttributeError:
+        fr = None
     if fr is None:
         raise HTTPException(503, "Face recognition not available (no camera)")
     return fr
@@ -105,7 +108,7 @@ def face_enroll(req: FaceEnrollRequest):
         path = fr.enroll_from_bytes(raw, req.label, tg_username, tg_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    norm = FaceRecognizer.normalize_label(req.label)
+    norm = FacePerception.normalize_label(req.label)
     return FaceEnrollResponse(
         status="ok",
         label=norm,
@@ -130,7 +133,7 @@ def face_status():
 def face_owners_detail():
     """List enrolled persons with photo filenames."""
     fr = _require_face_recognizer()
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import USERS_DIR
 
     persons: list[FacePersonDetail] = []
     if USERS_DIR.is_dir():
@@ -151,7 +154,7 @@ def face_owners_detail():
             voice_dir = d / "voice"
             voice_samples = sorted(f.name for f in voice_dir.iterdir() if f.is_file() and f.suffix.lower() in {".wav", ".mp3", ".ogg"}) if voice_dir.is_dir() else []
             habit_patterns = (d / "habit" / "patterns.json").is_file()
-            meta = FaceRecognizer._read_metadata(d)
+            meta = FacePerception._read_metadata(d)
             persons.append(
                 FacePersonDetail(
                     label=d.name,
@@ -174,9 +177,9 @@ def face_owners_detail():
 @router.get("/face/photo/{label}/{filename}", tags=["Face"])
 def face_photo(label: str, filename: str):
     """Serve an owner photo as JPEG."""
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import USERS_DIR
 
-    norm = FaceRecognizer.normalize_label(label)
+    norm = FacePerception.normalize_label(label)
     path = (USERS_DIR / norm / filename).resolve()
     if not str(path).startswith(str(USERS_DIR.resolve())):
         raise HTTPException(400, "invalid path")
@@ -188,7 +191,7 @@ def face_photo(label: str, filename: str):
 @router.get("/face/file/{label}/{filepath:path}", tags=["Face"])
 def face_file(label: str, filepath: str):
     """Serve any text file from a user's directory."""
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import USERS_DIR
     from lelamp.service.voice.music_service import canonicalize_person
 
     norm = canonicalize_person(label)
@@ -206,7 +209,7 @@ def face_file(label: str, filepath: str):
 def face_remove(req: FaceRemoveRequest):
     """Remove one person's saved photos and re-train from disk."""
     fr = _require_face_recognizer()
-    norm = FaceRecognizer.normalize_label(req.label)
+    norm = FacePerception.normalize_label(req.label)
     if not fr.remove_person(req.label):
         raise HTTPException(404, "person not found")
     return FaceRemoveResponse(
@@ -272,7 +275,7 @@ def face_cooldowns_reset():
 
 def _resolve_user_dir(name: str) -> tuple[str, Path]:
     """Resolve user name and directory."""
-    from lelamp.service.sensing.perceptions.facerecognizer import USERS_DIR, FaceRecognizer as FR
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import USERS_DIR, FacePerception as FR
 
     norm = FR.normalize_label(name) if name else state.DEFAULT_USER
     user_dir = USERS_DIR / norm
@@ -283,7 +286,7 @@ def _resolve_user_dir(name: str) -> tuple[str, Path]:
 @router.get("/user/info", response_model=UserInfoResponse, tags=["User"])
 def user_info(name: str = ""):
     """Get basic user info: name, is_friend, telegram identity."""
-    from lelamp.service.sensing.perceptions.facerecognizer import FaceRecognizer as FR
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import FacePerception as FR
 
     actual_name = name or state.DEFAULT_USER
     norm, user_dir = _resolve_user_dir(actual_name)
