@@ -81,8 +81,16 @@ class AnimationService:
         self._frozen = threading.Event()
 
         # Hold mode — suppresses idle/ambient animations but allows emotion dispatch.
-        # Set by /servo/hold, cleared by /servo/resume.
+        # Set by /servo/hold, cleared by /servo/resume. Also set by scene
+        # presets (focus/reading) that want the lamp to stay put while still
+        # letting scene-change emotions (greeting/sleepy/stretching) play.
         self._hold_mode = False
+
+        # Tracking lock — stricter than hold_mode: absolutely no servo writes
+        # from the animation loop, and in-progress recordings are dropped so
+        # they don't fight the tracker or resume jerking when tracking ends.
+        # Set only by the tracker service.
+        self._tracking_active = False
 
         # When True, idle recording finished and pose is held — loop sleeps longer to save CPU
         self._idle_settled = False
@@ -290,7 +298,21 @@ class AnimationService:
         # Skip servo writes while frozen (camera stabilization)
         if self._frozen.is_set():
             return
-        
+
+        # Tracking lock: tracker owns the servo. Drop any in-progress
+        # recording (including the interpolation phase before its first
+        # frame) so nothing fights the tracker or resumes jerking when
+        # tracking ends. This is stricter than hold_mode — /servo/hold
+        # and focus scenes still let emotion animations play.
+        if self._tracking_active:
+            self._idle_settled = True
+            self._current_recording = None
+            self._current_actions = []
+            self._current_frame_index = 0
+            self._interpolation_frames = 0
+            self._interpolation_target = None
+            return
+
         try:
             # Handle interpolation to first frame
             if self._interpolation_frames > 0 and self._interpolation_target is not None:
@@ -320,10 +342,6 @@ class AnimationService:
 
             # Play current frame
             if self._current_frame_index < len(self._current_actions):
-                # Hold mode: skip servo writes for idle to freeze immediately
-                if self._hold_mode and self._current_recording == self.idle_recording:
-                    self._idle_settled = True
-                    return
                 action = self._current_actions[self._current_frame_index]
                 with self.bus_lock:
                     self.robot.send_action(action)

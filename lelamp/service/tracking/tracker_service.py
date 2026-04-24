@@ -92,6 +92,15 @@ PITCH_WEIGHT_WRIST = 0.0
 CLOSE_OBJECT_RATIO = 0.35
 CLOSE_OBJECT_GAIN = 0.5
 
+# YOLOWorld detection size sanity range. Observed on Pi: when given a
+# multi-label target like ["cup", "mug", "coffee cup"], YOLOWorld can
+# return confident (0.85-0.97) detections with bboxes covering 30-60% of
+# the frame — likely from merging overlapping class predictions. Init-ing
+# the tracker on those loose bboxes makes it lock onto background and
+# drift within seconds. Reject detections outside this area ratio range.
+DETECT_MIN_AREA_RATIO = 0.003  # below this tracker has too few pixels
+DETECT_MAX_AREA_RATIO = 0.30   # above this the box is too loose to trust
+
 # TrackerVit confidence threshold — below this = lost
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -181,10 +190,37 @@ class TrackerService:
                 logger.info("YOLOWorld: '%s' not found in frame", label)
                 return None
 
-            # Pick highest confidence detection across all candidate classes
-            best = max(detections, key=lambda d: d.get("confidence", 0))
+            # Size-filter detections. Log every candidate so we can see what
+            # YOLO actually returned and why we picked (or rejected) each.
+            frame_area = float(frame.shape[0] * frame.shape[1])
+            valid = []
+            for d in detections:
+                cx, cy, w, h = d["xywh"]
+                area_ratio = (w * h) / frame_area if frame_area > 0 else 0.0
+                conf = d.get("confidence", 0)
+                cname = d.get("class_name", "?")
+                accepted = DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO
+                logger.info(
+                    "  YOLO candidate: class='%s' conf=%.3f bbox=(%d,%d,%d,%d) area=%.1f%% %s",
+                    cname, conf, int(cx - w / 2), int(cy - h / 2), int(w), int(h),
+                    area_ratio * 100,
+                    "ACCEPTED" if accepted else "REJECTED (size)",
+                )
+                if accepted:
+                    valid.append(d)
+
+            if not valid:
+                logger.warning(
+                    "YOLOWorld: '%s' — %d detection(s) but none passed size filter "
+                    "[%.1f%%–%.1f%% of frame]",
+                    label, len(detections),
+                    DETECT_MIN_AREA_RATIO * 100, DETECT_MAX_AREA_RATIO * 100,
+                )
+                return None
+
+            # Pick highest confidence among size-valid detections
+            best = max(valid, key=lambda d: d.get("confidence", 0))
             cx, cy, w, h = best["xywh"]
-            # Convert center format to top-left format
             x = int(cx - w / 2)
             y = int(cy - h / 2)
             bbox = (x, y, int(w), int(h))
@@ -364,22 +400,30 @@ class TrackerService:
         state = self._state
 
         animation_service._hold_mode = True
-        logger.info("Servo hold mode ON for tracking")
+        animation_service._tracking_active = True
+        logger.info("Servo hold mode + tracking lock ON")
 
-        # Read initial servo position once — track internally after that
-        try:
-            from lelamp.service.motors.animation_service import _motor_positions_from_bus
-            with animation_service.bus_lock:
-                init_pos = _motor_positions_from_bus(animation_service.robot)
-            self._track_yaw = init_pos.get("base_yaw.pos", 0.0)
-            self._track_base_pitch = init_pos.get("base_pitch.pos", 0.0)
-            self._track_elbow_pitch = init_pos.get("elbow_pitch.pos", 0.0)
-            self._track_wrist_pitch = init_pos.get("wrist_pitch.pos", 0.0)
-        except Exception:
-            self._track_yaw = 0.0
-            self._track_base_pitch = 0.0
-            self._track_elbow_pitch = 0.0
-            self._track_wrist_pitch = 0.0
+        from lelamp.service.motors.animation_service import _motor_positions_from_bus
+
+        def _sync_pose_from_bus() -> bool:
+            """Re-read actual servo position from the bus. Returns True on success."""
+            try:
+                with animation_service.bus_lock:
+                    pos = _motor_positions_from_bus(animation_service.robot)
+                self._track_yaw = pos.get("base_yaw.pos", self._track_yaw)
+                self._track_base_pitch = pos.get("base_pitch.pos", self._track_base_pitch)
+                self._track_elbow_pitch = pos.get("elbow_pitch.pos", self._track_elbow_pitch)
+                self._track_wrist_pitch = pos.get("wrist_pitch.pos", self._track_wrist_pitch)
+                return True
+            except Exception:
+                return False
+
+        # Seed internal pose. Zeros are a last-resort fallback.
+        self._track_yaw = 0.0
+        self._track_base_pitch = 0.0
+        self._track_elbow_pitch = 0.0
+        self._track_wrist_pitch = 0.0
+        _sync_pose_from_bus()
 
         init_area = state.bbox[2] * state.bbox[3] if state.bbox else 0
         frame_count = 0
@@ -391,6 +435,14 @@ class TrackerService:
         try:
             while state.running.is_set():
                 t0 = time.perf_counter()
+
+                # Re-sync internal pose from the bus each cycle. If something
+                # external (emotion reaction from a loud noise, manual servo
+                # command, stale animation from before hold_mode took effect)
+                # moved the servo since our last nudge, we detect it here and
+                # resume tracking from the real pose instead of compounding
+                # stale deltas. At 7 Hz the extra ~10ms bus read is cheap.
+                _sync_pose_from_bus()
 
                 # Read one frame while servo is stationary. Move-then-freeze
                 # cadence guarantees this: the previous iteration finished
@@ -483,6 +535,7 @@ class TrackerService:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
         finally:
+            animation_service._tracking_active = False
             animation_service._hold_mode = False
             state.running.clear()
 

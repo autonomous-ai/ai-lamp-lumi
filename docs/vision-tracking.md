@@ -80,9 +80,9 @@ Tracking uses 4 of 5 servos:
 Pitch is driven by base_pitch only, symmetric with how yaw uses base_yaw. Earlier versions split pitch across all 3 joints, but elbow/wrist tilt also *translates* the camera as it rotates, producing arc motion that the pixel-to-degree model didn't predict (worse on close objects). Single-joint pitch gives clean rotation around the camera's own axis. Trade-off: base_pitch range -90°..+30° (120°) is narrower than yaw's ±135°, so pitch hits servo limit sooner — motion stops cleanly in that case.
 
 **During tracking:**
-- `_hold_mode = True` — suppresses idle animations
+- `_hold_mode = True` + `_tracking_active = True` — `_tracking_active` is strict: the animation loop drops any in-progress recording (e.g. a shock reaction from a loud noise) so nothing fights the tracker or resumes jerking when tracking ends. `/emotion` calls during tracking still update the LED but their servo animation is suppressed.
 - `send_action()` — direct servo write, non-blocking (servo P-gain handles smoothing)
-- Internal position tracking — reads bus once at start, tracks deltas internally
+- Bus position re-read each cycle — internal pose state is re-synced from the hardware bus at the start of every loop iteration, so if anything external (scene change, stale animation, manual command) did move the servo, the tracker picks up the real pose instead of compounding stale deltas.
 
 **On stop:** holds servo at the last tracked position. The lamp does *not* snap back to idle pose — that was removed because it caused a visible jerk right after tracking ended. Idle animation resumes on the next user interaction.
 
@@ -115,6 +115,8 @@ pitch_deg = dy * 0.022   (clamped to ±6.0°, zero if |dy| < 18)
 | `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch on base only (single joint, symmetric with yaw) |
 | `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area above this → reduce gain |
 | `CLOSE_OBJECT_GAIN` | 0.5 | Gain multiplier when object is close |
+| `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox smaller than this (too few pixels to track) |
+| `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox larger than this (loose, likely merged) |
 
 ### Servo Position Limits
 

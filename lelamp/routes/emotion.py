@@ -88,23 +88,41 @@ def express_emotion(req: EmotionRequest):
         state.logger.info("POST /emotion: waking from sleep, auto scene off (%s)", state._active_scene)
         deactivate_scene()
 
-    # When servo is in hold mode (focus/reading scene), suppress emotion
-    # animations to avoid distraction. Only scene-changing emotions pass through.
-    servo_held = state.animation_service and getattr(state.animation_service, "_hold_mode", False)
+    # Two levels of suppression:
+    #   - hold_mode: /servo/hold or focus/reading scene. Suppress most
+    #     emotion servo animations, but let scene-change emotions through
+    #     (greeting/sleepy/stretching may legitimately transition scene).
+    #   - tracking_active: vision tracker owns the servo. Suppress ALL
+    #     emotion servo including scene-change — otherwise a loud-noise
+    #     shock reaction would yank the lamp off the tracked object.
+    # LED display updates in both cases so the user still gets visual
+    # feedback.
+    svc = state.animation_service
+    tracking_active = svc and getattr(svc, "_tracking_active", False)
+    servo_held = svc and getattr(svc, "_hold_mode", False)
     scene_change = req.emotion in {EMO_GREETING, EMO_SLEEPY, EMO_STRETCHING}
+    servo_blocked = tracking_active or (servo_held and not scene_change)
 
     servo_played = None
 
-    if state.animation_service and preset.get("servo") and (not servo_held or scene_change):
+    if svc and preset.get("servo") and not servo_blocked:
         try:
-            state.animation_service.dispatch(SERVO_CMD_PLAY, preset["servo"])
+            svc.dispatch(SERVO_CMD_PLAY, preset["servo"])
             servo_played = preset["servo"]
         except Exception as e:
             state.logger.warning(f"Emotion servo failed: {e}")
-    elif servo_held:
-        state.logger.info("POST /emotion: servo suppressed (%s) -- hold mode", req.emotion)
+    elif servo_blocked:
+        reason = "tracking active" if tracking_active else "hold mode"
+        state.logger.info("POST /emotion: servo suppressed (%s) -- %s", req.emotion, reason)
 
-    led_color = state._apply_emotion_led_display(req.emotion, req.intensity) if not servo_held or scene_change else None
+    # LED behavior:
+    #   - tracking_active: LED still updates so the user sees emotion
+    #     feedback (eyes/color) even though the servo is locked.
+    #   - hold_mode (non-scene-change): LED suppressed — /servo/hold asks
+    #     for a fully "held" lamp, including ambient light.
+    #   - otherwise: LED updates normally.
+    led_allowed = tracking_active or not servo_blocked
+    led_color = state._apply_emotion_led_display(req.emotion, req.intensity) if led_allowed else None
 
     if req.emotion == EMO_IDLE:
         pass
