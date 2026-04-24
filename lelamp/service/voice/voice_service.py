@@ -861,7 +861,13 @@ class VoiceService:
                 except Exception as e:
                     logger.warning("send_audio failed (connection dead?): %s", e)
                     break
-                audio_buffer.append(resampled)
+                # Drop frames from the speaker-recognition buffer while Lumi is
+                # speaking (backchannel "Uhm/Ok" or any TTS) — mic echo of our
+                # own voice would otherwise contaminate the user voiceprint.
+                # STT itself still receives everything (fillers are short; STT
+                # filters them out on its own).
+                if not self._backchannel.is_playing and not self._tts_is_speaking():
+                    audio_buffer.append(resampled)
 
                 rms = self._rms(data)
                 if rms >= RMS_THRESHOLD:
