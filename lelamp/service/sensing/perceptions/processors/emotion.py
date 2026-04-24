@@ -5,6 +5,7 @@ import threading
 import time
 from collections import Counter
 from copy import copy
+from dataclasses import dataclass
 from typing import Any, override
 
 import cv2
@@ -12,7 +13,9 @@ import requests
 
 import lelamp.config as config
 from lelamp.service.sensing.perceptions.models import (
+    Face,
     FaceDetectionData,
+    PersonKind,
 )
 from lelamp.service.sensing.perceptions.typing import SendEventCallable
 from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
@@ -96,6 +99,12 @@ class RemoteEmotionRecognizer:
             return None
 
 
+@dataclass
+class EmotionData:
+    face: Face
+    emotions: list[str]
+
+
 class EmotionPerception(Perception[FaceDetectionData]):
     """Detects facial emotions via face recognizer callback + dlbackend HTTP.
 
@@ -134,7 +143,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._flush_interval: float = config.EMOTION_FLUSH_S
         self._last_flush_ts: float = 0.0
         # {person_id: [emotion_str, ...]}
-        self._emotion_buffer: dict[str, list[str]] = {}
+        self._emotion_buffer: dict[str, EmotionData] = {}
         self._snapshot_paths: list[str] = []
 
         # Dedup: per-user cooldown + same-emotion suppression
@@ -146,14 +155,13 @@ class EmotionPerception(Perception[FaceDetectionData]):
     def _process_face(
         self,
         frame: cv2.typing.MatLike,
-        bbox: list[int],
-        kind: str,
-        person_id: str,
+        face: Face,
     ) -> None:
         """Crop face, send to emotion backend, buffer result."""
+
         h, w = frame.shape[:2]
         # bbox is [x1, y1, x2, y2] from InsightFace
-        x1, y1, x2, y2 = bbox
+        x1, y1, x2, y2 = face.bbox
 
         # Clamp to frame bounds
         x1 = max(0, x1)
@@ -181,27 +189,31 @@ class EmotionPerception(Perception[FaceDetectionData]):
             self._presence_service.on_motion()
 
         # Save annotated snapshot (I/O — outside lock)
-        snapshot_path = self._save_annotated(frame, bbox, emotion, confidence)
+        snapshot_path = self._save_annotated(frame, face.bbox, emotion, confidence)
 
         with self._state_lock:
             self._last_detection_time = time.time()
             self._last_emotion = emotion
 
-            if person_id not in self._emotion_buffer:
-                self._emotion_buffer[person_id] = []
-            self._emotion_buffer[person_id].append(emotion)
+            if face.person_id not in self._emotion_buffer:
+                self._emotion_buffer[face.person_id] = EmotionData(
+                    face=face, emotions=[]
+                )
+            self._emotion_buffer[face.person_id].emotions.append(emotion)
 
             if snapshot_path:
                 self._snapshot_paths.append(snapshot_path)
 
-        logger.debug("[activity.emotion] %s: %s (%.2f)", person_id, emotion, confidence)
+        logger.debug(
+            "[activity.emotion] %s: %s (%.2f)", face.person_id, emotion, confidence
+        )
 
     @override
     def _check_impl(self, data: FaceDetectionData) -> None:
         """Only used for periodic flush — actual detection is callback-driven."""
         if data.frame is not None:
             for f in data.faces:
-                self._process_face(data.frame, f.bbox, f.kind, f.person_id)
+                self._process_face(data.frame, f)
 
         self._flush_buffer()
 
@@ -282,19 +294,22 @@ class EmotionPerception(Perception[FaceDetectionData]):
             return
 
         # Process each person's emotions
-        for person_id, emotions in buffer.items():
-            if emotions:
-                logger.info("[activity.emotion] %s raw: %s", person_id, emotions)
+        for person_id, emotion_data in buffer.items():
+            if emotion_data:
+                logger.info("[activity.emotion] %s raw: %s", person_id, emotion_data)
 
             # Skip Neutral
-            non_neutral = [e for e in emotions if e != "Neutral"]
+            non_neutral = [e for e in emotion_data.emotions if e != "Neutral"]
             if not non_neutral:
                 continue
 
             counts = Counter(non_neutral)
             dominant_emotion, _ = counts.most_common(1)[0]
 
-            message = f"Emotion detected for {person_id}: {dominant_emotion}."
+            if emotion_data.face.kind == PersonKind.FRIEND:
+                message = f"Emotion detected for {person_id}: {dominant_emotion}."
+            else:
+                message = f"Emotion detected: {dominant_emotion}."
 
             # Dedup (lock for dedup state)
             with self._state_lock:
