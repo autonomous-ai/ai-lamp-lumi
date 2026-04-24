@@ -95,6 +95,8 @@ export function FaceOwnersSection() {
   const [strangers, setStrangers] = useState<StrangersData | null>(null);
   const [strangersError, setStrangersError] = useState(false);
   const [expandedCluster, setExpandedCluster] = useState<Record<string, boolean>>({});
+  const [deletingCluster, setDeletingCluster] = useState<string | null>(null);
+  const [deletingStrangerFile, setDeletingStrangerFile] = useState<string | null>(null); // "hash/filename"
 
   // Folder toggle state: "label:mood" => expanded
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -215,6 +217,41 @@ export function FaceOwnersSection() {
   }, []);
 
   usePolling(async (signal) => { await refreshStrangers(signal); }, 15_000);
+
+  const handleDeleteCluster = async (hash: string, sampleCount: number) => {
+    if (!confirm(`Delete cluster ${hash} (${sampleCount} sample${sampleCount !== 1 ? "s" : ""}) and its centroid?`)) return;
+    setDeletingCluster(hash);
+    try {
+      const res = await fetch(`${HW}/voice/strangers/${hash}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        alert(`Delete failed: ${err.detail ?? res.status}`);
+      }
+      await refreshStrangers();
+    } catch (e) {
+      alert(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeletingCluster(null);
+    }
+  };
+
+  const handleDeleteStrangerFile = async (hash: string, filename: string) => {
+    if (!confirm(`Delete sample ${filename} from ${hash}?`)) return;
+    const key = `${hash}/${filename}`;
+    setDeletingStrangerFile(key);
+    try {
+      const res = await fetch(`${HW}/voice/strangers/${hash}/${encodeURIComponent(filename)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        alert(`Delete failed: ${err.detail ?? res.status}`);
+      }
+      await refreshStrangers();
+    } catch (e) {
+      alert(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeletingStrangerFile(null);
+    }
+  };
 
   const handleResetCooldowns = async () => {
     setResetting(true);
@@ -816,11 +853,11 @@ export function FaceOwnersSection() {
                   background: "var(--lm-surface)",
                   border: "1px solid var(--lm-border)",
                 }}>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
-                    onClick={() => setExpandedCluster((p) => ({ ...p, [cluster.hash]: !isOpen }))}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}
+                      onClick={() => setExpandedCluster((p) => ({ ...p, [cluster.hash]: !isOpen }))}
+                    >
                       <span style={{ color: "rgb(168,85,247)", fontSize: 11 }}>
                         {isOpen ? "▾" : "▸"}
                       </span>
@@ -843,36 +880,70 @@ export function FaceOwnersSection() {
                         {cluster.sample_count} sample{cluster.sample_count !== 1 ? "s" : ""}
                       </span>
                     </div>
-                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                      last {fmtAgo(cluster.latest_mtime)}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                        last {fmtAgo(cluster.latest_mtime)}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCluster(cluster.hash, cluster.sample_count); }}
+                        disabled={deletingCluster === cluster.hash}
+                        title={`Delete cluster ${cluster.hash}`}
+                        style={{
+                          ...btnStyle,
+                          padding: "2px 7px",
+                          background: "rgba(239,68,68,0.1)",
+                          color: "rgb(239,68,68)",
+                          border: "1px solid rgba(239,68,68,0.2)",
+                          cursor: deletingCluster === cluster.hash ? "wait" : "pointer",
+                          opacity: deletingCluster === cluster.hash ? 0.5 : 1,
+                        }}
+                      >
+                        {deletingCluster === cluster.hash ? "..." : "🗑"}
+                      </button>
+                    </div>
                   </div>
 
                   {isOpen && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-                      {cluster.samples.map((s) => (
-                        <div key={s.filename} style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          fontSize: 10,
-                          color: "var(--lm-text-muted)",
-                          fontFamily: "monospace",
-                        }}>
-                          <audio
-                            controls
-                            preload="none"
-                            src={`${HW}/voice/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
-                            style={{ height: 28, flexShrink: 0 }}
-                          />
-                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {s.filename}
-                          </span>
-                          <span style={{ flexShrink: 0 }}>
-                            {fmtSize(s.size_bytes)} · {fmtAgo(s.mtime)}
-                          </span>
-                        </div>
-                      ))}
+                      {cluster.samples.map((s) => {
+                        const fileKey = `${cluster.hash}/${s.filename}`;
+                        const isDeletingFile = deletingStrangerFile === fileKey;
+                        return (
+                          <div key={s.filename} style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            fontSize: 10,
+                            color: "var(--lm-text-muted)",
+                            fontFamily: "monospace",
+                          }}>
+                            <audio
+                              controls
+                              preload="none"
+                              src={`${HW}/voice/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
+                              style={{ height: 28, flexShrink: 0 }}
+                            />
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.filename}
+                            </span>
+                            <span style={{ flexShrink: 0 }}>
+                              {fmtSize(s.size_bytes)} · {fmtAgo(s.mtime)}
+                            </span>
+                            <span
+                              onClick={() => { if (!isDeletingFile) handleDeleteStrangerFile(cluster.hash, s.filename); }}
+                              title={`Remove ${s.filename}`}
+                              style={{
+                                cursor: isDeletingFile ? "wait" : "pointer",
+                                fontSize: 12,
+                                color: "rgb(239,68,68)",
+                                opacity: isDeletingFile ? 0.5 : 0.7,
+                                fontWeight: 600,
+                                flexShrink: 0,
+                              }}
+                            >✕</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

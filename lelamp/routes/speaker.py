@@ -395,6 +395,74 @@ def voice_strangers() -> StrangersResponse:
     return StrangersResponse(total=len(clusters), clusters=clusters)
 
 
+class StrangerDeleteResponse(BaseModel):
+    status: str
+    hash: str
+    filename: Optional[str] = None
+    cluster_removed: bool = False
+
+
+@router.delete("/voice/strangers/{hash}", response_model=StrangerDeleteResponse)
+def voice_stranger_delete_cluster(hash: str) -> StrangerDeleteResponse:
+    """Delete a whole unknown-voice cluster — centroid row + on-disk dir.
+
+    Used from the web card when the operator decides a cluster is noise or
+    belongs to someone they don't want tracked any further.
+    """
+    if not _STRANGER_HASH_RE.match(hash):
+        raise HTTPException(status_code=400, detail="invalid cluster hash")
+    sr = get_speaker_recognizer()
+    removed = sr.drop_stranger_cluster(hash)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"cluster not found: {hash}")
+    logger.info("DELETE /voice/strangers/%s — removed", hash)
+    return StrangerDeleteResponse(status="ok", hash=hash, cluster_removed=True)
+
+
+@router.delete(
+    "/voice/strangers/{hash}/{filename}", response_model=StrangerDeleteResponse,
+)
+def voice_stranger_delete_sample(hash: str, filename: str) -> StrangerDeleteResponse:
+    """Delete a single WAV from a cluster.
+
+    If the cluster becomes empty after deletion, auto-drop the centroid so
+    the .npy state stays in sync with what the web list can show (an empty
+    cluster dir is filtered out of ``GET /voice/strangers``, which would
+    otherwise orphan the centroid forever).
+    """
+    if not _STRANGER_HASH_RE.match(hash) or not _STRANGER_SAMPLE_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid path")
+    root = Path(config.SPEAKER_UNKNOWN_AUDIO_DIR).resolve()
+    cluster_dir = (root / hash).resolve()
+    try:
+        cluster_dir.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid path") from exc
+    target = cluster_dir / filename
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="sample not found")
+    try:
+        target.unlink()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"delete failed: {exc}",
+        ) from exc
+    cluster_emptied = not any(cluster_dir.glob("*.wav"))
+    if cluster_emptied:
+        sr = get_speaker_recognizer()
+        sr.drop_stranger_cluster(hash)
+    logger.info(
+        "DELETE /voice/strangers/%s/%s (cluster_emptied=%s)",
+        hash, filename, cluster_emptied,
+    )
+    return StrangerDeleteResponse(
+        status="ok",
+        hash=hash,
+        filename=filename,
+        cluster_removed=cluster_emptied,
+    )
+
+
 @router.get("/voice/strangers/audio/{hash}/{filename}")
 def voice_stranger_audio(hash: str, filename: str) -> FileResponse:
     """Stream a stranger-cluster WAV by cluster hash + filename.
