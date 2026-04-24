@@ -80,9 +80,9 @@ Tracking sử dụng 4 trong 5 servo:
 Pitch chỉ dùng base_pitch, đối xứng với cách yaw dùng base_yaw. Các phiên bản trước chia pitch qua cả 3 joint nhưng elbow/wrist nghiêng còn *dịch chuyển* vị trí camera chứ không chỉ xoay → arc motion khác với model pixel-to-degree (tệ nhất khi object gần). Pitch 1 joint = xoay sạch quanh trục camera. Trade-off: range base_pitch -90°..+30° (120°) hẹp hơn yaw ±135°, pitch sẽ hit limit sớm hơn — motion dừng sạch trong trường hợp đó.
 
 **Khi đang tracking:**
-- `_hold_mode = True` — chặn idle animations
+- `_hold_mode = True` + `_tracking_active = True` — `_tracking_active` nghiêm ngặt hơn: animation loop sẽ drop mọi recording đang chạy (vd shock từ loud noise) để không có gì đấu với tracker hoặc giật tiếp khi tracking kết thúc. `/emotion` khi tracking vẫn update LED nhưng servo bị suppress.
 - `send_action()` — ghi servo trực tiếp, không blocking (servo P-gain tự smooth)
-- Theo dõi vị trí nội bộ — đọc bus 1 lần lúc bắt đầu, track delta nội bộ
+- Re-sync vị trí bus mỗi cycle — đầu mỗi vòng lặp đọc lại vị trí thật từ bus, nếu có thứ gì ngoài tracker move servo (scene change, stale animation, lệnh tay) thì tracker sẽ lấy pose thật thay vì cộng dồn delta stale.
 
 **Khi dừng:** giữ servo ở vị trí cuối cùng khi tracking. Đèn *không* tự snap về idle pose — đã bỏ vì gây giật ngay sau khi tracking kết thúc. Idle animation sẽ resume ở lần tương tác kế tiếp của user.
 
@@ -115,6 +115,8 @@ pitch_deg = dy * 0.022   (clamp ±6.0°, bằng 0 nếu |dy| < 18)
 | `PITCH_WEIGHT_BASE/ELBOW/WRIST` | 1.0 / 0.0 / 0.0 | Pitch chỉ trên base (1 joint, đối xứng yaw) |
 | `CLOSE_OBJECT_RATIO` | 0.35 | bbox area / frame area vượt ngưỡng → giảm gain |
 | `CLOSE_OBJECT_GAIN` | 0.5 | Hệ số nhân gain khi object gần |
+| `DETECT_MIN_AREA_RATIO` | 0.003 | Reject YOLO bbox nhỏ hơn (quá ít pixel để track) |
+| `DETECT_MAX_AREA_RATIO` | 0.30 | Reject YOLO bbox lớn hơn (lỏng, thường là detection gộp) |
 
 ### Giới hạn vị trí Servo
 
