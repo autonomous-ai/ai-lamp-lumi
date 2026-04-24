@@ -54,6 +54,10 @@ class Backchannel:
         self._last_cue_time: float = 0.0
         self._lock = threading.Lock()
         self._timer: Optional[threading.Timer] = None
+        # Set while a cue is actively playing through the speaker. Voice service
+        # reads this to drop mic frames from the speaker-recognition buffer —
+        # otherwise echo of "Uhm/Ok" contaminates the user voiceprint.
+        self._playing = threading.Event()
 
         if FILLERS:
             logger.info("Backchannel enabled: fillers=%s, stall=%.1fs, interval=%.1fs",
@@ -62,6 +66,11 @@ class Backchannel:
     @property
     def enabled(self) -> bool:
         return len(FILLERS) > 0
+
+    @property
+    def is_playing(self) -> bool:
+        """True while a cue is playing through the speaker."""
+        return self._playing.is_set()
 
     def on_partial(self, text: str) -> None:
         """Called on each STT partial. Schedules a cue if partial stalls."""
@@ -115,6 +124,7 @@ class Backchannel:
         tts = self._tts
         if tts is None or tts._backend is None or not tts._backend.available or tts._sd is None:
             return
+        self._playing.set()
         try:
             import numpy as np
             dst_rate = tts._device_rate or 24000
@@ -145,3 +155,5 @@ class Backchannel:
             logger.info("Backchannel played: '%s'", text)
         except Exception as e:
             logger.warning("Backchannel play failed: %s", e)
+        finally:
+            self._playing.clear()
