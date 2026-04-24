@@ -3,6 +3,7 @@ import { S } from "./styles";
 import { HW } from "./types";
 import type { ServoState } from "./types";
 import { StatusDot } from "./components";
+import { usePolling } from "../../hooks/usePolling";
 
 interface ServoDetail {
   id: number;

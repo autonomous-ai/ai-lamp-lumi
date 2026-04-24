@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { HW } from "./types";
+import { usePolling } from "../../hooks/usePolling";
 
 const S = {
   card: { background: "var(--lm-card)", borderRadius: 10, padding: 14, marginBottom: 10 } as const,
@@ -69,17 +70,10 @@ interface SensingData {
 export function SensingSection() {
   const [data, setData] = useState<SensingData | null>(null);
 
-  useEffect(() => {
-    const poll = () => {
-      fetch(`${HW}/sensing`)
-        .then((r) => r.json())
-        .then(setData)
-        .catch(() => {});
-    };
-    poll();
-    const id = setInterval(poll, 3000);
-    return () => clearInterval(id);
-  }, []);
+  usePolling(async (signal) => {
+    const r = await fetch(`${HW}/sensing`, { signal }).then((x) => x.json());
+    setData(r);
+  }, 3000);
 
   if (!data) return <div style={{ padding: 20, color: "var(--lm-text-muted)" }}>Loading sensing data…</div>;
 
