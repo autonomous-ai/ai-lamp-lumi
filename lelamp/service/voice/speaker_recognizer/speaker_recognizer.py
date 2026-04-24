@@ -40,6 +40,7 @@ import base64
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -71,6 +72,26 @@ _API_KEY = config.SPEAKER_EMBEDDING_API_KEY
 _API_TIMEOUT_S = config.SPEAKER_EMBEDDING_API_TIMEOUT_S
 _MATCH_THRESHOLD = config.SPEAKER_MATCH_THRESHOLD
 _ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
+
+# --- Voice stranger clustering ---
+# Assigns a stable "voiceprint_hash" (voice_<N> label) to every unknown voice
+# so callers can track "same unknown speaker seen multiple times" without
+# needing voiceprint_hash support from the embedding backend. Mirrors the
+# face stranger tracker in facerecognizer.py.
+_VOICE_STRANGERS_DIR = Path(
+    os.environ.get("LELAMP_VOICE_STRANGERS_DIR", "/root/local/voice_strangers")
+)
+# Lower than _MATCH_THRESHOLD (0.7) — we want same voice to gather into one
+# cluster even at looser similarity. False grouping is less bad than infinite
+# fragmentation.
+_VOICE_STRANGER_MATCH_THRESHOLD = float(
+    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.65")
+)
+# Cap cluster count so disk doesn't grow unbounded. Oldest evicted first.
+_MAX_VOICE_STRANGERS = int(
+    os.environ.get("LELAMP_MAX_VOICE_STRANGERS", "50")
+)
+_VOICE_STRANGER_PREFIX = "voice_"
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
@@ -288,11 +309,23 @@ class SpeakerRecognizer:
 
         self._users_dir.mkdir(parents=True, exist_ok=True)
         _UNKNOWN_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Voice stranger clustering state — mirrors FaceRecognizer stranger
+        # tracking. Persists to _VOICE_STRANGERS_DIR so reboots don't lose
+        # the "same voice seen again" grouping.
+        self._stranger_lock = threading.Lock()
+        self._stranger_embeds: Optional[np.ndarray] = None  # [N, D] L2-normalized
+        self._stranger_labels: Optional[np.ndarray] = None  # [N] str labels
+        self._stranger_counter: int = 0
+        _VOICE_STRANGERS_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_strangers()
+
         logger.info(
-            "SpeakerRecognizer ready (api=%s, threshold=%.2f, users_dir=%s)",
+            "SpeakerRecognizer ready (api=%s, threshold=%.2f, users_dir=%s, strangers=%d)",
             self._api_url or "<unset>",
             self._match_threshold,
             self._users_dir,
+            0 if self._stranger_embeds is None else len(self._stranger_embeds),
         )
 
     @property
@@ -894,6 +927,7 @@ class SpeakerRecognizer:
                 "confidence": 0.0,
                 "match": False,
                 "unknown_audio_path": saved_path,
+                "voiceprint_hash": None,
                 "candidates": [],
                 "error": "embedding API not configured",
             }
@@ -912,17 +946,23 @@ class SpeakerRecognizer:
                 "confidence": 0.0,
                 "match": False,
                 "unknown_audio_path": saved_path,
+                "voiceprint_hash": None,
                 "candidates": [],
                 "error": str(e),
             }
 
         known = self._load_all_embeddings()
         if not known:
+            # No enrolled users — every voice is unknown. Still assign a
+            # stable cluster hash so repeat speakers can be tracked before
+            # anyone is enrolled.
+            vp_hash = self._assign_voiceprint_hash(query_chunks)
             return {
                 "name": "unknown",
                 "confidence": 0.0,
                 "match": False,
                 "unknown_audio_path": saved_path,
+                "voiceprint_hash": vp_hash or None,
                 "candidates": [],
             }
 
@@ -959,11 +999,15 @@ class SpeakerRecognizer:
 
         is_match = best_conf >= self._match_threshold
         resolved_name = best_name if is_match else "unknown"
+        # Only assign a stranger cluster hash for unknowns — known speakers
+        # already have a stable identity (their name).
+        vp_hash = None if is_match else (self._assign_voiceprint_hash(query_chunks) or None)
         result: dict[str, Any] = {
             "name": resolved_name,
             "confidence": round(best_conf, 4),
             "match": is_match,
             "unknown_audio_path": saved_path,
+            "voiceprint_hash": vp_hash,
             "candidates": [
                 {"name": n, "confidence": round(c, 4), "votes": v}
                 for n, c, v in scores[:3]
@@ -1160,3 +1204,103 @@ class SpeakerRecognizer:
             logger.warning("failed to save incoming audio: %s", e)
             return ""
         return str(fpath)
+
+    # ------------------------------------------------- voice stranger clustering
+
+    def _assign_voiceprint_hash(self, query_chunks: np.ndarray) -> str:
+        """Return a stable voice_<N> label for an unknown voice.
+
+        Aggregates the per-chunk query embeddings into one L2-normalized
+        vector, then compares against saved stranger centroids. A match
+        (cosine >= _VOICE_STRANGER_MATCH_THRESHOLD) reuses the existing
+        label; otherwise a new label is allocated and persisted.
+
+        Consumers don't call this directly — recognize() stamps the hash
+        into its response when the speaker is unknown.
+        """
+        if query_chunks is None or len(query_chunks) == 0:
+            return ""
+        agg = query_chunks.mean(axis=0)
+        norm = float(np.linalg.norm(agg))
+        if norm == 0.0:
+            return ""
+        agg = agg / norm
+
+        with self._stranger_lock:
+            if self._stranger_embeds is not None and len(self._stranger_embeds) > 0:
+                sims = self._stranger_embeds @ agg  # both L2-normalized → cosine
+                best_idx = int(np.argmax(sims))
+                best_sim = float(sims[best_idx])
+                if best_sim >= _VOICE_STRANGER_MATCH_THRESHOLD:
+                    label = str(self._stranger_labels[best_idx])
+                    logger.info(
+                        "Voiceprint hash: %s (matched existing cluster, sim=%.3f)",
+                        label, best_sim,
+                    )
+                    return label
+
+            # No match — allocate a new cluster.
+            self._stranger_counter = (self._stranger_counter + 1) % int(1e6)
+            label = f"{_VOICE_STRANGER_PREFIX}{self._stranger_counter}"
+            new_row = agg.reshape(1, -1).astype(np.float32)
+            new_lbl = np.array([label])
+            if self._stranger_embeds is None:
+                self._stranger_embeds = new_row
+                self._stranger_labels = new_lbl
+            else:
+                self._stranger_embeds = np.concatenate(
+                    [self._stranger_embeds, new_row], axis=0,
+                )
+                self._stranger_labels = np.concatenate(
+                    [self._stranger_labels, new_lbl], axis=0,
+                )
+
+            # Evict oldest entries once over the cap. Keeps disk bounded
+            # without impacting recent speakers the agent still cares about.
+            if len(self._stranger_embeds) > _MAX_VOICE_STRANGERS:
+                drop = len(self._stranger_embeds) - _MAX_VOICE_STRANGERS
+                self._stranger_embeds = self._stranger_embeds[drop:]
+                self._stranger_labels = self._stranger_labels[drop:]
+
+            self._save_strangers()
+            logger.info(
+                "Voiceprint hash: %s (new cluster, total=%d)",
+                label, len(self._stranger_embeds),
+            )
+            return label
+
+    def _save_strangers(self) -> None:
+        """Persist stranger state to disk. Caller must hold _stranger_lock."""
+        if self._stranger_embeds is None or self._stranger_labels is None:
+            return
+        try:
+            np.save(_VOICE_STRANGERS_DIR / "embeds.npy", self._stranger_embeds)
+            np.save(_VOICE_STRANGERS_DIR / "labels.npy", self._stranger_labels)
+            np.save(
+                _VOICE_STRANGERS_DIR / "counter.npy",
+                np.array(self._stranger_counter),
+            )
+        except OSError as e:
+            logger.warning("save voice strangers failed: %s", e)
+
+    def _load_strangers(self) -> None:
+        """Load stranger state from disk on startup. Silent on missing files."""
+        embeds_path = _VOICE_STRANGERS_DIR / "embeds.npy"
+        labels_path = _VOICE_STRANGERS_DIR / "labels.npy"
+        counter_path = _VOICE_STRANGERS_DIR / "counter.npy"
+        if not (embeds_path.exists() and labels_path.exists()):
+            return
+        try:
+            self._stranger_embeds = np.load(embeds_path)
+            self._stranger_labels = np.load(labels_path)
+            if counter_path.exists():
+                self._stranger_counter = int(np.load(counter_path))
+            logger.info(
+                "Loaded %d voice strangers (counter=%d)",
+                len(self._stranger_embeds), self._stranger_counter,
+            )
+        except Exception as e:
+            logger.warning("load voice strangers failed: %s", e)
+            self._stranger_embeds = None
+            self._stranger_labels = None
+            self._stranger_counter = 0
