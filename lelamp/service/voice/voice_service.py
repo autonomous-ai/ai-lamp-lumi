@@ -648,7 +648,7 @@ class VoiceService:
 
         def _should_request_enroll(
             transcript: str, duration_s: float = 0.0,
-            min_words: int = 10, min_duration_s: float = 2.0,
+            min_words: int = 15, min_duration_s: float = 2.0,
         ) -> bool:
             """Decide whether to append enroll instructions to the message.
 
@@ -670,7 +670,7 @@ class VoiceService:
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript} (audio save at {audio_path}. Note: audio is too short for single enrollment, ask user introduce themselves longer later and combine both recordings for enrollment)"
+            return f"Unknown Speaker: {transcript} (audio is too short for enrollment, ask user introduce themselves longer later)"
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
@@ -861,13 +861,7 @@ class VoiceService:
                 except Exception as e:
                     logger.warning("send_audio failed (connection dead?): %s", e)
                     break
-                # Drop frames from the speaker-recognition buffer while Lumi is
-                # speaking (backchannel "Uhm/Ok" or any TTS) — mic echo of our
-                # own voice would otherwise contaminate the user voiceprint.
-                # STT itself still receives everything (fillers are short; STT
-                # filters them out on its own).
-                if not self._backchannel.is_playing and not self._tts_is_speaking():
-                    audio_buffer.append(resampled)
+                audio_buffer.append(resampled)
 
                 rms = self._rms(data)
                 if rms >= RMS_THRESHOLD:
