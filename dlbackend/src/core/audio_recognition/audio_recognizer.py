@@ -183,9 +183,23 @@ class BaseAudioRecognizer:
             )
 
         def download_to_local(url, dest_path: Path) -> None:
+            """Atomic download: stream into a unique temp file in the same
+            directory, then rename. Prevents two workers (gunicorn) from
+            interleaving writes to the same partial file at startup, and
+            leaves no half-written file on crash.
+            """
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            with urllib.request.urlopen(url) as response, open(dest_path, "wb") as out_file:
-                shutil.copyfileobj(response, out_file)
+            tmp_path = dest_path.with_suffix(dest_path.suffix + f".part.{os.getpid()}")
+            try:
+                with urllib.request.urlopen(url) as response, open(tmp_path, "wb") as out_file:
+                    shutil.copyfileobj(response, out_file)
+                os.replace(tmp_path, dest_path)
+            finally:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
 
         if model_path is None:
             warnings.warn(
@@ -200,7 +214,11 @@ class BaseAudioRecognizer:
             if not default_local.exists():
                 try:
                     download_to_local(model_path, default_local)
-                except Exception:
+                except Exception as primary_err:
+                    logger.warning(
+                        "Model download from %s failed (%s); falling back to default remote %s",
+                        model_path, primary_err, default_remote,
+                    )
                     download_to_local(default_remote, default_local)
             return str(default_local)
 
@@ -618,8 +636,6 @@ class BaseAudioRecognizer:
         vote_count: Dict[str, int] = defaultdict(int)
         conf_sum: Dict[str, float] = defaultdict(float)
 
-        import logging
-
         for idx, query_emb in enumerate(query_embs):
             seg_best_name = ""
             seg_best_conf = 0.0
@@ -631,8 +647,14 @@ class BaseAudioRecognizer:
                 if confidence > seg_best_conf:
                     seg_best_conf = confidence
                     seg_best_name = name
-            # Log confidence for all speakers for this query
-            logging.info(f"[AudioRecognizer] Query {idx}: confidences per speaker: {confidences_for_this_query}")
+            # Per-query confidences include speaker names (PII). Keep at
+            # DEBUG so they don't land in production INFO logs by default.
+            # Use the module logger, not the bare logging module, so the
+            # service's log config (level, handlers) actually applies.
+            logger.debug(
+                "[AudioRecognizer] Query %d: confidences per speaker: %s",
+                idx, confidences_for_this_query,
+            )
             if seg_best_name:
                 vote_count[seg_best_name] += 1
                 conf_sum[seg_best_name] += seg_best_conf
