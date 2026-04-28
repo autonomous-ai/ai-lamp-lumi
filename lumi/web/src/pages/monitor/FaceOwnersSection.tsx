@@ -27,6 +27,36 @@ function fmtCountdown(s: number): string {
   return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
 }
 
+function fmtAgo(mtime: number): string {
+  const diff = Date.now() / 1000 - mtime;
+  if (diff < 60) return `${Math.max(1, Math.floor(diff))}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+interface StrangerSample {
+  filename: string;
+  size_bytes: number;
+  mtime: number;
+}
+interface StrangerCluster {
+  hash: string;
+  sample_count: number;
+  latest_mtime: number;
+  samples: StrangerSample[];
+}
+interface StrangersData {
+  total: number;
+  clusters: StrangerCluster[];
+}
+
 export function FaceOwnersSection() {
   const [data, setData] = useState<FaceOwnersDetail | null>(null);
   const [error, setError] = useState(false);
@@ -60,6 +90,13 @@ export function FaceOwnersSection() {
 
   // Timeline modal state
   const [timelineUser, setTimelineUser] = useState<string | null>(null);
+
+  // Unknown voice clusters (/voice/strangers).
+  const [strangers, setStrangers] = useState<StrangersData | null>(null);
+  const [strangersError, setStrangersError] = useState(false);
+  const [expandedCluster, setExpandedCluster] = useState<Record<string, boolean>>({});
+  const [deletingCluster, setDeletingCluster] = useState<string | null>(null);
+  const [deletingStrangerFile, setDeletingStrangerFile] = useState<string | null>(null); // "hash/filename"
 
   // Folder toggle state: "label:mood" => expanded
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -162,6 +199,59 @@ export function FaceOwnersSection() {
   }, []);
 
   usePolling(async (signal) => { await refreshFaceState(signal); }, 5000);
+
+  const refreshStrangers = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`${HW}/voice/strangers`, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      setStrangers({
+        total: j.total ?? 0,
+        clusters: Array.isArray(j.clusters) ? j.clusters : [],
+      });
+      setStrangersError(false);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setStrangersError(true);
+    }
+  }, []);
+
+  usePolling(async (signal) => { await refreshStrangers(signal); }, 15_000);
+
+  const handleDeleteCluster = async (hash: string, sampleCount: number) => {
+    if (!confirm(`Delete cluster ${hash} (${sampleCount} sample${sampleCount !== 1 ? "s" : ""}) and its centroid?`)) return;
+    setDeletingCluster(hash);
+    try {
+      const res = await fetch(`${HW}/voice/strangers/${hash}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        alert(`Delete failed: ${err.detail ?? res.status}`);
+      }
+      await refreshStrangers();
+    } catch (e) {
+      alert(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeletingCluster(null);
+    }
+  };
+
+  const handleDeleteStrangerFile = async (hash: string, filename: string) => {
+    if (!confirm(`Delete sample ${filename} from ${hash}?`)) return;
+    const key = `${hash}/${filename}`;
+    setDeletingStrangerFile(key);
+    try {
+      const res = await fetch(`${HW}/voice/strangers/${hash}/${encodeURIComponent(filename)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        alert(`Delete failed: ${err.detail ?? res.status}`);
+      }
+      await refreshStrangers();
+    } catch (e) {
+      alert(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeletingStrangerFile(null);
+    }
+  };
 
   const handleResetCooldowns = async () => {
     setResetting(true);
@@ -730,6 +820,138 @@ export function FaceOwnersSection() {
           </div>
         </div>
       )}
+
+      {/* Unknown Voice Clusters */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.cardLabel}>🔊 Unknown Voices</div>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+            {strangers ? `${strangers.total} cluster${strangers.total !== 1 ? "s" : ""}` : ""}
+          </span>
+        </div>
+
+        {strangersError && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            Voice cluster info unavailable (speaker service down?)
+          </div>
+        )}
+
+        {!strangersError && strangers && strangers.clusters.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            No unknown voices heard yet.
+          </div>
+        )}
+
+        {!strangersError && strangers && strangers.clusters.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {strangers.clusters.map((cluster) => {
+              const isOpen = expandedCluster[cluster.hash] ?? false;
+              return (
+                <div key={cluster.hash} style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: "var(--lm-surface)",
+                  border: "1px solid var(--lm-border)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}
+                      onClick={() => setExpandedCluster((p) => ({ ...p, [cluster.hash]: !isOpen }))}
+                    >
+                      <span style={{ color: "rgb(168,85,247)", fontSize: 11 }}>
+                        {isOpen ? "▾" : "▸"}
+                      </span>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "rgb(168,85,247)",
+                        fontFamily: "monospace",
+                      }}>
+                        {cluster.hash}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        background: "rgba(168,85,247,0.15)",
+                        color: "rgb(168,85,247)",
+                        fontWeight: 600,
+                      }}>
+                        {cluster.sample_count} sample{cluster.sample_count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                        last {fmtAgo(cluster.latest_mtime)}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCluster(cluster.hash, cluster.sample_count); }}
+                        disabled={deletingCluster === cluster.hash}
+                        title={`Delete cluster ${cluster.hash}`}
+                        style={{
+                          ...btnStyle,
+                          padding: "2px 7px",
+                          background: "rgba(239,68,68,0.1)",
+                          color: "rgb(239,68,68)",
+                          border: "1px solid rgba(239,68,68,0.2)",
+                          cursor: deletingCluster === cluster.hash ? "wait" : "pointer",
+                          opacity: deletingCluster === cluster.hash ? 0.5 : 1,
+                        }}
+                      >
+                        {deletingCluster === cluster.hash ? "..." : "🗑"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                      {cluster.samples.map((s) => {
+                        const fileKey = `${cluster.hash}/${s.filename}`;
+                        const isDeletingFile = deletingStrangerFile === fileKey;
+                        return (
+                          <div key={s.filename} style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            fontSize: 10,
+                            color: "var(--lm-text-muted)",
+                            fontFamily: "monospace",
+                          }}>
+                            <audio
+                              controls
+                              preload="none"
+                              src={`${HW}/voice/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
+                              style={{ height: 28, flexShrink: 0 }}
+                            />
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.filename}
+                            </span>
+                            <span style={{ flexShrink: 0 }}>
+                              {fmtSize(s.size_bytes)} · {fmtAgo(s.mtime)}
+                            </span>
+                            <span
+                              onClick={() => { if (!isDeletingFile) handleDeleteStrangerFile(cluster.hash, s.filename); }}
+                              title={`Remove ${s.filename}`}
+                              style={{
+                                cursor: isDeletingFile ? "wait" : "pointer",
+                                fontSize: 12,
+                                color: "rgb(239,68,68)",
+                                opacity: isDeletingFile ? 0.5 : 0.7,
+                                fontWeight: 600,
+                                flexShrink: 0,
+                              }}
+                            >✕</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Face Recognition Cooldowns */}
       <div style={S.card}>

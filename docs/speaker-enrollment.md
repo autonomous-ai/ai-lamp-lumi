@@ -63,13 +63,14 @@ Lumi identifies who is speaking via **WeSpeaker ResNet34** (256-dim embedding, O
 
 ## Anti-Spam Gates
 
-Three layers prevent the agent from repeatedly asking "who are you?":
+Four layers prevent the agent from repeatedly asking "who are you?":
 
 | Layer | Where | Gate | Purpose |
 |-------|-------|------|---------|
 | **Audio duration** | LeLamp `voice_service.py` | `duration_s < SPEAKER_MIN_AUDIO_S` (0.8s) | Skip recognition entirely for very short audio |
-| **Enroll instruction** | LeLamp `_should_request_enroll()` | `≥ 25 words AND ≥ 5s audio` | Don't append enroll instruction for short utterances |
-| **Nudge cooldown** | Lumi `domain/voice.go` | `5 min since last nudge` | Don't inject SKILL.md instruction more than once per 5 min |
+| **Enroll instruction** | LeLamp `_should_request_enroll()` | `≥ 15 words AND ≥ 2s audio` | Don't append full enroll instruction for short utterances (short variant with multi-turn combine hint is still sent) |
+| **Lumi-side nudge cooldown** | Lumi `domain/voice.go` | `5 min since last nudge` | Don't inject SKILL.md instruction more than once per 5 min |
+| **Per-voiceprint nudge cooldown** | LeLamp `voice_service.py` | `30 min per voiceprint_hash` (`LELAMP_ENROLL_NUDGE_COOLDOWN_S`) | Don't repeat "ask user's name" for the same unknown voice cluster; plain `Unknown Speaker:` message sent instead |
 
 ## Model & Embedding
 
@@ -98,6 +99,22 @@ Three layers prevent the agent from repeatedly asking "who are you?":
 3. Aggregate remaining embeddings via weighted average
 4. Store L2-normalized vector at `/root/local/users/{name}/voice/embedding.npy`
 
+### Voice Cluster Tracking (`voiceprint_hash`)
+
+Every unknown voice is locally clustered so the server can say "this is the same unknown speaker we heard 3 minutes ago" without needing any backend support. Lets the agent combine multiple short utterances into one enroll call.
+
+1. After embedding the query audio, the recognizer aggregates per-chunk embeddings into a single L2-normalized vector.
+2. Compare against stored stranger-cluster centroids (cosine similarity).
+3. Match ≥ `LELAMP_VOICE_STRANGER_MATCH_THRESHOLD` (default `0.65`, lower than the 0.7 known-speaker threshold so same voice clusters instead of fragmenting) → reuse existing label `voice_N`.
+4. No match → allocate new label `voice_{counter}`, append centroid to on-disk state.
+5. Cap at `LELAMP_MAX_VOICE_STRANGERS` (default `50`) — oldest evicted when exceeded.
+6. The assigned hash is:
+   - returned on the recognize response as `voiceprint_hash: "voice_N"` (null for known speakers)
+   - surfaced in the nudge message as `[voice:voice_N]` tag so the skill can correlate turns
+   - used to subdir-group the saved WAV (see Storage)
+
+**Trailing-silence trim**: before the WAV goes to the embedding API, the speaker-ID buffer is truncated at the last speech frame + 200 ms tail. Without this a 3-second utterance ends up as ~5.5 s with ~45% silence, diluting the embedding. Only affects the speaker-ID path — STT still receives the full stream.
+
 ## Configuration
 
 | Parameter | Default | Env var | Description |
@@ -106,9 +123,13 @@ Three layers prevent the agent from repeatedly asking "who are you?":
 | Enroll consistency | 0.7 | `SPEAKER_ENROLL_CONSISTENCY_THRESHOLD` | Min cosine similarity between enrollment samples |
 | API timeout | 15s | `SPEAKER_EMBEDDING_API_TIMEOUT_S` | HTTP timeout for embedding API |
 | Min audio for recognition | 0.8s | `LELAMP_SPEAKER_MIN_AUDIO_S` | Skip recognition below this |
-| Min words for enroll nudge | 25 | Hardcoded in `_should_request_enroll()` | Transcript word count gate |
-| Min duration for enroll nudge | 5.0s | Hardcoded in `_should_request_enroll()` | Audio duration gate |
-| Nudge cooldown | 5 min | Hardcoded in `domain/voice.go` | Lumi-side cooldown between enroll nudges |
+| Min words for enroll nudge | 15 | Hardcoded in `_should_request_enroll()` | Transcript word count gate |
+| Min duration for enroll nudge | 2.0s | Hardcoded in `_should_request_enroll()` | Audio duration gate |
+| Lumi nudge cooldown | 5 min | Hardcoded in `domain/voice.go` | Don't re-inject SKILL instruction globally |
+| Per-voiceprint nudge cooldown | 30 min | `LELAMP_ENROLL_NUDGE_COOLDOWN_S` | Don't re-ask name for same voiceprint cluster |
+| Voice stranger match threshold | 0.65 | `LELAMP_VOICE_STRANGER_MATCH_THRESHOLD` | Cosine similarity to cluster unknown voice into existing `voice_N` |
+| Max voice strangers | 50 | `LELAMP_MAX_VOICE_STRANGERS` | Cluster cap; oldest evicted when exceeded |
+| Voice strangers dir | `/root/local/voice_strangers` | `LELAMP_VOICE_STRANGERS_DIR` | Persist cluster embeddings (survives reboot) |
 | Speaker recognition enabled | false | `LELAMP_SPEAKER_RECOGNITION_ENABLED` | Master toggle |
 
 ## Storage
@@ -122,7 +143,14 @@ Three layers prevent the agent from repeatedly asking "who are you?":
     sample_{origin}_{ts}_{uuid}.wav  # Individual enrollment samples (16kHz mono)
 
 /tmp/lumi-unknown-voice/
-  incoming_{ts}_{uuid}.wav           # Unrecognized audio (auto-cleanup)
+  incoming_{ts}_{uuid}.wav           # Known-speaker audio (flat)
+  voice_{N}/
+    incoming_{ts}_{uuid}.wav         # Unknown audio — grouped by voiceprint cluster
+
+/root/local/voice_strangers/
+  embeds.npy                         # Stranger cluster centroids [N, 256]
+  labels.npy                         # Cluster labels ["voice_1", "voice_2", ...]
+  counter.npy                        # Monotonic counter for next new label
 ```
 
 ## API Endpoints (LeLamp, port 5001)
@@ -179,6 +207,23 @@ User says: "turn on the lights please" (5 words, 3s audio)
 → Message: "Unknown Speaker: turn on the lights please"
 → Lumi: no "audio save at" in message → AppendEnrollNudge returns unchanged
 → Agent: responds normally, doesn't ask who user is
+```
+
+### Multi-turn combine (same voice cluster)
+```
+User turn 1: "nice to meet you today. Okay." (5 words)
+→ LeLamp: recognize → unknown, voiceprint_hash=voice_5
+→ WAV moved to /tmp/lumi-unknown-voice/voice_5/incoming_A.wav
+→ Message: "Unknown Speaker: [voice:voice_5] nice to meet you today. Okay. (audio saved at ..._A.wav. Note: audio is too short for single enrollment. If prior turns tagged the same voice_5, combine their saved paths with this one...)"
+→ Agent: asks "Could you tell me your name?"
+
+User turn 2: "I'm Lily." (2 words)
+→ LeLamp: voiceprint_hash=voice_5 (same cluster, sim=0.75)
+→ WAV moved to /tmp/lumi-unknown-voice/voice_5/incoming_B.wav
+→ Message: "Unknown Speaker: [voice:voice_5] I'm Lily. (audio saved at ..._B.wav...)"
+→ Agent: scans prior turns for same [voice:voice_5] tag → finds path A
+→ Agent: POST /speaker/enroll with wav_paths=[path_A, path_B], name="Lily"
+→ Agent: "Nice to meet you, Lily!"
 ```
 
 ### Long utterance (full enroll flow)
