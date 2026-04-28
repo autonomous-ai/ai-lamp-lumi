@@ -100,6 +100,72 @@ Trước khi chọn genre từ bảng mood mặc định, music-suggestion đọ
 
 **Ví dụ:** Leo hay chấp nhận lo-fi lúc 14:00–16:00 → lúc 14:00, suggest lo-fi thay vì chọn theo mood.
 
+## Test full E2E flow
+
+Validate: Step 1 (đọc history) → Step 2 (tính delta) → Step 3 (fire nudge) → Step 3b (invoke Flow A) → Flow A bootstrap (`patterns.json` được tạo) → Step 4 (speak) → Step 5 (log nudge).
+
+### Điều kiện
+- User có ≥3 ngày wellbeing JSONL files (Flow A cần ≥3 ngày).
+- Lumi + OpenClaw chạy trên Pi.
+- **Reset agent session trước** (file edit không tự propagate vào session đang chạy). Cách: dùng nút "Reset session" trong OpenClaw web monitor cho `agent:main:main`.
+
+### Seed data hôm nay
+
+Append trực tiếp vào file ngày hôm nay (cùng path lelamp ghi). `enter` sáng + `drink` sáng + `using computer` gần đây — tạo hydration delta vượt threshold 5 phút test.
+
+```bash
+ssh pi@<lumi-ip> 'sudo bash' <<'EOF'
+F=/root/local/users/<user>/wellbeing/$(date +%F).jsonl
+> "$F"
+ENTER_TS=$(date -d "today 09:00" +%s)
+DRINK_TS=$(date -d "today 09:30" +%s)
+UC_TS=$(date -d "today 11:00" +%s)
+echo "{\"ts\":$ENTER_TS.0,\"seq\":1,\"hour\":9,\"action\":\"enter\",\"notes\":\"\"}"          >> "$F"
+echo "{\"ts\":$DRINK_TS.0,\"seq\":2,\"hour\":9,\"action\":\"drink\",\"notes\":\"\"}"          >> "$F"
+echo "{\"ts\":$UC_TS.0,\"seq\":3,\"hour\":11,\"action\":\"using computer\",\"notes\":\"\"}"   >> "$F"
+EOF
+```
+
+### Fire activity event (cùng path lelamp pipeline)
+
+```bash
+curl -s -X POST 'http://<lumi-ip>/api/sensing/event' \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"motion.activity","message":"Activity detected: using computer.","current_user":"<user>"}'
+```
+
+### Hành vi agent kỳ vọng (verified 2026-04-28 trên `lumi-002`)
+
+| Stage | Observed |
+|---|---|
+| Step 1 query | `GET /api/openclaw/wellbeing-history?user=gray&last=50` (no slice) |
+| Step 2 delta | hydration ~159 phút vs threshold 5 phút — vượt |
+| Step 3 decision | nudge hydration (ưu tiên hơn break) |
+| Step 3b invoke | gọi `habit/SKILL.md` Flow A |
+| Flow A guard | mtime check pass (file thiếu → cold path) |
+| Flow A bootstrap | đọc 47 ngày wellbeing log, tính patterns |
+| `patterns.json` write | `/root/local/users/gray/habit/patterns.json` (18 patterns, all weak — frequency ≤ 0.17) |
+| Step 3b match | không có habit moderate+ → dùng generic phrasing |
+| Step 4 speak | `<say>Been at the screen — grab a glass of water? [sigh]</say>` |
+| Step 5 log | row `nudge_hydration` append vào wellbeing JSONL hôm nay |
+
+### Verify
+
+```bash
+ssh pi@<lumi-ip> 'sudo bash -c "
+  cat /root/local/users/<user>/habit/patterns.json | jq .updated_at,.days_observed
+  tail -1 /root/local/users/<user>/wellbeing/$(date +%F).jsonl | jq .action
+"'
+# expect: ISO timestamp hôm nay, days_observed ≥ 3, action == \"nudge_hydration\"
+```
+
+### Bẫy thường gặp
+
+- **`hour` phải khớp `ts`** — agent đọc field `hour` để hiển thị nhưng dùng `ts` để tính delta. Nếu lệch (vd `ts=11:13` nhưng `hour=12`), agent tính delta sai → skip nudge.
+- **Không reset session** thì agent dùng SKILL cached từ session cũ, có thể skip Step 3b — kể cả khi SKILL.md mới đã trên disk.
+- **patterns.json bootstrap cần ≥3 day files** trong `wellbeing/` (Flow A freshness guard exit sớm với `insufficient_data`).
+- **Không có nudge → không có Flow A** theo design; bootstrap chỉ chạy khi có behavioral inflection thật. Muốn test Flow A độc lập, chạy bash guard tay.
+
 ## Web Monitor
 
 Tab Users hiện badge **habit** cho mỗi user khi `patterns.json` tồn tại. File xem được trong folder tree `habit/patterns.json`.

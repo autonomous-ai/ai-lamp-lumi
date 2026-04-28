@@ -150,6 +150,72 @@ Before picking a genre from the default mood table, music-suggestion reads `patt
 | `enter` (arrival) | ±45 min |
 | Sedentary labels | ±60 min |
 
+## Testing the full E2E flow
+
+Validates: Step 1 (read history) → Step 2 (compute delta) → Step 3 (fire nudge) → Step 3b (invoke Flow A) → Flow A bootstrap (`patterns.json` created) → Step 4 (speak) → Step 5 (log nudge).
+
+### Prerequisites
+- User has ≥3 days of wellbeing JSONL files (Flow A bootstrap requirement).
+- Lumi + OpenClaw running on Pi.
+- **Reset agent session first** (file edits don't propagate into a live session — see Files table below). One way: the OpenClaw web monitor "Reset session" button on `agent:main:main`.
+
+### Seed today's wellbeing data
+
+Direct-append to today's file (same path lelamp writes to). Use `enter` early, `drink` early, `using computer` recent — produces a hydration delta well above the 5-min test threshold.
+
+```bash
+ssh pi@<lumi-ip> 'sudo bash' <<'EOF'
+F=/root/local/users/<user>/wellbeing/$(date +%F).jsonl
+> "$F"
+ENTER_TS=$(date -d "today 09:00" +%s)
+DRINK_TS=$(date -d "today 09:30" +%s)
+UC_TS=$(date -d "today 11:00" +%s)
+echo "{\"ts\":$ENTER_TS.0,\"seq\":1,\"hour\":9,\"action\":\"enter\",\"notes\":\"\"}"          >> "$F"
+echo "{\"ts\":$DRINK_TS.0,\"seq\":2,\"hour\":9,\"action\":\"drink\",\"notes\":\"\"}"          >> "$F"
+echo "{\"ts\":$UC_TS.0,\"seq\":3,\"hour\":11,\"action\":\"using computer\",\"notes\":\"\"}"   >> "$F"
+EOF
+```
+
+### Fire the activity event (real lelamp pipeline path)
+
+```bash
+curl -s -X POST 'http://<lumi-ip>/api/sensing/event' \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"motion.activity","message":"Activity detected: using computer.","current_user":"<user>"}'
+```
+
+### Expected agent behavior (verified 2026-04-28 on `lumi-002`)
+
+| Stage | Observed |
+|---|---|
+| Step 1 query | `GET /api/openclaw/wellbeing-history?user=gray&last=50` (no slice) |
+| Step 2 delta | hydration ~159 min vs 5-min threshold — exceeds |
+| Step 3 decision | nudge hydration (priority over break) |
+| Step 3b invoke | `habit/SKILL.md` Flow A called |
+| Flow A guard | mtime check passes (file missing → cold path) |
+| Flow A bootstrap | reads 47 days of wellbeing logs, computes patterns |
+| `patterns.json` written | `/root/local/users/gray/habit/patterns.json` (18 patterns, all weak — frequency ≤ 0.17) |
+| Step 3b match | no moderate+ habit found → use generic phrasing |
+| Step 4 speak | `<say>Been at the screen — grab a glass of water? [sigh]</say>` |
+| Step 5 log | `nudge_hydration` row appended to today's wellbeing JSONL |
+
+### Verify
+
+```bash
+ssh pi@<lumi-ip> 'sudo bash -c "
+  cat /root/local/users/<user>/habit/patterns.json | jq .updated_at,.days_observed
+  tail -1 /root/local/users/<user>/wellbeing/$(date +%F).jsonl | jq .action
+"'
+# expect: an ISO timestamp from today, days_observed ≥ 3, action == \"nudge_hydration\"
+```
+
+### Common pitfalls
+
+- **Seeded `hour` must match `ts`** — agent reads the `hour` field for display but `ts` for delta math. Mismatched values (e.g. `ts` at 11:13 with `hour:12`) make the agent compute the wrong delta and skip the nudge.
+- **Without session reset**, agent uses cached SKILL behavior from the prior session and may skip Step 3b entirely — even with the latest SKILL.md on disk.
+- **patterns.json bootstrap requires ≥3 day files** under `wellbeing/` (Flow A's freshness guard exits early on `insufficient_data`).
+- **No nudge fires → no Flow A** by design; bootstrap piggybacks on real behavioral inflection. To test Flow A in isolation, run its bash guard manually.
+
 ## Web Monitor
 
 The Users tab shows a **habit** badge per user when `patterns.json` exists. The file is viewable in the folder tree under `habit/patterns.json`.
