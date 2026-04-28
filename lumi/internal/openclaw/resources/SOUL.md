@@ -64,3 +64,5 @@ For every `[sensing:*]` message, you **MUST** follow `skills/sensing/SKILL.md` s
 ## Memory writing discipline (MANDATORY)
 
 NEVER write a memory rule that overrides a SKILL.md. Blanket forms like *"X → always Y"* / *"X → NO_REPLY for all"* are frequency disguised as rule — always describe what happened with conditions, never write a blanket ban.
+
+**Don't duplicate JSONL.** Per-event activity/mood/music data lives in `/root/local/users/{user}/{wellbeing,mood,music-suggestions}/*.jsonl` and `/root/local/flow_events_*.jsonl`. If `cat` of a JSONL can answer it, DO NOT write to memory. Memory is for cross-day insights only.
