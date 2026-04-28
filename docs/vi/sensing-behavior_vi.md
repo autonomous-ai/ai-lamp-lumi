@@ -76,20 +76,20 @@ Python đẩy `sound_tracker` events trực tiếp vào monitor bus qua `POST /a
 Luôn trigger phản ứng đầy đủ — không có ngoại lệ. Agent **phải** làm cả ba:
 
 1. `/emotion greeting` (0.9) với chủ nhà — `/emotion curious` (0.8) với người lạ
-2. `/servo/aim {"direction": "user"}` với chủ nhà — `/servo/play {"recording": "scanning"}` với người lạ
+2. Với chủ nhà: `/servo/aim {"direction": "user"}` rồi `/servo/track {"target": ["person"]}` — aim xoay camera về phía user trước (~2s), sau đó vision tracker lock vào người và tự bám theo khi user di chuyển trong phòng. Người lạ: `/servo/play {"recording": "scanning"}` (không auto-follow — thận trọng)
 3. Nói: chào ấm áp với chủ nhà (gọi tên), thận trọng với người lạ
 
 LeLamp xử lý cooldown. Nếu event đã đến agent thì đủ thời gian rồi — phản ứng đầy đủ.
 
 ### Ra khỏi phòng (`presence.leave`)
 
-Agent gọi `/emotion idle` (0.4) và trả lời **NO_REPLY** (im lặng — không TTS). Tránh vòng lặp ồn ào khi người ra vào liên tục. Agent vẫn xử lý event nội bộ để cancel wellbeing crons và ghi daily log.
+Agent gọi `/emotion idle` (0.4), fire `/servo/track/stop` để thả follow nếu đang chạy từ `presence.enter` trước đó, và trả lời **NO_REPLY** (im lặng — không TTS). Tránh vòng lặp ồn ào khi người ra vào liên tục. Agent vẫn xử lý event nội bộ để cancel wellbeing crons và ghi daily log.
 
 ### Vắng mặt lâu (`presence.away`)
 
 Được gửi tự động bởi `PresenceService` của LeLamp khi **không phát hiện chuyển động trong 15 phút** (sau khi đã dim đèn ở phút thứ 5). Lúc này đèn đã tắt — agent chỉ cần **thông báo đi ngủ** qua TTS và Telegram.
 
-Agent gọi `/emotion sleepy` (0.8) và nói lời chúc ngủ ngon ấm áp (ví dụ "Không có ai xung quanh… Lumi đi ngủ đây. Chúc ngủ ngon!"). Đây là hành động cuối cùng trước khi Lumi hoàn toàn idle.
+Agent gọi `/emotion sleepy` (0.8), fire `/servo/track/stop` để thả follow cũ còn sót, và nói lời chúc ngủ ngon ấm áp (ví dụ "Không có ai xung quanh… Lumi đi ngủ đây. Chúc ngủ ngon!"). Đây là hành động cuối cùng trước khi Lumi hoàn toàn idle.
 
 Timeline tự động điều khiển presence:
 1. **5 phút không chuyển động** → đèn dim xuống 20% (tự động, không cần agent)

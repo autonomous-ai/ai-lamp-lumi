@@ -151,6 +151,18 @@ class VoiceService:
 
         self._backchannel = Backchannel(tts_service)
 
+        # Enroll-nudge cooldown per voiceprint_hash. When the recognizer
+        # assigns a stable cluster label to an unknown voice, we stop
+        # asking the agent to ask that voice's name again for
+        # _NUDGE_COOLDOWN_S so the agent doesn't repeat "who are you?"
+        # to the same person every short utterance.
+        # In-memory only — resets on restart (acceptable; worst case is
+        # one extra prompt after reboot).
+        self._last_nudge_time: dict[str, float] = {}
+        self._nudge_cooldown_s: float = float(
+            os.environ.get("LELAMP_ENROLL_NUDGE_COOLDOWN_S", str(30 * 60))
+        )
+
         # Speaker recognizer (optional). Lazy-initialized — if embedding API
         # isn't configured the prefix is simply skipped.
         self._speaker = None
@@ -658,19 +670,48 @@ class VoiceService:
             """
             return len(transcript.split()) >= min_words and duration_s >= min_duration_s
 
-        def _format_unknown_speaker(transcript: str, audio_path: str, duration_s: float = 0.0) -> str:
+        def _format_unknown_speaker(
+            transcript: str, audio_path: str, duration_s: float = 0.0,
+            voiceprint_hash: Optional[str] = None,
+        ) -> str:
             """Format message for an unrecognized speaker.
 
             Only appends the enroll instruction when the transcript is long
-            enough and audio duration is sufficient for enrollment.
+            enough AND the same voice cluster hasn't been nudged recently.
+            The nudge-per-hash cooldown stops the agent from asking "who
+            are you?" every short utterance when the same unknown speaker
+            keeps talking.
             """
+            # Skip nudge entirely if we've already asked this voice recently.
+            now = time.time()
+            if voiceprint_hash:
+                last = self._last_nudge_time.get(voiceprint_hash, 0.0)
+                if now - last < self._nudge_cooldown_s:
+                    logger.info(
+                        "Enroll nudge skipped for %s — asked %.0fs ago (cooldown %.0fs)",
+                        voiceprint_hash, now - last, self._nudge_cooldown_s,
+                    )
+                    return f"Unknown Speaker: {transcript}"
+
+            # Surface the voice cluster id so the enrollment skill can combine
+            # multiple short recordings from the same unknown speaker across
+            # turns, instead of treating each turn as a fresh unknown.
+            hash_tag = f" [voice:{voiceprint_hash}]" if voiceprint_hash else ""
             if audio_path and _should_request_enroll(transcript, duration_s):
+                if voiceprint_hash:
+                    self._last_nudge_time[voiceprint_hash] = now
                 return (
-                    f"Unknown Speaker: {transcript} "
+                    f"Unknown Speaker:{hash_tag} {transcript} "
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
-            return f"Unknown Speaker: {transcript} (audio is too short for enrollment, ask user introduce themselves longer later)"
+            return (
+                f"Unknown Speaker:{hash_tag} {transcript} "
+                f"(audio saved at {audio_path}. Note: audio is too short for "
+                f"single enrollment. If prior turns tagged the same {voiceprint_hash or 'voice cluster'}, "
+                f"combine their saved paths with this one when enrolling; "
+                f"otherwise ask the user to introduce themselves longer.)"
+            )
 
         def _identify_and_decorate(transcript: str) -> str:
             """Prefix transcript with ``<Name>: `` from speaker recognition.
@@ -716,9 +757,10 @@ class VoiceService:
             logger.info("Speaker recognize result: %r", result)
             err = result.get("error")
             audio_path = result.get("unknown_audio_path", "")
+            vp_hash = result.get("voiceprint_hash")
             if err:
                 logger.warning("Speaker ID skipped — embedding server issue: %s", err)
-                return _format_unknown_speaker(transcript, audio_path, duration_s) if audio_path else transcript
+                return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash) if audio_path else transcript
 
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
@@ -730,8 +772,8 @@ class VoiceService:
                 logger.info("Speaker ID: %s (confidence=%.2f, audio=%s)", name, confidence, audio_path or "-")
                 return f"Speaker - {display}: {transcript}"
 
-            logger.info("Speaker ID: unknown (best=%.2f, audio=%s)", confidence, audio_path or "-")
-            return _format_unknown_speaker(transcript, audio_path, duration_s)
+            logger.info("Speaker ID: unknown (best=%.2f, audio=%s, hash=%s)", confidence, audio_path or "-", vp_hash or "-")
+            return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash)
 
         def _send_best(best: str):
             # Run speaker recognition BEFORE wake word logic so the sent
@@ -828,6 +870,12 @@ class VoiceService:
             self._listening = True
             last_speech_time = time.time()
             session_start = time.time()
+            # Track index of last frame with speech energy — used to trim
+            # trailing silence from the speaker-recognition buffer at session
+            # end. SILENCE_TIMEOUT_S holds the session open for ~2.5s after
+            # the user stops, so without this the voiceprint ends up 30-50%
+            # silence and the embedding degrades.
+            last_speech_idx: int = len(audio_buffer) - 1
             # Signal Lumi to show listening LED as soon as mic session opens (before transcript arrives)
             try:
                 requests.post("http://127.0.0.1:5000/api/sensing/event",
@@ -866,6 +914,7 @@ class VoiceService:
                 rms = self._rms(data)
                 if rms >= RMS_THRESHOLD:
                     last_speech_time = time.time()
+                    last_speech_idx = len(audio_buffer) - 1
                 elif (time.time() - last_speech_time) > SILENCE_TIMEOUT_S:
                     logger.info("Silence detected, disconnecting STT")
                     break
@@ -879,6 +928,24 @@ class VoiceService:
             if longest_partial[0]:
                 final_segments.append(longest_partial[0])
             combined = " ".join(final_segments).strip()
+
+            # Trim trailing silence from the speaker-recognition buffer.
+            # The session stays open for SILENCE_TIMEOUT_S (~2.5s) after the
+            # user stops, so without this ~30-50% of a short utterance is
+            # silence — the voiceprint ends up heavily diluted and cluster
+            # similarity suffers. Keep a 200ms tail so consonant decay and
+            # word endings aren't cut mid-phoneme. STT buffer is untouched
+            # (it doesn't use audio_buffer anyway).
+            if last_speech_idx >= 0:
+                tail_frames = int(200 / FRAME_DURATION_MS) + 1
+                trim_end = min(last_speech_idx + tail_frames + 1, len(audio_buffer))
+                dropped = len(audio_buffer) - trim_end
+                if dropped > 0:
+                    del audio_buffer[trim_end:]
+                    logger.info(
+                        "Session TRIM — dropped %d trailing-silence frames (~%.2fs)",
+                        dropped, dropped * FRAME_DURATION_MS / 1000,
+                    )
 
             # Final snapshot of the buffer for traceability before it goes
             # out of scope. 1 session = 1 speaking turn = this many frames.

@@ -2,8 +2,12 @@
 
 Supports three actions on a single button:
 - Single click: stop speaker / unmute mic
-- Double click: reboot OS
+- Triple click: reboot OS
 - Long press (3s): shutdown OS
+
+Double-click and 4+ rapid clicks are intentional no-ops — destructive
+actions (reboot/shutdown) need a deliberate gesture so a user panic-
+clicking the button to interrupt TTS doesn't accidentally reboot.
 """
 
 import logging
@@ -85,8 +89,12 @@ class GPIOButtonHandler:
         self._click_count = 0
         if count == 1:
             self._single_click()
-        elif count >= 2:
-            self._double_click()
+        elif count == 3:
+            self._triple_click()
+        else:
+            # count == 2 → likely a slipped/panic double-tap of single
+            # count >= 4 → panic-click; never trigger destructive actions
+            logger.info("GPIO button %d clicks -- ignored (only 1=stop, 3=reboot)", count)
 
     def _single_click(self):
         if state._mic_muted:
@@ -112,8 +120,8 @@ class GPIOButtonHandler:
         stop_tts()
         audio_stop()
 
-    def _double_click(self):
-        logger.info("GPIO button double click -- rebooting OS")
+    def _triple_click(self):
+        logger.info("GPIO button triple click -- rebooting OS")
         if (
             state.tts_service
             and state.tts_service.available

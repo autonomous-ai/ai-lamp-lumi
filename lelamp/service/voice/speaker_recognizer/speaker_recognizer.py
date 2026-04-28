@@ -81,17 +81,32 @@ _ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
 _VOICE_STRANGERS_DIR = Path(
     os.environ.get("LELAMP_VOICE_STRANGERS_DIR", "/root/local/voice_strangers")
 )
-# Lower than _MATCH_THRESHOLD (0.7) — we want same voice to gather into one
-# cluster even at looser similarity. False grouping is less bad than infinite
-# fragmentation.
+# Stranger clustering + merge use RAW cosine sim in [-1, 1] (see
+# _assign_voiceprint_hash, _match_stranger_clusters: they do
+# `stranger_embeds @ query` on already-L2-normalized vectors, so the
+# dot-product IS raw cosine).
+#
+# MATCH / CONSISTENCY thresholds elsewhere are in SCALED [0, 1] space
+# (see _cosine_similarity: returns (raw+1)/2). So do NOT set the two
+# values below just "a bit lower than 0.7" — they aren't in the same
+# unit. The earlier defaults (0.65, 0.55) looked looser but were
+# actually STRICTER than MATCH, which caused same-person-different-
+# distance to fragment into separate clusters (root cause of the
+# voice_6 / voice_7 bug).
+#
+# ECAPA-TDNN same-speaker raw cosine on VoxCeleb clusters around 0.3–0.5
+# (EER ≈ 0.3–0.4). Values below sit slightly below the EER band on
+# purpose — false grouping at loose thresholds is bounded by the Step 5
+# consistency filter in enroll() and by the MATCH gate in recognize().
 _VOICE_STRANGER_MATCH_THRESHOLD = float(
-    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.65")
+    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.35")
 )
 # Cap cluster count so disk doesn't grow unbounded. Oldest evicted first.
 _MAX_VOICE_STRANGERS = int(
     os.environ.get("LELAMP_MAX_VOICE_STRANGERS", "50")
 )
 _VOICE_STRANGER_PREFIX = "voice_"
+_VOICE_STRANGER_DIR_RE = re.compile(r"^voice_\d+$")
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
@@ -705,6 +720,67 @@ class SpeakerRecognizer:
             )
             raise SpeakerRecognizerError(f"no valid new samples — {details}")
 
+        # Step 2b — Auto-merge stranger clusters whose centroid matches this
+        # speaker. Captures distance / volume drift where the same person got
+        # fragmented across voice_<N> clusters (centroid sim with each other
+        # < 0.65 strangers threshold but sim to this enrollment > merge
+        # threshold). Filepath sources only — no path to resolve for base64
+        # callers. Samples pulled in go through the same consistency filter
+        # (Step 5) as any other sample, so a false cluster match gets its
+        # outliers dropped; and _drop_consumed_clusters at the tail cleans
+        # up every merged cluster regardless of how many samples survived.
+        if source_type == "filepath" and new_embeddings:
+            # Threshold is RAW cosine (both sides L2-normalized). 0.25 sits
+            # below the EER band so same-person-different-distance gets
+            # absorbed; the Step 5 consistency filter below catches false
+            # merges from loose matches.
+            merge_threshold = float(
+                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.25")
+            )
+            query_mean = _weighted_aggregate(
+                [emb for _wb, emb in new_embeddings]
+            )
+            matched_hashes = self._match_stranger_clusters(
+                query_mean, merge_threshold,
+            )
+            merged_added = 0
+            for h in matched_hashes:
+                cluster_dir_path = _UNKNOWN_AUDIO_DIR / h
+                if not cluster_dir_path.is_dir():
+                    continue
+                for wav in sorted(cluster_dir_path.glob("*.wav")):
+                    wav_str = str(wav)
+                    if wav_str in sources:
+                        continue  # caller already passed this path in
+                    try:
+                        raw = _read_bytes(wav_str)
+                    except Exception as e:
+                        logger.warning(
+                            "Auto-merge: cannot read %s — %s", wav_str, e,
+                        )
+                        continue
+                    try:
+                        wb = _ensure_wav_16k_mono(raw)
+                        payload = self._prepare_wav_for_embedding(wb)
+                        emb = self._call_embedding_api(payload)
+                    except EmbeddingAPIUnavailableError:
+                        raise
+                    except SpeakerRecognizerError as e:
+                        logger.info(
+                            "Auto-merge: skip %s — %s", wav.name, e,
+                        )
+                        continue
+                    new_wavs.append(wb)
+                    new_embeddings.append((wb, emb))
+                    sources.append(wav_str)
+                    merged_added += 1
+            if matched_hashes:
+                logger.info(
+                    "Auto-merge: pulled %d WAV(s) from %d cluster(s) %s (sim > %.2f)",
+                    merged_added, len(matched_hashes), matched_hashes,
+                    merge_threshold,
+                )
+
         # Step 3 — Load EXISTING samples on disk + compute their embeddings.
         # Two failure modes, handled separately:
         #   a) _prepare_wav_for_embedding fails → the WAV file itself is
@@ -845,6 +921,13 @@ class SpeakerRecognizer:
         }
         self._write_metadata(norm, meta)
         self._update_registry(norm, meta)
+
+        # Drop any stranger clusters whose WAVs were just enrolled. Keeping
+        # them would leave stale centroids that re-label the now-known
+        # speaker as voice_<N> on any recognition below the main threshold.
+        if source_type == "filepath":
+            self._drop_consumed_clusters(sources)
+
         logger.info(
             "Enrolled speaker '%s' — %d total samples, dim=%d",
             norm,
@@ -852,6 +935,109 @@ class SpeakerRecognizer:
             meta["embedding_dim"],
         )
         return meta
+
+    def drop_stranger_cluster(self, label: str) -> bool:
+        """Drop a single stranger cluster by label.
+
+        Removes the centroid row from the in-memory tables (persisting the
+        reduced tables), then ``rmtree`` the on-disk cluster sub-dir.
+        Returns ``True`` if anything was removed, ``False`` when the label
+        wasn't known and no dir existed (route uses that for 404).
+        """
+        if not label or not _VOICE_STRANGER_DIR_RE.match(label):
+            return False
+        removed_centroid = False
+        with self._stranger_lock:
+            if (
+                self._stranger_labels is not None
+                and self._stranger_embeds is not None
+                and len(self._stranger_labels) > 0
+            ):
+                mask = np.array(
+                    [lbl != label for lbl in self._stranger_labels],
+                    dtype=bool,
+                )
+                if not mask.all():
+                    self._stranger_embeds = self._stranger_embeds[mask]
+                    self._stranger_labels = self._stranger_labels[mask]
+                    self._save_strangers()
+                    removed_centroid = True
+        removed_dir = False
+        cluster_dir = _UNKNOWN_AUDIO_DIR / label
+        if cluster_dir.is_dir():
+            try:
+                shutil.rmtree(cluster_dir)
+                removed_dir = True
+            except OSError as e:
+                logger.warning(
+                    "drop_stranger_cluster %s: rmtree failed: %s", label, e,
+                )
+        if removed_centroid or removed_dir:
+            logger.info(
+                "drop_stranger_cluster %s (centroid=%s, dir=%s)",
+                label, removed_centroid, removed_dir,
+            )
+        return removed_centroid or removed_dir
+
+    def _drop_consumed_clusters(self, wav_paths: list[str]) -> None:
+        """Remove stranger clusters whose WAVs were consumed by enroll().
+
+        Looks at each ``wav_path``'s parent dir — if it's a ``voice_<N>``
+        sub-dir inside ``SPEAKER_UNKNOWN_AUDIO_DIR``, that cluster is now
+        redundant (the speaker is known) and we drop both:
+          - centroid row from ``_stranger_embeds`` / ``_stranger_labels``,
+          - the cluster sub-dir on disk.
+
+        Safe no-op if the caller passed paths from outside the cluster tree
+        (e.g. Telegram enroll writes into a session temp dir).
+        """
+        try:
+            unknown_root = _UNKNOWN_AUDIO_DIR.resolve()
+        except OSError:
+            return
+        consumed: set[str] = set()
+        for p in wav_paths:
+            try:
+                resolved = Path(p).resolve()
+                resolved.relative_to(unknown_root)
+            except (OSError, ValueError):
+                continue
+            parent_name = resolved.parent.name
+            if _VOICE_STRANGER_DIR_RE.match(parent_name):
+                consumed.add(parent_name)
+        if not consumed:
+            return
+
+        with self._stranger_lock:
+            if (
+                self._stranger_labels is not None
+                and self._stranger_embeds is not None
+                and len(self._stranger_labels) > 0
+            ):
+                mask = np.array(
+                    [lbl not in consumed for lbl in self._stranger_labels],
+                    dtype=bool,
+                )
+                if not mask.all():
+                    self._stranger_embeds = self._stranger_embeds[mask]
+                    self._stranger_labels = self._stranger_labels[mask]
+                    self._save_strangers()
+                    logger.info(
+                        "Enroll: dropped %d stranger centroid(s) %s after enrollment",
+                        int((~mask).sum()), sorted(consumed),
+                    )
+
+        for label in consumed:
+            cluster_dir = _UNKNOWN_AUDIO_DIR / label
+            if not cluster_dir.is_dir():
+                continue
+            try:
+                shutil.rmtree(cluster_dir)
+                logger.info("Enroll: removed cluster dir %s", cluster_dir)
+            except OSError as e:
+                logger.warning(
+                    "Enroll: failed to remove cluster dir %s: %s", cluster_dir, e,
+                )
 
     # --------------------------------------------------------- public: remove
 
@@ -906,6 +1092,12 @@ class SpeakerRecognizer:
                 f"invalid source_type {source_type!r}"
             )
 
+        logger.info(
+            "Recognize start: source_type=%s source=%s",
+            source_type,
+            wav_source if source_type == "filepath" else f"<base64 {len(wav_source)}B>",
+        )
+
         if source_type == "filepath":
             raw = _read_bytes(wav_source)
         else:
@@ -941,6 +1133,9 @@ class SpeakerRecognizer:
                 payload, return_chunks=True
             )  # [M, D]
         except SpeakerRecognizerError as e:
+            logger.warning(
+                "Recognize: embedding failed for %s — %s", saved_path, e,
+            )
             return {
                 "name": "unknown",
                 "confidence": 0.0,
@@ -951,12 +1146,23 @@ class SpeakerRecognizer:
                 "error": str(e),
             }
 
+        logger.info(
+            "Recognize: query embedding chunks=%d dim=%d saved=%s",
+            int(query_chunks.shape[0]), int(query_chunks.shape[1]), saved_path,
+        )
+
         known = self._load_all_embeddings()
         if not known:
             # No enrolled users — every voice is unknown. Still assign a
             # stable cluster hash so repeat speakers can be tracked before
             # anyone is enrolled.
+            logger.info("Recognize: no enrolled users — unknown + cluster-only path")
             vp_hash = self._assign_voiceprint_hash(query_chunks)
+            saved_path = self._move_to_cluster(saved_path, vp_hash)
+            logger.info(
+                "Recognize result: name=unknown confidence=0.00 cluster=%s path=%s",
+                vp_hash or "(none)", saved_path,
+            )
             return {
                 "name": "unknown",
                 "confidence": 0.0,
@@ -999,9 +1205,30 @@ class SpeakerRecognizer:
 
         is_match = best_conf >= self._match_threshold
         resolved_name = best_name if is_match else "unknown"
+
+        # Full per-speaker breakdown — lets operator see why a near-miss
+        # happened (e.g. Lily scored 0.68 with 5 votes vs Chloe 0.64 with
+        # 4 votes against threshold 0.70 → both lose, tag as unknown).
+        scores_str = ", ".join(
+            f"{n}={c:.3f}(v={v})" for n, c, v in scores[:5]
+        )
+        logger.info(
+            "Recognize scores: threshold=%.2f match=%s -> name=%s | %s",
+            self._match_threshold, is_match, resolved_name, scores_str,
+        )
+
         # Only assign a stranger cluster hash for unknowns — known speakers
         # already have a stable identity (their name).
         vp_hash = None if is_match else (self._assign_voiceprint_hash(query_chunks) or None)
+        # Move WAV into per-cluster sub-dir so later inspection can group
+        # samples by cluster. Known-speaker WAVs stay in the flat dir.
+        if vp_hash:
+            saved_path = self._move_to_cluster(saved_path, vp_hash)
+
+        logger.info(
+            "Recognize result: name=%s confidence=%.3f match=%s cluster=%s path=%s",
+            resolved_name, best_conf, is_match, vp_hash or "(none)", saved_path,
+        )
         result: dict[str, Any] = {
             "name": resolved_name,
             "confidence": round(best_conf, 4),
@@ -1205,6 +1432,31 @@ class SpeakerRecognizer:
             return ""
         return str(fpath)
 
+    def _move_to_cluster(self, saved_path: str, vp_hash: Optional[str]) -> str:
+        """Move a saved WAV into a per-cluster sub-dir, return the new path.
+
+        Called right after voiceprint_hash is assigned so later tools (web UI,
+        diagnostic scripts) can list all audio for a given cluster via a
+        single directory listing. No-op when hash is empty or file missing —
+        known-speaker WAVs stay in the flat _UNKNOWN_AUDIO_DIR.
+        """
+        if not vp_hash or not saved_path:
+            return saved_path
+        src = Path(saved_path)
+        if not src.exists():
+            return saved_path
+        try:
+            cluster_dir = src.parent / vp_hash
+            cluster_dir.mkdir(parents=True, exist_ok=True)
+            dst = cluster_dir / src.name
+            src.rename(dst)
+            return str(dst)
+        except OSError as e:
+            logger.warning(
+                "move %s to cluster %s failed: %s", saved_path, vp_hash, e,
+            )
+            return saved_path
+
     # ------------------------------------------------- voice stranger clustering
 
     def _assign_voiceprint_hash(self, query_chunks: np.ndarray) -> str:
@@ -1268,6 +1520,48 @@ class SpeakerRecognizer:
                 label, len(self._stranger_embeds),
             )
             return label
+
+    def _match_stranger_clusters(
+        self, query_embedding: np.ndarray, threshold: float,
+    ) -> list[str]:
+        """Return stranger labels whose centroid cosine-sim to query > threshold.
+
+        Used by enroll() to auto-include clusters that belong to the same
+        speaker but fragmented (e.g. distance / volume drift pushed centroids
+        below the stranger-match 0.65 so they landed in different clusters
+        even though it's one person). Pass a looser threshold than 0.65 so
+        the fragmented siblings get pulled back together; the consistency
+        filter downstream in enroll() handles any false positive.
+        """
+        q = _l2(query_embedding)
+        if float(np.linalg.norm(q)) == 0.0:
+            logger.info("Auto-merge scan: query embedding has zero norm — skip")
+            return []
+        with self._stranger_lock:
+            if (
+                self._stranger_embeds is None
+                or self._stranger_labels is None
+                or len(self._stranger_embeds) == 0
+            ):
+                logger.info("Auto-merge scan: no stranger centroids to compare")
+                return []
+            sims = self._stranger_embeds @ q
+            # Log every cluster's similarity (not just matches) so operators
+            # can tune threshold from real data: e.g. see that voice_5 missed
+            # at sim=0.23 and decide to lower threshold to 0.20.
+            breakdown = ", ".join(
+                f"{self._stranger_labels[i]}={float(sims[i]):+.3f}"
+                for i in range(len(sims))
+            )
+            logger.info(
+                "Auto-merge scan: threshold=%.2f query=[%s]",
+                threshold, breakdown,
+            )
+            return [
+                str(self._stranger_labels[i])
+                for i, s in enumerate(sims)
+                if float(s) > threshold
+            ]
 
     def _save_strangers(self) -> None:
         """Persist stranger state to disk. Caller must hold _stranger_lock."""

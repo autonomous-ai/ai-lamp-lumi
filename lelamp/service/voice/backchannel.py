@@ -38,11 +38,17 @@ _fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah,Uh 
 FILLERS = [w.strip() for w in _fillers_env.split(",") if w.strip()]
 # How long (seconds) the partial transcript must stay unchanged before playing a cue.
 # 0 = play on every new partial (still throttled by MIN_INTERVAL_S).
-STALL_TIMEOUT_S = float(os.environ.get("LELAMP_BACKCHANNEL_STALL_S", "0.1"))
+# Kept at 8s so backchannel fires only on real multi-second silence
+# (user lost their train of thought) rather than on every natural
+# breath-pause mid-sentence — those short pauses are what the speaker
+# recognizer needs clean, and backchannel audio bleeds into the mic.
+STALL_TIMEOUT_S = float(os.environ.get("LELAMP_BACKCHANNEL_STALL_S", "8.0"))
 # Minimum seconds between two consecutive cues (prevents spamming).
 MIN_INTERVAL_S = float(os.environ.get("LELAMP_BACKCHANNEL_INTERVAL_S", "5.0"))
 # Volume multiplier for cue audio relative to normal TTS (0.0 = silent, 1.0 = full).
-VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "1.0"))
+# Kept at 0.5 so backchannel bleed doesn't saturate the mic and corrupt the
+# speaker-ID embedding of whoever is still talking.
+VOLUME = float(os.environ.get("LELAMP_BACKCHANNEL_VOLUME", "0.5"))
 
 
 class Backchannel:

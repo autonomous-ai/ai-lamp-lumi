@@ -1,4 +1,9 @@
-"""Voice route handlers -- /voice/*, /tts/* endpoints."""
+"""Voice route handlers -- /voice/*, /tts/* endpoints.
+
+Note: ``/voice/strangers*`` (unknown-voice-cluster browsing) lives in
+:mod:`lelamp.routes.speaker` — it's semantic output of the speaker
+recognition service, kept next to the rest of that code.
+"""
 
 from typing import Optional
 
