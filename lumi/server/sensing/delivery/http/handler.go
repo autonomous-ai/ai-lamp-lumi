@@ -232,8 +232,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// No local match — forward to OpenClaw agent
 	if !h.agentGateway.IsReady() {
-		turnStart := flow.Start("sensing_input", startPayload)
-		flow.End("sensing_input", turnStart, map[string]any{"error": "agent not connected"})
+		notReadyRunID := fmt.Sprintf("not-ready-%d", time.Now().UnixMilli())
+		turnStart := flow.Start("sensing_input", startPayload, notReadyRunID)
+		flow.End("sensing_input", turnStart, map[string]any{"error": "agent not connected"}, notReadyRunID)
 		// Announce once via TTS so user knows the brain is restarting (cooldown 60s).
 		if req.Type == "voice_command" || req.Type == "presence.enter" {
 			now := time.Now().UnixMilli()
