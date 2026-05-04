@@ -196,6 +196,12 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 	if s.config.LLMDisableThinking != nil {
 		disableThinking = *s.config.LLMDisableThinking
 	}
+	// Device ID is hardware-derived (Lumi-XXXX from Pi serial). Fall back to it
+	// when config is empty so the web form always shows a stable, non-editable value.
+	deviceID := s.config.DeviceID
+	if deviceID == "" {
+		deviceID = GetDeviceMac()
+	}
 	return domain.ConfigResponse{
 		Channel:            s.config.Channel,
 		TelegramBotToken:   s.config.TelegramBotToken,
@@ -217,7 +223,7 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		TTSBaseURL:         s.config.TTSBaseURL,
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
-		DeviceID:           s.config.DeviceID,
+		DeviceID:           deviceID,
 		NetworkSSID:        s.config.NetworkSSID,
 		NetworkPassword:    s.config.NetworkPassword,
 		MQTTEndpoint:       s.config.MQTTEndpoint,

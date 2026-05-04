@@ -23,13 +23,13 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "face" | "device" | "llm" | "tts" | "channel" | "mqtt";
+type SectionId = "device" | "wifi" | "llm" | "face" | "tts" | "channel" | "mqtt";
 const ICON_SIZE = 15;
 const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
-  { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
-  { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
+  { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
+  { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
   { id: "channel",  label: "Channel",  icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
@@ -38,10 +38,10 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
 // ── small components ──────────────────────────────────────────────────────────
 
 function Field({
-  label, id, value, onChange, placeholder, type = "text",
+  label, id, value, onChange, placeholder, type = "text", readOnly = false,
 }: {
   label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -53,13 +53,16 @@ function Field({
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} autoComplete="off"
+        readOnly={readOnly}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
           width: "100%", boxSizing: "border-box",
-          background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+          background: readOnly ? C.bg : C.surface,
+          border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
           borderRadius: 7, padding: "8px 11px",
-          fontSize: 12.5, color: C.text, outline: "none",
+          fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+          cursor: readOnly ? "default" : "text",
           transition: "border-color 0.15s",
         }}
       />
@@ -67,9 +70,9 @@ function Field({
   );
 }
 
-function PasswordField({ label, id, value, onChange, placeholder }: {
+function PasswordField({ label, id, value, onChange, placeholder, readOnly = false }: {
   label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string;
+  onChange: (v: string) => void; placeholder?: string; readOnly?: boolean;
 }) {
   const [show, setShow] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -83,12 +86,15 @@ function PasswordField({ label, id, value, onChange, placeholder }: {
           id={id} type={show ? "text" : "password"} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
           onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           style={{
             width: "100%", boxSizing: "border-box",
-            background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
             borderRadius: 7, padding: "8px 38px 8px 11px",
-            fontSize: 12.5, color: C.text, outline: "none",
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
             transition: "border-color 0.15s",
           }}
         />
@@ -152,7 +158,7 @@ export default function EditConfig() {
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SectionId>(() => {
     const hash = window.location.hash.replace("#", "") as SectionId;
-    return SECTIONS.some((s) => s.id === hash) ? hash : "wifi";
+    return SECTIONS.some((s) => s.id === hash) ? hash : "device";
   });
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -186,6 +192,12 @@ export default function EditConfig() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
+  // Snapshot of MQTT fields that were already populated when config loaded.
+  // Locks those fields against edits; fields blank at load remain editable.
+  const [mqttLoaded, setMqttLoaded] = useState({
+    endpoint: false, port: false, username: false,
+    password: false, faChannel: false, fdChannel: false,
+  });
 
   // Face enroll state
   const [faceName, setFaceName] = useState("");
@@ -285,6 +297,14 @@ export default function EditConfig() {
         setMqttPassword(cfg.mqtt_password ?? "");
         setFaChannel(cfg.fa_channel ?? "");
         setFdChannel(cfg.fd_channel ?? "");
+        setMqttLoaded({
+          endpoint: !!cfg.mqtt_endpoint,
+          port: !!cfg.mqtt_port,
+          username: !!cfg.mqtt_username,
+          password: !!cfg.mqtt_password,
+          faChannel: !!cfg.fa_channel,
+          fdChannel: !!cfg.fd_channel,
+        });
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCfg(false));
@@ -495,9 +515,27 @@ export default function EditConfig() {
             {loadingCfg ? <SkeletonBlock /> : (
               <form id="edit-form" onSubmit={handleSubmit}>
 
+                <SectionCard id="device" title="Device" active={activeSection === "device"}>
+                  <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" readOnly />
+                </SectionCard>
+
                 <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
                   <Field label="Wi-Fi network" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
                   <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
+                </SectionCard>
+
+                <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
+                  <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
+                  <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
+                  <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
+                    <input
+                      type="checkbox" checked={llmDisableThinking}
+                      onChange={(e) => setLlmDisableThinking(e.target.checked)}
+                      style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
+                  </label>
                 </SectionCard>
 
                 <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
@@ -585,24 +623,6 @@ export default function EditConfig() {
                       ))}
                     </div>
                   )}
-                </SectionCard>
-
-                <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                  <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
-                </SectionCard>
-
-                <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
-                  <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                  <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                  <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
-                    <input
-                      type="checkbox" checked={llmDisableThinking}
-                      onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                      style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
-                    />
-                    <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
-                  </label>
                 </SectionCard>
 
                 <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
@@ -706,12 +726,12 @@ export default function EditConfig() {
                 </SectionCard>
 
                 <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
-                  <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
-                  <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
-                  <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
-                  <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
-                  <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
-                  <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
+                  <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" readOnly={mqttLoaded.endpoint} />
+                  <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" readOnly={mqttLoaded.port} />
+                  <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" readOnly={mqttLoaded.username} />
+                  <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" readOnly={mqttLoaded.password} />
+                  <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" readOnly={mqttLoaded.faChannel} />
+                  <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" readOnly={mqttLoaded.fdChannel} />
                 </SectionCard>
 
               </form>

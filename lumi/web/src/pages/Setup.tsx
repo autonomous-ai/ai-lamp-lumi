@@ -27,10 +27,10 @@ type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "m
 // ── small components ──────────────────────────────────────────────────────────
 
 function Field({
-  label, id, value, onChange, placeholder, type = "text",
+  label, id, value, onChange, placeholder, type = "text", readOnly = false,
 }: {
   label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -42,13 +42,16 @@ function Field({
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} autoComplete="off"
+        readOnly={readOnly}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
           width: "100%", boxSizing: "border-box",
-          background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+          background: readOnly ? C.bg : C.surface,
+          border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
           borderRadius: 7, padding: "8px 11px",
-          fontSize: 12.5, color: C.text, outline: "none",
+          fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+          cursor: readOnly ? "default" : "text",
           transition: "border-color 0.15s",
         }}
       />
@@ -56,9 +59,9 @@ function Field({
   );
 }
 
-function PasswordField({ label, id, value, onChange, placeholder }: {
+function PasswordField({ label, id, value, onChange, placeholder, readOnly = false }: {
   label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string;
+  onChange: (v: string) => void; placeholder?: string; readOnly?: boolean;
 }) {
   const [show, setShow] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -72,12 +75,15 @@ function PasswordField({ label, id, value, onChange, placeholder }: {
           id={id} type={show ? "text" : "password"} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
           onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           style={{
             width: "100%", boxSizing: "border-box",
-            background: C.surface, border: `1px solid ${focused ? C.amber : C.border}`,
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
             borderRadius: 7, padding: "8px 38px 8px 11px",
-            fontSize: 12.5, color: C.text, outline: "none",
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
             transition: "border-color 0.15s",
           }}
         />
@@ -525,7 +531,7 @@ export default function Setup() {
 
                   {/* Device */}
                   <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
+                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" readOnly />
                   </SectionCard>
 
                   {/* Wi-Fi */}
