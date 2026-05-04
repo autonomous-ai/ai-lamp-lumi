@@ -83,6 +83,15 @@ type Service struct {
 	// response gets attributed to the wrong runId.
 	pendingChatMu    sync.Mutex
 	pendingChatQueue []pendingTrace
+
+	// outboundEchoQueue tracks the timestamps of recent Lumi chat.send calls.
+	// OpenClaw rebroadcasts the user-role message back to all session
+	// subscribers as a session.message event, so without this queue the SSE
+	// handler treats Lumi's own outbound (web chat / sensing) as a phantom
+	// inbound channel turn on the shared `agent:main:main` session. The
+	// session.message handler consumes one entry per matching arrival.
+	outboundEchoMu    sync.Mutex
+	outboundEchoQueue []time.Time
 }
 
 // pendingTrace pairs a chat.send idempotencyKey with its send time.
