@@ -139,8 +139,8 @@ export function isNavLink(c: NavChild): c is NavLink {
 }
 
 export const NAV: NavEntry[] = [
-  { id: "overview", label: "Overview", icon: "⊞" },
   { id: "chat",     label: "Chat",     icon: "▤" },
+  { id: "overview", label: "Overview", icon: "⊞" },
   {
     group: "system",
     label: "System",
