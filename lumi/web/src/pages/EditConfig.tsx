@@ -4,7 +4,7 @@ import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, tes
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, MessageSquare, Link, Pencil, X } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MessageSquare, Link, Pencil, X } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "device" | "wifi" | "llm" | "face" | "tts" | "channel" | "mqtt";
+type SectionId = "device" | "wifi" | "llm" | "face" | "tts" | "stt" | "channel" | "mqtt";
 const ICON_SIZE = 15;
 const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
@@ -31,7 +31,8 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
-  { id: "channel",  label: "Channel",  icon: <MessageSquare size={ICON_SIZE} /> },
+  { id: "stt",      label: "STT",      icon: <Mic size={ICON_SIZE} /> },
+  { id: "channel",  label: "Channels", icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
 
@@ -112,32 +113,34 @@ function PasswordField({ label, id, value, onChange, placeholder, readOnly = fal
   );
 }
 
-// LockedField — Field that starts read-only when initially populated (e.g. loaded
-// from saved config) and exposes an "Edit" button to unlock. Empty fields are
-// editable from the start. Used in Channel section to prevent accidental edits
-// to credentials the user already saved.
-function LockedField({
-  lockedInitially, label, id, value, onChange, placeholder,
-}: {
-  lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string;
-}) {
+// useLockToggle — shared lock/unlock + cancel-restore logic for LockedField and
+// LockedPasswordField. Captures the value when a field first becomes locked so
+// "Cancel" can revert any in-progress edits.
+function useLockToggle(lockedInitially: boolean, value: string, onChange: (v: string) => void) {
   const [unlocked, setUnlocked] = useState(false);
-  const readOnly = lockedInitially && !unlocked;
-  // Snapshot of the value at the moment this field first became locked, so
-  // "Cancel" can revert any in-progress edits.
   const originalRef = useRef<string | null>(null);
   useEffect(() => {
     if (lockedInitially && originalRef.current === null) {
       originalRef.current = value;
     }
   }, [lockedInitially, value]);
-  // Show the toggle whenever this field has a baseline to revert to.
-  const showToggle = lockedInitially;
+  const readOnly = lockedInitially && !unlocked;
   const handleCancel = () => {
     if (originalRef.current !== null) onChange(originalRef.current);
     setUnlocked(false);
   };
+  return { readOnly, showToggle: lockedInitially, unlock: () => setUnlocked(true), handleCancel };
+}
+
+// LockedField — Field that starts read-only when initially populated (e.g. loaded
+// from saved config) and exposes an "Edit"/cancel button to unlock or revert.
+function LockedField({
+  lockedInitially, label, id, value, onChange, placeholder, type = "text",
+}: {
+  lockedInitially: boolean; label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string;
+}) {
+  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
   return (
     <div style={{ marginBottom: 12 }}>
       <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
@@ -145,7 +148,7 @@ function LockedField({
       </label>
       <div style={{ position: "relative" }}>
         <input
-          id={id} type="text" value={value}
+          id={id} type={type} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
           readOnly={readOnly}
@@ -161,7 +164,75 @@ function LockedField({
         {showToggle && (
           <button
             type="button"
-            onClick={readOnly ? () => setUnlocked(true) : handleCancel}
+            onClick={readOnly ? unlock : handleCancel}
+            tabIndex={-1}
+            aria-label={readOnly ? "Edit" : "Cancel edit"}
+            title={readOnly ? "Edit" : "Cancel edit"}
+            style={{
+              position: "absolute", right: 0, top: 0, height: "100%",
+              padding: "0 10px", background: "none", border: "none",
+              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
+              display: "flex", alignItems: "center",
+            }}
+          >
+            {readOnly ? <Pencil size={13} /> : <X size={14} />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// LockedPasswordField — same lock semantics as LockedField, plus a show/hide
+// toggle while editing. When locked the value stays masked behind dots.
+function LockedPasswordField({
+  lockedInitially, label, id, value, onChange, placeholder,
+}: {
+  lockedInitially: boolean; label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
+  // Right-side icon stack: cancel (when unlocked) + show/hide (when unlocked) + pencil (when locked).
+  const rightPad = readOnly ? 36 : 64; // pencil only OR cancel+show/hide
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id} type={readOnly || !show ? "password" : "text"} value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 7, padding: showToggle ? `8px ${rightPad}px 8px 11px` : "8px 38px 8px 11px",
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
+          }}
+        />
+        {/* When unlocked: show/hide toggle */}
+        {!readOnly && (
+          <button
+            type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
+            style={{
+              position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
+              padding: "0 10px", background: "none", border: "none",
+              color: C.textMuted, cursor: "pointer", fontSize: 11,
+            }}
+          >
+            {show ? "hide" : "show"}
+          </button>
+        )}
+        {/* Lock/cancel toggle */}
+        {showToggle && (
+          <button
+            type="button"
+            onClick={readOnly ? unlock : handleCancel}
             tabIndex={-1}
             aria-label={readOnly ? "Edit" : "Cancel edit"}
             title={readOnly ? "Edit" : "Cancel edit"}
@@ -239,6 +310,11 @@ export default function EditConfig() {
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [sttApiKey, setSttApiKey] = useState("");
+  const [sttBaseUrl, setSttBaseUrl] = useState("");
+  // STT provider: derived from saved config (deepgram if key present, else autonomous).
+  // Default for fresh devices is "autonomous" — uses LLM endpoint as fallback.
+  const [sttProvider, setSttProvider] = useState<"autonomous" | "deepgram">("autonomous");
   const [ttsApiKey, setTtsApiKey] = useState("");
   const [ttsBaseUrl, setTtsBaseUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
@@ -273,6 +349,10 @@ export default function EditConfig() {
     slackBotToken: false, slackAppToken: false, slackUserId: false,
     discordBotToken: false, discordGuildId: false, discordUserId: false,
   });
+  const [wifiLoaded, setWifiLoaded] = useState({ ssid: false, password: false });
+  const [llmLoaded, setLlmLoaded] = useState({ apiKey: false, baseUrl: false, model: false });
+  const [ttsLoaded, setTtsLoaded] = useState({ apiKey: false, baseUrl: false });
+  const [sttLoaded, setSttLoaded] = useState({ deepgram: false, apiKey: false, baseUrl: false });
 
   // Face enroll state
   const [faceName, setFaceName] = useState("");
@@ -353,6 +433,9 @@ export default function EditConfig() {
         setLlmModel(cfg.llm_model ?? "");
         setLlmDisableThinking(cfg.llm_disable_thinking ?? false);
         setDeepgramApiKey(cfg.deepgram_api_key ?? "");
+        setSttApiKey(cfg.stt_api_key ?? "");
+        setSttBaseUrl(cfg.stt_base_url ?? "");
+        setSttProvider(cfg.deepgram_api_key ? "deepgram" : "autonomous");
         setTtsApiKey(cfg.tts_api_key ?? "");
         setTtsBaseUrl(cfg.tts_base_url ?? "");
         setTtsProvider(cfg.tts_provider || "openai");
@@ -390,6 +473,24 @@ export default function EditConfig() {
           discordGuildId: !!cfg.discord_guild_id,
           discordUserId: !!cfg.discord_user_id,
         });
+        setWifiLoaded({
+          ssid: !!cfg.network_ssid,
+          password: !!cfg.network_password,
+        });
+        setLlmLoaded({
+          apiKey: !!cfg.llm_api_key,
+          baseUrl: !!cfg.llm_base_url,
+          model: !!cfg.llm_model,
+        });
+        setTtsLoaded({
+          apiKey: !!cfg.tts_api_key,
+          baseUrl: !!cfg.tts_base_url,
+        });
+        setSttLoaded({
+          deepgram: !!cfg.deepgram_api_key,
+          apiKey: !!cfg.stt_api_key,
+          baseUrl: !!cfg.stt_base_url,
+        });
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCfg(false));
@@ -409,6 +510,22 @@ export default function EditConfig() {
     }).catch(() => {});
   }, [ttsProvider]);
 
+  // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
+  // Once the user types into TTS the sync stops; clearing it re-enables mirroring.
+  useEffect(() => {
+    if (!ttsApiKey && llmApiKey) setTtsApiKey(llmApiKey);
+  }, [llmApiKey, ttsApiKey]);
+  useEffect(() => {
+    if (!ttsBaseUrl && llmUrl) setTtsBaseUrl(llmUrl);
+  }, [llmUrl, ttsBaseUrl]);
+  // Same auto-mirror for STT in autonomous mode (Deepgram has its own key).
+  useEffect(() => {
+    if (sttProvider === "autonomous" && !sttApiKey && llmApiKey) setSttApiKey(llmApiKey);
+  }, [llmApiKey, sttApiKey, sttProvider]);
+  useEffect(() => {
+    if (sttProvider === "autonomous" && !sttBaseUrl && llmUrl) setSttBaseUrl(llmUrl);
+  }, [llmUrl, sttBaseUrl, sttProvider]);
+
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
     window.location.hash = id;
@@ -427,12 +544,20 @@ export default function EditConfig() {
       } else {
         channelCreds = { discord_bot_token: discordBotToken, discord_guild_id: discordGuildId, discord_user_id: discordUserId };
       }
+      // STT provider is implicit on backend: deepgram if deepgram_api_key set,
+      // else autonomous via stt_api_key/stt_base_url. So when picking
+      // autonomous we send deepgram_api_key="" to clear it (backend now allows
+      // blank-clears for STT/Deepgram), and vice versa.
+      const sttFields = sttProvider === "deepgram"
+        ? { deepgram_api_key: deepgramApiKey, stt_api_key: "", stt_base_url: "" }
+        : { deepgram_api_key: "", stt_api_key: sttApiKey, stt_base_url: sttBaseUrl };
       await updateDeviceConfig({
         ssid: ssid.trim(), password,
         channel, ...channelCreds,
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
-        deepgram_api_key: deepgramApiKey, tts_api_key: ttsApiKey, tts_base_url: ttsBaseUrl, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
+        ...sttFields,
+        tts_api_key: ttsApiKey, tts_base_url: ttsBaseUrl, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
@@ -446,7 +571,8 @@ export default function EditConfig() {
   }, [
     channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
-    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, ttsApiKey, ttsBaseUrl, ttsVoice, deviceId,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, sttApiKey, sttBaseUrl, sttProvider,
+    ttsApiKey, ttsBaseUrl, ttsProvider, ttsVoice, deviceId,
     mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
   ]);
 
@@ -599,14 +725,14 @@ export default function EditConfig() {
                 </SectionCard>
 
                 <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
-                  <Field label="Wi-Fi network" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
-                  <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
+                  <LockedField lockedInitially={wifiLoaded.ssid} label="Wi-Fi network" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
+                  <LockedPasswordField lockedInitially={wifiLoaded.password} label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                 </SectionCard>
 
                 <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
-                  <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                  <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                  <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
+                  <LockedPasswordField lockedInitially={llmLoaded.apiKey} label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
+                  <LockedField lockedInitially={llmLoaded.baseUrl} label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
+                  <LockedField lockedInitially={llmLoaded.model} label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
                   <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
                     <input
                       type="checkbox" checked={llmDisableThinking}
@@ -705,8 +831,8 @@ export default function EditConfig() {
                 </SectionCard>
 
                 <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
-                  <Field label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
-                  <Field label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
+                  <LockedPasswordField lockedInitially={ttsLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
+                  <LockedField lockedInitially={ttsLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
                   <div style={{ marginBottom: 12 }}>
                     <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                       Provider
@@ -764,7 +890,37 @@ export default function EditConfig() {
                   </div>
                 </SectionCard>
 
-                <SectionCard id="channel" title="Messaging Channel" active={activeSection === "channel"}>
+                <SectionCard id="stt" title="STT (Speech-to-Text)" active={activeSection === "stt"}>
+                  <div style={{ marginBottom: 12 }}>
+                    <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                      Provider
+                    </label>
+                    <select
+                      id="stt_provider"
+                      value={sttProvider}
+                      onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
+                      style={{
+                        width: "100%", boxSizing: "border-box",
+                        background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 7, padding: "8px 11px",
+                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                      }}
+                    >
+                      <option value="autonomous">Autonomous (reuse AI brain)</option>
+                      <option value="deepgram">Deepgram</option>
+                    </select>
+                  </div>
+                  {sttProvider === "deepgram" ? (
+                    <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
+                  ) : (
+                    <>
+                      <LockedPasswordField lockedInitially={sttLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
+                      <LockedField lockedInitially={sttLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
+                    </>
+                  )}
+                </SectionCard>
+
+                <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel</label>
                     <select
@@ -805,12 +961,12 @@ export default function EditConfig() {
                 </SectionCard>
 
                 <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
-                  <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" readOnly={mqttLoaded.endpoint} />
-                  <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" readOnly={mqttLoaded.port} />
-                  <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" readOnly={mqttLoaded.username} />
-                  <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" readOnly={mqttLoaded.password} />
-                  <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" readOnly={mqttLoaded.faChannel} />
-                  <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" readOnly={mqttLoaded.fdChannel} />
+                  <LockedField lockedInitially={mqttLoaded.endpoint} label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
+                  <LockedField lockedInitially={mqttLoaded.port} label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
+                  <LockedField lockedInitially={mqttLoaded.username} label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
+                  <LockedPasswordField lockedInitially={mqttLoaded.password} label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
+                  <LockedField lockedInitially={mqttLoaded.faChannel} label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
+                  <LockedField lockedInitially={mqttLoaded.fdChannel} label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
                 </SectionCard>
 
               </form>

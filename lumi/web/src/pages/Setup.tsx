@@ -199,6 +199,10 @@ export default function Setup() {
   // deepgram input is hidden in this build; submit reads urlParams.deepgramApiKey directly
   const [ttsApiKey, setTtsApiKey] = useState(urlParams.ttsApiKey || "");
   const [ttsBaseUrl, setTtsBaseUrl] = useState(urlParams.ttsBaseUrl || "");
+  // STT credentials are not exposed in Setup UI but still saved to config so
+  // the device's voice pipeline has fallback values mirroring the LLM endpoint.
+  const [sttApiKey, setSttApiKey] = useState("");
+  const [sttBaseUrl, setSttBaseUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -296,6 +300,22 @@ export default function Setup() {
     }).catch(() => {});
   }, [ttsProvider]);
 
+  // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
+  // Once the user types into TTS the sync stops; clearing it re-enables mirroring.
+  useEffect(() => {
+    if (!ttsApiKey && llmApiKey) setTtsApiKey(llmApiKey);
+  }, [llmApiKey, ttsApiKey]);
+  useEffect(() => {
+    if (!ttsBaseUrl && llmUrl) setTtsBaseUrl(llmUrl);
+  }, [llmUrl, ttsBaseUrl]);
+  // Same for STT (no UI in Setup — silently mirrors LLM into config).
+  useEffect(() => {
+    if (!sttApiKey && llmApiKey) setSttApiKey(llmApiKey);
+  }, [llmApiKey, sttApiKey]);
+  useEffect(() => {
+    if (!sttBaseUrl && llmUrl) setSttBaseUrl(llmUrl);
+  }, [llmUrl, sttBaseUrl]);
+
   const scrollTo = (id: SectionId) => {
     setActiveSection(id);
   };
@@ -340,6 +360,8 @@ export default function Setup() {
         llm_model: urlParams.llmModel || llmModel,
         llm_disable_thinking: llmDisableThinking || undefined,
         deepgram_api_key: urlParams.deepgramApiKey || undefined,
+        stt_api_key: sttApiKey || undefined,
+        stt_base_url: sttBaseUrl || undefined,
         tts_api_key: ttsApiKey || undefined,
         tts_base_url: ttsBaseUrl || undefined,
         tts_provider: ttsProvider || undefined,
@@ -368,7 +390,7 @@ export default function Setup() {
   }, [
     channel, urlParams, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl, llmApiKey,
-    llmModel, llmDisableThinking, ttsApiKey, ttsBaseUrl, ttsVoice, deviceId,
+    llmModel, llmDisableThinking, sttApiKey, sttBaseUrl, ttsApiKey, ttsBaseUrl, ttsVoice, deviceId,
     mqttEndpoint, mqttPort, mqttUsername, mqttPassword, faChannel, fdChannel,
   ]);
 
