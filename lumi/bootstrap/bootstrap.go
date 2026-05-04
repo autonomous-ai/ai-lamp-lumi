@@ -298,7 +298,12 @@ func (b *Bootstrap) detectVersion(ctx context.Context, key string) string {
 // applyUpdate runs the appropriate update command for the given component.
 func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domain.OTAComponent) error {
 	switch key {
-	case domain.OTAKeyLumi, domain.OTAKeyWeb, domain.OTAKeyLeLamp, domain.OTAKeyBuddy:
+	case domain.OTAKeyLumi, domain.OTAKeyWeb, domain.OTAKeyLeLamp, domain.OTAKeyBuddy, domain.OTAKeyOpenClaw:
+		// All non-bootstrap components delegate to the on-device
+		// `software-update <key>` script (installed by setup.sh) so the
+		// install logic lives in one place — the script self-fetches
+		// metadata.json and handles each app's specifics (npm install
+		// for openclaw, zip-extract + systemctl restart for the rest).
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		out, err := system.Run(runCtx, "software-update", key)
@@ -314,23 +319,6 @@ func (b *Bootstrap) applyUpdate(ctx context.Context, key string, component domai
 		if err := system.SpawnBackground("software-update", "bootstrap"); err != nil {
 			return fmt.Errorf("spawn software-update bootstrap: %w", err)
 		}
-		return nil
-
-	case domain.OTAKeyOpenClaw:
-		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
-		version := strings.TrimSpace(component.Version)
-		if version == "" {
-			version = "latest"
-		}
-		pkg := fmt.Sprintf("openclaw@%s", version)
-		if _, err := system.Run(runCtx, "npm", "install", "-g", pkg); err != nil {
-			return fmt.Errorf("npm install %s: %w", pkg, err)
-		}
-		if err := system.RestartService(runCtx, "openclaw"); err != nil {
-			return fmt.Errorf("restart openclaw: %w", err)
-		}
-		slog.Info("openclaw updated", "component", "bootstrap", "version", version)
 		return nil
 
 	default:
