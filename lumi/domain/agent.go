@@ -138,6 +138,12 @@ type AgentGateway interface {
 	// entries (>2 min) from the head first. Returns "" if the queue is empty.
 	ConsumePendingChatTrace() string
 
+	// ConsumeOutboundEcho pops the head of the outbound-echo queue (one entry
+	// per chat.send) so the SSE handler can suppress the session.message
+	// rebroadcast that OpenClaw fans out for Lumi's own chat.send. Returns
+	// true when an entry was consumed.
+	ConsumeOutboundEcho() bool
+
 	// --- Channel abstraction (backend-agnostic) ---
 
 	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.
