@@ -4,7 +4,7 @@ import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, tes
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, MessageSquare, Link } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -23,14 +23,13 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "face" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt";
+type SectionId = "wifi" | "face" | "device" | "llm" | "tts" | "channel" | "mqtt";
 const ICON_SIZE = 15;
 const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
   { id: "llm",      label: "LLM",      icon: <Brain size={ICON_SIZE} /> },
-  { id: "deepgram", label: "STT",      icon: <Mic size={ICON_SIZE} /> },
   { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
   { id: "channel",  label: "Channel",  icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
@@ -166,6 +165,7 @@ export default function EditConfig() {
   const [llmModel, setLlmModel] = useState("");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  const [ttsApiKey, setTtsApiKey] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -265,6 +265,7 @@ export default function EditConfig() {
         setLlmModel(cfg.llm_model ?? "");
         setLlmDisableThinking(cfg.llm_disable_thinking ?? false);
         setDeepgramApiKey(cfg.deepgram_api_key ?? "");
+        setTtsApiKey(cfg.tts_api_key ?? "");
         setTtsProvider(cfg.tts_provider || "openai");
         setTtsVoice(cfg.tts_voice || "alloy");
         setChannel((cfg.channel as ChannelType) || "telegram");
@@ -324,7 +325,7 @@ export default function EditConfig() {
         channel, ...channelCreds,
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
-        deepgram_api_key: deepgramApiKey, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
+        deepgram_api_key: deepgramApiKey, tts_api_key: ttsApiKey, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
         mqtt_port: mqttPort ? parseInt(mqttPort, 10) : 0,
@@ -338,7 +339,7 @@ export default function EditConfig() {
   }, [
     channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
-    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, ttsVoice, deviceId,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, ttsApiKey, ttsVoice, deviceId,
     mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
   ]);
 
@@ -602,11 +603,8 @@ export default function EditConfig() {
                   </label>
                 </SectionCard>
 
-                <SectionCard id="deepgram" title="STT (Deepgram)" active={activeSection === "deepgram"}>
-                  <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
-                </SectionCard>
-
                 <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                  <Field label="API Key (optional — leave blank to reuse LLM key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
                   <div style={{ marginBottom: 12 }}>
                     <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                       Provider

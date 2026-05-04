@@ -163,8 +163,9 @@ type AgentGateway interface {
 	// SetVolume sets speaker volume on LeLamp (0-100).
 	SetVolume(pct int) error
 
-	// StartLeLampVoice starts the voice pipeline on LeLamp.
-	StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error
+	// StartLeLampVoice starts the voice pipeline on LeLamp. ttsKey is the
+	// TTS provider's API key; empty means LeLamp reuses llmKey for TTS too.
+	StartLeLampVoice(deepgramKey, llmKey, ttsKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error
 
 	// WatchIdentity polls IDENTITY.md and pushes updated wake words to LeLamp on rename.
 	WatchIdentity(ctx context.Context)

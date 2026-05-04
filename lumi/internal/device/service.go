@@ -68,6 +68,7 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	}
 	s.config.DeviceID = data.DeviceID
 	s.config.DeepgramAPIKey = data.DeepgramAPIKey
+	s.config.TTSAPIKey = data.TTSAPIKey
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -207,6 +208,7 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		LLMBaseURL:         s.config.LLMBaseURL,
 		LLMDisableThinking: disableThinking,
 		DeepgramAPIKey:     s.config.DeepgramAPIKey,
+		TTSAPIKey:          s.config.TTSAPIKey,
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           s.config.DeviceID,
@@ -240,6 +242,9 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if data.DeepgramAPIKey != "" {
 		s.config.DeepgramAPIKey = data.DeepgramAPIKey
 	}
+	// TTS API key: blanks intentionally clear (lets the operator drop a
+	// separate TTS key and revert to LLM-key fallback via GetTTSAPIKey).
+	s.config.TTSAPIKey = data.TTSAPIKey
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}

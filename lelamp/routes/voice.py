@@ -54,6 +54,9 @@ def start_voice(req: VoiceStartRequest):
     """Start the voice pipeline (always-on Deepgram STT + TTS)."""
     voice = req.tts_voice or TTS_VOICE
     instructions = req.tts_instructions or TTS_INSTRUCTIONS or None
+    # TTS uses tts_api_key when set; otherwise falls back to llm_api_key
+    # so households with one shared credential keep working.
+    tts_api_key = req.tts_api_key or req.llm_api_key
 
     need_tts = TTSService and (
         not (state.tts_service and state.tts_service.available)
@@ -66,7 +69,7 @@ def start_voice(req: VoiceStartRequest):
             state.tts_service.stop()
         try:
             state.tts_service = TTSService(
-                api_key=req.llm_api_key,
+                api_key=tts_api_key,
                 base_url=req.llm_base_url,
                 sound_device_module=sd,
                 numpy_module=np,

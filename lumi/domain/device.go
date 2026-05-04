@@ -37,6 +37,9 @@ type SetupRequest struct {
 
 	// voice pipeline (optional): Deepgram API key for STT
 	DeepgramAPIKey string `json:"deepgram_api_key"`
+	// TTSAPIKey overrides LLMAPIKey when the TTS account is separate.
+	// Empty falls back to LLMAPIKey on the device side.
+	TTSAPIKey      string `json:"tts_api_key"`
 	TTSProvider    string `json:"tts_provider"`
 	TTSVoice       string `json:"tts_voice"`
 
@@ -286,6 +289,7 @@ type ConfigResponse struct {
 	LLMBaseURL         string `json:"llm_base_url"`
 	LLMDisableThinking bool   `json:"llm_disable_thinking"`
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	TTSAPIKey          string `json:"tts_api_key"`
 	TTSProvider        string `json:"tts_provider"`
 	TTSVoice           string `json:"tts_voice"`
 	DeviceID           string `json:"device_id"`
@@ -323,6 +327,7 @@ type UpdateConfigRequest struct {
 	LLMDisableThinking *bool  `json:"llm_disable_thinking,omitempty"`
 
 	DeepgramAPIKey string `json:"deepgram_api_key"`
+	TTSAPIKey      string `json:"tts_api_key"`
 	DeviceID       string `json:"device_id"`
 
 	MQTTEndpoint string `json:"mqtt_endpoint"`
