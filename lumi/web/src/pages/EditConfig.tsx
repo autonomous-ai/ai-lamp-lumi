@@ -71,48 +71,7 @@ function Field({
   );
 }
 
-function PasswordField({ label, id, value, onChange, placeholder, readOnly = false }: {
-  label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; readOnly?: boolean;
-}) {
-  const [show, setShow] = useState(false);
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={show ? "text" : "password"} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
-          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
-            borderRadius: 7, padding: "8px 38px 8px 11px",
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-            transition: "border-color 0.15s",
-          }}
-        />
-        <button type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
-          style={{
-            position: "absolute", right: 0, top: 0, height: "100%",
-            padding: "0 11px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer",
-            display: "flex", alignItems: "center",
-          }}
-        >
-          {show ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-      </div>
-    </div>
-  );
-}
+// Plain PasswordField removed — all password inputs use LockedPasswordField now.
 
 // useLockToggle — shared lock/unlock + cancel-restore logic for LockedField and
 // LockedPasswordField. Captures the value when a field first becomes locked so

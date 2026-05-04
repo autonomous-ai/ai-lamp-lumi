@@ -122,10 +122,10 @@ function useLockToggle(lockedInitially: boolean, value: string, onChange: (v: st
 }
 
 function LockedField({
-  lockedInitially, label, id, value, onChange, placeholder, type = "text",
+  lockedInitially, label, id, value, onChange, placeholder, type = "text", required = false,
 }: {
   lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean;
 }) {
   const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
   return (
@@ -138,7 +138,7 @@ function LockedField({
           id={id} type={type} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
+          readOnly={readOnly} required={required}
           style={{
             width: "100%", boxSizing: "border-box",
             background: readOnly ? C.bg : C.surface,
@@ -171,10 +171,10 @@ function LockedField({
 }
 
 function LockedPasswordField({
-  lockedInitially, label, id, value, onChange, placeholder,
+  lockedInitially, label, id, value, onChange, placeholder, required = false,
 }: {
   lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string;
+  onChange: (v: string) => void; placeholder?: string; required?: boolean;
 }) {
   const [show, setShow] = useState(false);
   const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
@@ -191,7 +191,7 @@ function LockedPasswordField({
           id={id} type={show ? "text" : "password"} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
+          readOnly={readOnly} required={required}
           style={{
             width: "100%", boxSizing: "border-box",
             background: readOnly ? C.bg : C.surface,
@@ -357,6 +357,15 @@ export default function Setup() {
   const [discordBotToken, setDiscordBotToken] = useState(urlParams.discordBotToken || "");
   const [discordGuildId, setDiscordGuildId] = useState(urlParams.discordGuildId || "");
   const [discordUserId, setDiscordUserId] = useState(urlParams.discordUserId || "");
+  // Snapshot of channel credentials populated when entering Setup. Filled
+  // values render with the Edit pencil to prevent accidental overwrites.
+  const [channelLoaded, setChannelLoaded] = useState({
+    teleToken: !!urlParams.teleToken, teleUserId: !!urlParams.teleUserId,
+    slackBotToken: !!urlParams.slackBotToken, slackAppToken: !!urlParams.slackAppToken,
+    slackUserId: !!urlParams.slackUserId,
+    discordBotToken: !!urlParams.discordBotToken, discordGuildId: !!urlParams.discordGuildId,
+    discordUserId: !!urlParams.discordUserId,
+  });
   const [mqttEndpoint, setMqttEndpoint] = useState("");
   const [mqttPort, setMqttPort] = useState("");
   const [mqttUsername, setMqttUsername] = useState("");
@@ -412,6 +421,16 @@ export default function Setup() {
       if (cfg.llm_disable_thinking != null) setLlmDisableThinking((prev) => prev || cfg.llm_disable_thinking);
       setTtsApiKey((prev) => prev || cfg.tts_api_key || "");
       setTtsBaseUrl((prev) => prev || cfg.tts_base_url || "");
+      setChannelLoaded((prev) => ({
+        teleToken: prev.teleToken || !!cfg.telegram_bot_token,
+        teleUserId: prev.teleUserId || !!cfg.telegram_user_id,
+        slackBotToken: prev.slackBotToken || !!cfg.slack_bot_token,
+        slackAppToken: prev.slackAppToken || !!cfg.slack_app_token,
+        slackUserId: prev.slackUserId || !!cfg.slack_user_id,
+        discordBotToken: prev.discordBotToken || !!cfg.discord_bot_token,
+        discordGuildId: prev.discordGuildId || !!cfg.discord_guild_id,
+        discordUserId: prev.discordUserId || !!cfg.discord_user_id,
+      }));
       setTeleToken((prev) => prev || cfg.telegram_bot_token || "");
       setTeleUserId((prev) => prev || cfg.telegram_user_id || "");
       setSlackBotToken((prev) => prev || cfg.slack_bot_token || "");
@@ -786,22 +805,22 @@ export default function Setup() {
                     </div>
                     {channel === "telegram" && (
                       <>
-                        <Field required label="Bot Token *" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                        <Field required label="User ID *" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
+                        <LockedPasswordField required lockedInitially={channelLoaded.teleToken} label="Bot Token *" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
+                        <LockedField required lockedInitially={channelLoaded.teleUserId} label="User ID *" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
                       </>
                     )}
                     {channel === "slack" && (
                       <>
-                        <Field required label="Bot Token *" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                        <Field required label="App Token *" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                        <Field required label="User ID *" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
+                        <LockedPasswordField required lockedInitially={channelLoaded.slackBotToken} label="Bot Token *" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
+                        <LockedPasswordField required lockedInitially={channelLoaded.slackAppToken} label="App Token *" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
+                        <LockedField required lockedInitially={channelLoaded.slackUserId} label="User ID *" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
                       </>
                     )}
                     {channel === "discord" && (
                       <>
-                        <Field required label="Bot Token *" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                        <Field required label="Guild ID *" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                        <Field required label="User ID *" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
+                        <LockedPasswordField required lockedInitially={channelLoaded.discordBotToken} label="Bot Token *" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
+                        <LockedField required lockedInitially={channelLoaded.discordGuildId} label="Guild ID *" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
+                        <LockedField required lockedInitially={channelLoaded.discordUserId} label="User ID *" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
                       </>
                     )}
                   </SectionCard>
