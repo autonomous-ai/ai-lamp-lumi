@@ -29,7 +29,7 @@ OPI_SUN60_BUTTON_PIN = 9
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
-DEBOUNCE_US = 200_000  # microseconds
+DEBOUNCE_US = 50_000  # microseconds — filter contact bounce on each edge
 
 
 def _is_orangepi_sun60() -> bool:
@@ -57,9 +57,10 @@ class GPIOButtonHandler:
         self._click_timer = None
         self._press_start = 0
         self._long_press_timer = None
-        self._last_tick = 0
         self._chip = 0
         self._pin = 0
+        self._last_press_tick = 0
+        self._last_release_tick = 0
 
     def start(self):
         import lgpio
@@ -78,11 +79,21 @@ class GPIOButtonHandler:
         )
 
     def _on_edge(self, chip, gpio, level, tick):
+        # Per-edge debounce. Track press/release ticks independently so a
+        # quick click (rising edge soon after the falling edge) isn't
+        # dropped, while bouncy repeats of the same edge are filtered out.
+        # OrangePi's gpiochip1 reports more contact bounce than the Pi.
+        if level == 0:
+            if tick - self._last_press_tick < DEBOUNCE_US:
+                return
+            self._last_press_tick = tick
+        else:
+            if tick - self._last_release_tick < DEBOUNCE_US:
+                return
+            self._last_release_tick = tick
+
         if level == 0:
             # Button pressed (falling edge)
-            if tick - self._last_tick < DEBOUNCE_US:
-                return
-            self._last_tick = tick
             self._press_start = time.monotonic()
             # Start long press detection
             self._long_press_timer = threading.Timer(
