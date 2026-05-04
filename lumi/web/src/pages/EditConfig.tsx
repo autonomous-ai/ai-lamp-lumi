@@ -496,7 +496,7 @@ export default function EditConfig() {
               <form id="edit-form" onSubmit={handleSubmit}>
 
                 <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
-                  <Field label="SSID" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
+                  <Field label="Wi-Fi network" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
                   <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                 </SectionCard>
 
