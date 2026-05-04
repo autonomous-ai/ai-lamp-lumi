@@ -64,8 +64,27 @@ type OpenClawHandler struct {
 	cronFireExpectedMu sync.Mutex
 	cronFireExpected   []int64
 
+	// channelTurns tracks active channel-initiated turns (e.g. Telegram) keyed
+	// by sessionKey. OpenClaw 5.2 stopped fanning out the `agent` lifecycle
+	// stream for non-Lumi-originated runs, so chat_input emission and HW
+	// marker firing must be driven from `session.message` events instead.
+	// Each entry holds the synthetic device runId, accumulated assistant
+	// text, and metadata for the current in-flight turn on that session.
+	channelTurnMu sync.Mutex
+	channelTurns  map[string]*channelTurnState
+
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
+}
+
+// channelTurnState tracks the in-flight assistant response for a channel
+// session (Telegram/etc.) so HW markers in the final assistant message can
+// be extracted and fired even when no `agent` lifecycle event arrives.
+type channelTurnState struct {
+	runID       string
+	senderLabel string
+	accumulated strings.Builder
+	startedAtMs int64
 }
 
 // cronFireWindowMs is the max delay between an OpenClaw cron "started" event
@@ -91,6 +110,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		runIDMap:           make(map[string]string),
 		channelRuns:        make(map[string]bool),
 		cronFireRuns:       make(map[string]bool),
+		channelTurns:       make(map[string]*channelTurnState),
 	}
 }
 
