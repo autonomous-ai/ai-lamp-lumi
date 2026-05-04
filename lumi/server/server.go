@@ -403,7 +403,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			// Retry because lumi-lelamp may not be running yet at setup time.
 			if s.config.DeepgramAPIKey != "" {
 				for attempt := 1; attempt <= 10; attempt++ {
-					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.TTSAPIKey, s.config.LLMBaseURL, s.config.TTSVoice, s.config.TTSInstructions, s.config.TTSProvider)
+					err := s.agentGateway.StartLeLampVoice(s.config.DeepgramAPIKey, s.config.LLMAPIKey, s.config.GetSTTAPIKey(), s.config.GetTTSAPIKey(), s.config.LLMBaseURL, s.config.GetSTTBaseURL(), s.config.GetTTSBaseURL(), s.config.TTSVoice, s.config.TTSInstructions, s.config.TTSProvider)
 					if err == nil {
 						break
 					}

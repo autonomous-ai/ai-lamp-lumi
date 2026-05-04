@@ -524,6 +524,16 @@ class VoiceStartRequest(BaseModel):
         "",
         description="TTS provider API key (OpenAI / ElevenLabs). Empty falls back to llm_api_key — for households where TTS and LLM share one credential.",
     )
+    stt_api_key: str = Field(
+        "",
+        description="AutonomousSTT API key. Empty falls back to llm_api_key. Ignored when deepgram_api_key is set.",
+    )
+    stt_base_url: str = Field(
+        "", description="AutonomousSTT base URL. Empty falls back to llm_base_url.",
+    )
+    tts_base_url: str = Field(
+        "", description="TTS provider base URL. Empty falls back to llm_base_url.",
+    )
     deepgram_api_key: str = Field(
         "", description="Deepgram API key (optional, falls back to Autonomous STT)"
     )

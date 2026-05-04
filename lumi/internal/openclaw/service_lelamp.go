@@ -25,18 +25,22 @@ var (
 )
 
 // StartLeLampVoice starts the voice pipeline on LeLamp with API keys from
-// config. ttsKey is the TTS provider's API key (split out from llmKey so
-// households with separate accounts can configure each independently).
-// Pass ttsKey == "" when both share llmKey — LeLamp will fall back.
-func (s *Service) StartLeLampVoice(deepgramKey, llmKey, ttsKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error {
+// config. sttKey / ttsKey + sttBaseURL / ttsBaseURL are split out from
+// llmKey / llmBaseURL so households with separate STT / TTS accounts can
+// configure each independently. Pass empty for any of them to make LeLamp
+// fall back to the LLM equivalent.
+func (s *Service) StartLeLampVoice(deepgramKey, llmKey, sttKey, ttsKey, llmBaseURL, sttBaseURL, ttsBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error {
 	if deepgramKey == "" {
 		return nil
 	}
 	if err := lelamp.StartVoice(lelamp.VoiceStartConfig{
 		DeepgramKey:     deepgramKey,
 		LLMKey:          llmKey,
+		STTKey:          sttKey,
 		TTSKey:          ttsKey,
 		LLMBaseURL:      llmBaseURL,
+		STTBaseURL:      sttBaseURL,
+		TTSBaseURL:      ttsBaseURL,
 		TTSVoice:        ttsVoice,
 		TTSInstructions: ttsInstructions,
 		TTSProvider:     ttsProvider,

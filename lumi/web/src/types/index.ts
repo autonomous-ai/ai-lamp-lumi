@@ -27,7 +27,10 @@ export interface SetupRequest {
   llm_api_key: string;
   llm_model: string;
   deepgram_api_key?: string;
+  stt_api_key?: string;
   tts_api_key?: string;
+  stt_base_url?: string;
+  tts_base_url?: string;
   tts_provider?: string;
   tts_voice?: string;
   device_id?: string;

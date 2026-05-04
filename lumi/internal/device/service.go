@@ -68,7 +68,10 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	}
 	s.config.DeviceID = data.DeviceID
 	s.config.DeepgramAPIKey = data.DeepgramAPIKey
+	s.config.STTAPIKey = data.STTAPIKey
 	s.config.TTSAPIKey = data.TTSAPIKey
+	s.config.STTBaseURL = data.STTBaseURL
+	s.config.TTSBaseURL = data.TTSBaseURL
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -208,7 +211,10 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		LLMBaseURL:         s.config.LLMBaseURL,
 		LLMDisableThinking: disableThinking,
 		DeepgramAPIKey:     s.config.DeepgramAPIKey,
+		STTAPIKey:          s.config.STTAPIKey,
 		TTSAPIKey:          s.config.TTSAPIKey,
+		STTBaseURL:         s.config.STTBaseURL,
+		TTSBaseURL:         s.config.TTSBaseURL,
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           s.config.DeviceID,
@@ -242,9 +248,13 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if data.DeepgramAPIKey != "" {
 		s.config.DeepgramAPIKey = data.DeepgramAPIKey
 	}
-	// TTS API key: blanks intentionally clear (lets the operator drop a
-	// separate TTS key and revert to LLM-key fallback via GetTTSAPIKey).
+	// STT / TTS API keys + base URLs: blanks intentionally clear (lets the
+	// operator drop a separate value and revert to the LLM fallback via
+	// the GetXxx helpers).
+	s.config.STTAPIKey = data.STTAPIKey
 	s.config.TTSAPIKey = data.TTSAPIKey
+	s.config.STTBaseURL = data.STTBaseURL
+	s.config.TTSBaseURL = data.TTSBaseURL
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
