@@ -972,17 +972,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if sm.Session.Origin.Provider == "heartbeat" {
 			break
 		}
-		// Detect inbound channel turns. The session key is the most stable
-		// signal across OpenClaw versions; `origin.provider` is best-effort
-		// (sessionRow.origin can be undefined when a telegram message routes
-		// through the default agent session).
+		// Detect inbound channel turns. Note: private 1:1 Telegram chats
+		// route to `agent:main:main` (the same sessionKey Lumi uses for
+		// chat.send), so we MUST NOT filter solely on sessionKey ==
+		// GetSessionKey(). The delivery channel / origin discriminate
+		// Telegram inbound from Lumi's own webchat-style sensing turns.
 		isTelegramChannel := strings.HasPrefix(sm.SessionKey, "agent:main:telegram:") ||
 			sm.Session.Origin.Provider == "telegram" ||
 			sm.Session.DeliveryContext.Channel == "telegram"
 		if !isTelegramChannel {
-			break
-		}
-		if sm.SessionKey == h.agentGateway.GetSessionKey() {
 			break
 		}
 		text := extractMessageContentText(sm.Message.Content)
