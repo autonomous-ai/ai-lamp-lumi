@@ -90,7 +90,7 @@ buddy-build:
 # Upload (OTA to GCS) — unified format: make upload-<component>
 # ============================================================================
 
-.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-claude-desktop-buddy upload-web upload-skills upload-hooks upload-setup upload-setup-ap upload-all
+.PHONY: upload-lumi upload-bootstrap upload-lelamp upload-claude-desktop-buddy upload-web upload-skills upload-hooks upload-setup upload-setup-ap upload-openclaw upload-all
 
 upload-lumi:
 	bash scripts/upload-lumi.sh
@@ -119,6 +119,12 @@ upload-setup:
 upload-setup-ap:
 	bash scripts/upload-setup-ap.sh
 
+upload-openclaw:
+	@if [ -z "$(OPENCLAW_VERSION)" ]; then echo "Usage: make upload-openclaw OPENCLAW_VERSION=<version>" >&2; exit 1; fi
+	bash scripts/upload-openclaw.sh "$(OPENCLAW_VERSION)"
+
+# upload-openclaw is intentionally NOT in upload-all — bumping the OpenClaw
+# version is an explicit decision, not a side effect of pushing other artifacts.
 upload-all: upload-lumi upload-bootstrap upload-lelamp upload-claude-desktop-buddy upload-web upload-skills upload-hooks
 
 # ============================================================================
