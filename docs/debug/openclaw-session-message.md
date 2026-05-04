@@ -79,6 +79,20 @@ If S7 introduces regressions:
 1. Set `activeRunIDs` map to never-populate (comment out the `case "sessions.changed"` body) — S5/S6 layers take over completely. No code removal needed.
 2. Or hard revert the file changes via the commit hash once landed.
 
+### S7 v2 — `resolveRunID` + content-prefix unconditional
+
+Build at `lumi/lumi-server` 15:05 (uncommitted). Two bugs surfaced after the first S7 deploy (turn `133212ff-…` mis-shown as channel run):
+
+**Bug A — self-replay UUID slipped past S7.**
+The agent-stream lifecycle handler at `handler_events.go:71-79` consumes `pendingChatTrace` and maps the self-replay UUID to a stale `lumi-chat-N`. `activeRunIDs` cached the **raw UUID** from `sessions.changed`, so `isLumiOutboundChatRunID(activeRunID)` returned `false` even though the resolved run id was `lumi-chat-N`. Fix: look the active id up through `resolveRunID` before the prefix check, so a mapped UUID is recognised.
+
+**Bug B — Lumi sensing/system inject queued behind another active run.**
+Openclaw absorbs Lumi's queued `chat.send` into a running embedded run (`source=pi-embedded-runner`) instead of starting a new one. No new `sessions.changed phase=start` fires, so `activeRunIDs` keeps the previous run's id (in the field report it was the prior DM's UUID). S7 said "not Lumi" but the message text was clearly `[sensing:` / `[system]`. Fix: keep `isLumiInjectedUserMessage` content-prefix as an unconditional fallback for the user-role + shared-session combo. Content match cannot ever misclassify a real DM (it only triggers on Lumi-specific markers), so it is safe to run alongside S7.
+
+`ConsumeOutboundEcho` (S5 FIFO) now only runs when `activeRunID == ""`. Running it unconditionally would let a real DM that arrives mid-Lumi-`chat.send` drain a queue entry and get itself suppressed — the FIFO lacks the per-message identity to distinguish them. With S7 owning the common case, the FIFO is reduced to a startup / `dropIfSlow` recovery path.
+
+Status: built, awaiting deploy + verification on the same scenario that produced `133212ff-…`.
+
 ### S8 — Tighten `pendingChatTrace` TTL (proposed, separate concern)
 - Commit: pending.
 - What: separate from S1–S7, blocks the OpenClaw self-replay TTS spam. Each ~10s OpenClaw fires a fresh UUID `messageChannel=webchat` follow-up run on `agent:main:main`. The current `lifecycle_start` handler consumes the FIFO `pendingChatTrace` head and maps the self-replay UUID → `lumi-chat-N`, after which `isChannelRun=false` and TTS fires on the lamp speaker. Tighten `pendingChatTTL` from 2 min → 3-5 s so a self-replay 10 s+ after the original `chat.send` no longer claims the slot, leaves the UUID unmapped, and the TTS gets suppressed as a channel run.
