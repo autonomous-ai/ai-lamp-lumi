@@ -119,9 +119,21 @@ upload-setup:
 upload-setup-ap:
 	bash scripts/upload-setup-ap.sh
 
+# Allow positional version: `make upload-openclaw 2026.5.2`. The eval
+# stub below creates a no-op rule for the version arg so make doesn't
+# try to build it as a target ("no rule to make target '2026.5.2'").
+# Scoped to when upload-openclaw is the first goal so this doesn't
+# silence missing-target errors elsewhere.
+ifeq (upload-openclaw,$(firstword $(MAKECMDGOALS)))
+  OPENCLAW_VERSION_ARG := $(word 2,$(MAKECMDGOALS))
+  ifneq ($(OPENCLAW_VERSION_ARG),)
+    $(eval $(OPENCLAW_VERSION_ARG):;@:)
+  endif
+endif
+
 upload-openclaw:
-	@if [ -z "$(OPENCLAW_VERSION)" ]; then echo "Usage: make upload-openclaw OPENCLAW_VERSION=<version>" >&2; exit 1; fi
-	bash scripts/upload-openclaw.sh "$(OPENCLAW_VERSION)"
+	@if [ -z "$(OPENCLAW_VERSION_ARG)" ]; then echo "Usage: make upload-openclaw <version>" >&2; exit 1; fi
+	bash scripts/upload-openclaw.sh "$(OPENCLAW_VERSION_ARG)"
 
 # upload-openclaw is intentionally NOT in upload-all — bumping the OpenClaw
 # version is an explicit decision, not a side effect of pushing other artifacts.
