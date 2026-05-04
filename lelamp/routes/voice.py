@@ -166,6 +166,39 @@ def speak_text(req: SpeakRequest):
             503,
             "TTS not initialized -- call /voice/start first or check lumi config has llm_api_key + llm_base_url",
         )
+    if state._speaker_muted:
+        state.logger.info("POST /voice/speak: suppressed -- speaker muted (text='%s')", req.text[:80])
+        return {"status": "suppressed"}
+    if state.music_service and state.music_service.playing:
+        state.logger.info(
+            "POST /voice/speak: rejected -- music is playing (text='%s')", req.text[:80]
+        )
+        raise HTTPException(409, "Speaker busy -- music is playing")
+
+    # Optional provider hot-swap for web TTS preview (test before saving config).
+    # When the request specifies a provider that differs from the running backend,
+    # rebuild it in place so the same call can play with the new voice/credentials.
+    if req.provider:
+        current_provider = getattr(state.tts_service, "_provider", None)
+        if req.provider != current_provider or req.tts_api_key or req.tts_base_url:
+            from lelamp.service.voice.tts_backend import create_backend
+            api_key = req.tts_api_key or getattr(state.tts_service._backend, "_api_key", "") or ""
+            base_url = req.tts_base_url or getattr(state.tts_service._backend, "_base_url", "") or ""
+            if state.tts_service.speaking:
+                state.tts_service.stop()
+            try:
+                state.tts_service._backend = create_backend(
+                    provider=req.provider, api_key=api_key, base_url=base_url,
+                )
+                state.tts_service._provider = req.provider
+                state.logger.info(
+                    "TTS backend hot-swapped (provider=%s, base_url=%s)",
+                    req.provider, base_url,
+                )
+            except Exception as e:
+                state.logger.error("TTS backend swap failed: %s", e)
+                raise HTTPException(500, f"Failed to swap TTS backend: {e}")
+
     if not state.tts_service.available:
         state.logger.error(
             "POST /voice/speak: tts_service not available -- backend=%s, sd=%s",
@@ -175,14 +208,6 @@ def speak_text(req: SpeakRequest):
         raise HTTPException(
             503, "TTS not available -- missing openai SDK or sounddevice"
         )
-    if state._speaker_muted:
-        state.logger.info("POST /voice/speak: suppressed -- speaker muted (text='%s')", req.text[:80])
-        return {"status": "suppressed"}
-    if state.music_service and state.music_service.playing:
-        state.logger.info(
-            "POST /voice/speak: rejected -- music is playing (text='%s')", req.text[:80]
-        )
-        raise HTTPException(409, "Speaker busy -- music is playing")
     if req.voice:
         state.tts_service._voice = req.voice
     state.logger.info("POST /voice/speak: req=%s", req.model_dump_json())

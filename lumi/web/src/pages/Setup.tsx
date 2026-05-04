@@ -611,8 +611,8 @@ export default function Setup() {
 
                   {/* TTS */}
                   <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
-                    <Field label="API Key (optional — leave blank to reuse LLM key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
-                    <Field label="Base URL (optional — leave blank to reuse LLM base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
+                    <Field label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
+                    <Field label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         Provider
@@ -654,7 +654,11 @@ export default function Setup() {
                       </select>
                       <button
                         type="button"
-                        onClick={() => testTTSVoice(ttsVoice)}
+                        onClick={() => testTTSVoice(ttsVoice, {
+                          provider: ttsProvider,
+                          ttsApiKey, ttsBaseUrl,
+                          llmApiKey, llmBaseUrl: llmUrl,
+                        })}
                         style={{
                           marginTop: 8, width: "100%", padding: "8px 0",
                           background: C.amber, color: "#fff", border: "none",
