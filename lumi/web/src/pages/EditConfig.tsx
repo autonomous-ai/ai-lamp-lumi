@@ -29,7 +29,7 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
-  { id: "llm",      label: "LLM",      icon: <Brain size={ICON_SIZE} /> },
+  { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
   { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
   { id: "channel",  label: "Channel",  icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
@@ -591,7 +591,7 @@ export default function EditConfig() {
                   <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
                 </SectionCard>
 
-                <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
+                <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
                   <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
                   <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
                   <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
