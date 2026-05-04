@@ -27,11 +27,11 @@ stage_openclaw() {
   npm install -g "openclaw@${OPENCLAW_VERSION}"
   openclaw --version || true
 
-  if ! id openclaw &>/dev/null; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin openclaw
-  fi
-  mkdir -p /etc/openclaw /var/log/openclaw
-  chown -R openclaw:openclaw /etc/openclaw /var/log/openclaw
+  # OpenClaw shares its state dir with Lumi at /root/.openclaw — Lumi
+  # writes openclaw.json + the gateway auth token there, OpenClaw reads
+  # it from the same path. They MUST agree or every WS connect fails
+  # with "token_mismatch" / WS close 1008.
+  mkdir -p /root/.openclaw /var/log/openclaw
 
   CHROME_PATH=$(command -v chromium 2>/dev/null || command -v chromium-browser 2>/dev/null || true)
   : "${CHROME_PATH:=/usr/bin/chromium}"
@@ -43,9 +43,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=openclaw
-WorkingDirectory=/etc/openclaw
-Environment="OPENCLAW_STATE_DIR=/etc/openclaw"
+User=root
+WorkingDirectory=/root/.openclaw
+Environment="OPENCLAW_HOME=/root/.openclaw"
+Environment="OPENCLAW_STATE_DIR=/root/.openclaw"
+Environment="HOME=/root"
 Environment="PUPPETEER_EXECUTABLE_PATH=$CHROME_PATH"
 Environment="PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"
 Environment="CHROME_BIN=$CHROME_PATH"
