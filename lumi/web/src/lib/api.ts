@@ -108,11 +108,28 @@ export async function getTTSProviders(): Promise<string[]> {
   return apiRequest<string[]>(`${API_BASE}/api/device/tts-providers`);
 }
 
-export async function testTTSVoice(voice: string, text?: string): Promise<void> {
+export interface TestTTSOptions {
+  text?: string;
+  provider?: string;
+  ttsApiKey?: string;
+  ttsBaseUrl?: string;
+  llmApiKey?: string;
+  llmBaseUrl?: string;
+}
+
+export async function testTTSVoice(voice: string, opts: TestTTSOptions = {}): Promise<void> {
+  const apiKey = (opts.ttsApiKey && opts.ttsApiKey.trim()) || opts.llmApiKey || "";
+  const baseUrl = (opts.ttsBaseUrl && opts.ttsBaseUrl.trim()) || opts.llmBaseUrl || "";
   await fetch("/hw/voice/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: text || "[laugh] Hey! How are you doing today?", voice }),
+    body: JSON.stringify({
+      text: opts.text || "[laugh] Hey! How are you doing today?",
+      voice,
+      provider: opts.provider || undefined,
+      tts_api_key: apiKey || undefined,
+      tts_base_url: baseUrl || undefined,
+    }),
   });
 }
 

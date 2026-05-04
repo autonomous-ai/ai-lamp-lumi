@@ -1,15 +1,30 @@
+import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import Setup from "@/pages/Setup";
 import Monitor from "@/pages/monitor";
 import EditConfig from "@/pages/EditConfig";
 import GwConfig from "@/pages/GwConfig";
+import { checkInternet } from "@/lib/api";
+
+// Root gate: if WiFi is provisioned (device has internet) → /monitor; else show Setup.
+function RootGate() {
+  const [provisioned, setProvisioned] = useState<boolean | null>(null);
+  useEffect(() => {
+    checkInternet()
+      .then((ok) => setProvisioned(!!ok))
+      .catch(() => setProvisioned(false));
+  }, []);
+  if (provisioned === null) return null;
+  if (provisioned) return <Navigate to="/monitor" replace />;
+  return <Setup />;
+}
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/setup" replace />} />
+        <Route path="/" element={<RootGate />} />
         <Route path="/monitor" element={<Monitor />} />
         <Route path="/setup" element={<Setup />} />
         <Route path="/edit" element={<EditConfig />} />
