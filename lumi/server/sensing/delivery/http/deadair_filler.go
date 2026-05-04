@@ -10,55 +10,40 @@ import (
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
-// Dead air filler — plays a short TTS cue via LeLamp after forwarding a voice
-// command to OpenClaw, filling the silence while the LLM processes (~5-15s).
+// Dead air filler — short TTS cues spoken by LeLamp while OpenClaw is busy,
+// scheduled and cancelled by FillerManager from agent lifecycle/tool events.
 //
-// Uses tts_service.speak() (locks mic) which is intentional — user is done
-// speaking and waiting for the response.
+// Two pools chosen by turn position:
+//   - OpeningFillers: first filler of a turn — acknowledges the user
+//     just before the agent starts working.
+//   - ContinuationFillers: re-arms after tool.end — implies progress
+//     ("still working") rather than re-acknowledging.
 //
-// Disabled when Fillers slice is empty.
+// Pool empty = that position is silent. Both empty = feature disabled.
 
-// Fillers is the list of short phrases to play as dead air cues.
-// Empty slice = feature disabled. Override at init or via config.
-var Fillers = []string{
+// OpeningFillers play first in a turn. Tone: short acknowledgement.
+var OpeningFillers = []string{
 	"Hmm, let me think",
 	"Ok, got it",
 	"Sure, one moment",
-	"Right, let me check",
-	"Alright, hold on",
-	"Oh, interesting",
-	"Ok, let me see",
-	"Hmm, let me work on that",
+	"Right",
+	"Got it",
+	"Alright",
+	"Ok",
+	"Sure",
 	"One sec",
-	"Ah, ok ok",
-	"Let me figure this out",
-	"Hmm, give me a moment",
-	"Oh, right",
-	"Let me look into that",
-	"Sure, hang on",
-	"Ok, thinking",
-	"Ah, let me see",
-	"Hmm, hold on a sec",
-	"Got it, one moment",
-	"Oh, let me check that",
 }
 
-// PlayDeadAirFiller sends a random filler phrase to LeLamp TTS.
-// No-op if Fillers is empty. Safe to call from a goroutine.
-//
-// Deprecated: kept for legacy callers. New code should drive fillers through
-// FillerManager so they can be cancelled when the agent reply arrives.
-func PlayDeadAirFiller() {
-	if len(Fillers) == 0 {
-		return
-	}
-	filler := Fillers[rand.Intn(len(Fillers))]
-	slog.Info("dead air filler", "component", "sensing", "filler", filler)
-	if err := lelamp.SpeakInterruptible(filler); err != nil {
-		slog.Warn("dead air filler failed", "component", "sensing", "error", err)
-		return
-	}
-	slog.Info("dead air filler sent", "component", "sensing", "filler", filler)
+// ContinuationFillers play on re-arm after a tool finishes. Tone: progress.
+var ContinuationFillers = []string{
+	"Still working on it",
+	"Almost there",
+	"One more sec",
+	"Just a bit more",
+	"Hang on",
+	"Bear with me",
+	"Almost done",
+	"Hmm, getting close",
 }
 
 // Filler tuning. All durations are wall-clock.
@@ -106,6 +91,56 @@ type fillerRun struct {
 	fired          int       // count of fillers actually spoken this turn
 	lastActivityAt time.Time // last time something audible/visible happened (filler or HW tool)
 	ended          bool      // turn finalized (assistant delta or lifecycle.end) — no more arms
+	lastSpoken     string    // text of the most recent filler — used to dedup back-to-back picks
+}
+
+// fillersDisabled reports whether both pools are empty — the kill switch.
+func fillersDisabled() bool {
+	return len(OpeningFillers) == 0 && len(ContinuationFillers) == 0
+}
+
+// pickFiller returns a phrase appropriate for the current turn position,
+// avoiding lastSpoken when an alternative exists. Fired==0 prefers the
+// Opening pool; subsequent fillers prefer Continuation. Each falls back
+// to the other pool when its own is empty so a single-pool config still
+// works.
+func pickFiller(fired int, lastSpoken string) string {
+	primary, fallback := OpeningFillers, ContinuationFillers
+	if fired > 0 {
+		primary, fallback = ContinuationFillers, OpeningFillers
+	}
+	if pick := pickFrom(primary, lastSpoken); pick != "" {
+		return pick
+	}
+	return pickFrom(fallback, lastSpoken)
+}
+
+// pickFrom returns a random entry from pool. When the pool has more than
+// one entry it avoids returning lastSpoken so the same line doesn't fire
+// twice in a row within a turn.
+func pickFrom(pool []string, lastSpoken string) string {
+	switch len(pool) {
+	case 0:
+		return ""
+	case 1:
+		return pool[0]
+	}
+	pick := pool[rand.Intn(len(pool))]
+	if pick == lastSpoken {
+		// Re-roll once. With pool size >= 2, two picks bound collision
+		// probability tightly enough — no need to loop.
+		pick = pool[rand.Intn(len(pool))]
+		if pick == lastSpoken {
+			// Deterministic fallback: walk to the next index.
+			for i, p := range pool {
+				if p == lastSpoken {
+					pick = pool[(i+1)%len(pool)]
+					break
+				}
+			}
+		}
+	}
+	return pick
 }
 
 // FillerManager schedules and cancels dead-air fillers driven by OpenClaw
@@ -160,9 +195,9 @@ func (fm *FillerManager) MarkVoiceRun(runID string) {
 }
 
 // OnTurnStart arms the first filler timer if MarkVoiceRun was set for
-// runID and Fillers is non-empty.
+// runID and at least one filler pool is non-empty.
 func (fm *FillerManager) OnTurnStart(runID string) {
-	if runID == "" || len(Fillers) == 0 {
+	if runID == "" || fillersDisabled() {
 		return
 	}
 	fm.mu.Lock()
@@ -200,7 +235,7 @@ func (fm *FillerManager) OnToolStart(runID, toolArgs string) {
 // has ended, the per-turn cap is reached, or a filler is already pending
 // or playing.
 func (fm *FillerManager) OnToolEnd(runID string) {
-	if runID == "" || len(Fillers) == 0 {
+	if runID == "" || fillersDisabled() {
 		return
 	}
 	fm.mu.Lock()
@@ -283,8 +318,9 @@ func (fm *FillerManager) softCancelLocked(run *fillerRun) {
 	}
 }
 
-// fire is the timer callback. Re-checks state under the lock, speaks the
-// filler outside the lock, then re-takes the lock to update counters.
+// fire is the timer callback. Re-checks state under the lock, picks a
+// pool-appropriate filler, speaks it outside the lock, then re-takes the
+// lock to update counters.
 func (fm *FillerManager) fire(runID string) {
 	fm.mu.Lock()
 	run, ok := fm.runs[runID]
@@ -293,14 +329,19 @@ func (fm *FillerManager) fire(runID string) {
 		fm.mu.Unlock()
 		return
 	}
+	filler := pickFiller(run.fired, run.lastSpoken)
+	if filler == "" {
+		// Both pools empty after live edit. Bail without playing.
+		run.timer = nil
+		fm.mu.Unlock()
+		return
+	}
 	run.timer = nil
 	run.playing = true
 	fm.mu.Unlock()
 
-	filler := Fillers[rand.Intn(len(Fillers))]
 	slog.Info("dead air filler firing", "component", "sensing", "run_id", runID, "filler", filler)
-	err := lelamp.SpeakInterruptible(filler)
-	if err != nil {
+	if err := lelamp.SpeakInterruptible(filler); err != nil {
 		slog.Warn("dead air filler failed", "component", "sensing", "run_id", runID, "error", err)
 	}
 
@@ -311,6 +352,7 @@ func (fm *FillerManager) fire(runID string) {
 		run.playing = false
 		run.fired++
 		run.lastActivityAt = time.Now()
+		run.lastSpoken = filler
 	}
 	fm.mu.Unlock()
 }
