@@ -252,102 +252,8 @@ EOF
   systemctl enable bootstrap lumi
   # Do NOT start lumi here — it switches to AP mode when unconfigured, killing internet.
   # Services will start after reboot at the end of setup.
-
-  # software-update: download and install binary from OTA metadata (or kind + version)
-  # Usage: software-update <bootstrap|lumi|web> [version]
-  #   If version omitted or "latest": use URL from metadata.
-  #   If version given: fetch metadata and install only if metadata version matches.
-  cat >/usr/local/bin/software-update <<'SOFTWAREUPDATE'
-#!/bin/bash
-set -euo pipefail
-OTA_METADATA_URL="${OTA_METADATA_URL:-https://cdn.autonomous.ai/lumi/ota/metadata.json}"
-retry() {
-  local n=0 max="${2:-5}" delay="${3:-2}" cmd="$1"
-  until [ "$n" -ge "$max" ]; do
-    eval "$cmd" && return 0
-    n=$((n+1)); echo "Retry $n/$max..."; sleep "$delay"
-  done
-  echo "ERROR: Command failed after $max attempts: $cmd"; return 1
-}
-[ "$(id -u)" -ne 0 ] && { echo "Run as root or with sudo."; exit 1; }
-if [ $# -lt 1 ]; then
-  echo "Usage: software-update <bootstrap|lumi|web> [version]"
-  echo "  Download from OTA metadata. If version is given, install only when metadata version matches."
-  exit 1
-fi
-KIND="$1"
-VERSION="${2:-}"
-case "$KIND" in
-  bootstrap|lumi|web) ;;
-  *) echo "Unknown kind: $KIND (bootstrap, lumi, web)"; exit 1 ;;
-esac
-METADATA_TMP="/tmp/ota-metadata.$$.json"
-retry "curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o '$METADATA_TMP' '$OTA_METADATA_URL'" 5
-META_VERSION=$(jq -r --arg k "$KIND" '.[$k].version // empty' "$METADATA_TMP")
-META_URL=$(jq -r --arg k "$KIND" '.[$k].url // empty' "$METADATA_TMP")
-rm -f "$METADATA_TMP"
-if [ -z "$META_URL" ]; then
-  echo "ERROR: No url for kind '$KIND' in metadata ($OTA_METADATA_URL)"
-  exit 1
-fi
-if [ -n "$VERSION" ] && [ "$VERSION" != "latest" ] && [ "$VERSION" != "$META_VERSION" ]; then
-  echo "ERROR: Requested version $VERSION does not match metadata version $META_VERSION for $KIND"
-  exit 1
-fi
-echo "Installing $KIND version $META_VERSION from $META_URL"
-if [ "$KIND" = "web" ]; then
-  mkdir -p /usr/share/nginx/html/setup
-  retry "curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o /tmp/setup.zip '$META_URL'" 5
-  unzip -o -q /tmp/setup.zip -d /usr/share/nginx/html/setup
-  rm -f /tmp/setup.zip
-  systemctl reload nginx 2>/dev/null || true
-  systemctl restart nginx 2>/dev/null || true
-  echo "Installed web to /usr/share/nginx/html/setup"
-fi
-if [ "$KIND" = "lumi" ]; then
-  BIN_NAME="lumi-server"
-  zip_tmp="/tmp/${KIND}-zip.$$"
-  dir_tmp="/tmp/${KIND}-dir.$$"
-  mkdir -p "$dir_tmp"
-  retry "curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o '$zip_tmp' '$META_URL'" 5
-  unzip -o -q "$zip_tmp" -d "$dir_tmp"
-  rm -f "$zip_tmp"
-  bin_file=$(find "$dir_tmp" -type f -executable 2>/dev/null | head -1)
-  [ -z "$bin_file" ] && bin_file=$(find "$dir_tmp" -type f 2>/dev/null | head -1)
-  if [ -z "$bin_file" ] || [ ! -f "$bin_file" ]; then
-    echo "ERROR: No binary found in zip from $META_URL"
-    rm -rf "$dir_tmp" 2>/dev/null || true
-    exit 1
-  fi
-  cp -f "$bin_file" "/usr/local/bin/$BIN_NAME"
-  chmod +x "/usr/local/bin/$BIN_NAME"
-  rm -rf "$dir_tmp"
-  systemctl restart "$KIND" 2>/dev/null || true
-  echo "Installed $KIND to /usr/local/bin/$BIN_NAME"
-fi
-if [ "$KIND" = "bootstrap" ]; then
-  BIN_NAME="bootstrap-server"
-  zip_tmp="/tmp/${KIND}-zip.$$"
-  dir_tmp="/tmp/${KIND}-dir.$$"
-  mkdir -p "$dir_tmp"
-  retry "curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o '$zip_tmp' '$META_URL'" 5
-  unzip -o -q "$zip_tmp" -d "$dir_tmp"
-  rm -f "$zip_tmp"
-  bin_file=$(find "$dir_tmp" -type f -executable 2>/dev/null | head -1)
-  [ -z "$bin_file" ] && bin_file=$(find "$dir_tmp" -type f 2>/dev/null | head -1)
-  if [ -z "$bin_file" ] || [ ! -f "$bin_file" ]; then
-    echo "ERROR: No binary found in zip from $META_URL"
-    rm -rf "$dir_tmp" 2>/dev/null || true
-    exit 1
-  fi
-  cp -f "$bin_file" "/usr/local/bin/$BIN_NAME"
-  chmod +x "/usr/local/bin/$BIN_NAME"
-  rm -rf "$dir_tmp"
-  systemctl restart "$KIND" 2>/dev/null || true
-  echo "Installed $KIND to /usr/local/bin/$BIN_NAME"
-fi
-SOFTWAREUPDATE
-  chmod +x /usr/local/bin/software-update
+  # /usr/local/bin/software-update is written later by stage_ap (covers
+  # all six components: lumi, openclaw, bootstrap, web, lelamp, lumi-buddy).
 }
 
 # ----------------------------------------------------------
@@ -1196,7 +1102,7 @@ echo "Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
 echo "Setup page: http://192.168.100.1"
 echo "Backends: systemctl status bootstrap lumi lumi-lelamp lumi-buddy"
-echo "Updates:  software-update <bootstrap|lumi|lelamp|lumi-buddy|web> [version]"
+echo "Updates:  software-update <bootstrap|lumi|openclaw|lelamp|lumi-buddy|web>"
 echo "======================================"
 
 echo ""
