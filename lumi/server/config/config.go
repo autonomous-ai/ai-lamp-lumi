@@ -43,8 +43,12 @@ type Config struct {
 	OTAPollInterval string `json:"ota_poll_interval" yaml:"otaPollInterval"`
 
 	DeepgramAPIKey string `json:"deepgram_api_key" yaml:"deepgramAPIKey"`
-	TTSProvider string `json:"tts_provider" yaml:"ttsProvider"`
-	TTSVoice    string `json:"tts_voice" yaml:"ttsVoice"`
+	// TTSAPIKey is the API key for the TTS provider (OpenAI, ElevenLabs, …).
+	// Empty falls back to LLMAPIKey so existing one-key configs keep working;
+	// fill this when the TTS account is separate from the LLM account.
+	TTSAPIKey       string `json:"tts_api_key" yaml:"ttsAPIKey"`
+	TTSProvider     string `json:"tts_provider" yaml:"ttsProvider"`
+	TTSVoice        string `json:"tts_voice" yaml:"ttsVoice"`
 	TTSInstructions string `json:"tts_instructions" yaml:"ttsInstructions"`
 
 	// AgentRuntime selects which agentic backend to use: "openclaw" (default), "picoclaw", "claudecode", etc.
@@ -210,6 +214,15 @@ func (c Config) Save() error {
 		}
 	}
 	return nil
+}
+
+// GetTTSAPIKey returns the TTS provider API key, falling back to LLMAPIKey
+// when TTSAPIKey is unset so configs that pre-date the split keep working.
+func (c *Config) GetTTSAPIKey() string {
+	if c.TTSAPIKey != "" {
+		return c.TTSAPIKey
+	}
+	return c.LLMAPIKey
 }
 
 // LocalIntentEnabled returns whether local intent matching is on (default true).
