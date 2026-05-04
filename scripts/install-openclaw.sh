@@ -17,24 +17,14 @@ stage_prerequisites() {
 }
 
 stage_openclaw() {
-  echo "[stage] Install OpenClaw (from fork peterparkernho/openclaw)"
-  OPENCLAW_REPO="${OPENCLAW_REPO:-https://github.com/peterparkernho/openclaw.git}"
-  OPENCLAW_REF="${OPENCLAW_REF:-peter/eternalai}"
-  npm install -g --ignore-scripts "git+${OPENCLAW_REPO}#${OPENCLAW_REF}"
-  # npm git install can leave openclaw as a symlink into /root/.npm/_cacache/tmp/...; chmod so User=openclaw can read it
-  OPENCLAW_MODULE=$(npm root -g 2>/dev/null)/openclaw
-  if [ -L "$OPENCLAW_MODULE" ]; then
-    OPENCLAW_REAL=$(readlink -f "$OPENCLAW_MODULE" 2>/dev/null)
-    if [ -n "$OPENCLAW_REAL" ] && [ -d "$OPENCLAW_REAL" ]; then
-      chmod -R a+rX "$OPENCLAW_REAL" 2>/dev/null || true
-      dir=$(dirname "$OPENCLAW_REAL")
-      while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-        chmod a+rX "$dir" 2>/dev/null || true
-        [ "$dir" = "/root" ] && break
-        dir=$(dirname "$dir")
-      done
-    fi
-  fi
+  # OpenClaw is installed from npm registry; OTA upgrades go through
+  # `npm install -g openclaw@<version>` driven by the lumi watcher
+  # against metadata.openclaw.version. Override OPENCLAW_VERSION here
+  # to pin a specific version on first install (otherwise pulls latest;
+  # the watcher will reconcile to the OTA target on its next tick).
+  OPENCLAW_VERSION="${OPENCLAW_VERSION:-latest}"
+  echo "[stage] Install OpenClaw (npm registry, version=${OPENCLAW_VERSION})"
+  npm install -g "openclaw@${OPENCLAW_VERSION}"
   openclaw --version || true
 
   if ! id openclaw &>/dev/null; then

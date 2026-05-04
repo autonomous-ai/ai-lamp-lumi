@@ -164,7 +164,11 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 	}
 
 	changed := false
-	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb, domain.OTAKeyLeLamp, domain.OTAKeyBuddy} {
+	// Driven by metadata.openclaw.version — bumped via scripts/upload-openclaw.sh.
+	// detectVersion / applyUpdate already handle OTAKeyOpenClaw (npm install +
+	// systemctl restart openclaw); the old reconcileOpenClawFromNpm() pulled
+	// "latest" from `npm view` instead and is no longer needed.
+	for _, key := range []string{domain.OTAKeyLumi, domain.OTAKeyBootstrap, domain.OTAKeyWeb, domain.OTAKeyLeLamp, domain.OTAKeyBuddy, domain.OTAKeyOpenClaw} {
 		component, ok := meta[key]
 		if !ok {
 			continue
@@ -179,38 +183,12 @@ func (b *Bootstrap) checkOnce(ctx context.Context) error {
 		}
 	}
 
-	// TODO: openclaw OTA temporarily disabled
-	// if b.reconcileOpenClawFromNpm(ctx) {
-	// 	changed = true
-	// }
-
 	if changed {
 		if err := state.Save(b.cfg.StateFile, b.state); err != nil {
 			return fmt.Errorf("save state: %w", err)
 		}
 	}
 	return nil
-}
-
-// reconcileOpenClawFromNpm fetches the latest openclaw version from npm and reconciles if needed.
-func (b *Bootstrap) reconcileOpenClawFromNpm(ctx context.Context) (changed bool) {
-	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	out, err := system.Run(runCtx, "npm", "view", "openclaw", "version")
-	if err != nil {
-		slog.Error("failed to get latest openclaw version from npm", "component", "bootstrap", "error", err)
-		return false
-	}
-	latestVersion := strings.TrimSpace(string(out))
-	if latestVersion == "" {
-		return false
-	}
-	updated, err := b.reconcile(ctx, "openclaw", domain.OTAComponent{Version: latestVersion})
-	if err != nil {
-		slog.Error("openclaw npm reconcile error", "component", "bootstrap", "error", err)
-		return false
-	}
-	return updated
 }
 
 // reconcile compares current vs target version and applies update if needed.
