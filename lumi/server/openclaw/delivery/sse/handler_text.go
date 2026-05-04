@@ -123,6 +123,39 @@ func extractMessageContentText(raw json.RawMessage) string {
 	return strings.Join(parts, "")
 }
 
+// extractMessageThinkingTexts pulls reasoning text out of `{type:"thinking",
+// thinking:"..."}` content blocks (and the legacy `text` field shape some
+// providers use). Returns the list in order so each can be emitted as a
+// separate `agent_thinking` flow event.
+func extractMessageThinkingTexts(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var blocks []struct {
+		Type     string `json:"type"`
+		Thinking string `json:"thinking"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type != "thinking" {
+			continue
+		}
+		text := b.Thinking
+		if text == "" {
+			text = b.Text
+		}
+		text = strings.TrimSpace(text)
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
 // MessageToolCall is a tool invocation extracted from an assistant
 // session.message content array. OpenClaw 5.2 gates `session.tool`
 // broadcast on `isControlUiVisible`, which is false for non-webchat
