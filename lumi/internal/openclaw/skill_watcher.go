@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -31,10 +30,6 @@ func (s *Service) StartSkillWatcher(ctx context.Context) {
 		lastVersions = initial
 		slog.Info("skill watcher seeded versions", "component", "skill-watcher", "count", len(lastVersions))
 	}
-
-	// Eager openclaw check on startup — don't make the operator wait a
-	// full tick after boot for a pending version change to take effect.
-	s.checkOpenclawVersion()
 
 	ticker := time.NewTicker(skillWatchInterval)
 	defer ticker.Stop()
@@ -60,14 +55,13 @@ func (s *Service) StartSkillWatcher(ctx context.Context) {
 					lastVersions[name] = ver
 				}
 			}
-			if len(toUpdate) > 0 {
-				slog.Info("skill versions changed", "component", "skill-watcher", "skills", toUpdate)
-				changed := s.downloadSkillsByName(toUpdate)
-				s.notifySkillChanges(changed)
+			if len(toUpdate) == 0 {
+				continue
 			}
 
-			// Same poll covers openclaw self-upgrade — same OTA manifest.
-			s.checkOpenclawVersion()
+			slog.Info("skill versions changed", "component", "skill-watcher", "skills", toUpdate)
+			changed := s.downloadSkillsByName(toUpdate)
+			s.notifySkillChanges(changed)
 		}
 	}
 }
@@ -296,120 +290,4 @@ func unzipInto(archivePath, dest string) error {
 		}
 	}
 	return nil
-}
-
-// ----------------------------------------------------------------------------
-// OpenClaw self-upgrade — same OTA manifest, different action: when the
-// metadata's openclaw.version differs from `openclaw --version` reported by
-// the binary on disk, npm-install the requested version globally and restart
-// openclaw.service so the running process picks up the new binary.
-// ----------------------------------------------------------------------------
-
-// fetchOpenclawTargetVersion returns metadata.openclaw.version, or empty
-// string if the manifest doesn't include an openclaw block (feature
-// disabled). Wire / parse errors are returned to the caller for log-only
-// handling.
-func (s *Service) fetchOpenclawTargetVersion() (string, error) {
-	url := s.config.OTAMetadataURL
-	if url == "" {
-		url = defaultOTAMetadataURL
-	}
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	var meta map[string]json.RawMessage
-	if err := json.Unmarshal(body, &meta); err != nil {
-		return "", err
-	}
-	raw, ok := meta["openclaw"]
-	if !ok {
-		return "", nil
-	}
-	var v struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(v.Version), nil
-}
-
-// currentOpenclawVersion runs `openclaw --version` and parses the second
-// whitespace-separated token. The CLI emits e.g. "OpenClaw 2026.5.2 (8b2a6e5)"
-// so token[1] is the semver. Returns empty string if the binary isn't on
-// PATH or the output doesn't parse — caller treats that as "needs install".
-func currentOpenclawVersion() string {
-	out, err := exec.Command("openclaw", "--version").Output()
-	if err != nil {
-		slog.Info("openclaw --version failed", "component", "openclaw-watcher", "error", err)
-		return ""
-	}
-	line := strings.TrimSpace(string(out))
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
-}
-
-// applyOpenclawVersion installs the requested version via npm and restarts
-// the systemd unit. Both commands inherit stdout/stderr so their output
-// lands in lumi's journal alongside our slog lines, useful when debugging
-// a failed upgrade from `journalctl -u lumi-server`.
-func applyOpenclawVersion(target string) error {
-	slog.Info("openclaw upgrade: npm install", "component", "openclaw-watcher", "version", target)
-	install := exec.Command("npm", "install", "-g", "openclaw@"+target)
-	install.Stdout = os.Stdout
-	install.Stderr = os.Stderr
-	if err := install.Run(); err != nil {
-		return fmt.Errorf("npm install -g openclaw@%s: %w", target, err)
-	}
-
-	slog.Info("openclaw upgrade: systemctl restart openclaw.service",
-		"component", "openclaw-watcher")
-	restart := exec.Command("systemctl", "restart", "openclaw.service")
-	restart.Stdout = os.Stdout
-	restart.Stderr = os.Stderr
-	if err := restart.Run(); err != nil {
-		return fmt.Errorf("systemctl restart openclaw.service: %w", err)
-	}
-	return nil
-}
-
-// checkOpenclawVersion compares metadata target vs running binary and runs
-// the upgrade if they differ. No-op when the manifest has no openclaw
-// block, when both versions match, or when fetching fails (transient
-// network errors retry on the next tick).
-func (s *Service) checkOpenclawVersion() {
-	target, err := s.fetchOpenclawTargetVersion()
-	if err != nil {
-		slog.Info("openclaw watcher: fetch failed",
-			"component", "openclaw-watcher", "error", err)
-		return
-	}
-	if target == "" {
-		return
-	}
-	current := currentOpenclawVersion()
-	if current == target {
-		return
-	}
-	slog.Info("openclaw version drift detected",
-		"component", "openclaw-watcher", "current", current, "target", target)
-	if err := applyOpenclawVersion(target); err != nil {
-		slog.Warn("openclaw upgrade failed",
-			"component", "openclaw-watcher", "error", err)
-		return
-	}
-	slog.Info("openclaw upgraded",
-		"component", "openclaw-watcher", "from", current, "to", target)
 }
