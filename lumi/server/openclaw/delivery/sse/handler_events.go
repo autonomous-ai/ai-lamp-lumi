@@ -1009,15 +1009,25 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 		// === S7: deterministic discrimination via sessions.changed ===
 		// `sessions.changed` (cached above in case "sessions.changed") gives
-		// the actual embedded run id for the session. If it's a Lumi-prefix
-		// run, the agent stream lifecycle path already covers the turn —
-		// suppress this echo unconditionally, no FIFO matching needed.
+		// the actual embedded run id for the session. Resolve through the
+		// runIDMap to catch self-replay UUIDs that were already mapped
+		// to a Lumi idempotencyKey by the agent-stream lifecycle handler
+		// (otherwise the raw UUID slips past `isLumiOutboundChatRunID`).
 		h.activeRunIDsMu.Lock()
 		activeRunID := h.activeRunIDs[sm.SessionKey]
 		h.activeRunIDsMu.Unlock()
-		if activeRunID != "" && isLumiOutboundChatRunID(activeRunID) {
+		resolvedActive := h.resolveRunID(activeRunID)
+		s7SaysLumi := activeRunID != "" && isLumiOutboundChatRunID(resolvedActive)
+		if s7SaysLumi {
+			// Drain one outbound-echo entry so the FIFO stays aligned with
+			// the broadcast stream — otherwise S5 could later suppress a
+			// real DM whose timing happens to match a stale queue head.
+			if sm.Message.Role == "user" && sm.SessionKey == h.agentGateway.GetSessionKey() {
+				h.agentGateway.ConsumeOutboundEcho()
+			}
 			slog.Debug("session.message suppressed (Lumi run via sessions.changed)", "component", "agent",
-				"session_key", sm.SessionKey, "run_id", activeRunID, "role", sm.Message.Role)
+				"session_key", sm.SessionKey, "active_run_id", activeRunID,
+				"resolved", resolvedActive, "role", sm.Message.Role)
 			break
 		}
 		// Skip heartbeat / cron / proactive turns up front — they share the
@@ -1039,18 +1049,33 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 		text := extractMessageContentText(sm.Message.Content)
 
-		// === S5/S6 fallback: only used when sessions.changed hasn't arrived
-		// yet (activeRunID empty) — keeps the legacy heuristic intact for
-		// startup races and any path where lifecycle.start broadcast was
-		// dropped (`dropIfSlow:true` on the openclaw side).
+		// === S5/S6 fallback: catches windows S7 misses without losing real DMs ===
+		// S7 needs `sessions.changed phase=start` for the *current* turn
+		// before its session.message arrives. Two race cases:
+		//   1. activeRunID == "": sessions.changed hasn't arrived yet
+		//      (startup, or `dropIfSlow:true` dropped the broadcast).
+		//      Use S5 outbound-echo queue here — Lumi outbound is the
+		//      common case at startup and the queue has the answer.
+		//   2. Lumi sensing/system inject queued behind another active
+		//      run (openclaw absorbs it into the running embedded run
+		//      via `source=pi-embedded-runner`). activeRunID still
+		//      points at the running run (could be a real DM UUID),
+		//      so S7 says "not Lumi". Content-prefix catches these
+		//      reliably without consuming the queue and without any
+		//      timing race that could kill a real DM.
 		isLumiSharedSession := sm.SessionKey == h.agentGateway.GetSessionKey()
-		if sm.Message.Role == "user" && isLumiSharedSession && activeRunID == "" {
-			if h.agentGateway.ConsumeOutboundEcho() {
-				slog.Info("session.message suppressed (outbound echo)", "component", "agent",
-					"session_key", sm.SessionKey, "msg_preview", text[:min(len(text), 80)])
+		if sm.Message.Role == "user" && isLumiSharedSession {
+			// Content-prefix runs unconditionally — it inspects the message
+			// itself, so it can never mistake a real DM for Lumi.
+			if isLumiInjectedUserMessage(text) {
 				break
 			}
-			if isLumiInjectedUserMessage(text) {
+			// FIFO fallback only when S7 has nothing to say. Avoids the
+			// race where a real DM arrives mid-Lumi-chat.send and would
+			// otherwise drain a Lumi entry, suppressing the DM.
+			if activeRunID == "" && h.agentGateway.ConsumeOutboundEcho() {
+				slog.Info("session.message suppressed (outbound echo, no activeRunID)", "component", "agent",
+					"session_key", sm.SessionKey, "msg_preview", text[:min(len(text), 80)])
 				break
 			}
 		}
