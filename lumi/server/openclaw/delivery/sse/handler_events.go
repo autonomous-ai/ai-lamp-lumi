@@ -926,6 +926,37 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// TTS is sent from the lifecycle_end path above (assistant delta accumulation).
 		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
 
+	case "sessions.changed":
+		// `sessions.changed` carries `runId` for lifecycle phase=start|end|error
+		// (see openclaw `gateway/server-chat.ts:719-735, :358-372`) and is
+		// broadcast unconditionally to every sessions-event subscriber — no
+		// `isControlUiVisible` gate. This is the deterministic signal Lumi
+		// uses to discriminate session.message broadcasts: cache the latest
+		// runId per sessionKey so the session.message handler can tell a
+		// Lumi-originated echo (`lumi-chat-*` runId) from a real channel
+		// inbound (UUID runId), without resorting to FIFO matching or
+		// content-prefix heuristics.
+		var sc struct {
+			SessionKey string `json:"sessionKey"`
+			Phase      string `json:"phase"`
+			RunID      string `json:"runId"`
+		}
+		if err := json.Unmarshal(evt.Payload, &sc); err != nil {
+			slog.Warn("sessions.changed unmarshal error", "component", "agent", "err", err)
+			return nil
+		}
+		if sc.Phase == "start" && sc.RunID != "" && sc.SessionKey != "" {
+			h.activeRunIDsMu.Lock()
+			h.activeRunIDs[sc.SessionKey] = sc.RunID
+			h.activeRunIDsMu.Unlock()
+			slog.Debug("sessions.changed start cached", "component", "agent",
+				"session_key", sc.SessionKey, "run_id", sc.RunID)
+		}
+		// phase=="end"/"error" leaves the entry in place — overwriting on the
+		// next "start" is fine, and a session.message arriving slightly after
+		// lifecycle end can still be discriminated against the just-finished
+		// run id (worst case: same answer as if the run were still active).
+
 	case "session.message":
 		// OpenClaw 5.2 stopped fanning out the `agent` lifecycle stream for
 		// non-Lumi-originated runs (Telegram, etc.). chat_input + HW marker
@@ -976,6 +1007,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				"message_id", sm.MessageID, "session_key", sm.SessionKey, "role", sm.Message.Role)
 			return nil
 		}
+		// === S7: deterministic discrimination via sessions.changed ===
+		// `sessions.changed` (cached above in case "sessions.changed") gives
+		// the actual embedded run id for the session. If it's a Lumi-prefix
+		// run, the agent stream lifecycle path already covers the turn —
+		// suppress this echo unconditionally, no FIFO matching needed.
+		h.activeRunIDsMu.Lock()
+		activeRunID := h.activeRunIDs[sm.SessionKey]
+		h.activeRunIDsMu.Unlock()
+		if activeRunID != "" && isLumiOutboundChatRunID(activeRunID) {
+			slog.Debug("session.message suppressed (Lumi run via sessions.changed)", "component", "agent",
+				"session_key", sm.SessionKey, "run_id", activeRunID, "role", sm.Message.Role)
+			break
+		}
 		// Skip heartbeat / cron / proactive turns up front — they share the
 		// telegram session key but must keep the lifecycle path so their
 		// reply reaches the lamp speaker, not just Telegram.
@@ -995,34 +1039,34 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 		text := extractMessageContentText(sm.Message.Content)
 
-		// On the shared default session, suppress turns that originate from
-		// Lumi's own chat.send. Group/per-channel telegram sessions don't
-		// share the key, so this filter never fires for real DMs/groups.
-		// Consume the outbound-echo queue FIRST: Lumi enqueues a timestamp
-		// on every chat.send, and OpenClaw rebroadcasts the user-role
-		// session.message in the same FIFO order. Popping unconditionally
-		// keeps the queue aligned with the broadcast stream — popping only
-		// after content prefix would leak entries when sensing/system
-		// injections suppress the broadcast some other way.
+		// === S5/S6 fallback: only used when sessions.changed hasn't arrived
+		// yet (activeRunID empty) — keeps the legacy heuristic intact for
+		// startup races and any path where lifecycle.start broadcast was
+		// dropped (`dropIfSlow:true` on the openclaw side).
 		isLumiSharedSession := sm.SessionKey == h.agentGateway.GetSessionKey()
-		if sm.Message.Role == "user" && isLumiSharedSession {
+		if sm.Message.Role == "user" && isLumiSharedSession && activeRunID == "" {
 			if h.agentGateway.ConsumeOutboundEcho() {
 				slog.Info("session.message suppressed (outbound echo)", "component", "agent",
 					"session_key", sm.SessionKey, "msg_preview", text[:min(len(text), 80)])
 				break
 			}
-			// Content-prefix fallback — covers any path where Lumi's own
-			// outbound somehow bypassed RecordOutboundEcho() (e.g. older
-			// code paths, replay, manual session restore).
 			if isLumiInjectedUserMessage(text) {
 				break
 			}
 		}
 
 		if sm.Message.Role == "user" {
-			runID := "tg-" + sm.MessageID
-			if runID == "tg-" {
-				runID = fmt.Sprintf("tg-%s-%d", sm.SessionID, sm.MessageSeq)
+			// Prefer the real OpenClaw embedded-run id (from sessions.changed)
+			// so flow events line up with any future agent/session.tool
+			// broadcasts and the Monitor UI groups under one stable id.
+			// Fall back to a synthetic tg-<messageId> only if sessions.changed
+			// hasn't arrived yet for this turn.
+			runID := activeRunID
+			if runID == "" {
+				runID = "tg-" + sm.MessageID
+				if runID == "tg-" {
+					runID = fmt.Sprintf("tg-%s-%d", sm.SessionID, sm.MessageSeq)
+				}
 			}
 			senderLabel := sm.Session.DisplayName
 			if senderLabel == "" {

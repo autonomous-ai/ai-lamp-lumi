@@ -83,6 +83,16 @@ type OpenClawHandler struct {
 	seenMessageMu  sync.Mutex
 	seenMessageIDs map[string]time.Time
 
+	// activeRunIDs tracks the most recent embedded run id per sessionKey.
+	// Set on `sessions.changed` events with `phase == "start"`. The
+	// `sessions.changed` broadcast in OpenClaw 5.2 carries `runId` and is
+	// not gated by `isControlUiVisible`, so this is a deterministic
+	// signal for Lumi to discriminate session.message broadcasts:
+	// `lumi-chat-*` runId → Lumi's own chat.send echo (suppress),
+	// UUID → channel-initiated (Telegram, cron, self-replay).
+	activeRunIDsMu sync.Mutex
+	activeRunIDs   map[string]string
+
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
 }
@@ -130,6 +140,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		cronFireRuns:       make(map[string]bool),
 		channelTurns:       make(map[string]*channelTurnState),
 		seenMessageIDs:     make(map[string]time.Time),
+		activeRunIDs:       make(map[string]string),
 	}
 }
 
