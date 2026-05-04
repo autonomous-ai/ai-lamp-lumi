@@ -85,6 +85,14 @@ type channelTurnState struct {
 	senderLabel string
 	accumulated strings.Builder
 	startedAtMs int64
+	// Cumulative token usage across every assistant message in the turn —
+	// the lifecycle path's token_usage flow event reports a per-turn total,
+	// so we sum here instead of overwriting per-message.
+	tokInput      int
+	tokOutput     int
+	tokCacheRead  int
+	tokCacheWrite int
+	tokTotal      int
 }
 
 // cronFireWindowMs is the max delay between an OpenClaw cron "started" event
