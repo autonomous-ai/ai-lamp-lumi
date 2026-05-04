@@ -424,8 +424,15 @@ func (s *Service) ensureLoggingConfig() (bool, error) {
 	return true, nil
 }
 
-// ensureControlUIConfig adds gateway.controlUi.allowedOrigins to openclaw.json
-// so the gateway web UI is accessible from any origin via nginx proxy.
+// ensureControlUIConfig adds gateway.controlUi keys to openclaw.json so the
+// Control UI is reachable from any origin via the nginx proxy. Sets:
+//   - allowedOrigins=["*"]    — allow nginx-proxied origin
+//   - allowInsecureAuth=true  — allow non-HTTPS access on Tailscale/LAN IPs
+//     (OpenClaw 5.2 added a device-identity guard that otherwise rejects
+//     handshakes from non-loopback, non-HTTPS browsers).
+//
+// Idempotent: backfills missing keys on existing configs without
+// overwriting values the operator has set.
 func (s *Service) ensureControlUIConfig() (bool, error) {
 	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
 	configBytes, err := os.ReadFile(configPath)
@@ -442,13 +449,24 @@ func (s *Service) ensureControlUIConfig() (bool, error) {
 		return false, nil
 	}
 
-	// Already has controlUi config
-	if _, ok := gw["controlUi"]; ok {
-		return false, nil
+	cu, _ := gw["controlUi"].(map[string]interface{})
+	if cu == nil {
+		cu = map[string]interface{}{}
+		gw["controlUi"] = cu
 	}
 
-	gw["controlUi"] = map[string]interface{}{
-		"allowedOrigins": []string{"*"},
+	changed := false
+	if _, ok := cu["allowedOrigins"]; !ok {
+		cu["allowedOrigins"] = []string{"*"}
+		changed = true
+	}
+	if _, ok := cu["allowInsecureAuth"]; !ok {
+		cu["allowInsecureAuth"] = true
+		changed = true
+	}
+
+	if !changed {
+		return false, nil
 	}
 
 	outBytes, err := json.MarshalIndent(configData, "", "  ")
@@ -458,7 +476,7 @@ func (s *Service) ensureControlUIConfig() (bool, error) {
 	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
 		return false, fmt.Errorf("write openclaw.json: %w", err)
 	}
-	slog.Info("added controlUi config to openclaw.json", "component", "onboarding")
+	slog.Info("backfilled controlUi config in openclaw.json", "component", "onboarding")
 	return true, nil
 }
 
