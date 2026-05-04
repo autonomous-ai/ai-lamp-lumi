@@ -54,9 +54,12 @@ def start_voice(req: VoiceStartRequest):
     """Start the voice pipeline (always-on Deepgram STT + TTS)."""
     voice = req.tts_voice or TTS_VOICE
     instructions = req.tts_instructions or TTS_INSTRUCTIONS or None
-    # TTS uses tts_api_key when set; otherwise falls back to llm_api_key
-    # so households with one shared credential keep working.
+    # Resolve per-role credentials with fallback to the LLM defaults so
+    # households with one shared credential keep working.
     tts_api_key = req.tts_api_key or req.llm_api_key
+    tts_base_url = req.tts_base_url or req.llm_base_url
+    stt_api_key = req.stt_api_key or req.llm_api_key
+    stt_base_url = req.stt_base_url or req.llm_base_url
 
     need_tts = TTSService and (
         not (state.tts_service and state.tts_service.available)
@@ -70,7 +73,7 @@ def start_voice(req: VoiceStartRequest):
         try:
             state.tts_service = TTSService(
                 api_key=tts_api_key,
-                base_url=req.llm_base_url,
+                base_url=tts_base_url,
                 sound_device_module=sd,
                 numpy_module=np,
                 output_device=state.audio_output_device,
@@ -103,7 +106,7 @@ def start_voice(req: VoiceStartRequest):
             stt_provider = DeepgramSTT(api_key=req.deepgram_api_key, keywords=[f"{agent_name}:3"])
         elif AutonomousSTT:
             stt_provider = AutonomousSTT(
-                api_key=req.llm_api_key, base_url=req.llm_base_url
+                api_key=stt_api_key, base_url=stt_base_url
             )
         if not stt_provider:
             raise HTTPException(503, "No STT provider available")

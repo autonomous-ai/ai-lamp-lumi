@@ -38,11 +38,20 @@ type Config struct {
 	LLMAPIKey  string `json:"llm_api_key" yaml:"llmAPIKey" validate:"required"`
 	LLMModel   string `json:"llm_model" yaml:"llmModel" validate:"required"`
 	LLMBaseURL string `json:"llm_base_url" yaml:"llmBaseURL" validate:"required"`
+	// STTBaseURL / TTSBaseURL override LLMBaseURL when STT or TTS lives on
+	// a different host than the LLM. Empty = reuse LLMBaseURL.
+	STTBaseURL string `json:"stt_base_url" yaml:"sttBaseURL"`
+	TTSBaseURL string `json:"tts_base_url" yaml:"ttsBaseURL"`
 
 	OTAMetadataURL  string `json:"ota_metadata_url" yaml:"otaMetadataURL"`
 	OTAPollInterval string `json:"ota_poll_interval" yaml:"otaPollInterval"`
 
 	DeepgramAPIKey string `json:"deepgram_api_key" yaml:"deepgramAPIKey"`
+	// STTAPIKey is the API key for the AutonomousSTT (LLM-as-STT) backend
+	// used when DeepgramAPIKey is empty. Empty falls back to LLMAPIKey so
+	// existing one-key configs keep working; fill this when the STT account
+	// is separate from the LLM account.
+	STTAPIKey       string `json:"stt_api_key" yaml:"sttAPIKey"`
 	// TTSAPIKey is the API key for the TTS provider (OpenAI, ElevenLabs, …).
 	// Empty falls back to LLMAPIKey so existing one-key configs keep working;
 	// fill this when the TTS account is separate from the LLM account.
@@ -223,6 +232,32 @@ func (c *Config) GetTTSAPIKey() string {
 		return c.TTSAPIKey
 	}
 	return c.LLMAPIKey
+}
+
+// GetSTTAPIKey returns the AutonomousSTT API key, falling back to LLMAPIKey
+// when STTAPIKey is unset. Only used when DeepgramAPIKey is empty (Deepgram
+// has its own key path).
+func (c *Config) GetSTTAPIKey() string {
+	if c.STTAPIKey != "" {
+		return c.STTAPIKey
+	}
+	return c.LLMAPIKey
+}
+
+// GetSTTBaseURL returns the AutonomousSTT base URL, falling back to LLMBaseURL.
+func (c *Config) GetSTTBaseURL() string {
+	if c.STTBaseURL != "" {
+		return c.STTBaseURL
+	}
+	return c.LLMBaseURL
+}
+
+// GetTTSBaseURL returns the TTS provider base URL, falling back to LLMBaseURL.
+func (c *Config) GetTTSBaseURL() string {
+	if c.TTSBaseURL != "" {
+		return c.TTSBaseURL
+	}
+	return c.LLMBaseURL
 }
 
 // LocalIntentEnabled returns whether local intent matching is on (default true).

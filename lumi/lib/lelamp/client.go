@@ -78,14 +78,18 @@ func SetVolume(pct int) error {
 // VoiceStartConfig configures the voice pipeline started by StartVoice.
 // Empty TTSInstructions and TTSProvider are omitted from the payload.
 //
-// LLMKey authenticates LLM-based features (AutonomousSTT fallback).
-// TTSKey authenticates the TTS provider. Empty TTSKey means LeLamp
-// reuses LLMKey — keep TTSKey empty when both share one credential.
+// LLMKey authenticates LLM-based features. STTKey authenticates
+// AutonomousSTT (used when DeepgramKey is empty); TTSKey authenticates
+// the TTS provider. Empty STTKey/TTSKey means LeLamp falls back to
+// LLMKey — keep them empty when one credential covers everything.
 type VoiceStartConfig struct {
 	DeepgramKey     string
 	LLMKey          string
+	STTKey          string
 	TTSKey          string
 	LLMBaseURL      string
+	STTBaseURL      string
+	TTSBaseURL      string
 	TTSVoice        string
 	TTSInstructions string
 	TTSProvider     string
@@ -98,8 +102,17 @@ func StartVoice(cfg VoiceStartConfig) error {
 		"llm_api_key":      cfg.LLMKey,
 		"llm_base_url":     cfg.LLMBaseURL,
 	}
+	if cfg.STTKey != "" {
+		payload["stt_api_key"] = cfg.STTKey
+	}
 	if cfg.TTSKey != "" {
 		payload["tts_api_key"] = cfg.TTSKey
+	}
+	if cfg.STTBaseURL != "" {
+		payload["stt_base_url"] = cfg.STTBaseURL
+	}
+	if cfg.TTSBaseURL != "" {
+		payload["tts_base_url"] = cfg.TTSBaseURL
 	}
 	if cfg.TTSVoice != "" {
 		payload["tts_voice"] = cfg.TTSVoice
