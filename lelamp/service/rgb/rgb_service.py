@@ -12,6 +12,15 @@ def _is_pi5() -> bool:
         return False
 
 
+def _is_orangepi_sun60() -> bool:
+    """Detect Allwinner sun60iw2 (OrangePi 4 Pro / A733) via device-tree model."""
+    try:
+        with open("/proc/device-tree/model", "r") as f:
+            return "sun60iw2" in f.read().lower()
+    except OSError:
+        return False
+
+
 def _color_tuple(color_code):
     """Convert color (int or RGB tuple) to (r, g, b) tuple."""
     if isinstance(color_code, tuple) and len(color_code) == 3:
@@ -101,13 +110,13 @@ class _StripSPI:
     _BIT1 = 0xF8
     _RESET_BYTES = 64  # >280us reset at 6.4 MHz
 
-    def __init__(self, led_count, led_brightness):
+    def __init__(self, led_count, led_brightness, spi_bus=0, spi_device=0):
         import spidev
         self._led_count = led_count
         self._brightness = led_brightness  # 0.0–1.0
         self._pixels = [(0, 0, 0)] * led_count
         self._spi = spidev.SpiDev()
-        self._spi.open(0, 0)
+        self._spi.open(spi_bus, spi_device)
         self._spi.max_speed_hz = 6_400_000
         self._spi.mode = 0b00
 
@@ -143,7 +152,7 @@ class _StripSPI:
 
 
 class RGBService(ServiceBase):
-    """Unified RGB LED service — auto-detects Pi 4 (PWM) vs Pi 5 (SPI)."""
+    """Unified RGB LED service — auto-detects Pi 4 (PWM), Pi 5 (SPI), OrangePi sun60iw2 (SPI3)."""
 
     def __init__(self,
                  led_count: int = 64,
@@ -158,10 +167,17 @@ class RGBService(ServiceBase):
         self._driver = None
 
         pi5 = _is_pi5()
+        opi_sun60 = _is_orangepi_sun60()
         try:
             if pi5:
                 self._driver = _StripSPI(led_count, led_brightness / 255.0)
-                self.logger.info("RGB using SPI driver (Pi 5)")
+                self.logger.info("RGB using SPI driver (Pi 5, SPI0.0)")
+            elif opi_sun60:
+                self._driver = _StripSPI(
+                    led_count, led_brightness / 255.0,
+                    spi_bus=3, spi_device=0,
+                )
+                self.logger.info("RGB using SPI driver (OrangePi sun60iw2, SPI3.0)")
             else:
                 self._driver = _StripPWM(
                     led_count, led_pin, led_freq_hz, led_dma,
