@@ -317,11 +317,31 @@ func (s *Service) ResetNetwork() error {
 
 // SetupNetwork submits WiFi credentials via connect-wifi CLI.
 func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
+	ssid = strings.TrimSpace(ssid)
 	slog.Debug("starting network setup", "component", "network", "ssid", ssid)
-	if strings.TrimSpace(ssid) == "" {
+	if ssid == "" {
 		return false, fmt.Errorf("ssid is required")
 	}
-	args := []string{strings.TrimSpace(ssid)}
+
+	// Fast path: re-running setup with the SAME ssid+password we're already
+	// connected to. connect-wifi rewrites wpa_supplicant.conf and restarts
+	// the service even when the config wouldn't change, which costs a 6-10s
+	// disconnect window and floods the polling loop with "does not match"
+	// debug logs. Skip the disruption when nothing actually needs to change.
+	if password == s.config.NetworkPassword {
+		if cur, _ := s.CurrentNetwork(); cur != nil && cur.SSID == ssid {
+			if ok, _ := s.CheckInternet(); ok {
+				slog.Info("network setup: already connected to requested SSID, skipping reconnect", "component", "network", "ssid", ssid)
+				s.config.NetworkSSID = ssid
+				if err := s.config.Save(); err != nil {
+					slog.Error("save config failed", "component", "network", "error", err)
+				}
+				return true, nil
+			}
+		}
+	}
+
+	args := []string{ssid}
 	if password != "" {
 		args = append(args, password)
 	}
