@@ -941,6 +941,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				Content    json.RawMessage `json:"content"`
 				StopReason string          `json:"stopReason"`
 				Timestamp  int64           `json:"timestamp"`
+				Usage      *struct {
+					Input       int `json:"input"`
+					Output      int `json:"output"`
+					CacheRead   int `json:"cacheRead"`
+					CacheWrite  int `json:"cacheWrite"`
+					TotalTokens int `json:"totalTokens"`
+				} `json:"usage,omitempty"`
 			} `json:"message"`
 			Session struct {
 				DisplayName string `json:"displayName"`
@@ -959,13 +966,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			slog.Warn("session.message unmarshal error", "component", "agent", "err", err)
 			return nil
 		}
-		// Only act on inbound channel turns from real users. Heartbeat/cron
-		// turns (origin.provider == "heartbeat") and Lumi's own session keep
-		// the existing lifecycle path.
-		if sm.Session.Origin.Provider != "telegram" {
+		// Skip heartbeat / cron / proactive turns up front — they share the
+		// telegram session key but must keep the lifecycle path so their
+		// reply reaches the lamp speaker, not just Telegram.
+		if sm.Session.Origin.Provider == "heartbeat" {
 			break
 		}
-		if sm.SessionKey == h.agentGateway.GetSessionKey() {
+		// Detect inbound channel turns. Note: private 1:1 Telegram chats
+		// route to `agent:main:main` (the same sessionKey Lumi uses for
+		// chat.send), so we MUST NOT filter solely on sessionKey ==
+		// GetSessionKey(). The delivery channel / origin discriminate
+		// Telegram inbound from Lumi's own webchat-style sensing turns.
+		isTelegramChannel := strings.HasPrefix(sm.SessionKey, "agent:main:telegram:") ||
+			sm.Session.Origin.Provider == "telegram" ||
+			sm.Session.DeliveryContext.Channel == "telegram"
+		if !isTelegramChannel {
 			break
 		}
 		text := extractMessageContentText(sm.Message.Content)
@@ -1014,6 +1029,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				RunID:   runID,
 				Detail:  map[string]string{"role": "user", "message": text, "sender": senderLabel},
 			})
+			// Light up the AGENT and THINK pipeline nodes — Flow Monitor uses
+			// `flow_event:lifecycle_start` as the canonical run-started signal.
+			flow.Log("lifecycle_start", map[string]any{
+				"run_id": runID,
+				"error":  "",
+				"source": "session.message",
+			}, runID)
 			break
 		}
 
@@ -1029,16 +1051,89 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if text != "" {
 			st.accumulated.WriteString(text)
 		}
+		// Accumulate per-turn token usage. session.message includes a usage
+		// block on each assistant message; the lifecycle path's token_usage
+		// flow event represents a per-turn total, so we sum here.
+		if u := sm.Message.Usage; u != nil {
+			st.tokInput += u.Input
+			st.tokOutput += u.Output
+			st.tokCacheRead += u.CacheRead
+			st.tokCacheWrite += u.CacheWrite
+			if u.TotalTokens > st.tokTotal {
+				st.tokTotal = u.TotalTokens
+			}
+		}
+		// Surface tool calls embedded in assistant content. OpenClaw 5.2
+		// suppresses `session.tool` broadcast for non-webchat runs, so the
+		// Flow Monitor "Agent Tools" pipeline node only lights up if we
+		// derive tool_call events from these content blocks ourselves.
+		// Same UUID→synthetic-id mapping the session.tool branch uses
+		// would have applied here, but the content blocks already carry
+		// the intent — emit directly under the synthetic runId.
+		toolCalls := extractMessageToolCalls(sm.Message.Content)
+		thinkingBlocks := extractMessageThinkingTexts(sm.Message.Content)
+		runIDForTools := st.runID
 		// stopReason "stop" or "end_turn" both signal the final assistant
 		// message of the turn. "toolUse" means another tool round will follow.
 		isFinal := sm.Message.StopReason == "stop" || sm.Message.StopReason == "end_turn"
 		runID := st.runID
 		var fullText string
+		var finalTokInput, finalTokOutput, finalTokCacheRead, finalTokCacheWrite, finalTokTotal int
 		if isFinal {
 			fullText = st.accumulated.String()
+			finalTokInput = st.tokInput
+			finalTokOutput = st.tokOutput
+			finalTokCacheRead = st.tokCacheRead
+			finalTokCacheWrite = st.tokCacheWrite
+			finalTokTotal = st.tokTotal
 			delete(h.channelTurns, sm.SessionKey)
 		}
 		h.channelTurnMu.Unlock()
+		// Surface reasoning text — lights up the THINK pipeline node and
+		// shows the LLM's chain of thought in the per-turn detail view.
+		for _, t := range thinkingBlocks {
+			flow.Log("agent_thinking", map[string]any{
+				"run_id": runIDForTools,
+				"text":   t,
+				"source": "session.message",
+			}, runIDForTools)
+			preview := t
+			if len(preview) > 200 {
+				preview = preview[:200] + "…"
+			}
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "thinking",
+				Summary: preview,
+				RunID:   runIDForTools,
+			})
+		}
+		// Emit tool_call events for embedded toolCall blocks (regardless
+		// of isFinal — tool rounds may interleave across multiple
+		// assistant messages within the same turn).
+		for _, tc := range toolCalls {
+			// Phase "start" so the Flow Monitor renders args in the
+			// tool_exec node info (helpers.ts skips non-start phases).
+			// session.message gives us only one event per call (no separate
+			// start/end), so model it as the moment the tool was invoked.
+			summary := "Tool " + tc.Name + " started"
+			flow.Log("tool_call", map[string]any{
+				"tool":   tc.Name,
+				"args":   tc.Arguments,
+				"phase":  "start",
+				"run_id": runIDForTools,
+				"source": "session.message",
+			}, runIDForTools)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "tool_call",
+				Summary: summary,
+				RunID:   runIDForTools,
+				Phase:   "start",
+				Detail: map[string]string{
+					"tool": tc.Name,
+					"args": tc.Arguments,
+				},
+			})
+		}
 		if !isFinal {
 			break
 		}
@@ -1048,13 +1143,35 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		cleanText = extractSayTag(cleanText)
 		cleanText = sanitizeAgentText(cleanText)
 
-		// Fire HW markers (LED, emotion, servo, audio) on the local lamp
-		// even though the spoken text goes back to the originating channel.
+		// Fire HW markers (LED, emotion, servo, audio) on the local lamp.
+		// /broadcast, /speak, /dm are control markers, fanned out below.
 		h.fireHWCalls(hwCalls, runID)
 
-		// Channel turns never speak via the lamp speaker — Telegram already
-		// receives the text directly from OpenClaw. Emit tts_suppressed so
-		// the monitor reflects reality.
+		// Inspect control markers — these escalate a normally-suppressed
+		// channel turn to also speak via the lamp speaker or to fan out the
+		// reply to other Telegram chats.
+		var dmTelegramID string
+		forceTTS := false
+		isBroadcastRun := false
+		for _, c := range hwCalls {
+			switch c.path {
+			case "/broadcast":
+				isBroadcastRun = true
+			case "/speak":
+				forceTTS = true
+			case "/dm":
+				var dm struct {
+					TelegramID string `json:"telegram_id"`
+				}
+				if err := json.Unmarshal([]byte(c.body), &dm); err == nil && dm.TelegramID != "" {
+					dmTelegramID = dm.TelegramID
+				}
+			}
+		}
+
+		// Channel turns normally stay silent on the lamp speaker — Telegram
+		// already received the reply via OpenClaw. /speak or /broadcast
+		// markers escalate to TTS on the speaker too.
 		switch {
 		case isAgentNoReply(cleanText):
 			slog.Info("channel turn replied NO_REPLY", "component", "agent", "run_id", runID)
@@ -1075,12 +1192,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				preview = preview[:200] + "…"
 			}
 			slog.Info("channel turn final assistant text", "component", "agent",
-				"run_id", runID, "hw_calls", len(hwCalls), "text", preview)
-			flow.Log("tts_suppressed", map[string]any{
-				"run_id": runID,
-				"reason": "channel_run",
-				"text":   cleanText,
-			}, runID)
+				"run_id", runID, "hw_calls", len(hwCalls), "text", preview,
+				"force_tts", forceTTS, "broadcast", isBroadcastRun, "dm", dmTelegramID != "")
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_response",
 				Summary: preview,
@@ -1088,6 +1201,56 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				State:   "final",
 				Detail:  map[string]string{"role": "assistant", "message": cleanText},
 			})
+			if forceTTS || isBroadcastRun {
+				flow.Log("tts_send", map[string]any{"run_id": runID, "text": cleanText}, runID)
+				go func(t string) {
+					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+						slog.Error("TTS delivery failed (channel turn /speak)", "component", "agent", "error", err)
+					}
+				}(cleanText)
+			} else {
+				flow.Log("tts_suppressed", map[string]any{
+					"run_id": runID,
+					"reason": "channel_run",
+					"text":   cleanText,
+				}, runID)
+			}
+			// /dm: send agent response to a specific Telegram user.
+			// Takes priority over broadcast — if /dm is present, /broadcast is skipped.
+			if dmTelegramID != "" && len(cleanText) > 10 {
+				go func(t, tid string) {
+					slog.Info("dm run response (channel turn)", "component", "agent", "run_id", runID, "telegram_id", tid)
+					if err := h.agentGateway.SendToUser(tid, t, ""); err != nil {
+						slog.Error("dm run failed", "component", "agent", "err", err)
+					}
+				}(cleanText, dmTelegramID)
+			} else if isBroadcastRun && len(cleanText) > 10 {
+				go func(t string) {
+					slog.Info("broadcast run response (channel turn)", "component", "agent", "run_id", runID)
+					if err := h.agentGateway.Broadcast(t, ""); err != nil {
+						slog.Error("broadcast run failed", "component", "agent", "err", err)
+					}
+				}(cleanText)
+			}
+		}
+		// Lights up the RESP pipeline node — Flow Monitor watches
+		// `flow_event:lifecycle_end` as the canonical run-finished signal.
+		flow.Log("lifecycle_end", map[string]any{
+			"run_id": runID,
+			"error":  "",
+			"source": "session.message",
+		}, runID)
+		// Per-turn token usage (parity with the lifecycle path's emit).
+		if finalTokTotal > 0 || finalTokInput > 0 || finalTokOutput > 0 {
+			flow.Log("token_usage", map[string]any{
+				"run_id":             runID,
+				"source":             "session.message",
+				"input_tokens":       finalTokInput,
+				"output_tokens":      finalTokOutput,
+				"cache_read_tokens":  finalTokCacheRead,
+				"cache_write_tokens": finalTokCacheWrite,
+				"total_tokens":       finalTokTotal,
+			}, runID)
 		}
 		// Drop the channelRuns marker — turn is finished, no more events expected.
 		h.channelRunsMu.Lock()
