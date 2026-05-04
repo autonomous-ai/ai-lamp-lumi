@@ -7,8 +7,8 @@ import EditConfig from "@/pages/EditConfig";
 import GwConfig from "@/pages/GwConfig";
 import { checkInternet } from "@/lib/api";
 
-// Root gate: if WiFi is provisioned (device has internet) → /monitor; else show Setup.
-function RootGate() {
+// Setup gate: if WiFi is provisioned (device has internet) → /monitor; else show Setup.
+function SetupGate() {
   const [provisioned, setProvisioned] = useState<boolean | null>(null);
   useEffect(() => {
     checkInternet()
@@ -24,9 +24,9 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<RootGate />} />
+        <Route path="/" element={<SetupGate />} />
         <Route path="/monitor" element={<Monitor />} />
-        <Route path="/setup" element={<Setup />} />
+        <Route path="/setup" element={<SetupGate />} />
         <Route path="/edit" element={<EditConfig />} />
         <Route path="/gw-config" element={<GwConfig />} />
         <Route path="/dashboard" element={<Navigate to="/monitor" replace />} />
