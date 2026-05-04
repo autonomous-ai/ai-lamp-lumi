@@ -966,6 +966,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			slog.Warn("session.message unmarshal error", "component", "agent", "err", err)
 			return nil
 		}
+		// Dedup: OpenClaw rebroadcasts the same user message a second time
+		// when an in-flight embedded run absorbs a queued chat.send into its
+		// context (source=pi-embedded-runner). Without this, the second
+		// broadcast bypasses the outbound-echo queue (already drained) and
+		// creates a phantom channel turn under a fresh tg-<messageId> id.
+		if h.shouldDedupeMessageID(sm.MessageID) {
+			slog.Info("session.message dedup", "component", "agent",
+				"message_id", sm.MessageID, "session_key", sm.SessionKey, "role", sm.Message.Role)
+			return nil
+		}
 		// Skip heartbeat / cron / proactive turns up front — they share the
 		// telegram session key but must keep the lifecycle path so their
 		// reply reaches the lamp speaker, not just Telegram.
