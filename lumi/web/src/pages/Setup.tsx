@@ -169,7 +169,7 @@ export default function Setup() {
   const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
-    { id: "llm",    label: "LLM",    icon: <Brain size={15} /> },
+    { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
     { id: "channel", label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: <MessageSquare size={15} /> },
     { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
   ];
@@ -544,7 +544,7 @@ export default function Setup() {
                   </SectionCard>
 
                   {/* LLM */}
-                  <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
+                  <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
                     <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
                     <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
                     <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
