@@ -4,7 +4,7 @@ import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, tes
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MessageSquare, Link, Pencil, X } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MessageSquare, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -103,10 +103,11 @@ function PasswordField({ label, id, value, onChange, placeholder, readOnly = fal
           style={{
             position: "absolute", right: 0, top: 0, height: "100%",
             padding: "0 11px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer", fontSize: 11,
+            color: C.textMuted, cursor: "pointer",
+            display: "flex", alignItems: "center",
           }}
         >
-          {show ? "hide" : "show"}
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>
       </div>
     </div>
@@ -193,8 +194,9 @@ function LockedPasswordField({
 }) {
   const [show, setShow] = useState(false);
   const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
-  // Right-side icon stack: cancel (when unlocked) + show/hide (when unlocked) + pencil (when locked).
-  const rightPad = readOnly ? 36 : 64; // pencil only OR cancel+show/hide
+  // Right side stack: [show/hide][lock toggle]. show/hide is always available so
+  // the user can verify a saved password without unlocking it for edit first.
+  const rightPad = showToggle ? 64 : 38;
   return (
     <div style={{ marginBottom: 12 }}>
       <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
@@ -202,7 +204,7 @@ function LockedPasswordField({
       </label>
       <div style={{ position: "relative" }}>
         <input
-          id={id} type={readOnly || !show ? "password" : "text"} value={value}
+          id={id} type={show ? "text" : "password"} value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder} autoComplete="off"
           readOnly={readOnly}
@@ -210,25 +212,22 @@ function LockedPasswordField({
             width: "100%", boxSizing: "border-box",
             background: readOnly ? C.bg : C.surface,
             border: `1px solid ${C.border}`,
-            borderRadius: 7, padding: showToggle ? `8px ${rightPad}px 8px 11px` : "8px 38px 8px 11px",
+            borderRadius: 7, padding: `8px ${rightPad}px 8px 11px`,
             fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
             cursor: readOnly ? "default" : "text",
           }}
         />
-        {/* When unlocked: show/hide toggle */}
-        {!readOnly && (
-          <button
-            type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
-            style={{
-              position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
-              padding: "0 10px", background: "none", border: "none",
-              color: C.textMuted, cursor: "pointer", fontSize: 11,
-            }}
-          >
-            {show ? "hide" : "show"}
-          </button>
-        )}
-        {/* Lock/cancel toggle */}
+        <button
+          type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
+          style={{
+            position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
+            padding: "0 10px", background: "none", border: "none",
+            color: C.textMuted, cursor: "pointer",
+            display: "flex", alignItems: "center",
+          }}
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
         {showToggle && (
           <button
             type="button"

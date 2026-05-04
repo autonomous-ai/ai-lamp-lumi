@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -27,10 +27,10 @@ type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "m
 // ── small components ──────────────────────────────────────────────────────────
 
 function Field({
-  label, id, value, onChange, placeholder, type = "text", readOnly = false,
+  label, id, value, onChange, placeholder, type = "text", readOnly = false, required = false,
 }: {
   label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean;
+  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean; required?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -42,7 +42,7 @@ function Field({
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} autoComplete="off"
-        readOnly={readOnly}
+        readOnly={readOnly} required={required}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
@@ -91,11 +91,144 @@ function PasswordField({ label, id, value, onChange, placeholder, readOnly = fal
           style={{
             position: "absolute", right: 0, top: 0, height: "100%",
             padding: "0 11px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer", fontSize: 11,
+            color: C.textMuted, cursor: "pointer",
+            display: "flex", alignItems: "center",
           }}
         >
-          {show ? "hide" : "show"}
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// useLockToggle — shared lock/unlock + cancel-restore logic for LockedField and
+// LockedPasswordField. Captures the value when a field first becomes locked so
+// "Cancel" can revert any in-progress edits.
+function useLockToggle(lockedInitially: boolean, value: string, onChange: (v: string) => void) {
+  const [unlocked, setUnlocked] = useState(false);
+  const originalRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lockedInitially && originalRef.current === null) {
+      originalRef.current = value;
+    }
+  }, [lockedInitially, value]);
+  const readOnly = lockedInitially && !unlocked;
+  const handleCancel = () => {
+    if (originalRef.current !== null) onChange(originalRef.current);
+    setUnlocked(false);
+  };
+  return { readOnly, showToggle: lockedInitially, unlock: () => setUnlocked(true), handleCancel };
+}
+
+function LockedField({
+  lockedInitially, label, id, value, onChange, placeholder, type = "text",
+}: {
+  lockedInitially: boolean; label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string; type?: string;
+}) {
+  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id} type={type} value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 7, padding: showToggle ? "8px 36px 8px 11px" : "8px 11px",
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
+          }}
+        />
+        {showToggle && (
+          <button
+            type="button"
+            onClick={readOnly ? unlock : handleCancel}
+            tabIndex={-1}
+            aria-label={readOnly ? "Edit" : "Cancel edit"}
+            title={readOnly ? "Edit" : "Cancel edit"}
+            style={{
+              position: "absolute", right: 0, top: 0, height: "100%",
+              padding: "0 10px", background: "none", border: "none",
+              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
+              display: "flex", alignItems: "center",
+            }}
+          >
+            {readOnly ? <Pencil size={13} /> : <X size={14} />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LockedPasswordField({
+  lockedInitially, label, id, value, onChange, placeholder,
+}: {
+  lockedInitially: boolean; label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
+  // Right side stack: [show/hide][lock toggle]. show/hide is always available so
+  // the user can verify a saved password without unlocking it for edit first.
+  const rightPad = showToggle ? 64 : 38;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id} type={show ? "text" : "password"} value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 7, padding: `8px ${rightPad}px 8px 11px`,
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
+          }}
+        />
+        <button
+          type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
+          style={{
+            position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
+            padding: "0 10px", background: "none", border: "none",
+            color: C.textMuted, cursor: "pointer",
+            display: "flex", alignItems: "center",
+          }}
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+        {showToggle && (
+          <button
+            type="button"
+            onClick={readOnly ? unlock : handleCancel}
+            tabIndex={-1}
+            aria-label={readOnly ? "Edit" : "Cancel edit"}
+            title={readOnly ? "Edit" : "Cancel edit"}
+            style={{
+              position: "absolute", right: 0, top: 0, height: "100%",
+              padding: "0 10px", background: "none", border: "none",
+              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
+              display: "flex", alignItems: "center",
+            }}
+          >
+            {readOnly ? <Pencil size={13} /> : <X size={14} />}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -138,8 +271,9 @@ export default function Setup() {
   const [searchParams] = useSearchParams();
 
   const channelParam = searchParams.get("channel");
-  const channel: ChannelType =
+  const initialChannel: ChannelType =
     channelParam === "slack" || channelParam === "discord" ? (channelParam as ChannelType) : "telegram";
+  const [channel, setChannel] = useState<ChannelType>(initialChannel);
 
   const urlParams = useMemo(
     () => ({
@@ -176,7 +310,7 @@ export default function Setup() {
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
-    { id: "channel", label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: <MessageSquare size={15} /> },
+    { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
     { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
   ];
 
@@ -195,6 +329,14 @@ export default function Setup() {
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
+  // Snapshot of AI Brain fields populated when entering setup (URL or saved
+  // config). Populated values render with the Edit pencil so re-running setup
+  // doesn't accidentally overwrite credentials.
+  const [llmLoaded, setLlmLoaded] = useState({
+    apiKey: !!urlParams.llmApiKey,
+    baseUrl: !!urlParams.llmUrl,
+    model: !!urlParams.llmModel,
+  });
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   // deepgram input is hidden in this build; submit reads urlParams.deepgramApiKey directly
   const [ttsApiKey, setTtsApiKey] = useState(urlParams.ttsApiKey || "");
@@ -207,14 +349,14 @@ export default function Setup() {
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
   const [ttsVoices, setTtsVoices] = useState<string[]>([]);
-  const [teleToken, setTeleToken] = useState("");
-  const [teleUserId, setTeleUserId] = useState("");
-  const [slackBotToken, setSlackBotToken] = useState("");
-  const [slackAppToken, setSlackAppToken] = useState("");
-  const [slackUserId, setSlackUserId] = useState("");
-  const [discordBotToken, setDiscordBotToken] = useState("");
-  const [discordGuildId, setDiscordGuildId] = useState("");
-  const [discordUserId, setDiscordUserId] = useState("");
+  const [teleToken, setTeleToken] = useState(urlParams.teleToken || "");
+  const [teleUserId, setTeleUserId] = useState(urlParams.teleUserId || "");
+  const [slackBotToken, setSlackBotToken] = useState(urlParams.slackBotToken || "");
+  const [slackAppToken, setSlackAppToken] = useState(urlParams.slackAppToken || "");
+  const [slackUserId, setSlackUserId] = useState(urlParams.slackUserId || "");
+  const [discordBotToken, setDiscordBotToken] = useState(urlParams.discordBotToken || "");
+  const [discordGuildId, setDiscordGuildId] = useState(urlParams.discordGuildId || "");
+  const [discordUserId, setDiscordUserId] = useState(urlParams.discordUserId || "");
   const [mqttEndpoint, setMqttEndpoint] = useState("");
   const [mqttPort, setMqttPort] = useState("");
   const [mqttUsername, setMqttUsername] = useState("");
@@ -253,9 +395,20 @@ export default function Setup() {
       setSsid((prev) => prev || cfg.network_ssid || "");
       setPassword((prev) => prev || cfg.network_password || "");
       setDeviceId((prev) => prev || cfg.device_id || "");
+      // If Device ID is already provisioned (hardware-derived or saved), the
+      // operator has nothing to fill there — jump straight to Wi-Fi. Don't
+      // override an explicit user selection in progress.
+      if (cfg.device_id) {
+        setActiveSection((prev) => (prev === "device" ? "wifi" : prev));
+      }
       setLlmApiKey((prev) => prev || cfg.llm_api_key || "");
       setLlmUrl((prev) => prev || cfg.llm_base_url || "");
       setLlmModel((prev) => prev || cfg.llm_model || "");
+      setLlmLoaded((prev) => ({
+        apiKey: prev.apiKey || !!cfg.llm_api_key,
+        baseUrl: prev.baseUrl || !!cfg.llm_base_url,
+        model: prev.model || !!cfg.llm_model,
+      }));
       if (cfg.llm_disable_thinking != null) setLlmDisableThinking((prev) => prev || cfg.llm_disable_thinking);
       setTtsApiKey((prev) => prev || cfg.tts_api_key || "");
       setTtsBaseUrl((prev) => prev || cfg.tts_base_url || "");
@@ -267,6 +420,10 @@ export default function Setup() {
       setDiscordBotToken((prev) => prev || cfg.discord_bot_token || "");
       setDiscordGuildId((prev) => prev || cfg.discord_guild_id || "");
       setDiscordUserId((prev) => prev || cfg.discord_user_id || "");
+      // Adopt saved channel only when the user hasn't already picked one via URL.
+      if (!channelParam && (cfg.channel === "telegram" || cfg.channel === "slack" || cfg.channel === "discord")) {
+        setChannel(cfg.channel as ChannelType);
+      }
       setMqttEndpoint((prev) => prev || cfg.mqtt_endpoint || "");
       setMqttPort((prev) => prev || (cfg.mqtt_port ? String(cfg.mqtt_port) : ""));
       setMqttUsername((prev) => prev || cfg.mqtt_username || "");
@@ -594,9 +751,9 @@ export default function Setup() {
 
                   {/* LLM */}
                   <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
-                    <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                    <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                    <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
+                    <LockedPasswordField lockedInitially={llmLoaded.apiKey} label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
+                    <LockedField lockedInitially={llmLoaded.baseUrl} label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
+                    <LockedField lockedInitially={llmLoaded.model} label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
                     <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
                       <input
                         type="checkbox" checked={llmDisableThinking}
@@ -608,33 +765,52 @@ export default function Setup() {
                   </SectionCard>
 
                   {/* Channel */}
-                  <SectionCard id="channel" title={channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"} active={activeSection === "channel"}>
+                  <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="channel" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel *</label>
+                      <select
+                        id="channel"
+                        value={channel}
+                        onChange={(e) => setChannel(e.target.value as ChannelType)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="telegram">Telegram</option>
+                        <option value="slack">Slack</option>
+                        <option value="discord">Discord</option>
+                      </select>
+                    </div>
                     {channel === "telegram" && (
                       <>
-                        <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                        <Field label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
+                        <Field required label="Bot Token *" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
+                        <Field required label="User ID *" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
                       </>
                     )}
                     {channel === "slack" && (
                       <>
-                        <Field label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                        <Field label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                        <Field label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
+                        <Field required label="Bot Token *" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
+                        <Field required label="App Token *" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
+                        <Field required label="User ID *" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
                       </>
                     )}
                     {channel === "discord" && (
                       <>
-                        <Field label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                        <Field label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                        <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
+                        <Field required label="Bot Token *" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
+                        <Field required label="Guild ID *" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
+                        <Field required label="User ID *" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
                       </>
                     )}
                   </SectionCard>
 
                   {/* TTS */}
                   <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
-                    <Field label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
-                    <Field label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
+                    {/* tts_api_key + tts_base_url are not exposed in Setup —
+                        they're auto-mirrored from AI Brain via useEffect and
+                        submitted silently. */}
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         Provider
