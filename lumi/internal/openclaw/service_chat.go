@@ -200,6 +200,11 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	// Store pending trace so SSE handler can map OpenClaw UUID → device trace
 	// without relying on the race-prone global flow.GetTrace().
 	s.SetPendingChatTrace(idempotencyKey)
+	// Mark this chat.send so the matching session.message rebroadcast that
+	// OpenClaw fans out for our own user message can be suppressed in the
+	// session.message handler — otherwise Lumi outbound echoes back as a
+	// phantom inbound channel turn on the shared `agent:main:main` session.
+	s.RecordOutboundEcho()
 	flow.Log("chat_send", map[string]any{
 		"run_id":      idempotencyKey,
 		"type":        sourceType,

@@ -103,6 +103,37 @@ func (s *Service) SetPendingChatTrace(runID string) {
 	s.pendingChatMu.Unlock()
 }
 
+// outboundEchoTTL bounds how long an unclaimed echo timestamp stays in the
+// queue. OpenClaw normally rebroadcasts the user message within
+// milliseconds of chat.send; 30s is generous and recovers automatically if
+// a session.message broadcast was dropped (dropIfSlow:true).
+const outboundEchoTTL = 30 * time.Second
+
+// RecordOutboundEcho timestamps an outgoing chat.send so the SSE handler can
+// suppress the matching session.message echo from being mistaken for a real
+// inbound channel turn on the shared `agent:main:main` session.
+func (s *Service) RecordOutboundEcho() {
+	s.outboundEchoMu.Lock()
+	s.outboundEchoQueue = append(s.outboundEchoQueue, time.Now())
+	s.outboundEchoMu.Unlock()
+}
+
+// ConsumeOutboundEcho pops the head of the echo queue, dropping any stale
+// entries (> outboundEchoTTL) from the head first. Returns true when an
+// entry was consumed (this session.message is Lumi's own outbound echo).
+func (s *Service) ConsumeOutboundEcho() bool {
+	s.outboundEchoMu.Lock()
+	defer s.outboundEchoMu.Unlock()
+	for len(s.outboundEchoQueue) > 0 && time.Since(s.outboundEchoQueue[0]) > outboundEchoTTL {
+		s.outboundEchoQueue = s.outboundEchoQueue[1:]
+	}
+	if len(s.outboundEchoQueue) == 0 {
+		return false
+	}
+	s.outboundEchoQueue = s.outboundEchoQueue[1:]
+	return true
+}
+
 // ConsumePendingChatTrace pops the head of the pending queue, dropping any
 // stale entries (> pendingChatTTL) from the head first. Returns "" when the
 // queue is empty.

@@ -985,6 +985,30 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		}
 		text := extractMessageContentText(sm.Message.Content)
 
+		// On the shared default session, suppress turns that originate from
+		// Lumi's own chat.send. Group/per-channel telegram sessions don't
+		// share the key, so this filter never fires for real DMs/groups.
+		// Consume the outbound-echo queue FIRST: Lumi enqueues a timestamp
+		// on every chat.send, and OpenClaw rebroadcasts the user-role
+		// session.message in the same FIFO order. Popping unconditionally
+		// keeps the queue aligned with the broadcast stream — popping only
+		// after content prefix would leak entries when sensing/system
+		// injections suppress the broadcast some other way.
+		isLumiSharedSession := sm.SessionKey == h.agentGateway.GetSessionKey()
+		if sm.Message.Role == "user" && isLumiSharedSession {
+			if h.agentGateway.ConsumeOutboundEcho() {
+				slog.Info("session.message suppressed (outbound echo)", "component", "agent",
+					"session_key", sm.SessionKey, "msg_preview", text[:min(len(text), 80)])
+				break
+			}
+			// Content-prefix fallback — covers any path where Lumi's own
+			// outbound somehow bypassed RecordOutboundEcho() (e.g. older
+			// code paths, replay, manual session restore).
+			if isLumiInjectedUserMessage(text) {
+				break
+			}
+		}
+
 		if sm.Message.Role == "user" {
 			runID := "tg-" + sm.MessageID
 			if runID == "tg-" {
