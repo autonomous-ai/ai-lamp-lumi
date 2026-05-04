@@ -9,11 +9,12 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Monitor />} />
+        <Route path="/" element={<Navigate to="/monitor" replace />} />
+        <Route path="/monitor" element={<Monitor />} />
         <Route path="/setup" element={<Setup />} />
         <Route path="/edit" element={<EditConfig />} />
         <Route path="/gw-config" element={<GwConfig />} />
-        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/monitor" replace />} />
       </Routes>
       <Toaster richColors position="top-center" />
     </BrowserRouter>
