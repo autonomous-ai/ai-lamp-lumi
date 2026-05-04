@@ -107,6 +107,21 @@ function NavGroupItem({ entry, section, setSection, closeSidebar }: {
 
 function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
   const [open, setOpen] = useState(false);
+  // Pull the gateway auth token from openclaw.json so the Gateway link can
+  // include it as a URL fragment — Control UI 5.2 requires `#token=…` (query
+  // string is rejected with a deprecation warning) and won't render without it.
+  const [gwToken, setGwToken] = useState<string>("");
+  useEffect(() => {
+    fetch("/api/openclaw/config-json")
+      .then((r) => r.json())
+      .then((res) => {
+        const cfg = res?.data;
+        const token = cfg?.gateway?.auth?.token;
+        if (typeof token === "string" && token) setGwToken(token);
+      })
+      .catch(() => {});
+  }, []);
+  const gwHref = `/gw/chat?session=agent:main:main${gwToken ? `#token=${gwToken}` : ""}`;
   return (
     <div>
       <button
@@ -125,7 +140,10 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
       </button>
       {open && (
         <div style={{ paddingLeft: 12 }}>
-          <a href="/gw" style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
+          {/* OpenClaw chat for the main agent session — webchat + Telegram + Lumi
+              all share sessionKey=agent:main:main, so this opens the live
+              transcript directly. */}
+          <a href={gwHref} style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
             <span style={{ fontSize: 12, lineHeight: 1 }}>↗</span>
             Gateway
           </a>
