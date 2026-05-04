@@ -188,7 +188,7 @@ export default function Setup() {
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
-  const [deepgramApiKey, setDeepgramApiKey] = useState("");
+  // deepgram input is hidden in this build; submit reads urlParams.deepgramApiKey directly
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -207,51 +207,6 @@ export default function Setup() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
-
-  // Face enroll state
-  const [faceName, setFaceName] = useState("");
-  const [faceFiles, setFaceFiles] = useState<File[]>([]);
-  const [faceUploading, setFaceUploading] = useState(false);
-  const [faceMsg, setFaceMsg] = useState<string | null>(null);
-  const faceInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFaceEnroll = async () => {
-    if (!faceName.trim() || faceFiles.length === 0) return;
-    setFaceUploading(true);
-    setFaceMsg(null);
-    const label = faceName.trim().toLowerCase();
-    let ok = 0;
-    let lastErr = "";
-    for (const file of faceFiles) {
-      try {
-        const buf = await file.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        const resp = await fetch("/hw/face/enroll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, image_base64: b64 }),
-        });
-        const data = await resp.json();
-        if (resp.ok) {
-          ok++;
-        } else {
-          lastErr = data.detail || data.message || `Failed: ${file.name}`;
-        }
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
-      }
-    }
-    if (ok > 0) {
-      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
-        + (lastErr ? ` (${lastErr})` : ""));
-      setFaceName("");
-      setFaceFiles([]);
-      if (faceInputRef.current) faceInputRef.current.value = "";
-    } else {
-      setFaceMsg(`Error: ${lastErr}`);
-    }
-    setFaceUploading(false);
-  };
 
   useEffect(() => {
     setMqttEndpoint((prev) => prev || urlParams.mqttEndpoint);
@@ -347,7 +302,7 @@ export default function Setup() {
         llm_api_key: urlParams.llmApiKey || llmApiKey,
         llm_model: urlParams.llmModel || llmModel,
         llm_disable_thinking: llmDisableThinking || undefined,
-        deepgram_api_key: urlParams.deepgramApiKey || deepgramApiKey || undefined,
+        deepgram_api_key: urlParams.deepgramApiKey || undefined,
         tts_provider: ttsProvider || undefined,
         tts_voice: ttsVoice || undefined,
         device_id: urlParams.deviceId || deviceId,
@@ -374,7 +329,7 @@ export default function Setup() {
   }, [
     channel, urlParams, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl, llmApiKey,
-    llmModel, llmDisableThinking, deepgramApiKey, ttsVoice, deviceId,
+    llmModel, llmDisableThinking, ttsVoice, deviceId,
     mqttEndpoint, mqttPort, mqttUsername, mqttPassword, faChannel, fdChannel,
   ]);
 
