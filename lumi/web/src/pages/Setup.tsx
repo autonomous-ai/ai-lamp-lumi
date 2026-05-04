@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Mic, Volume2, MessageSquare, Link } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -160,22 +160,16 @@ export default function Setup() {
     [searchParams],
   );
 
-  const hasLlmParams = !!(urlParams.llmApiKey || urlParams.llmUrl);
-  const hasChannelParams = !!(
-    urlParams.teleToken || urlParams.teleUserId ||
-    urlParams.slackBotToken || urlParams.slackAppToken ||
-    urlParams.discordBotToken || urlParams.discordGuildId
-  );
-
+  // Fixed order. Face / STT (Deepgram) / MQTT are intentionally hidden
+  // — their state is still wired up and submitted with empty or
+  // URL-prefilled defaults, so re-adding a SectionCard + a SECTIONS
+  // entry brings them back without other plumbing.
   const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
-    { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={15} /> },
-    { id: "face",     label: "Face",     icon: <UserCircle size={15} /> },
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
-    ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: <Brain size={15} /> }] : []),
-    ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: <Mic size={15} /> }] : []),
-    { id: "tts" as SectionId, label: "TTS", icon: <Volume2 size={15} /> },
-    ...(!hasChannelParams   ? [{ id: "channel" as SectionId, label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: <MessageSquare size={15} /> }] : []),
-    { id: "mqtt",     label: "MQTT",     icon: <Link size={15} /> },
+    { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
+    { id: "llm",    label: "LLM",    icon: <Brain size={15} /> },
+    { id: "channel", label: channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord", icon: <MessageSquare size={15} /> },
+    { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
   ];
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
@@ -186,7 +180,7 @@ export default function Setup() {
   const [error, setError] = useState<string | null>(null);
   const [setupWorking, setSetupWorking] = useState(false);
   const [countdown, setCountdown] = useState(5);
-  const [activeSection, setActiveSection] = useState<SectionId>("wifi");
+  const [activeSection, setActiveSection] = useState<SectionId>("device");
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
@@ -541,6 +535,11 @@ export default function Setup() {
 
                 <form id="setup-form" onSubmit={handleSubmit}>
 
+                  {/* Device */}
+                  <SectionCard id="device" title="Device" active={activeSection === "device"}>
+                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
+                  </SectionCard>
+
                   {/* Wi-Fi */}
                   <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
                     <div style={{ marginBottom: 12 }}>
@@ -583,76 +582,44 @@ export default function Setup() {
                     <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
                   </SectionCard>
 
-                  {/* Face Enroll */}
-                  <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                      Upload photos of the owner so the lamp can recognize them.
-                    </div>
-                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photos ({faceFiles.length} selected)</label>
-                      <input
-                        ref={faceInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
-                        style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
-                      />
-                    </div>
-                    {faceMsg && (
-                      <div style={{
-                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? C.red : "rgb(52,211,153)",
-                      }}>{faceMsg}</div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleFaceEnroll}
-                      disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
-                      style={{
-                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
-                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
-                        background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
-                        border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
-                        color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
-                      }}
-                    >
-                      {faceUploading ? "Uploading…" : "Enroll Face"}
-                    </button>
-                  </SectionCard>
-
-                  {/* Device */}
-                  <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
-                  </SectionCard>
-
                   {/* LLM */}
-                  {!hasLlmParams && (
-                    <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
-                      <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                      <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                      <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
-                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
-                        <input
-                          type="checkbox" checked={llmDisableThinking}
-                          onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                          style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
-                        />
-                        <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
-                      </label>
-                    </SectionCard>
-                  )}
+                  <SectionCard id="llm" title="LLM" active={activeSection === "llm"}>
+                    <Field label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
+                    <Field label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
+                    <Field label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
+                      <input
+                        type="checkbox" checked={llmDisableThinking}
+                        onChange={(e) => setLlmDisableThinking(e.target.checked)}
+                        style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
+                      />
+                      <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
+                    </label>
+                  </SectionCard>
 
-                  {/* STT (Deepgram) */}
-                  {!urlParams.deepgramApiKey && (
-                    <SectionCard id="deepgram" title="STT (Deepgram)" active={activeSection === "deepgram"}>
-                      <Field label="API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="dg-..." />
-                    </SectionCard>
-                  )}
+                  {/* Channel */}
+                  <SectionCard id="channel" title={channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"} active={activeSection === "channel"}>
+                    {channel === "telegram" && (
+                      <>
+                        <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
+                        <Field label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
+                      </>
+                    )}
+                    {channel === "slack" && (
+                      <>
+                        <Field label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
+                        <Field label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
+                        <Field label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
+                      </>
+                    )}
+                    {channel === "discord" && (
+                      <>
+                        <Field label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
+                        <Field label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
+                        <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
+                      </>
+                    )}
+                  </SectionCard>
 
                   {/* TTS */}
                   <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
@@ -707,42 +674,6 @@ export default function Setup() {
                         Test Voice
                       </button>
                     </div>
-                  </SectionCard>
-
-                  {/* Channel */}
-                  {!hasChannelParams && (
-                    <SectionCard id="channel" title={channel === "telegram" ? "Telegram" : channel === "slack" ? "Slack" : "Discord"} active={activeSection === "channel"}>
-                      {channel === "telegram" && (
-                        <>
-                          <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                          <Field label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
-                        </>
-                      )}
-                      {channel === "slack" && (
-                        <>
-                          <Field label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                          <Field label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                          <Field label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
-                        </>
-                      )}
-                      {channel === "discord" && (
-                        <>
-                          <Field label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                          <Field label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                          <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
-                        </>
-                      )}
-                    </SectionCard>
-                  )}
-
-                  {/* MQTT */}
-                  <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
-                    <Field label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
-                    <Field label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
-                    <Field label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
-                    <PasswordField label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
-                    <Field label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
-                    <Field label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
                   </SectionCard>
 
                 </form>
