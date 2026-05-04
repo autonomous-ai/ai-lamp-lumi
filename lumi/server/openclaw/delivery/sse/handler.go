@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
@@ -73,6 +74,15 @@ type OpenClawHandler struct {
 	channelTurnMu sync.Mutex
 	channelTurns  map[string]*channelTurnState
 
+	// seenMessageIDs dedupes session.message broadcasts by OpenClaw-assigned
+	// messageId. OpenClaw rebroadcasts the same user message a second time
+	// when an in-flight embedded run absorbs a queued chat.send into its
+	// context (source=pi-embedded-runner). Without this dedup the second
+	// broadcast slips past the outbound-echo queue (already drained by the
+	// first broadcast) and creates a phantom channel turn.
+	seenMessageMu  sync.Mutex
+	seenMessageIDs map[string]time.Time
+
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
 }
@@ -119,6 +129,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		channelRuns:        make(map[string]bool),
 		cronFireRuns:       make(map[string]bool),
 		channelTurns:       make(map[string]*channelTurnState),
+		seenMessageIDs:     make(map[string]time.Time),
 	}
 }
 
