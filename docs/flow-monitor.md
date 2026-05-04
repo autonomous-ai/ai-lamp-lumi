@@ -75,6 +75,18 @@ Implementation details:
 - **Heartbeat noise**: OpenClaw heartbeat cron (every 30m) also triggers `lifecycle_start`. The last `role:"user"` message in those turns will be the heartbeat system prompt (starts with `"System:"`), not a real user message.
 - **Token usage**: `chat.history` is also called on `lifecycle_end` to fetch token usage. OpenClaw `lifecycle_end` events do not include `usage` data. The last `role:"assistant"` message in the history response contains `usage: {input, output, totalTokens, cacheRead, cacheWrite}` for the completed turn. This is emitted as a `token_usage` flow event with `source: "chat_history"`.
 
+#### OpenClaw 5.2+ — `session.message` driven channel turns
+
+Starting with OpenClaw 2026.5.2, the `agent` event stream is fanned out only for runs initiated from the same WebSocket connection (Lumi's `chat.send`). Telegram-initiated turns receive **no** `lifecycle_start` / `lifecycle_end` / `tool` events on the `agent` stream — only `session.message`, `session.tool`, and `sessions.changed`.
+
+The SSE handler therefore drives channel turns from `session.message` directly (`case "session.message"` in `handler_events.go`):
+
+- **Filter**: act only when `session.origin.provider == "telegram"` and `sessionKey != Lumi's own session`. Heartbeat-via-telegram (`origin.provider == "heartbeat"`) is left to the cron-fire lifecycle path so its TTS still reaches the lamp speaker.
+- **User message**: a synthetic device run id `tg-<messageId>` is allocated, a `chat_input` flow event is emitted with `source:"channel"`, the run is recorded in `channelRuns` and the per-session state cached in `channelTurns[sessionKey]`.
+- **Tool runId mapping**: `case "session.tool"` looks up `channelTurns[sessionKey]` and registers the OpenClaw UUID → synthetic id mapping via `mapRunID`, so subsequent `tool_call` / `hw_emotion` / `hw_led` flow events share the same `run_id` as `chat_input`.
+- **Assistant message**: text from `content[].text` blocks is appended to a per-session accumulator. When the assistant message stops with `stopReason in {"stop","end_turn"}` (no further tool round), the handler runs the same end-of-turn logic that `lifecycle_end` used to: `extractHWCalls` → `fireHWCalls` (LED/emotion/servo/audio markers fire on the lamp), then emits `tts_suppressed` with `reason:"channel_run"` (Telegram already received the text — the lamp speaker stays silent unless `[HW:/speak]` or `[HW:/broadcast]` markers escalate it).
+- **No `chat.history` round-trip**: `session.message` already carries the message text, sender (`session.displayName`), and channel (`session.deliveryContext.channel`), so the legacy two-phase emit is unnecessary for these turns.
+
 ## Run ID Format & Mapping
 
 ```

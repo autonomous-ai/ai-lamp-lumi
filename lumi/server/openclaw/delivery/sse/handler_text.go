@@ -94,6 +94,35 @@ func isLumiOutboundChatRunID(runID string) bool {
 	return strings.HasPrefix(runID, "lumi-chat-") || strings.HasPrefix(runID, "lumi-sensing-")
 }
 
+// extractMessageContentText collects the text from a session.message `content`
+// field, which OpenClaw emits as either a plain string or an array of typed
+// blocks ({"type":"text","text":"..."} / {"type":"toolCall",...}).
+// Only `type == "text"` blocks are joined; other block types (toolCall,
+// toolResult) carry no spoken text and are ignored here.
+func extractMessageContentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "")
+}
+
 // shortError extracts a short, readable message from a potentially large error string.
 // Strips HTML bodies (e.g. Cloudflare 403 pages) down to the status line.
 func shortError(errMsg string) string {
