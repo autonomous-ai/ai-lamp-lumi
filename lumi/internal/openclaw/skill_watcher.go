@@ -1,13 +1,16 @@
 package openclaw
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,8 +18,8 @@ const skillWatchInterval = 5 * time.Minute
 const defaultOTAMetadataURL = "https://storage.googleapis.com/s3-autonomous-upgrade-3/lumi/ota/metadata.json"
 
 // StartSkillWatcher polls OTA metadata for per-skill version changes.
-// When any skill version changes, downloads that skill from CDN and notifies
-// the agent to re-read it.
+// When any skill version changes, downloads that skill zip from CDN,
+// extracts atomically, and notifies the agent to re-read it.
 func (s *Service) StartSkillWatcher(ctx context.Context) {
 
 	slog.Info("skill watcher started", "component", "skill-watcher", "interval", skillWatchInterval)
@@ -68,21 +71,35 @@ func (s *Service) downloadSkills() []string {
 	return s.downloadSkillsByName(skills)
 }
 
-// downloadSkillsByName downloads specific skills from CDN, returns names of changed ones.
+// downloadSkillsByName downloads specific skill zips from CDN, extracts each
+// atomically, returns names of skills that landed on disk successfully.
+//
+// Each skill is published as ``<name>.zip`` containing the entire skill folder
+// (SKILL.md + any reference / example / sub-folder content). Atomic extract:
+// download to temp, unzip into ``<target>.new/``, then swap with the live
+// ``<target>/`` via os.Rename. Old contents are removed in the swap so files
+// deleted in the new version don't linger. Caller (the watcher loop or
+// onboarding) already pre-filters by version, so any successful return here
+// means content actually changed.
 func (s *Service) downloadSkillsByName(names []string) []string {
 	skillsDir := filepath.Join(s.config.OpenclawConfigDir, "workspace", "skills")
 	var changed []string
 	for _, name := range names {
-		dst := filepath.Join(skillsDir, name, "SKILL.md")
-		url := fmt.Sprintf("%s/%s/SKILL.md", skillsBaseURL, name)
-		updated, err := downloadFile(url, dst)
+		url := fmt.Sprintf("%s/%s.zip", skillsBaseURL, name)
+		tmpZip, err := downloadToTempFile(url, "skill-*.zip")
 		if err != nil {
-			slog.Warn("skill download failed", "component", "skill-watcher", "skill", name, "error", err)
+			slog.Warn("skill zip download failed", "component", "skill-watcher", "skill", name, "error", err)
 			continue
 		}
-		if updated {
-			changed = append(changed, name)
+
+		targetDir := filepath.Join(skillsDir, name)
+		if err := extractSkillZip(tmpZip, targetDir); err != nil {
+			slog.Warn("skill extract failed", "component", "skill-watcher", "skill", name, "error", err)
+			os.Remove(tmpZip)
+			continue
 		}
+		os.Remove(tmpZip)
+		changed = append(changed, name)
 	}
 	return changed
 }
@@ -141,4 +158,136 @@ func (s *Service) fetchSkillVersions() (map[string]string, error) {
 		result[name] = v.Version
 	}
 	return result, nil
+}
+
+// downloadToTempFile fetches url and writes to a temp file, returning its
+// path. Caller must os.Remove the returned path when done.
+func downloadToTempFile(url, pattern string) (string, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Cache-Control", "no-cache")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// extractSkillZip atomically replaces ``targetDir`` with the contents of
+// ``archivePath``. Steps:
+//  1. clean ``<targetDir>.new/``
+//  2. unzip archive into it (path-traversal guarded)
+//  3. on full success, remove ``targetDir`` and rename ``<targetDir>.new`` →
+//     ``targetDir``
+//
+// Failure at any step leaves ``targetDir`` untouched, so a corrupt download
+// can't blow away a working skill.
+func extractSkillZip(archivePath, targetDir string) error {
+	tmpDir := targetDir + ".new"
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return fmt.Errorf("clean tmp dir: %w", err)
+	}
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return fmt.Errorf("mkdir tmp dir: %w", err)
+	}
+
+	if err := unzipInto(archivePath, tmpDir); err != nil {
+		os.RemoveAll(tmpDir)
+		return err
+	}
+
+	if err := os.RemoveAll(targetDir); err != nil {
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("remove old target: %w", err)
+	}
+	if err := os.Rename(tmpDir, targetDir); err != nil {
+		// Last-ditch: try to recover the failed swap rather than leave
+		// the skill missing entirely.
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("rename %s → %s: %w", tmpDir, targetDir, err)
+	}
+	return nil
+}
+
+// unzipInto extracts every file in archivePath to dest with a path-traversal
+// guard. Forces 0644 / 0755 perms (we don't trust modes from the upload host).
+func unzipInto(archivePath, dest string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return fmt.Errorf("open zip %s: %w", archivePath, err)
+	}
+	defer r.Close()
+
+	cleanDest, err := filepath.Abs(dest)
+	if err != nil {
+		return fmt.Errorf("abs dest: %w", err)
+	}
+	cleanDest = filepath.Clean(cleanDest) + string(os.PathSeparator)
+
+	for _, f := range r.File {
+		// Reject absolute / parent-traversing paths.
+		if filepath.IsAbs(f.Name) || strings.Contains(f.Name, "..") {
+			return fmt.Errorf("invalid zip entry %q", f.Name)
+		}
+		target := filepath.Join(dest, f.Name)
+		// Belt-and-suspenders containment check after Join.
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return fmt.Errorf("abs target %s: %w", target, err)
+		}
+		if !strings.HasPrefix(absTarget+string(os.PathSeparator), cleanDest) &&
+			absTarget+string(os.PathSeparator) != cleanDest {
+			return fmt.Errorf("zip entry escapes dest: %q", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", target, err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return fmt.Errorf("mkdir parent %s: %w", target, err)
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("open zip entry %s: %w", f.Name, err)
+		}
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("create %s: %w", target, err)
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			rc.Close()
+			out.Close()
+			return fmt.Errorf("write %s: %w", target, err)
+		}
+		rc.Close()
+		if err := out.Close(); err != nil {
+			return fmt.Errorf("close %s: %w", target, err)
+		}
+	}
+	return nil
 }
