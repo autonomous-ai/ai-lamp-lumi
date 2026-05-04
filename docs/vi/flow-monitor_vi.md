@@ -101,10 +101,10 @@ Từ OpenClaw 2026.5.2, `agent` event stream chỉ fanout cho run khởi từ ch
 
 Do đó SSE handler drive channel turn trực tiếp từ `session.message` (`case "session.message"` trong `handler_events.go`):
 
-- **Filter**: chỉ xử lý khi `session.origin.provider == "telegram"` và `sessionKey != session của Lumi`. Heartbeat-via-telegram (`origin.provider == "heartbeat"`) vẫn để lifecycle cron-fire path xử lý để TTS heartbeat tới được loa lamp.
+- **Filter**: skip ngay nếu `origin.provider == "heartbeat"` (heartbeat cron giữ lifecycle path để TTS ra loa lamp). Còn lại coi là Telegram channel turn khi **bất kỳ** điều kiện nào đúng: `sessionKey` bắt đầu `agent:main:telegram:` (primary, stable nhất); `origin.provider == "telegram"`; hoặc `deliveryContext.channel == "telegram"`. Loại session của chính Lumi (`agentGateway.GetSessionKey()`).
 - **User message**: cấp synthetic device run id `tg-<messageId>`, emit `chat_input` với `source:"channel"`, ghi `channelRuns` + `channelTurns[sessionKey]`.
 - **Map runId tool**: `case "session.tool"` tra `channelTurns[sessionKey]` và đăng ký map OpenClaw UUID → synthetic id qua `mapRunID`, để các flow event `tool_call` / `hw_emotion` / `hw_led` cùng `run_id` với `chat_input`.
-- **Assistant message**: text từ các block `content[].text` được nối vào accumulator theo session. Khi assistant kết thúc với `stopReason in {"stop","end_turn"}` (không còn tool round nào nữa), handler chạy đúng end-of-turn logic mà `lifecycle_end` từng làm: `extractHWCalls` → `fireHWCalls` (marker LED/emotion/servo/audio fire trên lamp), rồi emit `tts_suppressed` với `reason:"channel_run"` (Telegram đã có text rồi — loa lamp im, trừ khi có marker `[HW:/speak]` hoặc `[HW:/broadcast]`).
+- **Assistant message**: text từ các block `content[].text` được nối vào accumulator theo session. Khi assistant kết thúc với `stopReason in {"stop","end_turn"}` (không còn tool round nào nữa), handler chạy đúng end-of-turn logic mà `lifecycle_end` từng làm: `extractHWCalls` → `fireHWCalls` (marker LED/emotion/servo/audio fire trên lamp), rồi emit `tts_suppressed` với `reason:"channel_run"`. Marker `[HW:/speak]` hoặc `[HW:/broadcast]` escalate thành `tts_send` + `SendToLeLampTTS`; `[HW:/dm:{telegram_id}]` route reply qua `SendToUser`; `[HW:/broadcast]` (không kèm `/dm`) fan-out qua `Broadcast`.
 - **Không cần `chat.history` round-trip nữa**: `session.message` đã có sẵn text, sender (`session.displayName`), channel (`session.deliveryContext.channel`).
 
 ### NO_REPLY suppression

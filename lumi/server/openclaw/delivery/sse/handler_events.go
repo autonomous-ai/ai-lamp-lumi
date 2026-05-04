@@ -959,10 +959,20 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			slog.Warn("session.message unmarshal error", "component", "agent", "err", err)
 			return nil
 		}
-		// Only act on inbound channel turns from real users. Heartbeat/cron
-		// turns (origin.provider == "heartbeat") and Lumi's own session keep
-		// the existing lifecycle path.
-		if sm.Session.Origin.Provider != "telegram" {
+		// Skip heartbeat / cron / proactive turns up front — they share the
+		// telegram session key but must keep the lifecycle path so their
+		// reply reaches the lamp speaker, not just Telegram.
+		if sm.Session.Origin.Provider == "heartbeat" {
+			break
+		}
+		// Detect inbound channel turns. The session key is the most stable
+		// signal across OpenClaw versions; `origin.provider` is best-effort
+		// (sessionRow.origin can be undefined when a telegram message routes
+		// through the default agent session).
+		isTelegramChannel := strings.HasPrefix(sm.SessionKey, "agent:main:telegram:") ||
+			sm.Session.Origin.Provider == "telegram" ||
+			sm.Session.DeliveryContext.Channel == "telegram"
+		if !isTelegramChannel {
 			break
 		}
 		if sm.SessionKey == h.agentGateway.GetSessionKey() {
@@ -1048,13 +1058,35 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		cleanText = extractSayTag(cleanText)
 		cleanText = sanitizeAgentText(cleanText)
 
-		// Fire HW markers (LED, emotion, servo, audio) on the local lamp
-		// even though the spoken text goes back to the originating channel.
+		// Fire HW markers (LED, emotion, servo, audio) on the local lamp.
+		// /broadcast, /speak, /dm are control markers, fanned out below.
 		h.fireHWCalls(hwCalls, runID)
 
-		// Channel turns never speak via the lamp speaker — Telegram already
-		// receives the text directly from OpenClaw. Emit tts_suppressed so
-		// the monitor reflects reality.
+		// Inspect control markers — these escalate a normally-suppressed
+		// channel turn to also speak via the lamp speaker or to fan out the
+		// reply to other Telegram chats.
+		var dmTelegramID string
+		forceTTS := false
+		isBroadcastRun := false
+		for _, c := range hwCalls {
+			switch c.path {
+			case "/broadcast":
+				isBroadcastRun = true
+			case "/speak":
+				forceTTS = true
+			case "/dm":
+				var dm struct {
+					TelegramID string `json:"telegram_id"`
+				}
+				if err := json.Unmarshal([]byte(c.body), &dm); err == nil && dm.TelegramID != "" {
+					dmTelegramID = dm.TelegramID
+				}
+			}
+		}
+
+		// Channel turns normally stay silent on the lamp speaker — Telegram
+		// already received the reply via OpenClaw. /speak or /broadcast
+		// markers escalate to TTS on the speaker too.
 		switch {
 		case isAgentNoReply(cleanText):
 			slog.Info("channel turn replied NO_REPLY", "component", "agent", "run_id", runID)
@@ -1075,12 +1107,8 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				preview = preview[:200] + "…"
 			}
 			slog.Info("channel turn final assistant text", "component", "agent",
-				"run_id", runID, "hw_calls", len(hwCalls), "text", preview)
-			flow.Log("tts_suppressed", map[string]any{
-				"run_id": runID,
-				"reason": "channel_run",
-				"text":   cleanText,
-			}, runID)
+				"run_id", runID, "hw_calls", len(hwCalls), "text", preview,
+				"force_tts", forceTTS, "broadcast", isBroadcastRun, "dm", dmTelegramID != "")
 			h.monitorBus.Push(domain.MonitorEvent{
 				Type:    "chat_response",
 				Summary: preview,
@@ -1088,6 +1116,37 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				State:   "final",
 				Detail:  map[string]string{"role": "assistant", "message": cleanText},
 			})
+			if forceTTS || isBroadcastRun {
+				flow.Log("tts_send", map[string]any{"run_id": runID, "text": cleanText}, runID)
+				go func(t string) {
+					if err := h.agentGateway.SendToLeLampTTS(t); err != nil {
+						slog.Error("TTS delivery failed (channel turn /speak)", "component", "agent", "error", err)
+					}
+				}(cleanText)
+			} else {
+				flow.Log("tts_suppressed", map[string]any{
+					"run_id": runID,
+					"reason": "channel_run",
+					"text":   cleanText,
+				}, runID)
+			}
+			// /dm: send agent response to a specific Telegram user.
+			// Takes priority over broadcast — if /dm is present, /broadcast is skipped.
+			if dmTelegramID != "" && len(cleanText) > 10 {
+				go func(t, tid string) {
+					slog.Info("dm run response (channel turn)", "component", "agent", "run_id", runID, "telegram_id", tid)
+					if err := h.agentGateway.SendToUser(tid, t, ""); err != nil {
+						slog.Error("dm run failed", "component", "agent", "err", err)
+					}
+				}(cleanText, dmTelegramID)
+			} else if isBroadcastRun && len(cleanText) > 10 {
+				go func(t string) {
+					slog.Info("broadcast run response (channel turn)", "component", "agent", "run_id", runID)
+					if err := h.agentGateway.Broadcast(t, ""); err != nil {
+						slog.Error("broadcast run failed", "component", "agent", "err", err)
+					}
+				}(cleanText)
+			}
 		}
 		// Drop the channelRuns marker — turn is finished, no more events expected.
 		h.channelRunsMu.Lock()
