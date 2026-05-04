@@ -348,6 +348,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
+	// Mark voice turns so the SSE handler arms a filler timer when
+	// OpenClaw's lifecycle.start arrives. Done before forwarding so the
+	// lifecycle.start event can never race ahead of the mark.
+	// Other turn types (passive sensing, web chat, guard) deliberately
+	// stay unmarked — fillers are voice-only.
+	if req.Type == "voice_command" || req.Type == "voice" {
+		DefaultFillerManager.MarkVoiceRun(runID)
+	}
+
 	var err error
 	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
 	if req.Image != "" && req.Type != "motion.activity" {
@@ -357,17 +366,13 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	if err != nil {
+		// Forward failed — drop the voice mark so we don't keep state
+		// for a run that will never produce a lifecycle.start.
+		DefaultFillerManager.Cancel(runID)
 		slog.Error("failed to send event", "component", "sensing", "error", err)
 		flow.End("sensing_input", turnStart, map[string]any{"error": err.Error()})
 		c.JSON(http.StatusInternalServerError, serializers.ResponseError(err.Error()))
 		return
-	}
-
-	// Dead air filler: play a short TTS cue while OpenClaw processes voice events.
-	// Covers voice_command (wake word) and voice (ambient STT).
-	// Local intents already returned above, passive sensing doesn't need it.
-	if req.Type == "voice_command" || req.Type == "voice" {
-		go PlayDeadAirFiller()
 	}
 
 	flow.End("sensing_input", turnStart, map[string]any{"path": "agent", "run_id": runID}, runID)

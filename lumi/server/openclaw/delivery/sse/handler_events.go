@@ -11,6 +11,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/lelamp"
+	sensinghttp "go-lamp.autonomous.ai/server/sensing/delivery/http"
 )
 
 // HandleEvent processes incoming WebSocket events from the OpenClaw gateway.
@@ -246,8 +247,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// LED is managed by the agent via /emotion skill calls — do not override here.
 			if payload.Data.Phase == "start" {
 				h.agentGateway.SetBusy(true)
+				// Arm the dead-air filler timer for voice turns. No-op
+				// unless sensing handler called MarkVoiceRun(flowRunID)
+				// before forwarding this turn.
+				sensinghttp.DefaultFillerManager.OnTurnStart(flowRunID)
 			} else if payload.Data.Phase == "end" || payload.Data.Phase == "error" {
 				h.agentGateway.SetBusy(false)
+				// Cancel on error too — lifecycle.end has its own Cancel
+				// further down (just before TTS flush), but error skips
+				// that block, so clean filler state here.
+				if payload.Data.Phase == "error" {
+					sensinghttp.DefaultFillerManager.Cancel(flowRunID)
+				}
 			}
 
 			// Token usage: try lifecycle_end payload first, fallback to chat.history RPC.
@@ -447,6 +458,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			toolArgs := payload.ToolArguments()
 			summary := toolName
 			if payload.Data.Phase == "start" {
+				// Hardware-reaction tools soft-cancel any pending filler —
+				// the user already perceives the lamp reacting. Non-HW
+				// tools leave the timer running so the filler can fire
+				// during a long Bash/curl/Read.
+				sensinghttp.DefaultFillerManager.OnToolStart(flowRunID, toolArgs)
 				summary = fmt.Sprintf("Tool %s started", toolName)
 				// Detect music playback tool calls so we can suppress TTS on turn end.
 				// The Music skill uses Bash+curl to POST /audio/play.
@@ -504,6 +520,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					}
 				}
 			} else if payload.Data.Phase == "end" {
+				// Tool finished — re-arm the filler timer if the turn is
+				// still active. Long multi-tool turns get a filler at each
+				// dead-air pocket, capped by MaxFillersPerTurn and gated
+				// by FillerCooldown.
+				sensinghttp.DefaultFillerManager.OnToolEnd(flowRunID)
 				result := payload.Data.Result
 				if len(result) > 100 {
 					result = result[:100] + "..."
@@ -546,6 +567,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			// Don't truncate deltas — they are merged in the frontend
 			if delta != "" {
+				// Real assistant text is streaming — hard-cancel any
+				// pending or in-flight filler so the lamp doesn't talk
+				// over the actual reply. Cancel is idempotent so calling
+				// it on every delta is safe.
+				sensinghttp.DefaultFillerManager.Cancel(flowRunID)
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "assistant_delta",
 					Summary: delta,
@@ -562,6 +588,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// When agent lifecycle ends, flush accumulated assistant text to TTS.
 		// Suppress TTS if the agent played music or already spoke via tool intercept.
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "end" {
+			// Hard-cancel any lingering filler before the real TTS flush
+			// — covers edge case where the turn ended without any
+			// assistant delta (NO_REPLY, HW-only reply, error).
+			sensinghttp.DefaultFillerManager.Cancel(flowRunID)
 			suppressReason := h.clearTTSSuppress(payload.RunID)
 			// Web monitor chat: suppress TTS — response displayed in web UI only.
 			if suppressReason == "" && h.agentGateway.ConsumeWebChatRun(flowRunID) {
