@@ -161,12 +161,7 @@ func (s *Service) GetCurrentIP() (string, error) {
 
 // CurrentNetwork returns the currently connected network using iwgetid -r wlan0.
 func (s *Service) CurrentNetwork() (*domain.Network, error) {
-	cmd := exec.Command("iwgetid", "-r", defaultInterface)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, nil // not connected
-	}
-	ssid := strings.TrimSpace(string(out))
+	ssid := readCurrentSSID()
 	if ssid == "" {
 		return nil, nil
 	}
@@ -179,6 +174,44 @@ func (s *Service) CurrentNetwork() (*domain.Network, error) {
 		Signal:   0,
 		Security: "",
 	}, nil
+}
+
+// readCurrentSSID resolves the current SSID via a fallback chain — iwgetid
+// alone has been observed to return empty on some Pi images even with an
+// active connection (driver / utility version skew). Try the most direct
+// tool first, then fall back to iw and wpa_cli so the polling loop in
+// SetupNetwork can confirm the association without timing out.
+func readCurrentSSID() string {
+	if out, err := exec.Command("iwgetid", "-r", defaultInterface).Output(); err == nil {
+		if s := strings.TrimSpace(string(out)); s != "" {
+			return s
+		}
+	}
+	// `iw dev <iface> link` lines like:
+	//   Connected to aa:bb:...
+	//   SSID: Glinks
+	if out, err := exec.Command("iw", "dev", defaultInterface, "link").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "SSID:") {
+				if s := strings.TrimSpace(strings.TrimPrefix(line, "SSID:")); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	// `wpa_cli -i <iface> status` lines include `ssid=Glinks`.
+	if out, err := exec.Command("wpa_cli", "-i", defaultInterface, "status").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "ssid=") {
+				if s := strings.TrimSpace(strings.TrimPrefix(line, "ssid=")); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // CheckInternet pings 8.8.8.8. Unchanged.
