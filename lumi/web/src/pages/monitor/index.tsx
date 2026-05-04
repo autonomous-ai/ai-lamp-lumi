@@ -318,11 +318,11 @@ export default function Monitor() {
               </a>
             )
           )}
-          <AgentGWMenu closeSidebar={closeSidebar} />
           <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings
           </a>
+          <AgentGWMenu closeSidebar={closeSidebar} />
         </nav>
         <div style={{
           padding: "12px 16px",
