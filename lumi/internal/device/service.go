@@ -251,12 +251,10 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if thinkingChanged {
 		s.config.LLMDisableThinking = data.LLMDisableThinking
 	}
-	if data.DeepgramAPIKey != "" {
-		s.config.DeepgramAPIKey = data.DeepgramAPIKey
-	}
-	// STT / TTS API keys + base URLs: blanks intentionally clear (lets the
-	// operator drop a separate value and revert to the LLM fallback via
-	// the GetXxx helpers).
+	// STT / TTS API keys + base URLs and Deepgram key: blanks intentionally
+	// clear so the operator can switch STT provider (deepgram ↔ autonomous)
+	// or revert to the LLM fallback via the GetXxx helpers.
+	s.config.DeepgramAPIKey = data.DeepgramAPIKey
 	s.config.STTAPIKey = data.STTAPIKey
 	s.config.TTSAPIKey = data.TTSAPIKey
 	s.config.STTBaseURL = data.STTBaseURL

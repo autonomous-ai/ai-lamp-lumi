@@ -8,13 +8,16 @@ import GwConfig from "@/pages/GwConfig";
 import { checkInternet } from "@/lib/api";
 
 // Setup gate: if WiFi is provisioned (device has internet) → /monitor; else show Setup.
+// `#force` in the URL hash (e.g. /setup#force) bypasses the redirect for testing.
 function SetupGate() {
-  const [provisioned, setProvisioned] = useState<boolean | null>(null);
+  const force = typeof window !== "undefined" && window.location.hash === "#force";
+  const [provisioned, setProvisioned] = useState<boolean | null>(force ? false : null);
   useEffect(() => {
+    if (force) return;
     checkInternet()
       .then((ok) => setProvisioned(!!ok))
       .catch(() => setProvisioned(false));
-  }, []);
+  }, [force]);
   if (provisioned === null) return null;
   if (provisioned) return <Navigate to="/monitor" replace />;
   return <Setup />;
