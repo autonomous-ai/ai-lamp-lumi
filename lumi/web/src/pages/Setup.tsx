@@ -170,7 +170,7 @@ export default function Setup() {
   const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
     { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={15} /> },
     { id: "face",     label: "Face",     icon: <UserCircle size={15} /> },
-    ...(!urlParams.deviceId ? [{ id: "device" as SectionId, label: "Device", icon: <Lamp size={15} /> }] : []),
+    { id: "device", label: "Device", icon: <Lamp size={15} /> },
     ...(!hasLlmParams       ? [{ id: "llm" as SectionId,    label: "LLM",    icon: <Brain size={15} /> }] : []),
     ...(!urlParams.deepgramApiKey ? [{ id: "deepgram" as SectionId, label: "STT", icon: <Mic size={15} /> }] : []),
     { id: "tts" as SectionId, label: "TTS", icon: <Volume2 size={15} /> },
@@ -626,11 +626,9 @@ export default function Setup() {
                   </SectionCard>
 
                   {/* Device */}
-                  {!urlParams.deviceId && (
-                    <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                      <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
-                    </SectionCard>
-                  )}
+                  <SectionCard id="device" title="Device" active={activeSection === "device"}>
+                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" />
+                  </SectionCard>
 
                   {/* LLM */}
                   {!hasLlmParams && (
