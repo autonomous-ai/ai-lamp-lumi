@@ -149,6 +149,7 @@ export default function Setup() {
       llmUrl: searchParams.get("llm_url") ?? "",
       llmModel: searchParams.get("llm_model") ?? "",
       deepgramApiKey: searchParams.get("deepgram_api_key") ?? "",
+      ttsApiKey: searchParams.get("tts_api_key") ?? "",
       deviceId: searchParams.get("device_id") ?? "",
       mqttEndpoint: searchParams.get("mqtt_endpoint") ?? "",
       mqttPort: searchParams.get("mqtt_port") ?? "",
@@ -189,6 +190,7 @@ export default function Setup() {
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   // deepgram input is hidden in this build; submit reads urlParams.deepgramApiKey directly
+  const [ttsApiKey, setTtsApiKey] = useState(urlParams.ttsApiKey || "");
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -303,6 +305,7 @@ export default function Setup() {
         llm_model: urlParams.llmModel || llmModel,
         llm_disable_thinking: llmDisableThinking || undefined,
         deepgram_api_key: urlParams.deepgramApiKey || undefined,
+        tts_api_key: ttsApiKey || undefined,
         tts_provider: ttsProvider || undefined,
         tts_voice: ttsVoice || undefined,
         device_id: urlParams.deviceId || deviceId,
@@ -329,7 +332,7 @@ export default function Setup() {
   }, [
     channel, urlParams, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl, llmApiKey,
-    llmModel, llmDisableThinking, ttsVoice, deviceId,
+    llmModel, llmDisableThinking, ttsApiKey, ttsVoice, deviceId,
     mqttEndpoint, mqttPort, mqttUsername, mqttPassword, faChannel, fdChannel,
   ]);
 
@@ -578,6 +581,7 @@ export default function Setup() {
 
                   {/* TTS */}
                   <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                    <Field label="API Key (optional — leave blank to reuse LLM key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
                         Provider

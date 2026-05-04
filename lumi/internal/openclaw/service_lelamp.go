@@ -24,14 +24,18 @@ var (
 	reWhitespace  = regexp.MustCompile(`\s+`)
 )
 
-// StartLeLampVoice starts the voice pipeline on LeLamp with API keys from config.
-func (s *Service) StartLeLampVoice(deepgramKey, llmKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error {
+// StartLeLampVoice starts the voice pipeline on LeLamp with API keys from
+// config. ttsKey is the TTS provider's API key (split out from llmKey so
+// households with separate accounts can configure each independently).
+// Pass ttsKey == "" when both share llmKey — LeLamp will fall back.
+func (s *Service) StartLeLampVoice(deepgramKey, llmKey, ttsKey, llmBaseURL, ttsVoice, ttsInstructions, ttsProvider string) error {
 	if deepgramKey == "" {
 		return nil
 	}
 	if err := lelamp.StartVoice(lelamp.VoiceStartConfig{
 		DeepgramKey:     deepgramKey,
 		LLMKey:          llmKey,
+		TTSKey:          ttsKey,
 		LLMBaseURL:      llmBaseURL,
 		TTSVoice:        ttsVoice,
 		TTSInstructions: ttsInstructions,
