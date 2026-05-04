@@ -298,10 +298,6 @@ export default function Monitor() {
 
       {/* Sidebar */}
       <aside style={S.sidebar} className={`lm-sidebar${sidebarOpen ? " lm-sidebar--open" : ""}`}>
-        <div style={S.sidebarLogo}>
-          <div style={S.sidebarLogoName}>✦ Lumi</div>
-          <div style={S.sidebarLogoSub}>Monitor Dashboard</div>
-        </div>
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {NAV.map((entry) =>
             isNavGroup(entry) ? (

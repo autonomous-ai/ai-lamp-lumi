@@ -392,12 +392,6 @@ export default function Setup() {
         background: C.sidebar, borderRight: `1px solid ${C.border}`,
         display: "flex", flexDirection: "column",
       }}>
-        <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.amber, letterSpacing: "-0.3px" }}>
-            ✦ Lumi
-          </div>
-          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Setup</div>
-        </div>
 
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {SECTIONS.map((s) => {
