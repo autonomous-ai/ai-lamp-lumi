@@ -490,7 +490,8 @@ stage_openclaw() {
       "token": "$GATEWAY_TOKEN"
     },
     "controlUi": {
-      "allowedOrigins": ["*"]
+      "allowedOrigins": ["*"],
+      "allowInsecureAuth": true
     }
   }
 }
@@ -602,15 +603,18 @@ server {
     proxy_set_header X-Forwarded-Prefix /hw;
   }
 
-  # Exact /gw match for WebSocket (WS doesn't follow 301 redirect to /gw/)
+  # Exact /gw match for WebSocket (WS doesn't follow 301 redirect to /gw/).
+  # X-Real-IP / X-Forwarded-For are intentionally NOT set: OpenClaw 5.2's
+  # device-identity guard treats any forwarded header as "non-local client"
+  # and rejects the Control UI handshake even with allowInsecureAuth=true.
+  # Without these headers, OpenClaw sees the loopback peer (nginx) and
+  # accepts the request as local.
   location = /gw {
     proxy_pass http://openclaw/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
   }
 
   location /gw/ {
@@ -619,8 +623,6 @@ server {
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
   }
 
   # Return 204 so OS does not detect captive portal (no auto-open browser)
