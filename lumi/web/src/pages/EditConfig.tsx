@@ -4,7 +4,7 @@ import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, tes
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, MessageSquare, Link } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, MessageSquare, Link, Pencil, X } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -112,6 +112,74 @@ function PasswordField({ label, id, value, onChange, placeholder, readOnly = fal
   );
 }
 
+// LockedField — Field that starts read-only when initially populated (e.g. loaded
+// from saved config) and exposes an "Edit" button to unlock. Empty fields are
+// editable from the start. Used in Channel section to prevent accidental edits
+// to credentials the user already saved.
+function LockedField({
+  lockedInitially, label, id, value, onChange, placeholder,
+}: {
+  lockedInitially: boolean; label: string; id: string; value: string;
+  onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [unlocked, setUnlocked] = useState(false);
+  const readOnly = lockedInitially && !unlocked;
+  // Snapshot of the value at the moment this field first became locked, so
+  // "Cancel" can revert any in-progress edits.
+  const originalRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lockedInitially && originalRef.current === null) {
+      originalRef.current = value;
+    }
+  }, [lockedInitially, value]);
+  // Show the toggle whenever this field has a baseline to revert to.
+  const showToggle = lockedInitially;
+  const handleCancel = () => {
+    if (originalRef.current !== null) onChange(originalRef.current);
+    setUnlocked(false);
+  };
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+        {label}
+      </label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id} type="text" value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder} autoComplete="off"
+          readOnly={readOnly}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: readOnly ? C.bg : C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 7, padding: showToggle ? "8px 36px 8px 11px" : "8px 11px",
+            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
+            cursor: readOnly ? "default" : "text",
+          }}
+        />
+        {showToggle && (
+          <button
+            type="button"
+            onClick={readOnly ? () => setUnlocked(true) : handleCancel}
+            tabIndex={-1}
+            aria-label={readOnly ? "Edit" : "Cancel edit"}
+            title={readOnly ? "Edit" : "Cancel edit"}
+            style={{
+              position: "absolute", right: 0, top: 0, height: "100%",
+              padding: "0 10px", background: "none", border: "none",
+              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
+              display: "flex", alignItems: "center",
+            }}
+          >
+            {readOnly ? <Pencil size={13} /> : <X size={14} />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SectionCard({ id, title, active, children }: { id: SectionId; title: string; active: boolean; children: React.ReactNode }) {
   if (!active) return null;
   return (
@@ -197,6 +265,13 @@ export default function EditConfig() {
   const [mqttLoaded, setMqttLoaded] = useState({
     endpoint: false, port: false, username: false,
     password: false, faChannel: false, fdChannel: false,
+  });
+  // Same idea for messaging-channel credentials. Already-saved values render
+  // read-only with an inline "Edit" button to opt-in to changing them.
+  const [channelLoaded, setChannelLoaded] = useState({
+    teleToken: false, teleUserId: false,
+    slackBotToken: false, slackAppToken: false, slackUserId: false,
+    discordBotToken: false, discordGuildId: false, discordUserId: false,
   });
 
   // Face enroll state
@@ -305,6 +380,16 @@ export default function EditConfig() {
           faChannel: !!cfg.fa_channel,
           fdChannel: !!cfg.fd_channel,
         });
+        setChannelLoaded({
+          teleToken: !!cfg.telegram_bot_token,
+          teleUserId: !!cfg.telegram_user_id,
+          slackBotToken: !!cfg.slack_bot_token,
+          slackAppToken: !!cfg.slack_app_token,
+          slackUserId: !!cfg.slack_user_id,
+          discordBotToken: !!cfg.discord_bot_token,
+          discordGuildId: !!cfg.discord_guild_id,
+          discordUserId: !!cfg.discord_user_id,
+        });
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoadingCfg(false));
@@ -385,12 +470,6 @@ export default function EditConfig() {
         background: C.sidebar, borderRight: `1px solid ${C.border}`,
         display: "flex", flexDirection: "column",
       }}>
-        <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.amber, letterSpacing: "-0.3px" }}>
-            ✦ Lumi
-          </div>
-          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Settings</div>
-        </div>
 
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {SECTIONS.map((s) => {
@@ -705,22 +784,22 @@ export default function EditConfig() {
                   </div>
                   {channel === "telegram" && (
                     <>
-                      <Field label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                      <Field label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
+                      <LockedField lockedInitially={channelLoaded.teleToken} label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
+                      <LockedField lockedInitially={channelLoaded.teleUserId} label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
                     </>
                   )}
                   {channel === "slack" && (
                     <>
-                      <Field label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                      <Field label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                      <Field label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
+                      <LockedField lockedInitially={channelLoaded.slackBotToken} label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
+                      <LockedField lockedInitially={channelLoaded.slackAppToken} label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
+                      <LockedField lockedInitially={channelLoaded.slackUserId} label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
                     </>
                   )}
                   {channel === "discord" && (
                     <>
-                      <Field label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                      <Field label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                      <Field label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
+                      <LockedField lockedInitially={channelLoaded.discordBotToken} label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
+                      <LockedField lockedInitially={channelLoaded.discordGuildId} label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
+                      <LockedField lockedInitially={channelLoaded.discordUserId} label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
                     </>
                   )}
                 </SectionCard>
