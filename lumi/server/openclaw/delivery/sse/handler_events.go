@@ -61,22 +61,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			h.agentGateway.SetSessionKey(payload.SessionKey)
 		}
 
-		// Map OpenClaw UUID → device idempotencyKey on lifecycle_start.
-		// Only map when the lifecycle belongs to Lumi's own direct session — group/channel
-		// sessions have independent runs that must NOT be merged into sensing traces.
-		// Uses dedicated pending chat trace (not global flow.GetTrace) to avoid race conditions
-		// where concurrent channel turns clear the global trace before lifecycle_start arrives.
-		lumiSession := h.agentGateway.GetSessionKey()
-		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
-		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
-			if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
-				h.mapRunID(payload.RunID, deviceTrace)
-				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
-				slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
-					"openclaw_run_id", payload.RunID, "device_run_id", deviceTrace,
-					"note", "JSONL/monitor use device_run_id for this turn")
-			}
-		}
+		// OpenClaw 5.x uses the chat.send `idempotencyKey` directly as the
+		// embedded run id (verified in journal). The legacy UUID-mapping
+		// path that consumed `pendingChatTrace` here ended up stealing
+		// stale entries — under burst sensing/ambient queueing, the queue
+		// could hold a 5–10-minute-old `lumi-chat-K` while a fresh
+		// `lumi-chat-N` lifecycle.start fired; the consume returned `K`,
+		// `K != N`, so we mapped `lumi-chat-N → lumi-chat-K`. All of
+		// chat-N's flow events resolved to chat-K's runId, leaving the
+		// chat-N row stuck "ACTIVE" forever in the Monitor.
+		//
+		// Removing the consume (the queue is no longer drained anywhere)
+		// is safe because `payload.RunID` is already the correct device
+		// id when the run originated from Lumi.
 
 		// Resolve OpenClaw UUID → device ID for consistent flow tracing across all agent events
 		flowRunID := h.resolveRunID(payload.RunID)
