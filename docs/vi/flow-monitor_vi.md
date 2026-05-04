@@ -95,6 +95,18 @@ Chi tiết:
 - **Heartbeat**: Cron 30 phút cũng trigger `lifecycle_start` — last user message sẽ là system prompt, không phải user thật.
 - **Token usage**: `chat.history` cũng được gọi lúc `lifecycle_end` để lấy token usage. OpenClaw `lifecycle_end` không có field `usage`. Token nằm trong last `role:"assistant"` message của history response: `usage: {input, output, totalTokens, cacheRead, cacheWrite}`. Emit thành `token_usage` flow event với `source: "chat_history"`.
 
+#### OpenClaw 5.2+ — channel turn driven bởi `session.message`
+
+Từ OpenClaw 2026.5.2, `agent` event stream chỉ fanout cho run khởi từ chính WS connection (Lumi `chat.send`). Telegram-initiated runs **không** nhận `lifecycle_start` / `lifecycle_end` / `tool` trên `agent` stream nữa — chỉ có `session.message`, `session.tool`, `sessions.changed`.
+
+Do đó SSE handler drive channel turn trực tiếp từ `session.message` (`case "session.message"` trong `handler_events.go`):
+
+- **Filter**: chỉ xử lý khi `session.origin.provider == "telegram"` và `sessionKey != session của Lumi`. Heartbeat-via-telegram (`origin.provider == "heartbeat"`) vẫn để lifecycle cron-fire path xử lý để TTS heartbeat tới được loa lamp.
+- **User message**: cấp synthetic device run id `tg-<messageId>`, emit `chat_input` với `source:"channel"`, ghi `channelRuns` + `channelTurns[sessionKey]`.
+- **Map runId tool**: `case "session.tool"` tra `channelTurns[sessionKey]` và đăng ký map OpenClaw UUID → synthetic id qua `mapRunID`, để các flow event `tool_call` / `hw_emotion` / `hw_led` cùng `run_id` với `chat_input`.
+- **Assistant message**: text từ các block `content[].text` được nối vào accumulator theo session. Khi assistant kết thúc với `stopReason in {"stop","end_turn"}` (không còn tool round nào nữa), handler chạy đúng end-of-turn logic mà `lifecycle_end` từng làm: `extractHWCalls` → `fireHWCalls` (marker LED/emotion/servo/audio fire trên lamp), rồi emit `tts_suppressed` với `reason:"channel_run"` (Telegram đã có text rồi — loa lamp im, trừ khi có marker `[HW:/speak]` hoặc `[HW:/broadcast]`).
+- **Không cần `chat.history` round-trip nữa**: `session.message` đã có sẵn text, sender (`session.displayName`), channel (`session.deliveryContext.channel`).
+
 ### NO_REPLY suppression
 
 OpenClaw agent trả `NO_REPLY` (hoặc dạng cắt ngắn `NO`, `NO_RE`, `NO_...`) khi quyết định không cần trả lời — thường cho passive sensing events (sound, motion). `isAgentNoReply()` trong `handler.go` suppress: không phát TTS, không hiện output. Match: `"NO"` chính xác, hoặc bắt đầu bằng `"NO_"` / `"NO_RE"` (case-insensitive).

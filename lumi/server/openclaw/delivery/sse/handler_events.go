@@ -756,6 +756,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			slog.Warn("session.tool unmarshal error", "component", "agent", "err", err)
 			return nil
 		}
+		// If this tool runs inside a tracked channel turn, map the OpenClaw
+		// UUID to the synthetic device runId so tool_call/hw_* flow events
+		// share the same run_id as chat_input emitted from session.message.
+		if payload.SessionKey != "" && payload.RunID != "" {
+			h.channelTurnMu.Lock()
+			if st, ok := h.channelTurns[payload.SessionKey]; ok && st.runID != "" {
+				h.mapRunID(payload.RunID, st.runID)
+			}
+			h.channelTurnMu.Unlock()
+		}
 		flowRunID := h.resolveRunID(payload.RunID)
 		toolName := payload.ToolName()
 		toolArgs := payload.ToolArguments()
@@ -915,6 +925,174 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 		// TTS is sent from the lifecycle_end path above (assistant delta accumulation).
 		// The chat stream's final message is not used for TTS to avoid speaking responses twice.
+
+	case "session.message":
+		// OpenClaw 5.2 stopped fanning out the `agent` lifecycle stream for
+		// non-Lumi-originated runs (Telegram, etc.). chat_input + HW marker
+		// firing for those turns must be driven from `session.message` here
+		// instead. Lumi's own chat.send flows still use the agent path above.
+		var sm struct {
+			SessionKey string `json:"sessionKey"`
+			SessionID  string `json:"sessionId"`
+			MessageID  string `json:"messageId"`
+			MessageSeq int    `json:"messageSeq"`
+			Message    struct {
+				Role       string          `json:"role"`
+				Content    json.RawMessage `json:"content"`
+				StopReason string          `json:"stopReason"`
+				Timestamp  int64           `json:"timestamp"`
+			} `json:"message"`
+			Session struct {
+				DisplayName string `json:"displayName"`
+				Origin      struct {
+					Provider string `json:"provider"`
+					Surface  string `json:"surface"`
+					Label    string `json:"label"`
+					From     string `json:"from"`
+				} `json:"origin"`
+				DeliveryContext struct {
+					Channel string `json:"channel"`
+				} `json:"deliveryContext"`
+			} `json:"session"`
+		}
+		if err := json.Unmarshal(evt.Payload, &sm); err != nil {
+			slog.Warn("session.message unmarshal error", "component", "agent", "err", err)
+			return nil
+		}
+		// Only act on inbound channel turns from real users. Heartbeat/cron
+		// turns (origin.provider == "heartbeat") and Lumi's own session keep
+		// the existing lifecycle path.
+		if sm.Session.Origin.Provider != "telegram" {
+			break
+		}
+		if sm.SessionKey == h.agentGateway.GetSessionKey() {
+			break
+		}
+		text := extractMessageContentText(sm.Message.Content)
+
+		if sm.Message.Role == "user" {
+			runID := "tg-" + sm.MessageID
+			if runID == "tg-" {
+				runID = fmt.Sprintf("tg-%s-%d", sm.SessionID, sm.MessageSeq)
+			}
+			senderLabel := sm.Session.DisplayName
+			if senderLabel == "" {
+				senderLabel = sm.Session.Origin.Label
+			}
+			h.channelTurnMu.Lock()
+			h.channelTurns[sm.SessionKey] = &channelTurnState{
+				runID:       runID,
+				senderLabel: senderLabel,
+				startedAtMs: sm.Message.Timestamp,
+			}
+			h.channelTurnMu.Unlock()
+			h.channelRunsMu.Lock()
+			h.channelRuns[runID] = true
+			h.channelRunsMu.Unlock()
+
+			chName := h.agentGateway.GetConfiguredChannel()
+			prefix := "[" + chName + "]"
+			if senderLabel != "" {
+				prefix = "[" + chName + ":" + senderLabel + "]"
+			}
+			displayMsg := text
+			if len(displayMsg) > 200 {
+				displayMsg = displayMsg[:200] + "…"
+			}
+			slog.Info("channel turn started (session.message)", "component", "agent",
+				"session_key", sm.SessionKey, "run_id", runID,
+				"sender", senderLabel, "msg_preview", displayMsg)
+			flow.Log("chat_input", map[string]any{
+				"run_id":  runID,
+				"source":  "channel",
+				"message": text,
+				"sender":  senderLabel,
+			}, runID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_input",
+				Summary: prefix + " " + displayMsg,
+				RunID:   runID,
+				Detail:  map[string]string{"role": "user", "message": text, "sender": senderLabel},
+			})
+			break
+		}
+
+		if sm.Message.Role != "assistant" {
+			break
+		}
+		h.channelTurnMu.Lock()
+		st, ok := h.channelTurns[sm.SessionKey]
+		if !ok {
+			h.channelTurnMu.Unlock()
+			break
+		}
+		if text != "" {
+			st.accumulated.WriteString(text)
+		}
+		// stopReason "stop" or "end_turn" both signal the final assistant
+		// message of the turn. "toolUse" means another tool round will follow.
+		isFinal := sm.Message.StopReason == "stop" || sm.Message.StopReason == "end_turn"
+		runID := st.runID
+		var fullText string
+		if isFinal {
+			fullText = st.accumulated.String()
+			delete(h.channelTurns, sm.SessionKey)
+		}
+		h.channelTurnMu.Unlock()
+		if !isFinal {
+			break
+		}
+
+		fullText = prunedImageMarkerRe.ReplaceAllString(fullText, "")
+		hwCalls, cleanText := extractHWCalls(fullText)
+		cleanText = extractSayTag(cleanText)
+		cleanText = sanitizeAgentText(cleanText)
+
+		// Fire HW markers (LED, emotion, servo, audio) on the local lamp
+		// even though the spoken text goes back to the originating channel.
+		h.fireHWCalls(hwCalls, runID)
+
+		// Channel turns never speak via the lamp speaker — Telegram already
+		// receives the text directly from OpenClaw. Emit tts_suppressed so
+		// the monitor reflects reality.
+		switch {
+		case isAgentNoReply(cleanText):
+			slog.Info("channel turn replied NO_REPLY", "component", "agent", "run_id", runID)
+			flow.Log("no_reply", map[string]any{"run_id": runID}, runID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_response",
+				Summary: "[no reply]",
+				RunID:   runID,
+				State:   "final",
+				Detail:  map[string]string{"role": "assistant", "message": "[no reply]"},
+			})
+		case strings.TrimSpace(cleanText) == "":
+			slog.Info("channel turn HW-only reply", "component", "agent", "run_id", runID, "hw_calls", len(hwCalls))
+			flow.Log("hw_only_reply", map[string]any{"run_id": runID}, runID)
+		default:
+			preview := cleanText
+			if len(preview) > 200 {
+				preview = preview[:200] + "…"
+			}
+			slog.Info("channel turn final assistant text", "component", "agent",
+				"run_id", runID, "hw_calls", len(hwCalls), "text", preview)
+			flow.Log("tts_suppressed", map[string]any{
+				"run_id": runID,
+				"reason": "channel_run",
+				"text":   cleanText,
+			}, runID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "chat_response",
+				Summary: preview,
+				RunID:   runID,
+				State:   "final",
+				Detail:  map[string]string{"role": "assistant", "message": cleanText},
+			})
+		}
+		// Drop the channelRuns marker — turn is finished, no more events expected.
+		h.channelRunsMu.Lock()
+		delete(h.channelRuns, runID)
+		h.channelRunsMu.Unlock()
 
 	default:
 		// Unhandled WS events (health, heartbeat, cron, shutdown, etc.) — no-op.
