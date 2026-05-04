@@ -19,10 +19,33 @@ import lelamp.app_state as state
 
 logger = logging.getLogger(__name__)
 
-BUTTON_PIN = 17
+# Default wiring for Raspberry Pi 4/5 (BCM 17 on gpiochip0).
+PI_BUTTON_CHIP = 0
+PI_BUTTON_PIN = 17
+
+# OrangePi sun60iw2 (4 Pro / A733): button on header pin 11 = PL9 → gpiochip1 line 9.
+OPI_SUN60_BUTTON_CHIP = 1
+OPI_SUN60_BUTTON_PIN = 9
+
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
 DEBOUNCE_US = 200_000  # microseconds
+
+
+def _is_orangepi_sun60() -> bool:
+    """Detect Allwinner sun60iw2 (OrangePi 4 Pro / A733) via device-tree model."""
+    try:
+        with open("/proc/device-tree/model", "r") as f:
+            return "sun60iw2" in f.read().lower()
+    except OSError:
+        return False
+
+
+def _resolve_button_pin() -> tuple[int, int]:
+    """Return (chip, line) for the wake button on this board."""
+    if _is_orangepi_sun60():
+        return OPI_SUN60_BUTTON_CHIP, OPI_SUN60_BUTTON_PIN
+    return PI_BUTTON_CHIP, PI_BUTTON_PIN
 
 
 class GPIOButtonHandler:
@@ -35,19 +58,24 @@ class GPIOButtonHandler:
         self._press_start = 0
         self._long_press_timer = None
         self._last_tick = 0
+        self._chip = 0
+        self._pin = 0
 
     def start(self):
         import lgpio
 
+        self._chip, self._pin = _resolve_button_pin()
         self._lgpio = lgpio
-        self._handle = lgpio.gpiochip_open(0)
+        self._handle = lgpio.gpiochip_open(self._chip)
         lgpio.gpio_claim_alert(
-            self._handle, BUTTON_PIN, lgpio.BOTH_EDGES, lgpio.SET_PULL_UP
+            self._handle, self._pin, lgpio.BOTH_EDGES, lgpio.SET_PULL_UP
         )
         self._callback = lgpio.callback(
-            self._handle, BUTTON_PIN, lgpio.BOTH_EDGES, self._on_edge
+            self._handle, self._pin, lgpio.BOTH_EDGES, self._on_edge
         )
-        logger.info("GPIO button ready on pin %d", BUTTON_PIN)
+        logger.info(
+            "GPIO button ready on gpiochip%d line %d", self._chip, self._pin,
+        )
 
     def _on_edge(self, chip, gpio, level, tick):
         if level == 0:
