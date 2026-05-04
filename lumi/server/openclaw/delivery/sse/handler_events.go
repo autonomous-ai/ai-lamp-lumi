@@ -1039,6 +1039,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if text != "" {
 			st.accumulated.WriteString(text)
 		}
+		// Surface tool calls embedded in assistant content. OpenClaw 5.2
+		// suppresses `session.tool` broadcast for non-webchat runs, so the
+		// Flow Monitor "Agent Tools" pipeline node only lights up if we
+		// derive tool_call events from these content blocks ourselves.
+		// Same UUID→synthetic-id mapping the session.tool branch uses
+		// would have applied here, but the content blocks already carry
+		// the intent — emit directly under the synthetic runId.
+		toolCalls := extractMessageToolCalls(sm.Message.Content)
+		runIDForTools := st.runID
 		// stopReason "stop" or "end_turn" both signal the final assistant
 		// message of the turn. "toolUse" means another tool round will follow.
 		isFinal := sm.Message.StopReason == "stop" || sm.Message.StopReason == "end_turn"
@@ -1049,6 +1058,29 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			delete(h.channelTurns, sm.SessionKey)
 		}
 		h.channelTurnMu.Unlock()
+		// Emit tool_call events for embedded toolCall blocks (regardless
+		// of isFinal — tool rounds may interleave across multiple
+		// assistant messages within the same turn).
+		for _, tc := range toolCalls {
+			summary := "Tool " + tc.Name + " done"
+			flow.Log("tool_call", map[string]any{
+				"tool":   tc.Name,
+				"args":   tc.Arguments,
+				"phase":  "end",
+				"run_id": runIDForTools,
+				"source": "session.message",
+			}, runIDForTools)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "tool_call",
+				Summary: summary,
+				RunID:   runIDForTools,
+				Phase:   "end",
+				Detail: map[string]string{
+					"tool": tc.Name,
+					"args": tc.Arguments,
+				},
+			})
+		}
 		if !isFinal {
 			break
 		}

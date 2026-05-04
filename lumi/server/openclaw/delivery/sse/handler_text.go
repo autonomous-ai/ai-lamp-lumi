@@ -123,6 +123,45 @@ func extractMessageContentText(raw json.RawMessage) string {
 	return strings.Join(parts, "")
 }
 
+// MessageToolCall is a tool invocation extracted from an assistant
+// session.message content array. OpenClaw 5.2 gates `session.tool`
+// broadcast on `isControlUiVisible`, which is false for non-webchat
+// channels, so tool surfacing for Telegram turns relies on these
+// content blocks instead.
+type MessageToolCall struct {
+	Name      string
+	Arguments string
+}
+
+// extractMessageToolCalls scans a session.message `content` array for
+// `{type:"toolCall", name, arguments:{...}}` blocks. The arguments JSON
+// is preserved as-is (compact string) so existing string-match detectors
+// (e.g. `/emotion`, `/led/solid`) keep working uniformly.
+func extractMessageToolCalls(raw json.RawMessage) []MessageToolCall {
+	if len(raw) == 0 {
+		return nil
+	}
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	out := make([]MessageToolCall, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type != "toolCall" || b.Name == "" {
+			continue
+		}
+		out = append(out, MessageToolCall{
+			Name:      b.Name,
+			Arguments: strings.TrimSpace(string(b.Arguments)),
+		})
+	}
+	return out
+}
+
 // shortError extracts a short, readable message from a potentially large error string.
 // Strips HTML bodies (e.g. Cloudflare 403 pages) down to the status line.
 func shortError(errMsg string) string {
