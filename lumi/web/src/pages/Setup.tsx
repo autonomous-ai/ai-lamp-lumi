@@ -233,9 +233,36 @@ export default function Setup() {
     fetchNetworks().finally(() => setLoadingList(false));
     getTTSProviders().then(setTtsProviders).catch(() => {});
     getTTSVoices().then(setTtsVoices).catch(() => {});
+    // Pre-populate the form from any existing config so re-running setup
+    // doesn't blank out fields the operator already filled. URL params and
+    // anything the user has typed take precedence — we only fill empty
+    // state slots (prev || cfg.x).
     getDeviceConfig().then((cfg) => {
       if (cfg.tts_provider) setTtsProvider(cfg.tts_provider);
       if (cfg.tts_voice) setTtsVoice(cfg.tts_voice);
+      setSsid((prev) => prev || cfg.network_ssid || "");
+      setPassword((prev) => prev || cfg.network_password || "");
+      setDeviceId((prev) => prev || cfg.device_id || "");
+      setLlmApiKey((prev) => prev || cfg.llm_api_key || "");
+      setLlmUrl((prev) => prev || cfg.llm_base_url || "");
+      setLlmModel((prev) => prev || cfg.llm_model || "");
+      if (cfg.llm_disable_thinking != null) setLlmDisableThinking((prev) => prev || cfg.llm_disable_thinking);
+      setTtsApiKey((prev) => prev || cfg.tts_api_key || "");
+      setTtsBaseUrl((prev) => prev || cfg.tts_base_url || "");
+      setTeleToken((prev) => prev || cfg.telegram_bot_token || "");
+      setTeleUserId((prev) => prev || cfg.telegram_user_id || "");
+      setSlackBotToken((prev) => prev || cfg.slack_bot_token || "");
+      setSlackAppToken((prev) => prev || cfg.slack_app_token || "");
+      setSlackUserId((prev) => prev || cfg.slack_user_id || "");
+      setDiscordBotToken((prev) => prev || cfg.discord_bot_token || "");
+      setDiscordGuildId((prev) => prev || cfg.discord_guild_id || "");
+      setDiscordUserId((prev) => prev || cfg.discord_user_id || "");
+      setMqttEndpoint((prev) => prev || cfg.mqtt_endpoint || "");
+      setMqttPort((prev) => prev || (cfg.mqtt_port ? String(cfg.mqtt_port) : ""));
+      setMqttUsername((prev) => prev || cfg.mqtt_username || "");
+      setMqttPassword((prev) => prev || cfg.mqtt_password || "");
+      setFaChannel((prev) => prev || cfg.fa_channel || "");
+      setFdChannel((prev) => prev || cfg.fd_channel || "");
     }).catch(() => {});
   }, []);
 
