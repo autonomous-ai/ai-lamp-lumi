@@ -184,9 +184,9 @@ export default function Setup() {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
-  const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "pro-llm-key-57a4783fc9auto0001");
-  const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "https://campaign-api.autonomous.ai/api/v1/ai/v1");
-  const [llmModel, setLlmModel] = useState(urlParams.llmModel || "claude-haiku-4-5");
+  const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "");
+  const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
+  const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
   const [llmDisableThinking, setLlmDisableThinking] = useState(false);
   const [deepgramApiKey, setDeepgramApiKey] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
