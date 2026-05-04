@@ -123,6 +123,32 @@ func extractMessageContentText(raw json.RawMessage) string {
 	return strings.Join(parts, "")
 }
 
+// isLumiInjectedUserMessage matches user-role message text that Lumi
+// itself fed into the agent via chat.send (skill watcher, sensing, ambient,
+// heartbeat, wake). On the shared `agent:main:main` session these arrive
+// back as session.message events with the cached telegram delivery context
+// from the previous DM, so without this filter every Lumi system push
+// would be mis-tagged as an inbound Telegram turn.
+func isLumiInjectedUserMessage(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(t, "[system]"),
+		strings.HasPrefix(t, "[sensing:"),
+		strings.HasPrefix(t, "[ambient]"),
+		strings.HasPrefix(t, "(system)"),
+		strings.HasPrefix(t, "(system "),
+		strings.HasPrefix(t, "You just woke up"):
+		return true
+	}
+	if strings.Contains(t, "Read HEARTBEAT.md") {
+		return true
+	}
+	return false
+}
+
 // extractMessageThinkingTexts pulls reasoning text out of `{type:"thinking",
 // thinking:"..."}` content blocks (and the legacy `text` field shape some
 // providers use). Returns the list in order so each can be emitted as a
