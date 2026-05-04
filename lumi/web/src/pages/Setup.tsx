@@ -532,7 +532,7 @@ export default function Setup() {
                   <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="ssid" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        SSID
+                        Wi-Fi network
                       </label>
                       {loadingList ? (
                         <SkeletonBlock />
@@ -557,7 +557,7 @@ export default function Setup() {
                         <input
                           id="ssid" type="text" value={ssid}
                           onChange={(e) => setSsid(e.target.value)}
-                          placeholder="Enter SSID" autoComplete="off"
+                          placeholder="Enter Wi-Fi name" autoComplete="off"
                           style={{
                             width: "100%", boxSizing: "border-box",
                             background: C.surface, border: `1px solid ${C.border}`,
