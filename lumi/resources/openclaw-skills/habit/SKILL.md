@@ -26,18 +26,9 @@ JSONL line example (wellbeing):
 {"ts": 1776657145.05, "seq": 4, "hour": 10, "action": "drink", "notes": ""}
 ```
 
-JSONL line example (music-suggestions):
-```json
-{"ts": 1234567, "hour": 14, "trigger": "mood:tired", "message": "Want some calm piano?", "status": "accepted"}
-```
-
 ## Storage (Output)
 
-Computed patterns are stored per user at:
-
-```
-/root/local/users/{name}/habit/patterns.json
-```
+Computed patterns are stored per user at `/root/local/users/{name}/habit/patterns.json`.
 
 Rebuild when:
 - File does not exist yet
@@ -46,21 +37,7 @@ Rebuild when:
 
 ## What is a Habit?
 
-A habit is a **time-anchored action** that repeats across multiple days:
-
-```json
-{
-  "action": "drink",
-  "typical_hour": 9,
-  "typical_minute": 15,
-  "window_minutes": 30,
-  "frequency": 0.85,
-  "days_observed": 7,
-  "strength": "strong"
-}
-```
-
-Strength labels:
+A habit is a **time-anchored action** that repeats across multiple days. Strength labels:
 
 | Frequency | Strength |
 |---|---|
@@ -72,134 +49,12 @@ Habits require **at least 3 days of data** to form. With fewer days, skip proact
 
 ## Workflow
 
-### A — Build Patterns (discovery / answering questions)
-
-**Self-throttle guard (run first, always):**
-
-```bash
-PATTERNS=/root/local/users/{name}/habit/patterns.json
-if [ -f "$PATTERNS" ] && [ $(( $(date +%s) - $(stat -c %Y "$PATTERNS") )) -lt 21600 ]; then
-  cat "$PATTERNS"   # fresh < 6h — return existing, skip rebuild
-  exit 0
-fi
-DAYS=$(ls /root/local/users/{name}/wellbeing/*.jsonl 2>/dev/null | wc -l)
-[ "$DAYS" -lt 3 ] && { echo "insufficient_data: $DAYS days"; exit 0; }
-```
-
-This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on every nudge. Cost is one `stat` + integer compare on the hot path; only the cold path (missing or stale patterns, ≥3 days of data) runs the full multi-day read below.
-
-1. **Load multi-day data**: Read the last 7–14 days of wellbeing JSONL files for the user.
-   ```bash
-   ls /root/local/users/{name}/wellbeing/*.jsonl | sort | tail -14
-   cat /root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl
-   ```
-   Track total number of distinct dates loaded → `days_observed`.
-
-2. **Filter relevant actions**: Only these actions can form habits:
-
-   | Action | Habit type |
-   |---|---|
-   | `drink` | Hydration timing |
-   | `break` | Rest timing |
-   | `enter` | Arrival time |
-   | `leave` | Departure time |
-   | `using computer` | Work session start |
-   | `writing`, `texting`, `reading book`, `drawing` | Activity patterns |
-   | `meal` | Meal timing (from conversation intent) |
-   | `coffee` | Coffee timing (from conversation intent) |
-   | `sleep` | Sleep timing (from conversation intent) |
-   | `exercise` | Exercise timing (from conversation intent) |
-
-   Skip: `nudge_hydration`, `nudge_break`, `emotional`.
-
-3. **Group by (action, hour)**: For each pair, collect the list of dates it appeared:
-   ```
-   drink @ hour=9  → [2026-04-15, 2026-04-17, 2026-04-18, 2026-04-20, 2026-04-21]
-   drink @ hour=14 → [2026-04-15, 2026-04-16, 2026-04-20]
-   enter @ hour=8  → [2026-04-15, 2026-04-16, 2026-04-17, 2026-04-18, 2026-04-19, 2026-04-20, 2026-04-21]
-   ```
-
-4. **Compute frequency**: `frequency = len(dates_appeared) / days_observed`
-
-5. **Compute typical minute**: For days where the action occurred at the habitual hour, collect the minute values and take the median:
-   ```
-   drink @ hour=9 minutes: [08, 14, 22, 07, 10] → median = 10 → typical_minute = 10
-   ```
-
-6. **Assign strength** per table above.
-
-7. **Build habit objects** and write to `patterns.json`:
-   ```bash
-   mkdir -p /root/local/users/{name}/habit
-   cat > /root/local/users/{name}/habit/patterns.json << 'PATTERNS'
-   {the computed JSON}
-   PATTERNS
-   ```
-
-   Expected JSON structure:
-   ```json
-   {
-     "updated_at": "2026-04-22T08:00:00",
-     "days_observed": 7,
-     "wellbeing_patterns": [
-       {
-         "action": "drink",
-         "typical_hour": 9,
-         "typical_minute": 10,
-         "window_minutes": 30,
-         "frequency": 0.71,
-         "days_observed": 7,
-         "strength": "moderate"
-       },
-       {
-         "action": "enter",
-         "typical_hour": 8,
-         "typical_minute": 30,
-         "window_minutes": 45,
-         "frequency": 1.0,
-         "days_observed": 7,
-         "strength": "strong"
-       }
-     ],
-     "music_patterns": [
-       {
-         "preferred_genre": "lo-fi",
-         "peak_hour": 14,
-         "acceptance_rate": 0.8,
-         "days_observed": 5
-       }
-     ]
-   }
-   ```
-
-### B — Habit match (helper for wellbeing/SKILL.md Step 3b)
-
-`wellbeing/SKILL.md` calls this after a threshold nudge fires. Read `patterns.json` directly (no API), find the matching habit for the nudge action, and let wellbeing weave the context into Step 4 phrasing. Habit itself never speaks or writes a `nudge_*` row — wellbeing owns the nudge.
-
-1. Get current time (hour + minute).
-2. For the action wellbeing is about to nudge (`drink` or `break`), find any habit entry with the same `action` and `strength` moderate+ (`frequency >= 0.5`).
-3. Is `now` within `typical_hour:typical_minute ± window_minutes`?
-4. If yes → return the matched habit so wellbeing can phrase as *"you usually drink around now…"*. If no match → wellbeing falls back to its generic phrasing table.
-
-Window sizes by action:
-
-| Action | Suggested window |
-|---|---|
-| `drink` | ±30 min |
-| `break` | ±30 min |
-| `enter` (arrival) | ±45 min |
-| Sedentary labels | ±60 min |
-| `meal` | ±45 min |
-| `coffee` | ±30 min |
-| `sleep` | ±30 min |
-| `exercise` | ±60 min |
-
-### C — Music personalization
-
-1. Read `music-suggestions/` for accepted suggestions + their trigger times.
-2. Group accepted suggestions by hour → find peak hours. Extract genre hint from `message` field (e.g. "lo-fi", "jazz", "piano").
-3. Write to `music_patterns` in `patterns.json`.
-4. Music-suggestion skill reads this: if current hour matches `peak_hour ± 1`, use `preferred_genre` instead of the default mood-based genre table.
+| Flow | When to run | Details |
+|---|---|---|
+| **A — Build patterns** | Discovery / answering questions; wellbeing nudge | `reference/build-patterns.md` |
+| **B — Habit match** | Helper for wellbeing/SKILL.md Step 3b | `reference/match-helper.md` |
+| **C — Music personalization** | Build / consume `music_patterns` | `reference/music.md` |
+| **D — Conversation intent logging** | Triggered from SOUL when user states intent NOW | inline below |
 
 ### D — Conversation intent logging (triggered from SOUL)
 
