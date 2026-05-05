@@ -6,6 +6,7 @@ Streams PCM chunks directly to the audio device — no buffering the entire resp
 Runs synthesis in a background thread to avoid blocking FastAPI.
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -14,6 +15,7 @@ import queue
 import re
 import threading
 import time
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +28,25 @@ from lelamp.service.voice.tts_backend import TTSBackend, TTS_SAMPLE_RATE, create
 _RATE_CACHE_PATH = Path(
     os.environ.get("LELAMP_AUDIO_RATE_CACHE", "/var/lib/lelamp/audio_rate.json")
 )
+
+# WAV cache for fixed-text TTS (fillers, intent confirms). Key includes
+# provider/voice/model/speed/text so config changes self-invalidate.
+_TTS_CACHE_DIR = Path(
+    os.environ.get("LELAMP_TTS_CACHE_DIR", "/var/lib/lelamp/tts_cache")
+)
+# Per-key render lock map -- prevents two concurrent prerenders for same text
+# from racing on the same WAV file.
+_render_locks: dict[str, threading.Lock] = {}
+_render_locks_mu = threading.Lock()
+
+
+def _render_lock_for(key: str) -> threading.Lock:
+    with _render_locks_mu:
+        lock = _render_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _render_locks[key] = lock
+        return lock
 
 logger = logging.getLogger("lelamp.voice.tts")
 
@@ -701,3 +722,167 @@ class TTSService:
                 logger.warning("on_speak_end callback failed: %s", e)
 
         self._lock.release()
+
+    # ──────────────────────────────────────────────────────────────────────
+    # WAV cache for fixed-text speeches (fillers, intent confirms).
+    # Cache hit -> ~50ms playback (no ElevenLabs roundtrip).
+    # Cache miss -> render full WAV, save, then play. Subsequent calls hit.
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _tts_cache_key(self, text: str) -> str:
+        h = hashlib.sha1()
+        h.update(self._provider.encode("utf-8"))
+        h.update(b"\x00")
+        h.update((self._voice or "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update((self._model or "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update(f"{self._speed:.2f}".encode("ascii"))
+        h.update(b"\x00")
+        h.update(text.encode("utf-8"))
+        return h.hexdigest()
+
+    def _tts_cache_path(self, text: str) -> Path:
+        return _TTS_CACHE_DIR / f"{self._tts_cache_key(text)}.wav"
+
+    def speak_cached(self, text: str, interruptible: bool = False, prerender: bool = False) -> bool:
+        """Cache-aware speak. On hit -> ~50ms playback. On miss -> render+save
+        then play. prerender=True skips playback (warmup-only)."""
+        if not self.available:
+            logger.warning("TTS not available (cached path)")
+            return False
+
+        cache_path = self._tts_cache_path(text)
+        key = cache_path.name
+
+        # Prerender: synchronous render+save, no playback. Caller (boot script)
+        # typically iterates over a fixed phrase list.
+        if prerender:
+            with _render_lock_for(key):
+                if cache_path.exists():
+                    return True
+                try:
+                    self._render_and_save_wav(text, cache_path)
+                    return True
+                except Exception as e:
+                    logger.error("Prerender failed for %r: %s", text[:50], e)
+                    return False
+
+        # Playback path: mirror speak() lock semantics.
+        if not self._lock.acquire(blocking=False):
+            if self._interruptible:
+                logger.info("TTS interrupting (cached) for: %s", text[:50])
+                self.stop()
+                if not self._lock.acquire(blocking=True, timeout=2.0):
+                    logger.warning("TTS lock not released after stop (cached): %s", text[:50])
+                    return False
+            else:
+                logger.info("TTS busy, skipping cached: %s", text[:50])
+                return False
+
+        self._stop_event.clear()
+        self._speaking = True
+        self._interruptible = interruptible
+        self._last_spoken_text = text
+
+        threading.Thread(
+            target=self._cached_play_thread,
+            args=(text, cache_path),
+            daemon=True,
+            name="tts-cached-speak",
+        ).start()
+        return True
+
+    def _cached_play_thread(self, text: str, cache_path: Path) -> None:
+        """Render-on-miss + play. Runs with self._lock + self._speaking already
+        set by speak_cached(). Releases them in the finally block."""
+        cache_hit = cache_path.exists()
+        try:
+            if not cache_hit:
+                with _render_lock_for(cache_path.name):
+                    if not cache_path.exists():
+                        self._render_and_save_wav(text, cache_path)
+            self._play_wav_inline(cache_path, hit=cache_hit)
+        except Exception as e:
+            logger.error("Cached speak thread failed: %s (type=%s)", e, type(e).__name__)
+        finally:
+            self._speaking = False
+            self._last_spoken_time = time.time()
+            if self._on_speak_end:
+                try:
+                    self._on_speak_end()
+                except Exception as e:
+                    logger.warning("on_speak_end (cached) failed: %s", e)
+            try:
+                self._lock.release()
+            except Exception:
+                pass
+
+    def _play_wav_inline(self, path: Path, hit: bool = True) -> None:
+        """Load WAV -> resample -> write to persistent stream. Acquires
+        self._stream_lock for the playback duration."""
+        t0 = time.perf_counter()
+        with wave.open(str(path), "rb") as wav:
+            src_rate = wav.getframerate()
+            raw = wav.readframes(wav.getnframes())
+
+        np = self._np
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if self._backend is not None:
+            samples = np.clip(samples * self._backend.volume_boost, -1.0, 1.0)
+
+        dst_rate = self._device_rate or TTS_SAMPLE_RATE
+        if src_rate != dst_rate:
+            samples = self._resample(samples, src_rate, dst_rate)
+        samples = samples.reshape(-1, 1)
+
+        if self._on_speak_start:
+            try:
+                self._on_speak_start()
+            except Exception as e:
+                logger.warning("on_speak_start (cached) failed: %s", e)
+
+        with self._stream_lock:
+            stream = self._ensure_stream(dst_rate)
+            # Write in 10ms blocks so stop() can cut in promptly.
+            block = max(1, dst_rate // 100)
+            for i in range(0, len(samples), block):
+                if self._stop_event.is_set():
+                    break
+                stream.write(samples[i : i + block])
+
+        logger.info(
+            "TTS cached %s: %d samples @ %d Hz, took %.0fms (path=%s)",
+            "HIT" if hit else "MISS-played",
+            len(samples), dst_rate, (time.perf_counter() - t0) * 1000.0, path.name,
+        )
+
+    def _render_and_save_wav(self, text: str, cache_path: Path) -> None:
+        """Pull all PCM from backend and write WAV atomically. Synchronous."""
+        if self._backend is None:
+            raise RuntimeError("TTS backend not initialized")
+        t0 = time.perf_counter()
+        pcm = bytearray()
+        src_rate = self._backend.sample_rate
+        for chunk in self._backend.stream_pcm(
+            text=text,
+            voice=self._voice,
+            model=self._model,
+            speed=self._speed,
+            instructions=self._instructions,
+        ):
+            pcm.extend(chunk)
+
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_suffix(".wav.tmp")
+        with wave.open(str(tmp_path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(src_rate)
+            wav.writeframes(bytes(pcm))
+        tmp_path.replace(cache_path)
+        logger.info(
+            "TTS rendered to cache: %s (%d bytes, rate=%d, took %.0fms)",
+            cache_path.name, len(pcm), src_rate,
+            (time.perf_counter() - t0) * 1000.0,
+        )
