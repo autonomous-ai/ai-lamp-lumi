@@ -161,6 +161,10 @@ def play_tone(frequency: int = 440, duration_ms: int = 500):
         raise HTTPException(503, "Audio not available")
     if state.audio_output_device is None:
         raise HTTPException(503, "No output audio device found")
+    # Release the TTS persistent stream so sd.play can grab the ALSA device
+    # exclusively. TTS reopens lazily on the next speak() call.
+    if state.tts_service and hasattr(state.tts_service, "release_stream"):
+        state.tts_service.release_stream()
     dev_info = sd.query_devices(state.audio_output_device)
     sample_rate = int(dev_info["default_samplerate"])
     t = np.linspace(
