@@ -143,11 +143,12 @@ class Backchannel:
                 x_old = np.linspace(0, 1, len(samples))
                 x_new = np.linspace(0, 1, n_out)
                 samples = np.interp(x_new, x_old, samples).astype(np.float32)
-            with tts._sd.OutputStream(
-                samplerate=dst_rate, channels=1, dtype="float32",
-                device=tts._output_device,
-            ) as stream:
-                stream.write(samples.reshape(-1, 1))
+            # Reuse the TTS persistent stream — the device is held exclusively
+            # so opening a second OutputStream returns PaErrorCode -9985.
+            samples_2d = samples.reshape(-1, 1)
+            with tts._stream_lock:
+                stream = tts._ensure_stream(dst_rate)
+                stream.write(samples_2d)
             logger.info("Backchannel played: '%s'", text)
         except Exception as e:
             logger.warning("Backchannel play failed: %s", e)

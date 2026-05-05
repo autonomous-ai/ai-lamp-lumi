@@ -178,6 +178,13 @@ class TTSService:
                 self._stream = None
                 self._stream_rate = None
 
+    def release_stream(self):
+        """Public: close the persistent stream so other ALSA consumers
+        (music ffmpeg|aplay subprocess, /audio/play-tone, /audio/record)
+        can grab the device exclusively. Stream is reopened lazily by the
+        next speak() / speak_cached() call."""
+        self._invalidate_stream()
+
     def _silence_keepalive(self):
         """Write 20ms of silence every 500ms when idle to keep the codec out of
         suspend. WM8960/Rockchip codecs power down PCM after ~1s idle, which
