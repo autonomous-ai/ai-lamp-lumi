@@ -84,7 +84,23 @@ type Service struct {
 	// response gets attributed to the wrong runId.
 	pendingChatMu    sync.Mutex
 	pendingChatQueue []pendingTrace
+
+	// recentOutboundTexts is a small ring buffer of message texts Lumi sent
+	// via chat.send (wake greeting, ambient guard, sensing events). Used by
+	// the session.message SSE handler to skip echoes — OpenClaw rebroadcasts
+	// every chat.send-injected message as session.message role=user, which
+	// is indistinguishable from real channel input on shape alone.
+	recentOutboundMu    sync.Mutex
+	recentOutboundTexts []recentOutbound
 }
+
+type recentOutbound struct {
+	text string
+	ts   int64 // unix ms
+}
+
+const recentOutboundWindowMs int64 = 30_000
+const recentOutboundMaxEntries = 32
 
 // pendingTrace pairs a chat.send idempotencyKey with its send time.
 // Entries live in SetPendingChatTrace / ConsumePendingChatTrace in FIFO order.
@@ -114,6 +130,48 @@ func ProvideService(cfg *config.Config, bus *monitor.Bus, sled *statusled.Servic
 // Name returns the display name of this agent gateway.
 func (s *Service) Name() string {
 	return "OpenClaw"
+}
+
+// markOutboundChat records a Lumi-sent chat.send message text so the SSE
+// session.message handler can skip its echo. Trims expired + over-cap.
+func (s *Service) markOutboundChat(text string) {
+	if text == "" {
+		return
+	}
+	now := time.Now().UnixMilli()
+	s.recentOutboundMu.Lock()
+	defer s.recentOutboundMu.Unlock()
+	cutoff := now - recentOutboundWindowMs
+	pruned := s.recentOutboundTexts[:0]
+	for _, r := range s.recentOutboundTexts {
+		if r.ts >= cutoff {
+			pruned = append(pruned, r)
+		}
+	}
+	pruned = append(pruned, recentOutbound{text: text, ts: now})
+	if len(pruned) > recentOutboundMaxEntries {
+		pruned = pruned[len(pruned)-recentOutboundMaxEntries:]
+	}
+	s.recentOutboundTexts = pruned
+}
+
+// IsRecentOutboundChat reports whether Lumi sent this text recently. Match
+// is exact on the message string Lumi passes to chat.send (after sensing
+// snapshot path stripping — caller needs to compare against the same form).
+func (s *Service) IsRecentOutboundChat(text string) bool {
+	if text == "" {
+		return false
+	}
+	now := time.Now().UnixMilli()
+	cutoff := now - recentOutboundWindowMs
+	s.recentOutboundMu.Lock()
+	defer s.recentOutboundMu.Unlock()
+	for _, r := range s.recentOutboundTexts {
+		if r.ts >= cutoff && r.text == text {
+			return true
+		}
+	}
+	return false
 }
 
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.

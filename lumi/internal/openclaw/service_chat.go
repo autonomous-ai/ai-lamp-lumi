@@ -135,6 +135,23 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 		wsMessage = strings.TrimSpace(reSnapshotPath.ReplaceAllString(message, ""))
 	}
 	params["message"] = wsMessage
+	// Track the form OpenClaw will rebroadcast (post-strip) so the SSE
+	// session.message handler can skip the echo and not mistake it for
+	// real telegram/channel input.
+	s.markOutboundChat(wsMessage)
+	// Emit chat_input flow event so Flow Monitor's IN field shows the
+	// actual message text. Without this, lumi-chat-* turns render as
+	// "Input not captured" because the agent path skips chat.history
+	// fetch for Lumi-originated runs (only channel turns hit that path).
+	previewMsg := message
+	if len(previewMsg) > 500 {
+		previewMsg = previewMsg[:500] + "…"
+	}
+	flow.Log("chat_input", map[string]any{
+		"run_id":  idempotencyKey,
+		"source":  sourceType,
+		"message": previewMsg,
+	}, idempotencyKey)
 	hasImage := imageBase64 != ""
 	if hasImage {
 		// OpenClaw chat.send accepts attachments[]{content, mimeType} — content is raw base64 string.

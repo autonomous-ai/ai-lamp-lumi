@@ -189,4 +189,11 @@ type AgentGateway interface {
 	// CompactSession sends a sessions.compact RPC to the agent runtime
 	// to summarize and reduce conversation history for the given session.
 	CompactSession(sessionKey string) error
+
+	// IsRecentOutboundChat returns true if Lumi just called chat.send with
+	// this exact text within the recent window. Used by the session.message
+	// handler to skip echoes of Lumi-injected user messages (wake greeting,
+	// ambient guard, sensing events) which OpenClaw broadcasts back as
+	// session.message role=user — identical in shape to real channel input.
+	IsRecentOutboundChat(text string) bool
 }
