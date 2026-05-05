@@ -15,7 +15,6 @@ import lelamp.config as config
 from lelamp.service.sensing.perceptions.models import (
     Face,
     FaceDetectionData,
-    PersonKind,
 )
 from lelamp.service.sensing.perceptions.typing import SendEventCallable
 from lelamp.service.sensing.perceptions.utils import PerceptionStateObservers
@@ -146,9 +145,9 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._emotion_buffer: dict[str, EmotionData] = {}
         self._snapshots_buffer: list[cv2.typing.MatLike] = []
 
-        # Dedup: same (person, emotion) within window → drop. Mirrors
+        # Dedup: same (current_user, emotion) within window → drop. Mirrors
         # MotionPerception — single key + window, reset on user change.
-        self._last_sent_key: tuple[str, str] | None = None  # (person_id, emotion)
+        self._last_sent_key: tuple[str, str] | None = None  # (current_user, emotion)
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
 
@@ -272,6 +271,13 @@ class EmotionPerception(Perception[FaceDetectionData]):
             )
             return
 
+        # Dedup key uses the global current_user (same source of truth as
+        # MotionPerception + reset_dedup). Per-face person_id is too noisy
+        # ('?' / 'stranger_17' / 'stranger_18' all flip the key on every
+        # frame and bypass dedup). current_user is normalized at presence
+        # level, so all unsure/stranger faces collapse under the same user.
+        current_user = self._perception_state.current_user.data or ""
+
         # Process each person's emotions
         for person_id, emotion_data in buffer.items():
             if emotion_data:
@@ -285,14 +291,11 @@ class EmotionPerception(Perception[FaceDetectionData]):
             counts = Counter(non_neutral)
             dominant_emotion, _ = counts.most_common(1)[0]
 
-            if emotion_data.face.kind == PersonKind.FRIEND:
-                message = f"Emotion detected for {person_id}: {dominant_emotion}."
-            else:
-                message = f"Emotion detected: {dominant_emotion}."
+            message = f"Emotion detected: {dominant_emotion}."
 
-            # Dedup: same (person, emotion) within 5 min → drop. A different
-            # person OR a different emotion flips the key and passes through.
-            key = (person_id, dominant_emotion)
+            # Dedup: same (current_user, emotion) within 5 min → drop. A
+            # different user OR a different emotion flips the key.
+            key = (current_user, dominant_emotion)
             with self._state_lock:
                 if (
                     self._last_sent_key == key
