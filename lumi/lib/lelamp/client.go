@@ -63,6 +63,31 @@ func SpeakInterruptible(text string) error {
 	return post("/voice/speak", body)
 }
 
+// SpeakCachedInterruptible plays text via the WAV cache (instant on hit).
+// On miss, lelamp renders + saves WAV then plays. Use for fixed phrases
+// like dead-air fillers and intent confirms where the same text fires
+// repeatedly. interruptible=true so a real reply can cut it short.
+func SpeakCachedInterruptible(text string) error {
+	body, _ := json.Marshal(map[string]any{
+		"text":          text,
+		"interruptible": true,
+		"cached":        true,
+	})
+	return post("/voice/speak", body)
+}
+
+// PrerenderCached asks lelamp to render+save WAV for text without playing.
+// Used at startup to warm the cache for known fillers/intent confirms so
+// the first runtime call is a hit. Idempotent: no-op when WAV already exists.
+func PrerenderCached(text string) error {
+	body, _ := json.Marshal(map[string]any{
+		"text":      text,
+		"cached":    true,
+		"prerender": true,
+	})
+	return postWithTimeout("/voice/speak", body, 30*time.Second)
+}
+
 // StopTTS interrupts active TTS playback.
 func StopTTS() error { return post("/tts/stop", nil) }
 
@@ -279,6 +304,27 @@ func post(path string, body []byte) error {
 		reader = bytes.NewReader(body)
 	}
 	resp, err := httpClient.Post(BaseURL+path, "application/json", reader)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("POST %s returned %d", path, resp.StatusCode)
+	}
+	return nil
+}
+
+// postWithTimeout is post() with a per-call timeout override -- needed for
+// long-running endpoints like /voice/speak prerender that can take 1-3s
+// per ElevenLabs render and would exceed the default httpClient 5s budget
+// when warming many phrases serially.
+func postWithTimeout(path string, body []byte, timeout time.Duration) error {
+	client := &http.Client{Timeout: timeout}
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	resp, err := client.Post(BaseURL+path, "application/json", reader)
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", path, err)
 	}
