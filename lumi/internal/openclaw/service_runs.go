@@ -119,3 +119,29 @@ func (s *Service) ConsumePendingChatTrace() string {
 	s.pendingChatQueue = s.pendingChatQueue[1:]
 	return head.runID
 }
+
+// RemovePendingChatTraceByRunID removes the entry whose runID matches target.
+// Used on lifecycle_start when payload.RunID is already a Lumi-format
+// idempotencyKey (OpenClaw 5.4 echo path) — the runId IS the device trace,
+// no mapping is needed, but the entry must be cleared from the queue so the
+// next UUID lifecycle pop targets the correct successor instead of an
+// orphan that would shift every subsequent mapping by one.
+// Returns true if found+removed, false otherwise. Stale entries (> TTL) are
+// pruned from the head opportunistically while scanning.
+func (s *Service) RemovePendingChatTraceByRunID(target string) bool {
+	if target == "" {
+		return false
+	}
+	s.pendingChatMu.Lock()
+	defer s.pendingChatMu.Unlock()
+	for len(s.pendingChatQueue) > 0 && time.Since(s.pendingChatQueue[0].sentAt) > pendingChatTTL {
+		s.pendingChatQueue = s.pendingChatQueue[1:]
+	}
+	for i, p := range s.pendingChatQueue {
+		if p.runID == target {
+			s.pendingChatQueue = append(s.pendingChatQueue[:i], s.pendingChatQueue[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
