@@ -6,20 +6,28 @@ Streams PCM chunks directly to the audio device — no buffering the entire resp
 Runs synthesis in a background thread to avoid blocking FastAPI.
 """
 
+import json
 import logging
 import math
+import os
 import queue
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
 from lelamp.service.voice.tts_backend import TTSBackend, TTS_SAMPLE_RATE, create_backend
 
+# Persisted device-rate cache so probe doesn't re-run on every lumi-lelamp restart.
+# Schema: {"<output_device_id_or_default>": <rate_hz>}
+_RATE_CACHE_PATH = Path(
+    os.environ.get("LELAMP_AUDIO_RATE_CACHE", "/var/lib/lelamp/audio_rate.json")
+)
+
 logger = logging.getLogger("lelamp.voice.tts")
-logger.setLevel(logging.DEBUG)
 
 DEFAULT_VOICE = "alloy"
 DEFAULT_MODEL = "tts-1"
@@ -88,23 +96,72 @@ class TTSService:
         if self._sd:
             self._probe_device_rate()
 
-    def _probe_device_rate(self):
-        """Probe the output device to find a supported sample rate."""
+    def _cache_key(self) -> str:
+        return str(self._output_device) if self._output_device is not None else "default"
+
+    def _load_cached_rate(self) -> Optional[int]:
+        try:
+            if _RATE_CACHE_PATH.exists():
+                data = json.loads(_RATE_CACHE_PATH.read_text())
+                rate = data.get(self._cache_key())
+                if isinstance(rate, int) and rate > 0:
+                    return rate
+        except Exception as e:
+            logger.debug("rate cache read failed: %s", e)
+        return None
+
+    def _save_cached_rate(self, rate: int) -> None:
+        try:
+            _RATE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if _RATE_CACHE_PATH.exists():
+                try:
+                    data = json.loads(_RATE_CACHE_PATH.read_text()) or {}
+                except Exception:
+                    data = {}
+            data[self._cache_key()] = rate
+            _RATE_CACHE_PATH.write_text(json.dumps(data))
+        except Exception as e:
+            logger.debug("rate cache write failed: %s", e)
+
+    def _probe_device_rate(self, force: bool = False):
+        """Probe the output device to find a supported sample rate.
+
+        Short-circuit order: in-memory `self._device_rate` -> disk cache -> loop probe.
+        Pass force=True to bypass both caches — used by the retry path when playback
+        fails because the cached rate is no longer valid.
+        """
+        # In-memory hit: already probed/cached in this process, nothing to do.
+        if not force and self._device_rate:
+            return
+
         dev_label = (
             self._output_device if self._output_device is not None else "default"
         )
+
+        if not force:
+            cached = self._load_cached_rate()
+            if cached:
+                self._device_rate = cached
+                logger.info("Output device [%s]: using cached rate=%d Hz", dev_label, cached)
+                return
+
         self._device_rate = None
         for rate in [44100, 48000, 16000, 32000, 24000, 22050, 8000]:
             try:
+                # Write only ~5ms of silence — enough to verify the rate opens
+                # without forcing a multi-second snd_pcm_drain on close (OrangePi).
+                probe_frames = max(1, int(rate * 0.005))
                 with self._sd.OutputStream(
                     device=self._output_device,
                     samplerate=rate,
                     channels=TTS_CHANNELS,
                     dtype="float32",
                 ) as stream:
-                    _ = stream.write(np.zeros(rate, dtype=np.float32))
+                    _ = stream.write(np.zeros(probe_frames, dtype=np.float32))
                 self._device_rate = rate
                 logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
+                self._save_cached_rate(rate)
                 break
             except Exception as e:
                 logger.debug("Failed to play audio with rate=%d Hz due to e=%s", dev_label, e)
@@ -332,7 +389,7 @@ class TTSService:
                     logger.warning("TTS server error %s — skipping retries", status)
                     break
                 if attempt < self._max_retries:
-                    self._probe_device_rate()
+                    self._probe_device_rate(force=True)
                 attempt += 1
         logger.error("TTS give up for chunk %d/%d: text='%s'", idx, total, text[:80])
         return total_samples
@@ -406,8 +463,10 @@ class TTSService:
         tail_chunks = chunks[1:]
         total_samples = 0
 
-        # Re-probe before opening stream — device can reset between TTS calls (WM8960/PA).
-        self._probe_device_rate()
+        # Use cached rate from __init__. Re-probe only as fallback when playback
+        # actually fails (handled by the retry loop below). Pre-probing on every
+        # speak() blocked ~5s on OrangePi due to ALSA snd_pcm_drain after the 1s
+        # silence write — diagnosed 2026-05-05 from server.log.
         dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
         for _play_attempt in range(2):
@@ -456,7 +515,7 @@ class TTSService:
                 logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
                 if _play_attempt == 0:
                     logger.warning("Re-probing output device rate and retrying...")
-                    self._probe_device_rate()
+                    self._probe_device_rate(force=True)
                     dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
         logger.info(
