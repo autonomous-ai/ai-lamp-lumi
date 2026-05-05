@@ -145,11 +145,14 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._emotion_buffer: dict[str, EmotionData] = {}
         self._snapshots_buffer: list[cv2.typing.MatLike] = []
 
-        # Dedup: same (current_user, emotion) within window → drop. Mirrors
-        # MotionPerception — single key + window, reset on user change.
-        self._last_sent_key: tuple[str, str] | None = None  # (current_user, emotion)
-        self._last_sent_ts: float = 0.0
-        self._dedup_window_s: float = 300.0  # 5 min
+        # Dedup: TTL map per (current_user, emotion) — repeated key inside
+        # window dropped even if other emotions were sent in between.
+        # Last-key-only dedup let alternating sad/fear/sad/fear bypass the
+        # window and spam the agent queue every flush.
+        self._last_sent_by_key: dict[tuple[str, str], float] = {}
+        self._last_sent_key: tuple[str, str] | None = None  # debug/to_dict
+        self._last_sent_ts: float = 0.0                     # debug/to_dict
+        self._dedup_window_s: float = config.EMOTION_DEDUP_WINDOW_S
 
     def _process_face(
         self,
@@ -284,6 +287,13 @@ class EmotionPerception(Perception[FaceDetectionData]):
             )
             return
 
+        # Prune expired entries from the TTL map once per flush.
+        cutoff = cur_ts - self._dedup_window_s
+        with self._state_lock:
+            self._last_sent_by_key = {
+                k: ts for k, ts in self._last_sent_by_key.items() if ts >= cutoff
+            }
+
         # Process each person's emotions
         for person_id, emotion_data in buffer.items():
             if emotion_data:
@@ -299,20 +309,19 @@ class EmotionPerception(Perception[FaceDetectionData]):
 
             message = f"Emotion detected: {dominant_emotion}."
 
-            # Dedup: same (current_user, emotion) within 5 min → drop. A
-            # different user OR a different emotion flips the key.
+            # Dedup: same (current_user, emotion) within window → drop,
+            # regardless of what was sent in between.
             key = (current_user, dominant_emotion)
             with self._state_lock:
-                if (
-                    self._last_sent_key == key
-                    and (cur_ts - self._last_sent_ts) < self._dedup_window_s
-                ):
+                last_ts = self._last_sent_by_key.get(key)
+                if last_ts is not None and (cur_ts - last_ts) < self._dedup_window_s:
                     logger.info(
-                        "[activity.emotion] dedup drop: %s (same as last send %.1fs ago)",
+                        "[activity.emotion] dedup drop: %s (key seen %.1fs ago)",
                         message,
-                        cur_ts - self._last_sent_ts,
+                        cur_ts - last_ts,
                     )
                     continue
+                self._last_sent_by_key[key] = cur_ts
                 self._last_sent_key = key
                 self._last_sent_ts = cur_ts
 
@@ -339,10 +348,12 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 )
                 return
             logger.info(
-                "[activity.emotion] dedup reset (user %r → %r)",
+                "[activity.emotion] dedup reset (user %r → %r, %d keys cleared)",
                 last_user,
                 new_user,
+                len(self._last_sent_by_key),
             )
+            self._last_sent_by_key.clear()
             self._last_sent_key = None
             self._last_sent_ts = 0.0
 
@@ -360,6 +371,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 "last_sent_user": last_sent[0] if last_sent else None,
                 "last_detected_emotion": self._last_emotion,
                 "buffered_persons": len(self._emotion_buffer),
+                "dedup_keys": len(self._last_sent_by_key),
                 "emotion_detected": self._last_detection_time is not None,
                 "seconds_since_detection": seconds_since,
             }
