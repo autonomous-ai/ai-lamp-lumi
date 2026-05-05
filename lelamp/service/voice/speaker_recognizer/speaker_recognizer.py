@@ -727,15 +727,24 @@ class SpeakerRecognizer:
             )
             raise SpeakerRecognizerError(f"no valid new samples — {details}")
 
-        # Step 2b — Auto-merge stranger clusters whose centroid matches this
-        # speaker. Captures distance / volume drift where the same person got
-        # fragmented across voice_<N> clusters (centroid sim with each other
-        # < 0.65 strangers threshold but sim to this enrollment > merge
-        # threshold). Filepath sources only — no path to resolve for base64
-        # callers. Samples pulled in go through the same consistency filter
-        # (Step 5) as any other sample, so a false cluster match gets its
-        # outliers dropped; and _drop_consumed_clusters at the tail cleans
-        # up every merged cluster regardless of how many samples survived.
+        # Step 2b — Pull all WAVs from clusters that should contribute samples
+        # to this enrollment. Two paths into the cluster set, both unioned:
+        #   (a) Explicit claim — any source path whose parent dir is a
+        #       ``voice_<N>`` cluster. The caller (LLM via OpenClaw skill)
+        #       may pass only one path from a cluster even when the cluster
+        #       has more sibling WAVs; we treat passing any path as claiming
+        #       the WHOLE cluster, so no audio gets stranded if the LLM
+        #       happens to surface only one sample per turn.
+        #   (b) Centroid match — any cluster whose stored centroid sits within
+        #       merge_threshold of the query mean. Captures distance / volume
+        #       drift where the same person got fragmented across voice_<N>
+        #       clusters with low pairwise centroid similarity, but each one
+        #       still aligns with the new enrollment audio.
+        # Filepath sources only — base64 has no path to resolve. Samples
+        # pulled in go through the same consistency filter (Step 5) as any
+        # other sample, so false matches get their outliers dropped, and
+        # _drop_consumed_clusters at the tail cleans up every consumed
+        # cluster regardless of how many samples survived.
         if source_type == "filepath" and new_embeddings:
             # SCALED cosine in [0, 1] — same unit as STRANGER_MATCH and
             # MATCH. 0.625 sits below the EER band so same-person-
@@ -744,14 +753,41 @@ class SpeakerRecognizer:
             merge_threshold = float(
                 os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.625")
             )
+
+            # (a) Path-based claim — collect cluster names from sources.
+            try:
+                unknown_root = _UNKNOWN_AUDIO_DIR.resolve()
+            except OSError:
+                unknown_root = None
+            claimed_hashes: set[str] = set()
+            if unknown_root is not None:
+                for src in sources:
+                    try:
+                        resolved = Path(src).resolve()
+                        resolved.relative_to(unknown_root)
+                    except (OSError, ValueError):
+                        continue
+                    parent_name = resolved.parent.name
+                    if _VOICE_STRANGER_DIR_RE.match(parent_name):
+                        claimed_hashes.add(parent_name)
+
+            # (b) Centroid-based match.
             query_mean = _weighted_aggregate(
                 [emb for _wb, emb in new_embeddings]
             )
-            matched_hashes = self._match_stranger_clusters(
+            matched_hashes = set(self._match_stranger_clusters(
                 query_mean, merge_threshold,
-            )
+            ))
+
+            consume_hashes = sorted(claimed_hashes | matched_hashes)
+            if claimed_hashes:
+                logger.info(
+                    "Cluster claim: source paths claimed %d cluster(s) %s",
+                    len(claimed_hashes), sorted(claimed_hashes),
+                )
+
             merged_added = 0
-            for h in matched_hashes:
+            for h in consume_hashes:
                 cluster_dir_path = _UNKNOWN_AUDIO_DIR / h
                 if not cluster_dir_path.is_dir():
                     continue
@@ -763,7 +799,7 @@ class SpeakerRecognizer:
                         raw = _read_bytes(wav_str)
                     except Exception as e:
                         logger.warning(
-                            "Auto-merge: cannot read %s — %s", wav_str, e,
+                            "Cluster pull: cannot read %s — %s", wav_str, e,
                         )
                         continue
                     try:
@@ -774,17 +810,19 @@ class SpeakerRecognizer:
                         raise
                     except SpeakerRecognizerError as e:
                         logger.info(
-                            "Auto-merge: skip %s — %s", wav.name, e,
+                            "Cluster pull: skip %s — %s", wav.name, e,
                         )
                         continue
                     new_wavs.append(wb)
                     new_embeddings.append((wb, emb))
                     sources.append(wav_str)
                     merged_added += 1
-            if matched_hashes:
+            if consume_hashes:
                 logger.info(
-                    "Auto-merge: pulled %d WAV(s) from %d cluster(s) %s (sim > %.2f)",
-                    merged_added, len(matched_hashes), matched_hashes,
+                    "Cluster pull: %d WAV(s) from %d cluster(s) %s "
+                    "(claimed=%d, centroid-matched=%d, threshold=%.2f)",
+                    merged_added, len(consume_hashes), consume_hashes,
+                    len(claimed_hashes), len(matched_hashes - claimed_hashes),
                     merge_threshold,
                 )
 
@@ -1257,6 +1295,46 @@ class SpeakerRecognizer:
                 shared.get("telegram_id") or shared.get("telegram_username")
             )
         return result
+
+    # ------------------------------------------------------------ public: get
+
+    def get_meta(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the full enrollment meta for one user, or None if not enrolled.
+
+        Mirrors the per-row shape of :meth:`list_registered` but skips the
+        registry walk. Used for idempotent retries on the enroll route — when
+        the caller passes paths that have already been consumed, we can return
+        the existing meta instead of erroring out.
+        """
+        norm = _normalize_label(name)
+        if not self._embedding_path(norm).is_file():
+            return None
+        voice_meta = self._read_metadata(norm)
+        shared_meta = self._read_shared_metadata(norm)
+        tg_username = shared_meta.get(
+            "telegram_username", voice_meta.get("telegram_username", "")
+        )
+        tg_id = shared_meta.get(
+            "telegram_id", voice_meta.get("telegram_id", "")
+        )
+        return {
+            "name": norm,
+            "display_name": shared_meta.get("display_name")
+            or voice_meta.get("display_name", norm),
+            "telegram_username": tg_username,
+            "telegram_id": tg_id,
+            "has_telegram_identity": bool(tg_username or tg_id),
+            "enrollment_sources": voice_meta.get("enrollment_sources", []),
+            "last_enrollment_source": voice_meta.get(
+                "last_enrollment_source", ""
+            ),
+            "num_samples": voice_meta.get("num_samples", 0),
+            "embedding_dim": voice_meta.get("embedding_dim", 0),
+            "enrolled_at": voice_meta.get("enrolled_at"),
+            "updated_at": voice_meta.get("updated_at"),
+            "sample_files": voice_meta.get("sample_files", []),
+            "sample_origins": voice_meta.get("sample_origins", {}),
+        }
 
     # ----------------------------------------------------------- public: list
 

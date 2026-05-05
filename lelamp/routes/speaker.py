@@ -218,18 +218,52 @@ def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
 
     New samples are appended to the user's voice folder and the embedding is
     recomputed from all samples in the folder (old + new).
+
+    Missing paths are tolerated: a successful enroll deletes the consumed
+    stranger cluster (rmtree), so a retry by OpenClaw can legitimately point
+    at a path that no longer exists. Missing paths are skipped with a log
+    line. If every path is missing AND the user is already enrolled, return
+    the existing meta as an idempotent success rather than a 400.
     """
     logger.info(
         "POST /speaker/enroll name=%r wav_paths=%d tg_user=%r tg_id=%r origin=%r",
         req.name, len(req.wav_paths),
         req.telegram_username or "", req.telegram_id or "", req.origin or "",
     )
-    _validate_paths(req.wav_paths)
+
+    valid_paths: list[str] = []
+    skipped: list[str] = []
+    for p in req.wav_paths:
+        if p and Path(p).is_file():
+            valid_paths.append(p)
+        else:
+            skipped.append(p or "")
+    if skipped:
+        logger.info(
+            "POST /speaker/enroll skipping %d missing path(s): %s",
+            len(skipped), skipped,
+        )
+
     sr = get_speaker_recognizer()
+
+    if not valid_paths:
+        existing = sr.get_meta(req.name)
+        if existing is not None:
+            logger.info(
+                "POST /speaker/enroll all paths missing but %r already enrolled — "
+                "returning existing meta (idempotent)",
+                req.name,
+            )
+            return EnrollResponse(status="ok", meta=SpeakerMeta(**existing))
+        raise HTTPException(
+            status_code=400,
+            detail="all wav paths missing and no existing voice profile",
+        )
+
     try:
         meta = sr.enroll(
             req.name,
-            req.wav_paths,
+            valid_paths,
             source_type="filepath",
             telegram_username=req.telegram_username or "",
             telegram_id=req.telegram_id or "",
