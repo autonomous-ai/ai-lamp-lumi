@@ -180,9 +180,15 @@ class PerceptionOrchestrator:
 
     def _tick(self):
 
-        # Read camera frame once per tick (shared across detectors)
+        # Read camera frame once per tick (shared across detectors).
+        # Camera intentionally stopped (sleepy mode, user-requested disable,
+        # preset transition) raises RuntimeError from capture() — swallow it
+        # here so the outer _loop doesn't log a full traceback every tick.
         if self._camera_capture:
-            response = self._camera_capture.capture()
+            try:
+                response = self._camera_capture.capture()
+            except RuntimeError:
+                response = None
             if response is not None and response.frame is not None:
                 self._perception_state.frame.data = response.frame
 
