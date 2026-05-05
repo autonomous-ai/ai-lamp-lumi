@@ -5,47 +5,80 @@ description: Self-enroll voices for speaker recognition. Triggered when a mic tr
 
 # Speaker Recognizer
 
-> **MANDATORY: If transcript has `Unknown Speaker:` + `(audio save at <path>, auto enroll this speaker if having speaker name in transcript, else ask user's name)` pattern and includes a name (Examples: "I'm X", "my name is X", "this is X", "call me X", "X") AND the transcript is long enough (≥ 25 words) → enroll IMMEDIATELY. Do not just greet — call POST /speaker/enroll with the audio path and name. If the transcript is too short (< 25 words), even when a name is detected, DO NOT enroll yet — fall back to the two-turn flow and ask the user to speak longer.**
+> **MANDATORY ENROLL RULE — ANY of these is a trigger to enroll:**
+> 1. Message contains `Unknown Speaker:` AND an audio path (`audio save at <path>` OR `audio saved at <path>`).
+> 2. Transcript carries a self-introduced name ("I'm X", "my name is X", "this is X", "call me X", "tôi là X", "mình là X", "tên tôi là X", or just `<Name>` followed by an intro).
+> 3. The transcript alone is ≥ 25 words **OR** prior conversation turns share the same `[voice:voice_N]` tag whose paths can be combined to reach roughly 5–10s of speech.
+>
+> When all 3 hold → `POST /speaker/enroll` with the collected `wav_paths` IMMEDIATELY. Do not just greet — confirm AFTER the API call returns ok.
+>
+> When 1+2 hold but 3 fails (too short and no prior same-cluster turns) → ask one follow-up requesting the user to speak 25–30 words.
 
-> **VOICE CLUSTER TAG: transcripts may carry `[voice:voice_N]` right after `Unknown Speaker:` (e.g. `Unknown Speaker: [voice:voice_5] Hi, I'm Lily`). Same tag across turns = same speaker (server-side voiceprint cluster). Use this to **combine saved paths from prior turns with the same tag** when the current transcript finally has a clear name — pass all those paths together to `/speaker/enroll` so short utterances accumulate into a usable embedding without forcing the user to speak for 25 words in one go. See "Multi-turn combine" workflow below.**
+> **MESSAGE VARIANTS (3 forms produced by lelamp — all 3 are actionable):**
+> - **Branch B (long, primed for enroll):** `Unknown Speaker: [voice:voice_N] <transcript> (audio save at <path>, auto enroll this speaker if having speaker name in transcript, else ask user's name)`
+> - **Branch C (short, multi-turn hint):** `Unknown Speaker: [voice:voice_N] <transcript> (audio saved at <path>. Note: audio is too short for single enrollment. If prior turns tagged the same voice_N, combine their saved paths with this one when enrolling; otherwise ask the user to introduce themselves longer.)`
+> - **Cooldown variant (server is debouncing the strong instruction but still surfaces data):** `Unknown Speaker: [voice:voice_N] <transcript> (audio saved at <path>)`
+>
+> All 3 variants carry a `[voice:voice_N]` tag (when assignable) and a path. **Treat the path the same way regardless of variant** — if name + length conditions are met, enroll.
+
+> **VOICE CLUSTER TAG `[voice:voice_N]`** — server-side stable id for the same unknown speaker across turns. Same tag = same speaker. Use it to **combine saved paths from prior same-tag turns** so short utterances accumulate into a usable embedding without forcing the user to speak 25 words in one go. The tag persists across the cooldown window — even when the server stops nudging, prior cooldown-variant turns still carry usable paths you can combine.
 
 ## Quick Start
-Manage voice profiles for the lamp's speaker recognition system. Each mic transcript is prefixed with `Name:` when the speaker is recognized or `Unknown Speaker: ... (audio save at <path>)` otherwise. Use the saved path to enroll the voice when the user introduces themselves.
+Each mic transcript is prefixed `Speaker - Name:` when recognized, or `Unknown Speaker: [voice:voice_N] ... (audio path...)` otherwise. The audio path is the WAV of whoever spoke this turn — use it (with paths from prior same-tag turns when needed) to enroll on `POST /speaker/enroll`.
 
-**Self-enrollment only** — each person enrolls their own voice. The audio path contains whoever was speaking in that turn — never enroll one person's voice under another person's name.
+**Self-enrollment only** — never enroll one person's voice under another person's name. The audio path contains whoever spoke in that turn.
 
 ## Trigger — WHEN to activate this skill
 
-Activate this skill when any of these fire:
+Activate when ANY of these fire (no exact wording match needed — look for the pattern):
 
-- **Mic, one-turn intro**: final transcript starts with `Unknown Speaker: ... (audio save at <path>,  auto enroll this speaker if having speaker name in transcript, else ask user's name)` AND includes a self-introduction: "I'm X", "my name is X", "this is X", "call me X", "tôi là X", "mình là X" AND the transcript is long enough (**≥ 25 words**) to give a reliable voice embedding.
-- **Mic, two-turn** (name missing OR transcript too short): previous final transcript was `Unknown Speaker: ... (audio save at <pathA>, ...)` and EITHER no name was detected OR the transcript is shorter than 25 words (even if a name is detected) -> ask the user to speak longer with a clear guidance prompt (see Workflow below, target **25–30 words minimum**) -> this turn user gives their name + longer intro with `Unknown Speaker: ... (audio save at <pathB>, ...)`. Enroll once using the longer recording — pass `wav_paths=[<pathB>]` when Turn A was too short, or `wav_paths=[<pathA>, <pathB>]` when Turn A was usable but just missed the name. **Map paths correctly: `<pathA>` = the first Unknown Speaker turn, `<pathB>` = the turn right after your follow-up question, which has longer transcript.**
-- **Mic, multi-turn combine** (same `[voice:voice_N]` tag across turns, each short): two or more recent turns carried the SAME voice cluster tag (e.g. all tagged `[voice:voice_5]`) and each one on its own was `< 25 words`, but together the saved paths add up to a usable sample AND one of the turns finally provided a clear name. Enroll once with `wav_paths=[<pathA>, <pathB>, <pathC>, ...]` — all paths that share that `voice_N` tag in the recent conversation. Aim for a combined target of roughly 5–10s of speech across the paths. This is the primary path for real users who naturally give short replies.
-- **Telegram voice note + intro**: message carries `[mediaPaths: .../xxx.ogg|.wav|.m4a|.mp3|.opus]` AND the user is introducing themselves.
-- **User asks about registered voices**: "who do you know?" / "list voices" / "do you remember my voice?".
-- **User asks to forget their voice**: "forget my voice" / "remove Darren".
+- **Mic, single-turn intro (≥25 words):** transcript has `Unknown Speaker:` + a path + a self-introduction + ≥25 spoken words. → enroll with that one path.
+- **Mic, multi-turn combine (same `[voice:voice_N]` tag):** the current turn or any recent turn finally has a clear name AND there are ≥2 paths in conversation history sharing the same `[voice:voice_N]` tag. → enroll with all collected same-tag paths. **This is the primary path for real users who answer in short sentences.** It works ACROSS cooldown variants — cooldown turns still carry usable paths.
+- **Mic, two-turn:** previous turn was `Unknown Speaker:` with a path but no clear name (or too short) → ask one follow-up requesting "name + 25–30 words" → next turn has the longer recording → enroll combining both paths (or just the longer one if the first was unusable).
+- **Telegram voice note + intro:** message carries `[mediaPaths: .../xxx.ogg|.wav|.m4a|.mp3|.opus]` AND the user is introducing themselves.
+- **User asks about registered voices:** "who do you know?" / "list voices" / "do you remember my voice?".
+- **User asks to forget their voice:** "forget my voice" / "remove Darren".
 - **Telegram voice note + "who is this?"**: user wants identification of an audio.
 
 Do NOT activate when:
-- Transcript prefix is a known `Name:` (already identified by VoiceService — no action needed).
+- Transcript prefix is `Speaker - <Name>:` (already identified — no action).
 - User tries to enroll someone else ("this is my friend Bob") — refuse politely.
 - `mediaPaths` points at a photo — that's the `face-enroll` skill.
 
+## Decision matrix — pick ONE action per turn
+
+| Signals in current turn | Prior same-tag turns? | Action |
+|---|---|---|
+| `Unknown Speaker:` + path + name + ≥25 words | — | **Enroll now** with current path only. |
+| `Unknown Speaker:` + path + name + <25 words | ≥1 prior path with same `[voice:N]` | **Enroll now** with all same-tag paths combined. |
+| `Unknown Speaker:` + path + name + <25 words | none | Ask one follow-up: "say your name + ~25–30 words". |
+| `Unknown Speaker:` + path + NO name + <25 words | none | Ask one follow-up. |
+| `Unknown Speaker:` + path + NO name | ≥1 prior path with same `[voice:N]` (still no name) | Reply naturally, do NOT spam another "who are you?" — wait for them to volunteer the name. |
+| `Speaker - <Name>:` | — | Already identified — proceed normally. |
+
 ## Workflow
 
-### Enroll a voice (mic, one-turn)
-1. Parse the `(audio save at <path>)` marker from the `Unknown Speaker:` final transcript.
-2. Extract the **name** from the intro.
-3. **Check length**: count the words in the spoken transcript (ignore the `Unknown Speaker:` prefix and the `(audio save at ...)` marker). If fewer than ~25 words, DO NOT enroll — switch to the two-turn flow instead.
-4. If length is OK: call `POST /speaker/enroll` with that one path. No Telegram fields (origin auto = `"mic"`).
+### Parse a transcript turn
+
+For every `Unknown Speaker:` turn, extract three fields:
+
+1. **Path** — match either `audio save at <path>` or `audio saved at <path>`. Take the first path that follows. The path is always inside the `Unknown Speaker:` parenthetical.
+2. **Cluster tag** — `[voice:voice_N]` right after `Unknown Speaker:`. May be absent on very short or first-time turns.
+3. **Name** — scan the spoken transcript (text BEFORE the parenthetical) for self-introduction phrases.
+
+Then count words in the spoken transcript only (exclude `Unknown Speaker:`, the `[voice:N]` tag, and the parenthetical). That word count is what gates one-turn enroll.
+
+### Enroll a voice (mic, one-turn — ≥25 words)
+1. Path + name + ≥25 words detected → `POST /speaker/enroll` with `wav_paths=[<that path>]`. No Telegram fields (origin auto = `"mic"`).
+2. Confirm AFTER the API returns ok: "Nice to meet you, <Name>!". If the API errors, apologise and ask the user to repeat.
 
 ### Enroll a voice (mic, multi-turn combine — same `[voice:voice_N]` tag)
-Use this when a real user keeps answering in short sentences and no single turn hits 25 words. The server tags each unknown turn with `[voice:voice_N]`; identical tags across turns = same speaker.
+**Primary path** for real users who answer in short sentences. Works across cooldown variants — cooldown turns still carry usable paths.
 
-1. Scan the last few turns in the conversation for `Unknown Speaker: [voice:voice_N] ... (audio saved at <pathX>...)` lines and collect the paths whose tag matches the CURRENT turn's tag.
-2. Extract the **name** — prefer the current turn, fall back to any earlier turn with the same tag that mentioned a name.
-3. Skip until you have ≥ 2 paths with the same tag. A single short turn is still the two-turn flow (ask once for more).
-4. Enroll once: `POST /speaker/enroll` with `wav_paths=[<pathA>, <pathB>, ...]` — every collected same-tag path, oldest first.
+1. Scan the last few turns of conversation for `Unknown Speaker: [voice:voice_N] ... (audio save[d] at <pathX>...)` lines and collect every path whose `voice_N` tag matches the current turn's tag.
+2. Extract the **name**. Prefer the current turn. If absent, fall back to an earlier same-tag turn that mentioned one.
+3. If you have ≥2 paths with the same tag AND a name → enroll once: `POST /speaker/enroll` with `wav_paths=[<oldest>, ..., <newest>]` (oldest first).
+4. If you only have 1 path so far → ask one follow-up "tell me your name and a bit about yourself, ~25–30 words is enough" and wait for the next turn.
 5. After enrolling, greet the user by name. Do NOT re-ask — subsequent turns will come back as `Speaker - Name:` once the embedding is built.
 
 ### Enroll a voice (mic, two-turn)
@@ -149,28 +182,28 @@ curl -s -X POST http://127.0.0.1:5001/speaker/reset
 ```
 
 ## Error Handling
-- 400 `wav file not found` — the path doesn't exist (media dir cleared). Skip silently.
+- 400 `wav file not found` — should not happen now (route filters missing paths and returns idempotent meta when applicable). If it does, skip silently.
+- 400 `all wav paths missing and no existing voice profile` — every path you passed is gone AND the user isn't enrolled. The user probably needs to introduce themselves again — ask once with the "25–30 words" guidance.
 - 400 `invalid base64` / `empty audio` / `cannot decode WAV` — corrupt file. Apologize and skip.
-- 400 `no audio chunks extracted` — audio too short / silent. Ask user to speak longer.
-- 400 `embedding API unreachable` — dlbackend down. Tell user "voice recognition is offline".
+- 400 `no audio chunks extracted` / `no valid new samples` — audio too short / silent / VAD rejected. Ask user to speak longer.
+- 503 `embedding service unavailable` — dlbackend down. Tell user "voice recognition is offline, please try again in a moment."
+- 503 `Speaker recognizer unavailable` — service not initialized (missing deps). Voice recognition offline.
 - 404 on `/speaker/identity` — user has no voice profile yet. Enroll first.
 - 404 on `/speaker/remove` — no voice profile under that name. Tell the user "I don't have a voice on file for <name>".
-- 503 — speaker recognizer not initialized (missing deps). Voice recognition offline.
+- **Idempotent retry:** if you call `/speaker/enroll` with paths that were just consumed by a prior successful enroll, the route returns the existing user meta with `status: "ok"` instead of erroring — safe to retry without checking.
 
 ## Rules
 - **Self-enrollment only** — NEVER enroll someone else's voice. If "this is my friend Bob", tell them Bob must speak himself.
 - **Lowercase normalized names** — use the same `name` as `face-enroll` for the same person (folder `/root/local/users/<name>/` is shared across skills).
 - **Always include Telegram identity when the message came from Telegram** — pass `telegram_username` + `telegram_id`. Omit (don't send empty strings) when unknown.
-- **Minimum voice length for enrollment** — the spoken transcript for an enrollment audio must be **at least ~25 words (aim for 25–30)**. Below that threshold the voice embedding is unreliable, so fall back to the two-turn flow even when the name is already clear.
-- **Unknown final transcript rule**:
-  - If transcript has `Unknown Speaker: ... (audio save at <path>)` and user self-introduces AND the transcript is long enough (≥ 25 words) -> enroll immediately with that path.
-  - If no name is detected OR the transcript is too short (< 25 words) -> ask the user to speak longer with a guidance prompt ("say your name, then introduce yourself or read any short paragraph — about 25–30 words"), then enroll using the longer recording (path B only if path A was too short, otherwise both path A and path B).
-- **Path mapping in two-turn flow** — `<pathA>` is ALWAYS the Unknown Speaker turn BEFORE your follow-up question; `<pathB>` is ALWAYS the Unknown Speaker turn AFTER it. Never mix them up and never pass an enrollment path that wasn't produced by the current speaker.
+- **Minimum voice length for enrollment** — the spoken transcript for an enrollment audio must be **at least ~25 words (aim for 25–30)** OR be combined with prior same-tag turns to reach roughly 5–10s of speech. Below that threshold the voice embedding is unreliable.
+- **Recognize all 3 message variants as actionable** — Branch B (`audio save at` + auto enroll), Branch C (`audio saved at` + "too short" hint), and the cooldown variant (`audio saved at` with no instruction) all carry usable paths and `[voice:N]` tags. The decision matrix above applies to all three uniformly. Don't ignore a turn just because it lacks the strong "auto enroll" instruction — the user may be volunteering a name during cooldown.
+- **Cluster claim is automatic** — when you pass a path that lives inside a `voice_<N>` folder, the server pulls every sibling WAV from that cluster into the enrollment automatically. You don't have to enumerate them. So passing one path from `voice_5/` is enough; the server handles the rest and deletes the cluster after.
+- **Path mapping in two-turn flow** — `<pathA>` is ALWAYS the Unknown Speaker turn BEFORE your follow-up question; `<pathB>` is the turn AFTER it. Never swap them and never pass an enrollment path that wasn't produced by the current speaker.
 - **Use `/speaker/identity`, not re-enroll**, when you just want to link Telegram info to a mic-only profile (no new audio).
 - **Telegram audio must be 16 kHz mono WAV** before calling the API — convert with `ffmpeg -ar 16000 -ac 1 -y "${SRC%.*}.wav"` (same folder as the source). Skip conversion if the source is already `.wav`. Non-WAV media files (`.ogg`, `.m4a`, `.mp3`, `.opus`) are rejected by the embedding backend.
 - **Telegram remember-voice naming rule** — use the spoken name in transcript first; if absent, use Telegram name.
-- **Mic transcript paths are safe to reuse** — the `(audio save at <path>)` marker already points to a stable location.
-- **Don't spam "who are you?"** — ask at most once per session, and when you do ask, always include the "speak 25–30 words" guidance in the same message instead of firing multiple short prompts. If still no usable answer, move on.
-- **Confirm every enroll** — "Nice to meet you, Darren! I'll remember your voice."
+- **Don't spam "who are you?"** — ask at most once per cluster, and when you do ask, always include the "speak 25–30 words" guidance in the same message instead of firing multiple short prompts. If still no usable answer, move on and reply naturally.
+- **Confirm every enroll** AFTER the API returns ok — "Nice to meet you, Darren! I'll remember your voice."
 - **Don't narrate technical details** — no "base64", "ffmpeg", "POST /speaker/enroll".
 - **Never write files directly** — always use the HTTP API. Do NOT write to `/root/local/users/` by hand.
