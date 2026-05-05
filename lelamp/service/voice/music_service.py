@@ -297,6 +297,12 @@ class MusicService:
             if self._stop_event.is_set():
                 return
 
+            # Release TTS persistent stream so aplay can grab the ALSA device
+            # exclusively. TTS reopens lazily on the next speak() call.
+            if self._tts_service and hasattr(self._tts_service, "release_stream"):
+                self._tts_service.release_stream()
+                time.sleep(0.1)
+
             logger.info("Playing local file: '%s'", path)
             self._ffmpeg_proc = subprocess.Popen(
                 [
@@ -363,7 +369,7 @@ class MusicService:
             # can't tell if the agent ignored the command or just failed.
             if _stopped_by == "error" and self._tts_service and self._tts_service.available:
                 try:
-                    self._tts_service.speak("Sorry, I can't play that right now.")
+                    self._tts_service.speak_cached("Sorry, I can't play that right now.")
                 except Exception as e:
                     logger.warning("failure apology speak failed: %s", e)
 
@@ -492,7 +498,7 @@ class MusicService:
             # can't tell if the agent ignored the command or just failed.
             if _stopped_by == "error" and self._tts_service and self._tts_service.available:
                 try:
-                    self._tts_service.speak("Sorry, I can't play that right now.")
+                    self._tts_service.speak_cached("Sorry, I can't play that right now.")
                 except Exception as e:
                     logger.warning("failure apology speak failed: %s", e)
 

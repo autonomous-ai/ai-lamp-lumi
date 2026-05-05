@@ -147,7 +147,7 @@ class GPIOButtonHandler:
                 and not state._speaker_muted
             ):
                 threading.Thread(
-                    target=lambda: state.tts_service.speak("I'm listening!"),
+                    target=lambda: state.tts_service.speak_cached("I'm listening!"),
                     daemon=True,
                     name="unmute-tts",
                 ).start()
@@ -166,7 +166,7 @@ class GPIOButtonHandler:
             and state.tts_service.available
             and not state._speaker_muted
         ):
-            state.tts_service.speak("Rebooting now")
+            state.tts_service.speak_cached("Rebooting now")
         subprocess.Popen(
             ["sudo", "reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
@@ -179,7 +179,7 @@ class GPIOButtonHandler:
             and state.tts_service.available
             and not state._speaker_muted
         ):
-            state.tts_service.speak("Shutting down now")
+            state.tts_service.speak_cached("Shutting down now")
             time.sleep(2)
         subprocess.Popen(
             ["sudo", "shutdown", "-h", "now"],
