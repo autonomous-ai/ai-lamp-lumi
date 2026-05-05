@@ -217,7 +217,7 @@ Requires sensing with camera (InsightFace). Enrolled person JPEGs persist under 
 |--------|----------|-------------|
 | POST | `/voice/start` | Start voice pipeline (Deepgram STT + TTS) |
 | POST | `/voice/stop` | Stop voice pipeline |
-| POST | `/voice/speak` | TTS — convert text to speech |
+| POST | `/voice/speak` | TTS — convert text to speech. Body fields: `text`, `voice?`, `interruptible?`, `provider?`, `tts_api_key?`, `tts_base_url?`, `cached?` (use WAV cache, render+save on miss), `prerender?` (render+save without playing — boot warmup) |
 | GET | `/voice/status` | voice_available, voice_listening, tts_available, tts_speaking |
 
 ### System

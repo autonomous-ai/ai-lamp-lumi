@@ -422,6 +422,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
 			}
 
+			// Prewarm dead-air filler WAV cache so the first filler fire is
+			// a cache hit (~50ms) instead of a 1.5s ElevenLabs roundtrip.
+			// Runs in a goroutine because rendering ~17 phrases serially can
+			// take 30-60s and must not block the boot greeting.
+			safego.Go("prewarm-fillers", func() { _sensingHttpDeliver.PrewarmFillers() })
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
 			safego.Go("ambient", func() { s.ambientService.Start(s.monitorCtx) })
 			// Watch LeLamp component health; auto-restart voice on ALSA failure
