@@ -394,6 +394,44 @@ class TTSService:
         logger.error("TTS give up for chunk %d/%d: text='%s'", idx, total, text[:80])
         return total_samples
 
+    def _head_producer(
+        self,
+        text: str,
+        dst_rate: int,
+        out_q: "queue.Queue[Optional[np.ndarray]]",
+        idx_total: tuple[int, int],
+    ) -> None:
+        """Produce head chunk frames into a queue. Runs in parallel with the
+        ALSA OutputStream open call so HTTP TTFB overlaps codec warmup."""
+        idx, total = idx_total
+        attempt = 0
+        try:
+            while attempt <= self._max_retries:
+                try:
+                    logger.info(
+                        "TTS chunk %d/%d: len=%d (attempt=%d, speed=%.2f)",
+                        idx, total, len(text), attempt + 1, self._speed,
+                    )
+                    for frame in self._iter_tts_samples(text, dst_rate, ttfb_tag="c0"):
+                        if self._stop_event.is_set():
+                            return
+                        out_q.put(frame)
+                    return
+                except Exception as e:
+                    logger.error(
+                        "TTS head chunk failed: %s (type=%s, attempt=%d/%d)",
+                        e, type(e).__name__, attempt + 1, self._max_retries + 1,
+                    )
+                    status = getattr(e, "status_code", None)
+                    if status in (404, 503):
+                        return
+                    attempt += 1
+        finally:
+            try:
+                out_q.put_nowait(None)
+            except Exception:
+                pass
+
     def _tail_producer(
         self,
         tail_chunks: list[str],
@@ -469,6 +507,20 @@ class TTSService:
         # silence write — diagnosed 2026-05-05 from server.log.
         dst_rate = self._device_rate or TTS_SAMPLE_RATE
 
+        # Start head HTTP fetch BEFORE opening the OutputStream so ElevenLabs TTFB
+        # (~1.5s through proxy) overlaps with ALSA codec open (multi-second on cold
+        # OrangePi). By the time `with sd.OutputStream(...)` returns, first frames
+        # are usually already in the queue.
+        head_total = len(chunks)
+        head_q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue(maxsize=256)
+        head_thread = threading.Thread(
+            target=self._head_producer,
+            args=(head_text, dst_rate, head_q, (1, head_total)),
+            daemon=True,
+            name="tts-head-producer",
+        )
+        head_thread.start()
+
         for _play_attempt in range(2):
             try:
                 with sd.OutputStream(
@@ -477,30 +529,43 @@ class TTSService:
                     dtype="float32",
                     device=self._output_device,
                 ) as stream:
-                    # Short text: one request stream then done.
-                    if not tail_chunks:
-                        total_samples += self._stream_chunk_with_retry(
-                            stream, head_text, dst_rate, 1, 1, ttfb_tag="c0"
-                        )
-                    else:
-                        # Start one tail producer (c1..cN) in parallel while c0 is playing.
-                        tail_q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue(maxsize=128)
-                        producer = threading.Thread(
+                    # Tail producer kicks off the moment stream is open so its HTTP
+                    # TTFB overlaps with head playback.
+                    tail_q: Optional["queue.Queue[Optional[np.ndarray]]"] = None
+                    tail_thread: Optional[threading.Thread] = None
+                    if tail_chunks:
+                        tail_q = queue.Queue(maxsize=128)
+                        tail_thread = threading.Thread(
                             target=self._tail_producer,
                             args=(tail_chunks, dst_rate, tail_q),
                             daemon=True,
                             name="tts-tail-producer",
                         )
-                        producer.start()
+                        tail_thread.start()
 
-                        # Head path: play c0 directly as soon as first bytes arrive.
-                        total_samples += self._stream_chunk_with_retry(
-                            stream, head_text, dst_rate, 1, len(chunks), ttfb_tag="c0"
-                        )
+                    # Drain head queue. First-frame latency = max(stream open, HTTP TTFB).
+                    while not self._stop_event.is_set():
+                        try:
+                            item = head_q.get(timeout=2.0)
+                        except queue.Empty:
+                            if not head_thread.is_alive():
+                                break
+                            continue
+                        if item is None:
+                            break
+                        if not self._speak_start_fired and self._on_speak_start:
+                            self._speak_start_fired = True
+                            try:
+                                self._on_speak_start()
+                            except Exception as e:
+                                logger.warning("on_speak_start callback failed: %s", e)
+                        stream.write(item)
+                        total_samples += len(item)
 
-                        # Tail path: consume queue until sentinel or producer done + queue empty.
+                    # Drain tail queue.
+                    if tail_q is not None and tail_thread is not None:
                         while not self._stop_event.is_set():
-                            if (not producer.is_alive()) and tail_q.empty():
+                            if (not tail_thread.is_alive()) and tail_q.empty():
                                 break
                             try:
                                 item = tail_q.get(timeout=0.3)
@@ -517,6 +582,16 @@ class TTSService:
                     logger.warning("Re-probing output device rate and retrying...")
                     self._probe_device_rate(force=True)
                     dst_rate = self._device_rate or TTS_SAMPLE_RATE
+                    # Old head producer is at the stale rate -- orphan it and
+                    # restart at the new rate. Daemon thread will exit on its own.
+                    head_q = queue.Queue(maxsize=256)
+                    head_thread = threading.Thread(
+                        target=self._head_producer,
+                        args=(head_text, dst_rate, head_q, (1, head_total)),
+                        daemon=True,
+                        name="tts-head-producer-retry",
+                    )
+                    head_thread.start()
 
         logger.info(
             "TTS playback complete (%d samples @ %d Hz, chunks=%d)",

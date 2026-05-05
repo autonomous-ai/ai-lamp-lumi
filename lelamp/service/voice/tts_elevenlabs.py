@@ -51,17 +51,30 @@ class ElevenLabsTTSBackend(TTSBackend):
     def __init__(self, api_key: str, base_url: Optional[str] = None):
         self._api_key = api_key
         self._base_url = (base_url or "").rstrip("/") + self.ELEVENLABS_PATH
-        self._httpx = None
+        self._client = None
         try:
             import httpx
-            self._httpx = httpx
+            # Persistent client reuses TCP/TLS across speaks -- saves ~100-500ms per
+            # call vs httpx.stream() module-level which builds a fresh Client+TLS each time.
+            self._client = httpx.Client(
+                timeout=30.0,
+                limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=300.0),
+            )
             logger.info("ElevenLabs TTS backend ready (proxy=%s)", self._base_url)
         except ImportError as e:
             logger.warning("httpx not available for ElevenLabs backend: %s", e)
 
     @property
     def available(self) -> bool:
-        return self._httpx is not None and bool(self._api_key)
+        return self._client is not None and bool(self._api_key)
+
+    def close(self):
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            self._client = None
 
     @property
     def volume_boost(self) -> float:
@@ -91,8 +104,8 @@ class ElevenLabsTTSBackend(TTSBackend):
         if speed != 1.0:
             body["voice_settings"] = {"speed": max(0.7, min(1.2, speed))}
 
-        with self._httpx.stream(
-            "POST", url, headers=headers, json=body, timeout=30.0
+        with self._client.stream(
+            "POST", url, headers=headers, json=body
         ) as response:
             response.raise_for_status()
             for chunk in response.iter_bytes(STREAM_CHUNK_SIZE):
