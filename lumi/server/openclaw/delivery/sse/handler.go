@@ -4,7 +4,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
@@ -65,54 +64,8 @@ type OpenClawHandler struct {
 	cronFireExpectedMu sync.Mutex
 	cronFireExpected   []int64
 
-	// channelTurns tracks active channel-initiated turns (e.g. Telegram) keyed
-	// by sessionKey. OpenClaw 5.2 stopped fanning out the `agent` lifecycle
-	// stream for non-Lumi-originated runs, so chat_input emission and HW
-	// marker firing must be driven from `session.message` events instead.
-	// Each entry holds the synthetic device runId, accumulated assistant
-	// text, and metadata for the current in-flight turn on that session.
-	channelTurnMu sync.Mutex
-	channelTurns  map[string]*channelTurnState
-
-	// seenMessageIDs dedupes session.message broadcasts by OpenClaw-assigned
-	// messageId. OpenClaw rebroadcasts the same user message a second time
-	// when an in-flight embedded run absorbs a queued chat.send into its
-	// context (source=pi-embedded-runner). Without this dedup the second
-	// broadcast slips past the outbound-echo queue (already drained by the
-	// first broadcast) and creates a phantom channel turn.
-	seenMessageMu  sync.Mutex
-	seenMessageIDs map[string]time.Time
-
-	// activeRunIDs tracks the most recent embedded run id per sessionKey.
-	// Set on `sessions.changed` events with `phase == "start"`. The
-	// `sessions.changed` broadcast in OpenClaw 5.2 carries `runId` and is
-	// not gated by `isControlUiVisible`, so this is a deterministic
-	// signal for Lumi to discriminate session.message broadcasts:
-	// `lumi-chat-*` runId → Lumi's own chat.send echo (suppress),
-	// UUID → channel-initiated (Telegram, cron, self-replay).
-	activeRunIDsMu sync.Mutex
-	activeRunIDs   map[string]string
-
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
-}
-
-// channelTurnState tracks the in-flight assistant response for a channel
-// session (Telegram/etc.) so HW markers in the final assistant message can
-// be extracted and fired even when no `agent` lifecycle event arrives.
-type channelTurnState struct {
-	runID       string
-	senderLabel string
-	accumulated strings.Builder
-	startedAtMs int64
-	// Cumulative token usage across every assistant message in the turn —
-	// the lifecycle path's token_usage flow event reports a per-turn total,
-	// so we sum here instead of overwriting per-message.
-	tokInput      int
-	tokOutput     int
-	tokCacheRead  int
-	tokCacheWrite int
-	tokTotal      int
 }
 
 // cronFireWindowMs is the max delay between an OpenClaw cron "started" event
@@ -138,9 +91,6 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		runIDMap:           make(map[string]string),
 		channelRuns:        make(map[string]bool),
 		cronFireRuns:       make(map[string]bool),
-		channelTurns:       make(map[string]*channelTurnState),
-		seenMessageIDs:     make(map[string]time.Time),
-		activeRunIDs:       make(map[string]string),
 	}
 }
 

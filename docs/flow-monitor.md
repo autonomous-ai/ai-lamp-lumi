@@ -75,28 +75,6 @@ Implementation details:
 - **Heartbeat noise**: OpenClaw heartbeat cron (every 30m) also triggers `lifecycle_start`. The last `role:"user"` message in those turns will be the heartbeat system prompt (starts with `"System:"`), not a real user message.
 - **Token usage**: `chat.history` is also called on `lifecycle_end` to fetch token usage. OpenClaw `lifecycle_end` events do not include `usage` data. The last `role:"assistant"` message in the history response contains `usage: {input, output, totalTokens, cacheRead, cacheWrite}` for the completed turn. This is emitted as a `token_usage` flow event with `source: "chat_history"`.
 
-#### OpenClaw 5.2+ — `session.message` driven channel turns
-
-Starting with OpenClaw 2026.5.2, the `agent` event stream is fanned out only for runs initiated from the same WebSocket connection (Lumi's `chat.send`). Telegram-initiated turns receive **no** `lifecycle_start` / `lifecycle_end` / `tool` events on the `agent` stream — only `session.message`, `session.tool`, and `sessions.changed`.
-
-The SSE handler therefore drives channel turns from `session.message` directly (`case "session.message"` in `handler_events.go`):
-
-- **Filter**: skip up front when `origin.provider == "heartbeat"` (cron heartbeat keeps the lifecycle path so its TTS reaches the lamp speaker). Otherwise treat as a Telegram channel turn when **any** of holds: `sessionKey` starts with `agent:main:telegram:` (primary, stable signal for groups); `origin.provider == "telegram"`; or `deliveryContext.channel == "telegram"` (catches private 1:1 DMs that share the default `agent:main:main` session).
-- **Echo suppression for the shared default session**: private DMs and Lumi's own `chat.send` (web chat, sensing, system injections) all land on `sessionKey == agent:main:main`. The `delivery.channel`/`origin.provider` fields are session-cached so they reflect whatever channel touched the session most recently — not always the current message. Three layered checks suppress Lumi-originated and duplicate broadcasts on this shared key:
-    - **MessageId dedup** (`shouldDedupeMessageID`, 2 min TTL) — runs first on every `session.message`. OpenClaw rebroadcasts the same user message twice when a queued `chat.send` is absorbed into an in-flight embedded run (`source=pi-embedded-runner`). Without dedup the second broadcast bypasses every other filter (echo queue already drained) and creates a phantom turn.
-    - `isLumiInjectedUserMessage()` — prefix match for `[system]`, `[sensing:`, `[ambient]`, `(system)`, heartbeat, wake. Cheap fallback for paths that may bypass `RecordOutboundEcho()`.
-    - **Outbound-echo queue** (`Service.RecordOutboundEcho` / `ConsumeOutboundEcho`) — Lumi enqueues a timestamp on every `chat.send`; the session.message handler pops one entry on each user-role arrival for the shared session. Real DM telegram never enqueues, so the queue stays empty for it. Authoritative signal that survives content matching (web chat user types arbitrary text).
-- **User message**: a synthetic device run id `tg-<messageId>` is allocated, a `chat_input` flow event is emitted with `source:"channel"`, the run is recorded in `channelRuns` and the per-session state cached in `channelTurns[sessionKey]`.
-- **Pipeline events synthesised from `session.message`**: OpenClaw 5.2 gates the `session.tool` *and* `agent` event broadcasts on `isControlUiVisible`, which is `false` for non-webchat channels (verified in `auto-reply/reply/agent-runner-execution.ts` — `shouldSurfaceToControlUi = isInternalMessageChannel(provider)` is true only for `webchat`). The Flow Monitor pipeline expects per-turn `lifecycle_start`, `agent_thinking`, `tool_call`, `lifecycle_end`, and `token_usage` flow events to light up its AGENT / THINK / TOOL / RESP nodes. Lumi therefore synthesises them from `session.message` content blocks:
-  - **`lifecycle_start`** emitted alongside `chat_input` on the user-role message → lights AGENT + THINK.
-  - **`agent_thinking`** one per `{type:"thinking", thinking}` block in assistant content → fills THINK with the LLM's chain of thought.
-  - **`tool_call`** one per `{type:"toolCall", name, arguments}` block, phase `start` (so `helpers.ts:664` renders the args in the node info) → lights TOOL.
-  - **`lifecycle_end`** + cumulative **`token_usage`** (sum of `usage` fields across every assistant message in the turn) emitted on `stopReason in {"stop","end_turn"}` → lights RESP and shows the same input/output/cache token breakdown as the lifecycle path.
-
-  `case "session.tool"` is kept as defensive code in case OpenClaw later loosens the `isControlUiVisible` gate.
-- **Assistant message**: text from `content[].text` blocks is appended to a per-session accumulator. When the assistant message stops with `stopReason in {"stop","end_turn"}` (no further tool round), the handler runs the same end-of-turn logic that `lifecycle_end` used to: `extractHWCalls` → `fireHWCalls` (LED/emotion/servo/audio markers fire on the lamp), then emits `tts_suppressed` with `reason:"channel_run"`. `[HW:/speak]` or `[HW:/broadcast]` markers escalate to `tts_send` + `SendToLeLampTTS`; `[HW:/dm:{telegram_id}]` routes the reply via `SendToUser`; `[HW:/broadcast]` (without `/dm`) fans out via `Broadcast`.
-- **No `chat.history` round-trip**: `session.message` already carries the message text, sender (`session.displayName`), and channel (`session.deliveryContext.channel`), so the legacy two-phase emit is unnecessary for these turns.
-
 ## Run ID Format & Mapping
 
 ```
