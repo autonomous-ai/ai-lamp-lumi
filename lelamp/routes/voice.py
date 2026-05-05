@@ -70,6 +70,15 @@ def start_voice(req: VoiceStartRequest):
     if need_tts:
         if state.tts_service and state.tts_service.speaking:
             state.tts_service.stop()
+        # Release the old service's persistent OutputStream BEFORE creating
+        # the new one. Otherwise the new TTSService.__init__ rate probe
+        # fails on every rate (device busy) and never writes audio_rate.json,
+        # leaving us probe-less until next restart.
+        if state.tts_service and hasattr(state.tts_service, "release_stream"):
+            try:
+                state.tts_service.release_stream()
+            except Exception:
+                pass
         try:
             state.tts_service = TTSService(
                 api_key=tts_api_key,
@@ -132,6 +141,11 @@ def stop_voice():
     if state.voice_service:
         state.voice_service.stop()
         state.voice_service = None
+    if state.tts_service and hasattr(state.tts_service, "release_stream"):
+        try:
+            state.tts_service.release_stream()
+        except Exception:
+            pass
     state.tts_service = None
     return {"status": "ok"}
 
