@@ -81,25 +81,20 @@ _ENROLL_CONSISTENCY_THRESHOLD = config.SPEAKER_ENROLL_CONSISTENCY_THRESHOLD
 _VOICE_STRANGERS_DIR = Path(
     os.environ.get("LELAMP_VOICE_STRANGERS_DIR", "/root/local/voice_strangers")
 )
-# Stranger clustering + merge use RAW cosine sim in [-1, 1] (see
-# _assign_voiceprint_hash, _match_stranger_clusters: they do
-# `stranger_embeds @ query` on already-L2-normalized vectors, so the
-# dot-product IS raw cosine).
-#
-# MATCH / CONSISTENCY thresholds elsewhere are in SCALED [0, 1] space
-# (see _cosine_similarity: returns (raw+1)/2). So do NOT set the two
-# values below just "a bit lower than 0.7" — they aren't in the same
-# unit. The earlier defaults (0.65, 0.55) looked looser but were
-# actually STRICTER than MATCH, which caused same-person-different-
-# distance to fragment into separate clusters (root cause of the
-# voice_6 / voice_7 bug).
+# All thresholds in this file use SCALED cosine in [0, 1] (`(raw + 1) / 2`).
+# That includes MATCH / CONSISTENCY plus the stranger thresholds below — call
+# sites convert the raw `embeds @ query` dot-product to scaled before
+# comparing. Ordering: CLUSTER_MERGE < STRANGER_MATCH < MATCH = CONSISTENCY,
+# i.e. the merge gate (used at enroll time to pull fragmented clusters back
+# together) is the loosest, stranger-grouping sits between, and the
+# recognize/match decision is strictest.
 #
 # ECAPA-TDNN same-speaker raw cosine on VoxCeleb clusters around 0.3–0.5
-# (EER ≈ 0.3–0.4). Values below sit slightly below the EER band on
-# purpose — false grouping at loose thresholds is bounded by the Step 5
-# consistency filter in enroll() and by the MATCH gate in recognize().
+# (EER ≈ 0.3–0.4) → scaled ~0.65–0.75. Stranger defaults sit just below the
+# EER band on purpose — false grouping at loose thresholds is bounded by the
+# Step 5 consistency filter in enroll() and the MATCH gate in recognize().
 _VOICE_STRANGER_MATCH_THRESHOLD = float(
-    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.35")
+    os.environ.get("LELAMP_VOICE_STRANGER_MATCH_THRESHOLD", "0.675")
 )
 # Cap cluster count so disk doesn't grow unbounded. Oldest evicted first.
 _MAX_VOICE_STRANGERS = int(
@@ -110,6 +105,15 @@ _VOICE_STRANGER_DIR_RE = re.compile(r"^voice_\d+$")
 
 # Target sample rate for stored/enrolled audio (matches STT pipeline).
 _TARGET_SR = 16000
+
+# Chunk window the /embed endpoint slices the waveform with before per-chunk
+# embedding extraction. Bumped from the dlbackend default (0.5s) because
+# smart-lamp audio is overwhelmingly single-speaker per turn — longer chunks
+# yield smoother per-chunk embeddings, at the cost of fewer votes in
+# recognize() and reduced ability to detect a speaker switch mid-turn.
+# Audio shorter than this collapses to a single chunk (voting degenerates to
+# plain 1-vs-1 cosine match).
+_CHUNK_SECONDS = float(os.environ.get("LELAMP_SPEAKER_CHUNK_SECONDS", "3.0"))
 
 
 class SpeakerRecognizerError(Exception):
@@ -426,7 +430,10 @@ class SpeakerRecognizer:
         if self._api_key:
             headers["X-API-Key"] = self._api_key
 
-        body: dict[str, Any] = {"audios_b64": audios_b64}
+        body: dict[str, Any] = {
+            "audios_b64": audios_b64,
+            "chunk_seconds": _CHUNK_SECONDS,
+        }
         if return_chunks:
             body["return_chunks"] = True
 
@@ -730,12 +737,12 @@ class SpeakerRecognizer:
         # outliers dropped; and _drop_consumed_clusters at the tail cleans
         # up every merged cluster regardless of how many samples survived.
         if source_type == "filepath" and new_embeddings:
-            # Threshold is RAW cosine (both sides L2-normalized). 0.25 sits
-            # below the EER band so same-person-different-distance gets
-            # absorbed; the Step 5 consistency filter below catches false
-            # merges from loose matches.
+            # SCALED cosine in [0, 1] — same unit as STRANGER_MATCH and
+            # MATCH. 0.625 sits below the EER band so same-person-
+            # different-distance gets absorbed; the Step 5 consistency
+            # filter below catches false merges from loose matches.
             merge_threshold = float(
-                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.25")
+                os.environ.get("LELAMP_CLUSTER_MERGE_THRESHOLD", "0.625")
             )
             query_mean = _weighted_aggregate(
                 [emb for _wb, emb in new_embeddings]
@@ -1480,7 +1487,11 @@ class SpeakerRecognizer:
 
         with self._stranger_lock:
             if self._stranger_embeds is not None and len(self._stranger_embeds) > 0:
-                sims = self._stranger_embeds @ agg  # both L2-normalized → cosine
+                # Both sides L2-normalized → dot product is raw cosine [-1, 1].
+                # Convert to scaled [0, 1] so the threshold sits in the same
+                # unit as MATCH / CONSISTENCY elsewhere in the file.
+                raw_sims = self._stranger_embeds @ agg
+                sims = (raw_sims + 1.0) / 2.0
                 best_idx = int(np.argmax(sims))
                 best_sim = float(sims[best_idx])
                 if best_sim >= _VOICE_STRANGER_MATCH_THRESHOLD:
@@ -1528,10 +1539,13 @@ class SpeakerRecognizer:
 
         Used by enroll() to auto-include clusters that belong to the same
         speaker but fragmented (e.g. distance / volume drift pushed centroids
-        below the stranger-match 0.65 so they landed in different clusters
-        even though it's one person). Pass a looser threshold than 0.65 so
-        the fragmented siblings get pulled back together; the consistency
-        filter downstream in enroll() handles any false positive.
+        below STRANGER_MATCH so they landed in different clusters even though
+        it's one person). Pass a looser threshold than STRANGER_MATCH so the
+        fragmented siblings get pulled back together; the consistency filter
+        downstream in enroll() handles any false positive.
+
+        ``threshold`` is SCALED cosine in [0, 1] — same unit as MATCH /
+        CONSISTENCY / STRANGER_MATCH.
         """
         q = _l2(query_embedding)
         if float(np.linalg.norm(q)) == 0.0:
@@ -1545,12 +1559,15 @@ class SpeakerRecognizer:
             ):
                 logger.info("Auto-merge scan: no stranger centroids to compare")
                 return []
-            sims = self._stranger_embeds @ q
-            # Log every cluster's similarity (not just matches) so operators
-            # can tune threshold from real data: e.g. see that voice_5 missed
-            # at sim=0.23 and decide to lower threshold to 0.20.
+            # Both sides L2-normalized → dot product is raw cosine [-1, 1].
+            # Convert to scaled [0, 1] so the threshold lives in one unit
+            # across the file.
+            sims = (self._stranger_embeds @ q + 1.0) / 2.0
+            # Log every cluster's scaled similarity (not just matches) so
+            # operators can tune threshold from real data: e.g. see voice_5
+            # missed at sim=0.62 and decide to lower threshold to 0.60.
             breakdown = ", ".join(
-                f"{self._stranger_labels[i]}={float(sims[i]):+.3f}"
+                f"{self._stranger_labels[i]}={float(sims[i]):.3f}"
                 for i in range(len(sims))
             )
             logger.info(
