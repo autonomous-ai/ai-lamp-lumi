@@ -403,6 +403,12 @@ class MusicService:
             if self._stop_event.is_set():
                 return
 
+            # Release TTS persistent stream so aplay can grab the ALSA device
+            # exclusively. TTS reopens lazily on the next speak() call.
+            if self._tts_service and hasattr(self._tts_service, "release_stream"):
+                self._tts_service.release_stream()
+                time.sleep(0.1)
+
             # Stream: yt-dlp stdout -> ffmpeg stdin -> ALSA (no temp file)
             logger.info("Starting playback: '%s'", title[:80] if title else query[:80])
             self._ytdlp_proc = subprocess.Popen(
