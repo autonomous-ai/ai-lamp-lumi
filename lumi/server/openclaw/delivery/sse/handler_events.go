@@ -946,13 +946,24 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			h.activeRunIDsMu.Lock()
 			h.activeRunIDs[sc.SessionKey] = sc.RunID
 			h.activeRunIDsMu.Unlock()
+			// Mirror the lifecycle phase=start busy gate. OpenClaw 5.2 only
+			// fans out the agent stream (lifecycle events) for webchat, so
+			// non-webchat turns never hit the lifecycle case at line ~246.
+			// `sessions.changed` is broadcast for ALL channels — using it
+			// here closes the busy-stuck loop where /api/openclaw/busy
+			// flipped activeTurn=true but no lifecycle.end ever cleared it,
+			// causing pendingEvents to accumulate indefinitely.
+			h.agentGateway.SetBusy(true)
 			slog.Debug("sessions.changed start cached", "component", "agent",
 				"session_key", sc.SessionKey, "run_id", sc.RunID)
+		} else if sc.Phase == "end" || sc.Phase == "error" {
+			// Drain pendingEvents on the universally-broadcast end signal.
+			// Idempotent with the lifecycle-path SetBusy(false) at line ~252:
+			// whichever fires first wins, the other is a no-op.
+			h.agentGateway.SetBusy(false)
+			slog.Debug("sessions.changed end → busy cleared", "component", "agent",
+				"session_key", sc.SessionKey, "run_id", sc.RunID, "phase", sc.Phase)
 		}
-		// phase=="end"/"error" leaves the entry in place — overwriting on the
-		// next "start" is fine, and a session.message arriving slightly after
-		// lifecycle end can still be discriminated against the just-finished
-		// run id (worst case: same answer as if the run were still active).
 
 	case "session.message":
 		// OpenClaw 5.2 stopped fanning out the `agent` lifecycle stream for
