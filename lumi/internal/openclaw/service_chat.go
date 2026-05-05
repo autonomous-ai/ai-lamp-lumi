@@ -197,15 +197,9 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 
 	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
-	// pendingChatTrace path is dead in OpenClaw 5.x — `idempotencyKey` IS
-	// the embedded run id, no UUID-mapping needed. Setting the queue here
-	// just lets stale entries accumulate and feed the SSE handler wrong
-	// mappings during burst sensing (see handler_events.go gut for context).
-	// Mark this chat.send so the matching session.message rebroadcast that
-	// OpenClaw fans out for our own user message can be suppressed in the
-	// session.message handler — otherwise Lumi outbound echoes back as a
-	// phantom inbound channel turn on the shared `agent:main:main` session.
-	s.RecordOutboundEcho()
+	// Store pending trace so SSE handler can map OpenClaw UUID → device trace
+	// without relying on the race-prone global flow.GetTrace().
+	s.SetPendingChatTrace(idempotencyKey)
 	flow.Log("chat_send", map[string]any{
 		"run_id":      idempotencyKey,
 		"type":        sourceType,

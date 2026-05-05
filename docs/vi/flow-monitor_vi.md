@@ -95,28 +95,6 @@ Chi tiết:
 - **Heartbeat**: Cron 30 phút cũng trigger `lifecycle_start` — last user message sẽ là system prompt, không phải user thật.
 - **Token usage**: `chat.history` cũng được gọi lúc `lifecycle_end` để lấy token usage. OpenClaw `lifecycle_end` không có field `usage`. Token nằm trong last `role:"assistant"` message của history response: `usage: {input, output, totalTokens, cacheRead, cacheWrite}`. Emit thành `token_usage` flow event với `source: "chat_history"`.
 
-#### OpenClaw 5.2+ — channel turn driven bởi `session.message`
-
-Từ OpenClaw 2026.5.2, `agent` event stream chỉ fanout cho run khởi từ chính WS connection (Lumi `chat.send`). Telegram-initiated runs **không** nhận `lifecycle_start` / `lifecycle_end` / `tool` trên `agent` stream nữa — chỉ có `session.message`, `session.tool`, `sessions.changed`.
-
-Do đó SSE handler drive channel turn trực tiếp từ `session.message` (`case "session.message"` trong `handler_events.go`):
-
-- **Filter**: skip ngay nếu `origin.provider == "heartbeat"` (heartbeat cron giữ lifecycle path để TTS ra loa lamp). Còn lại coi là Telegram channel turn khi **bất kỳ** điều kiện nào đúng: `sessionKey` bắt đầu `agent:main:telegram:` (primary, stable nhất, áp cho group); `origin.provider == "telegram"`; hoặc `deliveryContext.channel == "telegram"` (bắt private 1:1 DM dùng chung session `agent:main:main`).
-- **Echo suppression cho session shared `agent:main:main`**: DM riêng và Lumi `chat.send` (web chat, sensing, system inject) đều rơi vào `agent:main:main`. Field `delivery.channel`/`origin.provider` được cache ở session-level — không phản ánh đúng channel của message hiện tại. 3 lớp check (chạy theo thứ tự ở `case "session.message"`):
-    - **MessageId dedup** (`shouldDedupeMessageID`, TTL 2 phút) — chạy đầu tiên cho mọi `session.message`. OpenClaw rebroadcast cùng user message lần 2 khi 1 `chat.send` đang queue bị embedded run hấp thụ vào context (`source=pi-embedded-runner`). Không dedup thì broadcast thứ 2 lọt qua mọi filter khác (echo queue đã rỗng) → tạo phantom turn.
-    - `isLumiInjectedUserMessage()` — match prefix `[system]`, `[sensing:`, `[ambient]`, `(system)`, heartbeat, wake. Rẻ, fallback cho path bypass `RecordOutboundEcho()`.
-    - **Outbound-echo queue** (`Service.RecordOutboundEcho` / `ConsumeOutboundEcho`) — Lumi enqueue timestamp mỗi `chat.send`; session.message handler pop 1 entry cho mỗi user-role arrival trên session shared. DM thật không enqueue, queue rỗng → DM lọt qua. Signal authoritative chịu được trường hợp web chat user gõ text tùy ý.
-- **User message**: cấp synthetic device run id `tg-<messageId>`, emit `chat_input` với `source:"channel"`, ghi `channelRuns` + `channelTurns[sessionKey]`.
-- **Tổng hợp pipeline events từ `session.message`**: OpenClaw 5.2 gate cả `session.tool` LẪN `agent` stream broadcast bằng `isControlUiVisible` — chỉ true cho `webchat` (xác nhận ở `auto-reply/reply/agent-runner-execution.ts`: `shouldSurfaceToControlUi = isInternalMessageChannel(provider)`). Pipeline cần `lifecycle_start`, `agent_thinking`, `tool_call`, `lifecycle_end`, `token_usage` để các node AGENT / THINK / TOOL / RESP sáng. Lumi synth chúng từ content blocks của `session.message`:
-  - **`lifecycle_start`** emit cùng lúc với `chat_input` ở user-role → sáng AGENT + THINK.
-  - **`agent_thinking`** mỗi block `{type:"thinking", thinking}` của assistant → fill THINK bằng chain-of-thought.
-  - **`tool_call`** mỗi block `{type:"toolCall", name, arguments}`, phase `start` (để `helpers.ts:664` render args trong node) → sáng TOOL.
-  - **`lifecycle_end`** + **`token_usage`** cộng dồn (sum `usage` qua tất cả assistant message của turn) emit khi `stopReason in {"stop","end_turn"}` → sáng RESP, hiện đúng input/output/cache token như lifecycle path.
-
-  `case "session.tool"` giữ defensively phòng OpenClaw nới `isControlUiVisible` sau này.
-- **Assistant message**: text từ các block `content[].text` được nối vào accumulator theo session. Khi assistant kết thúc với `stopReason in {"stop","end_turn"}` (không còn tool round nào nữa), handler chạy đúng end-of-turn logic mà `lifecycle_end` từng làm: `extractHWCalls` → `fireHWCalls` (marker LED/emotion/servo/audio fire trên lamp), rồi emit `tts_suppressed` với `reason:"channel_run"`. Marker `[HW:/speak]` hoặc `[HW:/broadcast]` escalate thành `tts_send` + `SendToLeLampTTS`; `[HW:/dm:{telegram_id}]` route reply qua `SendToUser`; `[HW:/broadcast]` (không kèm `/dm`) fan-out qua `Broadcast`.
-- **Không cần `chat.history` round-trip nữa**: `session.message` đã có sẵn text, sender (`session.displayName`), channel (`session.deliveryContext.channel`).
-
 ### NO_REPLY suppression
 
 OpenClaw agent trả `NO_REPLY` (hoặc dạng cắt ngắn `NO`, `NO_RE`, `NO_...`) khi quyết định không cần trả lời — thường cho passive sensing events (sound, motion). `isAgentNoReply()` trong `handler.go` suppress: không phát TTS, không hiện output. Match: `"NO"` chính xác, hoặc bắt đầu bằng `"NO_"` / `"NO_RE"` (case-insensitive).

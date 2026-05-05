@@ -2,7 +2,6 @@ package sse
 
 import (
 	"strings"
-	"time"
 )
 
 // accumulateAssistantDelta appends a delta to the buffer for the given runId.
@@ -56,42 +55,6 @@ func (h *OpenClawHandler) clearTTSSuppress(runID string) string {
 	reason := h.ttsSuppressReasons[runID]
 	delete(h.ttsSuppressReasons, runID)
 	return reason
-}
-
-// seenMessageTTL is the dedup window for OpenClaw session.message broadcasts.
-// Long enough to span run-absorption (queued chat.send re-broadcast when an
-// in-flight embedded run picks it up), short enough that the map stays small.
-const seenMessageTTL = 2 * time.Minute
-
-// shouldDedupeMessageID reports whether messageId has been seen recently. It
-// also records the current observation, evicting stale entries lazily so the
-// map can't grow unbounded.
-func (h *OpenClawHandler) shouldDedupeMessageID(messageID string) bool {
-	if messageID == "" {
-		return false
-	}
-	now := time.Now()
-	h.seenMessageMu.Lock()
-	defer h.seenMessageMu.Unlock()
-	if seenAt, ok := h.seenMessageIDs[messageID]; ok && now.Sub(seenAt) < seenMessageTTL {
-		return true
-	}
-	// Lazy GC: drop a handful of stale entries on each insert so the map
-	// doesn't grow unbounded under burst sessions.
-	if len(h.seenMessageIDs) > 256 {
-		dropped := 0
-		for k, v := range h.seenMessageIDs {
-			if now.Sub(v) >= seenMessageTTL {
-				delete(h.seenMessageIDs, k)
-				dropped++
-				if dropped >= 32 {
-					break
-				}
-			}
-		}
-	}
-	h.seenMessageIDs[messageID] = now
-	return false
 }
 
 // resolveRunID maps an OpenClaw-assigned UUID back to the device idempotencyKey if known.

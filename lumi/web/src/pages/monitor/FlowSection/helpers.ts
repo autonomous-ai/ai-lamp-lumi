@@ -1169,19 +1169,11 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
         const url = `/api/sensing/snapshot/${snapMatch[1]}`;
         if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
       }
-      if (!input && raw) {
-        // Strip known prefixes ([sensing:<type>], [activity], [emotion],
-        // [system], (system)) and any embedded [snapshot: ...] markers.
-        // Fall through to the raw text when no prefix matches so Lumi
-        // system-injected turns (skill watcher, wake, heartbeat) and any
-        // future inject category still surface a readable input instead
-        // of "Input not captured".
-        let display = raw.replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
-        const m = display.match(/^\s*(?:\[(?:sensing:[^\]]+|activity|emotion|system)\]|\(system\))\s*(.*)$/is);
-        if (m) display = (m[1] ?? "").trim();
-        if (display) {
-          input = display.length > 200 ? display.slice(0, 200) + "…" : display;
-        }
+      if (!input) {
+        // Strip the sensing prefix ([sensing:<type>], [activity], or [emotion]) to get the payload body.
+        const m = raw.match(/^\s*\[(?:sensing:[^\]]+|activity|emotion)\]\s*(.*)$/is);
+        const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
+        if (extracted) input = extracted;
       }
     }
     if (sameRun && (ev.type === "intent_match" || (ev.type === "flow_event" && ev.detail?.node === "intent_match"))) {
