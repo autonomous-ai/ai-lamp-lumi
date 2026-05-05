@@ -7,7 +7,7 @@ description: Tracks and analyzes behavioral patterns (habits) for known users ba
 
 Habits are **repeating behavioral patterns** derived from historical logs. This skill reads existing data (wellbeing, presence, mood, music) to build patterns per user, then stores them for other skills to consume.
 
-> **OUTPUT RULE:** Reply is spoken VERBATIM. ONE short caring sentence. All computation, pattern math, and log lookups stay in `thinking`. NEVER output timestamps, deltas, frequency counts, or reasoning in the reply.
+> **OUTPUT RULE:** Reply is spoken VERBATIM. ONE short caring sentence. All computation, pattern math, and log lookups stay in `thinking`. NEVER output timestamps, deltas, frequency counts, or reasoning in the reply. **(Exception: Flow E — open habit questions — see below.)**
 
 ## Data Sources (Input)
 
@@ -55,6 +55,7 @@ Habits require **at least 3 days of data** to form. With fewer days, skip proact
 | **B — Habit match** | Helper for wellbeing/SKILL.md Step 3b | `reference/match-helper.md` |
 | **C — Music personalization** | Build / consume `music_patterns` | `reference/music.md` |
 | **D — Conversation intent logging** | Triggered from SOUL when user states intent NOW | inline below |
+| **E — Open habit question** | User asks about someone's habits / patterns / routines | `reference/open-question.md` |
 
 ### D — Conversation intent logging (triggered from SOUL)
 
@@ -120,7 +121,13 @@ If data is insufficient: use default wellbeing thresholds / music genre table as
 
 ## Output Examples
 
+**Nudge enrichment (Flow A → wellbeing Step 3b):**
 - Habit break: *"You usually have water around now — everything okay?"*
 - Habit confirmed: *"Back at your desk right on schedule. [chuckle]"* — only say this if it feels natural
 - Music: *"It's your usual coding time — want some lo-fi?"*
 - When no data: silent (NO_REPLY) — never guess or fabricate habits
+
+**Open habit question (Flow E):**
+- Pattern mode: *"Leo usually arrives around 8:30 with breakfast, settles at the computer through the morning, and wraps up close to 5. Lo-fi tends to land between 2 and 4. Pretty steady the last week."*
+- Narrative mode: *"I've only got two real days on Chloe so far — April 28 was an evening at the computer with a lot of water breaks, and April 29 ran late, working past midnight. Not enough days yet to call it a habit, but that's what I've seen."*
+- Honest-gap mode: *"Honestly, I haven't seen Leo much lately — just one short session yesterday. The patterns I have are from two weeks ago, so I'd rather not pretend they're still true."*

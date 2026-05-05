@@ -100,6 +100,20 @@ Trước khi chọn genre từ bảng mood mặc định, music-suggestion đọ
 
 **Ví dụ:** Leo hay chấp nhận lo-fi lúc 14:00–16:00 → lúc 14:00, suggest lo-fi thay vì chọn theo mood.
 
+## Câu hỏi mở về habit (Flow E)
+
+Khi user hỏi thẳng về thói quen của ai đó (*"What are Leo's habits?"*, *"bạn biết thói quen của Chloe không?"*, *"Notice anything about my patterns?"*), habit skill chạy Flow A trước rồi chọn 1 trong 3 chế độ trả lời theo kết quả Flow A:
+
+| Flow A trả về | Reply mode | Lumi nói gì |
+|---|---|---|
+| `days_observed ≥ 3` VÀ ≥1 pattern moderate/strong | **Pattern** | Kể tên 2–3 pattern mạnh nhất kèm giờ + tần suất |
+| `insufficient_data` HOẶC tất cả pattern weak HOẶC <2 pattern | **Narrative** | Đọc raw `wellbeing/*.jsonl` 7 ngày gần nhất, mô tả hoạt động cụ thể (ngày/giờ/action) — kết bằng câu thành thật là chưa đủ ngày để gọi là habit |
+| `insufficient_data` VÀ `patterns.json` cũ > 3 ngày | **Honest-gap** | Thừa nhận thiếu data, không đọc lại pattern stale như là sự thật hiện tại |
+
+Honest-gap mode tồn tại vì freshness guard của Flow A giữ lại `patterns.json` cũ ngay cả khi data hiện tại không đủ. Không có rule này, Lumi sẽ vô tư đọc patterns 2 tuần cũ như là pattern hôm nay.
+
+Flow E **override** OUTPUT RULE 1-câu (chỉ áp dụng cho nudge enrichment): cho phép 2–4 câu, được nói ngày/giờ/tần suất xấp xỉ trong câu thoại. Raw timestamp, JSON, pattern math thô vẫn ở trong `thinking`.
+
 ## Test full E2E flow
 
 Validate: Step 1 (đọc history) → Step 2 (tính delta) → Step 3 (fire nudge) → Step 3b (invoke Flow A) → Flow A bootstrap (`patterns.json` được tạo) → Step 4 (speak) → Step 5 (log nudge).
