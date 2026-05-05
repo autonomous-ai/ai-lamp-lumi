@@ -143,14 +143,33 @@ func pickFrom(pool []string, lastSpoken string) string {
 	return pick
 }
 
+// PrewarmFillers asks lelamp to render+save WAV for every filler phrase
+// so the first runtime fire is a cache hit (no ElevenLabs roundtrip).
+// Runs serially in the calling goroutine -- caller should invoke from a
+// goroutine after the voice pipeline is up. Logs failures but never
+// panics; cache misses fall back to live speak at fire time.
+func PrewarmFillers() {
+	all := append([]string{}, OpeningFillers...)
+	all = append(all, ContinuationFillers...)
+	for _, phrase := range all {
+		if err := lelamp.PrerenderCached(phrase); err != nil {
+			slog.Warn("filler prerender failed", "component", "sensing", "phrase", phrase, "error", err)
+			continue
+		}
+		slog.Debug("filler prerendered", "component", "sensing", "phrase", phrase)
+	}
+	slog.Info("filler cache prewarm complete", "component", "sensing", "count", len(all))
+}
+
 // PlayOpeningFillerNow fires a single Opening-pool filler immediately,
 // fire-and-forget, without going through FillerManager. Called by the
-// sensing handler right after a voice/voice_command turn is forwarded —
-// the filler reaches lelamp ~5-10s before the LLM real reply, so it has
-// time to synthesize and play out before the real reply arrives. This
-// dodges the lelamp speak() lock-timeout=2s race that the timer-based
-// fire-at-lifecycle.start+FillerDelay path triggers when ElevenLabs
-// first-chunk latency exceeds the lock timeout.
+// sensing handler right after a voice/voice_command turn is forwarded.
+//
+// Uses the lelamp WAV cache (SpeakCachedInterruptible) so the filler
+// nhả tiếng ~50ms after this call instead of 1.5s — fillers were
+// previously fired ~5-10s ahead of the real reply just to mask
+// ElevenLabs latency; with cached audio that workaround is unnecessary,
+// but the call site stays the same for now.
 //
 // No-op when OpeningFillers pool is empty.
 func PlayOpeningFillerNow() {
@@ -161,8 +180,8 @@ func PlayOpeningFillerNow() {
 	if filler == "" {
 		return
 	}
-	slog.Info("opening filler firing (immediate)", "component", "sensing", "filler", filler)
-	if err := lelamp.SpeakInterruptible(filler); err != nil {
+	slog.Info("opening filler firing (immediate, cached)", "component", "sensing", "filler", filler)
+	if err := lelamp.SpeakCachedInterruptible(filler); err != nil {
 		slog.Warn("opening filler failed", "component", "sensing", "error", err)
 	}
 }
@@ -368,7 +387,7 @@ func (fm *FillerManager) fire(runID string) {
 	fm.mu.Unlock()
 
 	slog.Info("dead air filler firing", "component", "sensing", "run_id", runID, "filler", filler)
-	if err := lelamp.SpeakInterruptible(filler); err != nil {
+	if err := lelamp.SpeakCachedInterruptible(filler); err != nil {
 		slog.Warn("dead air filler failed", "component", "sensing", "run_id", runID, "error", err)
 	}
 

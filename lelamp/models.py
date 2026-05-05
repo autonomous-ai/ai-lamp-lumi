@@ -204,6 +204,10 @@ class SpeakRequest(BaseModel):
     provider: Optional[str] = Field(None, description="Override TTS provider: 'openai' or 'elevenlabs'")
     tts_api_key: Optional[str] = Field(None, description="API key for provider override")
     tts_base_url: Optional[str] = Field(None, description="Base URL for provider override")
+    # Cache controls — see tts_service.speak_cached(). Cache key includes
+    # provider/voice/model/speed/text so config changes invalidate naturally.
+    cached: bool = Field(False, description="Look up WAV cache; render+save on miss")
+    prerender: bool = Field(False, description="Render+save to cache without playing (warmup)")
 
     model_config = {
         "json_schema_extra": {"examples": [{"text": "[laugh] Hey! How are you doing today? I missed you! [sigh] It has been so quiet around here.", "voice": "Rachel"}]}

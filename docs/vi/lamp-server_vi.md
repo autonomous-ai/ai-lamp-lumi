@@ -217,7 +217,7 @@ Cần sensing có camera (InsightFace). Mặc định ảnh người đã đăng
 |--------|----------|-------|
 | POST | `/voice/start` | Start voice pipeline (Deepgram STT + TTS) |
 | POST | `/voice/stop` | Stop voice pipeline |
-| POST | `/voice/speak` | TTS — chuyển text thành giọng nói |
+| POST | `/voice/speak` | TTS — chuyển text thành giọng nói. Body fields: `text`, `voice?`, `interruptible?`, `provider?`, `tts_api_key?`, `tts_base_url?`, `cached?` (dùng WAV cache, render+save khi miss), `prerender?` (render+save không play — warmup lúc boot) |
 | GET | `/voice/status` | voice_available, voice_listening, tts_available, tts_speaking |
 
 ### System

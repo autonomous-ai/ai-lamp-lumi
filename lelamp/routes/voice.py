@@ -224,12 +224,23 @@ def speak_text(req: SpeakRequest):
         state.tts_service._voice = req.voice
     # Don't dump req.model_dump_json() — it contains tts_api_key. Log shape only.
     state.logger.info(
-        "POST /voice/speak: provider=%s voice=%s len=%d interruptible=%s",
+        "POST /voice/speak: provider=%s voice=%s len=%d interruptible=%s cached=%s prerender=%s",
         req.provider or "(default)",
         req.voice or "(default)",
         len(req.text or ""),
         req.interruptible,
+        req.cached,
+        req.prerender,
     )
+    if req.cached or req.prerender:
+        started = state.tts_service.speak_cached(
+            req.text,
+            interruptible=req.interruptible,
+            prerender=req.prerender,
+        )
+        if not started:
+            raise HTTPException(409, "TTS is busy speaking" if not req.prerender else 503)
+        return {"status": "prerendered" if req.prerender else "ok"}
     started = state.tts_service.speak(req.text, interruptible=req.interruptible)
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
