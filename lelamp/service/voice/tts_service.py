@@ -96,6 +96,95 @@ class TTSService:
         if self._sd:
             self._probe_device_rate()
 
+        # Persistent OutputStream + silence keepalive — eliminates ~4s ALSA codec
+        # warmup on every speak by keeping the stream open across speaks.
+        # Silence writer prevents the codec from suspending during idle.
+        self._stream = None
+        self._stream_rate: Optional[int] = None
+        self._stream_lock = threading.Lock()
+        if self._sd and self._device_rate:
+            try:
+                self._ensure_stream(self._device_rate)
+                threading.Thread(
+                    target=self._silence_keepalive,
+                    daemon=True,
+                    name="tts-silence-keepalive",
+                ).start()
+            except Exception as e:
+                logger.warning("Persistent stream init failed: %s", e)
+
+    def _ensure_stream(self, dst_rate: int):
+        """Open persistent OutputStream or return existing one. Reopens if rate
+        changed or previous stream was invalidated. Caller must hold _stream_lock
+        OR be sure no other thread can race (init path)."""
+        if (
+            self._stream is not None
+            and self._stream_rate == dst_rate
+        ):
+            return self._stream
+
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+            self._stream_rate = None
+
+        stream = self._sd.OutputStream(
+            samplerate=dst_rate,
+            channels=TTS_CHANNELS,
+            dtype="float32",
+            device=self._output_device,
+        )
+        stream.start()
+        self._stream = stream
+        self._stream_rate = dst_rate
+        logger.info("Persistent OutputStream opened at %d Hz", dst_rate)
+        return stream
+
+    def _invalidate_stream(self):
+        """Force the persistent stream to be reopened on next use (after a
+        write failure, e.g. ALSA underrun or codec rejecting buffer)."""
+        with self._stream_lock:
+            if self._stream is not None:
+                try:
+                    self._stream.stop()
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
+                self._stream_rate = None
+
+    def _silence_keepalive(self):
+        """Write 20ms of silence every 500ms when idle to keep the codec out of
+        suspend. WM8960/Rockchip codecs power down PCM after ~1s idle, which
+        forces a multi-second snd_pcm_prepare on the next write."""
+        np = self._np
+        while True:
+            time.sleep(0.5)
+            if self._speaking:
+                continue
+            try:
+                with self._stream_lock:
+                    if self._stream is None or self._stream_rate is None:
+                        continue
+                    if self._speaking:
+                        continue
+                    silence = np.zeros((self._stream_rate // 50, 1), dtype=np.float32)
+                    self._stream.write(silence)
+            except Exception as e:
+                logger.debug("Silence keepalive write failed, invalidating: %s", e)
+                # Don't call _invalidate_stream() under lock recursively.
+                try:
+                    if self._stream is not None:
+                        self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
+                self._stream_rate = None
+
     def _cache_key(self) -> str:
         return str(self._output_device) if self._output_device is not None else "default"
 
@@ -523,13 +612,11 @@ class TTSService:
 
         for _play_attempt in range(2):
             try:
-                with sd.OutputStream(
-                    samplerate=dst_rate,
-                    channels=TTS_CHANNELS,
-                    dtype="float32",
-                    device=self._output_device,
-                ) as stream:
-                    # Tail producer kicks off the moment stream is open so its HTTP
+                # Acquire the stream lock for the entire playback so the silence
+                # keepalive thread doesn't interleave zeros with TTS frames.
+                with self._stream_lock:
+                    stream = self._ensure_stream(dst_rate)
+                    # Tail producer kicks off the moment stream is ready so its HTTP
                     # TTFB overlaps with head playback.
                     tail_q: Optional["queue.Queue[Optional[np.ndarray]]"] = None
                     tail_thread: Optional[threading.Thread] = None
@@ -543,7 +630,8 @@ class TTSService:
                         )
                         tail_thread.start()
 
-                    # Drain head queue. First-frame latency = max(stream open, HTTP TTFB).
+                    # Drain head queue. First-frame latency = max(stream open, HTTP TTFB)
+                    # on cold start; ~HTTP TTFB only on warm stream (subsequent speaks).
                     while not self._stop_event.is_set():
                         try:
                             item = head_q.get(timeout=2.0)
@@ -578,6 +666,8 @@ class TTSService:
                 break  # playback succeeded, exit retry loop
             except Exception as e:
                 logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
+                # Stream is suspect -- close and reopen on retry.
+                self._invalidate_stream()
                 if _play_attempt == 0:
                     logger.warning("Re-probing output device rate and retrying...")
                     self._probe_device_rate(force=True)
