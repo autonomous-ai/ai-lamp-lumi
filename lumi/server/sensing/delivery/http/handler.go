@@ -348,13 +348,21 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 	}
 
-	// Mark voice turns so the SSE handler arms a filler timer when
-	// OpenClaw's lifecycle.start arrives. Done before forwarding so the
-	// lifecycle.start event can never race ahead of the mark.
+	// Mark voice turns so the SSE handler can re-arm a Continuation filler
+	// at each tool.end. Done before forwarding so the lifecycle.start
+	// event can never race ahead of the mark.
 	// Other turn types (passive sensing, web chat, guard) deliberately
 	// stay unmarked — fillers are voice-only.
+	//
+	// Opening filler is fired-and-forget IMMEDIATELY here (not via
+	// FillerManager timer). This is the pre-2026-05-04 behaviour: filler
+	// arrives at lelamp ~5-10s before the LLM real reply, so it has time
+	// to synthesize and play out before the real reply arrives — avoiding
+	// the lelamp-side speak() lock-timeout=2s race that the timer-based
+	// fire-at-lifecycle.start+FillerDelay path triggers.
 	if req.Type == "voice_command" || req.Type == "voice" {
 		DefaultFillerManager.MarkVoiceRun(runID)
+		go PlayOpeningFillerNow()
 	}
 
 	var err error

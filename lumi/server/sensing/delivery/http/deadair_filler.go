@@ -143,6 +143,30 @@ func pickFrom(pool []string, lastSpoken string) string {
 	return pick
 }
 
+// PlayOpeningFillerNow fires a single Opening-pool filler immediately,
+// fire-and-forget, without going through FillerManager. Called by the
+// sensing handler right after a voice/voice_command turn is forwarded —
+// the filler reaches lelamp ~5-10s before the LLM real reply, so it has
+// time to synthesize and play out before the real reply arrives. This
+// dodges the lelamp speak() lock-timeout=2s race that the timer-based
+// fire-at-lifecycle.start+FillerDelay path triggers when ElevenLabs
+// first-chunk latency exceeds the lock timeout.
+//
+// No-op when OpeningFillers pool is empty.
+func PlayOpeningFillerNow() {
+	if len(OpeningFillers) == 0 {
+		return
+	}
+	filler := pickFrom(OpeningFillers, "")
+	if filler == "" {
+		return
+	}
+	slog.Info("opening filler firing (immediate)", "component", "sensing", "filler", filler)
+	if err := lelamp.SpeakInterruptible(filler); err != nil {
+		slog.Warn("opening filler failed", "component", "sensing", "error", err)
+	}
+}
+
 // FillerManager schedules and cancels dead-air fillers driven by OpenClaw
 // agent events. Wiring (per turn lifecycle):
 //
@@ -194,8 +218,13 @@ func (fm *FillerManager) MarkVoiceRun(runID string) {
 	fm.mu.Unlock()
 }
 
-// OnTurnStart arms the first filler timer if MarkVoiceRun was set for
-// runID and at least one filler pool is non-empty.
+// OnTurnStart records the run as active so OnToolEnd can re-arm a
+// Continuation filler later. Opening filler is NOT armed here — it was
+// fired immediately by the sensing handler via PlayDeadAirFiller (the
+// pre-2026-05-04 behaviour, restored to dodge the lelamp speak() lock
+// race that the timer-based fire-at-lifecycle.start+FillerDelay path
+// caused). fired=1 marks Opening as already played so subsequent
+// pickFiller calls prefer the Continuation pool.
 func (fm *FillerManager) OnTurnStart(runID string) {
 	if runID == "" || fillersDisabled() {
 		return
@@ -209,9 +238,7 @@ func (fm *FillerManager) OnTurnStart(runID string) {
 	if _, exists := fm.runs[runID]; exists {
 		return
 	}
-	run := &fillerRun{}
-	fm.runs[runID] = run
-	fm.armLocked(runID, run, FillerDelay)
+	fm.runs[runID] = &fillerRun{fired: 1, lastActivityAt: time.Now()}
 }
 
 // OnToolStart soft-cancels the pending filler when the agent invokes a
