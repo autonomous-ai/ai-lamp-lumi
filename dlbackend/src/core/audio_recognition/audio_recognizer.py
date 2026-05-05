@@ -70,8 +70,8 @@ ENV_AUDIO_RECOGNIZER_ENGINE = "AUDIO_RECOGNIZER_ENGINE"
 class BaseAudioRecognizer:
     """ONNX speaker recognition base service using NumPy-based preprocessing.
 
-    Concrete engines (WeSpeaker ResNet34, ECAPA-TDNN-512, ...) are implemented
-    as subclasses overriding ``ENGINE_NAME``, ``DEFAULT_REMOTE_MODEL_PATH`` and
+    Concrete engines (ResNet34, ECAPA-TDNN-1024, CAM++) are implemented as
+    subclasses overriding ``ENGINE_NAME``, ``DEFAULT_REMOTE_MODEL_PATH`` and
     ``DEFAULT_LOCAL_MODEL_PATH``. All other logic (fbank extraction, ONNX
     session, register / recognize, batching, aggregation) is shared here.
     """
@@ -673,10 +673,10 @@ class BaseAudioRecognizer:
         return self.db.to_dict()
 
 
-class WeSpeakerResNet34Recognizer(BaseAudioRecognizer):
+class ResNet34Recognizer(BaseAudioRecognizer):
     """WeSpeaker VoxCeleb ResNet34-LM engine (256-dim embedding)."""
 
-    ENGINE_NAME = "wespeaker-resnet34"
+    ENGINE_NAME = "resnet34"
     DEFAULT_REMOTE_MODEL_PATH = (
         "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx"
     )
@@ -688,32 +688,52 @@ class WeSpeakerResNet34Recognizer(BaseAudioRecognizer):
     )
 
 
-class EcapaTdnn512Recognizer(BaseAudioRecognizer):
-    """WeSpeaker VoxCeleb ECAPA-TDNN-512-LM engine (emb-192, c512 channels).
+class EcapaTdnn1024Recognizer(BaseAudioRecognizer):
+    """WeSpeaker VoxCeleb ECAPA-TDNN-1024-LM engine (c1024 channels).
 
-    Input pipeline is identical to WeSpeaker ResNet34 (80-dim Kaldi fbank,
-    16kHz mono), so only the ONNX weights differ.
+    Same 80-dim Kaldi fbank / 16kHz mono input pipeline as the other engines,
+    only the ONNX weights differ.
     """
 
-    ENGINE_NAME = "ecapa-tdnn512"
+    ENGINE_NAME = "ecapa-tdnn1024"
     DEFAULT_REMOTE_MODEL_PATH = (
-        "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/voxceleb_ECAPA512_LM.onnx"
+        "https://huggingface.co/Wespeaker/wespeaker-voxceleb-ecapa-tdnn1024-LM/resolve/main/voxceleb_ECAPA1024_LM.onnx"
     )
     DEFAULT_LOCAL_MODEL_PATH = (
         AUDIO_RECOGNITION_BASE_DIR
         / "models"
-        / "wespeaker-ecapa-tdnn512-LM"
-        / "voxceleb_ECAPA512_LM.onnx"
+        / "wespeaker-voxceleb-ecapa-tdnn1024-LM"
+        / "voxceleb_ECAPA1024_LM.onnx"
+    )
+
+
+class CamPPlusRecognizer(BaseAudioRecognizer):
+    """WeSpeaker VoxCeleb CAM++ engine.
+
+    Context-Aware Masking architecture — lightweight (smaller than ResNet34)
+    while keeping competitive EER. Same fbank/16kHz mono pipeline.
+    """
+
+    ENGINE_NAME = "campplus"
+    DEFAULT_REMOTE_MODEL_PATH = (
+        "https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus/resolve/main/voxceleb_CAM%2B%2B.onnx"
+    )
+    DEFAULT_LOCAL_MODEL_PATH = (
+        AUDIO_RECOGNITION_BASE_DIR
+        / "models"
+        / "wespeaker-voxceleb-campplus"
+        / "voxceleb_CAM++.onnx"
     )
 
 
 # Registry of all concrete engines. Keyed by ENGINE_NAME for env-based lookup.
 AUDIO_RECOGNIZER_ENGINES: Dict[str, Type[BaseAudioRecognizer]] = {
-    WeSpeakerResNet34Recognizer.ENGINE_NAME: WeSpeakerResNet34Recognizer,
-    EcapaTdnn512Recognizer.ENGINE_NAME: EcapaTdnn512Recognizer,
+    ResNet34Recognizer.ENGINE_NAME: ResNet34Recognizer,
+    EcapaTdnn1024Recognizer.ENGINE_NAME: EcapaTdnn1024Recognizer,
+    CamPPlusRecognizer.ENGINE_NAME: CamPPlusRecognizer,
 }
 
-DEFAULT_AUDIO_RECOGNIZER_ENGINE = WeSpeakerResNet34Recognizer.ENGINE_NAME
+DEFAULT_AUDIO_RECOGNIZER_ENGINE = ResNet34Recognizer.ENGINE_NAME
 
 
 def resolve_engine_name(engine: str | None = None) -> str:
@@ -732,7 +752,7 @@ def create_audio_recognizer(
     Selection order:
         1. Explicit ``engine`` argument.
         2. Env var ``AUDIO_RECOGNIZER_ENGINE``.
-        3. ``DEFAULT_AUDIO_RECOGNIZER_ENGINE`` (WeSpeaker ResNet34).
+        3. ``DEFAULT_AUDIO_RECOGNIZER_ENGINE`` (ResNet34).
 
     Args:
         engine: Engine identifier. See ``AUDIO_RECOGNIZER_ENGINES`` keys.
@@ -757,5 +777,5 @@ def create_audio_recognizer(
     print(msg, flush=True)
     return cls(**kwargs)
 
-AudioRecognizer = WeSpeakerResNet34Recognizer
+AudioRecognizer = ResNet34Recognizer
 
