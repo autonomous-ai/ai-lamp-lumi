@@ -3,6 +3,8 @@ package openclaw
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,15 +95,70 @@ func (s *Service) downloadSkillsByName(names []string) []string {
 		}
 
 		targetDir := filepath.Join(skillsDir, name)
+
+		// Hash existing content before extract so we can detect a no-op
+		// update — metadata version bumped but actual files on disk
+		// would land identical. Empty hash on first install or unreadable
+		// dir is fine: any new content will differ.
+		oldHash, _ := folderHash(targetDir)
+
 		if err := extractSkillZip(tmpZip, targetDir); err != nil {
 			slog.Warn("skill extract failed", "component", "skill-watcher", "skill", name, "error", err)
 			os.Remove(tmpZip)
 			continue
 		}
 		os.Remove(tmpZip)
+
+		// Skip notifying the agent when the extracted content is byte-for-byte
+		// identical to what was already on disk. Pre-2026-05-04 (per-file
+		// SKILL.md) this was implicit because only changed files were fetched;
+		// the multi-file zip path bumps the metadata version any time the
+		// uploader re-runs, even when no skill content actually changed.
+		newHash, _ := folderHash(targetDir)
+		if oldHash != "" && oldHash == newHash {
+			slog.Info("skill content unchanged after extract, skipping notify",
+				"component", "skill-watcher", "skill", name)
+			continue
+		}
 		changed = append(changed, name)
 	}
 	return changed
+}
+
+// folderHash computes a deterministic sha256 of dir's content tree (paths +
+// file bytes, walked in lexical order). Returns "" if dir doesn't exist or
+// can't be walked — caller treats empty as "no prior content".
+func folderHash(dir string) (string, error) {
+	h := sha256.New()
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		// Include relative path so file moves register as changes.
+		h.Write([]byte(rel))
+		h.Write([]byte{0})
+		if info.IsDir() {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if _, err := io.Copy(h, f); err != nil {
+			return err
+		}
+		h.Write([]byte{0})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // notifySkillChanges sends a single message to the agent listing all changed skills.
