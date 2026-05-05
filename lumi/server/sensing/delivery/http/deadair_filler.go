@@ -52,7 +52,7 @@ const (
 	// a non-reactive tool) before speaking a filler. If the assistant
 	// reply or a hardware reaction arrives first the timer is cancelled
 	// and no filler plays.
-	FillerDelay = 3000 * time.Millisecond
+	FillerDelay = 1500 * time.Millisecond
 
 	// FillerCooldown is the minimum gap between two filler reactions in
 	// the same turn — covers both filler-spoken and hardware-reaction
