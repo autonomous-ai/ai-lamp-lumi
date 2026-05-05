@@ -325,9 +325,10 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 self._last_sent_ts = cur_ts
 
             logger.info("[activity.emotion] flushing: %s", message)
-            self._send_event(
-                "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
-            )
+            # TEMP DISABLED: do not forward emotion.detected to Lumi (re-enable when ready)
+            # self._send_event(
+            #     "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
+            # )
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
