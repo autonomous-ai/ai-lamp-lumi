@@ -20,14 +20,37 @@ type pendingEvent struct {
 	currentUser string // snapshot at queue time — may differ from replay time
 }
 
+// busyTTL bounds how long activeTurn can stay true without a clearing
+// lifecycle.end. OpenClaw can drop the lifecycle.end SSE for heartbeat
+// (target=none) turns and for concurrent same-lane sends that get merged
+// into the active run; without this expiry, every sensing event after such
+// a stuck turn is dropped/queued forever.
+const busyTTL = 5 * time.Minute
+
 // IsBusy returns true while the agent is processing a turn (between lifecycle start and end).
+// Auto-clears the flag after busyTTL has elapsed since the last SetBusy(true) so a missed
+// lifecycle.end cannot wedge the sensing pipeline indefinitely.
 func (s *Service) IsBusy() bool {
-	return s.activeTurn.Load()
+	if !s.activeTurn.Load() {
+		return false
+	}
+	since := s.busySince.Load()
+	if since > 0 && time.Since(time.UnixMilli(since)) > busyTTL {
+		slog.Warn("busy flag expired — auto-clearing (lifecycle.end likely missed)",
+			"component", "openclaw", "stuck_for_s", int(time.Since(time.UnixMilli(since)).Seconds()))
+		s.activeTurn.Store(false)
+		go s.drainPendingEvents()
+		return false
+	}
+	return true
 }
 
 // SetBusy marks the agent as busy or idle. Called by the SSE handler on lifecycle start/end.
 // When transitioning to idle, any buffered sensing events are replayed.
 func (s *Service) SetBusy(busy bool) {
+	if busy {
+		s.busySince.Store(time.Now().UnixMilli())
+	}
 	s.activeTurn.Store(busy)
 	if !busy {
 		s.drainPendingEvents()

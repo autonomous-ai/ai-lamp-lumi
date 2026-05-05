@@ -38,6 +38,7 @@ type Service struct {
 	statusLED      *statusled.Service
 	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
 	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
+	busySince      atomic.Int64 // unix milli when activeTurn was last set to true; used to expire stuck busy state
 	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
 
 	// wsConn is the active WebSocket connection; guarded by wsMu.
