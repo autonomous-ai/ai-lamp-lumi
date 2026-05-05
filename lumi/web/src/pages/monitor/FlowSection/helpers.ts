@@ -178,7 +178,9 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
-  // Voice/voice_command always wins — it's the user's actual intent even if mixed with passive sensing
+  // Web chat wins over voice/voice_command — /chat UI submits with type=voice_command
+  // for routing parity, but source=web is the authoritative origin marker.
+  let sawWebChat = false;
   let sawVoice = false;
   let sawVoiceCommand = false;
   for (const ev of turn.events) {
@@ -186,15 +188,18 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     const t = sensingInputBracketType(ev);
     if (t === "voice_command") sawVoiceCommand = true;
     else if (t === "voice") sawVoice = true;
-    // Also check data.type field (sensing_input / flow_enter events carry type in detail.data.type)
+    // Also check data.type / data.source fields on sensing_input events
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const d = ev.detail as Record<string, any> | undefined;
       const dtype = d?.data?.type ?? d?.type ?? "";
+      const dsource = d?.data?.source ?? d?.source ?? "";
+      if (dsource === "web") sawWebChat = true;
       if (dtype === "voice_command") sawVoiceCommand = true;
       else if (dtype === "voice") sawVoice = true;
     }
   }
-  if (sawVoiceCommand) turn.type = "voice_command";
+  if (sawWebChat) turn.type = "web_chat";
+  else if (sawVoiceCommand) turn.type = "voice_command";
   else if (sawVoice) turn.type = "voice";
 }
 
