@@ -676,27 +676,39 @@ class VoiceService:
         ) -> str:
             """Format message for an unrecognized speaker.
 
-            Only appends the enroll instruction when the transcript is long
-            enough AND the same voice cluster hasn't been nudged recently.
-            The nudge-per-hash cooldown stops the agent from asking "who
-            are you?" every short utterance when the same unknown speaker
-            keeps talking.
+            Always carries the ``[voice:N]`` tag and audio path when available
+            — the LLM still needs both during cooldown so the user can
+            self-enroll mid-sentence ("my name is X, please remember my
+            voice"). Cooldown only suppresses the strong "ask user's name"
+            instruction so the agent doesn't keep prompting the same unknown
+            cluster every turn; the data needed to enroll on demand stays
+            visible.
             """
-            # Skip nudge entirely if we've already asked this voice recently.
             now = time.time()
+            in_cooldown = False
             if voiceprint_hash:
                 last = self._last_nudge_time.get(voiceprint_hash, 0.0)
                 if now - last < self._nudge_cooldown_s:
+                    in_cooldown = True
                     logger.info(
-                        "Enroll nudge skipped for %s — asked %.0fs ago (cooldown %.0fs)",
+                        "Enroll nudge skipped for %s — asked %.0fs ago "
+                        "(cooldown %.0fs); path + tag still surfaced",
                         voiceprint_hash, now - last, self._nudge_cooldown_s,
                     )
-                    return f"Unknown Speaker: {transcript}"
 
-            # Surface the voice cluster id so the enrollment skill can combine
-            # multiple short recordings from the same unknown speaker across
-            # turns, instead of treating each turn as a fresh unknown.
+            # Always surface cluster tag when we have one — multi-turn combine
+            # depends on it persisting across cooldown.
             hash_tag = f" [voice:{voiceprint_hash}]" if voiceprint_hash else ""
+            audio_hint = f" (audio saved at {audio_path})" if audio_path else ""
+
+            # Cooldown branch — give LLM the data, drop the strong instruction.
+            # User volunteering a name in this turn is still actionable from
+            # transcript content + audio_path; we just stop nagging the agent
+            # to ask.
+            if in_cooldown:
+                return f"Unknown Speaker:{hash_tag} {transcript}{audio_hint}"
+
+            # Branch B — audio is long enough for a confident enrollment.
             if audio_path and _should_request_enroll(transcript, duration_s):
                 if voiceprint_hash:
                     self._last_nudge_time[voiceprint_hash] = now
@@ -705,6 +717,8 @@ class VoiceService:
                     f"(audio save at {audio_path}, auto enroll this speaker "
                     f"if having speaker name in transcript, else ask user's name)"
                 )
+
+            # Branch C — too short for a one-shot enroll; hint multi-turn combine.
             return (
                 f"Unknown Speaker:{hash_tag} {transcript} "
                 f"(audio saved at {audio_path}. Note: audio is too short for "

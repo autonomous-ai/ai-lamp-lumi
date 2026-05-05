@@ -188,7 +188,7 @@ Mọi giọng lạ được gom cụm local để server biết "đây là cùng
 | Đường trực tiếp | `lumi/server/sensing/delivery/http/handler.go` | `PostEvent()` |
 | Đường hàng đợi/phát lại | `lumi/internal/openclaw/service.go` | `drainPendingEvents()` |
 | Skill agent | `lumi/resources/openclaw-skills/speaker-recognizer/SKILL.md` | — |
-| Model embedding | `dlbackend/src/core/audio_recognition/audio_recognizer.py` | `WeSpeakerResNet34Recognizer` |
+| Model embedding | `dlbackend/src/core/audio_recognition/audio_recognizer.py` | `ResNet34Recognizer` (mặc định), `EcapaTdnn1024Recognizer`, `CamPPlusRecognizer` — chọn qua env `AUDIO_RECOGNIZER_ENGINE` |
 | Endpoint embedding | `dlbackend/src/protocols/htpp/audio_recognizer.py` | `embed_audio()` |
 | Cấu hình | `lelamp/config.py` | Các hằng số `SPEAKER_*` |
 

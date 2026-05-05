@@ -187,7 +187,7 @@ Every unknown voice is locally clustered so the server can say "this is the same
 | Direct event path | `lumi/server/sensing/delivery/http/handler.go` | `PostEvent()` |
 | Drain/replay path | `lumi/internal/openclaw/service.go` | `drainPendingEvents()` |
 | Agent skill | `lumi/resources/openclaw-skills/speaker-recognizer/SKILL.md` | — |
-| Embedding model | `dlbackend/src/core/audio_recognition/audio_recognizer.py` | `WeSpeakerResNet34Recognizer` |
+| Embedding model | `dlbackend/src/core/audio_recognition/audio_recognizer.py` | `ResNet34Recognizer` (default), `EcapaTdnn1024Recognizer`, `CamPPlusRecognizer` — chọn qua env `AUDIO_RECOGNIZER_ENGINE` |
 | Embedding endpoint | `dlbackend/src/protocols/htpp/audio_recognizer.py` | `embed_audio()` |
 | Config | `lelamp/config.py` | `SPEAKER_*` constants |
 
