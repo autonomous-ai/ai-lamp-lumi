@@ -138,6 +138,13 @@ type AgentGateway interface {
 	// entries (>2 min) from the head first. Returns "" if the queue is empty.
 	ConsumePendingChatTrace() string
 
+	// RemovePendingChatTraceByRunID removes the queue entry whose runID matches
+	// target. Used when lifecycle_start arrives with a Lumi-format runId
+	// (OpenClaw 5.4 echo path) so the entry is cleared without consuming an
+	// unrelated FIFO head — preventing orphan accumulation that would shift
+	// every subsequent UUID-runId mapping by one.
+	RemovePendingChatTraceByRunID(target string) bool
+
 	// --- Channel abstraction (backend-agnostic) ---
 
 	// GetTelegramBotToken returns the Telegram bot token used by the agent runtime.
