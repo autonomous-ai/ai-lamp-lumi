@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"go-lamp.autonomous.ai/internal/intent"
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
@@ -52,7 +53,7 @@ const (
 	// a non-reactive tool) before speaking a filler. If the assistant
 	// reply or a hardware reaction arrives first the timer is cancelled
 	// and no filler plays.
-	FillerDelay = 5000 * time.Millisecond
+	FillerDelay = 1500 * time.Millisecond
 
 	// FillerCooldown is the minimum gap between two filler reactions in
 	// the same turn — covers both filler-spoken and hardware-reaction
@@ -145,20 +146,54 @@ func pickFrom(pool []string, lastSpoken string) string {
 
 // PrewarmFillers asks lelamp to render+save WAV for every filler phrase
 // so the first runtime fire is a cache hit (no ElevenLabs roundtrip).
-// Runs serially in the calling goroutine -- caller should invoke from a
-// goroutine after the voice pipeline is up. Logs failures but never
-// panics; cache misses fall back to live speak at fire time.
+// Polls lelamp /health until it answers (lumi.service starts before
+// lumi-lelamp.service is ready -- without this guard every prerender
+// races and all 17 fail with connection refused). Then prerenders
+// serially. Logs failures but never panics; cache misses fall back to
+// live speak at fire time.
 func PrewarmFillers() {
+	const (
+		readyMaxWait  = 120 * time.Second
+		readyInterval = 2 * time.Second
+		perPhraseRetry = 3
+	)
+	deadline := time.Now().Add(readyMaxWait)
+	ready := false
+	for time.Now().Before(deadline) {
+		if _, err := lelamp.GetHealth(); err == nil {
+			ready = true
+			break
+		}
+		time.Sleep(readyInterval)
+	}
+	if !ready {
+		slog.Warn("filler prewarm aborted: lelamp /health not reachable", "component", "sensing")
+		return
+	}
+
 	all := append([]string{}, OpeningFillers...)
 	all = append(all, ContinuationFillers...)
+	all = append(all, intent.CacheableReplies...)
+	rendered := 0
 	for _, phrase := range all {
-		if err := lelamp.PrerenderCached(phrase); err != nil {
-			slog.Warn("filler prerender failed", "component", "sensing", "phrase", phrase, "error", err)
+		var lastErr error
+		for attempt := 1; attempt <= perPhraseRetry; attempt++ {
+			if err := lelamp.PrerenderCached(phrase); err != nil {
+				lastErr = err
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
+			}
+			lastErr = nil
+			break
+		}
+		if lastErr != nil {
+			slog.Warn("filler prerender failed", "component", "sensing", "phrase", phrase, "error", lastErr)
 			continue
 		}
+		rendered++
 		slog.Debug("filler prerendered", "component", "sensing", "phrase", phrase)
 	}
-	slog.Info("filler cache prewarm complete", "component", "sensing", "count", len(all))
+	slog.Info("filler cache prewarm complete", "component", "sensing", "rendered", rendered, "total", len(all))
 }
 
 // PlayOpeningFillerNow fires a single Opening-pool filler immediately,
@@ -237,13 +272,15 @@ func (fm *FillerManager) MarkVoiceRun(runID string) {
 	fm.mu.Unlock()
 }
 
-// OnTurnStart records the run as active so OnToolEnd can re-arm a
-// Continuation filler later. Opening filler is NOT armed here — it was
-// fired immediately by the sensing handler via PlayDeadAirFiller (the
-// pre-2026-05-04 behaviour, restored to dodge the lelamp speak() lock
-// race that the timer-based fire-at-lifecycle.start+FillerDelay path
-// caused). fired=1 marks Opening as already played so subsequent
-// pickFiller calls prefer the Continuation pool.
+// OnTurnStart records the run as active and arms a Continuation timer so
+// dead air gets filled even when the agent thinks without invoking any
+// tool (no tool.end -> no OnToolEnd re-arm without this). fired=1 marks
+// Opening as already played by the sensing handler so pickFiller prefers
+// the Continuation pool here.
+//
+// The arm-on-turn-start path was previously disabled because ElevenLabs
+// TTFB > 2s could exceed lelamp speak() lock-timeout=2s; with the WAV
+// cache (2026-05-05), cached fillers play in ~50ms so the race is gone.
 func (fm *FillerManager) OnTurnStart(runID string) {
 	if runID == "" || fillersDisabled() {
 		return
@@ -257,7 +294,9 @@ func (fm *FillerManager) OnTurnStart(runID string) {
 	if _, exists := fm.runs[runID]; exists {
 		return
 	}
-	fm.runs[runID] = &fillerRun{fired: 1, lastActivityAt: time.Now()}
+	run := &fillerRun{fired: 1, lastActivityAt: time.Now()}
+	fm.runs[runID] = run
+	fm.armLocked(runID, run, FillerDelay)
 }
 
 // OnToolStart soft-cancels the pending filler when the agent invokes a

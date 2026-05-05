@@ -140,7 +140,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			flow.Log("intent_match", map[string]any{"message": req.Message, "tts": result.TTSText, "rule": result.Rule, "actions": result.Actions}, localRunID)
 			if result.TTSText != "" {
 				go func() {
-					if err := lelamp.Speak(result.TTSText); err != nil {
+					// Cached path: fixed phrases like "Volume up!" hit the
+					// WAV cache (~50ms) instead of going through ElevenLabs
+					// (~1.5s). Dynamic texts (time, color) miss + render once.
+					if err := lelamp.SpeakCached(result.TTSText); err != nil {
 						slog.Warn("intent TTS failed", "component", "sensing", "error", err)
 					}
 				}()
