@@ -132,7 +132,7 @@ SNAPSHOT_TMP_DIR = os.environ.get(
 )
 SNAPSHOT_TMP_MAX_COUNT = int(os.environ.get("LELAMP_SNAPSHOT_TMP_MAX_COUNT", "50"))
 SNAPSHOT_PERSIST_DIR = os.environ.get(
-    "LELAMP_SNAPSHOT_PERSIST_DIR", "/var/lib/lumi/snapshots"
+    "LELAMP_SNAPSHOT_PERSIST_DIR", "/var/log/lumi/snapshots"
 )
 SNAPSHOT_PERSIST_TTL_S = float(
     os.environ.get("LELAMP_SNAPSHOT_PERSIST_TTL_S", str(72 * 3600))
