@@ -137,6 +137,20 @@ Before picking a genre from the default mood table, music-suggestion reads `patt
 
 **Example:** Leo usually accepts lo-fi between 14:00–16:00 → at 14:00, suggest lo-fi instead of generic mood-based pick.
 
+## Open Habit Questions (Flow E)
+
+When the user explicitly asks about a person's routines (*"What are Leo's habits?"*, *"Notice anything about my patterns?"*), the habit skill runs Flow A first, then picks one of three reply modes based on what Flow A returned:
+
+| Flow A returned | Reply mode | What Lumi says |
+|---|---|---|
+| `days_observed ≥ 3` AND ≥1 moderate/strong pattern | **Pattern** | Names 2–3 strongest patterns with hour + frequency phrasing |
+| `insufficient_data` OR all weak OR <2 patterns | **Narrative** | Reads raw `wellbeing/*.jsonl` last 7 days and describes concrete activity (dates/hours/actions) — ends with an honest line that it's not enough to call a habit yet |
+| `insufficient_data` AND existing `patterns.json` mtime > 3 days old | **Honest-gap** | Acknowledges the data gap, refuses to recite stale patterns as current |
+
+The honest-gap mode exists because Flow A's freshness guard preserves stale `patterns.json` even when current data is insufficient. Without this rule, Lumi would happily recite a 2-week-old pattern file as if it described today.
+
+Flow E **overrides** the one-sentence OUTPUT RULE that governs nudge enrichment: 2–4 sentences are allowed, and concrete dates/hours/approximate counts are permitted in the spoken reply. Raw timestamps, JSON, and internal pattern math still stay in `thinking`.
+
 ## Window Sizes
 
 | Action | Window |
