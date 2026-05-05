@@ -63,10 +63,20 @@ func SpeakInterruptible(text string) error {
 	return post("/voice/speak", body)
 }
 
+// SpeakCached is the non-interruptible cached variant -- used for intent
+// confirms ("Volume up!", "Light on!") where the reply is short and should
+// play to completion. On hit ~50ms playback; on miss render+save+play.
+func SpeakCached(text string) error {
+	body, _ := json.Marshal(map[string]any{
+		"text":   text,
+		"cached": true,
+	})
+	return post("/voice/speak", body)
+}
+
 // SpeakCachedInterruptible plays text via the WAV cache (instant on hit).
 // On miss, lelamp renders + saves WAV then plays. Use for fixed phrases
-// like dead-air fillers and intent confirms where the same text fires
-// repeatedly. interruptible=true so a real reply can cut it short.
+// like dead-air fillers where a real reply may need to cut it short.
 func SpeakCachedInterruptible(text string) error {
 	body, _ := json.Marshal(map[string]any{
 		"text":          text,

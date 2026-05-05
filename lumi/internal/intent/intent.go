@@ -43,6 +43,23 @@ func Match(text string) *Result {
 	return nil
 }
 
+// CacheableReplies is the set of intent reply phrases that should be
+// pre-rendered into the lelamp WAV cache at boot. Listed here (and not
+// derived from the rules table) because rule.exec is dynamic — some
+// replies depend on runtime input (color name, current time) and aren't
+// suitable for caching.
+var CacheableReplies = []string{
+	"Light on!",
+	"Light off!",
+	"Back to normal!",
+	"Goodnight!",
+	"Volume up!",
+	"Volume down!",
+	"Music stopped.",
+	"Dimmed.",
+	"Max brightness!",
+}
+
 // --- rules table ---
 
 type rule struct {
