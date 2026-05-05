@@ -508,7 +508,7 @@ func (h *SensingHandler) PostGuardAlert(c *gin.Context) {
 // GetSnapshot serves a sensing snapshot image.
 // LeLamp writes snapshots as <dir>/<category>/<name>, where <category> is
 // sensing_<prefix> (e.g. sensing_motion_activity) and <name> is <ms>.jpg.
-// Checks persistent dir first (/var/log/lumi/snapshots/), falls back to tmp.
+// Checks persistent dir first (/var/lib/lumi/snapshots/), falls back to tmp.
 func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 	category := c.Param("category")
 	name := c.Param("name")
@@ -523,7 +523,7 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	persistPath := filepath.Join("/var/log/lumi/snapshots", category, name)
+	persistPath := filepath.Join("/var/lib/lumi/snapshots", category, name)
 	if _, err := os.Stat(persistPath); err == nil {
 		c.File(persistPath)
 		return
