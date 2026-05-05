@@ -362,12 +362,19 @@ class TTSService:
     def _split_text_into_growing_sentence_chunks(
         self,
         text: str,
-        base_chars: int = 120,
+        base_chars: int = 60,
         growth_factor: float = 2.0,
         max_chunk_chars: int = 520,
         max_chunks: int = 12,
     ) -> list[str]:
-        """Split text into sentence-aligned chunks with growing size."""
+        """Split text into sentence-aligned chunks with growing size.
+
+        First chunk (c0) is small (base_chars=60) so ElevenLabs returns the
+        first PCM byte sooner -- TTFB scales with text length. Tail chunks
+        grow to max_chunk_chars to amortize HTTP overhead. Net: lower
+        perceived latency on longer responses without inflating chunk count
+        for very short texts (which fit in c0 anyway).
+        """
         normalized = re.sub(r"\s+", " ", (text or "").strip())
         if not normalized:
             return []

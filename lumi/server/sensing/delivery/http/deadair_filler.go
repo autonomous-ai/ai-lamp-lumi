@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"go-lamp.autonomous.ai/internal/intent"
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
@@ -172,6 +173,7 @@ func PrewarmFillers() {
 
 	all := append([]string{}, OpeningFillers...)
 	all = append(all, ContinuationFillers...)
+	all = append(all, intent.CacheableReplies...)
 	rendered := 0
 	for _, phrase := range all {
 		var lastErr error
