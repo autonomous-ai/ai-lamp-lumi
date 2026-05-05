@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+import lelamp.app_state as app_state
 from devices.video_capture_device import VideoCaptureDeviceBase
 from lelamp.service.sensing.perceptions.models import (
     PerceptionConfig,
@@ -181,10 +182,11 @@ class PerceptionOrchestrator:
     def _tick(self):
 
         # Read camera frame once per tick (shared across detectors).
-        # Camera intentionally stopped (sleepy mode, user-requested disable,
-        # preset transition) raises RuntimeError from capture() — swallow it
-        # here so the outer _loop doesn't log a full traceback every tick.
-        if self._camera_capture:
+        # Skip when camera is intentionally disabled (manual /camera/disable,
+        # sleepy mode, preset transition) — every stop() call site sets
+        # app_state._camera_disabled first. try/except kept as a safety net
+        # in case the flag is out of sync with the device thread state.
+        if self._camera_capture and not app_state._camera_disabled:
             try:
                 response = self._camera_capture.capture()
             except RuntimeError:
