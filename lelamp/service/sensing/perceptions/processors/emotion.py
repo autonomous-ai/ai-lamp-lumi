@@ -146,11 +146,11 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._emotion_buffer: dict[str, EmotionData] = {}
         self._snapshots_buffer: list[cv2.typing.MatLike] = []
 
-        # Dedup: per-user cooldown + same-emotion suppression
-        self._last_sent_key: tuple[str, str] | None = None  # (user, emotion)
+        # Dedup: same (person, emotion) within window → drop. Mirrors
+        # MotionPerception — single key + window, reset on user change.
+        self._last_sent_key: tuple[str, str] | None = None  # (person_id, emotion)
         self._last_sent_ts: float = 0.0
-        self._cooldown_s: float = 60.0
-        self._same_emotion_window_s: float = 300.0
+        self._dedup_window_s: float = 300.0  # 5 min
 
     def _process_face(
         self,
@@ -290,45 +290,52 @@ class EmotionPerception(Perception[FaceDetectionData]):
             else:
                 message = f"Emotion detected: {dominant_emotion}."
 
-            # Dedup (lock for dedup state)
+            # Dedup: same (person, emotion) within 5 min → drop. A different
+            # person OR a different emotion flips the key and passes through.
+            key = (person_id, dominant_emotion)
             with self._state_lock:
-                elapsed = (
-                    cur_ts - self._last_sent_ts
-                    if self._last_sent_ts > 0
-                    else float("inf")
-                )
-                last_user = self._last_sent_key[0] if self._last_sent_key else ""
-                last_emotion = self._last_sent_key[1] if self._last_sent_key else ""
-
-                if person_id == last_user and elapsed < self._cooldown_s:
-                    logger.debug(
-                        "[activity.emotion] cooldown skip: %s (%.0fs < %.0fs)",
-                        message,
-                        elapsed,
-                        self._cooldown_s,
-                    )
-                    continue
-
                 if (
-                    person_id == last_user
-                    and dominant_emotion == last_emotion
-                    and elapsed < self._same_emotion_window_s
+                    self._last_sent_key == key
+                    and (cur_ts - self._last_sent_ts) < self._dedup_window_s
                 ):
                     logger.info(
-                        "[activity.emotion] same emotion skip: %s (%.0fs ago)",
+                        "[activity.emotion] dedup drop: %s (same as last send %.1fs ago)",
                         message,
-                        elapsed,
+                        cur_ts - self._last_sent_ts,
                     )
                     continue
-
-                self._last_sent_key = (person_id, dominant_emotion)
+                self._last_sent_key = key
                 self._last_sent_ts = cur_ts
 
             logger.info("[activity.emotion] flushing: %s", message)
-            # TEMP DISABLED: do not forward emotion.detected to Lumi (re-enable when ready)
-            # self._send_event(
-            #     "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
-            # )
+            self._send_event(
+                "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
+            )
+
+    def reset_dedup(self, new_user: str = "") -> None:
+        """Clear the outbound dedup state only if the visible user actually
+        changed. Mirrors MotionPerception.reset_dedup — called by
+        SensingService on presence.enter via the orchestrator. Without this
+        guard, every stranger flicker would wipe the key and bypass the
+        5-min window.
+        """
+        with self._state_lock:
+            if self._last_sent_key is None:
+                return
+            last_user = self._last_sent_key[0]
+            if last_user == new_user:
+                logger.debug(
+                    "[activity.emotion] dedup reset skipped — same user %r",
+                    last_user,
+                )
+                return
+            logger.info(
+                "[activity.emotion] dedup reset (user %r → %r)",
+                last_user,
+                new_user,
+            )
+            self._last_sent_key = None
+            self._last_sent_ts = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         with self._state_lock:
