@@ -36,14 +36,18 @@ var OpeningFillers = []string{
 
 // ContinuationFillers play on re-arm after a tool finishes. Tone: progress.
 var ContinuationFillers = []string{
-	"Still working on it",
-	"Almost there",
-	"One more sec",
-	"Just a bit more",
-	"Hang on",
-	"Bear with me",
-	"Almost done",
-	"Hmm, getting close",
+	// Disabled — post-tool re-arm multiplies TTS race opportunities against
+	// real assistant deltas, surfacing the lelamp speak() lock-timeout=2s
+	// race when ElevenLabs first-chunk latency exceeds it. Uncomment to
+	// re-enable once that race is addressed (lelamp side).
+	// "Still working on it",
+	// "Almost there",
+	// "One more sec",
+	// "Just a bit more",
+	// "Hang on",
+	// "Bear with me",
+	// "Almost done",
+	// "Hmm, getting close",
 }
 
 // Filler tuning. All durations are wall-clock.

@@ -184,6 +184,14 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
+	// Pin messages.queue.mode=queue to dodge OpenClaw 5.2's `steer` regression
+	// (issue #48003 + ReplyRunAlreadyActive races on followup drain).
+	if queueAdded, err := s.ensureMessagesQueueConfig(); err != nil {
+		slog.Error("ensure messages.queue config failed", "component", "onboarding", "error", err)
+	} else if queueAdded {
+		needRestart = true
+	}
+
 	// Restart OpenClaw if non-skill files changed (SOUL.md, AGENTS.md, hooks, config)
 	if needRestart {
 		slog.Info("restarting OpenClaw to pick up changes", "component", "onboarding")
@@ -477,6 +485,56 @@ func (s *Service) ensureControlUIConfig() (bool, error) {
 		return false, fmt.Errorf("write openclaw.json: %w", err)
 	}
 	slog.Info("backfilled controlUi config in openclaw.json", "component", "onboarding")
+	return true, nil
+}
+
+// ensureMessagesQueueConfig pins messages.queue.mode to "queue" so OpenClaw
+// uses the legacy strict serial command queue instead of the 5.2 default
+// "steer" mode. The new steer path has a regression where rapid messages
+// trigger a followup-queue drain race that surfaces as ReplyRunAlreadyActive
+// errors and out-of-order replies on shared sessions like agent:main:main
+// (where webchat, Telegram, and Lumi internal messages all coexist).
+//
+// See: https://github.com/openclaw/openclaw/issues/48003
+//
+// Idempotent: only writes when messages.queue.mode is unset, so an operator
+// can opt back into "steer" by setting it explicitly once the regression is
+// fixed upstream.
+func (s *Service) ensureMessagesQueueConfig() (bool, error) {
+	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, fmt.Errorf("read openclaw.json: %w", err)
+	}
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configBytes, &configData); err != nil {
+		return false, fmt.Errorf("parse openclaw.json: %w", err)
+	}
+
+	messages, _ := configData["messages"].(map[string]interface{})
+	if messages == nil {
+		messages = map[string]interface{}{}
+		configData["messages"] = messages
+	}
+	queue, _ := messages["queue"].(map[string]interface{})
+	if queue == nil {
+		queue = map[string]interface{}{}
+		messages["queue"] = queue
+	}
+	if _, ok := queue["mode"]; ok {
+		// Operator-set value wins.
+		return false, nil
+	}
+	queue["mode"] = "queue"
+
+	outBytes, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal openclaw.json: %w", err)
+	}
+	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
+		return false, fmt.Errorf("write openclaw.json: %w", err)
+	}
+	slog.Info("pinned messages.queue.mode=queue in openclaw.json", "component", "onboarding")
 	return true, nil
 }
 
