@@ -274,9 +274,15 @@ class EmotionPerception(Perception[FaceDetectionData]):
         # Dedup key uses the global current_user (same source of truth as
         # MotionPerception + reset_dedup). Per-face person_id is too noisy
         # ('?' / 'stranger_17' / 'stranger_18' all flip the key on every
-        # frame and bypass dedup). current_user is normalized at presence
-        # level, so all unsure/stranger faces collapse under the same user.
+        # frame and bypass dedup). Skip entirely when current_user is "":
+        # nobody is in scene (no friend, no stranger within forget window)
+        # so there's no subject to attribute emotion to.
         current_user = self._perception_state.current_user.data or ""
+        if not current_user:
+            logger.info(
+                "[activity.emotion] skipping — no current_user (scene empty)"
+            )
+            return
 
         # Process each person's emotions
         for person_id, emotion_data in buffer.items():
