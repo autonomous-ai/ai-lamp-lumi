@@ -167,6 +167,10 @@ class GPIOButtonHandler:
             and not state._speaker_muted
         ):
             state.tts_service.speak_cached("Rebooting now")
+            # speak_cached is async; reboot kicks the OS before audio plays
+            # without this. ~2s covers the cached "Rebooting now" clip
+            # (matches the existing _on_long_press shutdown delay).
+            time.sleep(2)
         subprocess.Popen(
             ["sudo", "reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
