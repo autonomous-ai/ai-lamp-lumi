@@ -1564,6 +1564,9 @@ class SpeakerRecognizer:
         agg = agg / norm
 
         with self._stranger_lock:
+            best_sim_pre = None  # captured for the "new cluster" log path
+            best_label_pre: Optional[str] = None
+            breakdown_pre = ""
             if self._stranger_embeds is not None and len(self._stranger_embeds) > 0:
                 # Both sides L2-normalized → dot product is raw cosine [-1, 1].
                 # Convert to scaled [0, 1] so the threshold sits in the same
@@ -1572,13 +1575,23 @@ class SpeakerRecognizer:
                 sims = (raw_sims + 1.0) / 2.0
                 best_idx = int(np.argmax(sims))
                 best_sim = float(sims[best_idx])
+                # Capture full breakdown for diagnostics — this is the same
+                # data the matching loop sees, so we can surface it whether
+                # we matched or fell through to "new cluster".
+                breakdown_pre = ", ".join(
+                    f"{self._stranger_labels[i]}={float(sims[i]):.3f}"
+                    for i in range(len(sims))
+                )
+                best_sim_pre = best_sim
+                best_label_pre = str(self._stranger_labels[best_idx])
                 if best_sim >= _VOICE_STRANGER_MATCH_THRESHOLD:
-                    label = str(self._stranger_labels[best_idx])
                     logger.info(
-                        "Voiceprint hash: %s (matched existing cluster, sim=%.3f)",
-                        label, best_sim,
+                        "Voiceprint hash: %s (matched existing cluster, "
+                        "sim=%.3f, threshold=%.3f) | scores=[%s]",
+                        best_label_pre, best_sim,
+                        _VOICE_STRANGER_MATCH_THRESHOLD, breakdown_pre,
                     )
-                    return label
+                    return best_label_pre
 
             # No match — allocate a new cluster.
             self._stranger_counter = (self._stranger_counter + 1) % int(1e6)
@@ -1604,8 +1617,21 @@ class SpeakerRecognizer:
                 self._stranger_labels = self._stranger_labels[drop:]
 
             self._save_strangers()
-            logger.info(
-                "Voiceprint hash: %s (new cluster, total=%d)",
+            if best_sim_pre is not None:
+                # Hit the "no existing cluster matched" branch — surface the
+                # closest miss so operators can spot threshold edge cases
+                # (e.g. same speaker scoring 0.66 vs threshold 0.675).
+                logger.info(
+                    "Voiceprint hash: %s (new cluster, total=%d) | "
+                    "closest=%s sim=%.3f below threshold=%.3f | scores=[%s]",
+                    label, len(self._stranger_embeds),
+                    best_label_pre, best_sim_pre,
+                    _VOICE_STRANGER_MATCH_THRESHOLD, breakdown_pre,
+                )
+            else:
+                logger.info(
+                    "Voiceprint hash: %s (new cluster, total=%d) | "
+                    "no prior clusters",
                 label, len(self._stranger_embeds),
             )
             return label
