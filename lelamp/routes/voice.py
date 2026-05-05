@@ -176,24 +176,36 @@ def speak_text(req: SpeakRequest):
         raise HTTPException(409, "Speaker busy -- music is playing")
 
     # Optional provider hot-swap for web TTS preview (test before saving config).
-    # When the request specifies a provider that differs from the running backend,
-    # rebuild it in place so the same call can play with the new voice/credentials.
+    # Only swap when something actually changed -- comparing values instead of
+    # truthiness, so passing the same api_key/base_url every request is a no-op.
     if req.provider:
+        current_backend = state.tts_service._backend
         current_provider = getattr(state.tts_service, "_provider", None)
-        if req.provider != current_provider or req.tts_api_key or req.tts_base_url:
+        current_api_key = getattr(current_backend, "_api_key", "") or ""
+        current_base_url = getattr(current_backend, "_base_url", "") or ""
+        # ElevenLabs appends /elevenlabs to base_url; strip it for comparison.
+        normalized_current_base = current_base_url.rstrip("/")
+        if normalized_current_base.endswith("/elevenlabs"):
+            normalized_current_base = normalized_current_base[: -len("/elevenlabs")]
+        wanted_api_key = (req.tts_api_key or current_api_key).strip()
+        wanted_base_url = (req.tts_base_url or normalized_current_base).strip()
+        needs_swap = (
+            req.provider != current_provider
+            or wanted_api_key != current_api_key
+            or wanted_base_url != normalized_current_base
+        )
+        if needs_swap:
             from lelamp.service.voice.tts_backend import create_backend
-            api_key = req.tts_api_key or getattr(state.tts_service._backend, "_api_key", "") or ""
-            base_url = req.tts_base_url or getattr(state.tts_service._backend, "_base_url", "") or ""
             if state.tts_service.speaking:
                 state.tts_service.stop()
             try:
                 state.tts_service._backend = create_backend(
-                    provider=req.provider, api_key=api_key, base_url=base_url,
+                    provider=req.provider, api_key=wanted_api_key, base_url=wanted_base_url,
                 )
                 state.tts_service._provider = req.provider
                 state.logger.info(
                     "TTS backend hot-swapped (provider=%s, base_url=%s)",
-                    req.provider, base_url,
+                    req.provider, wanted_base_url,
                 )
             except Exception as e:
                 state.logger.error("TTS backend swap failed: %s", e)
@@ -210,7 +222,14 @@ def speak_text(req: SpeakRequest):
         )
     if req.voice:
         state.tts_service._voice = req.voice
-    state.logger.info("POST /voice/speak: req=%s", req.model_dump_json())
+    # Don't dump req.model_dump_json() — it contains tts_api_key. Log shape only.
+    state.logger.info(
+        "POST /voice/speak: provider=%s voice=%s len=%d interruptible=%s",
+        req.provider or "(default)",
+        req.voice or "(default)",
+        len(req.text or ""),
+        req.interruptible,
+    )
     started = state.tts_service.speak(req.text, interruptible=req.interruptible)
     if not started:
         raise HTTPException(409, "TTS is busy speaking")
