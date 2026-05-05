@@ -185,6 +185,7 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	}
 	// Set busy before write — closes the timing gap where sensing IsBusy()=false
 	// because lifecycle_start SSE hasn't arrived yet. SSE lifecycle_end still clears it.
+	s.busySince.Store(time.Now().UnixMilli())
 	s.activeTurn.Store(true)
 	err = conn.WriteMessage(websocket.TextMessage, body)
 	s.wsMu.Unlock()
