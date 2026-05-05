@@ -111,6 +111,7 @@ EMOTION_CONFIDENCE_THRESHOLD = float(
     os.environ.get("LELAMP_EMOTION_CONFIDENCE_THRESHOLD", "0.5")
 )
 EMOTION_FLUSH_S = float(os.environ.get("LELAMP_EMOTION_FLUSH_S", "10.0"))
+EMOTION_DEDUP_WINDOW_S = float(os.environ.get("LELAMP_EMOTION_DEDUP_WINDOW_S", "300.0"))
 EMOTION_SNAPSHOT_DIR = os.environ.get(
     "LELAMP_EMOTION_SNAPSHOT_DIR",
     os.path.join(tempfile.gettempdir(), "lumi-emotion-snapshots"),
