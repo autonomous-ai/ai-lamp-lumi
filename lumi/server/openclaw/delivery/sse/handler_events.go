@@ -67,18 +67,21 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Uses dedicated pending chat trace (not global flow.GetTrace) to avoid race conditions
 		// where concurrent channel turns clear the global trace before lifecycle_start arrives.
 		//
-		// Skip the FIFO pop entirely when payload.RunID is already a Lumi-format
-		// idempotencyKey (lumi-chat-*): OpenClaw 5.4 echoes Lumi's idempotencyKey
-		// as the run's runId, so the lifecycle event already carries the device
-		// trace. Popping FIFO here would consume an unrelated pending entry and
-		// misattribute every subsequent turn until the orphan expires (TTL 2min).
-		// FIFO mapping is still needed for older OpenClaw versions (5.2 and
-		// occasional UUID-generating paths in 5.4) that emit lifecycle with a
-		// foreign UUID instead of echoing idempotencyKey.
+		// Two paths depending on payload.RunID format:
+		//   • Lumi-format (lumi-chat-*): OpenClaw 5.4 echoes idempotencyKey as the
+		//     runId, so it already IS the device trace. Search-and-remove the
+		//     matching queue entry (no map needed). Cleaning the entry is
+		//     critical: if left as orphan, the next UUID lifecycle would FIFO-pop
+		//     this stale chat-N and misattribute its successor by one.
+		//   • UUID (5.2 / occasional 5.4 paths): runId is OpenClaw-generated and
+		//     unknowable from Lumi side — fall back to FIFO pop and map UUID to
+		//     the oldest pending idempotencyKey (best-effort send-order pairing).
 		lumiSession := h.agentGateway.GetSessionKey()
 		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
-		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession && !isLumiOutboundChatRunID(payload.RunID) {
-			if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
+		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
+			if isLumiOutboundChatRunID(payload.RunID) {
+				h.agentGateway.RemovePendingChatTraceByRunID(payload.RunID)
+			} else if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
 				h.mapRunID(payload.RunID, deviceTrace)
 				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
 				slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
