@@ -100,6 +100,16 @@ class TTSService:
         self._last_spoken_time: float = 0.0
 
         self._device_rate = None
+        # Wipe the persisted rate cache on every TTSService init -- sounddevice
+        # indexes shift across reboots on OrangePi (USB hotplug, kernel module
+        # load order), so a rate cached for "10" last boot can be served back
+        # for a completely different device this boot, ending up as silent
+        # HDMI playback. Cheaper to re-probe (~50ms total) than to debug stale
+        # cache after restarts.
+        try:
+            _RATE_CACHE_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
         self._backend: Optional[TTSBackend] = None
         try:
             self._backend = create_backend(provider=provider, api_key=api_key, base_url=base_url)
