@@ -7,7 +7,6 @@ Runs synthesis in a background thread to avoid blocking FastAPI.
 """
 
 import hashlib
-import json
 import logging
 import math
 import os
@@ -22,12 +21,6 @@ from typing import Optional
 import numpy as np
 
 from lelamp.service.voice.tts_backend import TTSBackend, TTS_SAMPLE_RATE, create_backend
-
-# Persisted device-rate cache so probe doesn't re-run on every lumi-lelamp restart.
-# Schema: {"<output_device_id_or_default>": <rate_hz>}
-_RATE_CACHE_PATH = Path(
-    os.environ.get("LELAMP_AUDIO_RATE_CACHE", "/var/lib/lelamp/audio_rate.json")
-)
 
 # WAV cache for fixed-text TTS (fillers, intent confirms). Key includes
 # provider/voice/model/speed/text so config changes self-invalidate.
@@ -100,16 +93,6 @@ class TTSService:
         self._last_spoken_time: float = 0.0
 
         self._device_rate = None
-        # Wipe the persisted rate cache on every TTSService init -- sounddevice
-        # indexes shift across reboots on OrangePi (USB hotplug, kernel module
-        # load order), so a rate cached for "10" last boot can be served back
-        # for a completely different device this boot, ending up as silent
-        # HDMI playback. Cheaper to re-probe (~50ms total) than to debug stale
-        # cache after restarts.
-        try:
-            _RATE_CACHE_PATH.unlink(missing_ok=True)
-        except Exception:
-            pass
         self._backend: Optional[TTSBackend] = None
         try:
             self._backend = create_backend(provider=provider, api_key=api_key, base_url=base_url)
@@ -223,60 +206,23 @@ class TTSService:
                 self._stream = None
                 self._stream_rate = None
 
-    def _cache_key(self) -> str:
-        return str(self._output_device) if self._output_device is not None else "default"
-
-    def _load_cached_rate(self) -> Optional[int]:
-        try:
-            if _RATE_CACHE_PATH.exists():
-                data = json.loads(_RATE_CACHE_PATH.read_text())
-                rate = data.get(self._cache_key())
-                if isinstance(rate, int) and rate > 0:
-                    return rate
-        except Exception as e:
-            logger.debug("rate cache read failed: %s", e)
-        return None
-
-    def _save_cached_rate(self, rate: int) -> None:
-        try:
-            _RATE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            data = {}
-            if _RATE_CACHE_PATH.exists():
-                try:
-                    data = json.loads(_RATE_CACHE_PATH.read_text()) or {}
-                except Exception:
-                    data = {}
-            data[self._cache_key()] = rate
-            _RATE_CACHE_PATH.write_text(json.dumps(data))
-        except Exception as e:
-            logger.debug("rate cache write failed: %s", e)
-
     def _probe_device_rate(self, force: bool = False):
         """Probe the output device to find a supported sample rate.
 
-        Short-circuit order: in-memory `self._device_rate` -> disk cache -> loop probe.
-        Pass force=True to bypass both caches — used by the retry path when playback
-        fails because the cached rate is no longer valid.
+        In-memory cache only via self._device_rate -- probe runs once per
+        TTSService lifetime, ~50ms total. force=True bypasses the cache
+        (used by the playback retry path when the cached rate stops working).
         """
-        # In-memory hit: already probed/cached in this process, nothing to do.
         if not force and self._device_rate:
             return
 
         dev_label = (
             self._output_device if self._output_device is not None else "default"
         )
-
-        if not force:
-            cached = self._load_cached_rate()
-            if cached:
-                self._device_rate = cached
-                logger.info("Output device [%s]: using cached rate=%d Hz", dev_label, cached)
-                return
-
         self._device_rate = None
         for rate in [44100, 48000, 16000, 32000, 24000, 22050, 8000]:
             try:
-                # Write only ~5ms of silence — enough to verify the rate opens
+                # Write only ~5ms of silence -- enough to verify the rate opens
                 # without forcing a multi-second snd_pcm_drain on close (OrangePi).
                 probe_frames = max(1, int(rate * 0.005))
                 with self._sd.OutputStream(
@@ -288,7 +234,6 @@ class TTSService:
                     _ = stream.write(np.zeros(probe_frames, dtype=np.float32))
                 self._device_rate = rate
                 logger.info("Output device [%s]: verified rate=%d Hz", dev_label, rate)
-                self._save_cached_rate(rate)
                 break
             except Exception as e:
                 logger.debug("Failed to play audio with rate=%d Hz due to e=%s", dev_label, e)
