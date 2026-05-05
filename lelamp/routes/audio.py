@@ -75,6 +75,24 @@ def get_audio_info():
     }
 
 
+# DAC-only controls (e.g. WM8960 / Rockchip on OrangePi) take dB, not percent.
+# Map 0-100% linearly onto this dB envelope; +2dB ceiling avoids speaker overdrive.
+_DAC_MAX_DB = 2.0
+_DAC_MIN_DB = -60.0
+_DAC_CONTROLS = {"DACL", "DACR", "DAC"}
+
+
+def _pct_to_db(pct: int) -> float:
+    pct = max(0, min(100, pct))
+    return _DAC_MIN_DB + (pct / 100.0) * (_DAC_MAX_DB - _DAC_MIN_DB)
+
+
+def _db_to_pct(db: float) -> int:
+    span = _DAC_MAX_DB - _DAC_MIN_DB
+    pct = round((db - _DAC_MIN_DB) / span * 100.0)
+    return max(0, min(100, pct))
+
+
 @router.post("/audio/volume", response_model=StatusResponse)
 def set_volume(req: VolumeRequest):
     """Set system speaker volume (0-100%)."""
@@ -82,10 +100,14 @@ def set_volume(req: VolumeRequest):
     if not controls:
         raise HTTPException(503, "No audio mixer controls found")
     cmd_prefix = ["amixer", "-c", str(card)] if card is not None else ["amixer"]
+    pct = max(0, min(100, req.volume))
+    dac_db = _pct_to_db(pct)
     for ctrl in controls:
+        value = f"{dac_db:.1f}dB" if ctrl.upper() in _DAC_CONTROLS else f"{pct}%"
         try:
+            # `--` so amixer doesn't parse a leading `-` in negative dB as a flag.
             subprocess.run(
-                [*cmd_prefix, "sset", ctrl, f"{req.volume}%"],
+                [*cmd_prefix, "sset", ctrl, "--", value],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -97,10 +119,20 @@ def set_volume(req: VolumeRequest):
 
 @router.get("/audio/volume", response_model=VolumeResponse)
 def get_volume():
-    """Get current speaker volume from amixer."""
+    """Get current speaker volume from amixer.
+
+    Reads back through the same envelope `set_volume` writes through:
+      - DAC controls -> parse [X.XdB] and map back via _db_to_pct
+      - everything else -> parse [NN%] directly
+    DAC controls are tried first so round-trip is stable on codecs whose raw%
+    range differs from our [-60dB, +2dB] envelope (e.g. WM8960, Rockchip).
+    """
     controls, card = _detect_playback_controls()
     cmd_prefix = ["amixer", "-c", str(card)] if card is not None else ["amixer"]
-    for ctrl in controls:
+    sorted_controls = sorted(
+        controls, key=lambda c: 0 if c.upper() in _DAC_CONTROLS else 1
+    )
+    for ctrl in sorted_controls:
         try:
             result = subprocess.run(
                 [*cmd_prefix, "sget", ctrl],
@@ -108,10 +140,15 @@ def get_volume():
                 text=True,
                 timeout=5,
             )
-            if result.returncode == 0:
-                match = re.search(r"\[(\d+)%\]", result.stdout)
-                if match:
-                    return {"control": ctrl, "volume": int(match.group(1))}
+            if result.returncode != 0:
+                continue
+            if ctrl.upper() in _DAC_CONTROLS:
+                db_match = re.search(r"\[(-?\d+(?:\.\d+)?)dB\]", result.stdout)
+                if db_match:
+                    return {"control": ctrl, "volume": _db_to_pct(float(db_match.group(1)))}
+            pct_match = re.search(r"\[(\d+)%\]", result.stdout)
+            if pct_match:
+                return {"control": ctrl, "volume": int(pct_match.group(1))}
         except Exception:
             continue
     raise HTTPException(503, "Audio volume control not available")
