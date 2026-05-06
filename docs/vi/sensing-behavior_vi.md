@@ -183,7 +183,7 @@ Khi visit count của một stranger lần đầu chạm ngưỡng (`_FAMILIAR_V
 2. Thêm hint vào message `presence.enter` đang gửi:
    `(familiar stranger <stranger_id> — seen 2 times, ask user if they want to remember this face; image saved at <path>)`
 
-Skill `face-enroll` (phía Lumi) parse hint đó, hỏi user "Tôi đã thấy người này 2 lần rồi — bạn muốn lưu họ không? Tên họ là gì?", và khi user trả lời tên thì gọi `POST /face/enroll` với image path đã lưu. Nếu user từ chối, skill chỉ ghi nhận rồi dừng; threshold là one-shot (`count == 2`), nên cùng `stranger_id` đó sẽ KHÔNG bị lelamp prompt lại lần nữa. Count vượt qua 2 không re-fire — lúc đó stranger hoặc đã được enroll (không còn là stranger) hoặc user đã chủ động từ chối.
+Skill `face-enroll` (phía Lumi) parse hint đó và nói trực tiếp với người trước cam: "I've seen you 2 times now — mind if I remember you? What's your name?" (skill chạy bằng tiếng Anh, agent tự dịch nếu cần). Khi có tên trả về thì gọi `POST /face/enroll` với image path đã lưu. Nếu từ chối, skill chỉ ghi nhận rồi dừng; threshold là one-shot (`count == 2`), nên cùng `stranger_id` đó sẽ KHÔNG bị lelamp prompt lại lần nữa. Count vượt qua 2 không re-fire — lúc đó stranger hoặc đã được enroll (không còn là stranger) hoặc đã chủ động từ chối.
 
 ---
 

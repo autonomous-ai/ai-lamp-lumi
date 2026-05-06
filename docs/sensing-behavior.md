@@ -183,7 +183,7 @@ When a stranger's visit count first reaches the threshold (`_FAMILIAR_VISIT_THRE
 2. Appends a hint to the outgoing `presence.enter` message:
    `(familiar stranger <stranger_id> — seen 2 times, ask user if they want to remember this face; image saved at <path>)`
 
-The `face-enroll` skill (Lumi side) parses that hint, asks the user "I've seen this person 2 times — want me to remember them? What's their name?", and on a name reply calls `POST /face/enroll` with the saved image path. On decline, the skill acknowledges and stops; the threshold is a one-shot trigger (`count == 2`), so the same `stranger_id` is never re-prompted by lelamp. Visit counts above 2 do not re-fire — by then the stranger has either been enrolled (no longer a stranger) or the user explicitly declined.
+The `face-enroll` skill (Lumi side) parses that hint and addresses the camera-person directly: "I've seen you 2 times now — mind if I remember you? What's your name?". On a name reply it calls `POST /face/enroll` with the saved image path. On decline, the skill acknowledges and stops; the threshold is a one-shot trigger (`count == 2`), so the same `stranger_id` is never re-prompted by lelamp. Visit counts above 2 do not re-fire — by then the stranger has either been enrolled (no longer a stranger) or has explicitly declined.
 
 ---
 

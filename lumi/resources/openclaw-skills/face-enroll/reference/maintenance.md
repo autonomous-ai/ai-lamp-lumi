@@ -4,7 +4,7 @@ Read-only and destructive ops on the enrolled face set.
 
 ## Check who is recognized
 
-**Trigger:** "who do you recognize?", "how many faces?", "list faces", "ai mình nhớ?".
+**Trigger:** "who do you recognize?", "how many faces?", "list faces".
 
 ```bash
 curl -s http://127.0.0.1:5001/face/status
@@ -19,7 +19,7 @@ Reply with names in plain prose, not raw JSON.
 
 ## Remove own face
 
-**Trigger:** "forget my face", "remove my face", "quên mặt tôi đi".
+**Trigger:** "forget my face", "remove my face".
 
 1. Verify the requester matches the enrolled person — match by sender name (Telegram prefix) or `telegram_id` from message metadata. If a different user asks to remove someone else's face, refuse.
 2. Call:
