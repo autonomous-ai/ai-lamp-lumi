@@ -444,7 +444,22 @@ Lumi detects the **user's** emotional state via two channels:
 
 ### `emotion.detected` event
 
-Fired by LeLamp when the dlbackend emotion classifier detects a facial expression above the confidence threshold. Message format: `Emotion detected: Happy` (or Sad, Angry, etc.).
+Fired by LeLamp when the dlbackend emotion classifier detects a facial expression above the confidence threshold. Message format:
+
+```
+Emotion detected: <Label>. (weak camera cue; confidence=<0.00-1.00>; bucket=<positive|negative|other>; treat as uncertain, <bucket-tuned hedge>.)
+```
+
+Concrete examples:
+
+```
+Emotion detected: Fear. (weak camera cue; confidence=0.62; bucket=negative; treat as uncertain, do not assume the user is distressed.)
+Emotion detected: Happy. (weak camera cue; confidence=0.78; bucket=positive; treat as uncertain, do not over-celebrate.)
+```
+
+The raw `Emotion detected: <Label>.` prefix is preserved so `user-emotion-detection/SKILL.md`'s parser and the Fear→stressed / Sad→sad mood mapping keep working unchanged. The trailing parenthetical exists to stop the LLM from over-committing on noisy FER reads (the bug it fixed: Fear → "Oh hello there again" greeting). Hedge clauses by bucket: `negative` → "do not assume the user is distressed"; `positive` → "do not over-celebrate"; `other` → "do not over-react".
+
+**Polarity-bucket dedup** (`EMOTION_BUCKETS` in `lelamp/service/sensing/perceptions/processors/emotion.py`) collapses fine-grained labels into `positive` / `negative` / `other` and dedups by `(current_user, bucket)` over a 5-min window. Within-bucket noise (Fear↔Sad↔Anger) becomes one event per window; cross-bucket flips (Fear→Happy) still fire as a genuine mood change. Confidence in the message is averaged over instances of the dominant label only — other labels' scores don't dilute it.
 
 The sensing handler (`handler.go`) routes `emotion.detected` events to the agent. When the agent is busy, these events are queued and replayed when idle.
 
@@ -452,9 +467,12 @@ The sensing handler (`handler.go`) routes `emotion.detected` events to the agent
 
 The `user-emotion-detection/SKILL.md` handles `emotion.detected` events:
 
-1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated)
+1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed)
 2. Logs a `signal` row via `POST /api/mood/log`
 3. **Silent by default** — no spoken reply unless warranted by normal sensing reply rules
+4. **Never greet on an emotion event.** `emotion.detected` is not a presence/arrival event — `sensing/SKILL.md` and `music-suggestion/SKILL.md` forbid openers like `hello`, `welcome back`, anything containing `again`. Greetings belong only to `presence.enter`.
+
+Step 2 of the handler is `music-suggestion/SKILL.md`. Its tone must match the mood: Fear→stressed and Sad→sad decisions use the `caring` emotion marker and a gentle one-liner — never cheerful or playful. If no tone-appropriate one-liner fits, output `<say></say>` and stay silent.
 
 ### Mood pipeline
 
