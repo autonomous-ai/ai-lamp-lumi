@@ -7,7 +7,7 @@ User sends a photo of **themselves** via Telegram (`mediaPaths`) or web chat (`[
 - "add me" / "add my face"
 - Any message where the user is introducing **themselves** with a photo attached.
 
-Do NOT activate when the user tries to enroll someone else with a photo (e.g. "this is Alice", "add my friend Bob"). That requires Flow C (familiar-stranger). For someone-else-without-photo, refuse — the other person must send their own photo.
+Do NOT activate when the user tries to enroll someone else with a photo (e.g. "this is Alice", "add my friend Bob"). Refuse — the other person must either send their own selfie (Flow A) or stand in front of the camera and respond to a familiar-stranger prompt themselves (Flow C). The owner cannot enroll a third party on their behalf.
 
 ## Steps
 

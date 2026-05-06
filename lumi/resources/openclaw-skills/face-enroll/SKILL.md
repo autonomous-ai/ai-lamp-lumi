@@ -12,7 +12,7 @@ Manage faces for the lamp's face recognition system. Faces live under `/root/loc
 | Flow | When | Detail |
 |---|---|---|
 | **A — Self-enroll with a photo** | User sends a photo of themselves + intro ("remember my face", "this is me"). | `reference/self-enroll-photo.md` |
-| **B — Self-enroll via camera capture** | User asks to be remembered without sending a photo, on **voice** or **Telegram text** (assumes user is near the lamp). Examples: "nhớ mặt mình đi", "tui là Gray", "capture rồi enroll cho tôi". Web chat without a photo → ask for a selfie (Flow A) instead. | `reference/self-enroll-camera.md` |
+| **B — Self-enroll via camera capture** | User asks to be remembered without sending a photo, on **voice** or **Telegram text** (assumes user is near the lamp). Examples: "remember my face", "I'm Gray", "capture and enroll me". Web chat without a photo → ask for a selfie (Flow A) instead. | `reference/self-enroll-camera.md` |
 | **C — Familiar-stranger prompt** | Current sensing message contains lelamp's hint `(familiar stranger ... — seen N times, ask user if they want to remember this face; image saved at <path>)`, OR the user is replying to your previous prompt about that stranger. | `reference/familiar-stranger.md` |
 | **M — Maintenance** | "who do you recognize?", "forget my face", "reset faces". | `reference/maintenance.md` |
 
@@ -25,18 +25,18 @@ Manage faces for the lamp's face recognition system. Faces live under `/root/loc
 
 ## Common rules (apply across all enroll flows)
 
-- **Self-enrollment is the default.** Refuse to enroll someone who isn't the sender, EXCEPT in Flow C where the user is responding to lelamp's explicit prompt about a face the camera already saw.
+- **Self-enrollment only.** The person being enrolled must be the one identifying themselves: sender of the message in Flows A/B, the camera-person responding to the prompt in Flow C. Refuse third-party enrollment ("add my friend Bob").
 - **Confirm the name out loud before enrolling — Flows B and C only.**
   - Flow A: the user's own photo + intro IS the confirmation; don't ask redundantly.
   - Flow B: read the name back in the same turn you snapshot ("Got it, saving you as Gray — hold still").
-  - Flow C: ask "want me to remember? what's their name?" and wait for the reply before calling `/face/enroll`.
+  - Flow C: address the camera-person directly — "mind if I remember you? what's your name?" — and wait for the reply before calling `/face/enroll`.
 - **Always confirm enrollment afterwards** — tell the user the name was registered once `/face/enroll` returns `ok`.
 - **Use lowercase labels** — normalize names to lowercase. Use the SAME label as `speaker-recognizer` for the same person so `/root/local/users/<label>/` is shared.
 - **Telegram identity rules:**
   - Flow A (photo on Telegram): include `telegram_username` + `telegram_id` (required for DM targeting).
   - Flow A (photo on web chat): omit Telegram fields.
   - Flow B (voice): omit. Flow B (Telegram text): include.
-  - Flow C: always omit — the named face is not the sender.
+  - Flow C: always omit — the camera-person isn't on Telegram (any Telegram metadata in context belongs to someone else, e.g. the owner overhearing).
 - **One photo per `/face/enroll` call.** Multiple photos → call once per photo.
 - **Never write files directly** to `/root/local/users/`. Always go through the HTTP API.
 - **Don't expose technical details** — say "I'll remember your face" not "base64-encoding the JPEG".
