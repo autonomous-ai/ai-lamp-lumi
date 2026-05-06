@@ -126,6 +126,15 @@ export function FaceOwnersSection() {
     setPlayingAudio(key);
   };
 
+  const downloadFile = (label: string, filepath: string) => {
+    const a = document.createElement("a");
+    a.href = `${HW}/face/file/${label}/${filepath}`;
+    a.download = filepath.split("/").pop() || filepath;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const openFile = async (label: string, filepath: string) => {
     const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(filepath);
     if (isImg) {
@@ -135,6 +144,11 @@ export function FaceOwnersSection() {
     const isAudio = /\.(wav|mp3|ogg|webm)$/i.test(filepath);
     if (isAudio) {
       playAudio(label, filepath);
+      return;
+    }
+    const isText = /\.(json|jsonl|txt|log|md|csv|yaml|yml|py|js|ts|tsx)$/i.test(filepath);
+    if (!isText) {
+      downloadFile(label, filepath);
       return;
     }
     // Already showing this file? close it
