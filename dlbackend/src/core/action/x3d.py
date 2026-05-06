@@ -19,6 +19,7 @@ import numpy.typing as npt
 from config import settings
 from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
 from core.action.constants import RESOURCES_DIR
+from core.persondetector import PersonDetector
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,9 @@ class X3DModel(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.x3d.max_frames,
         frame_size: tuple[int, int] = settings.x3d.frame_size,
+        person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size)
+        super().__init__(model_path, max_frames, frame_size, person_detector)
 
     @override
     def create_session(

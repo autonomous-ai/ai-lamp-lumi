@@ -19,13 +19,13 @@ import numpy.typing as npt
 from config import settings
 from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
 from core.action.constants import RESOURCES_DIR
-from core.action.person_detector import YOLOPersonDetector
+from core.persondetector import PersonDetector
 
 logger = logging.getLogger(__name__)
 
 
 class UniformerV2Model(HumanActionRecognizerModel):
-    """Shared VideoMAE ONNX model. Loaded once, used by all recognizer sessions."""
+    """Shared UniformerV2 ONNX model. Loaded once, used by all recognizer sessions."""
 
     DEFAULT_MODEL: Path | None = None
     DEFAULT_CLASSES_PATH: Path = RESOURCES_DIR / "kinect_classes.txt"
@@ -39,8 +39,9 @@ class UniformerV2Model(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.uniformerv2.max_frames,
         frame_size: tuple[int, int] = settings.uniformerv2.frame_size,
+        person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size)
+        super().__init__(model_path, max_frames, frame_size, person_detector)
 
     @override
     def create_session(

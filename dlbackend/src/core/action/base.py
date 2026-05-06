@@ -15,7 +15,7 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from core.action.constants import RESOURCES_DIR
-from core.action.person_detector import YOLOPersonDetector
+from core.persondetector import PersonDetector
 from core.models import ActionDetection, ActionResponse
 
 MODEL_T = TypeVar("MODEL_T", bound="HumanActionRecognizerModel")
@@ -36,7 +36,7 @@ class HumanActionRecognizerModel(ABC):
         model_path: Path | None,
         max_frames: int,
         frame_size: tuple[int, int],
-        person_detector: YOLOPersonDetector | None = None,
+        person_detector: PersonDetector | None = None,
     ):
         if model_path is None:
             model_path = self.__class__.DEFAULT_MODEL
@@ -54,7 +54,7 @@ class HumanActionRecognizerModel(ABC):
         self._running: bool = False
         self._session: ort.InferenceSession | None = None
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
-        self._person_detector: YOLOPersonDetector | None = person_detector
+        self._person_detector: PersonDetector | None = person_detector
 
     @property
     def max_frames(self):

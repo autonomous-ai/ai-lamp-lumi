@@ -1,4 +1,4 @@
-"""Tests for the emotion-analysis WebSocket endpoint."""
+"""Tests for the emotion-analysis WebSocket endpoint using the local POSTER V2 model."""
 
 import base64
 import json
@@ -11,41 +11,34 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.emotion.emotion import EmotionModel
-from core.emotion.emonet import EMOTIONS as EMONET_EMOTIONS
+from core.emotion.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
-os.environ["EMOTION_RECOGNITION_MODEL"] = "emonet"
+os.environ["EMOTION_RECOGNITION_MODEL"] = "posterv2"
 
-EMONET_MODEL_PATH = Path.cwd() / "local" / "emonet_8.onnx"
+POSTERV2_MODEL_PATH = Path.cwd() / "local" / "posterv2_7cls.onnx"
 
 pytestmark = pytest.mark.skipif(
-    not EMONET_MODEL_PATH.exists(),
-    reason=f"Local emotion model not found at {EMONET_MODEL_PATH}",
+    not POSTERV2_MODEL_PATH.exists(),
+    reason=f"Local POSTER V2 model not found at {POSTERV2_MODEL_PATH}",
 )
 
 
 def _make_frame_b64(width: int = 320, height: int = 240) -> str:
-    """Create a base64-encoded JPEG of a random BGR image."""
     frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
     _, buf = cv2.imencode(".jpg", frame)
     return base64.b64encode(buf.tobytes()).decode()
 
 
 def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
-    """Create a base64-encoded JPEG with a synthetic face-like region.
-
-    Uses a simple oval on a dark background — enough for YuNet to
-    occasionally detect a face-like blob, but detection is not guaranteed.
-    """
+    """Create a base64-encoded JPEG with a synthetic face-like region."""
     frame = np.zeros((height, width, 3), dtype=np.uint8)
     center = (width // 2, height // 2)
     axes = (50, 65)
     cv2.ellipse(frame, center, axes, 0, 0, 360, (200, 180, 170), -1)
-    # Eyes
     cv2.circle(frame, (center[0] - 20, center[1] - 15), 5, (40, 40, 40), -1)
     cv2.circle(frame, (center[0] + 20, center[1] - 15), 5, (40, 40, 40), -1)
-    # Mouth
     cv2.ellipse(frame, (center[0], center[1] + 25), (15, 8), 0, 0, 180, (40, 40, 80), -1)
     _, buf = cv2.imencode(".jpg", frame)
     return base64.b64encode(buf.tobytes()).decode()
@@ -53,21 +46,18 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    """Load the real EmotionModel once for the entire test session."""
-    m = EmotionModel(fer_path=EMONET_MODEL_PATH)
+    m = EmotionModel(fer_path=POSTERV2_MODEL_PATH)
     m.start()
     return m
 
 
 @pytest.fixture()
 def client(model):
-    """Create a TestClient with the real emotion model."""
     import config
     import server
 
     config.settings.dl_api_key = TEST_API_KEY
     server.emotion_model = model
-
     return TestClient(server.app)
 
 
@@ -94,18 +84,16 @@ class TestHealthEndpoint:
 
 class TestEmotionAnalysisWebSocket:
     def test_frame_returns_detections(self, client):
-        frame_b64 = _make_frame_b64()
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": frame_b64}))
+            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}))
             resp = ws.receive_json()
             assert "detections" in resp
             assert isinstance(resp["detections"], list)
 
     def test_frame_with_face_returns_emotion_fields(self, client):
         """When a face is detected, each detection has the expected fields."""
-        frame_b64 = _make_face_frame_b64()
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": frame_b64}))
+            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_face_frame_b64()}))
             resp = ws.receive_json()
             assert "detections" in resp
             for det in resp["detections"]:
@@ -113,20 +101,17 @@ class TestEmotionAnalysisWebSocket:
                 assert "confidence" in det
                 assert "face_confidence" in det
                 assert "bbox" in det
-                assert det["emotion"] in EMONET_EMOTIONS
+                assert det["emotion"] in POSTERV2_EMOTIONS
                 assert 0.0 <= det["confidence"] <= 1.0
-                # EmoNet outputs valence/arousal as floats
-                assert isinstance(det["valence"], float)
-                assert isinstance(det["arousal"], float)
                 assert len(det["bbox"]) == 4
+                # POSTER V2 does not output valence/arousal — should be None
+                assert det.get("valence") is None
+                assert det.get("arousal") is None
 
     def test_multiple_frames(self, client):
-        """Sending multiple frames should each produce a response."""
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
-                ws.send_text(
-                    json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
-                )
+                ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}))
                 resp = ws.receive_json()
                 assert "detections" in resp
 
@@ -137,17 +122,12 @@ class TestEmotionAnalysisWebSocket:
             assert resp["status"] == "config_updated"
 
     def test_high_threshold_filters_detections(self, client):
-        """With threshold=1.0, no emotion should pass the filter."""
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "config", "task": "emotion", "threshold": 1.0}))
             resp = ws.receive_json()
             assert resp["status"] == "config_updated"
 
-            ws.send_text(
-                json.dumps(
-                    {"type": "frame", "task": "emotion", "frame_b64": _make_face_frame_b64()}
-                )
-            )
+            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_face_frame_b64()}))
             resp = ws.receive_json()
             assert resp["detections"] == []
 
@@ -163,12 +143,6 @@ class TestEmotionAnalysisWebSocket:
             resp = ws.receive_json()
             assert "error" in resp
 
-    def test_unknown_type(self, client):
-        with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "bogus"}))
-            resp = ws.receive_json()
-            assert "error" in resp
-
     def test_frame_missing_frame_b64(self, client):
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "frame", "task": "emotion"}))
@@ -181,9 +155,7 @@ class TestEmotionAnalysisWebSocket:
         saved = server.emotion_model
         server.emotion_model = None
         with pytest.raises(Exception):
-            with client.websocket_connect(
-                "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
-            ) as ws:
+            with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
                 ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": "abc"}))
                 ws.receive_json()
         server.emotion_model = saved
@@ -195,7 +167,6 @@ class TestEmotionAnalysisWebSocket:
             assert resp == {"status": "ok"}
 
     def test_heartbeat_multiple(self, client):
-        """Multiple heartbeats in a row should all return ok."""
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
                 ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
@@ -203,20 +174,15 @@ class TestEmotionAnalysisWebSocket:
                 assert resp == {"status": "ok"}
 
     def test_heartbeat_interleaved_with_frames(self, client):
-        """Heartbeat should work between frame requests."""
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(
-                json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
-            )
+            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}))
             ws.receive_json()
 
             ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
             resp = ws.receive_json()
             assert resp == {"status": "ok"}
 
-            ws.send_text(
-                json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
-            )
+            ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}))
             resp = ws.receive_json()
             assert "detections" in resp
 

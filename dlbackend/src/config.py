@@ -5,7 +5,7 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from enums import EmotionRecognizerEnum, HumanActionRecognizerEnum
+from enums import EmotionRecognizerEnum, HumanActionRecognizerEnum, PersonDetectorEnum
 
 
 class HumanActionRecognizerSetting(BaseModel):
@@ -22,6 +22,7 @@ class HumanActionRecognizerSetting(BaseModel):
 
 class PersonDetectorSetting(BaseModel):
     enabled: bool = False
+    model: PersonDetectorEnum = PersonDetectorEnum.YOLO
     model_name: str = "yolo12x.pt"
     confidence_threshold: float = 0.4
     bbox_expand_scale: float = 2.0
