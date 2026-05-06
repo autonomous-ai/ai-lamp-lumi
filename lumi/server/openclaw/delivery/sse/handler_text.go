@@ -138,6 +138,24 @@ func extractTelegramChatID(text string) string {
 	return ""
 }
 
+// senderLabelTelegramIDRe captures the numeric id from senderLabel formats
+// emitted by OpenClaw, e.g. "Leo (@squall_leo_hart) id:158406741" or
+// "Leo (158406741)". Used as fallback when the message content lacks the
+// `chat_id: telegram:<id>` metadata block (sometimes injected, sometimes not).
+var senderLabelTelegramIDRe = regexp.MustCompile(`(?:id:|\()(\d{6,})\)?`)
+
+// extractTelegramIDFromSenderLabel returns the numeric Telegram user ID found
+// in a senderLabel string. Returns "" if no id-like substring matches.
+func extractTelegramIDFromSenderLabel(label string) string {
+	if label == "" {
+		return ""
+	}
+	if m := senderLabelTelegramIDRe.FindStringSubmatch(label); len(m) == 2 {
+		return m[1]
+	}
+	return ""
+}
+
 // shortError extracts a short, readable message from a potentially large error string.
 // Strips HTML bodies (e.g. Cloudflare 403 pages) down to the status line.
 func shortError(errMsg string) string {
