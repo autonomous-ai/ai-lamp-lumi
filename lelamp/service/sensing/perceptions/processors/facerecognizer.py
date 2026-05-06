@@ -39,6 +39,12 @@ USERS_DIR.mkdir(parents=True, exist_ok=True)
 STRANGER_STATE_DIR = Path(config.STRANGERS_DIR)
 STRANGER_STATE_DIR.mkdir(exist_ok=True, parents=True)
 _STRANGER_STATS_FILE = USERS_DIR / ".stranger_stats.json"
+_STRANGER_SNAPSHOTS_DIR = STRANGER_STATE_DIR / "snapshots"
+
+# Visit count at which lelamp prompts the user to enroll a familiar stranger.
+# Fires exactly once per stranger when count first reaches this value; the
+# face-enroll skill handles asking the user and POST /face/enroll on confirm.
+_FAMILIAR_VISIT_THRESHOLD = 2
 
 
 class FaceRecognizer:
@@ -700,8 +706,32 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                     self._stranger_snapshots_buffers.append(annotated_frame)
                     self._stranger_ids_buffer.update(new_strangers)
 
+            familiar_paths: dict[str, str] = {}
             if new_strangers:
-                self._track_stranger_visits(new_strangers)
+                just_familiar = self._track_stranger_visits(new_strangers)
+                if just_familiar:
+                    ts_ms = int(cur_ts * 1000)
+                    try:
+                        _STRANGER_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+                    except OSError as e:
+                        logger.warning(
+                            "[face] failed to create familiar snapshots dir: %s", e
+                        )
+                    for sid in just_familiar:
+                        path = _STRANGER_SNAPSHOTS_DIR / f"{sid}_{ts_ms}.jpg"
+                        try:
+                            if cv2.imwrite(str(path), frame):
+                                familiar_paths[sid] = str(path)
+                            else:
+                                logger.warning(
+                                    "[face] cv2.imwrite returned False for %s", path
+                                )
+                        except cv2.error as e:
+                            logger.warning(
+                                "[face] failed to save familiar snapshot %s: %s",
+                                path,
+                                e,
+                            )
 
             flushed_stranger_snapshots, flushed_stranger_ids = (
                 self._flush_stranger_buffer(cur_ts)
@@ -720,9 +750,21 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                     parts.append(f"stranger ({', '.join(stranger_ids_to_send)})")
                 summary = ", ".join(parts)
                 total_faces = len(new_owners) + len(stranger_ids_to_send)
+                message = (
+                    f"Person detected — {total_faces} face(s) visible ({summary})"
+                )
+                # Familiar-stranger prompt: fires exactly once per stranger
+                # at visit count == _FAMILIAR_VISIT_THRESHOLD. Skill parses
+                # this hint to ask the user whether to enroll the face.
+                for sid, img_path in familiar_paths.items():
+                    message += (
+                        f" (familiar stranger {sid} — seen "
+                        f"{_FAMILIAR_VISIT_THRESHOLD} times, ask user if they "
+                        f"want to remember this face; image saved at {img_path})"
+                    )
                 self._send_enter_event(
                     frames=annotated_frames_to_send,
-                    message=f"Person detected — {total_faces} face(s) visible ({summary})",
+                    message=message,
                 )
 
             self._check_leaves(cur_ts)
@@ -858,9 +900,14 @@ class FacePerception(Perception[cv2.typing.MatLike]):
             except OSError as e:
                 logger.warning("Failed to save stranger stats: %s", e)
 
-    def _track_stranger_visits(self, stranger_ids: set[str]) -> None:
-        """Increment visit count for each stranger seen in this frame."""
+    def _track_stranger_visits(self, stranger_ids: set[str]) -> set[str]:
+        """Increment visit count for each stranger seen in this frame.
+
+        Returns the subset of stranger_ids whose visit count just reached
+        ``_FAMILIAR_VISIT_THRESHOLD`` on this call (transition fires once).
+        """
         now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        just_familiar: set[str] = set()
         with self._state_lock:
             for sid in stranger_ids:
                 rec = self._stranger_visit_counts.get(sid)
@@ -873,9 +920,12 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 else:
                     rec["count"] += 1
                     rec["last_seen"] = now
+                    if rec["count"] == _FAMILIAR_VISIT_THRESHOLD:
+                        just_familiar.add(sid)
 
             if stranger_ids:
                 self._save_stranger_stats()
+        return just_familiar
 
     def stranger_stats(self) -> dict[str, Any]:
         """Return visit counts for all tracked stranger IDs."""
