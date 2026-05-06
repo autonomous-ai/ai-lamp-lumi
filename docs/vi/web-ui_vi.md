@@ -222,6 +222,7 @@ Hành vi gom nhóm Turn Pipeline:
 - Turn vẫn bắt đầu từ các event input/trigger (`sensing_input`, `chat_input`, `schedule_trigger`, ...).
 - UI giờ neo mỗi turn theo `run_id` đầu tiên phát hiện được (ở root event hoặc trong `detail`).
 - Với user mic actions: mỗi `sensing_input` dạng `[voice]` / `[voice_command]` (và `voice_pipeline_start`) tạo một turn riêng, ngay cả khi các event có thể đang chung `run_id`.
+- Với web monitor chat: mỗi `sensing_input` dạng `[web_chat]` tạo boundary turn riêng (icon 🖥, filter category **Web**) nên không bị merge chung với turn voice/sensing kề nhau.
 - Với user chat actions: mỗi `chat_input` (telegram input) tạo một boundary turn riêng, nên sẽ không bị merge chung với turn voice kề nhau dù OpenClaw có reuse `run_id`.
 - Nếu event phía sau có `run_id` khác, Monitor sẽ tách thành một turn agent suy diễn mới.
 - **Badge loại turn** (`motion`, `voice`, …): cùng một `run_id` có thể vừa motion (camera) vừa voice; trước đây segment đầu quyết định badge nên dễ hiện `motion` dù user vừa nói. Sau khi gom turn, nếu có bất kỳ `sensing_input` kiểu `[voice]` / `[voice_command]` thì badge ưu tiên voice hơn motion.
@@ -266,7 +267,7 @@ Giao diện chat tương tác với Lumi AI. Layout: sidebar (danh sách hội t
 **Nhập tin nhắn**
 - Textarea, Shift+Enter xuống dòng, Enter gửi
 - Đính kèm file/ảnh (tối đa 10 MB): nút, kéo thả, dán từ clipboard
-- Gửi qua `POST /api/sensing/event` với `type: "voice"`
+- Gửi qua `POST /api/sensing/event` với `type: "web_chat"`. Handler mark run qua `MarkWebChatRun(runID)` để reply của agent bị suppress TTS (chỉ hiện trong UI này) và bỏ qua wake greeting / opening filler. Web chat có image attach: lưu vào `/tmp/web-chat-*.jpg` và gắn vào tin nhắn agent qua `[image: <path>]`.
 
 **Streaming real-time**
 - **Thinking indicator**: khối tím thu gọn được, hiển thị reasoning tokens của LLM khi stream (`thinking` events). Click mở rộng toàn bộ (max-height 200px, scroll). Tự ẩn khi response hoàn tất.

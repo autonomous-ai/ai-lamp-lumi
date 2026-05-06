@@ -68,7 +68,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
+  "type": "voice_command|voice|web_chat|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -79,6 +79,7 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | Type | Source | Has image? | Description |
 |------|--------|-----------|-------------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | No | Voice command |
+| `web_chat` | Web Monitor `/chat` UI | Yes (file/clipboard attach) | Typed message from web monitor — TTS suppressed (reply rendered in UI), no physical wake, no opening filler |
 | `motion` | Camera (frame diff) | Yes (large motion) | Motion detected |
 | `presence.enter` | Camera (InsightFace recognition) | Yes (bbox-annotated JPEG) | Face detected — friend or stranger classified |
 | `presence.leave` | Camera (3 consecutive ticks without face) | No | Person left |
@@ -88,9 +89,10 @@ Config field: `guard_mode` in `config/config.json` (bool, default `false`). The 
 | `motion.activity` | MotionPerception (while PRESENT) | No | Activity detected while user is present — emotional actions logged via Mood skill |
 
 **Processing flow:**
-1. `voice_command` or `voice` + local intent enabled → match intent → execute directly (~50ms)
+1. `voice_command` or `voice` + local intent enabled → match intent → execute directly (~50ms). `web_chat` skips local intent (typed text ≠ wake-word voice).
 2. No match → forward to OpenClaw via WebSocket `chat.send`
-3. If event has `image` → call `SendChatMessageWithImage` → send image with text for AI vision analysis
+3. If event has `image` → call `SendChatMessageWithImage` → send image with text for AI vision analysis. For `web_chat`, attached image is saved to `/tmp/web-chat-*.jpg` and tagged `[image: <path>]` so the agent can reference it (e.g. for face enrollment).
+4. `web_chat` runs are tagged via `MarkWebChatRun(runID)` so the SSE handler suppresses TTS at lifecycle end — reply is rendered in the web UI only.
 
 ### OpenClaw
 
