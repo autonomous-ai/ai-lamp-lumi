@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, testTTSVoice } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType } from "@/types";
 import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MessageSquare, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
 
@@ -258,6 +259,9 @@ export default function EditConfig() {
     return SECTIONS.some((s) => s.id === hash) ? hash : "device";
   });
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const activeSectionLabel = SECTIONS.find((s) => s.id === activeSection)?.label ?? "Settings";
+  useDocumentTitle(["Settings", activeSectionLabel]);
 
   // form state
   const [ssid, setSsid] = useState("");
