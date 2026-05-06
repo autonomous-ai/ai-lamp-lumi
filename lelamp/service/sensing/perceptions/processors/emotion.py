@@ -117,7 +117,8 @@ class RemoteEmotionRecognizer:
 @dataclass
 class EmotionData:
     face: Face
-    emotions: list[str]
+    # (emotion_label, confidence) per detection in this flush window.
+    emotions: list[tuple[str, float]]
 
 
 class EmotionPerception(Perception[FaceDetectionData]):
@@ -217,7 +218,9 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 self._emotion_buffer[face.person_id] = EmotionData(
                     face=face, emotions=[]
                 )
-            self._emotion_buffer[face.person_id].emotions.append(emotion)
+            self._emotion_buffer[face.person_id].emotions.append(
+                (emotion, float(confidence))
+            )
 
             if snapshot is not None:
                 self._snapshots_buffer.append(snapshot)
@@ -316,14 +319,17 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 logger.info("[activity.emotion] %s raw: %s", person_id, emotion_data)
 
             # Skip Neutral
-            non_neutral = [e for e in emotion_data.emotions if e != "Neutral"]
+            non_neutral = [(e, c) for e, c in emotion_data.emotions if e != "Neutral"]
             if not non_neutral:
                 continue
 
-            counts = Counter(non_neutral)
+            counts = Counter(e for e, _ in non_neutral)
             dominant_emotion, _ = counts.most_common(1)[0]
 
-            message = f"Emotion detected: {dominant_emotion}."
+            # Average confidence over instances of the dominant label only —
+            # other labels' confidences would dilute it.
+            dom_confidences = [c for e, c in non_neutral if e == dominant_emotion]
+            avg_confidence = sum(dom_confidences) / len(dom_confidences)
 
             # Phase 2: dedup by polarity bucket, not raw label. Fear↔Sad
             # ↔Anger noise within the same bucket collapses to one event
@@ -331,6 +337,19 @@ class EmotionPerception(Perception[FaceDetectionData]):
             # genuine mood change. "other" bucket catches any label not in
             # EMOTION_BUCKETS so unknown emotions still self-dedup.
             bucket = EMOTION_BUCKETS.get(dominant_emotion, "other")
+
+            # Hedge prevents LLM over-commit on noisy FER reads. Raw
+            # "Emotion detected: <Name>." prefix kept for skill parser.
+            hedge = {
+                "negative": "do not assume the user is distressed",
+                "positive": "do not over-celebrate",
+            }.get(bucket, "do not over-react")
+            message = (
+                f"Emotion detected: {dominant_emotion}. "
+                f"(weak camera cue; confidence={avg_confidence:.2f}; "
+                f"bucket={bucket}; treat as uncertain, {hedge}.)"
+            )
+
             key = (current_user, bucket)
             with self._state_lock:
                 last_ts = self._last_sent_by_key.get(key)
