@@ -1123,6 +1123,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			"run_id": runID,
 			"source": "session.message",
 		}, runID)
+		// Clear the agent busy flag — lelamp's turn-gate hook called
+		// /api/openclaw/busy when this channel turn was preprocessed, but
+		// the agent-path lifecycle.end that normally clears it never fires
+		// for channel turns (OpenClaw 5.x gate). Without this, sensing
+		// events queue for up to busyTTL (5 min) before auto-clearing.
+		h.agentGateway.SetBusy(false)
 
 		// Channel turns never speak via the lamp speaker — Telegram already
 		// receives the text directly from OpenClaw. Emit tts_suppressed so
