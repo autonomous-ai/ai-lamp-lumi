@@ -555,7 +555,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// dead-air pocket, capped by MaxFillersPerTurn and gated
 				// by FillerCooldown.
 				sensinghttp.DefaultFillerManager.OnToolEnd(flowRunID)
-				result := payload.Data.Result
+				result := payload.ResultText()
 				if len(result) > 100 {
 					result = result[:100] + "..."
 				}
@@ -853,7 +853,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				}
 			}
 		} else if payload.Data.Phase == "end" {
-			result := payload.Data.Result
+			result := payload.ResultText()
 			if len(result) > 100 {
 				result = result[:100] + "..."
 			}

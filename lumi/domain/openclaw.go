@@ -33,8 +33,13 @@ type AgentPayload struct {
 		ToolArgs      string          `json:"toolArgs,omitempty"`
 		Args          json.RawMessage `json:"args,omitempty"`    // OpenClaw sends args as object e.g. {"command":"curl ..."}
 		Arguments     string          `json:"arguments,omitempty"`
-		Result        string          `json:"result,omitempty"`
-		PartialResult string          `json:"partialResult,omitempty"`
+		// Result/PartialResult: legacy OpenClaw versions sent strings; 5.4+ with
+		// openai-codex/gpt-5.5 sends structured tool results (objects with
+		// `content: [{type:"text", text:"..."}]`). Keep as RawMessage and use
+		// ResultText() / PartialResultText() helpers — typing as string broke
+		// the WS read loop with "cannot unmarshal object into ... string".
+		Result        json.RawMessage `json:"result,omitempty"`
+		PartialResult json.RawMessage `json:"partialResult,omitempty"`
 		// Thinking/assistant stream fields
 		Text  string `json:"text,omitempty"`
 		Delta string `json:"delta,omitempty"`
@@ -64,6 +69,51 @@ func (p *AgentPayload) ToolArguments() string {
 		return string(p.Data.Args)
 	}
 	return ""
+}
+
+// ResultText extracts a human-readable string from Data.Result regardless of
+// whether OpenClaw sent it as a JSON string (legacy) or a structured tool
+// result object (5.4+ openai-codex). Falls back to the raw JSON for unknown shapes.
+func (p *AgentPayload) ResultText() string { return resultRawToString(p.Data.Result) }
+
+// PartialResultText: same logic as ResultText for streaming partial results.
+func (p *AgentPayload) PartialResultText() string { return resultRawToString(p.Data.PartialResult) }
+
+func resultRawToString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	// Legacy: plain JSON string.
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	// Common: { "text": "..." }
+	var withText struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &withText) == nil && withText.Text != "" {
+		return withText.Text
+	}
+	// Structured tool result: { "content": [{ "type": "text", "text": "..." }, ...] }
+	var withContent struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &withContent) == nil && len(withContent.Content) > 0 {
+		parts := make([]string, 0, len(withContent.Content))
+		for _, c := range withContent.Content {
+			if c.Text != "" {
+				parts = append(parts, c.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
+		}
+	}
+	// Unknown shape — return compact JSON so callers still have something to log.
+	return string(raw)
 }
 
 // TokenUsage captures LLM token consumption from an agent turn.
