@@ -200,6 +200,9 @@ class FaceRecognizer:
         embeds: npt.NDArray[np.float32] = np.stack(
             [r["embedding"] / np.linalg.norm(r["embedding"]) for r in raw_results]
         )
+        det_scores: npt.NDArray[np.float32] = np.stack(
+            [r["det_score"] for r in raw_results]
+        )
 
         with self._lock:
             self._load_strangers_state()
@@ -220,6 +223,7 @@ class FaceRecognizer:
             o_score = float(owner_scores[i])
             s_score = float(stranger_scores[i])
             bbox = [int(v) for v in raw_results[i]["bbox"]]
+            det_score = det_scores[i]
 
             if o_score > self._threshold:
                 raw_id = owner_ids[i] or ""
@@ -248,7 +252,11 @@ class FaceRecognizer:
                 person_id = "?"
                 face_kind = PersonKind.UNSURE
 
-            faces.append(Face(bbox=bbox, kind=face_kind, person_id=person_id))
+            faces.append(
+                Face(
+                    bbox=bbox, kind=face_kind, person_id=person_id, confidence=det_score
+                )
+            )
 
         if new_stranger_embeds:
             stacked_e = np.stack(new_stranger_embeds, axis=0)
@@ -750,9 +758,7 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                     parts.append(f"stranger ({', '.join(stranger_ids_to_send)})")
                 summary = ", ".join(parts)
                 total_faces = len(new_owners) + len(stranger_ids_to_send)
-                message = (
-                    f"Person detected — {total_faces} face(s) visible ({summary})"
-                )
+                message = f"Person detected — {total_faces} face(s) visible ({summary})"
                 # Familiar-stranger prompt: fires exactly once per stranger
                 # at visit count == _FAMILIAR_VISIT_THRESHOLD. Skill parses
                 # this hint to ask the user whether to enroll the face.
