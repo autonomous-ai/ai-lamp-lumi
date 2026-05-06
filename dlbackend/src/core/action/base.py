@@ -36,6 +36,7 @@ class HumanActionRecognizerModel(ABC):
         model_path: Path | None,
         max_frames: int,
         frame_size: tuple[int, int],
+        frame_interval: float = 1.0,
         person_detector: PersonDetector | None = None,
     ):
         if model_path is None:
@@ -47,6 +48,7 @@ class HumanActionRecognizerModel(ABC):
 
         self._max_frames: int = max_frames
         self._frame_size: tuple[int, int] = frame_size
+        self._frame_interval: float = frame_interval
         self._class_names: list[str] = []
         self._default_mask: npt.NDArray[np.bool_] = np.ones(len(self._class_names), dtype=np.bool_)
 
@@ -63,6 +65,10 @@ class HumanActionRecognizerModel(ABC):
     @property
     def frame_size(self):
         return self._frame_size
+
+    @property
+    def frame_interval(self):
+        return self._frame_interval
 
     @property
     def class_names(self):
@@ -210,7 +216,6 @@ class HumanActionRecognizerModel(ABC):
     def create_session(
         self,
         threshold: float,
-        frame_interval: float,
     ) -> "HumanActionRecognizerSession[MODEL_T]":
         pass
 
