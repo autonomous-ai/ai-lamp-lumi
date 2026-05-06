@@ -175,7 +175,15 @@ LeLamp (port 5001) theo dõi số lần mỗi stranger đã xuất hiện:
 - Lưu trữ tại thư mục data của LeLamp (giữ qua restart).
 - Truy vấn stats qua `GET http://127.0.0.1:5001/face/stranger-stats`.
 
-**Gợi ý đăng ký tự động:** Khi stranger đạt 3+ lần xuất hiện, sensing skill gợi ý đăng ký khuôn mặt — người này có thể là khách quen nên được đăng ký làm owner.
+### Prompt enroll khi quen mặt (familiar-stranger)
+
+Khi visit count của một stranger lần đầu chạm ngưỡng (`_FAMILIAR_VISIT_THRESHOLD = 2`, xem `lelamp/service/sensing/perceptions/processors/facerecognizer.py`), LeLamp:
+
+1. Lưu raw frame hiện tại ra `<STRANGERS_DIR>/snapshots/<stranger_id>_<ts_ms>.jpg`.
+2. Thêm hint vào message `presence.enter` đang gửi:
+   `(familiar stranger <stranger_id> — seen 2 times, ask user if they want to remember this face; image saved at <path>)`
+
+Skill `face-enroll` (phía Lumi) parse hint đó, hỏi user "Tôi đã thấy người này 2 lần rồi — bạn muốn lưu họ không? Tên họ là gì?", và khi user trả lời tên thì gọi `POST /face/enroll` với image path đã lưu. Nếu user từ chối, skill chỉ ghi nhận rồi dừng; threshold là one-shot (`count == 2`), nên cùng `stranger_id` đó sẽ KHÔNG bị lelamp prompt lại lần nữa. Count vượt qua 2 không re-fire — lúc đó stranger hoặc đã được enroll (không còn là stranger) hoặc user đã chủ động từ chối.
 
 ---
 
@@ -493,9 +501,9 @@ Các sensing event có kèm camera frame (`motion`, `presence.enter`, `presence.
 | Tầng | Đường dẫn | Rotation | Giữ qua reboot |
 |------|-----------|----------|-----------------|
 | **Tmp buffer** | `/tmp/lumi-sensing-snapshots/sensing_<prefix>/` | Theo số lượng (tối đa 50 file) | Không |
-| **Persistent** | `/var/log/lumi/snapshots/sensing_<prefix>/` | TTL (72h) + dung lượng (tối đa 50 MB) | Có |
+| **Persistent** | `/var/lib/lelamp/snapshots/sensing_<prefix>/` | TTL (72h) + dung lượng (tối đa 50 MB) | Có |
 
-Mỗi loại event ghi vào subdir riêng (`sensing_<prefix>`, ví dụ `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Tên file là `<ms>.jpg`. Snapshot được lưu vào tmp trước, rồi copy sang persistent dir. Đường dẫn persistent được ghi trong event message (`[snapshot: /var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg]`) để agent có thể xem lại — kể cả sau khi thiết bị reboot. Monitor phục vụ ảnh qua `GET /api/sensing/snapshot/<category>/<name>`.
+Mỗi loại event ghi vào subdir riêng (`sensing_<prefix>`, ví dụ `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Tên file là `<ms>.jpg`. Snapshot được lưu vào tmp trước, rồi copy sang persistent dir. Đường dẫn persistent được ghi trong event message (`[snapshot: /var/lib/lelamp/snapshots/sensing_<prefix>/<ms>.jpg]`) để agent có thể xem lại — kể cả sau khi thiết bị reboot. Monitor phục vụ ảnh qua `GET /api/sensing/snapshot/<category>/<name>`.
 
 Các hằng số cấu hình nằm trong `lelamp/config.py`:
 - `SNAPSHOT_TMP_MAX_COUNT` — số file tối đa trong tmp (mặc định 50)

@@ -175,7 +175,15 @@ LeLamp (port 5001) tracks how many times each stranger has been seen:
 - Persisted in LeLamp's data directory (survives restarts).
 - Query stats via `GET http://127.0.0.1:5001/face/stranger-stats`.
 
-**Auto-enrollment suggestion:** When a stranger reaches 3+ visits, the sensing skill suggests face enrollment — this person is likely a regular visitor who should be registered as a friend.
+### Familiar-stranger enroll prompt
+
+When a stranger's visit count first reaches the threshold (`_FAMILIAR_VISIT_THRESHOLD = 2`, see `lelamp/service/sensing/perceptions/processors/facerecognizer.py`), LeLamp:
+
+1. Saves the current raw frame to `<STRANGERS_DIR>/snapshots/<stranger_id>_<ts_ms>.jpg`.
+2. Appends a hint to the outgoing `presence.enter` message:
+   `(familiar stranger <stranger_id> — seen 2 times, ask user if they want to remember this face; image saved at <path>)`
+
+The `face-enroll` skill (Lumi side) parses that hint, asks the user "I've seen this person 2 times — want me to remember them? What's their name?", and on a name reply calls `POST /face/enroll` with the saved image path. On decline, the skill acknowledges and stops; the threshold is a one-shot trigger (`count == 2`), so the same `stranger_id` is never re-prompted by lelamp. Visit counts above 2 do not re-fire — by then the stranger has either been enrolled (no longer a stranger) or the user explicitly declined.
 
 ---
 
@@ -490,9 +498,9 @@ Sensing events that include a camera frame (`motion`, `presence.enter`, `presenc
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
 | **Tmp buffer** | `/tmp/lumi-sensing-snapshots/sensing_<prefix>/` | Count-based (max 50 files) | No |
-| **Persistent** | `/var/log/lumi/snapshots/sensing_<prefix>/` | TTL (72h) + size (50 MB max) | Yes |
+| **Persistent** | `/var/lib/lelamp/snapshots/sensing_<prefix>/` | TTL (72h) + size (50 MB max) | Yes |
 
-Each event kind writes to its own subdir (`sensing_<prefix>`, e.g. `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Filenames are `<ms>.jpg`. Every snapshot is saved to tmp first, then copied to the persistent dir. The persistent path is included in the event message (`[snapshot: /var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg]`) so the agent can reference it later — even after a device reboot. Monitor serves them via `GET /api/sensing/snapshot/<category>/<name>`.
+Each event kind writes to its own subdir (`sensing_<prefix>`, e.g. `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Filenames are `<ms>.jpg`. Every snapshot is saved to tmp first, then copied to the persistent dir. The persistent path is included in the event message (`[snapshot: /var/lib/lelamp/snapshots/sensing_<prefix>/<ms>.jpg]`) so the agent can reference it later — even after a device reboot. Monitor serves them via `GET /api/sensing/snapshot/<category>/<name>`.
 
 Configuration constants are in `lelamp/config.py`:
 - `SNAPSHOT_TMP_MAX_COUNT` — max files in tmp (default 50)

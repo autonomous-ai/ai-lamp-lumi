@@ -1,26 +1,34 @@
 ---
 name: face-enroll
-description: Self-enroll faces for recognition. Triggered when user sends a photo of themselves. Each person enrolls their own face — enrolling others is not allowed. Telegram identity is saved for DM targeting.
+description: Self-enroll faces for recognition. Triggered when user sends a photo of themselves, or when lelamp surfaces a "familiar stranger" prompt (a stranger seen ≥2 times). Each person enrolls their own face for self-enrollment; familiar-stranger prompts let the user name a face the camera already captured. Telegram identity is saved for DM targeting.
 ---
 
 # Face Enroll
 
 ## Quick Start
-Manage faces for the lamp's face recognition system. Users send a photo of **themselves** via chat to enroll their face. The lamp will then recognize them by name in future encounters.
+Manage faces for the lamp's face recognition system. Two enrollment paths:
 
-**Self-enrollment only** — each person enrolls their own face. You must NOT enroll a face on behalf of someone else.
+1. **Self-enrollment** — user sends a photo of **themselves** via chat.
+2. **Familiar-stranger prompt** — lelamp has seen the same unknown face 2 times and asks the user to name it. The image is already saved by lelamp; the user only supplies a name.
 
 All enrolled persons are treated as **friends** — known people who get a friendly greeting, distinguished from strangers.
 
 ## Trigger — WHEN to activate this skill
 
-Activate this skill when the user sends a **photo** together with ANY of these patterns:
+Activate this skill when ANY of these fire:
 
+**Self-enrollment (user sends a photo):**
 - "remember **my** face" / "add **my** photo" / "this is **me**" / "enroll **me**"
 - "add me" / "add my face"
 - Any message where the user is introducing **themselves** with a photo
 
-Do NOT activate when the user tries to enroll someone else (e.g. "this is Alice", "add my friend Bob"). Politely explain that each person must enroll their own face.
+**Familiar-stranger prompt (no user photo needed):**
+- The current sensing message contains the lelamp hint pattern:
+  `(familiar stranger <stranger_id> — seen <N> times, ask user if they want to remember this face; image saved at <path>)`
+- The user responds to your prompt with a name (e.g. "yes, that's Alice", "her name is Alice", "Alice").
+- The user declines (e.g. "no", "ignore", "skip") — acknowledge and do nothing.
+
+Do NOT activate self-enrollment when the user tries to enroll someone else with a photo (e.g. "this is Alice", "add my friend Bob"). That requires the familiar-stranger path — only proceed if lelamp surfaced the prompt first.
 
 ## Workflow
 
@@ -34,6 +42,25 @@ Do NOT activate when the user tries to enroll someone else (e.g. "this is Alice"
 4. Base64-encode the photo: use `mediaPaths` (Telegram) or the path from `[image: /path/to/file]` tag in the message (web chat).
 5. Call `POST /face/enroll` with the base64 image, label, telegram_username, and telegram_id.
 6. Confirm to user with the enrolled count.
+
+### Enroll a familiar stranger (lelamp prompt)
+Triggered when the current sensing message contains the lelamp hint:
+`(familiar stranger <stranger_id> — seen <N> times, ask user if they want to remember this face; image saved at <path>)`
+
+1. Parse `<stranger_id>` and `<path>` from the hint.
+2. **Ask the user** in a natural, single message — do NOT enroll yet:
+   - EN: "I've seen this person {N} times now — want me to remember them? If yes, what's their name?"
+   - VI: "Mình đã thấy người này {N} lần rồi — bạn muốn mình ghi nhớ họ không? Nếu có thì tên họ là gì?"
+3. Wait for the user's next reply.
+4. If the user gives a **name** (with or without "yes"):
+   - Lowercase the name → `label`.
+   - Base64-encode the file at `<path>`.
+   - Call `POST /face/enroll` with `image_base64`, `label`. Telegram identity is **not** included on this path (the named person is not the sender).
+   - Confirm: "Got it, I'll remember {Name} from now on."
+5. If the user **declines** ("no" / "skip" / "ignore"): acknowledge once ("Okay, I won't ask about this person again.") and stop. Lelamp will not re-prompt for the same `stranger_id` (the threshold fires only once per id).
+6. If the user is **ambiguous** ("maybe later", silence-ish reply): treat as decline.
+
+**One-shot rule:** the lelamp hint surfaces exactly once per stranger when the count first reaches the threshold. Don't re-ask in later turns even if you see the same `stranger_id` again — only act on the hint when it appears in the current sensing message.
 
 ### Check who is recognized
 1. User asks "who do you recognize?" or "how many faces?"
@@ -108,10 +135,12 @@ curl -s -X POST http://127.0.0.1:5001/face/enroll \
 - If the label is not found for removal, returns 404.
 
 ## Rules
-- **Self-enrollment only** — NEVER enroll a face for someone else. If user says "this is my friend Bob" with a photo, tell them Bob needs to send his own photo.
-- **Always confirm enrollment** — tell the user the name was registered and how many faces total.
+- **Self-enrollment is the default** — if the user sends a photo and asks to enroll someone else (e.g. "this is my friend Bob" with a photo), refuse: that person must send their own photo. The only exception is the familiar-stranger flow below.
+- **Familiar-stranger flow only on lelamp prompt** — naming a face you didn't capture yourself is allowed ONLY when the current sensing message carries the lelamp hint. Never proactively enroll a stranger ID without that hint.
+- **Always ask before enrolling** — for both flows, explicitly confirm the name with the user before calling `/face/enroll`. Don't enroll silently even when the user's wording sounds direct.
+- **Always confirm enrollment** — tell the user the name was registered after the API returns ok.
 - **Ask for a name if missing** — don't enroll without a label.
-- **Always include telegram identity** — extract telegram_username and telegram_id from the message context and pass them to the enroll API. This is required for DM targeting (e.g. personalized reminders).
+- **Telegram identity only on self-enrollment** — extract `telegram_username` and `telegram_id` from the message context for self-enrollment (required for DM targeting). Omit them on the familiar-stranger path — the named person is not the sender.
 - **Use lowercase labels** — normalize names to lowercase for consistency.
 - **One photo per enroll call** — if user sends multiple photos, enroll each separately.
 - **Never write files directly** — always use the HTTP API endpoints. Do NOT write to `/root/local/users/` directly. Use `/face/enroll` to add photos.
