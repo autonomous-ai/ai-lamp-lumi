@@ -19,7 +19,7 @@ import numpy.typing as npt
 from config import settings
 from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
 from core.action.constants import RESOURCES_DIR
-from core.action.person_detector import PersonDetector
+from core.action.person_detector import YOLOPersonDetector
 
 logger = logging.getLogger(__name__)
 
