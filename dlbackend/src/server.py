@@ -267,6 +267,10 @@ async def emotion_recognize(req: EmotionRecognizeRequest):
     frame = decode_image(req.image_b64)
     detections = emotion_model.detect_single_face(frame)
     filtered = [d for d in detections if d.confidence >= req.threshold]
+    logger.info(
+        "[Emotion] Detected %s",
+        ", ".join([f"{f.emotion} ({f.confidence})" for f in filtered]),
+    )
     return EmotionRecognizeResponse(detections=filtered)
 
 

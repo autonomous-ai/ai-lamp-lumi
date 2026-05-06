@@ -16,6 +16,9 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
+from typing_extensions import Any, cast, override
+
+from core.emotion.recognizer.base import EmotionRecognizer
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +31,20 @@ _RAW_EMOTIONS = ["Surprise", "Fear", "Disgust", "Happy", "Sad", "Angry", "Neutra
 EMOTIONS = ["Surprise", "Fear", "Disgust", "Happy", "Sad", "Anger", "Neutral"]
 
 
-class PosterV2Recognizer:
+class PosterV2Recognizer(EmotionRecognizer):
     """POSTER V2 ONNX emotion classifier. Loaded once, shared across requests."""
 
     DEFAULT_MODEL: Path = RESOURCES_DIR / "posterv2_7cls.onnx"
 
-    MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    MEAN: npt.NDArray[np.float32] = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    STD: npt.NDArray[np.float32] = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
     def __init__(self, model_path: Path | None = None):
         self._model_path: Path = model_path or self.DEFAULT_MODEL
         self._session: ort.InferenceSession | None = None
         self._running: bool = False
 
+    @override
     def start(self) -> None:
         if self._running:
             logger.info("[PosterV2] already running")
@@ -67,15 +71,16 @@ class PosterV2Recognizer:
         self._running = True
         logger.info("[PosterV2] ready — %d emotion classes", len(EMOTIONS))
 
+    @override
     def stop(self) -> None:
         self._running = False
 
+    @override
     def is_ready(self) -> bool:
         return self._running and self._session is not None
 
-    def classify(
-        self, face_crop: npt.NDArray[np.uint8]
-    ) -> dict:
+    @override
+    def classify(self, face_crop: npt.NDArray[np.uint8]) -> dict[str, Any]:
         """Classify emotion from a BGR face crop.
 
         Returns dict with keys: emotion, confidence.
@@ -85,6 +90,7 @@ class PosterV2Recognizer:
 
         inp = self._preprocess(face_crop)
         (logits,) = self._session.run(None, {"input": inp})
+        logits = cast(npt.NDArray[np.float32], logits)
         probs = _softmax(logits[0])
         emotion_idx = int(np.argmax(probs))
 
