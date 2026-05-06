@@ -123,6 +123,21 @@ func extractMessageContentText(raw json.RawMessage) string {
 	return strings.Join(parts, "")
 }
 
+// telegramChatIDRe extracts the chat_id from OpenClaw queue-mode metadata
+// injected at the top of a Telegram-originated user message, e.g.
+// `"chat_id": "telegram:158406741"`.
+var telegramChatIDRe = regexp.MustCompile(`"chat_id"\s*:\s*"telegram:(\d+)"`)
+
+// extractTelegramChatID returns the numeric Telegram chat_id from a session
+// message body when OpenClaw injected the conversation metadata block; "" if
+// the marker is absent (non-Telegram message or older OpenClaw format).
+func extractTelegramChatID(text string) string {
+	if m := telegramChatIDRe.FindStringSubmatch(text); len(m) == 2 {
+		return m[1]
+	}
+	return ""
+}
+
 // shortError extracts a short, readable message from a potentially large error string.
 // Strips HTML bodies (e.g. Cloudflare 403 pages) down to the status line.
 func shortError(errMsg string) string {

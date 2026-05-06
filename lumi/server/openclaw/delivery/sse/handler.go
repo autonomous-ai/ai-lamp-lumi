@@ -48,6 +48,13 @@ type OpenClawHandler struct {
 	channelRunsMu sync.Mutex
 	channelRuns   map[string]bool
 
+	// interleavedDMByRunID captures Telegram chat_ids when a Telegram message
+	// is injected mid-turn into a Lumi-issued run (queue mode). At lifecycle.end
+	// the reply is routed back to that chat instead of TTS — fixes "Lumi
+	// answered Telegram question on the speaker" when sensing/voice was the
+	// run originator. Protected by channelRunsMu.
+	interleavedDMByRunID map[string]string
+
 	// cronFireRuns tracks runs initiated by an OpenClaw scheduled cron fire.
 	// Populated when a lifecycle_start (UUID runId, no lumi- prefix) arrives
 	// shortly after an event:"cron" (action:"started") — OpenClaw's cron
@@ -78,8 +85,13 @@ type OpenClawHandler struct {
 	// per sessionKey. Used by the session.message handler to skip turns that
 	// are already being driven by the agent path (cron heartbeat fires both
 	// streams; real user telegram fires only session.message).
-	agentLifecycleMu sync.Mutex
-	agentLifecycleAt map[string]int64
+	//
+	// activeRunIDBySession tracks the in-flight runID per session so the
+	// session.message handler can attribute interleaved channel messages to
+	// the running turn even when the message itself is skipped.
+	agentLifecycleMu     sync.Mutex
+	agentLifecycleAt     map[string]int64
+	activeRunIDBySession map[string]string
 
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
@@ -113,13 +125,15 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		agentGateway:       gw,
 		monitorBus:         bus,
 		statusLED:          sled,
-		assistantBuf:       make(map[string]*strings.Builder),
-		ttsSuppressReasons: make(map[string]string),
-		runIDMap:           make(map[string]string),
-		channelRuns:        make(map[string]bool),
-		cronFireRuns:       make(map[string]bool),
-		channelTurns:       make(map[string]*channelTurnState),
-		agentLifecycleAt:   make(map[string]int64),
+		assistantBuf:         make(map[string]*strings.Builder),
+		ttsSuppressReasons:   make(map[string]string),
+		runIDMap:             make(map[string]string),
+		channelRuns:          make(map[string]bool),
+		interleavedDMByRunID: make(map[string]string),
+		cronFireRuns:         make(map[string]bool),
+		channelTurns:         make(map[string]*channelTurnState),
+		agentLifecycleAt:     make(map[string]int64),
+		activeRunIDBySession: make(map[string]string),
 	}
 }
 
@@ -129,4 +143,20 @@ func (h *OpenClawHandler) IsSleeping() bool {
 	h.lastEmotionMu.Lock()
 	defer h.lastEmotionMu.Unlock()
 	return h.lastEmotion == "sleepy"
+}
+
+// consumeInterleavedDM atomically reads and removes the captured Telegram
+// chat_id for runID. Empty result means no interleaved Telegram message was
+// recorded for this turn — the normal TTS path applies.
+func (h *OpenClawHandler) consumeInterleavedDM(runID string) string {
+	if runID == "" {
+		return ""
+	}
+	h.channelRunsMu.Lock()
+	defer h.channelRunsMu.Unlock()
+	cid := h.interleavedDMByRunID[runID]
+	if cid != "" {
+		delete(h.interleavedDMByRunID, runID)
+	}
+	return cid
 }
