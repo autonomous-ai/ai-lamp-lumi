@@ -153,8 +153,7 @@ def face_owners_detail():
             audio_history_days = sorted(f.stem for f in audio_hist_dir.iterdir() if f.suffix == ".jsonl") if audio_hist_dir.is_dir() else []
             voice_dir = d / "voice"
             voice_samples = sorted(
-                f.name for f in voice_dir.iterdir()
-                if f.is_file() and f.suffix.lower() in {".wav", ".mp3", ".ogg", ".json"}
+                f.name for f in voice_dir.iterdir() if f.is_file()
             ) if voice_dir.is_dir() else []
             habit_patterns = (d / "habit" / "patterns.json").is_file()
             meta = FacePerception._read_metadata(d)
@@ -203,8 +202,8 @@ def face_file(label: str, filepath: str):
         raise HTTPException(400, "invalid path")
     if not path.is_file():
         raise HTTPException(404, "file not found")
-    mime_map = {".json": "application/json", ".jsonl": "application/json", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webm": "audio/webm"}
-    mime = mime_map.get(path.suffix, "text/plain")
+    mime_map = {".json": "application/json", ".jsonl": "application/json", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webm": "audio/webm", ".npy": "application/octet-stream"}
+    mime = mime_map.get(path.suffix.lower(), "text/plain")
     return Response(content=path.read_bytes(), media_type=mime)
 
 
