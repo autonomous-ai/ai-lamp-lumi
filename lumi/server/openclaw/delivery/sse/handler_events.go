@@ -1047,15 +1047,46 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// reply ends up on TTS instead of Telegram. Capture the chat_id
 			// here (before the skip) and mark the active run so lifecycle.end
 			// suppresses TTS and routes the reply via DM.
-			if sm.Message.Role == "user" && activeRunID != "" {
-				if chatID := extractTelegramChatID(extractMessageContentText(sm.Message.Content)); chatID != "" {
-					h.channelRunsMu.Lock()
-					h.channelRuns[activeRunID] = true
-					h.interleavedDMByRunID[activeRunID] = chatID
-					h.channelRunsMu.Unlock()
-					slog.Info("interleaved Telegram message captured — TTS will be suppressed, reply will DM",
-						"component", "agent", "sessionKey", sm.SessionKey,
-						"active_run_id", activeRunID, "chat_id", chatID)
+			//
+			// chat_id sources, in priority order:
+			//   1. Conversation-info metadata block in content (when present)
+			//   2. sm.Session.DisplayName / Origin.Label regex — these session
+			//      fields are populated by OpenClaw for every Telegram broadcast
+			//      and don't depend on whether the metadata block was injected.
+			isTelegramChannel := strings.HasPrefix(sm.SessionKey, "agent:main:telegram:") ||
+				sm.Session.Origin.Provider == "telegram" ||
+				sm.Session.DeliveryContext.Channel == "telegram"
+			if sm.Message.Role == "user" && activeRunID != "" && isTelegramChannel {
+				// Skip Lumi's own outbound echoes. Origin.Provider on a shared
+				// `agent:main:main` session goes "sticky telegram" after any
+				// real Telegram turn, so subsequent Lumi-issued chat.send
+				// echoes (sensing/voice/wakeup) would otherwise look like
+				// Telegram messages and falsely DM the last seen chat_id.
+				msgText := extractMessageContentText(sm.Message.Content)
+				if msgText != "" && h.agentGateway.IsRecentOutboundChat(msgText) {
+					// fall through to skip log — not a real interleave
+				} else {
+					chatID := extractTelegramChatID(msgText)
+					if chatID == "" {
+						chatID = extractTelegramIDFromSenderLabel(sm.Session.DisplayName)
+					}
+					if chatID == "" {
+						chatID = extractTelegramIDFromSenderLabel(sm.Session.Origin.Label)
+					}
+					if chatID != "" {
+						h.channelRunsMu.Lock()
+						h.channelRuns[activeRunID] = true
+						h.interleavedDMByRunID[activeRunID] = chatID
+						h.channelRunsMu.Unlock()
+						slog.Info("interleaved Telegram message captured — TTS will be suppressed, reply will DM",
+							"component", "agent", "sessionKey", sm.SessionKey,
+							"active_run_id", activeRunID, "chat_id", chatID)
+					} else {
+						slog.Warn("interleaved Telegram detected but chat_id not extractable",
+							"component", "agent", "sessionKey", sm.SessionKey,
+							"display_name", sm.Session.DisplayName,
+							"origin_label", sm.Session.Origin.Label)
+					}
 				}
 			}
 			slog.Info("session.message skipped — agent lifecycle active",
