@@ -146,7 +146,11 @@ export function FaceOwnersSection() {
     try {
       const res = await fetch(`${HW}/face/file/${label}/${filepath}`);
       const text = await res.text();
-      setPreview({ label, path: filepath, content: text });
+      let content = text;
+      if (/\.json$/i.test(filepath)) {
+        try { content = JSON.stringify(JSON.parse(text), null, 2); } catch { /* leave raw */ }
+      }
+      setPreview({ label, path: filepath, content });
     } catch {
       setPreview({ label, path: filepath, content: "(failed to load)" });
     } finally {
@@ -620,18 +624,22 @@ export function FaceOwnersSection() {
                       habit
                     </span>
                   )}
-                  {person.voice_samples && person.voice_samples.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(168,85,247,0.15)",
-                      color: "rgb(168,85,247)",
-                      fontWeight: 600,
-                    }}>
-                      🎤 {person.voice_samples.length} voice sample{person.voice_samples.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
+                  {(() => {
+                    const audioCount = person.voice_samples?.filter((f) => /\.(wav|mp3|ogg)$/i.test(f)).length ?? 0;
+                    if (audioCount === 0) return null;
+                    return (
+                      <span style={{
+                        fontSize: 10,
+                        padding: "2px 7px",
+                        borderRadius: 4,
+                        background: "rgba(168,85,247,0.15)",
+                        color: "rgb(168,85,247)",
+                        fontWeight: 600,
+                      }}>
+                        🎤 {audioCount} voice sample{audioCount !== 1 ? "s" : ""}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={() => handleRemove(person.label)}
                     disabled={deleting === person.label}
