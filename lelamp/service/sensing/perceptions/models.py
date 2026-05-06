@@ -19,6 +19,7 @@ class Face:
     bbox: list[int]
     kind: PersonKind
     person_id: str
+    confidence: float
 
 
 @dataclass

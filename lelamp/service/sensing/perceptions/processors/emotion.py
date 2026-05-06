@@ -220,7 +220,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                     frame=frame,
                     face=face,
                     emotion=emotion,
-                    confidence=confidence,
+                    confidence=confidence * face.confidence,
                 )
             )
 
