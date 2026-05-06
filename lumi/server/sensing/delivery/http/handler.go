@@ -218,7 +218,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			var queuedRunID string
 			if isWebChat {
 				_, queuedRunID = h.agentGateway.NextChatRunID()
-				h.agentGateway.MarkWebChatRun(queuedRunID)
+				// TEMP: TTS suppression disabled to test speaker remotely from web chat.
+				// h.agentGateway.MarkWebChatRun(queuedRunID)
 			}
 			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image, queuedRunID)
 			resp := map[string]string{"handler": "queued"}
@@ -276,9 +277,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		h.agentGateway.MarkGuardRun(runID, snap)
 	}
 	// Web monitor chat: suppress TTS — response displayed in web UI only.
-	if isWebChat {
-		h.agentGateway.MarkWebChatRun(runID)
-	}
+	// TEMP: disabled to test TTS remotely from web chat.
+	// if isWebChat {
+	// 	h.agentGateway.MarkWebChatRun(runID)
+	// }
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)

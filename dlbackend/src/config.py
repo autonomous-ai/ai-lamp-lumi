@@ -20,6 +20,13 @@ class HumanActionRecognizerSetting(BaseModel):
         return (self.w, self.h)
 
 
+class PersonDetectorSetting(BaseModel):
+    enabled: bool = False
+    model_name: str = "yolo12x.pt"
+    confidence_threshold: float = 0.4
+    bbox_expand_scale: float = 2.0
+
+
 class EmotionRecognizerSetting(BaseModel):
     confidence_threshold: float = 0.5
     frame_interval: float = 1.0
@@ -41,6 +48,7 @@ class Settings(BaseSettings):
     uniformerv2: HumanActionRecognizerSetting = HumanActionRecognizerSetting()
     x3d: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16, w=256, h=256)
     emotion: EmotionRecognizerSetting = EmotionRecognizerSetting()
+    person_detector: PersonDetectorSetting = PersonDetectorSetting()
 
 
 settings = Settings()
