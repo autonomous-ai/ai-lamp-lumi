@@ -19,6 +19,7 @@ from typing_extensions import override
 from config import settings
 from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
 from core.action.constants import RESOURCES_DIR
+from core.persondetector import PersonDetector
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +39,18 @@ class VideoMAEModel(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.videomae.max_frames,
         frame_size: tuple[int, int] = settings.videomae.frame_size,
+        frame_interval: float = settings.videomae.frame_interval,
+        person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size)
+        super().__init__(model_path, max_frames, frame_size, frame_interval, person_detector)
 
     @override
     def create_session(
         self,
         threshold: float = settings.videomae.confidence_threshold,
-        frame_interval: float = settings.videomae.frame_interval,
     ) -> HumanActionRecognizerSession[Self]:
         return HumanActionRecognizerSession(
             model=self,
             threshold=threshold,
-            frame_interval=frame_interval,
+            frame_interval=self._frame_interval,
         )

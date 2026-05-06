@@ -113,3 +113,11 @@ class EmotionRecognizeResponse(BaseModel):
     """HTTP response for single-image emotion recognition."""
 
     detections: list[EmotionDetection]
+
+
+class PersonDetection(BaseModel):
+    """Single person detection bounding box."""
+
+    bbox_xyxy: tuple[int, int, int, int]
+    confidence: float
+    area: int
