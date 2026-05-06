@@ -932,7 +932,7 @@ export function ChatSection({ events, isActive }: Props) {
     const sendImage = attachedImage ?? fileBase64;
 
     try {
-      const body: Record<string, string> = { type: "voice_command", message: text, source: "web" };
+      const body: Record<string, string> = { type: "web_chat", message: text };
       if (sendImage) body.image = sendImage;
       const res = await fetch(`${API}/sensing/event`, {
         method: "POST",

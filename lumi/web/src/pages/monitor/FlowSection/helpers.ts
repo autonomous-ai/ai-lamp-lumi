@@ -178,23 +178,21 @@ export function refineTurnTypeFromSensingInputs(turn: Turn): void {
     return;
   }
 
-  // Web chat wins over voice/voice_command — /chat UI submits with type=voice_command
-  // for routing parity, but source=web is the authoritative origin marker.
+  // web_chat / voice_command / voice are first-class types from the handler.
+  // web_chat wins (/chat UI is the most specific origin) → voice_command → voice.
   let sawWebChat = false;
   let sawVoice = false;
   let sawVoiceCommand = false;
   for (const ev of turn.events) {
-    // Check bracket label [voice] / [voice_command]
     const t = sensingInputBracketType(ev);
-    if (t === "voice_command") sawVoiceCommand = true;
+    if (t === "web_chat") sawWebChat = true;
+    else if (t === "voice_command") sawVoiceCommand = true;
     else if (t === "voice") sawVoice = true;
-    // Also check data.type / data.source fields on sensing_input events
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const d = ev.detail as Record<string, any> | undefined;
       const dtype = d?.data?.type ?? d?.type ?? "";
-      const dsource = d?.data?.source ?? d?.source ?? "";
-      if (dsource === "web") sawWebChat = true;
-      if (dtype === "voice_command") sawVoiceCommand = true;
+      if (dtype === "web_chat") sawWebChat = true;
+      else if (dtype === "voice_command") sawVoiceCommand = true;
       else if (dtype === "voice") sawVoice = true;
     }
   }
@@ -220,10 +218,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     }
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
       const m = ev.summary.match(/^\[([^\]]+)\]/);
-      let t = m ? m[1] : "unknown";
-      const d = ev.detail as Record<string, any> | undefined;
-      const source = d?.source ?? d?.data?.source;
-      if (source === "web") t = "web_chat";
+      const t = m ? m[1] : "unknown";
       return {
         type: t,
         path: "unknown",
@@ -559,7 +554,8 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const m = ev.summary.match(/^\[([^\]]+)\]\s*(.*)/);
       const sType = m?.[1] ?? "";
       const d = ev.detail as Record<string, any> | undefined;
-      const isWeb = d?.source === "web" || d?.data?.source === "web";
+      const dtype = d?.type ?? d?.data?.type ?? "";
+      const isWeb = sType === "web_chat" || dtype === "web_chat";
       if (isWeb) {
         info.webchat_input.push(`"${m?.[2] ?? ev.summary}"`);
       } else {

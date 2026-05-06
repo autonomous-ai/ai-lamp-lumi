@@ -222,6 +222,7 @@ Turn Pipeline grouping behavior:
 - Turns are still started by input/trigger events (`sensing_input`, `chat_input`, `schedule_trigger`, etc.).
 - The UI now anchors each turn to the first detected `run_id` (from event root or detail payload).
 - For user mic actions: each `sensing_input` with `[voice]` / `[voice_command]` (and `voice_pipeline_start`) creates a separate turn even if events share the same `run_id`.
+- For web monitor chat: each `sensing_input` with `[web_chat]` creates its own boundary turn (icon 🖥, filter category **Web**) so it isn't merged with adjacent voice/sensing turns.
 - For user chat actions: each `chat_input` (telegram input) creates its own boundary turn, so it won't be merged with adjacent voice turns even if OpenClaw reuses the same `run_id`.
 - If a later event has a different `run_id`, Monitor splits it into a new inferred agent turn.
 - **Turn type badge** (`motion`, `voice`, …): merged segments that share one `run_id` may include both camera motion and a voice line; the first segment used to win, so the badge could read `motion` while the utterance was voice. After grouping, if any `sensing_input` in the turn is `[voice]` or `[voice_command]`, the badge uses that (voice beats motion for the same run).
@@ -266,7 +267,7 @@ Interactive chat interface for communicating with Lumi AI. Layout: sidebar (conv
 **Message Input**
 - Textarea with Shift+Enter for multi-line, Enter to send
 - File/image attachment (max 10 MB): button, drag-drop, clipboard paste
-- Messages sent via `POST /api/sensing/event` with `type: "voice"`
+- Messages sent via `POST /api/sensing/event` with `type: "web_chat"`. The handler tags the run via `MarkWebChatRun(runID)` so the agent reply is suppressed at TTS (rendered in this UI only) and skips the physical wake greeting / opening filler. Web chat with image attachment is saved to `/tmp/web-chat-*.jpg` and surfaced to the agent via `[image: <path>]`.
 
 **Real-time Streaming**
 - **Thinking indicator**: collapsible purple block showing LLM reasoning tokens as they stream in (`thinking` events). Click to expand full text (max-height 200px scrollable). Auto-hides on response completion.

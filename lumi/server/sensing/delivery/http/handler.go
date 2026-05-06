@@ -38,8 +38,6 @@ type SensingEventRequest struct {
 	// Image is an optional base64-encoded JPEG snapshot from the camera.
 	// Attached automatically for significant events (large motion, face detected) so AI can see.
 	Image string `json:"image,omitempty"`
-	// Source identifies where this event originated. "web" = web monitor chat (TTS suppressed).
-	Source string `json:"source,omitempty"`
 	// CurrentUser is LeLamp's view of who is effectively in front of the lamp
 	// right now (from FaceRecognizer.current_user()). Empty when nobody is
 	// visible. This is the source of truth — do NOT re-derive by parsing
@@ -82,7 +80,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	slog.Info("sensing event received", "component", "sensing", "type", req.Type, "message", req.Message)
 
 	// Voice command from physical device — log for tracing (LED feedback is handled by LeLamp).
-	if req.Type == "voice_command" && req.Source != "web" {
+	if req.Type == "voice_command" {
 		slog.Info("voice_command received", "component", "sensing", "message", req.Message)
 	}
 	// voice_listening / voice_listening_end are internal LED signals — don't forward to agent.
@@ -102,15 +100,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	startPayload := map[string]any{"type": req.Type, "message": req.Message}
-	if req.Source != "" {
-		startPayload["source"] = req.Source
-	}
 
 	// Push sensing input to monitor.
 	monitorDetail := map[string]any{"type": req.Type}
-	if req.Source != "" {
-		monitorDetail["source"] = req.Source
-	}
 	h.monitorBus.Push(domain.MonitorEvent{
 		Type:    "sensing_input",
 		Summary: "[" + req.Type + "] " + req.Message,
@@ -173,8 +165,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Sleep guard: while the agent is in "sleepy" state, drop all passive sensing
 	// (light.level, motion, sound) so they don't wake the agent and override the
 	// sleepy emotion. Only presence.enter and voice_command can wake the lamp.
-	isPassive := req.Type != "voice_command"
+	// web_chat is user-initiated text from the monitor UI — bypasses the drop
+	// (forwarded to agent) but does NOT trigger physical wake greeting.
 	isVoice := req.Type == "voice" || req.Type == "voice_command"
+	isVoiceCommand := req.Type == "voice_command"
+	isWebChat := req.Type == "web_chat"
+	isPassive := !isVoiceCommand && !isWebChat
 	if isPassive && !isVoice && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("sensing event dropped — sleeping", "component", "sensing", "type", req.Type)
 		h.monitorBus.Push(domain.MonitorEvent{
@@ -189,7 +185,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Voice wake: when a voice command arrives while sleeping, fire greeting emotion
 	// to LeLamp so it wakes up (LED + servo) before the agent processes the turn.
 	// Without this, the agent's emotion:thinking would be blocked by LeLamp's wake guard.
-	if req.Type == "voice_command" && h.isSleeping != nil && h.isSleeping() {
+	// web_chat skips wake — typing in the monitor isn't a request for physical interaction.
+	if isVoiceCommand && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("voice wake — firing greeting to wake LeLamp", "component", "sensing")
 		go func() {
 			if err := lelamp.SetEmotion("greeting", 0.8); err != nil {
@@ -265,9 +262,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		h.agentGateway.MarkGuardRun(runID, snap)
 	}
 	// Web monitor chat: suppress TTS — response displayed in web UI only.
-	/* if req.Source == "web" {
+	if isWebChat {
 		h.agentGateway.MarkWebChatRun(runID)
-	} */
+	}
 	// Important: pass explicit runID to flow.Start to avoid global trace race (another goroutine may interleave
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
@@ -279,6 +276,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = domain.AppendEnrollNudge("[ambient] " + req.Message)
+	} else if isWebChat {
+		// Web monitor chat — typed text, forwarded raw. No enroll nudge (no
+		// camera/face context), no [sensing:*] prefix (not a sensor signal),
+		// no ambient/guard tagging (TTS suppressed via MarkWebChatRun above).
+		msg = req.Message
 	} else if guardActive {
 		// Guard mode: tag so the system broadcasts the response via Telegram.
 		// Include custom instruction if the owner provided one when enabling guard mode.
@@ -342,7 +344,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 
 	// Web chat with image: save to temp file so agent can reference the path
 	// (e.g. for face enrollment). Tag uses [image:] not [snapshot:] to avoid strip.
-	if req.Source == "web" && req.Image != "" {
+	if isWebChat && req.Image != "" {
 		if imgData, err := base64.StdEncoding.DecodeString(req.Image); err == nil {
 			tmpPath := fmt.Sprintf("/tmp/web-chat-%d.jpg", time.Now().UnixMilli())
 			if err := os.WriteFile(tmpPath, imgData, 0644); err == nil {
@@ -363,7 +365,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// to synthesize and play out before the real reply arrives — avoiding
 	// the lelamp-side speak() lock-timeout=2s race that the timer-based
 	// fire-at-lifecycle.start+FillerDelay path triggers.
-	if req.Type == "voice_command" || req.Type == "voice" {
+	if isVoice {
 		DefaultFillerManager.MarkVoiceRun(runID)
 		go PlayOpeningFillerNow()
 	}

@@ -68,7 +68,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 **Request body:**
 ```json
 {
-  "type": "voice_command|voice|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
+  "type": "voice_command|voice|web_chat|motion|sound|presence.enter|presence.leave|presence.away|light.level|motion.activity",
   "message": "...",
   "image": "<base64 JPEG, optional>"
 }
@@ -79,6 +79,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | Type | Nguồn | Có ảnh? | Mô tả |
 |------|-------|---------|-------|
 | `voice_command` / `voice` | Mic (Deepgram STT) | Không | Lệnh giọng nói |
+| `web_chat` | Web Monitor `/chat` UI | Có (file/clipboard attach) | Tin nhắn gõ từ web monitor — TTS suppressed (reply hiện trong UI), không wake đèn vật lý, không opening filler |
 | `motion` | Camera (frame diff) | Có (large motion) | Phát hiện chuyển động |
 | `presence.enter` | Camera (InsightFace recognition) | Có (JPEG bbox-annotated) | Phát hiện khuôn mặt — phân loại friend hoặc stranger |
 | `presence.leave` | Camera (3 tick liên tục không thấy mặt) | Không | Người rời đi |
@@ -88,9 +89,10 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 | `motion.activity` | MotionPerception (khi PRESENT) | Không | Phát hiện hoạt động khi user có mặt — emotional actions được ghi qua Mood skill |
 
 **Flow xử lý:**
-1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms)
+1. `voice_command` hoặc `voice` + local intent enabled → match intent → thực thi trực tiếp (~50ms). `web_chat` skip local intent (text gõ ≠ wake-word voice).
 2. Không match → forward OpenClaw qua WebSocket `chat.send`
-3. Nếu event có `image` → gọi `SendChatMessageWithImage` → gửi ảnh kèm text cho AI vision phân tích
+3. Nếu event có `image` → gọi `SendChatMessageWithImage` → gửi ảnh kèm text cho AI vision phân tích. Với `web_chat`, ảnh attach được lưu vào `/tmp/web-chat-*.jpg` và gắn tag `[image: <path>]` để agent reference (vd: face enrollment).
+4. `web_chat` runs được mark qua `MarkWebChatRun(runID)` để SSE handler suppress TTS lúc lifecycle end — reply chỉ hiện trong web UI.
 
 ### OpenClaw
 
