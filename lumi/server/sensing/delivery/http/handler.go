@@ -165,13 +165,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// Sleep guard: while the agent is in "sleepy" state, drop all passive sensing
 	// (light.level, motion, sound) so they don't wake the agent and override the
 	// sleepy emotion. Only presence.enter and voice_command can wake the lamp.
-	// web_chat is user-initiated text from the monitor UI — bypasses the drop
-	// (forwarded to agent) but does NOT trigger physical wake greeting.
+	// web_chat is user-initiated text from the monitor UI — bypasses sleep-drop
+	// (forwarded to agent, TTS suppressed) but does NOT trigger physical wake.
+	// web_chat counts as passive for busy-gate so it queues on agent busy
+	// instead of racing the in-flight turn (agent merges same-session messages).
 	isVoice := req.Type == "voice" || req.Type == "voice_command"
 	isVoiceCommand := req.Type == "voice_command"
 	isWebChat := req.Type == "web_chat"
-	isPassive := !isVoiceCommand && !isWebChat
-	if isPassive && !isVoice && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
+	isPassive := !isVoiceCommand
+	if isPassive && !isVoice && !isWebChat && req.Type != "presence.enter" && h.isSleeping != nil && h.isSleeping() {
 		slog.Info("sensing event dropped — sleeping", "component", "sensing", "type", req.Type)
 		h.monitorBus.Push(domain.MonitorEvent{
 			Type:    "sensing_drop",
@@ -210,8 +212,20 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// dedup think "sent" while the agent never saw the event, blocking the
 		// next real transition for 5 min.
 		if shouldQueueEvent(req.Type, req.Message, inVoiceWindow) {
-			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image)
-			c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{"handler": "queued"}))
+			// Pre-allocate runID for web_chat so the web client can correlate
+			// SSE events when this turn replays. Other queued types don't need
+			// a runID (LeLamp doesn't track them).
+			var queuedRunID string
+			if isWebChat {
+				_, queuedRunID = h.agentGateway.NextChatRunID()
+				h.agentGateway.MarkWebChatRun(queuedRunID)
+			}
+			h.agentGateway.QueuePendingEvent(req.Type, req.Message, req.Image, queuedRunID)
+			resp := map[string]string{"handler": "queued"}
+			if queuedRunID != "" {
+				resp["runId"] = queuedRunID
+			}
+			c.JSON(http.StatusOK, serializers.ResponseSuccess(resp))
 			return
 		}
 		slog.Info("sensing event dropped — agent busy", "component", "sensing", "type", req.Type)
@@ -730,7 +744,7 @@ func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
 func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
 	switch eventType {
 	case "presence.enter", "presence.leave", "voice",
-		"motion.activity", "emotion.detected":
+		"motion.activity", "emotion.detected", "web_chat":
 		return true
 	case "sound":
 		return strings.Contains(message, "persistent")
