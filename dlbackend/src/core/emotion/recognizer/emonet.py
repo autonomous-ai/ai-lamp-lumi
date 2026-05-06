@@ -13,6 +13,9 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
+from typing_extensions import Any, override
+
+from core.emotion.recognizer.base import EmotionRecognizer
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ RESOURCES_DIR = Path(__file__).parent / "resources"
 EMOTIONS = ["Neutral", "Happy", "Sad", "Surprise", "Fear", "Disgust", "Anger", "Contempt"]
 
 
-class EmoNetRecognizer:
+class EmoNetRecognizer(EmotionRecognizer):
     """EmoNet ONNX emotion classifier. Loaded once, shared across requests."""
 
     DEFAULT_MODEL: Path = RESOURCES_DIR / "emonet_8.onnx"
@@ -31,6 +34,7 @@ class EmoNetRecognizer:
         self._session: ort.InferenceSession | None = None
         self._running: bool = False
 
+    @override
     def start(self) -> None:
         if self._running:
             logger.info("[EmoNet] already running")
@@ -57,15 +61,16 @@ class EmoNetRecognizer:
         self._running = True
         logger.info("[EmoNet] ready — %d emotion classes", len(EMOTIONS))
 
+    @override
     def stop(self) -> None:
         self._running = False
 
+    @override
     def is_ready(self) -> bool:
         return self._running and self._session is not None
 
-    def classify(
-        self, face_crop: npt.NDArray[np.uint8]
-    ) -> dict:
+    @override
+    def classify(self, face_crop: npt.NDArray[np.uint8]) -> dict[str, Any]:
         """Classify emotion from a BGR face crop.
 
         Returns dict with keys: emotion, confidence, valence, arousal.

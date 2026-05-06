@@ -11,41 +11,17 @@ its own timing state and detection cache.
 import logging
 import time
 from pathlib import Path
-from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 
 from config import settings
-from enums import EmotionRecognizerEnum
+from core.emotion.recognizer.base import EmotionRecognizer
+from core.emotion.utils import create_classifier
 from core.faces import YuNetDetector
 from core.models import EmotionDetection, EmotionResponse
 
 logger = logging.getLogger(__name__)
-
-
-class EmotionClassifier(Protocol):
-    """Interface for emotion classifiers (EmoNet, PosterV2, etc.)."""
-
-    def start(self) -> None: ...
-    def stop(self) -> None: ...
-    def is_ready(self) -> bool: ...
-    def classify(self, face_crop: npt.NDArray[np.uint8]) -> dict: ...
-
-
-def _create_classifier(fer_path: Path | None) -> EmotionClassifier:
-    """Create the emotion classifier based on the configured model."""
-    model_type = settings.emotion_recognition_model
-
-    if model_type == EmotionRecognizerEnum.POSTERV2:
-        from core.emotion.posterv2 import PosterV2Recognizer
-        return PosterV2Recognizer(model_path=fer_path)
-    elif model_type == EmotionRecognizerEnum.EMONET:
-        from core.emotion.emonet import EmoNetRecognizer
-        return EmoNetRecognizer(model_path=fer_path)
-    else:
-        msg = f"Unknown emotion recognition model: {model_type}"
-        raise ValueError(msg)
 
 
 class EmotionModel:
@@ -59,13 +35,13 @@ class EmotionModel:
         nms_threshold: float = 0.3,
         top_k: int = 5000,
     ):
-        self._face_detector = YuNetDetector(
+        self._face_detector: YuNetDetector = YuNetDetector(
             model_path=yunet_path,
             score_threshold=score_threshold,
             nms_threshold=nms_threshold,
             top_k=top_k,
         )
-        self._fer = _create_classifier(fer_path)
+        self._fer: EmotionRecognizer = create_classifier(fer_path)
         self._running: bool = False
 
     def start(self):
@@ -95,6 +71,7 @@ class EmotionModel:
 
         H, W = face.shape[:2]
         cls = self._fer.classify(face)
+
         return [
             EmotionDetection(
                 emotion=cls["emotion"],
@@ -157,12 +134,12 @@ class EmotionSession:
         threshold: float,
         frame_interval: float,
     ):
-        self._model = model
-        self._threshold = threshold
-        self._frame_interval = frame_interval
+        self._model: EmotionModel = model
+        self._threshold: float = threshold
+        self._frame_interval: float = frame_interval
         self._last_ts: float = 0
         self._last_detected: list[EmotionDetection] = []
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
     def update(self, frame: npt.NDArray[np.uint8]) -> EmotionResponse | None:
         """Run emotion detection if enough time has passed since last inference.
