@@ -1,147 +1,82 @@
 ---
 name: face-enroll
-description: Self-enroll faces for recognition. Triggered when user sends a photo of themselves, or when lelamp surfaces a "familiar stranger" prompt (a stranger seen ≥2 times). Each person enrolls their own face for self-enrollment; familiar-stranger prompts let the user name a face the camera already captured. Telegram identity is saved for DM targeting.
+description: Manage the lamp's face recognition roster — enroll new faces (3 paths: user-supplied photo, agent-captured snapshot on user request, or lelamp's familiar-stranger prompt) and maintain the enrolled set (status / remove / reset). All enrolled persons are friends; strangers stay unnamed until promoted via one of the enroll flows.
 ---
 
 # Face Enroll
 
-## Quick Start
-Manage faces for the lamp's face recognition system. Two enrollment paths:
+Manage faces for the lamp's face recognition system. Faces live under `/root/local/users/<label>/`. All enrolled persons are treated as **friends** — distinguished from `stranger_*` IDs the camera hasn't been told about yet.
 
-1. **Self-enrollment** — user sends a photo of **themselves** via chat.
-2. **Familiar-stranger prompt** — lelamp has seen the same unknown face 2 times and asks the user to name it. The image is already saved by lelamp; the user only supplies a name.
+## Flow router — pick ONE per user message
 
-All enrolled persons are treated as **friends** — known people who get a friendly greeting, distinguished from strangers.
+| Flow | When | Detail |
+|---|---|---|
+| **A — Self-enroll with a photo** | User sends a photo of themselves + intro ("remember my face", "this is me"). | `reference/self-enroll-photo.md` |
+| **B — Self-enroll via camera capture** | User asks to be remembered without sending a photo, on **voice** or **Telegram text** (assumes user is near the lamp). Examples: "nhớ mặt mình đi", "tui là Gray", "capture rồi enroll cho tôi". Web chat without a photo → ask for a selfie (Flow A) instead. | `reference/self-enroll-camera.md` |
+| **C — Familiar-stranger prompt** | Current sensing message contains lelamp's hint `(familiar stranger ... — seen N times, ask user if they want to remember this face; image saved at <path>)`, OR the user is replying to your previous prompt about that stranger. | `reference/familiar-stranger.md` |
+| **M — Maintenance** | "who do you recognize?", "forget my face", "reset faces". | `reference/maintenance.md` |
 
-## Trigger — WHEN to activate this skill
+**Disambiguation hints:**
+- Photo attached (`mediaPaths` / `[image: ...]`) → Flow A.
+- No photo + lelamp familiar-stranger hint in current message → Flow C.
+- No photo + no hint, user wants to be remembered → Flow B.
+- The user is naming a face you previously asked about (Flow C in progress) → continue Flow C.
+- Pure read/delete intent → Flow M.
 
-Activate this skill when ANY of these fire:
+## Common rules (apply across all enroll flows)
 
-**Self-enrollment (user sends a photo):**
-- "remember **my** face" / "add **my** photo" / "this is **me**" / "enroll **me**"
-- "add me" / "add my face"
-- Any message where the user is introducing **themselves** with a photo
+- **Self-enrollment is the default.** Refuse to enroll someone who isn't the sender, EXCEPT in Flow C where the user is responding to lelamp's explicit prompt about a face the camera already saw.
+- **Confirm the name out loud before enrolling — Flows B and C only.**
+  - Flow A: the user's own photo + intro IS the confirmation; don't ask redundantly.
+  - Flow B: read the name back in the same turn you snapshot ("Got it, saving you as Gray — hold still").
+  - Flow C: ask "want me to remember? what's their name?" and wait for the reply before calling `/face/enroll`.
+- **Always confirm enrollment afterwards** — tell the user the name was registered once `/face/enroll` returns `ok`.
+- **Use lowercase labels** — normalize names to lowercase. Use the SAME label as `speaker-recognizer` for the same person so `/root/local/users/<label>/` is shared.
+- **Telegram identity rules:**
+  - Flow A (photo on Telegram): include `telegram_username` + `telegram_id` (required for DM targeting).
+  - Flow A (photo on web chat): omit Telegram fields.
+  - Flow B (voice): omit. Flow B (Telegram text): include.
+  - Flow C: always omit — the named face is not the sender.
+- **One photo per `/face/enroll` call.** Multiple photos → call once per photo.
+- **Never write files directly** to `/root/local/users/`. Always go through the HTTP API.
+- **Don't expose technical details** — say "I'll remember your face" not "base64-encoding the JPEG".
 
-**Familiar-stranger prompt (no user photo needed):**
-- The current sensing message contains the lelamp hint pattern:
-  `(familiar stranger <stranger_id> — seen <N> times, ask user if they want to remember this face; image saved at <path>)`
-- The user responds to your prompt with a name (e.g. "yes, that's Alice", "her name is Alice", "Alice").
-- The user declines (e.g. "no", "ignore", "skip") — acknowledge and do nothing.
+## Tools (curl reference)
 
-Do NOT activate self-enrollment when the user tries to enroll someone else with a photo (e.g. "this is Alice", "add my friend Bob"). That requires the familiar-stranger path — only proceed if lelamp surfaced the prompt first.
-
-## Workflow
-
-### Enroll a face (self-enrollment)
-1. User sends a photo of themselves + introduction message.
-2. Extract the **name** from the message. If no name is given, use the sender name from the message prefix (e.g. `[telegram:Chloe]` → `chloe`). If still unclear, ask the user.
-3. Extract the sender's **Telegram identity** from the message context:
-   - `telegram_username`: the sender's Telegram username (e.g. `chloe_92`)
-   - `telegram_id`: the sender's numeric Telegram user ID (e.g. `123456789`)
-   These are available in the message metadata provided by the channel.
-4. Base64-encode the photo: use `mediaPaths` (Telegram) or the path from `[image: /path/to/file]` tag in the message (web chat).
-5. Call `POST /face/enroll` with the base64 image, label, telegram_username, and telegram_id.
-6. Confirm to user with the enrolled count.
-
-### Enroll a familiar stranger (lelamp prompt)
-Triggered when the current sensing message contains the lelamp hint:
-`(familiar stranger <stranger_id> — seen <N> times, ask user if they want to remember this face; image saved at <path>)`
-
-1. Parse `<stranger_id>` and `<path>` from the hint.
-2. **Ask the user** in a natural, single message — do NOT enroll yet:
-   - EN: "I've seen this person {N} times now — want me to remember them? If yes, what's their name?"
-   - VI: "Mình đã thấy người này {N} lần rồi — bạn muốn mình ghi nhớ họ không? Nếu có thì tên họ là gì?"
-3. Wait for the user's next reply.
-4. If the user gives a **name** (with or without "yes"):
-   - Lowercase the name → `label`.
-   - Base64-encode the file at `<path>`.
-   - Call `POST /face/enroll` with `image_base64`, `label`. Telegram identity is **not** included on this path (the named person is not the sender).
-   - Confirm: "Got it, I'll remember {Name} from now on."
-5. If the user **declines** ("no" / "skip" / "ignore"): acknowledge once ("Okay, I won't ask about this person again.") and stop. Lelamp will not re-prompt for the same `stranger_id` (the threshold fires only once per id).
-6. If the user is **ambiguous** ("maybe later", silence-ish reply): treat as decline.
-
-**One-shot rule:** the lelamp hint surfaces exactly once per stranger when the count first reaches the threshold. Don't re-ask in later turns even if you see the same `stranger_id` again — only act on the hint when it appears in the current sensing message.
-
-### Check who is recognized
-1. User asks "who do you recognize?" or "how many faces?"
-2. Call `GET /face/status`.
-3. Reply with names and count.
-
-### Remove own face
-1. User says "forget my face" or "remove my face".
-2. Verify the requester matches the enrolled person (by sender name or telegram_id).
-3. Call `POST /face/remove` with the label.
-4. Confirm removal.
-
-### Reset all faces
-1. User says "forget all faces" or "reset faces".
-2. Call `POST /face/reset`.
-3. Confirm all faces cleared.
-
-## Tools
-
-**Bash** with `curl` for HTTP calls to `http://127.0.0.1:5001`.
-
-### Enroll a face
+All HTTP calls go to `http://127.0.0.1:5001`.
 
 ```bash
+# Enroll
 curl -s -X POST http://127.0.0.1:5001/face/enroll \
   -H "Content-Type: application/json" \
   -d "{\"image_base64\": \"$(base64 -w0 /path/to/photo.jpg)\", \"label\": \"chloe\", \"telegram_username\": \"chloe_92\", \"telegram_id\": \"123456789\"}"
-```
 
-Response: `{"status": "ok", "label": "chloe", "telegram_username": "chloe_92", "telegram_id": "123456789", "photo_path": "...", "enrolled_count": 2}`
-
-### Check face status
-
-```bash
+# Status
 curl -s http://127.0.0.1:5001/face/status
-```
 
-Response: `{"enrolled_count": 2, "enrolled_names": ["chloe", "leo"]}`
-
-### Remove a specific person
-
-```bash
+# Remove one
 curl -s -X POST http://127.0.0.1:5001/face/remove \
   -H "Content-Type: application/json" \
   -d '{"label": "chloe"}'
-```
 
-### Reset all faces
-
-```bash
+# Reset all
 curl -s -X POST http://127.0.0.1:5001/face/reset
+
+# Snapshot (for Flow B)
+curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
 ```
 
-## How to base64-encode the photo
+## Photo source by channel
 
-When the user sends a photo, the file path is available from:
-- **Telegram**: `mediaPaths` in conversation context
-- **Web chat**: `[image: /path/to/file]` tag in the message text
+| Channel | Where to read the path |
+|---|---|
+| Telegram (with photo) | `mediaPaths` in conversation context |
+| Web chat (with image) | `[image: /path/to/file]` tag in message text |
+| Voice / Telegram-text (Flow B) | `path` returned by `GET /camera/snapshot?save=true` |
+| Familiar-stranger (Flow C) | `<path>` parsed from the lelamp hint in the sensing message |
 
-Read the file and base64-encode it:
-
-```bash
-curl -s -X POST http://127.0.0.1:5001/face/enroll \
-  -H "Content-Type: application/json" \
-  -d "{\"image_base64\": \"$(base64 -w0 /path/to/photo.jpg)\", \"label\": \"alice\", \"telegram_username\": \"alice_tg\", \"telegram_id\": \"987654321\"}"
-```
-
-## Error Handling
-- If face recognizer is unavailable (sensing not started), endpoints return 503.
-- If the image cannot be decoded, enroll returns 400.
-- If no face is detected in the image, enroll returns 400.
-- If the label is not found for removal, returns 404.
-
-## Rules
-- **Self-enrollment is the default** — if the user sends a photo and asks to enroll someone else (e.g. "this is my friend Bob" with a photo), refuse: that person must send their own photo. The only exception is the familiar-stranger flow below.
-- **Familiar-stranger flow only on lelamp prompt** — naming a face you didn't capture yourself is allowed ONLY when the current sensing message carries the lelamp hint. Never proactively enroll a stranger ID without that hint.
-- **Always ask before enrolling** — for both flows, explicitly confirm the name with the user before calling `/face/enroll`. Don't enroll silently even when the user's wording sounds direct.
-- **Always confirm enrollment** — tell the user the name was registered after the API returns ok.
-- **Ask for a name if missing** — don't enroll without a label.
-- **Telegram identity only on self-enrollment** — extract `telegram_username` and `telegram_id` from the message context for self-enrollment (required for DM targeting). Omit them on the familiar-stranger path — the named person is not the sender.
-- **Use lowercase labels** — normalize names to lowercase for consistency.
-- **One photo per enroll call** — if user sends multiple photos, enroll each separately.
-- **Never write files directly** — always use the HTTP API endpoints. Do NOT write to `/root/local/users/` directly. Use `/face/enroll` to add photos.
-- **Don't expose technical details** — say "I'll remember your face!" not "base64 encoding the JPEG".
+## Error handling
+- **503** from any face endpoint → recognizer is down (sensing not started). Tell the user face recognition is offline.
+- **400 "image cannot be decoded"** → bad base64 / corrupt file. Apologize, ask user to re-send (Flow A) or retry capture (Flow B).
+- **400 "no face detected"** → no face in the image. Apologize and either ask the user to face the camera (Flow B retry) or ask for a clearer photo (Flow A).
+- **404** on `/face/remove` → that label isn't enrolled. Tell the user.

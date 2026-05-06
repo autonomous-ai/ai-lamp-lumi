@@ -42,8 +42,10 @@ type AgentGateway interface {
 	SetBusy(busy bool)
 
 	// QueuePendingEvent buffers a sensing event to replay when the agent becomes idle.
-	// Last-write-wins per event type.
-	QueuePendingEvent(eventType, msg, image string)
+	// Last-write-wins per event type. fixedRunID lets web_chat preallocate the runID
+	// returned to the web client so it can correlate SSE events at replay time;
+	// other event types pass "" and a fresh runID is allocated at drain.
+	QueuePendingEvent(eventType, msg, image, fixedRunID string)
 
 	// SendChatMessage sends a user message to the agent. Returns the run ID.
 	SendChatMessage(msg string) (string, error)

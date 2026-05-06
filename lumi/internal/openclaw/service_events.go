@@ -18,6 +18,7 @@ type pendingEvent struct {
 	image       string
 	queuedAt    time.Time
 	currentUser string // snapshot at queue time — may differ from replay time
+	fixedRunID  string // preallocated runID (web_chat); empty = allocate at drain
 }
 
 // busyTTL bounds how long activeTurn can stay true without a clearing
@@ -67,16 +68,16 @@ func (s *Service) SetBusy(busy bool) {
 
 // QueuePendingEvent buffers a sensing event to replay when the agent becomes idle.
 // All events are appended — motion/presence must not be missed.
-func (s *Service) QueuePendingEvent(eventType, msg, image string) {
+func (s *Service) QueuePendingEvent(eventType, msg, image, fixedRunID string) {
 	now := time.Now()
 	curUser := mood.CurrentUser()
 	if curUser == "" {
 		curUser = "unknown"
 	}
 	s.pendingEventsMu.Lock()
-	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image, queuedAt: now, currentUser: curUser})
+	s.pendingEvents = append(s.pendingEvents, pendingEvent{eventType: eventType, msg: msg, image: image, queuedAt: now, currentUser: curUser, fixedRunID: fixedRunID})
 	s.pendingEventsMu.Unlock()
-	slog.Info("sensing event queued — agent busy", "component", "sensing", "type", eventType)
+	slog.Info("sensing event queued — agent busy", "component", "sensing", "type", eventType, "runId", fixedRunID)
 
 	// Surface the queued event in the monitor immediately so the UI doesn't
 	// look idle while the agent is busy. The original sensing_input flow
@@ -172,7 +173,16 @@ func (s *Service) drainPendingEvents() {
 	for _, ev := range events {
 		// Allocate a dedicated run ID so each replayed event gets its own
 		// sensing_input flow entry — required for the UI to render the turn.
-		reqID, runID := s.NextChatRunID()
+		// web_chat preallocates the runID at queue time (already marked via
+		// MarkWebChatRun) so the web client correlates its pending message;
+		// reuse it instead of generating a new one.
+		var reqID, runID string
+		if ev.fixedRunID != "" {
+			reqID = ev.fixedRunID
+			runID = ev.fixedRunID
+		} else {
+			reqID, runID = s.NextChatRunID()
+		}
 		flow.SetTrace(runID)
 		startPayload := map[string]any{"type": ev.eventType, "message": ev.msg}
 		if !ev.queuedAt.IsZero() {
@@ -188,6 +198,10 @@ func (s *Service) drainPendingEvents() {
 				prefix = "[ambient] "
 			}
 			msg = domain.AppendEnrollNudge(prefix + ev.msg)
+		} else if ev.eventType == "web_chat" {
+			// Raw text from the monitor — no enroll nudge, no [sensing:*] prefix.
+			// TTS is suppressed via MarkWebChatRun (already called at queue time).
+			msg = ev.msg
 		} else {
 			// motion.activity / emotion.detected use domain-specific prefixes
 			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
