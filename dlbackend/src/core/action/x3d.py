@@ -11,10 +11,10 @@ maintains its own frame buffer, whitelist, and timing state.
 import logging
 from pathlib import Path
 from typing import Self
-from typing_extensions import override
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import override
 
 from config import settings
 from core.action.base import HumanActionRecognizerModel, HumanActionRecognizerSession
@@ -39,18 +39,18 @@ class X3DModel(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.x3d.max_frames,
         frame_size: tuple[int, int] = settings.x3d.frame_size,
+        frame_interval: float = settings.x3d.frame_interval,
         person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size, person_detector)
+        super().__init__(model_path, max_frames, frame_size, frame_interval, person_detector)
 
     @override
     def create_session(
         self,
         threshold: float = settings.x3d.confidence_threshold,
-        frame_interval: float = settings.x3d.frame_interval,
     ) -> HumanActionRecognizerSession[Self]:
         return HumanActionRecognizerSession(
             model=self,
             threshold=threshold,
-            frame_interval=frame_interval,
+            frame_interval=self._frame_interval,
         )

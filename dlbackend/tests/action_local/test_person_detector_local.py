@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from core.persondetector import YOLOPersonDetector
 from core.action.x3d import X3DModel
+from core.persondetector import YOLOPersonDetector
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -57,14 +57,14 @@ def person_detector():
 
 @pytest.fixture(scope="session")
 def model_with_detector(person_detector):
-    m = X3DModel(person_detector=person_detector)
+    m = X3DModel(person_detector=person_detector, frame_interval=0.0)
     m.start()
     return m
 
 
 @pytest.fixture(scope="session")
 def model_without_detector():
-    m = X3DModel()
+    m = X3DModel(frame_interval=0.0)
     m.start()
     return m
 
@@ -138,13 +138,16 @@ class TestActionWithPersonDetector:
             "/api/dl/action-analysis/ws", headers=AUTH_HEADERS
         ) as ws:
             # Send enough frames to fill the buffer
-            for _ in range(8):
+            resp = None
+            for _ in range(16):
                 ws.send_text(
                     json.dumps({"type": "frame", "task": "action", "frame_b64": frame_b64})
                 )
                 resp = ws.receive_json()
+            assert resp is not None
             assert "detected_classes" in resp
             assert isinstance(resp["detected_classes"], list)
+            assert "drinking" in resp["detected_classes"][0]["class_name"]
 
     def test_empty_frame_returns_empty_detections(self, client_with_detector):
         """Black frame (no person) should return empty detected_classes."""
@@ -152,9 +155,7 @@ class TestActionWithPersonDetector:
         with client_with_detector.websocket_connect(
             "/api/dl/action-analysis/ws", headers=AUTH_HEADERS
         ) as ws:
-            ws.send_text(
-                json.dumps({"type": "frame", "task": "action", "frame_b64": frame_b64})
-            )
+            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": frame_b64}))
             resp = ws.receive_json()
             assert "detected_classes" in resp
             assert resp["detected_classes"] == []
@@ -167,12 +168,19 @@ class TestActionWithPersonDetector:
         ) as ws:
             # Set whitelist to drinking-related actions
             ws.send_text(
-                json.dumps({
-                    "type": "config",
-                    "task": "action",
-                    "whitelist": ["drinking", "drinking beer", "drinking shots", "tasting beer"],
-                    "threshold": 0.1,
-                })
+                json.dumps(
+                    {
+                        "type": "config",
+                        "task": "action",
+                        "whitelist": [
+                            "drinking",
+                            "drinking beer",
+                            "drinking shots",
+                            "tasting beer",
+                        ],
+                        "threshold": 0.1,
+                    }
+                )
             )
             ws.receive_json()
 
@@ -185,20 +193,15 @@ class TestActionWithPersonDetector:
 
             detected_names = [d["class_name"] for d in resp["detected_classes"]]
             assert len(detected_names) > 0, (
-                f"Expected at least one drinking-related action, got empty. "
-                f"Full response: {resp}"
+                f"Expected at least one drinking-related action, got empty. Full response: {resp}"
             )
 
-    def test_detector_vs_no_detector_both_work(
-        self, client_with_detector, client_without_detector
-    ):
+    def test_detector_vs_no_detector_both_work(self, client_with_detector, client_without_detector):
         """Both paths (with and without person detector) should return valid responses."""
         frame_b64 = _img_to_b64(PERSON_DRINKING_IMG)
 
         for client in [client_with_detector, client_without_detector]:
-            with client.websocket_connect(
-                "/api/dl/action-analysis/ws", headers=AUTH_HEADERS
-            ) as ws:
+            with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
                 for _ in range(8):
                     ws.send_text(
                         json.dumps({"type": "frame", "task": "action", "frame_b64": frame_b64})

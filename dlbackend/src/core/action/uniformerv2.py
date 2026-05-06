@@ -39,18 +39,18 @@ class UniformerV2Model(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.uniformerv2.max_frames,
         frame_size: tuple[int, int] = settings.uniformerv2.frame_size,
+        frame_interval: float = settings.uniformerv2.frame_interval,
         person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size, person_detector)
+        super().__init__(model_path, max_frames, frame_size, frame_interval, person_detector)
 
     @override
     def create_session(
         self,
         threshold: float = settings.uniformerv2.confidence_threshold,
-        frame_interval: float = settings.uniformerv2.frame_interval,
     ) -> HumanActionRecognizerSession[Self]:
         return HumanActionRecognizerSession(
             model=self,
             threshold=threshold,
-            frame_interval=frame_interval,
+            frame_interval=self._frame_interval,
         )

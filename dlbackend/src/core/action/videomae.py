@@ -39,18 +39,18 @@ class VideoMAEModel(HumanActionRecognizerModel):
         model_path: Path | None = None,
         max_frames: int = settings.videomae.max_frames,
         frame_size: tuple[int, int] = settings.videomae.frame_size,
+        frame_interval: float = settings.videomae.frame_interval,
         person_detector: PersonDetector | None = None,
     ):
-        super().__init__(model_path, max_frames, frame_size, person_detector)
+        super().__init__(model_path, max_frames, frame_size, frame_interval, person_detector)
 
     @override
     def create_session(
         self,
         threshold: float = settings.videomae.confidence_threshold,
-        frame_interval: float = settings.videomae.frame_interval,
     ) -> HumanActionRecognizerSession[Self]:
         return HumanActionRecognizerSession(
             model=self,
             threshold=threshold,
-            frame_interval=frame_interval,
+            frame_interval=self._frame_interval,
         )

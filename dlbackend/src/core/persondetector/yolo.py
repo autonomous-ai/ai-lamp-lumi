@@ -68,13 +68,14 @@ class YOLOPersonDetector(PersonDetector):
 
     def _scale_and_clamp_bbox(self, bbox: list[int], h: int, w: int, scale: float = 1.0):
         x1, y1, x2, y2 = bbox
-        cx = (x1 + x2) / 2
-        cy = (y1 + y2) / 2
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
 
         x1 = int(max(min(cx + (x1 - cx) * scale, w - 1), 0))
         x2 = int(max(min(cx + (x2 - cx) * scale, w - 1), 0))
         y1 = int(max(min(cy + (y1 - cy) * scale, h - 1), 0))
         y2 = int(max(min(cy + (y2 - cy) * scale, h - 1), 0))
+
         return [x1, y1, x2, y2]
 
     def detect(self, frame: cv2.typing.MatLike) -> list[PersonDetection]:

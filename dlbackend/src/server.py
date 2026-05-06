@@ -31,8 +31,6 @@ from pydantic import TypeAdapter, ValidationError
 from config import settings
 from core.action.base import HumanActionRecognizerModel
 from core.action.enums import HumanActionRecognizerEnum
-from core.persondetector import PersonDetector, YOLOPersonDetector
-from enums import PersonDetectorEnum
 from core.action.uniformerv2 import UniformerV2Model
 from core.action.videomae import VideoMAEModel
 from core.action.x3d import X3DModel
@@ -49,6 +47,8 @@ from core.models import (
     EmotionRecognizeResponse,
     EmotionRequest,
 )
+from core.persondetector import PersonDetector, YOLOPersonDetector
+from enums import PersonDetectorEnum
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 
@@ -95,7 +95,11 @@ async def lifespan(app: FastAPI):
             else:
                 raise ValueError(f"Unknown person detector: {settings.person_detector.model}")
             person_detector.start()
-            logger.info("Person detector ready (%s: %s)", settings.person_detector.model, settings.person_detector.model_name)
+            logger.info(
+                "Person detector ready (%s: %s)",
+                settings.person_detector.model,
+                settings.person_detector.model_name,
+            )
 
         if settings.action_recognition_model == HumanActionRecognizerEnum.VIDEOMAE:
             action_model = VideoMAEModel(action_ckpt_path, person_detector=person_detector)
