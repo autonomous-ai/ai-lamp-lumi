@@ -1081,7 +1081,7 @@ export function FaceOwnersSection() {
                       </span>
                       {familiar && (
                         <span
-                          title={`Lelamp prompted enroll at ${FAMILIAR_VISIT_THRESHOLD} visits`}
+                          title={`Visit count ≥ ${FAMILIAR_VISIT_THRESHOLD} (familiar threshold). Lelamp fires the enroll prompt only on the 1→${FAMILIAR_VISIT_THRESHOLD} transition — strangers whose count was already past the threshold before the trigger code was deployed will NOT have been prompted.`}
                           style={{
                             fontSize: 9,
                             padding: "1px 6px",
@@ -1092,7 +1092,7 @@ export function FaceOwnersSection() {
                             letterSpacing: 0.3,
                           }}
                         >
-                          ● PROMPTED
+                          ● FAMILIAR
                         </span>
                       )}
                     </div>
