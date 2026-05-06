@@ -36,6 +36,22 @@ EMOTIONS = [
     "Contempt",
 ]
 
+# Phase 2 bucket dedup: collapse fine-grained labels into polarity buckets.
+# Dedup key is (user, bucket) so cross-bucket flips like Fear↔Happy still
+# fire (different buckets) but within-bucket noise like Fear↔Sad↔Anger
+# collapses to a single "negative" event per 5-min window.
+# Outbound message text stays raw ("Emotion detected: Sad.") — variant A,
+# minimal-risk: no downstream parsing changes.
+EMOTION_BUCKETS = {
+    "Happy": "positive",
+    "Surprise": "positive",
+    "Sad": "negative",
+    "Fear": "negative",
+    "Anger": "negative",
+    "Disgust": "negative",
+    "Contempt": "negative",
+}
+
 
 class RemoteEmotionRecognizer:
     """Calls the dlbackend HTTP emotion-recognize endpoint for a single face crop."""
@@ -309,15 +325,20 @@ class EmotionPerception(Perception[FaceDetectionData]):
 
             message = f"Emotion detected: {dominant_emotion}."
 
-            # Dedup: same (current_user, emotion) within window → drop,
-            # regardless of what was sent in between.
-            key = (current_user, dominant_emotion)
+            # Phase 2: dedup by polarity bucket, not raw label. Fear↔Sad
+            # ↔Anger noise within the same bucket collapses to one event
+            # per window; cross-bucket flips (Fear→Happy) still fire as a
+            # genuine mood change. "other" bucket catches any label not in
+            # EMOTION_BUCKETS so unknown emotions still self-dedup.
+            bucket = EMOTION_BUCKETS.get(dominant_emotion, "other")
+            key = (current_user, bucket)
             with self._state_lock:
                 last_ts = self._last_sent_by_key.get(key)
                 if last_ts is not None and (cur_ts - last_ts) < self._dedup_window_s:
                     logger.info(
-                        "[activity.emotion] dedup drop: %s (key seen %.1fs ago)",
+                        "[activity.emotion] dedup drop: %s bucket=%s (key seen %.1fs ago)",
                         message,
+                        bucket,
                         cur_ts - last_ts,
                     )
                     continue
