@@ -90,6 +90,32 @@ func (s *Service) ConsumeWebChatRun(runID string) bool {
 // recover automatically if OpenClaw drops a lifecycle event.
 const pendingChatTTL = 2 * time.Minute
 
+// pendingSendBusyWindow is the freshness window used by IsBusy() to treat a
+// just-sent chat.send as "busy" even before lifecycle_start echoes back.
+// Tighter than pendingChatTTL because if the agent hasn't acknowledged the
+// turn within 30s we'd rather risk forwarding new sensing than keep blocking
+// indefinitely; in practice lifecycle_start arrives in 1-3s.
+const pendingSendBusyWindow = 30 * time.Second
+
+// HasFreshPendingChatSend returns true if any chat.send was issued within
+// pendingSendBusyWindow but has not yet been paired with lifecycle_start.
+// Used by IsBusy() to close the window between WS write and the agent
+// acknowledging the turn — without this, sensing events that arrive in that
+// gap slip past the gatekeeper, hit OpenClaw direct, and stack up in
+// OpenClaw's per-session queue (each pending turn waits 15-20s, producing
+// the 80-100s "openclaw init" delays seen in flow monitor).
+func (s *Service) HasFreshPendingChatSend() bool {
+	s.pendingChatMu.Lock()
+	defer s.pendingChatMu.Unlock()
+	cutoff := time.Now().Add(-pendingSendBusyWindow)
+	for _, p := range s.pendingChatQueue {
+		if p.sentAt.After(cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
 // SetPendingChatTrace appends an idempotencyKey to the FIFO queue after a
 // successful chat.send. Paired one-to-one with lifecycle_start via
 // ConsumePendingChatTrace so OpenClaw's UUID maps back to the correct

@@ -27,22 +27,30 @@ type pendingEvent struct {
 // a stuck turn is dropped/queued forever.
 const busyTTL = 5 * time.Minute
 
-// IsBusy returns true while the agent is processing a turn (between lifecycle start and end).
-// Auto-clears the flag after busyTTL has elapsed since the last SetBusy(true) so a missed
-// lifecycle.end cannot wedge the sensing pipeline indefinitely.
+// IsBusy returns true while the agent is processing a turn (between lifecycle
+// start and end) OR has at least one chat.send still waiting for its
+// lifecycle_start. The pending-send check closes the gap between Lumi's WS
+// write and the agent echoing lifecycle_start back: during that gap
+// activeTurn can briefly read false (if a previous turn's lifecycle_end just
+// fired), letting new sensing slip through to OpenClaw direct and stack up
+// behind already-in-flight turns in OpenClaw's per-session queue.
+//
+// Auto-clears activeTurn after busyTTL since the last SetBusy(true) so a
+// dropped lifecycle.end cannot wedge the sensing pipeline indefinitely; even
+// after that, fresh pending sends still keep IsBusy true.
 func (s *Service) IsBusy() bool {
-	if !s.activeTurn.Load() {
-		return false
+	if s.activeTurn.Load() {
+		since := s.busySince.Load()
+		if since > 0 && time.Since(time.UnixMilli(since)) > busyTTL {
+			slog.Warn("busy flag expired — auto-clearing (lifecycle.end likely missed)",
+				"component", "openclaw", "stuck_for_s", int(time.Since(time.UnixMilli(since)).Seconds()))
+			s.activeTurn.Store(false)
+			go s.drainPendingEvents()
+			return s.HasFreshPendingChatSend()
+		}
+		return true
 	}
-	since := s.busySince.Load()
-	if since > 0 && time.Since(time.UnixMilli(since)) > busyTTL {
-		slog.Warn("busy flag expired — auto-clearing (lifecycle.end likely missed)",
-			"component", "openclaw", "stuck_for_s", int(time.Since(time.UnixMilli(since)).Seconds()))
-		s.activeTurn.Store(false)
-		go s.drainPendingEvents()
-		return false
-	}
-	return true
+	return s.HasFreshPendingChatSend()
 }
 
 // SetBusy marks the agent as busy or idle. Called by the SSE handler on lifecycle start/end.
