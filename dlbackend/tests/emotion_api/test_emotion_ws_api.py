@@ -16,6 +16,9 @@ import pytest_asyncio
 import websockets
 from dotenv import load_dotenv
 
+from core.emotion.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
+from core.emotion.emonet import EMOTIONS as EMONET_EMOTIONS
+
 _ = load_dotenv()
 
 DL_BACKEND_URL = os.getenv("DL_BACKEND_URL", "")
@@ -99,9 +102,8 @@ class TestEmotionAnalysisWebSocket:
             assert "confidence" in det
             assert "face_confidence" in det
             assert "bbox" in det
-            assert det["emotion"] in [
-                "Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"
-            ]
+            all_labels = set(POSTERV2_EMOTIONS) | set(EMONET_EMOTIONS)
+            assert det["emotion"] in all_labels
             assert 0.0 <= det["confidence"] <= 1.0
             assert len(det["bbox"]) == 4
 

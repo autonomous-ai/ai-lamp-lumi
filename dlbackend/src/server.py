@@ -31,6 +31,8 @@ from pydantic import TypeAdapter, ValidationError
 from config import settings
 from core.action.base import HumanActionRecognizerModel
 from core.action.enums import HumanActionRecognizerEnum
+from core.persondetector import PersonDetector, YOLOPersonDetector
+from enums import PersonDetectorEnum
 from core.action.uniformerv2 import UniformerV2Model
 from core.action.videomae import VideoMAEModel
 from core.action.x3d import X3DModel
@@ -78,19 +80,29 @@ async def lifespan(app: FastAPI):
     """Load models at startup."""
     global action_model
 
-    logger.info("Loading VideoMAE action model...")
+    logger.info("Loading action model...")
     try:
         if settings.action_recognition_ckpt_path is not None:
             action_ckpt_path = Path(settings.action_recognition_ckpt_path)
         else:
             action_ckpt_path = None
 
+        # Create person detector if enabled (crops largest person before action recognition)
+        person_detector: PersonDetector | None = None
+        if settings.person_detector.enabled:
+            if settings.person_detector.model == PersonDetectorEnum.YOLO:
+                person_detector = YOLOPersonDetector()
+            else:
+                raise ValueError(f"Unknown person detector: {settings.person_detector.model}")
+            person_detector.start()
+            logger.info("Person detector ready (%s: %s)", settings.person_detector.model, settings.person_detector.model_name)
+
         if settings.action_recognition_model == HumanActionRecognizerEnum.VIDEOMAE:
-            action_model = VideoMAEModel(action_ckpt_path)
+            action_model = VideoMAEModel(action_ckpt_path, person_detector=person_detector)
         elif settings.action_recognition_model == HumanActionRecognizerEnum.UNIFORMERV2:
-            action_model = UniformerV2Model(action_ckpt_path)
+            action_model = UniformerV2Model(action_ckpt_path, person_detector=person_detector)
         elif settings.action_recognition_model == HumanActionRecognizerEnum.X3D:
-            action_model = X3DModel(action_ckpt_path)
+            action_model = X3DModel(action_ckpt_path, person_detector=person_detector)
 
         if action_model is not None:
             action_model.start()
