@@ -103,6 +103,7 @@ type OpenClawHandler struct {
 type channelTurnState struct {
 	runID       string
 	senderLabel string
+	telegramID  string
 	accumulated strings.Builder
 	startedAtMs int64
 }

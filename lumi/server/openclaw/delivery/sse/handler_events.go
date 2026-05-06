@@ -1087,10 +1087,22 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			if senderLabel == "" {
 				senderLabel = sm.Session.Origin.Label
 			}
+			// Capture Telegram user ID for outbound DM at lifecycle.end.
+			// OpenClaw 5.4 queue mode does NOT auto-deliver replies to the
+			// originating Telegram chat when the session is `agent:main:main`
+			// (per-sender mode), so Lumi must DM via Bot API itself. Two
+			// signals tried in order: conversation metadata block injected
+			// into content (most reliable when present), then senderLabel
+			// regex (always available since OpenClaw populates session info).
+			telegramID := extractTelegramChatID(text)
+			if telegramID == "" {
+				telegramID = extractTelegramIDFromSenderLabel(senderLabel)
+			}
 			h.channelTurnMu.Lock()
 			h.channelTurns[sm.SessionKey] = &channelTurnState{
 				runID:       runID,
 				senderLabel: senderLabel,
+				telegramID:  telegramID,
 				startedAtMs: sm.Message.Timestamp,
 			}
 			h.channelTurnMu.Unlock()
@@ -1159,6 +1171,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// message of the turn. "toolUse" means another tool round will follow.
 		isFinal := sm.Message.StopReason == "stop" || sm.Message.StopReason == "end_turn"
 		runID := st.runID
+		telegramID := st.telegramID
 		var fullText string
 		if isFinal {
 			fullText = st.accumulated.String()
@@ -1190,9 +1203,10 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// events queue for up to busyTTL (5 min) before auto-clearing.
 		h.agentGateway.SetBusy(false)
 
-		// Channel turns never speak via the lamp speaker — Telegram already
-		// receives the text directly from OpenClaw. Emit tts_suppressed so
-		// the monitor reflects reality.
+		// Channel turns: TTS stays silent on the speaker. OpenClaw 5.4 queue
+		// mode does NOT auto-deliver replies to the originating Telegram chat
+		// when session is `agent:main:main`, so Lumi DMs the reply via Bot API
+		// using telegramID captured at channel-turn start.
 		switch {
 		case isAgentNoReply(cleanText):
 			slog.Info("channel turn replied NO_REPLY", "component", "agent", "run_id", runID)
@@ -1213,7 +1227,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				preview = preview[:200] + "…"
 			}
 			slog.Info("channel turn final assistant text", "component", "agent",
-				"run_id", runID, "hw_calls", len(hwCalls), "text", preview)
+				"run_id", runID, "hw_calls", len(hwCalls), "telegram_id", telegramID, "text", preview)
 			flow.Log("tts_suppressed", map[string]any{
 				"run_id": runID,
 				"reason": "channel_run",
@@ -1226,6 +1240,33 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				State:   "final",
 				Detail:  map[string]string{"role": "assistant", "message": cleanText},
 			})
+			if telegramID != "" {
+				// FIXME: band-aid for OpenClaw 5.4 queue-mode regression. The
+				// telegram plugin closes its message-processing window in
+				// ~1–2s and reports "turn ended without visible final
+				// response" before the agent (which can take 20s+) finishes.
+				// The eventual reply lands in chat history but never gets
+				// fanned out to the originating Telegram chat. Until OpenClaw
+				// fixes that path, Lumi DMs via Bot API itself. REMOVE this
+				// goroutine + flow.Log when upstream fix lands — otherwise
+				// users will receive duplicate replies (one from OpenClaw,
+				// one from Lumi). The interleave fix above is a separate
+				// case and should stay even after upstream fixes this one.
+				go func(t, tid string) {
+					slog.Info("channel turn → Telegram DM", "component", "agent", "run_id", runID, "telegram_id", tid)
+					if err := h.agentGateway.SendToUser(tid, t, ""); err != nil {
+						slog.Error("channel turn DM failed", "component", "agent", "run_id", runID, "err", err)
+					}
+				}(cleanText, telegramID)
+				flow.Log("telegram_dm_send", map[string]any{
+					"run_id":      runID,
+					"telegram_id": telegramID,
+					"source":      "channel_turn",
+				}, runID)
+			} else {
+				slog.Warn("channel turn has no telegram_id — reply not delivered",
+					"component", "agent", "run_id", runID, "sender_label", "elided")
+			}
 		}
 		// Drop the channelRuns marker — turn is finished.
 		h.channelRunsMu.Lock()
