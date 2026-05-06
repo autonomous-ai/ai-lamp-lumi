@@ -253,7 +253,7 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         if cur_ts - self._last_ts >= self._frame_interval:
             frame_buffer = self._model.preprocess(frame, self._frame_buffer)
             if frame_buffer is None:
-                return ActionResponse(detected_classes =[])
+                return ActionResponse(detected_classes=[])
 
             self._frame_buffer = frame_buffer
             self._last_detected = self._model.predict(self._frame_buffer, self._class_mask)

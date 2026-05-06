@@ -10,6 +10,8 @@ from dataclasses import dataclass
 import cv2
 from ultralytics.models.yolo import YOLO
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 # COCO class index for "person"
@@ -42,20 +44,21 @@ class YOLOPersonDetector:
 
     def __init__(
         self,
-        model_name: str = "yolo12x.pt",
-        threshold: float = 0.4,
-        bbox_expand_scale: float = 1.5,
+        model_name: str = settings.person_detector.model_name,
+        threshold: float = settings.person_detector.confidence_threshold,
+        bbox_expand_scale: float = settings.person_detector.bbox_expand_scale,
     ):
         """
         Args:
             model_name: Ultralytics model identifier, e.g. ``"yolo12x.pt"``.
             threshold:  Minimum detection confidence to keep.
+            bbox_expand_scale: Scale factor to expand detected bbox around center.
         """
         self._model_name: str = model_name
         self._threshold: float = threshold
         self._bbox_expand_scale: float = bbox_expand_scale
 
-        self._model: YOLO | None = None
+        self._model = None
         self._running: bool = False
 
     def start(self) -> None:
