@@ -89,6 +89,11 @@ When checking `GET /audio/history`, use past behavior to personalize:
 
 - Mood: tired (known user) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}] You seem tired — want some calm piano?</say>`
 - Mood: tired (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?</say>`
+- Mood: stressed (known user) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}][HW:/dm:{"telegram_id":"158406741"}] You look a bit tense — want some soft piano to ease into?</say>`
+- Mood: stressed (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}] You look a bit tense — want some soft piano?</say>`
+- Mood: sad (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}] Rough moment? Some gentle acoustic might help.</say>`
+- Mood: bored (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] Need a lift? How about some upbeat indie?</say>`
+- Mood: excited (unknown) → `<say>[HW:/emotion:{"emotion":"happy","intensity":0.7}] Riding the energy — feel-good pop?</say>`
 - Mood: happy, music already playing → `<say></say>`
 - After user confirms → `<say>[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Great choice!</say>`
 
@@ -97,3 +102,6 @@ When checking `GET /audio/history`, use past behavior to personalize:
 - All computation stays in `thinking` — reply is only `<say>...</say>` with the suggestion sentence or empty.
 - Never mention "cooldown", "interval", "threshold", or timestamps in the reply.
 - `person` field in `/audio/play` must be lowercase.
+- **Never open with a greeting.** This is an emotion-driven mood event, NOT a presence/arrival event. Forbidden openers: `hello`, `hi`, `hey`, `welcome back`, `oh, you're back`, anything containing `again` or referencing the user re-arriving. Greetings belong only to `presence.enter` in `sensing/SKILL.md`.
+- **Tone must match the mood.** For `Fear` → `stressed` and `Sad` → `sad` decisions, use the `caring` emotion marker and a gentle acknowledging sentence — never cheerful or playful phrasing. If you can't produce a tone-appropriate one-liner, output `<say></say>`.
+- **Don't reference the camera or detection.** No "I noticed you look…", "I can see…", "your face shows…" — speak as if you simply care, not as if you're describing a sensor reading.
