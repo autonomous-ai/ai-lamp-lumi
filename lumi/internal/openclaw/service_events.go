@@ -98,20 +98,63 @@ func (s *Service) drainPendingEvents() {
 		jv := events[j].eventType == "voice" || events[j].eventType == "voice_command"
 		return iv && !jv
 	})
-	// Expire stale motion/emotion events — they're high-frequency and stale
-	// data is worse than no data (e.g. after compaction). Voice and presence
-	// events are never expired because they carry user intent or session state.
+
+	// Expire stale high-frequency events — replaying stale sensor signals just
+	// floods OpenClaw's queue with no-longer-relevant turns (each ~15-20s LLM
+	// call). Voice events are never expired because they carry user intent.
+	// presence.enter/leave are time-sensitive too: if a person came in 60s ago,
+	// the agent reacting now is awkward and the situation may have changed.
 	const expireAfter = 60 * time.Second
+	expirable := map[string]bool{
+		"motion.activity":  true,
+		"emotion.detected": true,
+		"presence.enter":   true,
+		"presence.leave":   true,
+		"presence.away":    true,
+	}
 	filtered := events[:0]
 	for _, ev := range events {
-		if (ev.eventType == "motion.activity" || ev.eventType == "emotion.detected") &&
-			time.Since(ev.queuedAt) > expireAfter {
+		if expirable[ev.eventType] && time.Since(ev.queuedAt) > expireAfter {
 			slog.Info("sensing event expired from queue", "component", "sensing", "type", ev.eventType, "age_s", int(time.Since(ev.queuedAt).Seconds()))
 			continue
 		}
 		filtered = append(filtered, ev)
 	}
 	events = filtered
+
+	// Coalesce duplicates: for high-frequency sensor events, keep only the
+	// latest of each type. Replaying every queued presence.enter / motion /
+	// emotion produces a back-to-back chat.send burst that re-floods the
+	// OpenClaw queue (the issue this whole gatekeeper exists to prevent).
+	// Voice/voice_command keep all entries — each is a distinct user utterance.
+	coalesce := map[string]bool{
+		"presence.enter":   true,
+		"presence.leave":   true,
+		"presence.away":    true,
+		"motion.activity":  true,
+		"emotion.detected": true,
+	}
+	lastIdx := make(map[string]int, len(events))
+	for i, ev := range events {
+		if coalesce[ev.eventType] {
+			lastIdx[ev.eventType] = i
+		}
+	}
+	if len(lastIdx) > 0 {
+		dropped := 0
+		coalesced := events[:0]
+		for i, ev := range events {
+			if coalesce[ev.eventType] && lastIdx[ev.eventType] != i {
+				dropped++
+				continue
+			}
+			coalesced = append(coalesced, ev)
+		}
+		if dropped > 0 {
+			slog.Info("sensing events coalesced — kept latest only", "component", "sensing", "dropped", dropped, "remaining", len(coalesced))
+		}
+		events = coalesced
+	}
 
 	if len(events) == 0 {
 		slog.Info("all pending sensing events expired, nothing to drain", "component", "sensing")

@@ -108,8 +108,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				switch payload.Data.Phase {
 				case "start":
 					h.agentLifecycleAt[payload.SessionKey] = time.Now().UnixMilli()
+					if payload.RunID != "" {
+						h.activeRunIDBySession[payload.SessionKey] = payload.RunID
+					}
 				case "end", "error":
 					delete(h.agentLifecycleAt, payload.SessionKey)
+					delete(h.activeRunIDBySession, payload.SessionKey)
 				}
 				h.agentLifecycleMu.Unlock()
 			}
@@ -623,6 +627,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// assistant delta (NO_REPLY, HW-only reply, error).
 			sensinghttp.DefaultFillerManager.Cancel(flowRunID)
 			suppressReason := h.clearTTSSuppress(payload.RunID)
+			// Pull interleaved Telegram DM target up front so the map entry is
+			// cleared even on NO_REPLY / HW-only / suppressed branches that
+			// never reach the dmTelegramID injection below.
+			interleavedDMTarget := h.consumeInterleavedDM(payload.RunID)
+			if interleavedDMTarget == "" {
+				interleavedDMTarget = h.consumeInterleavedDM(flowRunID)
+			}
 			// Web monitor chat: suppress TTS — response displayed in web UI only.
 			if suppressReason == "" && h.agentGateway.ConsumeWebChatRun(flowRunID) {
 				suppressReason = "web_chat"
@@ -667,6 +678,15 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 							dmTelegramID = dm.TelegramID
 						}
 					}
+				}
+				// Queue-mode interleave: when the agent didn't include a /dm
+				// marker but a Telegram message was injected mid-turn, route
+				// the reply back to the originating chat (captured from
+				// session.message metadata in the lifecycle window).
+				if dmTelegramID == "" && interleavedDMTarget != "" {
+					dmTelegramID = interleavedDMTarget
+					slog.Info("routing reply to interleaved Telegram chat (queue-mode injection)",
+						"component", "agent", "run_id", flowRunID, "chat_id", dmTelegramID)
 				}
 
 				// Guard mode: broadcast even on NO_REPLY / empty / suppressed paths.
@@ -1016,8 +1036,28 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		const agentLifecycleWindowMs int64 = 30_000
 		h.agentLifecycleMu.Lock()
 		recentLifecycleMs := h.agentLifecycleAt[sm.SessionKey]
+		activeRunID := h.activeRunIDBySession[sm.SessionKey]
 		h.agentLifecycleMu.Unlock()
 		if recentLifecycleMs > 0 && time.Now().UnixMilli()-recentLifecycleMs < agentLifecycleWindowMs {
+			// Queue-mode interleave: a Telegram user message can arrive WHILE a
+			// Lumi-issued run (sensing/voice chat.send) is being processed.
+			// OpenClaw injects it into the running turn and the agent's reply
+			// goes back on the Lumi run's stream — its runID is "lumi-chat-*"
+			// so isLumiOutboundChatRunID() is true → isChannelRun=false →
+			// reply ends up on TTS instead of Telegram. Capture the chat_id
+			// here (before the skip) and mark the active run so lifecycle.end
+			// suppresses TTS and routes the reply via DM.
+			if sm.Message.Role == "user" && activeRunID != "" {
+				if chatID := extractTelegramChatID(extractMessageContentText(sm.Message.Content)); chatID != "" {
+					h.channelRunsMu.Lock()
+					h.channelRuns[activeRunID] = true
+					h.interleavedDMByRunID[activeRunID] = chatID
+					h.channelRunsMu.Unlock()
+					slog.Info("interleaved Telegram message captured — TTS will be suppressed, reply will DM",
+						"component", "agent", "sessionKey", sm.SessionKey,
+						"active_run_id", activeRunID, "chat_id", chatID)
+				}
+			}
 			slog.Info("session.message skipped — agent lifecycle active",
 				"component", "agent", "sessionKey", sm.SessionKey,
 				"ageMs", time.Now().UnixMilli()-recentLifecycleMs)
