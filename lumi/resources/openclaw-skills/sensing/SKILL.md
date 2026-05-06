@@ -45,7 +45,7 @@ Every event emits at least one `[HW:/emotion:...]` marker, even on `NO_REPLY`. N
 ## Rules
 
 - **HW markers first**, then text or `NO_REPLY`. Text = ONE short sentence max, spoken verbatim.
-- **Tool-call scope** — only `motion.activity` (→ wellbeing) and `emotion.detected` (→ user-emotion-detection + music-suggestion Step 2) may fire POSTs. On `presence.*`, `sound`, `light.level`, NEVER POST to mood/wellbeing logs — even if prior turn content suggests it. Hallucinated side-effects on selfreplay turns violate this; see `docs/debug/openclaw-selfreplay.md`. Read-only GETs (e.g. `/face/stranger-stats` for recurring-stranger check) are fine.
+- **Tool-call scope** — only `motion.activity` (→ wellbeing) and `emotion.detected` (→ user-emotion-detection + music-suggestion Step 2) may fire POSTs. On `presence.*`, `sound`, `light.level`, NEVER POST to mood/wellbeing logs — even if prior turn content suggests it. Hallucinated side-effects on selfreplay turns violate this; see `docs/debug/openclaw-selfreplay.md`.
 - **Never dump reasoning into the reply.** No log deltas, no "Looking at context…", no "No nudge needed". Scratch stays in `thinking`.
 - **Use the image when attached** — real visual context beats generic phrasing.
 - **Night-aware** — lower intensity emotions and shorter speech after ~22:00.
@@ -53,18 +53,6 @@ Every event emits at least one `[HW:/emotion:...]` marker, even on `NO_REPLY`. N
 - **Trust cooldowns** — system throttles already (60s sound, 10s presence, 30s light).
 - **Never call any API to receive events** — they arrive automatically.
 - **Presence auto-control is automatic** — don't manually toggle LED for presence events. Override only if the user asks (see Presence auto-control below).
-
-## Recurring stranger → suggest enrollment
-
-On `presence.enter` with a stranger, optionally check how often they've shown up:
-
-```bash
-curl -s http://127.0.0.1:5001/face/stranger-stats
-```
-
-Response: `{"stranger_5": {"count": 3, "first_seen": "...", "last_seen": "..."}}`
-
-If count ≥ 3, after the normal reaction add one line like *"This person keeps showing up. Want me to remember their face? Just tell me their name."* Do the actual enrollment via `face-enroll/SKILL.md` only after the user confirms with a name. Don't re-ask for the same stranger if they declined in this session.
 
 ## Proactive care
 
