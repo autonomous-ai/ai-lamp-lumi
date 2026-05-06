@@ -490,9 +490,9 @@ Sensing events that include a camera frame (`motion`, `presence.enter`, `presenc
 | Tier | Path | Rotation | Survives reboot |
 |------|------|----------|-----------------|
 | **Tmp buffer** | `/tmp/lumi-sensing-snapshots/sensing_<prefix>/` | Count-based (max 50 files) | No |
-| **Persistent** | `/var/log/lumi/snapshots/sensing_<prefix>/` | TTL (72h) + size (50 MB max) | Yes |
+| **Persistent** | `/var/lib/lelamp/snapshots/sensing_<prefix>/` | TTL (72h) + size (50 MB max) | Yes |
 
-Each event kind writes to its own subdir (`sensing_<prefix>`, e.g. `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Filenames are `<ms>.jpg`. Every snapshot is saved to tmp first, then copied to the persistent dir. The persistent path is included in the event message (`[snapshot: /var/log/lumi/snapshots/sensing_<prefix>/<ms>.jpg]`) so the agent can reference it later — even after a device reboot. Monitor serves them via `GET /api/sensing/snapshot/<category>/<name>`.
+Each event kind writes to its own subdir (`sensing_<prefix>`, e.g. `sensing_presence/`, `sensing_motion_activity/`, `sensing_emotion/`). Filenames are `<ms>.jpg`. Every snapshot is saved to tmp first, then copied to the persistent dir. The persistent path is included in the event message (`[snapshot: /var/lib/lelamp/snapshots/sensing_<prefix>/<ms>.jpg]`) so the agent can reference it later — even after a device reboot. Monitor serves them via `GET /api/sensing/snapshot/<category>/<name>`.
 
 Configuration constants are in `lelamp/config.py`:
 - `SNAPSHOT_TMP_MAX_COUNT` — max files in tmp (default 50)
