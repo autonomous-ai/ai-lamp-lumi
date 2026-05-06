@@ -17,6 +17,8 @@ description: React to passive sensing events from the lamp — presence, sound, 
 
 If one of those arrives, stop and switch — don't improvise here.
 
+> **Emotion events are NOT presence events.** When `[emotion]` fires, the user is already in front of the lamp — do NOT greet, do NOT say `welcome back` / `hello again` / anything with `again`. The presence row in the matrix below applies only to `presence.enter` events.
+
 ## `[HW:...]` markers are plain text
 
 Type them at the very start of your reply. They are NOT tool calls. The system reads and strips them before TTS.
