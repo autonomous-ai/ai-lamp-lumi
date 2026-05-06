@@ -381,7 +381,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// to synthesize and play out before the real reply arrives — avoiding
 	// the lelamp-side speak() lock-timeout=2s race that the timer-based
 	// fire-at-lifecycle.start+FillerDelay path triggers.
-	if isVoice {
+	// TEMP: include isWebChat so remote TTS test gets the same opening filler
+	// + dead-air filler experience as voice. Revert with the MarkWebChatRun
+	// suppression toggle above when done — search "TEMP: disabled to test TTS".
+	if isVoice || isWebChat {
 		DefaultFillerManager.MarkVoiceRun(runID)
 		go PlayOpeningFillerNow()
 	}
