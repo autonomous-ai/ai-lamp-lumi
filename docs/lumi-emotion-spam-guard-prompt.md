@@ -13,6 +13,19 @@ We need a pragmatic production guard. It is better to drop/merge uncertain emoti
 
 ---
 
+## Status
+
+- **Phase 1 — TTL map dedup**: ✅ done. `_last_sent_by_key: dict[tuple[str, str], float]` in `emotion.py`; old entries pruned each flush.
+- **Phase 2 — polarity bucket dedup**: ✅ done. `EMOTION_BUCKETS` collapses fine-grained labels into `positive` / `negative` / `other`; dedup key is `(current_user, bucket)`.
+- **Outbound message hedge** (the "more product-correct variant" below): ✅ done. Message now appends a parenthetical with `confidence`, `bucket`, and a bucket-tuned hedge clause. The raw `Emotion detected: <Label>.` prefix is preserved so `user-emotion-detection/SKILL.md` parser + Fear→stressed / Sad→sad mood mapping keep working unchanged. See `docs/sensing-behavior.md` → `emotion.detected event` for the full spec.
+
+What remains open:
+
+- **Layer 1 (upstream sample quality)** — face-crop size/distance gating, multi-frame aggregation, top-2 margin treatment. Still requires dlbackend coordination (@tnk2908). Not blocking downstream.
+- **Skill side** — companion fix in `music-suggestion/SKILL.md` and `sensing/SKILL.md` forbids greeting openers on emotion events and adds tone-matched templates per mood. Tracks the same root cause: model over-commits on a noisy "Emotion detected: Fear." cue.
+
+---
+
 ## Files to inspect first
 
 - `lelamp/service/sensing/perceptions/processors/emotion.py`
@@ -276,12 +289,8 @@ Preferred:
 
 ## Recommended next step
 
-Implement phase 1 now:
+Phase 1 + Phase 2 + message hedge are landed (see Status at top). Remaining work:
 
-- TTL map per `(current_user, dominant_emotion)`
-- preserve current outbound event/message shape
-- preserve stranger/current_user behavior
-- prune old keys
-- update `to_dict()`/debug status without breaking existing fields
-
-Then discuss whether phase 2 bucket dedup is needed after testing on real Lumi camera feed.
+- **Layer 1 upstream sample quality** — needs dlbackend coordination. Track separately.
+- **Tune `EMOTION_DEDUP_WINDOW_S`** if production still shows cross-bucket flips spamming the agent (e.g. genuine Fear↔Happy oscillation that the bucket key can't collapse).
+- **Watch confidence distribution** — now that confidence is in the outbound message, decide whether to gate sends on a higher floor than `EMOTION_CONFIDENCE_THRESHOLD` if low-confidence reads are still leaking through.

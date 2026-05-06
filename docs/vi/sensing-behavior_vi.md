@@ -447,7 +447,22 @@ Lumi nhận diện trạng thái cảm xúc **của người dùng** qua hai kê
 
 ### Event `emotion.detected`
 
-Được LeLamp fire khi dlbackend emotion classifier nhận diện biểu cảm khuôn mặt vượt ngưỡng confidence. Format message: `Emotion detected: Happy` (hoặc Sad, Angry, v.v.).
+Được LeLamp fire khi dlbackend emotion classifier nhận diện biểu cảm khuôn mặt vượt ngưỡng confidence. Format message:
+
+```
+Emotion detected: <Label>. (weak camera cue; confidence=<0.00-1.00>; bucket=<positive|negative|other>; treat as uncertain, <hedge theo bucket>.)
+```
+
+Ví dụ thực tế:
+
+```
+Emotion detected: Fear. (weak camera cue; confidence=0.62; bucket=negative; treat as uncertain, do not assume the user is distressed.)
+Emotion detected: Happy. (weak camera cue; confidence=0.78; bucket=positive; treat as uncertain, do not over-celebrate.)
+```
+
+Prefix `Emotion detected: <Label>.` được giữ nguyên để parser của `user-emotion-detection/SKILL.md` và mood mapping Fear→stressed / Sad→sad vẫn chạy như cũ. Phần ngoặc đơn phía sau là để LLM không over-commit khi FER read nhiễu (bug từng gặp: Fear → "Oh hello there again"). Hedge theo bucket: `negative` → "do not assume the user is distressed"; `positive` → "do not over-celebrate"; `other` → "do not over-react".
+
+**Dedup theo polarity bucket** (`EMOTION_BUCKETS` trong `lelamp/service/sensing/perceptions/processors/emotion.py`) gộp các label chi tiết thành `positive` / `negative` / `other` và dedup theo `(current_user, bucket)` trong window 5 phút. Nhiễu trong cùng bucket (Fear↔Sad↔Anger) gộp thành 1 event/window; flip giữa hai bucket (Fear→Happy) vẫn fire như mood change thật. Confidence trong message được average **chỉ trên các lần xuất hiện của dominant label** — confidence của label khác không pha loãng.
 
 Sensing handler (`handler.go`) route `emotion.detected` events tới agent. Khi agent đang bận, events được queue và replay khi agent rảnh.
 
@@ -455,9 +470,12 @@ Sensing handler (`handler.go`) route `emotion.detected` events tới agent. Khi 
 
 `user-emotion-detection/SKILL.md` xử lý `emotion.detected` events:
 
-1. Map facial emotion → mood signal (vd: Happy → happy, Sad → sad, Angry → frustrated)
+1. Map facial emotion → mood signal (vd: Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed)
 2. Log `signal` row qua `POST /api/mood/log`
 3. **Im lặng mặc định** — không reply trừ khi có lý do theo sensing reply rules
+4. **Không bao giờ chào trên emotion event.** `emotion.detected` không phải presence/arrival event — `sensing/SKILL.md` và `music-suggestion/SKILL.md` cấm openers như `hello`, `welcome back`, mọi câu chứa `again`. Greeting chỉ dành cho `presence.enter`.
+
+Step 2 của handler là `music-suggestion/SKILL.md`. Tone phải khớp mood: decision Fear→stressed và Sad→sad dùng emotion marker `caring` và 1 câu nhẹ nhàng — không cheerful/playful. Nếu không có câu nào hợp tone, output `<say></say>` và im lặng.
 
 ### Mood pipeline
 
