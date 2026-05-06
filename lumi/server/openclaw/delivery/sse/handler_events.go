@@ -100,9 +100,17 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// handler can skip turns already driven by the agent stream
 			// (cron heartbeat fires both; real user telegram fires only
 			// session.message because of OpenClaw's isControlUiVisible gate).
-			if payload.Data.Phase == "start" && payload.SessionKey != "" {
+			// Clear on end/error so a subsequent channel turn on the same
+			// session within 30s isn't wrongly skipped — the previous turn
+			// is finished, agent path is no longer handling anything.
+			if payload.SessionKey != "" {
 				h.agentLifecycleMu.Lock()
-				h.agentLifecycleAt[payload.SessionKey] = time.Now().UnixMilli()
+				switch payload.Data.Phase {
+				case "start":
+					h.agentLifecycleAt[payload.SessionKey] = time.Now().UnixMilli()
+				case "end", "error":
+					delete(h.agentLifecycleAt, payload.SessionKey)
+				}
 				h.agentLifecycleMu.Unlock()
 			}
 
@@ -1086,10 +1094,22 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if sm.Message.Role != "assistant" {
 			break
 		}
+		isFinalAssistant := sm.Message.StopReason == "stop" || sm.Message.StopReason == "end_turn"
 		h.channelTurnMu.Lock()
 		st, ok := h.channelTurns[sm.SessionKey]
 		if !ok {
 			h.channelTurnMu.Unlock()
+			// No tracked turn (user role was skipped earlier — e.g. dedup
+			// false-positive). Still clear busy on assistant stop so the
+			// turn-gate hook's SetBusy(true) doesn't wedge sensing for 5
+			// min. Channel turns are the only path that needs this safety;
+			// missing the chat_input/lifecycle synthesis is acceptable
+			// (turn just won't show in Flow Monitor for this case).
+			if isFinalAssistant {
+				slog.Info("session.message untracked assistant stop — clearing busy",
+					"component", "agent", "sessionKey", sm.SessionKey)
+				h.agentGateway.SetBusy(false)
+			}
 			break
 		}
 		if text != "" {
