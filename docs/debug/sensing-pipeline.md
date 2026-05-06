@@ -233,7 +233,15 @@ The agent is LLM-driven so "the code is correct" doesn't guarantee "the agent co
 
 ---
 
-## 8. Cleanup After Testing
+## 8. Pipeline Stalls (No `chat.send` for Minutes)
+
+If Lumi suddenly stops forwarding sensing events — log shows a stream of `sensing event queued — agent busy ... runId=` (empty runId) but OpenClaw is idle (`active=0 queued=0`) — the busy flag is wedged. Most common trigger is an OpenClaw heartbeat / memoryFlush turn (`target=none`) that never emits `lifecycle.end` SSE.
+
+See **[`busy-stuck.md`](./busy-stuck.md)** for full root-cause + diagnostic commands + fix paths. Self-heals after `busyTTL = 5 min` (`lumi/internal/openclaw/service_events.go:29`).
+
+---
+
+## 9. Cleanup After Testing
 
 ```bash
 # Remove a specific cron by ID
@@ -248,7 +256,7 @@ $SSH "echo $PASS | sudo -S systemctl restart lumi"
 
 ---
 
-## 9. When to Just Ask the User
+## 10. When to Just Ask the User
 
 - Anything that changes production state outside this pipeline (face enrollments, config edits, telegram bindings) — ask first.
 - Before rebuilding + pushing a new binary — confirm deploy path (OTA vs scp vs make).
@@ -256,7 +264,7 @@ $SSH "echo $PASS | sudo -S systemctl restart lumi"
 
 ---
 
-## 10. Reference: Agent Compliance is the Fragile Part
+## 11. Reference: Agent Compliance is the Fragile Part
 
 The Go backend is deterministic. The Python sensing layer is deterministic. The **agent layer** (OpenClaw → LLM) is where behavior drifts. When a pipeline stops working end-to-end despite no code change:
 
