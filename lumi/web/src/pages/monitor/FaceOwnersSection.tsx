@@ -57,6 +57,27 @@ interface StrangersData {
   clusters: StrangerCluster[];
 }
 
+// Familiar-stranger threshold mirrors lelamp's _FAMILIAR_VISIT_THRESHOLD.
+// At this count lelamp pushes an enroll prompt to the agent (one-shot).
+const FAMILIAR_VISIT_THRESHOLD = 2;
+
+interface FaceStrangerStat {
+  stranger_id: string;
+  count: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+function fmtIsoAgo(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const diff = Date.now() / 1000 - t / 1000;
+  if (diff < 60) return `${Math.max(1, Math.floor(diff))}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 export function FaceOwnersSection() {
   const [data, setData] = useState<FaceOwnersDetail | null>(null);
   const [error, setError] = useState(false);
@@ -97,6 +118,12 @@ export function FaceOwnersSection() {
   const [expandedCluster, setExpandedCluster] = useState<Record<string, boolean>>({});
   const [deletingCluster, setDeletingCluster] = useState<string | null>(null);
   const [deletingStrangerFile, setDeletingStrangerFile] = useState<string | null>(null); // "hash/filename"
+
+  // Face stranger visit stats (/face/stranger-stats). Lelamp tracks each
+  // unrecognized face's visit count and surfaces a familiar-stranger enroll
+  // prompt to the agent when count crosses FAMILIAR_VISIT_THRESHOLD.
+  const [faceStrangers, setFaceStrangers] = useState<FaceStrangerStat[] | null>(null);
+  const [faceStrangersError, setFaceStrangersError] = useState(false);
 
   // Folder toggle state: "label:mood" => expanded
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -235,6 +262,29 @@ export function FaceOwnersSection() {
   }, []);
 
   usePolling(async (signal) => { await refreshStrangers(signal); }, 15_000);
+
+  const refreshFaceStrangers = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`${HW}/face/stranger-stats`, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as Record<string, { count?: number; first_seen?: string; last_seen?: string }>;
+      const rows: FaceStrangerStat[] = Object.entries(j ?? {}).map(([sid, v]) => ({
+        stranger_id: sid,
+        count: v?.count ?? 0,
+        first_seen: v?.first_seen ?? "",
+        last_seen: v?.last_seen ?? "",
+      }));
+      // Newest activity first.
+      rows.sort((a, b) => Date.parse(b.last_seen || "") - Date.parse(a.last_seen || ""));
+      setFaceStrangers(rows);
+      setFaceStrangersError(false);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setFaceStrangersError(true);
+    }
+  }, []);
+
+  usePolling(async (signal) => { await refreshFaceStrangers(signal); }, 15_000);
 
   const handleDeleteCluster = async (hash: string, sampleCount: number) => {
     if (!confirm(`Delete cluster ${hash} (${sampleCount} sample${sampleCount !== 1 ? "s" : ""}) and its centroid?`)) return;
@@ -968,6 +1018,91 @@ export function FaceOwnersSection() {
                       })}
                     </div>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Unknown Faces (visit stats per stranger_id) */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={S.cardLabel}>👁 Unknown Faces</div>
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+            {faceStrangers ? `${faceStrangers.length} stranger${faceStrangers.length !== 1 ? "s" : ""}` : ""}
+          </span>
+        </div>
+
+        {faceStrangersError && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            Face stranger stats unavailable (sensing not started?)
+          </div>
+        )}
+
+        {!faceStrangersError && faceStrangers && faceStrangers.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", fontStyle: "italic" }}>
+            No unknown faces tracked yet.
+          </div>
+        )}
+
+        {!faceStrangersError && faceStrangers && faceStrangers.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {faceStrangers.map((s) => {
+              const familiar = s.count >= FAMILIAR_VISIT_THRESHOLD;
+              const accent = familiar ? "rgb(251,191,36)" : "rgb(239,68,68)";
+              const accentBg = familiar ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.1)";
+              return (
+                <div key={s.stranger_id} style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: "var(--lm-surface)",
+                  border: "1px solid var(--lm-border)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: accent,
+                        fontFamily: "monospace",
+                      }}>
+                        {s.stranger_id}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        background: accentBg,
+                        color: accent,
+                        fontWeight: 600,
+                      }}>
+                        {s.count} visit{s.count !== 1 ? "s" : ""}
+                      </span>
+                      {familiar && (
+                        <span
+                          title={`Lelamp prompted enroll at ${FAMILIAR_VISIT_THRESHOLD} visits`}
+                          style={{
+                            fontSize: 9,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            background: "rgba(251,191,36,0.15)",
+                            color: "rgb(251,191,36)",
+                            fontWeight: 700,
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          ● PROMPTED
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                      last {s.last_seen ? fmtIsoAgo(s.last_seen) : "?"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>
+                    first seen {s.first_seen ? fmtIsoAgo(s.first_seen) : "?"}
+                  </div>
                 </div>
               );
             })}
