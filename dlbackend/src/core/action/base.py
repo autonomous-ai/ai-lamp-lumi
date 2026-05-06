@@ -15,7 +15,7 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from core.action.constants import RESOURCES_DIR
-from core.action.person_detector import PersonDetector
+from core.action.person_detector import YOLOPersonDetector
 from core.models import ActionDetection, ActionResponse
 
 MODEL_T = TypeVar("MODEL_T", bound="HumanActionRecognizerModel")
@@ -36,7 +36,7 @@ class HumanActionRecognizerModel(ABC):
         model_path: Path | None,
         max_frames: int,
         frame_size: tuple[int, int],
-        person_detector: PersonDetector | None = None,
+        person_detector: YOLOPersonDetector | None = None,
     ):
         if model_path is None:
             model_path = self.__class__.DEFAULT_MODEL
@@ -54,7 +54,7 @@ class HumanActionRecognizerModel(ABC):
         self._running: bool = False
         self._session: ort.InferenceSession | None = None
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
-        self._person_detector: PersonDetector | None = person_detector
+        self._person_detector: YOLOPersonDetector | None = person_detector
 
     @property
     def max_frames(self):
@@ -134,8 +134,14 @@ class HumanActionRecognizerModel(ABC):
         self,
         new_frame: npt.NDArray[np.uint8],
         frame_buffer: deque[npt.NDArray[np.uint8]],
-    ) -> deque[npt.NDArray[np.uint8]]:
+    ) -> deque[npt.NDArray[np.uint8]] | None:
         frame_rgb = cast(npt.NDArray[np.uint8], cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB))
+
+        if self._person_detector is not None:
+            frame_rgb = self._person_detector.detect_largest_crop(frame_rgb)
+            if frame_rgb is None:
+                return None
+
         h, w = frame_rgb.shape[:2]
         target_h, target_w = self._frame_size
         r = max(target_w / w, target_h / h)
@@ -245,15 +251,11 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             "[%s] Received new frame (mean=%f, std=%f)", self._session_id, frame.mean(), frame.std()
         )
         if cur_ts - self._last_ts >= self._frame_interval:
-            detector = self._model._person_detector
-            if detector is not None and detector.is_ready():
-                crop = detector.detect_largest_crop(frame)
-                if crop is None:
-                    self._logger.info("[%s] No person detected — skipping frame", self._session_id)
-                    return ActionResponse(detected_classes=[])
-                frame = crop
+            frame_buffer = self._model.preprocess(frame, self._frame_buffer)
+            if frame_buffer is None:
+                return ActionResponse(detected_classes =[])
 
-            self._frame_buffer = self._model.preprocess(frame, self._frame_buffer)
+            self._frame_buffer = frame_buffer
             self._last_detected = self._model.predict(self._frame_buffer, self._class_mask)
             self._last_ts = cur_ts
 
