@@ -5,7 +5,7 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from enums import HumanActionRecognizerEnum
+from enums import EmotionRecognizerEnum, HumanActionRecognizerEnum
 
 
 class HumanActionRecognizerSetting(BaseModel):
@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     action_recognition_model: HumanActionRecognizerEnum = HumanActionRecognizerEnum.X3D
     action_recognition_ckpt_path: str | None = None
 
+    emotion_recognition_model: EmotionRecognizerEnum = EmotionRecognizerEnum.POSTERV2
     emotion_recognition_ckpt_path: str | None = None
 
     videomae: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16)
