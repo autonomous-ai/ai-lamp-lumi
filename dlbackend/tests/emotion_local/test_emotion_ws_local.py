@@ -112,8 +112,14 @@ class TestEmotionAnalysisWebSocket:
                 assert "face_confidence" in det
                 assert "bbox" in det
                 assert det["emotion"] in [
-                    "Neutral", "Happy", "Sad", "Surprise",
-                    "Fear", "Disgust", "Anger", "Contempt",
+                    "Neutral",
+                    "Happy",
+                    "Sad",
+                    "Surprise",
+                    "Fear",
+                    "Disgust",
+                    "Anger",
+                    "Contempt",
                 ]
                 assert 0.0 <= det["confidence"] <= 1.0
                 assert "valence" in det
@@ -189,18 +195,14 @@ class TestEmotionAnalysisWebSocket:
         server.emotion_model = saved
 
     def test_heartbeat_returns_ok(self, client):
-        with client.websocket_connect(
-            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
-        ) as ws:
+        with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
             resp = ws.receive_json()
             assert resp == {"status": "ok"}
 
     def test_heartbeat_multiple(self, client):
         """Multiple heartbeats in a row should all return ok."""
-        with client.websocket_connect(
-            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
-        ) as ws:
+        with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
                 ws.send_text(json.dumps({"type": "heartbeat", "task": "emotion"}))
                 resp = ws.receive_json()
@@ -208,13 +210,9 @@ class TestEmotionAnalysisWebSocket:
 
     def test_heartbeat_interleaved_with_frames(self, client):
         """Heartbeat should work between frame requests."""
-        with client.websocket_connect(
-            "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
-        ) as ws:
+        with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(
-                json.dumps(
-                    {"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}
-                )
+                json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
             )
             ws.receive_json()
 
@@ -223,9 +221,7 @@ class TestEmotionAnalysisWebSocket:
             assert resp == {"status": "ok"}
 
             ws.send_text(
-                json.dumps(
-                    {"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()}
-                )
+                json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
             )
             resp = ws.receive_json()
             assert "detections" in resp

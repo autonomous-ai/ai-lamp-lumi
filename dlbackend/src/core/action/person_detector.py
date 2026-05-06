@@ -7,8 +7,8 @@ to extract the crop of the largest person for downstream action recognition.
 import logging
 from dataclasses import dataclass
 
-import numpy as np
-import numpy.typing as npt
+import cv2
+from ultralytics.models.yolo import YOLO
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ _PERSON_CLASS_ID = 0
 
 
 @dataclass
-class _PersonDetection:
+class PersonDetection:
     """Internal bounding box for a detected person."""
 
     bbox_xyxy: tuple[int, int, int, int]
@@ -25,7 +25,7 @@ class _PersonDetection:
     area: int
 
 
-class PersonDetector:
+class YOLOPersonDetector:
     """YOLO12-based person detector.
 
     Loads an ultralytics YOLO model once and runs inference to locate people
@@ -44,52 +44,74 @@ class PersonDetector:
         self,
         model_name: str = "yolo12x.pt",
         threshold: float = 0.4,
+        bbox_expand_scale: float = 1.5,
     ):
         """
         Args:
             model_name: Ultralytics model identifier, e.g. ``"yolo12x.pt"``.
             threshold:  Minimum detection confidence to keep.
         """
-        self._model_name = model_name
-        self._threshold = threshold
+        self._model_name: str = model_name
+        self._threshold: float = threshold
+        self._bbox_expand_scale: float = bbox_expand_scale
 
-        self._model = None
+        self._model: YOLO | None = None
         self._running: bool = False
 
     def start(self) -> None:
         """Load the YOLO model weights (blocking)."""
-        from ultralytics import YOLO  # type: ignore[import]
 
-        logger.info("[PersonDetector] Loading YOLO model '%s'", self._model_name)
+        logger.info("[%s] Loading YOLO model '%s'", self.__class__.__name__, self._model_name)
         self._model = YOLO(self._model_name)
         self._running = True
-        logger.info("[PersonDetector] Model ready")
 
     def stop(self) -> None:
+        self._model = None
         self._running = False
 
     def is_ready(self) -> bool:
         return self._running and self._model is not None
 
-    def detect(self, frame: npt.NDArray[np.uint8]) -> list[_PersonDetection]:
+    def _scale_and_clamp_bbox(self, bbox: list[int], h: int, w: int, scale: float = 1.0):
+        x1, y1, x2, y2 = bbox
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+
+        x1 = int(max(min(cx + (x1 - cx) * scale, w - 1), 0))
+        x2 = int(max(min(cx + (x2 - cx) * scale, w - 1), 0))
+        y1 = int(max(min(cy + (y1 - cy) * scale, h - 1), 0))
+        y2 = int(max(min(cy + (y2 - cy) * scale, h - 1), 0))
+        return [x1, y1, x2, y2]
+
+    def detect(self, frame: cv2.typing.MatLike) -> list[PersonDetection]:
         """Run person detection on *frame* and return all person detections."""
+        if self._model is None:
+            msg = f"{self.__class__.__name__} must be started before detection"
+            raise RuntimeError(msg)
+
         try:
-            results = self._model(  # type: ignore[misc]
+            H, W = frame.shape[:2]
+            results = self._model(
                 frame,
                 classes=[_PERSON_CLASS_ID],
                 conf=self._threshold,
                 verbose=False,
             )
-            detections: list[_PersonDetection] = []
+            detections: list[PersonDetection] = []
             for r in results:
                 if r.boxes is None or len(r.boxes) == 0:
                     continue
                 for box in r.boxes:
-                    x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+                    x1, y1, x2, y2 = self._scale_and_clamp_bbox(
+                        [int(v) for v in box.xyxy[0].tolist()],
+                        H,
+                        W,
+                        self._bbox_expand_scale,
+                    )
                     conf = float(box.conf[0])
                     area = max(0, x2 - x1) * max(0, y2 - y1)
                     detections.append(
-                        _PersonDetection(
+                        PersonDetection(
                             bbox_xyxy=(x1, y1, x2, y2),
                             confidence=conf,
                             area=area,
@@ -97,13 +119,13 @@ class PersonDetector:
                     )
             return detections
         except Exception:
-            logger.exception("[PersonDetector] Inference error")
+            logger.exception("[%s] Inference error", self.__class__.__name__)
             return []
 
     def detect_largest_crop(
         self,
-        frame: npt.NDArray[np.uint8],
-    ) -> npt.NDArray[np.uint8] | None:
+        frame: cv2.typing.MatLike,
+    ) -> cv2.typing.MatLike | None:
         """Return a crop of the largest detected person in *frame*.
 
         Returns ``None`` when no person is found or the crop is empty.
