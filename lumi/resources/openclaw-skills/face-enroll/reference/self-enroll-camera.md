@@ -24,6 +24,7 @@ Do NOT activate this flow when:
 
 1. Extract the **name**:
    - Prefer name spoken in the message ("tui là Gray", "I'm Gray").
+   - **Voice transcript with `Speaker - <Name>:` prefix** (speaker already recognized): use that name. The user is asking to refresh/add a face for an already-known identity.
    - Voice without name and `[context: current_user=<known>]` is set: do NOT auto-use `current_user` (the user is asking to enroll, which means they're not yet recognized — `current_user` is likely `unknown` or stale). Ask: "What name should I save you under?"
    - Telegram without name → fall back to sender prefix (`[telegram:Gray]` → `gray`); confirm with the user before enrolling.
    - If still unclear, ask once.
@@ -66,3 +67,5 @@ Agent:
 
 ## Notes
 - **Don't narrate technical details** — say "looking now" not "calling /camera/snapshot".
+- **Already-enrolled = add a fresh photo, don't refuse.** If the label is already in `/face/status`, treat the request as "refresh the face sample" — `/face/enroll` appends another JPEG to `/root/local/users/<label>/`, which keeps the embedding average up to date as appearance changes (haircut, beard, glasses). Reply matter-of-factly: "Cập nhật ảnh mới cho Gray rồi nhé." instead of "Bạn đã được lưu trước đó."
+- **Pairs with speaker-recognizer.** Voice "nhớ mặt mình đi, tui là Gray" almost always co-fires `speaker-recognizer` (Branch B / multi-turn combine). Use the SAME lowercase label so the face JPEG and voice WAV both land in `/root/local/users/<label>/`. One spoken confirm covers both: "Mình nhớ Gray (cả mặt + giọng) rồi."
