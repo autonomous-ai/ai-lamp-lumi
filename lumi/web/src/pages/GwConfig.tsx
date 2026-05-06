@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 const API = "/api";
 
@@ -15,6 +16,7 @@ const C = {
 };
 
 export default function GwConfig() {
+  useDocumentTitle("GW Config");
   const [raw, setRaw] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

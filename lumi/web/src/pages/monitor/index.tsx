@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/lib/useTheme";
 import { usePolling } from "../../hooks/usePolling";
 import { useEventSource } from "../../hooks/useEventSource";
+import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 
 function fmtDur(s: number): string {
   if (s < 60) return `${s}s`;
@@ -167,6 +168,9 @@ export default function Monitor() {
     window.location.hash = s;
     setSectionRaw(s);
   };
+
+  const sectionLabel = allNavLeaves().find((n) => n.id === section)?.label ?? "Monitor";
+  useDocumentTitle(sectionLabel);
 
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [net, setNet] = useState<NetworkInfo | null>(null);

@@ -1,6 +1,6 @@
 # Web UI — Lumi Monitor Dashboard
 
-## Last updated: 2026-03-27
+## Last updated: 2026-05-06
 
 ---
 
@@ -12,6 +12,19 @@ Lumi's Web UI is a React SPA (Single Page Application) built with **React 19 + T
 2. **Monitor Dashboard** — Real-time device status monitoring (`/monitor`)
 
 Build output (`dist/`) is served by nginx at root `/` on the device.
+
+### 1.1 Browser Tab Title
+
+The browser tab title (`document.title`) reflects the focused page/tab so multiple Lumi tabs are distinguishable. Driven by the shared `useDocumentTitle` hook (`lumi/web/src/hooks/useDocumentTitle.ts`); format is `Lumi · <segment>[· <sub-segment>]`.
+
+| Route / state | Title |
+|---------------|-------|
+| `/setup` (and `/` when not provisioned) | `Lumi · Setup` |
+| `/monitor` (active section) | `Lumi · <section label>` — e.g. `Lumi · Chat`, `Lumi · Overview`, `Lumi · Info`, `Lumi · Flow`, `Lumi · Users`, `Lumi · Camera`, `Lumi · Sensing`, `Lumi · Analytics`, `Lumi · Servo`, `Lumi · Logs`, `Lumi · CLI` |
+| `/edit` (Settings, active section) | `Lumi · Settings · <section label>` — e.g. `Lumi · Settings · Device`, `Lumi · Settings · Wi-Fi`, `Lumi · Settings · AI Brain`, `Lumi · Settings · Face`, `Lumi · Settings · TTS`, `Lumi · Settings · STT`, `Lumi · Settings · Channels`, `Lumi · Settings · MQTT` |
+| `/gw-config` | `Lumi · GW Config` |
+
+The static `<title>Lumi Setup</title>` in `index.html` is the pre-mount fallback; the hook overrides it once React mounts and reverts to the previous title on unmount.
 
 ---
 

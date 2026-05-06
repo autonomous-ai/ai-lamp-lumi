@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType, NetworkItem } from "@/types";
 import { Wifi, Lamp, Brain, Volume2, MessageSquare, Pencil, X, Eye, EyeOff } from "lucide-react";
 
@@ -269,6 +270,7 @@ function SkeletonBlock() {
 export default function Setup() {
   const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
+  useDocumentTitle("Setup");
 
   const channelParam = searchParams.get("channel");
   const initialChannel: ChannelType =

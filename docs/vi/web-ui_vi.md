@@ -1,6 +1,6 @@
 # Web UI — Lumi Monitor Dashboard
 
-## Ngày cập nhật: 2026-03-27
+## Ngày cập nhật: 2026-05-06
 
 ---
 
@@ -12,6 +12,19 @@ Web UI của Lumi là một React SPA (Single Page Application) được build b
 2. **Monitor Dashboard** — Theo dõi trạng thái thiết bị real-time (`/monitor`)
 
 File build output (`dist/`) được nginx serve tại root `/` trên thiết bị.
+
+### 1.1 Tiêu đề tab trình duyệt
+
+Tiêu đề tab trình duyệt (`document.title`) hiển thị đúng theo page/tab đang focus, để mở nhiều tab Lumi vẫn phân biệt được. Dùng hook chung `useDocumentTitle` (`lumi/web/src/hooks/useDocumentTitle.ts`); format: `Lumi · <segment>[· <sub-segment>]`.
+
+| Route / trạng thái | Title |
+|--------------------|-------|
+| `/setup` (và `/` khi chưa provision) | `Lumi · Setup` |
+| `/monitor` (theo section đang chọn) | `Lumi · <tên section>` — ví dụ `Lumi · Chat`, `Lumi · Overview`, `Lumi · Info`, `Lumi · Flow`, `Lumi · Users`, `Lumi · Camera`, `Lumi · Sensing`, `Lumi · Analytics`, `Lumi · Servo`, `Lumi · Logs`, `Lumi · CLI` |
+| `/edit` (Settings, theo section đang chọn) | `Lumi · Settings · <tên section>` — ví dụ `Lumi · Settings · Device`, `Lumi · Settings · Wi-Fi`, `Lumi · Settings · AI Brain`, `Lumi · Settings · Face`, `Lumi · Settings · TTS`, `Lumi · Settings · STT`, `Lumi · Settings · Channels`, `Lumi · Settings · MQTT` |
+| `/gw-config` | `Lumi · GW Config` |
+
+`<title>Lumi Setup</title>` tĩnh trong `index.html` chỉ là fallback trước khi React mount; hook sẽ ghi đè khi mount và khôi phục title cũ khi unmount.
 
 ---
 
