@@ -6,10 +6,11 @@ import time
 from collections import Counter
 from copy import copy
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any
 
 import cv2
 import requests
+from typing_extensions import override
 
 import lelamp.config as config
 from lelamp.service.sensing.perceptions.models import (
@@ -116,9 +117,10 @@ class RemoteEmotionRecognizer:
 
 @dataclass
 class EmotionData:
+    frame: cv2.typing.MatLike
     face: Face
-    # (emotion_label, confidence) per detection in this flush window.
-    emotions: list[tuple[str, float]]
+    emotion: str
+    confidence: float
 
 
 class EmotionPerception(Perception[FaceDetectionData]):
@@ -159,8 +161,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         self._flush_interval: float = config.EMOTION_FLUSH_S
         self._last_flush_ts: float = 0.0
         # {person_id: [emotion_str, ...]}
-        self._emotion_buffer: dict[str, EmotionData] = {}
-        self._snapshots_buffer: list[cv2.typing.MatLike] = []
+        self._emotion_buffer: dict[str, list[EmotionData]] = {}
 
         # Dedup: TTL map per (current_user, emotion) — repeated key inside
         # window dropped even if other emotions were sent in between.
@@ -168,7 +169,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         # window and spam the agent queue every flush.
         self._last_sent_by_key: dict[tuple[str, str], float] = {}
         self._last_sent_key: tuple[str, str] | None = None  # debug/to_dict
-        self._last_sent_ts: float = 0.0                     # debug/to_dict
+        self._last_sent_ts: float = 0.0  # debug/to_dict
         self._dedup_window_s: float = config.EMOTION_DEDUP_WINDOW_S
 
     def _process_face(
@@ -207,23 +208,21 @@ class EmotionPerception(Perception[FaceDetectionData]):
         if self._presence_service:
             self._presence_service.on_motion()
 
-        # Save annotated snapshot (I/O — outside lock)
-        snapshot = self._save_annotated(frame, face.bbox, emotion, confidence)
-
         with self._state_lock:
             self._last_detection_time = time.time()
             self._last_emotion = emotion
 
             if face.person_id not in self._emotion_buffer:
-                self._emotion_buffer[face.person_id] = EmotionData(
-                    face=face, emotions=[]
-                )
-            self._emotion_buffer[face.person_id].emotions.append(
-                (emotion, float(confidence))
-            )
+                self._emotion_buffer[face.person_id] = []
 
-            if snapshot is not None:
-                self._snapshots_buffer.append(snapshot)
+            self._emotion_buffer[face.person_id].append(
+                EmotionData(
+                    frame=frame,
+                    face=face,
+                    emotion=emotion,
+                    confidence=confidence,
+                )
+            )
 
         logger.debug(
             "[activity.emotion] %s: %s (%.2f)", face.person_id, emotion, confidence
@@ -278,9 +277,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 return
 
             buffer = copy(self._emotion_buffer)
-            snapshots_buffer = copy(self._snapshots_buffer)
             self._emotion_buffer.clear()
-            self._snapshots_buffer.clear()
             self._last_flush_ts = cur_ts
 
         if (
@@ -301,9 +298,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
         # so there's no subject to attribute emotion to.
         current_user = self._perception_state.current_user.data or ""
         if not current_user:
-            logger.info(
-                "[activity.emotion] skipping — no current_user (scene empty)"
-            )
+            logger.info("[activity.emotion] skipping — no current_user (scene empty)")
             return
 
         # Prune expired entries from the TTL map once per flush.
@@ -314,12 +309,20 @@ class EmotionPerception(Perception[FaceDetectionData]):
             }
 
         # Process each person's emotions
-        for person_id, emotion_data in buffer.items():
-            if emotion_data:
-                logger.info("[activity.emotion] %s raw: %s", person_id, emotion_data)
+        for person_id, emotion_data_list in buffer.items():
+            if emotion_data_list:
+                logger.info(
+                    "[activity.emotion] %s raw: %s",
+                    person_id,
+                    ", ".join([d.emotion for d in emotion_data_list]),
+                )
 
             # Skip Neutral
-            non_neutral = [(e, c) for e, c in emotion_data.emotions if e != "Neutral"]
+            non_neutral = [
+                (ed.emotion, ed.confidence)
+                for ed in emotion_data_list
+                if ed.emotion != "Neutral"
+            ]
             if not non_neutral:
                 continue
 
@@ -330,6 +333,13 @@ class EmotionPerception(Perception[FaceDetectionData]):
             # other labels' confidences would dilute it.
             dom_confidences = [c for e, c in non_neutral if e == dominant_emotion]
             avg_confidence = sum(dom_confidences) / len(dom_confidences)
+
+            snapshots = [
+                self._save_annotated(ed.frame, ed.face.bbox, ed.emotion, ed.confidence)
+                for ed in emotion_data_list
+                if ed.emotion == dominant_emotion
+            ]
+            snapshots = [s for s in snapshots if s is not None]
 
             # Phase 2: dedup by polarity bucket, not raw label. Fear↔Sad
             # ↔Anger noise within the same bucket collapses to one event
@@ -366,9 +376,7 @@ class EmotionPerception(Perception[FaceDetectionData]):
                 self._last_sent_ts = cur_ts
 
             logger.info("[activity.emotion] flushing: %s", message)
-            self._send_event(
-                "emotion.detected", message, "emotion", [snapshots_buffer[-1]], None
-            )
+            self._send_event("emotion.detected", message, "emotion", snapshots, None)
 
     def reset_dedup(self, new_user: str = "") -> None:
         """Clear the outbound dedup state only if the visible user actually
