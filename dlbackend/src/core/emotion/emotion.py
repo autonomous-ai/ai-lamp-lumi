@@ -1,29 +1,55 @@
-"""Face emotion recognition using YuNet face detection + EmoNet classifier.
+"""Face emotion recognition using YuNet face detection + configurable classifier.
 
-Loads YuNet + EmoNet once via EmotionModel, and each WebSocket connection
+Supports EmoNet (8-class + valence/arousal) and POSTER V2 (7-class RAF-DB).
+Selection via EMOTION_RECOGNITION_MODEL env var.
+
+Loads YuNet + classifier once via EmotionModel, and each WebSocket connection
 creates a lightweight EmotionSession that shares the models but maintains
 its own timing state and detection cache.
-
-For HTTP single-shot inference, use EmoNetRecognizer directly.
 """
 
 import logging
 import time
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 
 from config import settings
-from core.emotion.emonet import EmoNetRecognizer
+from enums import EmotionRecognizerEnum
 from core.faces import YuNetDetector
 from core.models import EmotionDetection, EmotionResponse
 
 logger = logging.getLogger(__name__)
 
 
+class EmotionClassifier(Protocol):
+    """Interface for emotion classifiers (EmoNet, PosterV2, etc.)."""
+
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def is_ready(self) -> bool: ...
+    def classify(self, face_crop: npt.NDArray[np.uint8]) -> dict: ...
+
+
+def _create_classifier(fer_path: Path | None) -> EmotionClassifier:
+    """Create the emotion classifier based on the configured model."""
+    model_type = settings.emotion_recognition_model
+
+    if model_type == EmotionRecognizerEnum.POSTERV2:
+        from core.emotion.posterv2 import PosterV2Recognizer
+        return PosterV2Recognizer(model_path=fer_path)
+    elif model_type == EmotionRecognizerEnum.EMONET:
+        from core.emotion.emonet import EmoNetRecognizer
+        return EmoNetRecognizer(model_path=fer_path)
+    else:
+        msg = f"Unknown emotion recognition model: {model_type}"
+        raise ValueError(msg)
+
+
 class EmotionModel:
-    """Combined YuNet + EmoNet model. Loaded once, used by all WS sessions."""
+    """Combined YuNet + emotion classifier. Loaded once, used by all WS sessions."""
 
     def __init__(
         self,
@@ -39,7 +65,7 @@ class EmotionModel:
             nms_threshold=nms_threshold,
             top_k=top_k,
         )
-        self._emonet = EmoNetRecognizer(model_path=fer_path)
+        self._fer = _create_classifier(fer_path)
         self._running: bool = False
 
     def start(self):
@@ -48,17 +74,17 @@ class EmotionModel:
             return
 
         self._face_detector.start()
-        self._emonet.start()
+        self._fer.start()
 
         self._running = True
-        logger.info("[EmotionModel] ready")
+        logger.info("[EmotionModel] ready (%s)", settings.emotion_recognition_model)
 
     def stop(self):
-        self._emonet.stop()
+        self._fer.stop()
         self._running = False
 
     def is_ready(self) -> bool:
-        return self._running and self._face_detector.is_ready() and self._emonet.is_ready()
+        return self._running and self._face_detector.is_ready() and self._fer.is_ready()
 
     def detect_single_face(
         self,
@@ -68,28 +94,26 @@ class EmotionModel:
             return []
 
         H, W = face.shape[:2]
-        results = []
-        cls = self._emonet.classify(face)
-        results.append(
+        cls = self._fer.classify(face)
+        return [
             EmotionDetection(
                 emotion=cls["emotion"],
                 confidence=cls["confidence"],
                 face_confidence=1,
                 bbox=[0, 0, W, H],
-                valence=cls["valence"],
-                arousal=cls["arousal"],
+                valence=cls.get("valence"),
+                arousal=cls.get("arousal"),
             )
-        )
-
-        return results
+        ]
 
     def detect(
         self,
         frame: npt.NDArray[np.uint8],
     ) -> list[EmotionDetection]:
-        """Detect faces and classify emotions using EmoNet.
+        """Detect faces and classify emotions.
 
-        Returns list of EmotionDetection with emotion, confidence, valence, arousal.
+        Returns list of EmotionDetection with emotion and confidence.
+        Valence/arousal are included when supported by the classifier (EmoNet).
         """
         if not self.is_ready():
             return []
@@ -98,15 +122,15 @@ class EmotionModel:
 
         results = []
         for face in faces:
-            cls = self._emonet.classify(face.crop)
+            cls = self._fer.classify(face.crop)
             results.append(
                 EmotionDetection(
                     emotion=cls["emotion"],
                     confidence=cls["confidence"],
                     face_confidence=face.confidence,
                     bbox=face.bbox,
-                    valence=cls["valence"],
-                    arousal=cls["arousal"],
+                    valence=cls.get("valence"),
+                    arousal=cls.get("arousal"),
                 )
             )
 
