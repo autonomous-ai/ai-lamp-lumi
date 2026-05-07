@@ -95,6 +95,11 @@ type OpenClawHandler struct {
 
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
+
+	// newSessioning prevents duplicate sessions.new sends while one is
+	// in flight. Cooldown is shorter than compacting because new-session
+	// completes server-side instantly.
+	newSessioning atomic.Bool
 }
 
 // channelTurnState tracks the in-flight assistant response for a channel
