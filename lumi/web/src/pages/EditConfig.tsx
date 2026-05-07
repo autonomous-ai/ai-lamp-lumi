@@ -346,10 +346,9 @@ export default function EditConfig() {
     } catch {}
   };
 
-  // Voice enroll — same flow + endpoint as Setup page. Browser captures
-  // via MediaRecorder, posts base64 to Lumi /api/voice/enroll, which
-  // converts webm→wav and forwards to lelamp /speaker/enroll. Sharing
-  // the label with face enroll keeps both biometrics in one user folder.
+  // Voice enroll — remote-trigger lelamp's /speaker/record-enroll. Lamp
+  // captures via its own mic; web only does countdown UI. Sharing label
+  // with face enroll keeps both biometrics in one per-user folder.
   const VOICE_PHRASES = [
     "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
     "The quick brown fox jumps over the lazy dog near the bright morning window.",
@@ -414,21 +413,21 @@ export default function EditConfig() {
           setVoiceCountdown(remaining);
         }
       }, 1000);
-      fetch("/api/voice/enroll", {
+      fetch("/hw/speaker/record-enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
+        body: JSON.stringify({ name: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
       })
-        .then((r) => r.json())
-        .then((data) => {
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
           if (voiceTickRef.current) clearInterval(voiceTickRef.current);
           setVoicePhase("idle");
           setVoiceCountdown(0);
-          if (data.status === 1) {
+          if (ok && data.status === "ok") {
             setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
             loadFaceOwners();
           } else {
-            setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
+            setVoiceMsg(`Error: ${data.detail ?? data.message ?? "enroll failed"}`);
           }
         })
         .catch((e) => {

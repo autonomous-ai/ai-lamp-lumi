@@ -9,10 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -761,135 +759,6 @@ func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
 	default:
 		return inVoiceWindow
 	}
-}
-
-// VoiceEnrollRequest tells Lumi to record from the lamp's own mic for
-// `duration_sec` seconds, then enroll the captured audio under `label`.
-// The browser does not capture audio — that path required HTTPS (secure
-// context for getUserMedia) which we can't guarantee in AP setup mode.
-// Capturing on the lamp also gives us acoustic match between enroll
-// samples and runtime recognition (same mic, same room).
-type VoiceEnrollRequest struct {
-	Label       string `json:"label" validate:"required"`
-	DurationSec int    `json:"duration_sec,omitempty"`
-}
-
-// Lamp ALSA capture device — see /etc/asound.conf on the Pi for the
-// `lamp_micro2` alias (USB mic). Same device the runtime voice_service uses,
-// so enroll and recognize see identical acoustics.
-const lampMicALSA = "plug:lamp_micro2"
-
-// EnrollVoice records audio from the lamp's mic, then enrolls via lelamp
-// /speaker/enroll. lelamp's voice_service holds the ALSA device for STT, so
-// we coordinate: stop voice_service → record → restart voice_service →
-// enroll. arecord captures 16kHz mono PCM directly (what speaker_recognizer
-// expects), so no ffmpeg conversion needed.
-func (h *SensingHandler) EnrollVoice(c *gin.Context) {
-	var req VoiceEnrollRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
-		return
-	}
-	if err := validator.New().Struct(req); err != nil {
-		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
-		return
-	}
-	label := strings.ToLower(strings.TrimSpace(req.Label))
-	if label == "" {
-		c.JSON(http.StatusBadRequest, serializers.ResponseError("label required"))
-		return
-	}
-	dur := req.DurationSec
-	if dur <= 0 {
-		dur = 15
-	}
-	if dur > 60 {
-		dur = 60 // safety cap — anything longer is almost certainly a mistake
-	}
-
-	// Step 1: release ALSA from lelamp's voice_service so arecord can grab it.
-	stopResp, stopErr := http.Post("http://127.0.0.1:5001/voice/stop", "application/json", nil)
-	if stopErr != nil {
-		slog.Warn("voice/stop failed before record", "component", "voice", "error", stopErr)
-		c.JSON(http.StatusBadGateway, serializers.ResponseError("lelamp unreachable: "+stopErr.Error()))
-		return
-	}
-	io.Copy(io.Discard, stopResp.Body)
-	stopResp.Body.Close()
-	// Voice service .stop() joins the listener thread (up to 5s) but may not
-	// fully drop the ALSA handle immediately on slow hardware — short pause
-	// before arecord avoids "Device or resource busy".
-	time.Sleep(400 * time.Millisecond)
-
-	// Always restart voice_service when we leave, even on error paths, so
-	// passive listening / wake word doesn't stay broken after a failed enroll.
-	defer func() {
-		startResp, _ := http.Post("http://127.0.0.1:5001/voice/start", "application/json", nil)
-		if startResp != nil {
-			io.Copy(io.Discard, startResp.Body)
-			startResp.Body.Close()
-		}
-	}()
-
-	// Step 2: arecord N seconds at 16kHz mono S16_LE — directly the format
-	// speaker_recognizer wants, so no ffmpeg.
-	ts := time.Now().UnixMilli()
-	wavPath := filepath.Join(os.TempDir(), fmt.Sprintf("voice-enroll-%s-%d.wav", label, ts))
-	cmd := exec.Command("arecord",
-		"-D", lampMicALSA,
-		"-f", "S16_LE",
-		"-r", "16000",
-		"-c", "1",
-		"-d", strconv.Itoa(dur),
-		"-q",
-		wavPath,
-	)
-	out, recErr := cmd.CombinedOutput()
-	if recErr != nil {
-		slog.Warn("arecord failed", "component", "voice", "error", recErr, "stderr", string(out))
-		c.JSON(http.StatusInternalServerError, serializers.ResponseError("recording failed: "+strings.TrimSpace(string(out))))
-		return
-	}
-	info, statErr := os.Stat(wavPath)
-	if statErr != nil || info.Size() < 4096 {
-		c.JSON(http.StatusInternalServerError, serializers.ResponseError("recorded file empty/missing"))
-		return
-	}
-	slog.Info("voice enroll recorded", "component", "voice", "label", label, "duration_s", dur, "bytes", info.Size())
-
-	// Step 3: enroll. lelamp keeps the wav under /root/local/users/<name>/voice/
-	// so we don't need to clean wavPath ourselves — sr.enroll moves/copies it.
-	body, _ := json.Marshal(map[string]any{
-		"name":      label,
-		"wav_paths": []string{wavPath},
-		"origin":    "web_lamp_mic",
-	})
-	resp, err := http.Post("http://127.0.0.1:5001/speaker/enroll", "application/json", bytes.NewReader(body))
-	if err != nil {
-		os.Remove(wavPath)
-		slog.Warn("speaker/enroll failed", "component", "voice", "error", err)
-		c.JSON(http.StatusBadGateway, serializers.ResponseError("lelamp unreachable: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		os.Remove(wavPath)
-		slog.Warn("speaker/enroll returned error", "component", "voice", "status", resp.StatusCode, "body", string(respBody))
-		c.JSON(resp.StatusCode, serializers.ResponseError("lelamp: "+string(respBody)))
-		return
-	}
-	// Best-effort cleanup — sr.enroll has already imported what it needs.
-	os.Remove(wavPath)
-
-	slog.Info("voice enroll ok", "component", "voice", "label", label, "duration_s", dur)
-	var lelampResp map[string]any
-	_ = json.Unmarshal(respBody, &lelampResp)
-	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-		"label":      label,
-		"duration_s": dur,
-		"lelamp":     lelampResp,
-	}))
 }
 
 // VoiceFileRemoveRequest deletes ONE voice sample file from a user's

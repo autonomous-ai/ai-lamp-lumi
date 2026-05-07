@@ -264,11 +264,10 @@ func (s *Server) Serve(closeFn func()) error {
 	sensing.POST("event", s.sensingHandler.PostEvent)
 	sensing.GET("snapshot/:category/:name", s.sensingHandler.GetSnapshot)
 
-	// Voice enroll from web Setup page — converts browser-recorded blob
-	// (webm/opus) to 16kHz mono WAV via ffmpeg, then proxies to lelamp
-	// /speaker/enroll which only accepts file paths.
+	// Voice file delete (filesystem orchestration on Pi). Voice enroll
+	// itself lives on lelamp at /hw/speaker/record-enroll because hardware
+	// capture is Python's domain.
 	voice := api.Group("voice")
-	voice.POST("enroll", s.sensingHandler.EnrollVoice)
 	voice.POST("file/remove", s.sensingHandler.RemoveVoiceFile)
 
 	guard := api.Group("guard")
