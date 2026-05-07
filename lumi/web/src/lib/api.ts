@@ -86,6 +86,8 @@ export interface DeviceConfig {
   tts_api_key: string;
   stt_base_url: string;
   tts_base_url: string;
+  stt_language: string;
+  stt_model: string;
   tts_provider: string;
   tts_voice: string;
   device_id: string;

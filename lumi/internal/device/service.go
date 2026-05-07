@@ -221,6 +221,8 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		TTSAPIKey:          s.config.TTSAPIKey,
 		STTBaseURL:         s.config.STTBaseURL,
 		TTSBaseURL:         s.config.TTSBaseURL,
+		STTLanguage:        s.config.STTLanguage,
+		STTModel:           s.config.STTModel,
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           deviceID,
@@ -259,6 +261,10 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	s.config.TTSAPIKey = data.TTSAPIKey
 	s.config.STTBaseURL = data.STTBaseURL
 	s.config.TTSBaseURL = data.TTSBaseURL
+	// Operators pick a language; the matching Deepgram SKU is auto-derived
+	// because end users don't know which model handles which language.
+	s.config.STTLanguage = data.STTLanguage
+	s.config.STTModel = sttModelForLanguage(data.STTLanguage)
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -355,6 +361,23 @@ func (s *Service) RePushVoiceConfig() {
 			slog.Info("lumi-lelamp restarted for TTS config", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
 		}
 	}()
+}
+
+// sttModelForLanguage maps a BCP-47 language code to the Deepgram SKU exposed
+// by the Autonomous STT proxy. Empty input → empty model so lelamp falls back
+// to its built-in default (flux-general-en). Vietnamese rides on Nova-3 (added
+// Jan 2026); Chinese still requires Nova-2 because Nova-3 hasn't shipped zh.
+func sttModelForLanguage(lang string) string {
+	switch lang {
+	case "":
+		return ""
+	case "en":
+		return "flux-general-en"
+	case "zh", "zh-CN", "zh-Hans", "zh-TW", "zh-Hant":
+		return "nova-2-general"
+	default:
+		return "nova-3-general"
+	}
 }
 
 // WaitForAgentReady polls agentGateway.IsReady until it returns true or the timeout elapses.
