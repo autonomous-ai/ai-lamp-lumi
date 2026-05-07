@@ -209,13 +209,14 @@ func (s *Server) Serve(closeFn func()) error {
 	// Signal booting state so the LED shows a slow blue pulse while initializing.
 	s.statusLED.Set(statusled.StateBooting)
 
-	// device button
-	if err := s.deviceButton.Init(); err == nil {
-		s.deviceButton.Start(context.Background(), s.deviceGPIOHandler.HandlePress, s.deviceGPIOHandler.HandlePressAndHold)
-		defer s.deviceButton.Close()
-	} else {
-		slog.Info("[device button] can not init")
-	}
+	// device button — disabled here so lelamp (Python) gpio_button can grab
+	// GPIO17. Long-press shutdown w/ servo release lives in lelamp.
+	// if err := s.deviceButton.Init(); err == nil {
+	// 	s.deviceButton.Start(context.Background(), s.deviceGPIOHandler.HandlePress, s.deviceGPIOHandler.HandlePressAndHold)
+	// 	defer s.deviceButton.Close()
+	// } else {
+	// 	slog.Info("[device button] can not init")
+	// }
 
 	s.handleSetUpCompleteChange(s.config.SetUpCompleted)
 
