@@ -123,6 +123,38 @@ func extractMessageContentText(raw json.RawMessage) string {
 	return strings.Join(parts, "")
 }
 
+// lumiInternalPrefixes are message-text prefixes Lumi puts on chat.sends it
+// issues itself (sensing events, ambient voice, activity, emotion cues,
+// wellbeing nudges, wake greetings). Used as a robust guard alongside
+// IsRecentOutboundChat — that exact-match buffer can miss when the 30s
+// window expires or 32-entry cap overflows under load. Any text starting
+// with one of these prefixes is definitely Lumi-internal, never a real
+// Telegram user message, and must NOT mark the run as a channel turn.
+var lumiInternalPrefixes = []string{
+	"[sensing:",
+	"[ambient]",
+	"[activity]",
+	"[emotion]",
+	"[wellbeing]",
+	"[music-proactive]",
+	"You just woke up",
+}
+
+// isLumiInternalMessage returns true when the message text was issued by
+// Lumi via chat.send (matches a known prefix). The check is independent of
+// the recent-outbound TTL buffer so it stays correct under burst load.
+func isLumiInternalMessage(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, p := range lumiInternalPrefixes {
+		if strings.HasPrefix(text, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // telegramChatIDRe extracts the chat_id from OpenClaw queue-mode metadata
 // injected at the top of a Telegram-originated user message, e.g.
 // `"chat_id": "telegram:158406741"`.

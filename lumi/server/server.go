@@ -264,6 +264,12 @@ func (s *Server) Serve(closeFn func()) error {
 	sensing.POST("event", s.sensingHandler.PostEvent)
 	sensing.GET("snapshot/:category/:name", s.sensingHandler.GetSnapshot)
 
+	// Voice file delete (filesystem orchestration on Pi). Voice enroll
+	// itself lives on lelamp at /hw/speaker/record-enroll because hardware
+	// capture is Python's domain.
+	voice := api.Group("voice")
+	voice.POST("file/remove", s.sensingHandler.RemoveVoiceFile)
+
 	guard := api.Group("guard")
 	guard.POST("enable", s.sensingHandler.EnableGuard)
 	guard.POST("disable", s.sensingHandler.DisableGuard)

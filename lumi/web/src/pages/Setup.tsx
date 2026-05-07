@@ -4,7 +4,7 @@ import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfi
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt" | "face";
+type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -304,14 +304,16 @@ export default function Setup() {
     [searchParams],
   );
 
-  // Fixed order. Face / STT (Deepgram) / MQTT are intentionally hidden
-  // — their state is still wired up and submitted with empty or
-  // URL-prefilled defaults, so re-adding a SectionCard + a SECTIONS
-  // entry brings them back without other plumbing.
+  // Fixed order. STT (Deepgram) / MQTT are intentionally hidden — their
+  // state is still wired up and submitted with empty or URL-prefilled
+  // defaults, so re-adding a SectionCard + a SECTIONS entry brings them
+  // back without other plumbing.
   const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
+    { id: "voice",  label: "Voice",  icon: <Mic size={15} /> },
+    { id: "face",   label: "Face",   icon: <UserCircle size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
     { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
   ];
@@ -374,6 +376,166 @@ export default function Setup() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
+
+  // Face enroll — same flow as EditConfig.Face. Uses /hw/face endpoints
+  // directly so user can enroll without finishing the rest of setup.
+  const [faceName, setFaceName] = useState("");
+  const [faceFiles, setFaceFiles] = useState<File[]>([]);
+  const [faceUploading, setFaceUploading] = useState(false);
+  const [faceMsg, setFaceMsg] = useState<string | null>(null);
+  const faceInputRef = useRef<HTMLInputElement>(null);
+  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[]; voice_samples?: string[] }[]>([]);
+
+  const loadFaceOwners = useCallback(async () => {
+    try {
+      const r = await fetch("/hw/face/owners").then((x) => x.json());
+      if (Array.isArray(r?.persons)) setFaceOwners(r.persons);
+    } catch { /* hardware may not be reachable during setup; silent */ }
+  }, []);
+
+  useEffect(() => { loadFaceOwners(); }, [loadFaceOwners]);
+
+  const removeFaceOwner = async (label: string) => {
+    if (!confirm(`Remove enrolled face "${label}"?`)) return;
+    try {
+      await fetch("/hw/face/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      loadFaceOwners();
+    } catch { /* ignore */ }
+  };
+
+  // Voice enroll — browser records 3 sentences via MediaRecorder, posts the
+  // webm blob to Lumi /api/voice/enroll which converts to WAV and forwards
+  // to lelamp /speaker/enroll. Uses same `label` as face so both biometrics
+  // land in the same per-user folder (speaker_recognizer convention).
+  const VOICE_PHRASES = [
+    "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
+    "The quick brown fox jumps over the lazy dog near the bright morning window.",
+    "Today is a great day to start something new, and I'm looking forward to it.",
+  ];
+  // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web is just a
+  // remote trigger: countdown → POST /hw/speaker/record-enroll → lelamp
+  // releases ALSA, runs arecord locally, enrolls. No HTTPS needed (we
+  // never call getUserMedia), no permission prompt, and the embedding sees
+  // the same mic as runtime so recognition matches.
+  const VOICE_DURATION_SEC = 15;
+  const [voiceLabel, setVoiceLabel] = useState("");
+  const [voicePhase, setVoicePhase] = useState<"idle" | "countdown" | "recording" | "processing">("idle");
+  const [voiceCountdown, setVoiceCountdown] = useState(0);
+  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
+  const voiceTickRef = useRef<number | null>(null);
+  const [voiceExpanded, setVoiceExpanded] = useState<Record<string, boolean>>({});
+  const toggleVoiceExpanded = (label: string) =>
+    setVoiceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
+
+  const removeVoiceFile = async (name: string, file: string) => {
+    if (!confirm(`Delete voice sample "${file}" for "${name}"?`)) return;
+    try {
+      await fetch("/api/voice/file/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, file }),
+      });
+      loadFaceOwners();
+    } catch { /* ignore */ }
+  };
+
+  const startVoiceEnroll = () => {
+    if (!voiceLabel.trim()) {
+      setVoiceMsg("Enter a name first");
+      return;
+    }
+    setVoiceMsg(null);
+    setVoicePhase("countdown");
+    let pre = 3;
+    setVoiceCountdown(pre);
+    voiceTickRef.current = window.setInterval(() => {
+      pre -= 1;
+      if (pre > 0) {
+        setVoiceCountdown(pre);
+        return;
+      }
+      // Pre-countdown done — actually fire the recording on the lamp.
+      if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+      setVoicePhase("recording");
+      let remaining = VOICE_DURATION_SEC;
+      setVoiceCountdown(remaining);
+      voiceTickRef.current = window.setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("processing");
+          setVoiceCountdown(0);
+        } else {
+          setVoiceCountdown(remaining);
+        }
+      }, 1000);
+      // POST starts at the same instant the lamp begins recording, so the
+      // client countdown stays in sync with what the lamp is actually doing.
+      fetch("/hw/speaker/record-enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
+      })
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("idle");
+          setVoiceCountdown(0);
+          if (ok && data.status === "ok") {
+            setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
+            loadFaceOwners();
+          } else {
+            setVoiceMsg(`Error: ${data.detail ?? data.message ?? "enroll failed"}`);
+          }
+        })
+        .catch((e) => {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("idle");
+          setVoiceCountdown(0);
+          setVoiceMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
+        });
+    }, 1000);
+  };
+
+  const handleFaceEnroll = async () => {
+    if (!faceName.trim() || faceFiles.length === 0) return;
+    setFaceUploading(true);
+    setFaceMsg(null);
+    const label = faceName.trim().toLowerCase();
+    let ok = 0;
+    let lastErr = "";
+    for (const file of faceFiles) {
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const resp = await fetch("/hw/face/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, image_base64: b64 }),
+        });
+        const data = await resp.json();
+        if (resp.ok) ok++;
+        else lastErr = data.detail || data.message || `Failed: ${file.name}`;
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (ok > 0) {
+      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
+        + (lastErr ? ` (${lastErr})` : ""));
+      setFaceName("");
+      setFaceFiles([]);
+      if (faceInputRef.current) faceInputRef.current.value = "";
+      loadFaceOwners();
+    } else {
+      setFaceMsg(`Error: ${lastErr}`);
+    }
+    setFaceUploading(false);
+  };
 
   useEffect(() => {
     setMqttEndpoint((prev) => prev || urlParams.mqttEndpoint);
@@ -785,8 +947,238 @@ export default function Setup() {
                     </label>
                   </SectionCard>
 
+                  {/* Voice enrollment — user stands near the lamp and reads
+                      3 sentences while the LAMP'S OWN MIC records. Web is
+                      just a remote trigger — no browser mic permission, no
+                      HTTPS required. */}
+                  <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                      Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
+                    </div>
+                    <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
+                    <div style={{
+                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7,
+                      padding: "12px 14px", marginBottom: 12, fontSize: 13, lineHeight: 1.55, color: C.text,
+                    }}>
+                      {VOICE_PHRASES.map((p, i) => (
+                        <div key={i} style={{ marginBottom: i < VOICE_PHRASES.length - 1 ? 6 : 0 }}>
+                          <span style={{ color: C.textMuted, marginRight: 6 }}>{i + 1}.</span>
+                          {p}
+                        </div>
+                      ))}
+                    </div>
+                    {voiceMsg && (
+                      <div style={{
+                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                        background: voiceMsg.startsWith("Error") ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: voiceMsg.startsWith("Error") ? C.red : "rgb(52,211,153)",
+                      }}>{voiceMsg}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={startVoiceEnroll}
+                      disabled={!voiceLabel.trim() || voicePhase !== "idle"}
+                      style={{
+                        width: "100%", padding: "11px 0", borderRadius: 7, fontSize: 13, fontWeight: 600,
+                        cursor: voicePhase === "idle" && voiceLabel.trim() ? "pointer" : "not-allowed",
+                        background: voicePhase === "recording" ? "rgba(248,113,113,0.18)"
+                          : voicePhase === "countdown" ? "rgba(245,158,11,0.18)"
+                          : voicePhase === "processing" ? C.surface
+                          : !voiceLabel.trim() ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${voicePhase === "recording" ? "rgba(248,113,113,0.4)"
+                          : voicePhase === "countdown" ? "rgba(245,158,11,0.4)"
+                          : !voiceLabel.trim() ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: voicePhase === "recording" ? C.red
+                          : voicePhase === "countdown" ? C.amber
+                          : voicePhase === "processing" ? C.textDim
+                          : !voiceLabel.trim() ? C.textMuted : "rgb(52,211,153)",
+                      }}
+                    >
+                      {voicePhase === "idle" && `Start Recording (${VOICE_DURATION_SEC}s on lamp)`}
+                      {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
+                      {voicePhase === "recording" && `● Recording on lamp — read aloud (${voiceCountdown}s)`}
+                      {voicePhase === "processing" && "Processing..."}
+                    </button>
+                    {(() => {
+                      const withVoice = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
+                      if (withVoice.length === 0) return null;
+                      return (
+                        <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                            Voice Files
+                          </div>
+                          {withVoice.map((p) => {
+                            const expanded = !!voiceExpanded[p.label];
+                            return (
+                            <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 8 : 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleVoiceExpanded(p.label)}
+                                  style={{
+                                    flex: 1, display: "flex", alignItems: "center", gap: 8,
+                                    background: "none", border: "none", cursor: "pointer", padding: 0,
+                                    textAlign: "left", color: C.text,
+                                  }}
+                                >
+                                  <span style={{ fontSize: 11, color: C.textMuted, transition: "transform 0.15s", transform: expanded ? "rotate(90deg)" : "none" }}>▶</span>
+                                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
+                                  <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}>({p.voice_samples!.length} file{p.voice_samples!.length !== 1 ? "s" : ""})</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!confirm(`Remove ALL voice files for "${p.label}"? Face data is preserved.`)) return;
+                                    try {
+                                      await fetch("/hw/speaker/remove", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ name: p.label }),
+                                      });
+                                      loadFaceOwners();
+                                    } catch { /* ignore */ }
+                                  }}
+                                  style={{
+                                    background: "none", border: `1px solid ${C.border}`, borderRadius: 5,
+                                    cursor: "pointer", fontSize: 10, color: C.red, padding: "3px 8px",
+                                  }}
+                                >
+                                  Remove all
+                                </button>
+                              </div>
+                              {expanded && (<>
+
+                              {p.voice_samples!.map((file) => {
+                                const ext = file.toLowerCase().split(".").pop() || "";
+                                const url = `/hw/face/file/${p.label}/voice/${encodeURIComponent(file)}`;
+                                const isAudio = ["wav", "ogg", "mp3", "webm", "m4a"].includes(ext);
+                                const viewLabel = ["json", "jsonl", "txt"].includes(ext) ? "view" : "open";
+                                return (
+                                  <div key={file} title={file} style={{
+                                    display: "flex", alignItems: "center", gap: 6, padding: "3px 0",
+                                    fontSize: 11, color: C.textDim,
+                                  }}>
+                                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+                                      {file}
+                                    </span>
+                                    {isAudio ? (
+                                      <>
+                                        <audio controls src={url} style={{ width: 180, height: 24 }} />
+                                        <button type="button" onClick={() => removeVoiceFile(p.label, file)}
+                                          style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, lineHeight: 1, padding: "0 4px" }} title="Delete">
+                                          ×
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <a href={url} target="_blank" rel="noreferrer"
+                                        style={{ fontSize: 10, color: C.amber, textDecoration: "none", padding: "2px 6px", border: `1px solid ${C.border}`, borderRadius: 4 }}>
+                                        {viewLabel}
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              </>)}
+                            </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </SectionCard>
+
+                  {/* Face enrollment — optional during setup; user can enroll
+                      themselves so the lamp recognizes them on first boot. */}
+                  <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                      Upload photos so the lamp can recognize you.
+                    </div>
+                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Photos ({faceFiles.length} selected)
+                      </label>
+                      <input
+                        ref={faceInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
+                        style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    {faceMsg && (
+                      <div style={{
+                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? C.red : "rgb(52,211,153)",
+                      }}>{faceMsg}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleFaceEnroll}
+                      disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
+                      style={{
+                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
+                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
+                        background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
+                      }}
+                    >
+                      {faceUploading ? "Uploading…" : "Enroll Face"}
+                    </button>
+                    {faceOwners.length > 0 && (
+                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                          Enrolled ({faceOwners.length})
+                        </div>
+                        {faceOwners.filter((p) => p.photo_count > 0).map((p) => (
+                          <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: p.photos.length > 1 ? 8 : 0 }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.label}</div>
+                                <div style={{ fontSize: 10, color: C.textMuted }}>{p.photo_count} photo{p.photo_count !== 1 ? "s" : ""}</div>
+                              </div>
+                              {p.label !== "unknown" && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeFaceOwner(p.label)}
+                                  style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    fontSize: 11, color: C.red, padding: "4px 8px",
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                            {p.photos.length > 0 && (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {p.photos.map((photo) => (
+                                  <img
+                                    key={photo}
+                                    src={`/hw/face/photo/${p.label}/${photo}`}
+                                    onClick={() => window.open(`/hw/face/photo/${p.label}/${photo}`, "_blank")}
+                                    style={{
+                                      width: 48, height: 48, borderRadius: 8, objectFit: "cover",
+                                      border: `1px solid ${C.border}`, cursor: "pointer",
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
+
                   {/* Channel */}
                   <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
+
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="channel" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel *</label>
                       <select
