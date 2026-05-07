@@ -5,12 +5,6 @@ description: Proactive music suggestion. Runs together with user-emotion-detecti
 
 # Music Suggestion (Proactive)
 
-Reply is ONE short caring sentence (the suggestion), or `NO_REPLY` if any skip rule fires. All reasoning, cooldown checks, timestamps, and math stay in the `thinking` block — only the final sentence is spoken.
-
-Examples:
-- Suggest: `[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?`
-- Skip:    `NO_REPLY`
-
 > **`unknown` users count.** Always run suggestion checks when `current_user` is `"unknown"` — speak only, no DM. Never skip because the user is unknown/unconfirmed.
 
 ## Triggers
