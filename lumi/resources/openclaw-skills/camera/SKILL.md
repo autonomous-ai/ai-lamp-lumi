@@ -16,7 +16,7 @@ Just call the snapshot endpoint — the server handles servo freeze, frame wait,
 curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
 ```
 
-Returns JSON: `{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}`.
+Returns JSON: `{"path": "/root/.openclaw/media/lumi-snapshots/snap_1712567890123.jpg"}`.
 **Never hardcode a filename** — always read `path` from the response.
 
 No need to aim servo or sleep before snapshot — the server freezes servos automatically for a stable frame.
@@ -54,7 +54,7 @@ curl -s "http://127.0.0.1:5001/camera/snapshot?save=true"
 
 Returns JSON with the saved file path:
 ```json
-{"path": "/tmp/lumi-snapshots/snap_1712567890123.jpg"}
+{"path": "/root/.openclaw/media/lumi-snapshots/snap_1712567890123.jpg"}
 ```
 
 Without `?save=true`, returns raw JPEG bytes (used by web UI).
