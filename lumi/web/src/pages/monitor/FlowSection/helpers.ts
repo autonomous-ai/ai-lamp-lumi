@@ -521,7 +521,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
     agent_call: [], llm_first_token: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [], tg_alert: [],
+    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], tg_out: [], tg_alert: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -822,6 +822,15 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         pushUnique(info.lumi_gate, `🎵 → audio ${path}`);
       }
     }
+    if (ev.type === "hw_wellbeing" || (ev.type === "flow_event" && ev.detail?.node === "hw_wellbeing")) {
+      const { path, body } = parseHWEvent(ev, "/wellbeing/log");
+      if (body && body.startsWith("{")) {
+        // Wellbeing log goes to Lumi (port 5000), not LeLamp (5001), via the /api/ prefix.
+        pushUnique(info.hw_wellbeing, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
+        const m = body.match(/"action"\s*:\s*"([^"]+)"/);
+        pushUnique(info.lumi_gate, `💧 → wellbeing ${m ? m[1] : path}`);
+      }
+    }
     if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")) {
       pushUnique(info.lumi_gate, "🔊 → TTS");
     }
@@ -943,21 +952,24 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
   }
 
-  // llm_first_token (TTFT): lifecycle_start → first thinking/assistant delta
+  // llm_first_token: lifecycle_start → first thinking/assistant delta (warmup / TTFT)
   if (nLifecycleStartTs && nLlmFirstTokenTs && nLlmFirstTokenTs > nLifecycleStartTs) {
     info.llm_first_token.unshift(`⏱ ${fmtDur(nLlmFirstTokenTs - nLifecycleStartTs)}`);
   }
 
-  // agent_thinking: lifecycle_start (or llm_first_token, when available) → first tool_call + inter-tool thinking
-  if (nLifecycleStartTs) {
+  // agent_thinking: post-warmup streaming time. Use llm_first_token as start
+  // when available (so warmup is not double-counted with the LLM Start node);
+  // otherwise fall back to lifecycle_start.
+  const thinkStartTs = nLlmFirstTokenTs || nLifecycleStartTs;
+  if (thinkStartTs) {
     const to = nFirstToolTs || nLifecycleEndTs;
-    if (to && to > nLifecycleStartTs) {
-      const ttft = to - nLifecycleStartTs;
-      const totalThinking = ttft + nInterToolMs;
+    if (to && to > thinkStartTs) {
+      const streaming = to - thinkStartTs;
+      const totalThinking = streaming + nInterToolMs;
       if (nInterToolMs > 0) {
-        info.agent_thinking.unshift(`⏱ ${fmtDur(totalThinking)} (first ${fmtDur(ttft)} + between tools ${fmtDur(nInterToolMs)})`);
+        info.agent_thinking.unshift(`⏱ ${fmtDur(totalThinking)} (first ${fmtDur(streaming)} + between tools ${fmtDur(nInterToolMs)})`);
       } else {
-        info.agent_thinking.unshift(`⏱ ${fmtDur(ttft)}`);
+        info.agent_thinking.unshift(`⏱ ${fmtDur(streaming)}`);
       }
     }
   }
@@ -1067,18 +1079,18 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     if (ms > 0) segments.push({ label: `openclaw init ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "chat_send (lumi)", to: "lifecycle_start (openclaw)" });
   }
 
-  // TTFT: lifecycle_start → llm_first_token (LLM warmup before first delta)
+  // LLM warmup: lifecycle_start → llm_first_token (TTFT — before any streamed token)
   if (lifecycleStartTs && llmFirstTokenTs && llmFirstTokenTs > lifecycleStartTs) {
     const ms = llmFirstTokenTs - lifecycleStartTs;
-    segments.push({ label: `llm ttft ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "lifecycle_start (openclaw)", to: "llm_first_token (openclaw)" });
+    segments.push({ label: `llm warmup ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "lifecycle_start (openclaw)", to: "llm_first_token (openclaw)" });
   }
 
-  // Thinking / streaming
+  // LLM streaming (post-warmup)
   if (llmFirstTokenTs && firstToolCallTs && firstToolCallTs > llmFirstTokenTs) {
     const ms = firstToolCallTs - llmFirstTokenTs;
     segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "llm_first_token (openclaw)", to: "first tool_call (openclaw)" });
   } else if (lifecycleStartTs && firstToolCallTs && !llmFirstTokenTs) {
-    // No TTFT event — fall back to legacy lifecycle_start → first tool_call.
+    // No llm_first_token event — fall back to legacy lifecycle_start → first tool_call.
     const ms = firstToolCallTs - lifecycleStartTs;
     segments.push({ label: `llm thinking ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "first tool_call (openclaw)" });
   } else if (llmFirstTokenTs && lifecycleEndTs && !firstToolCallTs && lifecycleEndTs > llmFirstTokenTs) {

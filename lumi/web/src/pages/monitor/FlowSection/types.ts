@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
   | "agent_call" | "llm_first_token" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out" | "tg_alert";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "tg_out" | "tg_alert";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -99,8 +99,8 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "llm_first_token",
-    label: "First Token", short: "TTFT", icon: "⚡", color: "var(--lm-blue)", path: "agent",
-    desc: "Time-to-first-token · LLM streaming begins (first thinking or assistant delta)",
+    label: "LLM Start", short: "LLM", icon: "⚡", color: "var(--lm-blue)", path: "agent",
+    desc: "LLM begins streaming (first thinking or assistant delta) · gap from lifecycle_start = TTFT (warmup before any token)",
     triggers: [
       "flow_event:llm_first_token",
     ] },
@@ -221,6 +221,15 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "hw_audio",
       "flow_event:hw_audio",
+    ] },
+
+  { id: "hw_wellbeing",
+    label: "Wellbeing log", short: "WELL", icon: "💧", color: "#06b6d4", path: "agent",
+    shape: "diamond",
+    desc: "Wellbeing nudge log · async POST via [HW:/wellbeing/log:{...}]",
+    triggers: [
+      "hw_wellbeing",
+      "flow_event:hw_wellbeing",
     ] },
 ];
 
