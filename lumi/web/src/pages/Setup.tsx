@@ -1130,10 +1130,10 @@ export default function Setup() {
                     >
                       {faceUploading ? "Uploading…" : "Enroll Face"}
                     </button>
-                    {faceOwners.length > 0 && (
+                    {faceOwners.filter((p) => p.photo_count > 0).length > 0 && (
                       <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                          Enrolled ({faceOwners.length})
+                          Enrolled ({faceOwners.filter((p) => p.photo_count > 0).length})
                         </div>
                         {faceOwners.filter((p) => p.photo_count > 0).map((p) => (
                           <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
