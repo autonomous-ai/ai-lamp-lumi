@@ -11,11 +11,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.emotion.emotion import EmotionModel
-from core.emotion.emonet import EMOTIONS as EMONET_EMOTIONS
+from core.emotion.recognizer.emonet import EMOTIONS_8 as EMONET_EMOTIONS
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
-os.environ["EMOTION_RECOGNITION_MODEL"] = "emonet"
+os.environ["EMOTION_RECOGNITION_MODEL"] = "emonet_8"
 
 EMONET_MODEL_PATH = Path.cwd() / "local" / "emonet_8.onnx"
 
