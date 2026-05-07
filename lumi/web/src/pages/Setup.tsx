@@ -416,17 +416,17 @@ export default function Setup() {
     "The quick brown fox jumps over the lazy dog near the bright morning window.",
     "Today is a great day to start something new, and I'm looking forward to it.",
   ];
+  // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web is just a
+  // remote trigger: countdown → POST /api/voice/enroll → Lumi tells lelamp
+  // to release ALSA, runs arecord locally, re-enrolls. No HTTPS needed (we
+  // never call getUserMedia), no permission prompt, and the embedding sees
+  // the same mic as runtime so recognition matches.
+  const VOICE_DURATION_SEC = 15;
   const [voiceLabel, setVoiceLabel] = useState("");
-  const [voiceRecording, setVoiceRecording] = useState(false);
-  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
-  const [voiceMime, setVoiceMime] = useState<string>("");
-  const [voiceUrl, setVoiceUrl] = useState<string>("");
-  const [voiceElapsed, setVoiceElapsed] = useState(0);
-  const [voiceUploading, setVoiceUploading] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<"idle" | "countdown" | "recording" | "processing">("idle");
+  const [voiceCountdown, setVoiceCountdown] = useState(0);
   const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
-  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
-  const voiceChunksRef = useRef<BlobPart[]>([]);
-  const voiceTimerRef = useRef<number | null>(null);
+  const voiceTickRef = useRef<number | null>(null);
   const [voiceExpanded, setVoiceExpanded] = useState<Record<string, boolean>>({});
   const toggleVoiceExpanded = (label: string) =>
     setVoiceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
@@ -443,82 +443,62 @@ export default function Setup() {
     } catch { /* ignore */ }
   };
 
-  const startVoiceRecord = async () => {
-    setVoiceMsg(null);
-    setVoiceBlob(null);
-    if (voiceUrl) URL.revokeObjectURL(voiceUrl);
-    setVoiceUrl("");
-    voiceChunksRef.current = [];
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      voiceRecorderRef.current = rec;
-      rec.ondataavailable = (ev) => { if (ev.data.size > 0) voiceChunksRef.current.push(ev.data); };
-      rec.onstop = () => {
-        const blob = new Blob(voiceChunksRef.current, { type: rec.mimeType || "audio/webm" });
-        setVoiceBlob(blob);
-        setVoiceMime(rec.mimeType || "audio/webm");
-        setVoiceUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach((t) => t.stop());
-      };
-      rec.start();
-      setVoiceRecording(true);
-      setVoiceElapsed(0);
-      const startedAt = Date.now();
-      voiceTimerRef.current = window.setInterval(() => {
-        setVoiceElapsed(Math.floor((Date.now() - startedAt) / 1000));
-      }, 250);
-    } catch (e) {
-      setVoiceMsg(`Mic error: ${e instanceof Error ? e.message : String(e)}`);
+  const startVoiceEnroll = () => {
+    if (!voiceLabel.trim()) {
+      setVoiceMsg("Enter a name first");
+      return;
     }
-  };
-
-  const stopVoiceRecord = () => {
-    const rec = voiceRecorderRef.current;
-    if (rec && rec.state !== "inactive") rec.stop();
-    if (voiceTimerRef.current) {
-      clearInterval(voiceTimerRef.current);
-      voiceTimerRef.current = null;
-    }
-    setVoiceRecording(false);
-  };
-
-  const submitVoiceEnroll = async () => {
-    if (!voiceLabel.trim() || !voiceBlob) return;
-    setVoiceUploading(true);
     setVoiceMsg(null);
-    try {
-      const buf = await voiceBlob.arrayBuffer();
-      // Avoid stack overflow from spread on large buffers — chunk the bytes.
-      let bin = "";
-      const u8 = new Uint8Array(buf);
-      const chunk = 0x8000;
-      for (let i = 0; i < u8.length; i += chunk) {
-        bin += String.fromCharCode(...u8.subarray(i, i + chunk));
+    setVoicePhase("countdown");
+    let pre = 3;
+    setVoiceCountdown(pre);
+    voiceTickRef.current = window.setInterval(() => {
+      pre -= 1;
+      if (pre > 0) {
+        setVoiceCountdown(pre);
+        return;
       }
-      const b64 = btoa(bin);
-      const resp = await fetch("/api/voice/enroll", {
+      // Pre-countdown done — actually fire the recording on the lamp.
+      if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+      setVoicePhase("recording");
+      let remaining = VOICE_DURATION_SEC;
+      setVoiceCountdown(remaining);
+      voiceTickRef.current = window.setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("processing");
+          setVoiceCountdown(0);
+        } else {
+          setVoiceCountdown(remaining);
+        }
+      }, 1000);
+      // POST starts at the same instant the lamp begins recording, so the
+      // client countdown stays in sync with what the lamp is actually doing.
+      fetch("/api/voice/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: voiceLabel.trim().toLowerCase(), audio_base64: b64, mime: voiceMime }),
-      });
-      const data = await resp.json();
-      if (resp.ok && data.status === 1) {
-        setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}" (${(voiceBlob.size / 1024).toFixed(1)} KB, ${voiceElapsed}s)`);
-        setVoiceBlob(null);
-        if (voiceUrl) URL.revokeObjectURL(voiceUrl);
-        setVoiceUrl("");
-        loadFaceOwners();
-      } else {
-        setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
-      }
-    } catch (e) {
-      setVoiceMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    setVoiceUploading(false);
+        body: JSON.stringify({ label: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("idle");
+          setVoiceCountdown(0);
+          if (data.status === 1) {
+            setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
+            loadFaceOwners();
+          } else {
+            setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
+          }
+        })
+        .catch((e) => {
+          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+          setVoicePhase("idle");
+          setVoiceCountdown(0);
+          setVoiceMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
+        });
+    }, 1000);
   };
 
   const handleFaceEnroll = async () => {
@@ -967,14 +947,13 @@ export default function Setup() {
                     </label>
                   </SectionCard>
 
-                  {/* Voice enrollment — user reads 3 sentences so lamp can
-                      recognize them by voice. Browser records via
-                      MediaRecorder, Lumi converts webm→wav and forwards to
-                      lelamp /speaker/enroll. Same label as face = same
-                      per-user folder. */}
+                  {/* Voice enrollment — user stands near the lamp and reads
+                      3 sentences while the LAMP'S OWN MIC records. Web is
+                      just a remote trigger — no browser mic permission, no
+                      HTTPS required. */}
                   <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
                     <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                      Read the 3 sentences below in a normal voice. ~15 seconds total.
+                      Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
                     </div>
                     <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
                     <div style={{
@@ -988,58 +967,37 @@ export default function Setup() {
                         </div>
                       ))}
                     </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                      {!voiceRecording ? (
-                        <button
-                          type="button"
-                          onClick={startVoiceRecord}
-                          disabled={voiceUploading}
-                          style={{
-                            padding: "9px 16px", borderRadius: 7, fontSize: 12.5, fontWeight: 600,
-                            cursor: "pointer", background: "rgba(248,113,113,0.12)",
-                            border: `1px solid rgba(248,113,113,0.35)`, color: C.red,
-                          }}
-                        >
-                          ● Record
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={stopVoiceRecord}
-                          style={{
-                            padding: "9px 16px", borderRadius: 7, fontSize: 12.5, fontWeight: 600,
-                            cursor: "pointer", background: C.amber, border: `1px solid ${C.amber}`, color: C.bg,
-                          }}
-                        >
-                          ■ Stop ({voiceElapsed}s)
-                        </button>
-                      )}
-                      {voiceUrl && !voiceRecording && (
-                        <audio controls src={voiceUrl} style={{ flex: 1, height: 32 }} />
-                      )}
-                    </div>
                     {voiceMsg && (
                       <div style={{
                         fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                        background: voiceMsg.startsWith("Error") || voiceMsg.startsWith("Mic")
-                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                        color: voiceMsg.startsWith("Error") || voiceMsg.startsWith("Mic")
-                          ? C.red : "rgb(52,211,153)",
+                        background: voiceMsg.startsWith("Error") ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: voiceMsg.startsWith("Error") ? C.red : "rgb(52,211,153)",
                       }}>{voiceMsg}</div>
                     )}
                     <button
                       type="button"
-                      onClick={submitVoiceEnroll}
-                      disabled={!voiceLabel.trim() || !voiceBlob || voiceUploading || voiceRecording}
+                      onClick={startVoiceEnroll}
+                      disabled={!voiceLabel.trim() || voicePhase !== "idle"}
                       style={{
-                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5, fontWeight: 600,
-                        cursor: voiceUploading ? "wait" : "pointer",
-                        background: !voiceLabel.trim() || !voiceBlob ? C.surface : "rgba(52,211,153,0.12)",
-                        border: `1px solid ${!voiceLabel.trim() || !voiceBlob ? C.border : "rgba(52,211,153,0.35)"}`,
-                        color: !voiceLabel.trim() || !voiceBlob ? C.textMuted : "rgb(52,211,153)",
+                        width: "100%", padding: "11px 0", borderRadius: 7, fontSize: 13, fontWeight: 600,
+                        cursor: voicePhase === "idle" && voiceLabel.trim() ? "pointer" : "not-allowed",
+                        background: voicePhase === "recording" ? "rgba(248,113,113,0.18)"
+                          : voicePhase === "countdown" ? "rgba(245,158,11,0.18)"
+                          : voicePhase === "processing" ? C.surface
+                          : !voiceLabel.trim() ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${voicePhase === "recording" ? "rgba(248,113,113,0.4)"
+                          : voicePhase === "countdown" ? "rgba(245,158,11,0.4)"
+                          : !voiceLabel.trim() ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: voicePhase === "recording" ? C.red
+                          : voicePhase === "countdown" ? C.amber
+                          : voicePhase === "processing" ? C.textDim
+                          : !voiceLabel.trim() ? C.textMuted : "rgb(52,211,153)",
                       }}
                     >
-                      {voiceUploading ? "Uploading…" : "Enroll Voice"}
+                      {voicePhase === "idle" && `Start Recording (${VOICE_DURATION_SEC}s on lamp)`}
+                      {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
+                      {voicePhase === "recording" && `● Recording on lamp — read aloud (${voiceCountdown}s)`}
+                      {voicePhase === "processing" && "Processing..."}
                     </button>
                     {(() => {
                       const withVoice = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
