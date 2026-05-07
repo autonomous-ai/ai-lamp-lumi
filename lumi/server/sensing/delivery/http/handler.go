@@ -26,6 +26,7 @@ import (
 	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/skillcontext"
 	"go-lamp.autonomous.ai/lib/usercanon"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
@@ -338,6 +339,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
+			// Pre-fetch the three reads that wellbeing/SKILL.md would otherwise
+			// fire as its own tool turn (history + patterns.json + days count).
+			// Saves ~9s LLM-think on the "plan reads" pass. SKILL.md keeps a
+			// fallback bash batch when this block is empty (pre-fetch failure).
+			msg += skillcontext.BuildWellbeingContext(currentUser)
 		case "emotion.detected":
 			currentUser := req.CurrentUser
 			if currentUser == "" {
