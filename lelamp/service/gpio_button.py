@@ -22,18 +22,20 @@ logger = logging.getLogger(__name__)
 # Default wiring for Raspberry Pi 4/5 (BCM 17 on gpiochip0).
 PI_BUTTON_CHIP = 0
 PI_BUTTON_PIN = 17
+# wm8960 button on Pi 4/5 bounces past 30 ms (field logs showed 2 callback
+# edges per physical click). 100 ms covers it.
+PI_DEBOUNCE_NS = 100_000_000
 
 # OrangePi sun60iw2 (4 Pro / A733): button on header pin 11 = PL9 → gpiochip1 line 9.
 OPI_SUN60_BUTTON_CHIP = 1
 OPI_SUN60_BUTTON_PIN = 9
+# gpiochip1 on sun60iw2 reports more contact bounce than the Pi — pad to 150 ms.
+OPI_SUN60_DEBOUNCE_NS = 150_000_000
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
-# lgpio.callback tick is nanoseconds, so debounce must be in ns. 100 ms — the
-# wm8960 button on Pi 4/5 bounces past 30 ms (saw 2 callback edges per physical
-# click in field logs). 100 ms still leaves 300 ms headroom inside the 400 ms
-# DOUBLE_CLICK_WINDOW for legit triple clicks.
-DEBOUNCE_NS = 100_000_000
+# lgpio.callback tick is nanoseconds. Both per-board values stay well under
+# DOUBLE_CLICK_WINDOW so triple click is still detectable.
 
 
 def _is_orangepi_sun60() -> bool:
@@ -45,11 +47,11 @@ def _is_orangepi_sun60() -> bool:
         return False
 
 
-def _resolve_button_pin() -> tuple[int, int]:
-    """Return (chip, line) for the wake button on this board."""
+def _resolve_board_config() -> tuple[int, int, int]:
+    """Return (chip, line, debounce_ns) for the wake button on this board."""
     if _is_orangepi_sun60():
-        return OPI_SUN60_BUTTON_CHIP, OPI_SUN60_BUTTON_PIN
-    return PI_BUTTON_CHIP, PI_BUTTON_PIN
+        return OPI_SUN60_BUTTON_CHIP, OPI_SUN60_BUTTON_PIN, OPI_SUN60_DEBOUNCE_NS
+    return PI_BUTTON_CHIP, PI_BUTTON_PIN, PI_DEBOUNCE_NS
 
 
 class GPIOButtonHandler:
@@ -63,13 +65,14 @@ class GPIOButtonHandler:
         self._long_press_timer = None
         self._chip = 0
         self._pin = 0
+        self._debounce_ns = PI_DEBOUNCE_NS
         self._last_press_tick = 0
         self._last_release_tick = 0
 
     def start(self):
         import lgpio
 
-        self._chip, self._pin = _resolve_button_pin()
+        self._chip, self._pin, self._debounce_ns = _resolve_board_config()
         self._lgpio = lgpio
         self._handle = lgpio.gpiochip_open(self._chip)
         lgpio.gpio_claim_alert(
@@ -79,7 +82,10 @@ class GPIOButtonHandler:
             self._handle, self._pin, lgpio.BOTH_EDGES, self._on_edge
         )
         logger.info(
-            "GPIO button ready on gpiochip%d line %d", self._chip, self._pin,
+            "GPIO button ready on gpiochip%d line %d (debounce %d ms)",
+            self._chip,
+            self._pin,
+            self._debounce_ns // 1_000_000,
         )
 
     def _on_edge(self, chip, gpio, level, tick):
@@ -88,11 +94,11 @@ class GPIOButtonHandler:
         # dropped, while bouncy repeats of the same edge are filtered out.
         # OrangePi's gpiochip1 reports more contact bounce than the Pi.
         if level == 0:
-            if tick - self._last_press_tick < DEBOUNCE_NS:
+            if tick - self._last_press_tick < self._debounce_ns:
                 return
             self._last_press_tick = tick
         else:
-            if tick - self._last_release_tick < DEBOUNCE_NS:
+            if tick - self._last_release_tick < self._debounce_ns:
                 return
             self._last_release_tick = tick
 
