@@ -264,8 +264,14 @@ async def lifespan(app: FastAPI):
             _alsa_out = os.environ["LELAMP_AUDIO_OUTPUT_ALSA"]
             _alsa_card = _alsa_out.split(":")[1].split(",")[0] if ":" in _alsa_out else ""
             if _alsa_card:
+                # ALSA short card id (e.g. "wm8960soundcard") and PortAudio device
+                # label (e.g. "wm8960-soundcard: ...") often differ by dashes/
+                # underscores. Normalize both sides so matching is robust.
+                def _norm(s: str) -> str:
+                    return "".join(c for c in s.lower() if c.isalnum())
+                _needle = _norm(_alsa_card)
                 for _i, _d in enumerate(sd.query_devices()):
-                    if _alsa_card.lower() in _d["name"].lower() and _d["max_output_channels"] > 0:
+                    if _needle and _needle in _norm(_d["name"]) and _d["max_output_channels"] > 0:
                         state.audio_output_device = _i
                         logger.info("Audio output device from ALSA env: %d '%s' (matched '%s')", _i, _d["name"], _alsa_card)
                         break

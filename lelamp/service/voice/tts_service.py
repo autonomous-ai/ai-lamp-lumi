@@ -102,8 +102,8 @@ class TTSService:
                 self._voice,
                 self._model,
             )
-        except Exception as e:
-            logger.warning("TTS backend init failed: %s", e)
+        except Exception:
+            logger.exception("TTS backend init failed")
 
         # Probe device sample rate by actually opening a stream (check_output_settings
         # is unreliable on some ALSA devices like seeed-2mic wm8960, CD002-AUDIO)
@@ -124,8 +124,8 @@ class TTSService:
                     daemon=True,
                     name="tts-silence-keepalive",
                 ).start()
-            except Exception as e:
-                logger.warning("Persistent stream init failed: %s", e)
+            except Exception:
+                logger.exception("Persistent stream init failed")
 
     def _ensure_stream(self, dst_rate: int):
         """Open persistent OutputStream or return existing one. Reopens if rate
@@ -447,16 +447,14 @@ class TTSService:
                         self._speak_start_fired = True
                         try:
                             self._on_speak_start()
-                        except Exception as e:
-                            logger.warning("on_speak_start callback failed: %s", e)
+                        except Exception:
+                            logger.exception("on_speak_start callback failed")
                     stream.write(frame)
                     total_samples += len(frame)
                 return total_samples
             except Exception as e:
-                logger.error(
-                    "TTS chunk failed: %s (type=%s, chunk=%d/%d, attempt=%d/%d)",
-                    e,
-                    type(e).__name__,
+                logger.exception(
+                    "TTS chunk failed (chunk=%d/%d, attempt=%d/%d)",
                     idx,
                     total,
                     attempt + 1,
@@ -497,9 +495,9 @@ class TTSService:
                         out_q.put(frame)
                     return
                 except Exception as e:
-                    logger.error(
-                        "TTS head chunk failed: %s (type=%s, attempt=%d/%d)",
-                        e, type(e).__name__, attempt + 1, self._max_retries + 1,
+                    logger.exception(
+                        "TTS head chunk failed (attempt=%d/%d)",
+                        attempt + 1, self._max_retries + 1,
                     )
                     status = getattr(e, "status_code", None)
                     if status in (404, 503):
@@ -534,10 +532,8 @@ class TTSService:
                         logger.info("Tail producer done  c%d/%d", i, total)
                         break
                     except Exception as e:
-                        logger.error(
-                            "Tail producer failed: %s (type=%s, chunk=%d/%d, attempt=%d/%d)",
-                            e,
-                            type(e).__name__,
+                        logger.exception(
+                            "Tail producer failed (chunk=%d/%d, attempt=%d/%d)",
                             i,
                             total,
                             attempt + 1,
@@ -635,8 +631,8 @@ class TTSService:
                             self._speak_start_fired = True
                             try:
                                 self._on_speak_start()
-                            except Exception as e:
-                                logger.warning("on_speak_start callback failed: %s", e)
+                            except Exception:
+                                logger.exception("on_speak_start callback failed")
                         stream.write(item)
                         total_samples += len(item)
 
@@ -654,8 +650,8 @@ class TTSService:
                             stream.write(item)
                             total_samples += len(item)
                 break  # playback succeeded, exit retry loop
-            except Exception as e:
-                logger.error("TTS playback setup failed: %s (type=%s)", e, type(e).__name__)
+            except Exception:
+                logger.exception("TTS playback setup failed")
                 # Stream is suspect -- close and reopen on retry.
                 self._invalidate_stream()
                 if _play_attempt == 0:
@@ -687,8 +683,8 @@ class TTSService:
         if self._on_speak_end:
             try:
                 self._on_speak_end()
-            except Exception as e:
-                logger.warning("on_speak_end callback failed: %s", e)
+            except Exception:
+                logger.exception("on_speak_end callback failed")
 
         self._lock.release()
 
@@ -733,8 +729,8 @@ class TTSService:
                 try:
                     self._render_and_save_wav(text, cache_path)
                     return True
-                except Exception as e:
-                    logger.error("Prerender failed for %r: %s", text[:50], e)
+                except Exception:
+                    logger.exception("Prerender failed for %r", text[:50])
                     return False
 
         # Playback path: mirror speak() lock semantics.
@@ -772,16 +768,16 @@ class TTSService:
                     if not cache_path.exists():
                         self._render_and_save_wav(text, cache_path)
             self._play_wav_inline(cache_path, hit=cache_hit)
-        except Exception as e:
-            logger.error("Cached speak thread failed: %s (type=%s)", e, type(e).__name__)
+        except Exception:
+            logger.exception("Cached speak thread failed")
         finally:
             self._speaking = False
             self._last_spoken_time = time.time()
             if self._on_speak_end:
                 try:
                     self._on_speak_end()
-                except Exception as e:
-                    logger.warning("on_speak_end (cached) failed: %s", e)
+                except Exception:
+                    logger.exception("on_speak_end (cached) failed")
             try:
                 self._lock.release()
             except Exception:
@@ -808,8 +804,8 @@ class TTSService:
         if self._on_speak_start:
             try:
                 self._on_speak_start()
-            except Exception as e:
-                logger.warning("on_speak_start (cached) failed: %s", e)
+            except Exception:
+                logger.exception("on_speak_start (cached) failed")
 
         with self._stream_lock:
             stream = self._ensure_stream(dst_rate)
