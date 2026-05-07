@@ -519,7 +519,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
     mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
-    agent_call: [], agent_thinking: [], tool_exec: [],
+    agent_call: [], llm_first_token: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
     lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], tg_out: [], tg_alert: [],
     ambient: [],
@@ -855,6 +855,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
 
   let nSensingTs = 0, nChatSendTs = 0, nChatInputTs = 0;
   let nLifecycleStartTs = 0, nLifecycleEndTs = 0, nTtsTs = 0;
+  let nLlmFirstTokenTs = 0;
   let nFirstToolTs = 0, nLastToolResultTs = 0;
   let nToolTotalMs = 0, nToolStartTs = 0;
   let nIntentMatchTs = 0;
@@ -886,6 +887,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     }
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       nLifecycleEndTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "llm_first_token") {
+      if (!nLlmFirstTokenTs) nLlmFirstTokenTs = ts;
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!nTtsTs) nTtsTs = ts;
@@ -939,7 +943,12 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
   }
 
-  // agent_thinking: lifecycle_start → first tool_call (TTFT) + inter-tool thinking
+  // llm_first_token (TTFT): lifecycle_start → first thinking/assistant delta
+  if (nLifecycleStartTs && nLlmFirstTokenTs && nLlmFirstTokenTs > nLifecycleStartTs) {
+    info.llm_first_token.unshift(`⏱ ${fmtDur(nLlmFirstTokenTs - nLifecycleStartTs)}`);
+  }
+
+  // agent_thinking: lifecycle_start (or llm_first_token, when available) → first tool_call + inter-tool thinking
   if (nLifecycleStartTs) {
     const to = nFirstToolTs || nLifecycleEndTs;
     if (to && to > nLifecycleStartTs) {
@@ -993,6 +1002,7 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
 
   let sensingTs = 0, chatSendTs = 0, chatInputTs = 0;
   let lifecycleStartTs = 0, lifecycleEndTs = 0, ttsTs = 0;
+  let llmFirstTokenTs = 0;
   let firstToolCallTs = 0, lastToolResultTs = 0;
   let toolTotalMs = 0, toolStartTs = 0;
   // Track inter-tool LLM thinking: time between a batch of tool results and the next tool start.
@@ -1015,6 +1025,9 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     }
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       lifecycleEndTs = ts;
+    }
+    if (ev.type === "flow_event" && ev.detail?.node === "llm_first_token") {
+      if (!llmFirstTokenTs) llmFirstTokenTs = ts;
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!ttsTs) ttsTs = ts;
@@ -1054,11 +1067,24 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     if (ms > 0) segments.push({ label: `openclaw init ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "chat_send (lumi)", to: "lifecycle_start (openclaw)" });
   }
 
-  // Thinking (TTFT)
-  if (lifecycleStartTs && firstToolCallTs) {
+  // TTFT: lifecycle_start → llm_first_token (LLM warmup before first delta)
+  if (lifecycleStartTs && llmFirstTokenTs && llmFirstTokenTs > lifecycleStartTs) {
+    const ms = llmFirstTokenTs - lifecycleStartTs;
+    segments.push({ label: `llm ttft ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "lifecycle_start (openclaw)", to: "llm_first_token (openclaw)" });
+  }
+
+  // Thinking / streaming
+  if (llmFirstTokenTs && firstToolCallTs && firstToolCallTs > llmFirstTokenTs) {
+    const ms = firstToolCallTs - llmFirstTokenTs;
+    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "llm_first_token (openclaw)", to: "first tool_call (openclaw)" });
+  } else if (lifecycleStartTs && firstToolCallTs && !llmFirstTokenTs) {
+    // No TTFT event — fall back to legacy lifecycle_start → first tool_call.
     const ms = firstToolCallTs - lifecycleStartTs;
     segments.push({ label: `llm thinking ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "first tool_call (openclaw)" });
-  } else if (lifecycleStartTs && lifecycleEndTs && !firstToolCallTs) {
+  } else if (llmFirstTokenTs && lifecycleEndTs && !firstToolCallTs && lifecycleEndTs > llmFirstTokenTs) {
+    const ms = lifecycleEndTs - llmFirstTokenTs;
+    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "llm_first_token (openclaw)", to: "lifecycle_end (openclaw)" });
+  } else if (lifecycleStartTs && lifecycleEndTs && !firstToolCallTs && !llmFirstTokenTs) {
     const ms = lifecycleEndTs - lifecycleStartTs;
     segments.push({ label: `llm processing ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "lifecycle_end (openclaw)" });
   }

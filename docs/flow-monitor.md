@@ -216,8 +216,8 @@ mic_input → intent_check → local_match → hw_emotion / hw_led / hw_servo / 
 cam_input → intent_check → agent_call
 schedule_trigger → agent_call
 telegram_input → agent_call
-agent_call → agent_thinking → tool_exec → agent_response
-                             → agent_response
+agent_call → llm_first_token → agent_thinking → tool_exec → agent_response
+                                              → agent_response
 tool_exec → hw_emotion         (OpenClaw /emotion call → LeLamp)
 tool_exec → hw_led             (OpenClaw /led/* or /scene call → LeLamp)
 tool_exec → hw_servo           (OpenClaw /servo/* call → LeLamp)
@@ -242,6 +242,7 @@ Node info extracted from turn events:
 - `chat_input` → Telegram In node
 - `intent_match` → Local Match node
 - `lifecycle_start` → Agent Call + Thinking nodes
+- `llm_first_token` → First Token (TTFT) node. Emitted exactly once per turn at the first thinking or assistant delta. Detail: `{ run_id, stream }` where `stream` is `"thinking"` or `"assistant"` (whichever delta arrived first). Use `llm_first_token - lifecycle_start` to measure true TTFT (LLM warmup before any token streams). Emitted by `OpenClawHandler.markFirstToken` from `lumi/server/openclaw/delivery/sse/handler.go`; the `firstTokenSeen` map is cleared at `lifecycle_end`/`error`. Note: channel-driven turns (Telegram queue mode) do not currently emit this event because the agent-stream `thinking`/`assistant` cases are gated by OpenClaw 5.x.
 - `tool_call` → Tool Exec node. Only `phase:"start"` events shown (has args). Displays full curl command from `args.command`. Each tool entry has a 📋 copy button for the curl command. OpenClaw sends tool name in `data.name` (not `data.tool`); args as object in `data.args` (e.g. `{"command":"curl ..."}`).
 - `lifecycle_end` → Response node
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)

@@ -3,7 +3,7 @@ import type { DisplayEvent } from "../types";
 // Maps a MonitorEvent type/node to a flow stage ID
 export type FlowStage =
   | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
-  | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
+  | "agent_call" | "llm_first_token" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "tg_out" | "tg_alert";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
@@ -96,6 +96,13 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "flow_event:agent_call", "flow_enter:agent_call", "flow_exit:agent_call",
       "flow_event:lifecycle_start",
+    ] },
+
+  { id: "llm_first_token",
+    label: "First Token", short: "TTFT", icon: "⚡", color: "var(--lm-blue)", path: "agent",
+    desc: "Time-to-first-token · LLM streaming begins (first thinking or assistant delta)",
+    triggers: [
+      "flow_event:llm_first_token",
     ] },
 
   { id: "agent_thinking",
