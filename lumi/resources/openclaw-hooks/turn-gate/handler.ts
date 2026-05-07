@@ -9,10 +9,21 @@ const handler = async (event: any): Promise<void> => {
   // Skip sensing events — Lumi sets busy proactively in sendChat for those
   if (text.startsWith("[sensing:") || !text.trim()) return;
 
-  // Skip OpenClaw heartbeat / memory-flush turns. These run with target=none
-  // (no channel to reply to) and never emit lifecycle.end SSE, so if we set
-  // busy=true here Lumi gets stuck for the full 5-min busyTTL. Field locations
-  // are checked defensively because the runtime schema isn't pinned here.
+  // Skip OpenClaw heartbeat / memory-flush / system turns. Verified field
+  // from runtime log: `messageChannel=heartbeat` (vs `webchat`/`telegram`).
+  // These runs do NOT emit lifecycle.end SSE, so if we set busy=true here
+  // Lumi wedges for the full 5-min busyTTL (see docs/debug/busy-stuck.md).
+  // Defensive check covers nearby field names + the `target=none` doc
+  // reference in case it appears on some events.
+  const channel =
+    ctx?.messageChannel ??
+    ctx?.channel ??
+    ctx?.metadata?.messageChannel ??
+    ctx?.metadata?.channel ??
+    event?.messageChannel ??
+    event?.channel;
+  if (channel === "heartbeat" || channel === "system" || channel === "internal") return;
+
   const target =
     ctx?.target ??
     ctx?.metadata?.target ??
