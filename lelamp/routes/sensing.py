@@ -296,6 +296,32 @@ def user_rename(req: UserRenameRequest):
     except OSError as e:
         raise HTTPException(500, f"rename failed: {e}") from e
 
+    # Per-user metadata.json files mirror the label as `name` / `display_name`.
+    # Recognize / list endpoints read these directly, so a folder rename alone
+    # leaves stale identity strings until the next enrollment overwrites them.
+    # Update both the shared top-level file and the voice/ mirror inline.
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for meta_path in (dst / "metadata.json", dst / "voice" / "metadata.json"):
+        if not meta_path.is_file():
+            continue
+        try:
+            data = json.loads(meta_path.read_text()) or {}
+        except (json.JSONDecodeError, OSError):
+            continue
+        changed = False
+        if "name" in data and data.get("name") != new:
+            data["name"] = new
+            changed = True
+        if data.get("display_name") != new:
+            data["display_name"] = new
+            changed = True
+        if changed:
+            data["updated_at"] = now_iso
+            try:
+                meta_path.write_text(json.dumps(data, indent=2))
+            except OSError:
+                pass
+
     # Speaker registry is keyed by label — re-key the entry inline so
     # /speaker/list reflects the new name on the next call instead of
     # waiting for a process restart.
