@@ -93,6 +93,12 @@ type OpenClawHandler struct {
 	agentLifecycleAt     map[string]int64
 	activeRunIDBySession map[string]string
 
+	// firstTokenSeen marks runIDs that have already emitted llm_first_token,
+	// so the flow event fires exactly once per turn at the first thinking or
+	// assistant delta. Cleared on lifecycle end/error.
+	firstTokenMu   sync.Mutex
+	firstTokenSeen map[string]bool
+
 	// compacting prevents duplicate /compact sends while one is in progress.
 	compacting atomic.Bool
 
@@ -140,7 +146,40 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 		channelTurns:         make(map[string]*channelTurnState),
 		agentLifecycleAt:     make(map[string]int64),
 		activeRunIDBySession: make(map[string]string),
+		firstTokenSeen:       make(map[string]bool),
 	}
+}
+
+// markFirstToken emits llm_first_token exactly once per runID, on the first
+// streaming delta (thinking or assistant) of the turn. Stream is "thinking" or
+// "assistant" — whichever fired first. Used by Flow Monitor to compute TTFT
+// (time-to-first-token) = llm_first_token - lifecycle_start.
+func (h *OpenClawHandler) markFirstToken(runID, stream string) {
+	if runID == "" {
+		return
+	}
+	h.firstTokenMu.Lock()
+	if h.firstTokenSeen[runID] {
+		h.firstTokenMu.Unlock()
+		return
+	}
+	h.firstTokenSeen[runID] = true
+	h.firstTokenMu.Unlock()
+	flow.Log("llm_first_token", map[string]any{
+		"run_id": runID,
+		"stream": stream,
+	}, runID)
+}
+
+// clearFirstTokenSeen removes the runID from firstTokenSeen so the map does
+// not leak across turns. Called on lifecycle end/error.
+func (h *OpenClawHandler) clearFirstTokenSeen(runID string) {
+	if runID == "" {
+		return
+	}
+	h.firstTokenMu.Lock()
+	delete(h.firstTokenSeen, runID)
+	h.firstTokenMu.Unlock()
 }
 
 // IsSleeping returns true when the last emotion expressed by the agent was "sleepy".

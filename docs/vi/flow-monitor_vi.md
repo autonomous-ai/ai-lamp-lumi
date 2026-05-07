@@ -18,6 +18,8 @@ Flow Monitor là lớp quan sát end-to-end cho agent turn: ghi JSONL (`local/fl
 
 **Field `type` trong `chat_send`:** event `chat_send` có field `type` = `"user"` (user thật / sensing-driven) hoặc `"system"` (skill watcher, wake greeting). Phân biệt chỉ ở flow event — WS RPC `chat.send` gửi sang OpenClaw giống hệt nhau. Auto-compact **không** sinh `chat_send`; nó gọi RPC `sessions.compact` trực tiếp qua `CompactSession`.
 
+**Event `llm_first_token` (TTFT):** Phát ra **đúng 1 lần** mỗi turn ở delta đầu tiên (thinking hoặc assistant) từ stream của OpenClaw. Detail `{ run_id, stream }` với `stream` = `"thinking"` hoặc `"assistant"` (cái nào đến trước). Dùng để đo TTFT thực = `llm_first_token - lifecycle_start` (LLM khởi động trước khi token đầu chảy ra). Khoảng `chat_send → lifecycle_start` là **OpenClaw init turn** (network + load session/context + boot agent), KHÔNG phải LLM. Code: `OpenClawHandler.markFirstToken` trong `lumi/server/openclaw/delivery/sse/handler.go`; map `firstTokenSeen` được clear ở `lifecycle_end`/`error`. Lưu ý: turn channel-driven (Telegram queue mode) hiện chưa emit event này vì stream `thinking`/`assistant` của agent path bị OpenClaw 5.x gate.
+
 ## Sơ đồ Turn Pipeline (SVG)
 
 Component `FlowDiagram` trong `lumi/web/src/pages/Monitor.tsx` vẽ **ba vùng** (màu viền nền):

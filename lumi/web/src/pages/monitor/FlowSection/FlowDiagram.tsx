@@ -79,6 +79,7 @@ export function FlowDiagram({
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
+    llm_first_token:   { x: 950, y: 315 },
     tool_exec:         { x: 750, y: 390 },
     agent_thinking:    { x: 950, y: 390 },
     agent_response:    { x: 750, y: 795 },
@@ -101,7 +102,8 @@ export function FlowDiagram({
     ["channel_input",     "agent_call"],
     ["webchat_input",     "agent_call"],
     ["schedule_trigger",  "agent_call"],
-    ["agent_call",        "agent_thinking"],
+    ["agent_call",        "llm_first_token"],
+    ["llm_first_token",   "agent_thinking"],
     ["agent_thinking",    "tool_exec"],
     ["agent_thinking",    "agent_response"],
     ["tool_exec",         "hw_led"],
