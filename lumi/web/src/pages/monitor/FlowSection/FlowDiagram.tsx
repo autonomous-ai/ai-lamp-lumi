@@ -75,13 +75,16 @@ export function FlowDiagram({
     hw_led:            { x: 200, y: 525 },
     hw_servo:          { x: 200, y: 660 },
     hw_audio:          { x: 200, y: 795 },
+    hw_wellbeing:      { x: 467, y: 660 },
     tts_speak:         { x: 200, y: 930 },
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
-    llm_first_token:   { x: 950, y: 315 },
-    tool_exec:         { x: 750, y: 390 },
-    agent_thinking:    { x: 950, y: 390 },
+    // llm_first_token sits offset to the right (satellite) so the runtime
+    // info text column under agent_call / agent_thinking does not overlap it.
+    llm_first_token:   { x: 1110, y: 360 },
+    tool_exec:         { x: 750, y: 480 },
+    agent_thinking:    { x: 950, y: 480 },
     agent_response:    { x: 750, y: 795 },
     // External channels — outside OpenClaw
     channel_input:     { x: 1300, y: 240 },
@@ -116,6 +119,7 @@ export function FlowDiagram({
     ["lumi_gate",         "hw_led"],
     ["lumi_gate",         "hw_servo"],
     ["lumi_gate",         "hw_audio"],
+    ["lumi_gate",         "hw_wellbeing"],
     ["lumi_gate",         "tts_speak"],
     ["lumi_gate",         "tg_out"],
     ["lumi_gate",         "tg_alert"],
@@ -280,7 +284,7 @@ export function FlowDiagram({
 
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
-          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio");
+          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing");
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
