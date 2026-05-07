@@ -278,6 +278,8 @@ export default function EditConfig() {
   // STT provider: derived from saved config (deepgram if key present, else autonomous).
   // Default for fresh devices is "autonomous" — uses LLM endpoint as fallback.
   const [sttProvider, setSttProvider] = useState<"autonomous" | "deepgram">("autonomous");
+  // STT language drives model selection on the server (operators don't pick model directly).
+  const [sttLanguage, setSttLanguage] = useState("");
   const [ttsApiKey, setTtsApiKey] = useState("");
   const [ttsBaseUrl, setTtsBaseUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
@@ -508,6 +510,7 @@ export default function EditConfig() {
         setSttApiKey(cfg.stt_api_key ?? "");
         setSttBaseUrl(cfg.stt_base_url ?? "");
         setSttProvider(cfg.deepgram_api_key ? "deepgram" : "autonomous");
+        setSttLanguage(cfg.stt_language ?? "");
         setTtsApiKey(cfg.tts_api_key ?? "");
         setTtsBaseUrl(cfg.tts_base_url ?? "");
         setTtsProvider(cfg.tts_provider || "openai");
@@ -629,6 +632,7 @@ export default function EditConfig() {
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
         ...sttFields,
+        stt_language: sttLanguage,
         tts_api_key: ttsApiKey, tts_base_url: ttsBaseUrl, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
@@ -643,7 +647,7 @@ export default function EditConfig() {
   }, [
     channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
-    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, sttApiKey, sttBaseUrl, sttProvider,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, sttApiKey, sttBaseUrl, sttProvider, sttLanguage,
     ttsApiKey, ttsBaseUrl, ttsProvider, ttsVoice, deviceId,
     mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
   ]);
@@ -1156,6 +1160,28 @@ export default function EditConfig() {
                     <>
                       <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
                       <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
+                      <div style={{ marginBottom: 12 }}>
+                        <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                          Language
+                        </label>
+                        <select
+                          id="stt_language"
+                          value={sttLanguage}
+                          onChange={(e) => setSttLanguage(e.target.value)}
+                          style={{
+                            width: "100%", boxSizing: "border-box",
+                            background: C.surface, border: `1px solid ${C.border}`,
+                            borderRadius: 7, padding: "8px 11px",
+                            fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                          }}
+                        >
+                          <option value="">Auto (default)</option>
+                          <option value="en">English</option>
+                          <option value="vi">Vietnamese</option>
+                          <option value="zh-CN">Chinese (Simplified)</option>
+                          <option value="zh-TW">Chinese (Traditional)</option>
+                        </select>
+                      </div>
                     </>
                   )}
                 </SectionCard>
