@@ -81,18 +81,18 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
 # Phrases are intentionally generic and short so one cache pool covers
 # every style/query. Cache is keyed by provider/voice/model in TTSService.
 MUSIC_BACKCHANNEL_PHRASES: list[str] = [
-    "On it.",
-    "Coming up.",
+    "On it!",
+    "Coming right up.",
     "Got it.",
     "Sure thing.",
     "One sec.",
-    "Cueing it up.",
-    "Pulling that up.",
     "Let me find it.",
-    "Hold on a sec.",
-    "Right away.",
-    "Loading that now.",
-    "Just a moment.",
+    "Looking it up.",
+    "Tuning in.",
+    "Spinning that up.",
+    "Music coming.",
+    "Nice pick.",
+    "Hmm, let me see.",
 ]
 
 
