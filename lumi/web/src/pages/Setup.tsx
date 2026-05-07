@@ -4,7 +4,7 @@ import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfi
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Globe, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
+type SectionId = "wifi" | "device" | "llm" | "language" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -312,6 +312,7 @@ export default function Setup() {
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
+    { id: "language", label: "Language", icon: <Globe size={15} /> },
     { id: "voice",  label: "Voice",  icon: <Mic size={15} /> },
     { id: "face",   label: "Face",   icon: <UserCircle size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
@@ -349,6 +350,16 @@ export default function Setup() {
   // the device's voice pipeline has fallback values mirroring the LLM endpoint.
   const [sttApiKey, setSttApiKey] = useState("");
   const [sttBaseUrl, setSttBaseUrl] = useState("");
+  // Pre-fill STT language from browser locale so VN/CN buyers don't have to
+  // touch this field; users can still override before submitting.
+  const [sttLanguage, setSttLanguage] = useState<string>(() => {
+    const loc = (navigator.language || "").toLowerCase();
+    if (loc.startsWith("vi")) return "vi";
+    if (loc.startsWith("zh-tw") || loc.startsWith("zh-hant") || loc.startsWith("zh-hk")) return "zh-TW";
+    if (loc.startsWith("zh")) return "zh-CN";
+    if (loc.startsWith("en")) return "en";
+    return "";
+  });
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -702,6 +713,7 @@ export default function Setup() {
         deepgram_api_key: urlParams.deepgramApiKey || undefined,
         stt_api_key: sttApiKey || undefined,
         stt_base_url: sttBaseUrl || undefined,
+        stt_language: sttLanguage || undefined,
         tts_api_key: ttsApiKey || undefined,
         tts_base_url: ttsBaseUrl || undefined,
         tts_provider: ttsProvider || undefined,
@@ -945,6 +957,37 @@ export default function Setup() {
                       />
                       <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
                     </label>
+                  </SectionCard>
+
+                  {/* Language — picks STT language; backend auto-derives the
+                      Deepgram model behind the scenes. Default is read from
+                      navigator.language so VN/CN locales land pre-selected. */}
+                  <SectionCard id="language" title="Language" active={activeSection === "language"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>
+                      Pick the language the lamp listens for. You can change this anytime from the Edit page.
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Language
+                      </label>
+                      <select
+                        id="stt_language"
+                        value={sttLanguage}
+                        onChange={(e) => setSttLanguage(e.target.value)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="">Auto (default)</option>
+                        <option value="en">English</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="zh-TW">Chinese (Traditional)</option>
+                      </select>
+                    </div>
                   </SectionCard>
 
                   {/* Voice enrollment — user stands near the lamp and reads

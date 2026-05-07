@@ -44,6 +44,7 @@ type SetupRequest struct {
 	TTSAPIKey      string `json:"tts_api_key"`
 	STTBaseURL     string `json:"stt_base_url"`
 	TTSBaseURL     string `json:"tts_base_url"`
+	STTLanguage    string `json:"stt_language"`
 	TTSProvider    string `json:"tts_provider"`
 	TTSVoice       string `json:"tts_voice"`
 
