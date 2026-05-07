@@ -30,8 +30,11 @@ PI_DEBOUNCE_NS = 200_000_000
 # OrangePi sun60iw2 (4 Pro / A733): button on header pin 11 = PL9 → gpiochip1 line 9.
 OPI_SUN60_BUTTON_CHIP = 1
 OPI_SUN60_BUTTON_PIN = 9
-# gpiochip1 on sun60iw2 reports more contact bounce than the Pi — pad to 250 ms.
-OPI_SUN60_DEBOUNCE_NS = 250_000_000
+# Same 200 ms as Pi — 250 ms made the triple-click gap window too tight
+# ([250, 400] ms) on OrangePi field-test, dropping click 2/3 when users
+# clicked at natural pace. If bounce comes back at 200 ms, prefer bumping
+# DOUBLE_CLICK_WINDOW over the debounce (single click is the hot path).
+OPI_SUN60_DEBOUNCE_NS = 200_000_000
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
