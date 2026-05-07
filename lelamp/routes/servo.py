@@ -303,11 +303,12 @@ def release_servos():
     state.animation_service._running.clear()
     if state.animation_service._event_thread and state.animation_service._event_thread.is_alive():
         state.animation_service._event_thread.join(timeout=3.0)
-    # Final frame of sleepy.csv — body cụp sâu nên khi cắt torque ít sập.
+    # Fully folded pose (elbow at max 90°) so the body is already at the
+    # mechanical floor when torque is cut — no remaining gap to drop.
     rest_pos = {
         "base_yaw.pos": 0.0,
-        "base_pitch.pos": -54.0,
-        "elbow_pitch.pos": 70.3,
+        "base_pitch.pos": -90.0,
+        "elbow_pitch.pos": 90.0,
         "wrist_roll.pos": 0.0,
         "wrist_pitch.pos": 0.0,
     }
