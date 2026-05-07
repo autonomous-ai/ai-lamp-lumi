@@ -67,6 +67,7 @@ FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
 FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "3600.0"))
 FACE_STRANGER_FORGET_S = float(os.environ.get("LELAMP_FACE_STRANGER_FORGET_S", "1800.0"))
 FACE_STRANGER_FLUSH_S = float(os.environ.get("LELAMP_FACE_STRANGER_FLUSH_S", "10.0"))
+FACE_AREA_RATIO_THRESHOLD = float(os.environ.get("LELAMP_FACE_AREA_RATIO_THRESHOLD", "0.05"))
 
 # --- DL backend connection ---
 LUMI_CONFIG_PATH = os.environ.get("LUMI_CONFIG_PATH", "/root/config/config.json")

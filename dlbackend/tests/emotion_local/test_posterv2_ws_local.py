@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.emotion.emotion import EmotionModel
-from core.emotion.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
+from core.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
