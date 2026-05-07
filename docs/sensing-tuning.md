@@ -136,6 +136,30 @@ INFO lelamp.service.sensing.sensing_service: [sensing] light.level: Ambient ligh
 
 ---
 
+## Face Detection
+
+**File:** `lelamp/config.py`
+
+```python
+FACE_AREA_RATIO_THRESHOLD = 0.05  # Skip faces larger than 5% of frame area
+FACE_COOLDOWN_S = 10.0            # Min seconds between face presence events
+FACE_OWNER_FORGET_S = 3600.0      # Re-fire presence after N seconds without seeing owner
+FACE_STRANGER_FORGET_S = 1800.0   # Same for strangers
+```
+
+The area ratio threshold filters out faces that are **too small** relative to the frame — typically distant people or false positives where the face crop is too low-resolution for reliable recognition. Faces covering less than the threshold fraction of the total frame area are skipped.
+
+**Tuning:**
+
+| Symptom | Fix |
+|---------|-----|
+| Distant people not recognized | Decrease `FACE_AREA_RATIO_THRESHOLD` (0.05 → 0.02) |
+| False detections from tiny face-like patches | Increase `FACE_AREA_RATIO_THRESHOLD` (0.05 → 0.1) |
+| Presence events fire too often | Increase `FACE_COOLDOWN_S` (10 → 30) |
+| Lumi forgets owner too quickly after leaving | Increase `FACE_OWNER_FORGET_S` |
+
+---
+
 ## Apply Changes
 
 After editing `lelamp/config.py` or `voice_service.py` on the Pi:
