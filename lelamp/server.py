@@ -401,8 +401,8 @@ async def lifespan(app: FastAPI):
         if not state.tts_service or not getattr(state.tts_service, "available", False):
             return
         try:
-            from lelamp.routes.music import MUSIC_BACKCHANNEL_PHRASES
-            for phrase in MUSIC_BACKCHANNEL_PHRASES:
+            from lelamp.routes.music import _backchannel_pool
+            for phrase in _backchannel_pool():
                 state.tts_service.speak_cached(phrase, prerender=True)
         except Exception as e:
             logger.warning("Music backchannel prerender failed: %s", e)
