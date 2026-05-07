@@ -28,13 +28,14 @@ Only one trigger: **Mood** — after logging a mood `decision` that is suggestio
 
 ## What to read (batch with the rest of the turn)
 
-These four GETs have no data dependency on each other — fire them concurrently with the mood-history read in one bash via `& ... wait`:
+These five reads have no data dependency on each other — fire them concurrently with the mood-history read in one bash via `& ... wait` (do NOT split `cat patterns.json` into a second tool turn):
 
 ```bash
 curl -s http://127.0.0.1:5001/audio/status &
 curl -s "http://127.0.0.1:5000/api/openclaw/music-suggestion-history?user={name}&last=1" &
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user={name}&kind=decision&last=1" &
 curl -s "http://127.0.0.1:5001/audio/history?person={name}&last=1" &
+cat /root/local/users/{name}/habit/patterns.json 2>/dev/null &
 wait
 ```
 
@@ -53,11 +54,7 @@ If any rule says skip → reply `<say></say>`. Do not narrate why. Use `audio/hi
 
 ## Pick genre
 
-**First, check habit patterns:**
-
-```bash
-cat /root/local/users/{name}/habit/patterns.json 2>/dev/null
-```
+**Use `patterns.json` from the read batch** (already fetched above; do NOT re-`cat` it here).
 
 If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below. The file is bootstrapped lazily by wellbeing on its first threshold nudge; absent file = no habit data yet, fall back to the table without invoking habit Flow A here.
 
