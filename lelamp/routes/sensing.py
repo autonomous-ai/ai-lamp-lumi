@@ -1,10 +1,14 @@
 """Sensing route handlers -- /sensing, /presence/*, /face/*, /user/* endpoints."""
 
 import base64
+import json
+import os
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 import lelamp.app_state as state
 from lelamp.models import (
@@ -22,6 +26,22 @@ from lelamp.models import (
     StatusResponse,
     UserInfoResponse,
 )
+
+
+class UserRenameRequest(BaseModel):
+    """Rename a user folder under /root/local/users/.
+
+    Touches every per-user surface in one move: face photos, voice samples,
+    metadata.json, mood/wellbeing/audio_history JSONLs, habit patterns —
+    all live inside the label folder, so a single os.rename moves them
+    atomically. The face recognizer's 2s disk poller and the speaker
+    recognizer's file-backed registry both pick up the new name on next
+    read; we touch the speaker registry inline so list_registered reflects
+    the rename immediately rather than after a full restart.
+    """
+
+    old_label: str = Field(min_length=1, max_length=64)
+    new_label: str = Field(min_length=1, max_length=64)
 
 # Lazy import
 FacePerception = None
@@ -236,6 +256,68 @@ def face_reset():
     fr = _require_face_recognizer()
     fr.reset_enrolled()
     return FaceResetResponse(status="ok", enrolled_count=0)
+
+
+@router.post("/users/rename", response_model=StatusResponse, tags=["User"])
+def user_rename(req: UserRenameRequest):
+    """Rename a per-user folder. All face / voice / mood / wellbeing data
+    lives under the label folder, so this is a single fs rename.
+
+    Validation:
+    - new_label must normalize cleanly and be non-empty.
+    - new_label must not collide with an existing folder.
+    - old folder must exist.
+    """
+    from lelamp.service.sensing.perceptions.processors.facerecognizer import (
+        FacePerception,
+        USERS_DIR,
+    )
+
+    old = FacePerception.normalize_label(req.old_label)
+    new = FacePerception.normalize_label(req.new_label)
+    if not old or not new:
+        raise HTTPException(400, "label must contain at least one valid character")
+    if old == new:
+        return {"status": "ok"}
+
+    src = USERS_DIR / old
+    dst = USERS_DIR / new
+    if not src.is_dir():
+        raise HTTPException(404, f"user folder not found: {old}")
+    if dst.exists():
+        raise HTTPException(409, f"target name already exists: {new}")
+
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        raise HTTPException(500, f"rename failed: {e}") from e
+
+    # Speaker registry is keyed by label — re-key the entry inline so
+    # /speaker/list reflects the new name on the next call instead of
+    # waiting for a process restart.
+    registry_path = USERS_DIR / ".voice_registry.json"
+    if registry_path.is_file():
+        try:
+            reg = json.loads(registry_path.read_text())
+            if old in reg:
+                entry = reg.pop(old)
+                entry["display_name"] = new
+                entry["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                reg[new] = entry
+                registry_path.write_text(json.dumps(reg, indent=2))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Force the face recognizer's mtime poller to notice. USERS_DIR
+    # rglob picks up the rename anyway, but touching a sentinel ensures
+    # the next 2s tick triggers a reload even on filesystems where the
+    # rename leaves parent dir mtime unchanged.
+    try:
+        os.utime(USERS_DIR, None)
+    except OSError:
+        pass
+
+    return {"status": "ok"}
 
 
 @router.get("/face/stranger-stats", tags=["Face"])

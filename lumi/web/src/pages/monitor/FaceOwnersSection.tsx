@@ -392,6 +392,32 @@ export function FaceOwnersSection() {
     }
   };
 
+  const handleRename = async (oldLabel: string) => {
+    const next = prompt(`Rename "${oldLabel}" to:`, oldLabel);
+    if (next == null) return;
+    const newLabel = next.trim().toLowerCase();
+    if (!newLabel || newLabel === oldLabel) return;
+    if (!/^[a-z0-9_-]+$/.test(newLabel)) {
+      alert("Name can only contain lowercase letters, digits, _ and -");
+      return;
+    }
+    try {
+      const resp = await fetch(`${HW}/users/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ old_label: oldLabel, new_label: newLabel }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        alert(`Rename failed: ${data.detail ?? resp.statusText}`);
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert(`Rename failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const handleRemovePhoto = async (label: string, filename: string) => {
     if (!confirm(`Remove photo "${filename}" from ${label}?`)) return;
     const key = `${label}/${filename}`;
@@ -607,6 +633,14 @@ export function FaceOwnersSection() {
                     }}>
                       {person.label}
                     </div>
+                    <span
+                      onClick={() => handleRename(person.label)}
+                      title={`Rename ${person.label}`}
+                      style={{
+                        cursor: "pointer", fontSize: 11, opacity: 0.55,
+                        color: "var(--lm-text-muted)", padding: "0 2px",
+                      }}
+                    >✎</span>
                     {isCurrent && (
                       <span style={{
                         fontSize: 9,
