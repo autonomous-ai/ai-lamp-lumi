@@ -10,7 +10,6 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
-	"go-lamp.autonomous.ai/lib/lelamp"
 	sensinghttp "go-lamp.autonomous.ai/server/sensing/delivery/http"
 )
 
@@ -420,34 +419,16 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 										"total_tokens":       fmt.Sprintf("%d", u.TotalTokens),
 									},
 								})
-								// Auto-compact when context exceeds threshold.
-								// chat.history TotalTokens undercounts by ~35K (excludes system prompt,
-								// tools, workspace bootstrap). Use 80K so actual context ~115K triggers compact.
-								const autoCompactThreshold = 80_000
-								if u.TotalTokens > autoCompactThreshold && !h.compacting.Load() {
-									slog.Info("auto-compact triggered", "component", "agent",
-										"total_tokens", u.TotalTokens, "threshold", autoCompactThreshold)
-									h.compacting.Store(true)
-									go func() {
-										// Reset after 2min — compact takes time, prevent re-trigger
-										defer func() {
-											time.Sleep(2 * time.Minute)
-											h.compacting.Store(false)
-										}()
-										// Notify user via TTS
-										if err := lelamp.SpeakInterruptible("Hold on, tidying up a bit."); err != nil {
-											slog.Warn("compaction notice TTS failed", "component", "openclaw", "error", err)
-										}
-										sessionKey := h.agentGateway.GetSessionKey()
-										if sessionKey == "" {
-											slog.Error("auto-compact failed: no session key", "component", "agent")
-											return
-										}
-										if err := h.agentGateway.CompactSession(sessionKey); err != nil {
-											slog.Error("auto-compact failed", "component", "agent", "error", err)
-										}
-									}()
-								}
+								// Auto-compact (legacy) — slow but preserves verbatim history
+								// via generated summary. Disabled in favour of new-session
+								// below; restore by uncommenting if new-session causes memory
+								// regressions. See maybeAutoCompact + maybeAutoNewSession in
+								// handler_session_lifecycle.go for trade-offs.
+								// h.maybeAutoCompact(h.agentGateway.GetSessionKey(), u.TotalTokens, capturedFlowRunID)
+
+								// Auto-new-session — instant, drops in-session conversation
+								// history but keeps Lumi external memory (mood/habit/owner).
+								// h.maybeAutoNewSession(h.agentGateway.GetSessionKey(), u.TotalTokens, capturedFlowRunID)
 								break
 							}
 						}
@@ -1062,8 +1043,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// real Telegram turn, so subsequent Lumi-issued chat.send
 				// echoes (sensing/voice/wakeup) would otherwise look like
 				// Telegram messages and falsely DM the last seen chat_id.
+				// Two-layer check: prefix match (deterministic, survives the
+				// 30s/32-entry buffer overflow) + IsRecentOutboundChat (catches
+				// custom message texts not in the prefix list).
 				msgText := extractMessageContentText(sm.Message.Content)
-				if msgText != "" && h.agentGateway.IsRecentOutboundChat(msgText) {
+				if msgText != "" && (isLumiInternalMessage(msgText) || h.agentGateway.IsRecentOutboundChat(msgText)) {
 					// fall through to skip log — not a real interleave
 				} else {
 					chatID := extractTelegramChatID(msgText)
@@ -1097,10 +1081,13 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Skip echoes of Lumi's own chat.send messages. session.message
 		// arrives BEFORE the corresponding agent lifecycle.start (race), so
 		// the lifecycle window above doesn't catch the first turn frame.
-		// Match by exact text Lumi pushed via markOutboundChat (in sendChat).
+		// Match by exact text Lumi pushed via markOutboundChat (in sendChat),
+		// plus a deterministic prefix check so burst voice/sensing turns that
+		// overflow the 32-entry recent-outbound buffer or arrive >30s late
+		// still get correctly classified as Lumi-internal (not Telegram).
 		if sm.Message.Role == "user" {
 			text := extractMessageContentText(sm.Message.Content)
-			if text != "" && h.agentGateway.IsRecentOutboundChat(text) {
+			if text != "" && (isLumiInternalMessage(text) || h.agentGateway.IsRecentOutboundChat(text)) {
 				slog.Info("session.message skipped — Lumi-outbound echo",
 					"component", "agent", "sessionKey", sm.SessionKey,
 					"preview", text[:min(len(text), 80)])

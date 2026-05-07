@@ -23,7 +23,10 @@ Routes:
 from __future__ import annotations
 
 import logging
+import os
 import re
+import subprocess
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -31,6 +34,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+import lelamp.app_state as state
 from lelamp import config
 from lelamp.service.voice.speaker_recognizer import (
     EmbeddingAPIUnavailableError,
@@ -95,6 +99,28 @@ class EnrollSpeakerRequest(BaseModel):
         "'other'. Auto-inferred from presence of telegram_* fields if "
         "omitted. Encoded in the stored sample filename so list_registered "
         "can show which channels contributed.",
+    )
+
+
+class RecordEnrollRequest(BaseModel):
+    """Capture audio from the lamp's mic, then enroll under ``name``.
+
+    Web Setup / Edit pages can't reach the browser microphone without HTTPS
+    (insecure-context restriction on getUserMedia), so the lamp records its
+    own ALSA mic instead. The user stands near the lamp and reads the
+    prompted text while ``arecord`` writes a 16kHz mono WAV which is then
+    fed straight to ``SpeakerRecognizer.enroll``.
+    """
+
+    name: str = Field(min_length=1, description="Display name to enroll as.")
+    duration_sec: int = Field(
+        default=15, ge=1, le=60,
+        description="Recording length in seconds. Capped at 60 to bound ALSA hold.",
+    )
+    origin: Optional[str] = Field(
+        default="web_lamp_mic",
+        description="Tagged into stored sample filenames so list_registered "
+        "can distinguish web-triggered enrolls from telegram / mic ambient.",
     )
 
 
@@ -279,6 +305,122 @@ def speaker_enroll(req: EnrollSpeakerRequest) -> EnrollResponse:
         logger.warning("POST /speaker/enroll failed for %r: %s", req.name, e)
         raise HTTPException(status_code=400, detail=str(e)) from e
     return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
+
+
+# ALSA capture device for the USB mic. Defined in /etc/asound.conf as a
+# `plug:` route over the `lamp_usb_mic` card. Same alias the runtime
+# voice_service uses, so enroll and recognize see identical acoustics.
+_LAMP_MIC_ALSA = "plug:lamp_micro2"
+
+
+@router.post("/speaker/record-enroll", response_model=EnrollResponse)
+def speaker_record_enroll(req: RecordEnrollRequest) -> EnrollResponse:
+    """Record from the lamp mic and enroll the captured audio.
+
+    Coordinates with the running voice_service to release ALSA cleanly:
+    pause the listener thread, run arecord, restart the listener, then
+    enroll. ``voice_service`` is *paused* (not torn down) so we don't lose
+    the configured tts/stt credentials — restart needs no extra args.
+    """
+    name = req.name.strip().lower()
+    duration = req.duration_sec
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+
+    voice = state.voice_service
+    music = state.music_service
+    was_running = bool(voice and getattr(voice, "_running", False))
+    prev_speaker_muted = state._speaker_muted
+
+    # Step 1: release ALSA + suppress speaker output. The mic listener
+    # holds the capture device, music can hold the playback device, and
+    # most importantly: a TTS reply from a turn that was already in flight
+    # before the user clicked "enroll" would otherwise play out of the
+    # speaker mid-recording and bleed into the captured WAV (room
+    # acoustics → embedding contamination). Setting _speaker_muted blocks
+    # TTS, music, and backchannel paths via the existing speaker-gate
+    # checks; we restore in finally below.
+    state._speaker_muted = True
+    if state.tts_service and getattr(state.tts_service, "speaking", False):
+        try:
+            state.tts_service.stop()
+        except Exception as e:
+            logger.warning("tts_service.stop failed: %s", e)
+    if was_running:
+        try:
+            voice.stop()
+        except Exception as e:
+            logger.warning("voice_service.stop failed: %s", e)
+    if music and getattr(music, "playing", False):
+        try:
+            music.stop()
+        except Exception as e:
+            logger.warning("music_service.stop failed: %s", e)
+    # ALSA may need a moment to fully release on slow hardware — without
+    # this, arecord can fail with "Device or resource busy".
+    time.sleep(0.4)
+
+    wav_path = f"/tmp/voice-enroll-{name}-{int(time.time() * 1000)}.wav"
+    try:
+        cmd = [
+            "arecord",
+            "-D", _LAMP_MIC_ALSA,
+            "-f", "S16_LE",
+            "-r", "16000",
+            "-c", "1",
+            "-d", str(duration),
+            "-q",
+            wav_path,
+        ]
+        logger.info("POST /speaker/record-enroll name=%r duration=%ds", name, duration)
+        proc = subprocess.run(cmd, capture_output=True, timeout=duration + 10)
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode(errors="replace").strip()
+            raise HTTPException(
+                status_code=500,
+                detail=f"arecord failed: {stderr or proc.returncode}",
+            )
+        if not Path(wav_path).is_file() or Path(wav_path).stat().st_size < 4096:
+            raise HTTPException(status_code=500, detail="recorded file empty/missing")
+
+        # Step 2: enroll. SpeakerRecognizer.enroll copies the WAV into the
+        # user's voice/ folder — we can clean up our /tmp original after.
+        sr = get_speaker_recognizer()
+        try:
+            meta = sr.enroll(
+                name,
+                [wav_path],
+                source_type="filepath",
+                origin=req.origin or "web_lamp_mic",
+            )
+        except EmbeddingAPIUnavailableError as e:
+            logger.warning("record-enroll embedding API unavailable for %r: %s", name, e)
+            raise HTTPException(
+                status_code=503,
+                detail=f"embedding service unavailable — please try again: {e}",
+            ) from e
+        except SpeakerRecognizerError as e:
+            logger.warning("record-enroll failed for %r: %s", name, e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        return EnrollResponse(status="ok", meta=SpeakerMeta(**meta))
+    finally:
+        # Belt-and-braces cleanup of the temp WAV (sr.enroll already copied it).
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+        # Restore speaker mute state — only relax the gate if we set it.
+        # Don't overwrite a pre-existing mute the user/scene may have asked for.
+        if not prev_speaker_muted:
+            state._speaker_muted = False
+        # Always restart the listener so passive recognition / wake word
+        # doesn't stay broken after a failed enroll.
+        if was_running and state.voice_service is not None:
+            try:
+                state.voice_service.start()
+            except Exception as e:
+                logger.warning("voice_service.start failed after record-enroll: %s", e)
 
 
 @router.post("/speaker/identity", response_model=EnrollResponse)
