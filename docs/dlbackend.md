@@ -51,7 +51,8 @@ Selectable via `EMOTION_RECOGNITION_MODEL` env var:
 | Model | Enum | ONNX file | Input | Output |
 |---|---|---|---|---|
 | **POSTER V2** (default) | `posterv2` | `posterv2_7cls.onnx` | 224×224, ImageNet norm | 7 emotions (RAF-DB: Surprise, Fear, Disgust, Happy, Sad, Anger, Neutral) |
-| **EmoNet** | `emonet` | `emonet_8.onnx` | 256×256 | 8 emotions + valence + arousal |
+| **EmoNet-8** | `emonet_8` | `emonet_8.onnx` | 256×256 | 8 emotions (Neutral, Happy, Sad, Surprise, Fear, Disgust, Anger, Contempt) + valence + arousal |
+| **EmoNet-5** | `emonet_5` | `emonet_5.onnx` | 256×256 | 5 emotions (Neutral, Happy, Sad, Surprise, Anger) + valence + arousal |
 
 Face detection for emotion uses **YuNet** (`face_detection_yunet_2023mar.onnx`) to crop faces before classification. This is separate from LeLamp's InsightFace (used for identity recognition on-device).
 
@@ -168,7 +169,7 @@ GET /api/dl/health
 1. **Pi**: `SensingService._tick()` detects faces via InsightFace (on-device)
 2. **Pi**: `EmotionPerception` crops face, encodes to base64 JPEG
 3. **HTTP**: `POST /api/dl/emotion-recognize` with face crop + threshold
-4. **RunPod**: YuNet re-detects face in crop (optional), POSTER V2 / EmoNet classifies emotion
+4. **RunPod**: YuNet re-detects face in crop (optional), POSTER V2 / EmoNet-8 / EmoNet-5 classifies emotion
 5. **HTTP**: Returns `{"detections": [{"emotion": "Happy", "confidence": 0.82}]}`
 6. **Pi**: Buffers, applies polarity-bucket dedup, fires `emotion.detected` event
 7. **Pi → Lumi**: `POST /api/sensing/event` with `type: "emotion.detected"`
@@ -184,7 +185,7 @@ DL_API_KEY=<shared secret>
 ACTION_RECOGNITION_MODEL=x3d
 # ACTION_RECOGNITION_CKPT_PATH=/path/to/model.onnx
 
-# Emotion recognition: posterv2 | emonet
+# Emotion recognition: posterv2 | emonet_8 | emonet_5
 EMOTION_RECOGNITION_MODEL=posterv2
 # EMOTION_RECOGNITION_CKPT_PATH=/path/to/posterv2_7cls.onnx
 
@@ -234,19 +235,23 @@ LELAMP_MOTION_ENABLED=true
 | `src/server.py` | FastAPI app, model loading, WS + HTTP routes, health check |
 | `src/config.py` | Pydantic settings: model selection, per-model configs, person detector |
 | `src/enums/action_recognizer.py` | `HumanActionRecognizerEnum` (x3d/uniformerv2/videomae) |
-| `src/enums/emotion_recognizer.py` | `EmotionRecognizerEnum` (posterv2/emonet) |
+| `src/enums/emotion_recognizer.py` | `EmotionRecognizerEnum` (posterv2/emonet_8/emonet_5) |
+| `src/enums/person_detector.py` | `PersonDetectorEnum` (yolo) |
 | `src/core/action/base.py` | Base action recognizer model + session (ONNX, frame buffer, predict) |
 | `src/core/action/x3d.py` | X3D model (256×256, 16 frames) |
 | `src/core/action/uniformerv2.py` | UniformerV2 model (224×224, 8 frames) |
 | `src/core/action/videomae.py` | VideoMAE model (224×224, 16 frames) |
-| `src/core/action/person_detector.py` | YOLO12 person detector (optional preprocessing) |
-| `src/core/emotion/emotion.py` | EmotionModel — factory selects PosterV2 or EmoNet based on config |
-| `src/core/emotion/posterv2.py` | POSTER V2 classifier (224×224, 7 RAF-DB classes, ImageNet norm) |
-| `src/core/emotion/emonet.py` | EmoNet classifier (256×256, 8 classes + valence/arousal) |
+| `src/core/persondetector/base.py` | Abstract `PersonDetector` base class |
+| `src/core/persondetector/yolo.py` | YOLO person detector (optional action preprocessing) |
+| `src/core/emotion/emotion.py` | EmotionModel — YuNet + classifier, session management |
+| `src/core/emotion/utils.py` | Factory: selects PosterV2 / EmoNet-8 / EmoNet-5 based on config |
+| `src/core/emotion/recognizer/posterv2.py` | POSTER V2 classifier (224×224, 7 RAF-DB classes, ImageNet norm) |
+| `src/core/emotion/recognizer/emonet.py` | EmoNet classifier (256×256, 5 or 8 classes + valence/arousal) |
+| `src/core/emotion/recognizer/base.py` | Abstract `EmotionRecognizer` base class |
 | `src/core/faces/yunet.py` | YuNet face detector (for emotion pipeline face cropping) |
 | `src/core/audio_recognition/audio_recognizer.py` | Speaker embedding (WeSpeaker ResNet34 / ECAPA / CAM++) |
 | `src/core/audio_recognition/speaker_db.py` | JSON-backed speaker storage |
-| `src/core/models.py` | Pydantic schemas: ActionResponse, EmotionDetection, EmotionResponse |
+| `src/core/models.py` | Pydantic schemas: ActionResponse, EmotionDetection, EmotionResponse, PersonDetection |
 | `nginx.conf` | Reverse proxy :8888 → :8001, `/lelamp/` prefix strip, WS upgrade |
 | `Dockerfile` | CUDA 12.4 PyTorch + nginx + uvicorn |
 | `start.sh` | RunPod startup: nginx + uvicorn |
