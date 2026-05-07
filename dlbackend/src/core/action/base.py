@@ -50,7 +50,7 @@ class HumanActionRecognizerModel(ABC):
         self._frame_size: tuple[int, int] = frame_size
         self._frame_interval: float = frame_interval
         self._class_names: list[str] = []
-        self._default_mask: npt.NDArray[np.bool_] = np.ones(len(self._class_names), dtype=np.bool_)
+        self._default_mask: npt.NDArray[np.bool_] = np.ones(0, dtype=np.bool_)
 
         self._model_path: Path = model_path
         self._running: bool = False
@@ -100,7 +100,9 @@ class HumanActionRecognizerModel(ABC):
         )
 
     def stop(self):
+        self._session = None
         self._running = False
+        self._logger.info("[%s] stopped", self.__class__.__name__)
 
     def is_ready(self) -> bool:
         return self._running and self._session is not None
@@ -110,6 +112,8 @@ class HumanActionRecognizerModel(ABC):
         opts.intra_op_num_threads = 0
         opts.inter_op_num_threads = 0
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # dynamic_block_base=4: ONNX Runtime memory arena allocates in 4-block
+        # chunks, reducing fragmentation for video models with variable batch sizes.
         opts.add_session_config_entry("session.dynamic_block_base", "4")
         providers = []
         if "CUDAExecutionProvider" in ort.get_available_providers():

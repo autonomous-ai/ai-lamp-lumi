@@ -18,7 +18,9 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
-from typing_extensions import Any, override
+from typing import Any
+
+from typing_extensions import override
 
 from core.emotion.recognizer.base import EmotionRecognizer
 

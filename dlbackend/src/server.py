@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
         else:
             emotion_ckpt_path = None
 
-        emotion_model = EmotionModel(fer_path=emotion_ckpt_path)
+        emotion_model = EmotionModel(emotion_model_path=emotion_ckpt_path)
         emotion_model.start()
         logger.info("Emotion model ready")
     except Exception as e:
@@ -139,11 +139,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    logger.info("Shutting down DL backend...")
     if action_model is not None:
         action_model.stop()
     if emotion_model is not None:
         emotion_model.stop()
-    logger.info("Shutting down DL backend")
+    logger.info("DL backend shutdown complete")
 
 
 app = FastAPI(title="DL Backend", lifespan=lifespan)
@@ -212,7 +213,7 @@ async def action_analysis_ws(websocket: WebSocket):
                     await websocket.send_json({"status": "ok"})
 
                 case _:
-                    pass
+                    logger.warning("Unknown action WS message type: %s", raw[:200])
 
     except WebSocketDisconnect:
         logger.info("Action analysis WebSocket disconnected")
@@ -265,7 +266,7 @@ async def emotion_analysis_ws(websocket: WebSocket):
                     await websocket.send_json({"status": "ok"})
 
                 case _:
-                    pass
+                    logger.warning("Unknown emotion WS message type: %s", raw[:200])
 
     except WebSocketDisconnect:
         logger.info("Emotion analysis WebSocket disconnected")

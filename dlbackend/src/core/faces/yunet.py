@@ -55,6 +55,9 @@ class YuNetDetector:
             self._top_k,
         )
 
+    def stop(self) -> None:
+        self._detector = None
+
     def is_ready(self) -> bool:
         return self._detector is not None
 
