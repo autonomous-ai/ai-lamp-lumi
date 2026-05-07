@@ -303,12 +303,13 @@ def release_servos():
     state.animation_service._running.clear()
     if state.animation_service._event_thread and state.animation_service._event_thread.is_alive():
         state.animation_service._event_thread.join(timeout=3.0)
+    # Final frame of sleepy.csv — body cụp sâu nên khi cắt torque ít sập.
     rest_pos = {
-        "base_yaw.pos": 3.0,
-        "base_pitch.pos": -30.0,
-        "elbow_pitch.pos": 57.0,
+        "base_yaw.pos": 0.0,
+        "base_pitch.pos": -54.0,
+        "elbow_pitch.pos": 70.3,
         "wrist_roll.pos": 0.0,
-        "wrist_pitch.pos": 18.0,
+        "wrist_pitch.pos": 0.0,
     }
     try:
         state.animation_service.move_to(rest_pos, duration=2.0)
