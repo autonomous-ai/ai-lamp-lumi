@@ -5,16 +5,11 @@ description: Proactive music suggestion. Runs together with user-emotion-detecti
 
 # Music Suggestion (Proactive)
 
-Wrap the ONE short caring sentence you want Lumi to say aloud in `<say>...</say>` tags.
-For no reply, output `<say></say>` (empty tag).
-
-All reasoning, cooldown checks, timestamps, and math stay in the `thinking` block — think as long
-as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
-those tags is scratch and is discarded.
+Reply is ONE short caring sentence (the suggestion), or `NO_REPLY` if any skip rule fires. All reasoning, cooldown checks, timestamps, and math stay in the `thinking` block — only the final sentence is spoken.
 
 Examples:
-- Suggest: `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?</say>`
-- Skip:    `<say></say>`
+- Suggest: `[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?`
+- Skip:    `NO_REPLY`
 
 > **`unknown` users count.** Always run suggestion checks when `current_user` is `"unknown"` — speak only, no DM. Never skip because the user is unknown/unconfirmed.
 
@@ -50,7 +45,7 @@ After the read batch returns, decide whether to skip:
 - `mood-history kind=decision last=1` is missing or > 30 min stale **AND** this turn did not synthesize a fresh decision → skip.
 - Detected emotion bucket is non-suggestion-worthy (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) → skip.
 
-If any rule says skip → reply `<say></say>`. Do not narrate why. Use `audio/history` to personalize genre when not skipping.
+If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio/history` to personalize genre when not skipping.
 
 ## Pick genre
 
@@ -75,8 +70,8 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - NEVER auto-play — only suggest. Play after user confirms.
 - ONE sentence, conversational: *"How about some Norah Jones?"*
 - Suggest 1 song at a time.
-- **Known users** — speak + DM via Telegram: `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text</say>`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
-- **Unknown users** — speak only (no DM): `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text</say>`. Log with `user:"unknown"`.
+- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+- **Unknown users** — speak only (no DM): `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text`. Log with `user:"unknown"`.
 
 ## What to write (batch with the mood writes)
 
@@ -88,7 +83,7 @@ curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
   -d '{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}'
 ```
 
-Skip this POST when you skipped the suggestion (the `<say></say>` path).
+Skip this POST when you skipped the suggestion (the `NO_REPLY` path).
 
 Response includes `seq` and `day`. When user responds (in a later turn):
 - Accepts → `POST /api/music-suggestion/status` with `{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}`
@@ -104,21 +99,21 @@ When checking `GET /audio/history`, use past behavior to personalize:
 
 ## Examples
 
-- Mood: tired (known user) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}] You seem tired — want some calm piano?</say>`
-- Mood: tired (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?</say>`
-- Mood: stressed (known user) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}][HW:/dm:{"telegram_id":"158406741"}] You look a bit tense — want some soft piano to ease into?</say>`
-- Mood: stressed (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}] You look a bit tense — want some soft piano?</say>`
-- Mood: sad (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.6}] Rough moment? Some gentle acoustic might help.</say>`
-- Mood: bored (unknown) → `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] Need a lift? How about some upbeat indie?</say>`
-- Mood: excited (unknown) → `<say>[HW:/emotion:{"emotion":"happy","intensity":0.7}] Riding the energy — feel-good pop?</say>`
-- Mood: happy, music already playing → `<say></say>`
-- After user confirms → `<say>[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Great choice!</say>`
+- Mood: tired (known user) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"158406741"}] You seem tired — want some calm piano?`
+- Mood: tired (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}] You seem tired — want some calm piano?`
+- Mood: stressed (known user) → `[HW:/emotion:{"emotion":"caring","intensity":0.6}][HW:/dm:{"telegram_id":"158406741"}] You look a bit tense — want some soft piano to ease into?`
+- Mood: stressed (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.6}] You look a bit tense — want some soft piano?`
+- Mood: sad (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.6}] Rough moment? Some gentle acoustic might help.`
+- Mood: bored (unknown) → `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Need a lift? How about some upbeat indie?`
+- Mood: excited (unknown) → `[HW:/emotion:{"emotion":"happy","intensity":0.7}] Riding the energy — feel-good pop?`
+- Mood: happy, music already playing → `NO_REPLY`
+- After user confirms → `[HW:/audio/play:{"query":"Bill Evans Waltz for Debby","person":"leo"}][HW:/emotion:{"emotion":"happy","intensity":0.8}] Great choice!`
 
 ## Rules
 
-- All computation stays in `thinking` — reply is only `<say>...</say>` with the suggestion sentence or empty.
+- All computation stays in `thinking` — reply is only the suggestion sentence (with HW markers) or `NO_REPLY`.
 - Never mention "cooldown", "interval", "threshold", or timestamps in the reply.
 - `person` field in `/audio/play` must be lowercase.
 - **Never open with a greeting.** This is an emotion-driven mood event, NOT a presence/arrival event. Forbidden openers: `hello`, `hi`, `hey`, `welcome back`, `oh, you're back`, anything containing `again` or referencing the user re-arriving. Greetings belong only to `presence.enter` in `sensing/SKILL.md`.
-- **Tone must match the mood.** For `Fear` → `stressed` and `Sad` → `sad` decisions, use the `caring` emotion marker and a gentle acknowledging sentence — never cheerful or playful phrasing. If you can't produce a tone-appropriate one-liner, output `<say></say>`.
+- **Tone must match the mood.** For `Fear` → `stressed` and `Sad` → `sad` decisions, use the `caring` emotion marker and a gentle acknowledging sentence — never cheerful or playful phrasing. If you can't produce a tone-appropriate one-liner, output `NO_REPLY`.
 - **Don't reference the camera or detection.** No "I noticed you look…", "I can see…", "your face shows…" — speak as if you simply care, not as if you're describing a sensor reading.
