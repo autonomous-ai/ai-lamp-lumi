@@ -633,14 +633,16 @@ export function FaceOwnersSection() {
                     }}>
                       {person.label}
                     </div>
-                    <span
-                      onClick={() => handleRename(person.label)}
-                      title={`Rename ${person.label}`}
-                      style={{
-                        cursor: "pointer", fontSize: 11, opacity: 0.55,
-                        color: "var(--lm-text-muted)", padding: "0 2px",
-                      }}
-                    >✎</span>
+                    {person.label !== "unknown" && (
+                      <span
+                        onClick={() => handleRename(person.label)}
+                        title={`Rename ${person.label}`}
+                        style={{
+                          cursor: "pointer", fontSize: 11, opacity: 0.55,
+                          color: "var(--lm-text-muted)", padding: "0 2px",
+                        }}
+                      >✎</span>
+                    )}
                     {isCurrent && (
                       <span style={{
                         fontSize: 9,

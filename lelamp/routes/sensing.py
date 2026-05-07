@@ -279,6 +279,10 @@ def user_rename(req: UserRenameRequest):
         raise HTTPException(400, "label must contain at least one valid character")
     if old == new:
         return {"status": "ok"}
+    # "unknown" is a sentinel label across face / voice / log paths — renaming
+    # it would silently break references everywhere. UI hides the button too.
+    if old == "unknown" or new == "unknown":
+        raise HTTPException(400, "'unknown' is reserved and cannot be renamed")
 
     src = USERS_DIR / old
     dst = USERS_DIR / new
