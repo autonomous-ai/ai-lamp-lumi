@@ -312,10 +312,32 @@ def release_servos():
         "wrist_pitch.pos": 0.0,
     }
     try:
-        # Linear interp + load → servo lag commanded ramp; cần duration dài
-        # và settle delay để vị trí thật chạm target trước khi cắt torque.
+        # move_to commands the ramp but does not verify the servo physically
+        # arrived. Under load the motor lags the command, so poll
+        # Present_Position until every joint is within tolerance of rest_pos
+        # before cutting torque — otherwise the body drops the remaining gap.
         state.animation_service.move_to(rest_pos, duration=4.0)
-        time.sleep(0.5)
+        from lelamp.service.motors.animation_service import (
+            _motor_positions_from_bus,
+        )
+
+        tol_deg = 2.0
+        deadline = time.perf_counter() + 3.0
+        while time.perf_counter() < deadline:
+            with state.animation_service.bus_lock:
+                actual = _motor_positions_from_bus(
+                    state.animation_service.robot
+                )
+            if all(
+                abs(actual.get(k, 0.0) - v) <= tol_deg
+                for k, v in rest_pos.items()
+            ):
+                break
+            time.sleep(0.05)
+        else:
+            state.logger.warning(
+                "rest_pos not reached within 3s; releasing anyway"
+            )
     except Exception as e:
         state.logger.warning(f"Could not move to rest before release: {e}")
     bus = state.animation_service.robot.bus
