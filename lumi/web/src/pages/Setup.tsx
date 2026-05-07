@@ -417,8 +417,8 @@ export default function Setup() {
     "Today is a great day to start something new, and I'm looking forward to it.",
   ];
   // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web is just a
-  // remote trigger: countdown → POST /api/voice/enroll → Lumi tells lelamp
-  // to release ALSA, runs arecord locally, re-enrolls. No HTTPS needed (we
+  // remote trigger: countdown → POST /hw/speaker/record-enroll → lelamp
+  // releases ALSA, runs arecord locally, enrolls. No HTTPS needed (we
   // never call getUserMedia), no permission prompt, and the embedding sees
   // the same mic as runtime so recognition matches.
   const VOICE_DURATION_SEC = 15;
@@ -475,21 +475,21 @@ export default function Setup() {
       }, 1000);
       // POST starts at the same instant the lamp begins recording, so the
       // client countdown stays in sync with what the lamp is actually doing.
-      fetch("/api/voice/enroll", {
+      fetch("/hw/speaker/record-enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
+        body: JSON.stringify({ name: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
       })
-        .then((r) => r.json())
-        .then((data) => {
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
           if (voiceTickRef.current) clearInterval(voiceTickRef.current);
           setVoicePhase("idle");
           setVoiceCountdown(0);
-          if (data.status === 1) {
+          if (ok && data.status === "ok") {
             setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
             loadFaceOwners();
           } else {
-            setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
+            setVoiceMsg(`Error: ${data.detail ?? data.message ?? "enroll failed"}`);
           }
         })
         .catch((e) => {
