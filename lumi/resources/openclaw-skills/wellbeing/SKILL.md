@@ -5,14 +5,6 @@ description: Proactive hydration and break reminders. Use when an [activity] eve
 
 # Wellbeing
 
-## Output Format — READ FIRST
-
-Reply is ONE short caring sentence (the nudge), or `NO_REPLY` if no nudge fires. All reasoning, deltas, timestamps, and math stay in the `thinking` block — only the final sentence is spoken.
-
-Examples (paraphrase the words each turn, never repeat verbatim):
-- Nudge: `You've been at the screen a while. Want some water?`
-- Skip:  `NO_REPLY`
-
 ## Gotchas (concrete facts, NOT suggestions)
 
 **Endpoints — use verbatim, never substitute a port or path:**
