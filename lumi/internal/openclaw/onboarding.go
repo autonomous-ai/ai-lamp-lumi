@@ -624,9 +624,15 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 	changed := false
 
 	// Compaction
+	// reserveTokensFloor=5000: keep safeguard only as a last-resort guard near
+	// the model context limit (~195k for 200k models). Previously 80000, which
+	// made OpenClaw fire compact at ~120k actual context — same range Lumi's
+	// /new RPC trigger fires (chat.history TotalTokens > 80k undercounts ~35k),
+	// so the two layers raced and produced the 30-60s compact freeze that
+	// /new was supposed to avoid.
 	compactionMap := ensureMap(defaultsMap, "compaction")
-	if v, _ := compactionMap["reserveTokensFloor"].(float64); v != 80000 {
-		compactionMap["reserveTokensFloor"] = 80000
+	if v, _ := compactionMap["reserveTokensFloor"].(float64); v != 5000 {
+		compactionMap["reserveTokensFloor"] = 5000
 		changed = true
 	}
 	if v, _ := compactionMap["mode"].(string); v != "safeguard" {
