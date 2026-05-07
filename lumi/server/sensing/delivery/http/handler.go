@@ -863,3 +863,121 @@ func (h *SensingHandler) EnrollVoice(c *gin.Context) {
 		"lelamp": lelampResp,
 	}))
 }
+
+// VoiceFileRemoveRequest deletes ONE voice sample file from a user's
+// /root/local/users/<name>/voice/ folder. Used by the Voice Enroll UI's
+// per-file delete button. After deletion the speaker embedding is
+// recomputed by calling /speaker/enroll with the remaining WAV files;
+// if no WAVs remain we POST /speaker/remove to drop the whole profile.
+type VoiceFileRemoveRequest struct {
+	Name string `json:"name" validate:"required"`
+	File string `json:"file" validate:"required"`
+}
+
+const usersDir = "/root/local/users"
+
+func (h *SensingHandler) RemoveVoiceFile(c *gin.Context) {
+	var req VoiceFileRemoveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	name := strings.ToLower(strings.TrimSpace(req.Name))
+	file := strings.TrimSpace(req.File)
+	// Path traversal guard — file must be a bare filename, no separators
+	// or ".." components. The voice dir layout is flat.
+	if name == "" || file == "" || strings.ContainsAny(file, "/\\") || file == "." || file == ".." {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("invalid name or file"))
+		return
+	}
+	// Only allow deleting audio samples — json/npy are critical state for
+	// speaker_recognizer (metadata, embedding cache); deleting them silently
+	// corrupts the profile. UI hides Delete for these too; this is the
+	// belt-and-braces guard.
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".wav", ".ogg", ".mp3", ".webm", ".m4a":
+	default:
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("only audio samples can be deleted"))
+		return
+	}
+
+	voiceDir := filepath.Join(usersDir, name, "voice")
+	target := filepath.Join(voiceDir, file)
+	// Belt-and-braces: resolved path must stay under voiceDir.
+	absVoice, err1 := filepath.Abs(voiceDir)
+	absTarget, err2 := filepath.Abs(target)
+	if err1 != nil || err2 != nil || !strings.HasPrefix(absTarget+string(filepath.Separator), absVoice+string(filepath.Separator)) {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("invalid path"))
+		return
+	}
+	if _, err := os.Stat(target); err != nil {
+		c.JSON(http.StatusNotFound, serializers.ResponseError("file not found"))
+		return
+	}
+	if err := os.Remove(target); err != nil {
+		slog.Warn("voice file remove failed", "component", "voice", "path", target, "error", err)
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("delete failed: "+err.Error()))
+		return
+	}
+	slog.Info("voice file deleted", "component", "voice", "name", name, "file", file)
+
+	// Find remaining WAVs (only WAV files matter to speaker_recognizer).
+	entries, _ := os.ReadDir(voiceDir)
+	remainingWavs := []string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".wav") {
+			remainingWavs = append(remainingWavs, filepath.Join(voiceDir, e.Name()))
+		}
+	}
+
+	// No WAVs left → remove the speaker profile entirely so list endpoints
+	// don't show a phantom user with 0 samples.
+	if len(remainingWavs) == 0 {
+		body, _ := json.Marshal(map[string]any{"name": name})
+		resp, err := http.Post("http://127.0.0.1:5001/speaker/remove", "application/json", bytes.NewReader(body))
+		if err != nil {
+			slog.Warn("speaker/remove call failed", "component", "voice", "error", err)
+		} else {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"deleted":  file,
+			"profile":  "removed",
+		}))
+		return
+	}
+
+	// Re-enroll with the remaining WAVs so speaker_recognizer recomputes
+	// the embedding from what's actually on disk.
+	body, _ := json.Marshal(map[string]any{
+		"name":      name,
+		"wav_paths": remainingWavs,
+		"origin":    "web_recompute",
+	})
+	resp, err := http.Post("http://127.0.0.1:5001/speaker/enroll", "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("speaker/enroll recompute failed", "component", "voice", "error", err)
+		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+			"deleted":  file,
+			"warning":  "embedding not recomputed: " + err.Error(),
+		}))
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		slog.Warn("speaker/enroll recompute returned error", "component", "voice", "status", resp.StatusCode, "body", string(respBody))
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"deleted":   file,
+		"remaining": len(remainingWavs),
+	}))
+}
