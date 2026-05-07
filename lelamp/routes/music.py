@@ -1,6 +1,7 @@
 """Music route handlers -- /audio/play, /audio/stop, /audio/status, /audio/history, /speaker/mute|unmute."""
 
 import os
+import random
 import threading
 
 from fastapi import APIRouter, HTTPException
@@ -73,6 +74,49 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
 }
 
 
+# --- Pre-play backchannel ---
+#
+# yt-dlp resolve + ffmpeg startup takes 1-3s before audio actually plays.
+# A short cached TTS line fills that gap so the lamp sounds responsive.
+# Phrases are intentionally generic and short so one cache pool covers
+# every style/query. Cache is keyed by provider/voice/model in TTSService.
+MUSIC_BACKCHANNEL_PHRASES: list[str] = [
+    "On it.",
+    "Coming up.",
+    "Got it.",
+    "Sure thing.",
+    "One sec.",
+]
+
+
+def _fire_music_backchannel() -> None:
+    """Speak a random short cue if all gates pass.
+
+    Skip when:
+      - speaker is muted
+      - TTS is already speaking (would queue or be skipped by the lock)
+      - music is currently playing (replacing track — backchannel feels redundant)
+      - voice_service is mid-STT-session (firing TTS would cut the user off)
+    """
+    if state._speaker_muted:
+        return
+    tts = state.tts_service
+    if tts is None or not getattr(tts, "available", False):
+        return
+    if tts.speaking:
+        return
+    if state.music_service and state.music_service.playing:
+        return
+    if state.voice_service and state.voice_service.listening:
+        state.logger.info("Music backchannel suppressed: STT session active")
+        return
+    phrase = random.choice(MUSIC_BACKCHANNEL_PHRASES)
+    try:
+        tts.speak_cached(phrase)
+    except Exception as e:
+        state.logger.warning("Music backchannel speak failed: %s", e)
+
+
 def _detect_music_style(query: str) -> str:
     """Return recording name matching the genre keywords in query, else music_groove."""
     q = query.lower()
@@ -134,6 +178,12 @@ def audio_play(req: MusicPlayRequest):
         raise HTTPException(
             503, "Music service not available -- missing sounddevice or numpy"
         )
+
+    # Pre-play backchannel — fires async; music's _play_sync waits for TTS
+    # to finish before grabbing ALSA, so the cue plays in series ahead of
+    # ffmpeg with no extra serialization here.
+    _fire_music_backchannel()
+
     from lelamp.service.voice.music_service import canonicalize_person
 
     raw_person = req.person.strip()

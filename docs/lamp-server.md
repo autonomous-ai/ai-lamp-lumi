@@ -154,7 +154,7 @@ Accessed via nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | GET | `/audio/volume` | Get volume |
 | POST | `/audio/play-tone` | Play test tone |
 | POST | `/audio/record` | Record WAV |
-| POST | `/audio/play` | Play music by query. Body: `{"query":"song artist","person":"name"}`. `person` optional — enables per-user history. |
+| POST | `/audio/play` | Play music by query. Body: `{"query":"song artist","person":"name"}`. `person` optional — enables per-user history. Fires a short cached TTS cue ("On it.", "Coming up.", …) before yt-dlp resolve so the lamp sounds responsive while ffmpeg loads. Cue is suppressed when speaker muted, TTS busy, music already playing, or VoiceService is mid-STT-session. |
 | POST | `/audio/stop` | Stop current music playback |
 | GET | `/audio/status` | Current playback status (playing, title, elapsed) |
 | GET | `/audio/history` | Music play history. Query: `?person=name&date=YYYY-MM-DD&last=50`. `person` filters per-user; omit for shared. |
