@@ -9,6 +9,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/skillcontext"
 )
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -220,6 +221,8 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 			case "motion.activity":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
+				// See sensing handler: pre-fetch wellbeing/SKILL.md reads.
+				msg += skillcontext.BuildWellbeingContext(ev.currentUser)
 			case "emotion.detected":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += "\n[REQUIRED — run both skills this turn: user-emotion-detection + music-suggestion]"

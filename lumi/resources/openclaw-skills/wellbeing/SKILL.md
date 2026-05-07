@@ -40,9 +40,32 @@ BREAK_THRESHOLD_MIN     = 7     # production: 30
 5. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
 6. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
 
-## What to read (batch upfront, every `motion.activity`)
+## Read pre-fetched context (do not re-fetch)
 
-These three reads have no data dependency — fire concurrently in one bash via `& ... wait`. Do NOT split them into separate tool turns and do NOT load `habit/SKILL.md` here (its Flow A self-throttle is just a stat-then-cat, inlined below).
+The backend injects a `[wellbeing_context: {...JSON...}]` block into this turn's message. **Do NOT fire any tool calls to re-fetch this data.** Saves the entire read tool turn.
+
+Schema (every field is pre-computed in Lumi Go — agent only applies thresholds and picks phrasing):
+
+```json
+{
+  "hydration_delta_min": 8,        // minutes since last drink/enter/nudge_hydration; -1 if no reset today
+  "break_delta_min": 23,           // minutes since last break/enter/nudge_break; -1 if no reset today
+  "latest_activity": "using computer",  // most recent action label (sedentary or reset); "" if no events
+  "patterns": {                    // wellbeing patterns from patterns.json (mtime < 6h, strength >= moderate); omitted if none
+    "drink": {"typical_hour": 9, "typical_minute": 15, "strength": "moderate"}
+  },
+  "bootstrap_needed": false        // true → patterns missing/stale AND days >= 3; only invoke habit Flow A when also nudging
+}
+```
+
+Notes:
+- Delta = `-1` means no reset action has happened today yet → treat as "no nudge" (delta undefined).
+- `patterns` only surfaces moderate/strong matches. Weak patterns are filtered out by the backend.
+- `bootstrap_needed=true` does NOT mean run Flow A unconditionally — only if THIS turn fires a nudge.
+
+### Fallback (only if context block is missing)
+
+If the message has no `[wellbeing_context: ...]` block (pre-fetch failed), fall back to the bash batch:
 
 ```bash
 {
@@ -59,45 +82,29 @@ These three reads have no data dependency — fire concurrently in one bash via 
 }
 ```
 
-Notes on the bash:
-- **History query is fixed:** `last=50` exactly. Smaller values miss the day's `enter` / earlier `drink` reset rows. Do NOT slice with `.[-N:]`, `head`, `tail`. The full `.data.events` array is required.
-- **patterns.json:** stat-then-cat (mtime < 6h). If stale or missing → empty output → habit bootstrap path may run later (see "Habit refresh" section).
-- **days count:** number of per-day `wellbeing/*.jsonl` files. Used as the gate for habit bootstrap eligibility (`>= 3` days).
-
-History response is a time-ordered list of `{ts, action, notes, hour}` (oldest first, newest last).
+In the fallback path, compute deltas yourself by scanning `history` for the latest reset action.
 
 ## Decision rules
 
-For each timer, the "last reset point" is the most recent of three actions:
+The deltas in `[wellbeing_context: ...]` are already computed in Lumi (resets = `drink` / `enter` / `nudge_hydration` for hydration; `break` / `enter` / `nudge_break` for break). You only apply the threshold:
 
-| Timer | Reset actions |
-|---|---|
-| Hydration | `drink`, `enter`, `nudge_hydration` |
-| Break | `break`, `enter`, `nudge_break` |
+- `hydration_delta_min` ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
+- Else `break_delta_min` ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge.
+- Else (or any delta == `-1` → no reset today yet) → `NO_REPLY` (or a plain caring observation if something genuinely worth saying).
 
-`delta = now − last_reset`. Sedentary raw labels (`using computer`, `writing`, etc.) are NOT reset points — they're logged for timeline + nudge phrasing only.
-
-If none of the reset actions exist yet today → delta = 0 (nothing to nudge).
-
-**Nudge priority** — at most ONE thing per turn:
-
-- Hydration delta ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
-- Else break delta ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge.
-- Else → `NO_REPLY` (or a plain caring observation if something genuinely worth saying).
+At most ONE nudge per turn. Hydration takes priority over break.
 
 The `nudge_*` row you POST below acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
 ## Habit refresh (only when a nudge will fire)
 
-If you decided to nudge AND the read batch returned empty `patterns.json` AND days ≥ 3 → invoke `habit/SKILL.md` Flow A in a separate tool turn to bootstrap `patterns.json` from the multi-day log. Otherwise, **do not load `habit/SKILL.md`** — the inline stat-then-cat above is sufficient.
+If you decided to nudge AND the context block has `bootstrap_needed=true` → invoke `habit/SKILL.md` Flow A in a separate tool turn to bootstrap `patterns.json` from the multi-day log. Otherwise, **do not load `habit/SKILL.md`** — the `patterns` field in the context block is sufficient (or no patterns yet, that's fine).
 
-Bootstrap is rare (file already exists for active users); the common path is "patterns.json was fresh → use it directly".
+Bootstrap is rare (file already exists for active users); the common path is "patterns object present → use it directly".
 
-If `patterns.json` content from the batch is non-empty:
-- Match `(action == nudge_target, now within typical_hour:typical_minute ± window_minutes)` and `strength` is moderate or strong → weave it into the speech (*"you usually drink around now — everything okay?"*).
-- No matching pattern → use generic phrasing.
-
-If empty / stale / `<3` days → generic phrasing, no bootstrap this turn.
+If the context's `patterns` map has an entry for the action you are about to nudge:
+- Match `(action == nudge_target, now within typical_hour:typical_minute ± ~30min)` → weave it into the speech (*"you usually drink around now — everything okay?"*).
+- No matching pattern (or `patterns` omitted) → use generic phrasing.
 
 If you decided NOT to nudge (`NO_REPLY`) → never invoke Flow A. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
 
