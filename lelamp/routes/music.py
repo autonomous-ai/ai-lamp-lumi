@@ -95,6 +95,11 @@ MUSIC_BACKCHANNEL_PHRASES: list[str] = [
     "Hmm, let me see.",
 ]
 
+# Index of the last spoken phrase — excluded from the next pick so the lamp
+# never repeats itself back-to-back. -1 = nothing spoken yet (first call
+# picks freely).
+_last_backchannel_idx: int = -1
+
 
 def _fire_music_backchannel() -> None:
     """Speak a random short cue if all gates pass.
@@ -105,6 +110,7 @@ def _fire_music_backchannel() -> None:
       - music is currently playing (replacing track — backchannel feels redundant)
       - voice_service is mid-STT-session (firing TTS would cut the user off)
     """
+    global _last_backchannel_idx
     if state._speaker_muted:
         return
     tts = state.tts_service
@@ -117,9 +123,14 @@ def _fire_music_backchannel() -> None:
     if state.voice_service and state.voice_service.listening:
         state.logger.info("Music backchannel suppressed: STT session active")
         return
-    phrase = random.choice(MUSIC_BACKCHANNEL_PHRASES)
+    candidates = [
+        i for i in range(len(MUSIC_BACKCHANNEL_PHRASES)) if i != _last_backchannel_idx
+    ]
+    idx = random.choice(candidates)
+    phrase = MUSIC_BACKCHANNEL_PHRASES[idx]
     try:
         tts.speak_cached(phrase)
+        _last_backchannel_idx = idx
     except Exception as e:
         state.logger.warning("Music backchannel speak failed: %s", e)
 
