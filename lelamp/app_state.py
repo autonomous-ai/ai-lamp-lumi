@@ -63,6 +63,9 @@ _user_led_state: Optional[dict] = None
 _restore_timer: Optional[threading.Timer] = None
 _sleeping: bool = False
 _current_emotion: Optional[str] = None
+# Fires release_servos after sleepy stays active continuously. Cancelled
+# the moment the emotion changes away from sleepy (see routes/emotion.py).
+_sleepy_release_timer: Optional[threading.Timer] = None
 
 # --- TTS speaking LED state ---
 

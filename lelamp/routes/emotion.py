@@ -1,5 +1,7 @@
 """Emotion route handler -- /emotion endpoint."""
 
+import threading
+
 from fastapi import APIRouter, HTTPException
 
 import lelamp.app_state as state
@@ -32,6 +34,11 @@ _WAKE_EMOTIONS = {
     EMO_HAPPY, EMO_EXCITED, EMO_CARING, EMO_LAUGH, EMO_CURIOUS,
     EMO_SAD, EMO_SHY, EMO_SHOCK, EMO_CONFUSED,
 }
+
+# Auto-release the servo after this many seconds of *continuous* sleepy.
+# The lamp is presumed unattended at that point; releasing prevents servo
+# heat / wear during long idle periods.
+SLEEPY_AUTO_RELEASE_SECONDS = 15 * 60
 
 router = APIRouter(tags=["Emotion"])
 
@@ -82,6 +89,34 @@ def express_emotion(req: EmotionRequest):
     state._sleeping = req.emotion == EMO_SLEEPY
     state._current_emotion = req.emotion
 
+    # Sleepy auto-release: fires only if sleepy stays continuous for the
+    # full window. Any other emotion (including a wake) cancels the timer.
+    if state._sleepy_release_timer is not None:
+        state._sleepy_release_timer.cancel()
+        state._sleepy_release_timer = None
+    if req.emotion == EMO_SLEEPY:
+        def _auto_release_after_sleepy():
+            # Re-check inside the timer callback in case the state changed
+            # between the cancel-window and the timer firing.
+            if state._current_emotion != EMO_SLEEPY:
+                return
+            try:
+                from lelamp.routes.servo import release_servos
+
+                state.logger.info(
+                    "Auto-release: sleepy held >= %ds, releasing servo",
+                    SLEEPY_AUTO_RELEASE_SECONDS,
+                )
+                release_servos()
+            except Exception as e:
+                state.logger.warning(f"Sleepy auto-release failed: {e}")
+
+        state._sleepy_release_timer = threading.Timer(
+            SLEEPY_AUTO_RELEASE_SECONDS, _auto_release_after_sleepy
+        )
+        state._sleepy_release_timer.daemon = True
+        state._sleepy_release_timer.start()
+
     # Auto-off scene when waking from sleep (e.g. Night mode → restore peripherals)
     if was_sleeping and not state._sleeping and state._active_scene:
         from lelamp.routes.scene import deactivate_scene
@@ -107,6 +142,18 @@ def express_emotion(req: EmotionRequest):
 
     if svc and preset.get("servo") and not servo_blocked:
         try:
+            # Sleepy auto-release stops the event loop and disables torque.
+            # Restart the loop here so the wake animation actually plays —
+            # mirrors the same restart in /servo/play.
+            if not svc._running.is_set():
+                svc._running.set()
+                svc._event_thread = threading.Thread(
+                    target=svc._event_loop, daemon=True
+                )
+                svc._event_thread.start()
+                state.logger.info(
+                    "Animation event loop restarted via /emotion (post-release wake)"
+                )
             svc.dispatch(SERVO_CMD_PLAY, preset["servo"])
             servo_played = preset["servo"]
         except Exception as e:
