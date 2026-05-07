@@ -74,6 +74,16 @@ Response:
 - Text max 2000 characters.
 - For volume control, use the **Audio** skill, not this skill.
 
+## Ambient Audio Guard (read FIRST)
+
+If the user's message starts with literal prefix `[ambient]`, it is overheard passive audio — NOT directed at Lumi. Do NOT trigger mute markers from a single bare word like "call", "meeting", "private", or a clipped fragment.
+
+Mute markers `[HW:/voice/mute:{}]` and `[HW:/speaker/mute:{}]` may fire on ambient audio ONLY when the transcript contains a clear, complete intent:
+- "I'm on a call" / "I have a meeting" / "I need privacy" / "stop listening"
+- Or directly addresses Lumi by name with a mute request
+
+When ambient is ambiguous, reply naturally or stay quiet — DO NOT mute. Voice commands (no `[ambient]` prefix) follow the normal trigger tables below.
+
 ## Mic Mute/Unmute (Privacy)
 
 Users can mute the mic for privacy (meetings, calls). Use HW markers — no curl needed.
@@ -128,6 +138,8 @@ Use when a **Telegram or web chat** user asks to unmute remotely. Voice unmute i
 
 Suppress all audio output — TTS, music, backchannel. Lumi stays silent but still listens.
 
+> Ambient guard above also applies here — bare fragments like "quiet" or "silence" in `[ambient]` audio do NOT trigger speaker mute.
+
 ### Mute speaker
 
 ```
@@ -159,7 +171,7 @@ Mic still works when speaker is muted — user can unmute via voice command.
 
 ## Meeting Mode (mic + speaker mute)
 
-When user mentions a meeting or call and wants **full silence** (not just speaker), mute BOTH mic and speaker:
+When user mentions a meeting or call and wants **full silence** (not just speaker), mute BOTH mic and speaker. Ambient guard above applies — explicit intent required, not bare fragments.
 
 **Input:** "I'm in a meeting"
 **Output:** `[HW:/voice/mute:{}][HW:/speaker/mute:{}]` Meeting mode — fully silent. Press the button when you're done.
