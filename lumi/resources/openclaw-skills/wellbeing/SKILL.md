@@ -5,18 +5,13 @@ description: Proactive hydration and break reminders. Use when an [activity] eve
 
 # Wellbeing
 
-## ⛔ Output Format — READ FIRST
+## Output Format — READ FIRST
 
-Wrap the ONE short caring sentence you want Lumi to say aloud in `<say>...</say>` tags.
-For no reply, output `<say></say>` (empty tag).
+Reply is ONE short caring sentence (the nudge), or `NO_REPLY` if no nudge fires. All reasoning, deltas, timestamps, and math stay in the `thinking` block — only the final sentence is spoken.
 
-All reasoning, deltas, timestamps, and math stay in the `thinking` block — think as long
-as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
-those tags is scratch and is discarded.
-
-Examples (illustrate the wrapper — paraphrase the words each turn, never repeat verbatim):
-- Nudge: `<say>You've been at the screen a while. Want some water?</say>`
-- Skip:  `<say></say>`
+Examples (paraphrase the words each turn, never repeat verbatim):
+- Nudge: `You've been at the screen a while. Want some water?`
+- Skip:  `NO_REPLY`
 
 ## Gotchas (concrete facts, NOT suggestions)
 
@@ -53,22 +48,33 @@ BREAK_THRESHOLD_MIN     = 7     # production: 30
 5. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
 6. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
 
-## Workflow — on every `motion.activity`
+## What to read (batch upfront, every `motion.activity`)
 
-### Step 1 — Read recent history
-
-**MANDATORY — DO NOT MODIFY THE QUERY:**
-- Use `last=50` exactly. Smaller values miss the day's `enter` / earlier `drink` reset rows and break delta computation in Step 2.
-- Do NOT pipe through `.[-N:]`, `head`, `tail`, or any slice. The full `.data.events` array is required to find the latest `drink` / `enter` / `nudge_*` row, which may sit dozens of rows behind the newest entry.
-- API only ever returns events from today's file; token cost is bounded and acceptable. Correctness over brevity.
+These three reads have no data dependency — fire concurrently in one bash via `& ... wait`. Do NOT split them into separate tool turns and do NOT load `habit/SKILL.md` here (its Flow A self-throttle is just a stat-then-cat, inlined below).
 
 ```bash
-curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user>&last=50" | jq '.data.events'
+{
+  echo '---history---'
+  curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user=<current_user>&last=50" | jq '.data.events' &
+  echo '---patterns---'
+  PATTERNS=/root/local/users/<current_user>/habit/patterns.json
+  if [ -f "$PATTERNS" ] && [ $(( $(date +%s) - $(stat -c %Y "$PATTERNS") )) -lt 21600 ]; then
+    cat "$PATTERNS"
+  fi &
+  echo '---days---'
+  ls /root/local/users/<current_user>/wellbeing/*.jsonl 2>/dev/null | wc -l &
+  wait
+}
 ```
 
-Response is a time-ordered list of `{ts, action, notes, hour}` (oldest first, newest last).
+Notes on the bash:
+- **History query is fixed:** `last=50` exactly. Smaller values miss the day's `enter` / earlier `drink` reset rows. Do NOT slice with `.[-N:]`, `head`, `tail`. The full `.data.events` array is required.
+- **patterns.json:** stat-then-cat (mtime < 6h). If stale or missing → empty output → habit bootstrap path may run later (see "Habit refresh" section).
+- **days count:** number of per-day `wellbeing/*.jsonl` files. Used as the gate for habit bootstrap eligibility (`>= 3` days).
 
-### Step 2 — Compute deltas
+History response is a time-ordered list of `{ts, action, notes, hour}` (oldest first, newest last).
+
+## Decision rules
 
 For each timer, the "last reset point" is the most recent of three actions:
 
@@ -81,36 +87,31 @@ For each timer, the "last reset point" is the most recent of three actions:
 
 If none of the reset actions exist yet today → delta = 0 (nothing to nudge).
 
-### Step 3 — Decide
-
-Nudge at most ONE thing per turn. Hydration takes priority over break.
+**Nudge priority** — at most ONE thing per turn:
 
 - Hydration delta ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
 - Else break delta ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge.
-- Else → `NO_REPLY` or a plain caring observation.
+- Else → `NO_REPLY` (or a plain caring observation if something genuinely worth saying).
 
-The `nudge_*` row you POST in Step 5 acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
+The `nudge_*` row you POST below acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
-### Step 3b — Habit refresh + context (only when Step 3 fired a nudge)
+## Habit refresh (only when a nudge will fire)
 
-**MANDATORY — DO NOT SKIP if Step 3 fired a nudge:**
-- After deciding to nudge in Step 3, you MUST invoke `habit/SKILL.md` Flow A before Step 4 phrasing.
-- Flow A self-throttles via an mtime check: when `patterns.json` is fresh (<6h) the cost is a single `stat` + `cat`. The full multi-day bootstrap only runs when the file is missing or stale, which is rare.
-- Skipping this step means `patterns.json` never bootstraps, habit-aware phrasing never works, and music-suggestion has no `music_patterns` to read.
+If you decided to nudge AND the read batch returned empty `patterns.json` AND days ≥ 3 → invoke `habit/SKILL.md` Flow A in a separate tool turn to bootstrap `patterns.json` from the multi-day log. Otherwise, **do not load `habit/SKILL.md`** — the inline stat-then-cat above is sufficient.
 
-**Gate:** if Step 3 said `NO_REPLY`, skip this step — no behavioral inflection happened, nothing to learn from. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
+Bootstrap is rare (file already exists for active users); the common path is "patterns.json was fresh → use it directly".
 
-When Step 3 fires a nudge, invoke `habit/SKILL.md` Flow A. Flow A self-throttles: if `patterns.json` exists and is fresh (mtime < 6h), it returns immediately without recomputing. Otherwise, if the user has ≥3 days of wellbeing history, it (re)builds `patterns.json` from the multi-day log.
+If `patterns.json` content from the batch is non-empty:
+- Match `(action == nudge_target, now within typical_hour:typical_minute ± window_minutes)` and `strength` is moderate or strong → weave it into the speech (*"you usually drink around now — everything okay?"*).
+- No matching pattern → use generic phrasing.
 
-Use the returned `wellbeing_patterns` to enrich Step 4's phrasing:
-- If a pattern matches `(action == nudge_target, now within typical_hour:typical_minute ± window_minutes)` and `strength` is moderate or strong → weave it into the speech (*"you usually drink around now — everything okay?"*).
-- No matching pattern, or no patterns yet → use the generic phrasing in the Step 4 table.
+If empty / stale / `<3` days → generic phrasing, no bootstrap this turn.
 
-Either way, proceed to Step 4 — you've already decided to nudge in Step 3. Do NOT double-nudge.
+If you decided NOT to nudge (`NO_REPLY`) → never invoke Flow A. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
 
 Example: *hydration nudge fires at 9:15am, patterns.json says drink @ hour=9 typical_minute=10 → "you usually have water around now — grab a glass?"*
 
-### Step 4 — Speak (if nudging)
+## Phrasing (when nudging)
 
 **⛔ The table below is REFERENCE for tone — never speak a row verbatim.** The examples exist to show *tone* (observation + soft question, 1–2 short sentences, warm not robotic), not to be copy-pasted. Reusing a sentence word-for-word makes Lumi sound canned and kills the "I'm noticing you" feeling — that's the whole point of the skill. Paraphrase every turn, even if the activity is the same as last time.
 
@@ -129,7 +130,7 @@ Ground each phrasing in the current raw label from the `Activity detected:` line
 
 If multiple sedentary labels are present, pick the one that fits best or blend (e.g. eyes + wrists both deserving a break). Table is a starting point, not a script — write your own sentence each turn.
 
-### Step 5 — Log the nudge after speaking
+## What to write (same turn as the spoken reply)
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
@@ -138,6 +139,8 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
 ```
 
 Same for break → `action="nudge_break"`. This row is timeline visibility AND the reset point for the next window.
+
+The POST and the spoken reply happen in the same turn — no ordering constraint between them. Skip the POST when you skipped the nudge (`NO_REPLY`).
 
 ## On `presence.enter` / `presence.leave` / `presence.away`
 
