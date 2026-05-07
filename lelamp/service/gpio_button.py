@@ -79,26 +79,13 @@ class GPIOButtonHandler:
         lgpio.gpio_claim_alert(
             self._handle, self._pin, lgpio.BOTH_EDGES, lgpio.SET_PULL_UP
         )
-        # Kernel-level debounce filter — drops edges shorter than the window at
-        # the lgpio driver layer, before they reach the Python callback. The
-        # manual per-edge debounce in _on_edge stays as a fallback for older
-        # lgpio builds without gpio_set_debounce_micros, and as a backstop in
-        # case the kernel filter behaves differently than expected.
-        kernel_debounce_us = self._debounce_ns // 1000
-        kernel_status = "off"
-        try:
-            lgpio.gpio_set_debounce_micros(self._handle, self._pin, kernel_debounce_us)
-            kernel_status = f"{kernel_debounce_us // 1000}ms"
-        except Exception as e:
-            logger.warning("gpio_set_debounce_micros unavailable (%s)", e)
         self._callback = lgpio.callback(
             self._handle, self._pin, lgpio.BOTH_EDGES, self._on_edge
         )
         logger.info(
-            "GPIO button ready on gpiochip%d line %d (kernel debounce %s, manual %d ms)",
+            "GPIO button ready on gpiochip%d line %d (manual debounce %d ms)",
             self._chip,
             self._pin,
-            kernel_status,
             self._debounce_ns // 1_000_000,
         )
 
