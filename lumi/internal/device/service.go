@@ -72,6 +72,8 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.TTSAPIKey = data.TTSAPIKey
 	s.config.STTBaseURL = data.STTBaseURL
 	s.config.TTSBaseURL = data.TTSBaseURL
+	s.config.STTLanguage = data.STTLanguage
+	s.config.STTModel = sttModelForLanguage(data.STTLanguage)
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
