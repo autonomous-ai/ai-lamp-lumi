@@ -263,6 +263,7 @@ async def lifespan(app: FastAPI):
         elif os.environ.get("LELAMP_AUDIO_OUTPUT_ALSA"):
             _alsa_out = os.environ["LELAMP_AUDIO_OUTPUT_ALSA"]
             _alsa_card = _alsa_out.split(":")[1].split(",")[0] if ":" in _alsa_out else ""
+            _matched = False
             if _alsa_card:
                 # ALSA short card id (e.g. "wm8960soundcard") and PortAudio device
                 # label (e.g. "wm8960-soundcard: ...") often differ by dashes/
@@ -274,7 +275,21 @@ async def lifespan(app: FastAPI):
                     if _needle and _needle in _norm(_d["name"]) and _d["max_output_channels"] > 0:
                         state.audio_output_device = _i
                         logger.info("Audio output device from ALSA env: %d '%s' (matched '%s')", _i, _d["name"], _alsa_card)
+                        _matched = True
                         break
+            if not _matched:
+                # PortAudio enum can miss ALSA plug aliases (e.g. plug:lamp_speaker
+                # from asound.conf) right after boot, before the plug PCMs are
+                # instantiated. Falling through with the stale _find_audio_device
+                # index points TTS at raw hw:N,0 -- which often plays silently
+                # (format mismatch, no plug rate/channel conversion). device=None
+                # routes through PortAudio's default sink -> ALSA pcm.!default,
+                # which /etc/asound.conf already maps to the right speaker.
+                state.audio_output_device = None
+                logger.info(
+                    "ALSA env '%s' not enumerated by PortAudio yet; using ALSA default",
+                    _alsa_out,
+                )
         if state.audio_output_device is not None:
             logger.info(f"Audio output device: {state.audio_output_device}")
         if state.audio_input_device is not None:
