@@ -793,20 +793,12 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       const i = s.indexOf(" ");
       return i > 0 ? { path: s.slice(0, i), body: s.slice(i + 1) } : { path: fallbackPath, body: s };
     };
-    // For each HW marker, also surface it in the agent_response info so the
-    // RESP node shows the original raw reply (markers + text) — backend strips
-    // markers before tts_send for the speaker but they still flow through as
-    // hw_* events. Pure UI reconstruction; no backend change.
-    const recordRawHWMarker = (path: string, body: string) => {
-      pushUnique(info.agent_response, `[HW:${path}:${body}]`);
-    };
     if (ev.type === "hw_emotion" || (ev.type === "flow_event" && ev.detail?.node === "hw_emotion")) {
       const { path, body } = parseHWEvent(ev, "/emotion");
       if (body && body.startsWith("{")) {
         pushUnique(info.hw_emotion, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -H "Content-Type: application/json" -d '${body}'`);
         const m = body.match(/"emotion"\s*:\s*"([^"]+)"/);
         pushUnique(info.lumi_gate, `🎭 → ${m ? m[1] : "emotion"}`);
-        recordRawHWMarker(path, body);
       }
     }
     if (ev.type === "hw_led" || (ev.type === "flow_event" && ev.detail?.node === "hw_led")) {
@@ -814,7 +806,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (body && body.startsWith("{")) {
         pushUnique(info.hw_led, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
         pushUnique(info.lumi_gate, `💡 → LED ${path}`);
-        recordRawHWMarker(path, body);
       }
     }
     if (ev.type === "hw_servo" || (ev.type === "flow_event" && ev.detail?.node === "hw_servo")) {
@@ -822,7 +813,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (body && body.startsWith("{")) {
         pushUnique(info.hw_servo, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
         pushUnique(info.lumi_gate, `🤖 → servo ${path}`);
-        recordRawHWMarker(path, body);
       }
     }
     if (ev.type === "hw_audio" || (ev.type === "flow_event" && ev.detail?.node === "hw_audio")) {
@@ -830,7 +820,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (body && body.startsWith("{")) {
         pushUnique(info.hw_audio, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5001${path} -d '${body}'`);
         pushUnique(info.lumi_gate, `🎵 → audio ${path}`);
-        recordRawHWMarker(path, body);
       }
     }
     if (ev.type === "hw_wellbeing" || (ev.type === "flow_event" && ev.detail?.node === "hw_wellbeing")) {
@@ -840,7 +829,6 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         pushUnique(info.hw_wellbeing, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
         const m = body.match(/"action"\s*:\s*"([^"]+)"/);
         pushUnique(info.lumi_gate, `💧 → wellbeing ${m ? m[1] : path}`);
-        recordRawHWMarker(path, body);
       }
     }
     if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")) {
