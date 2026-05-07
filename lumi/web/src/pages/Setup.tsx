@@ -427,6 +427,28 @@ export default function Setup() {
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<BlobPart[]>([]);
   const voiceTimerRef = useRef<number | null>(null);
+  const [voiceOwners, setVoiceOwners] = useState<{ name: string; display_name: string; num_samples: number; enrollment_sources: string[] }[]>([]);
+
+  const loadVoiceOwners = useCallback(async () => {
+    try {
+      const r = await fetch("/hw/speaker/list").then((x) => x.json());
+      if (Array.isArray(r?.speakers)) setVoiceOwners(r.speakers);
+    } catch { /* lelamp may be unreachable; silent */ }
+  }, []);
+
+  useEffect(() => { loadVoiceOwners(); }, [loadVoiceOwners]);
+
+  const removeVoiceOwner = async (name: string) => {
+    if (!confirm(`Remove enrolled voice "${name}"?`)) return;
+    try {
+      await fetch("/hw/speaker/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      loadVoiceOwners();
+    } catch { /* ignore */ }
+  };
 
   const startVoiceRecord = async () => {
     setVoiceMsg(null);
@@ -497,6 +519,7 @@ export default function Setup() {
         if (voiceUrl) URL.revokeObjectURL(voiceUrl);
         setVoiceUrl("");
         loadFaceOwners();
+        loadVoiceOwners();
       } else {
         setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
       }
@@ -1026,6 +1049,37 @@ export default function Setup() {
                     >
                       {voiceUploading ? "Uploading…" : "Enroll Voice"}
                     </button>
+                    {voiceOwners.length > 0 && (
+                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                          Enrolled ({voiceOwners.length})
+                        </div>
+                        {voiceOwners.map((p) => (
+                          <div key={p.name} style={{
+                            padding: "10px 0", borderBottom: `1px solid ${C.border}`,
+                            display: "flex", alignItems: "center", gap: 10,
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.display_name || p.name}</div>
+                              <div style={{ fontSize: 10, color: C.textMuted }}>
+                                {p.num_samples} sample{p.num_samples !== 1 ? "s" : ""}
+                                {p.enrollment_sources.length > 0 && ` · ${p.enrollment_sources.join(", ")}`}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeVoiceOwner(p.name)}
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                fontSize: 11, color: C.red, padding: "4px 8px",
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </SectionCard>
 
                   {/* Face enrollment — optional during setup; user can enroll
