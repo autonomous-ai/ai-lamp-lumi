@@ -330,9 +330,22 @@ def speaker_record_enroll(req: RecordEnrollRequest) -> EnrollResponse:
     voice = state.voice_service
     music = state.music_service
     was_running = bool(voice and getattr(voice, "_running", False))
+    prev_speaker_muted = state._speaker_muted
 
-    # Step 1: release ALSA. Pause listener (joins thread), stop music if it
-    # has the speaker — both can hold the device.
+    # Step 1: release ALSA + suppress speaker output. The mic listener
+    # holds the capture device, music can hold the playback device, and
+    # most importantly: a TTS reply from a turn that was already in flight
+    # before the user clicked "enroll" would otherwise play out of the
+    # speaker mid-recording and bleed into the captured WAV (room
+    # acoustics → embedding contamination). Setting _speaker_muted blocks
+    # TTS, music, and backchannel paths via the existing speaker-gate
+    # checks; we restore in finally below.
+    state._speaker_muted = True
+    if state.tts_service and getattr(state.tts_service, "speaking", False):
+        try:
+            state.tts_service.stop()
+        except Exception as e:
+            logger.warning("tts_service.stop failed: %s", e)
     if was_running:
         try:
             voice.stop()
@@ -397,6 +410,10 @@ def speaker_record_enroll(req: RecordEnrollRequest) -> EnrollResponse:
             os.remove(wav_path)
         except OSError:
             pass
+        # Restore speaker mute state — only relax the gate if we set it.
+        # Don't overwrite a pre-existing mute the user/scene may have asked for.
+        if not prev_speaker_muted:
+            state._speaker_muted = False
         # Always restart the listener so passive recognition / wake word
         # doesn't stay broken after a failed enroll.
         if was_running and state.voice_service is not None:
