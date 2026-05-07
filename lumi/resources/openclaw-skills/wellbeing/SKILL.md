@@ -5,18 +5,13 @@ description: Proactive hydration and break reminders. Use when an [activity] eve
 
 # Wellbeing
 
-## ⛔ Output Format — READ FIRST
+## Output Format — READ FIRST
 
-Wrap the ONE short caring sentence you want Lumi to say aloud in `<say>...</say>` tags.
-For no reply, output `<say></say>` (empty tag).
+Reply is ONE short caring sentence (the nudge), or `NO_REPLY` if no nudge fires. All reasoning, deltas, timestamps, and math stay in the `thinking` block — only the final sentence is spoken.
 
-All reasoning, deltas, timestamps, and math stay in the `thinking` block — think as long
-as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
-those tags is scratch and is discarded.
-
-Examples (illustrate the wrapper — paraphrase the words each turn, never repeat verbatim):
-- Nudge: `<say>You've been at the screen a while. Want some water?</say>`
-- Skip:  `<say></say>`
+Examples (paraphrase the words each turn, never repeat verbatim):
+- Nudge: `You've been at the screen a while. Want some water?`
+- Skip:  `NO_REPLY`
 
 ## Gotchas (concrete facts, NOT suggestions)
 
@@ -96,7 +91,7 @@ If none of the reset actions exist yet today → delta = 0 (nothing to nudge).
 
 - Hydration delta ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge.
 - Else break delta ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge.
-- Else → `<say></say>` (or a plain caring observation if something genuinely worth saying).
+- Else → `NO_REPLY` (or a plain caring observation if something genuinely worth saying).
 
 The `nudge_*` row you POST below acts as the next reset, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
 
@@ -112,7 +107,7 @@ If `patterns.json` content from the batch is non-empty:
 
 If empty / stale / `<3` days → generic phrasing, no bootstrap this turn.
 
-If you decided NOT to nudge (`<say></say>`) → never invoke Flow A. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
+If you decided NOT to nudge (`NO_REPLY`) → never invoke Flow A. Habit bootstrap piggybacks on real nudge events, not idle motion ticks.
 
 Example: *hydration nudge fires at 9:15am, patterns.json says drink @ hour=9 typical_minute=10 → "you usually have water around now — grab a glass?"*
 
@@ -145,7 +140,7 @@ curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
 
 Same for break → `action="nudge_break"`. This row is timeline visibility AND the reset point for the next window.
 
-The POST and the `<say>...</say>` reply happen in the same turn — no ordering constraint between them. Skip the POST when you skipped the nudge (`<say></say>`).
+The POST and the spoken reply happen in the same turn — no ordering constraint between them. Skip the POST when you skipped the nudge (`NO_REPLY`).
 
 ## On `presence.enter` / `presence.leave` / `presence.away`
 
