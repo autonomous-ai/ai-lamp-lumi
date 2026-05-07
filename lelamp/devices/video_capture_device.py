@@ -187,13 +187,28 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
                 ret, frame = video_capture.read()
 
                 if not ret:
-                    # Some webcams need a few warmup reads before producing frames
+                    # USB cameras (e.g. HD USB Camera 32e4:9230 on OrangePi) hit
+                    # autosuspend after ~2s idle; the wakeup outlasts a single
+                    # 1s retry. Instead of exiting the loop forever, mirror what
+                    # the /camera/disable + /camera/enable workaround does:
+                    # release the handle and reopen. Same recovery path V4L2
+                    # would do under any transient device-error condition.
                     self._logger.warning("Camera read() failed, retrying in 1s...")
                     time.sleep(1)
                     ret, frame = video_capture.read()
                     if not ret:
-                        self._logger.error("Camera read() failed twice, exiting loop")
-                        break
+                        self._logger.warning("Camera read still failing — reopening device")
+                        try:
+                            video_capture.release()
+                        except Exception:
+                            self._logger.exception("Camera release failed during recovery")
+                        video_capture = self._try_open(device_id)
+                        if not video_capture.isOpened():
+                            self._logger.error("Camera reopen failed, exiting loop")
+                            break
+                        video_capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                        self._logger.info("Camera reopened, resuming loop")
+                        continue
 
                 frame_ts = time.time()
 
