@@ -29,9 +29,11 @@ OPI_SUN60_BUTTON_PIN = 9
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
-# lgpio.callback tick is nanoseconds, so debounce must be in ns. 30 ms covers
-# OrangePi gpiochip1 bounce without dropping legit fast clicks (>100 ms apart).
-DEBOUNCE_NS = 30_000_000
+# lgpio.callback tick is nanoseconds, so debounce must be in ns. 100 ms — the
+# wm8960 button on Pi 4/5 bounces past 30 ms (saw 2 callback edges per physical
+# click in field logs). 100 ms still leaves 300 ms headroom inside the 400 ms
+# DOUBLE_CLICK_WINDOW for legit triple clicks.
+DEBOUNCE_NS = 100_000_000
 
 
 def _is_orangepi_sun60() -> bool:
