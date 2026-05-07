@@ -276,3 +276,44 @@ func (s *Service) CompactSession(sessionKey string) error {
 	slog.Info("sessions.compact sent", "component", "openclaw", "sessionKey", sessionKey)
 	return nil
 }
+
+// NewSession sends a sessions.new RPC to start a fresh conversation
+// session for the given key. Unlike CompactSession this does not run
+// an LLM summarize step — the agent runtime drops in-session history
+// and starts clean immediately.
+func (s *Service) NewSession(sessionKey string) error {
+	s.wsMu.Lock()
+	conn := s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	reqID := fmt.Sprintf("new-session-%d", s.reqCounter.Add(1))
+	req := map[string]interface{}{
+		"type":   "req",
+		"id":     reqID,
+		"method": "sessions.new",
+		"params": map[string]interface{}{
+			"key": sessionKey,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal new-session request: %w", err)
+	}
+
+	s.wsMu.Lock()
+	conn = s.wsConn
+	s.wsMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("ws not connected")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		return fmt.Errorf("write new-session request: %w", err)
+	}
+
+	slog.Info("sessions.new sent", "component", "openclaw", "sessionKey", sessionKey)
+	return nil
+}

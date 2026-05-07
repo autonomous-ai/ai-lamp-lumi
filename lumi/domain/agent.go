@@ -192,6 +192,14 @@ type AgentGateway interface {
 	// to summarize and reduce conversation history for the given session.
 	CompactSession(sessionKey string) error
 
+	// NewSession sends a sessions.new RPC to start a fresh conversation
+	// session for the given key. Unlike CompactSession (which runs a
+	// summarize LLM call and can take 30-60s+), this is instant — the
+	// runtime drops in-session history and starts clean. External Lumi
+	// memory (mood log, habit tracking, owner identity, voice clusters)
+	// is unaffected because it lives outside the agent session JSONL.
+	NewSession(sessionKey string) error
+
 	// IsRecentOutboundChat returns true if Lumi just called chat.send with
 	// this exact text within the recent window. Used by the session.message
 	// handler to skip echoes of Lumi-injected user messages (wake greeting,
