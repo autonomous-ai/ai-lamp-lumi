@@ -75,7 +75,16 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			if c.path == "/broadcast" || c.path == "/speak" || c.path == "/dm" {
 				continue
 			}
-			resp, err := http.Post(lelamp.BaseURL+c.path, "application/json", strings.NewReader(c.body))
+			// Lumi-bound HW markers (log writes that live on Lumi, not LeLamp):
+			// /wellbeing/log → http://127.0.0.1:5000/api/wellbeing/log. Lets the
+			// agent fire the side-effect POST without consuming a tool turn,
+			// since fireHWCalls runs async in this goroutine and the reply text
+			// is already on its way to TTS.
+			postURL := lelamp.BaseURL + c.path
+			if strings.HasPrefix(c.path, "/wellbeing/") {
+				postURL = "http://127.0.0.1:5000/api" + c.path
+			}
+			resp, err := http.Post(postURL, "application/json", strings.NewReader(c.body))
 			if err != nil {
 				slog.Warn("HW marker call failed", "component", "openclaw", "path", c.path, "error", err)
 				continue
@@ -124,6 +133,9 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 				flow.Log("hw_audio", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_audio", Summary: c.path + " " + c.body, RunID: flowRunID})
 				// music.play logged via flow.Log above
+			case strings.HasPrefix(c.path, "/wellbeing/"):
+				flow.Log("hw_wellbeing", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_wellbeing", Summary: c.path + " " + c.body, RunID: flowRunID})
 			default:
 				flow.Log("hw_call", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 			}

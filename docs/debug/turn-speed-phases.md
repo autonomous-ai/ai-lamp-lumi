@@ -68,4 +68,41 @@ Read batch chạy ~700-950ms cho 3-5 reads concurrent (với `& wait`). Write ba
 2. Đo 1-2 ngày production.
 3. Mở rộng `emotion.detected` (3-skill chain).
 
-**Phase 2 status:** đang implement (chưa commit).
+**Phase 2 status (motion.activity):** verified live trên .85 — turn ~14s (vs ~23s Phase 1).
+
+## Phase 3 — HW marker cho write side-effects
+
+**Insight tiếp:** sau Phase 2, vẫn còn ~6-8s/turn cho think pass sau khi POST `wellbeing/log` xong. Tool call protocol bắt buộc agent consume `tool_result` rồi mới generate reply tiếp — cho dù side-effect (log write) không có gì để wait.
+
+**HW marker pattern** (đã có sẵn cho `/emotion`, `/audio/play`, `/dm`...): agent nhúng `[HW:/path:{json}]` vào TEXT reply. Lumi parse marker từ text, fire HTTP POST trong goroutine background, strip marker khỏi TTS. Agent không "thấy" như tool call → không có tool round-trip → không có post-write think pass.
+
+**Đụng:**
+- `lumi/server/openclaw/delivery/sse/handler_hw.go`: route Lumi-bound markers (path bắt đầu `/wellbeing/`) tới `http://127.0.0.1:5000/api/...` thay vì lelamp `5001`. Thêm flow log `hw_wellbeing`.
+- `lumi/resources/openclaw-skills/wellbeing/SKILL.md`: "What to write" rewrite — instruct `[HW:/wellbeing/log:{action,notes,user}]` thay curl exec. Giữ curl làm fallback nếu HW marker bị reject.
+
+**Gotcha — regex limit:** `hwMarkerRe` = `\[HW:(/[^:]+):(\{[^}]*\})\]` cấm `}` trong body. Wellbeing log body flat (`{action,notes,user}`) → OK. Nếu `notes` chứa `}` regex break — agent cần escape hoặc fallback curl.
+
+**Estimated speedup:** ~14s (Phase 2) → ~5-7s (Phase 3). Tổng từ Phase 0 (~50s) ≈ **giảm 85-90%**.
+
+**Mở rộng emotion.detected (Part 2):**
+- 3 HW marker mới cần thêm:
+  - `[HW:/mood/log:{kind,mood,source,trigger,user}]` (signal + decision dùng chung body)
+  - `[HW:/music-suggestion/log:{user,trigger,message}]`
+- Cùng pattern routing trong `handler_hw.go` (path prefix `/mood/`, `/music-suggestion/` → port 5000).
+- Đợi motion.activity chạy production 1-2 ngày, ổn rồi áp tương tự cho emotion.detected.
+
+**Phase 3 status (motion.activity):** committed, chờ deploy + verify.
+
+## Đo TTFT (time-to-first-token)
+
+Để biết bottleneck nằm ở đâu — OpenClaw init, LLM warmup, hay tool execution — Flow Monitor có 3 mốc thời gian rõ ràng:
+
+| Mốc → Mốc | Ý nghĩa | Color UI |
+|---|---|---|
+| `chat_send` → `lifecycle_start` | OpenClaw nhận RPC + init turn (network + load session/context + boot agent). **KHÔNG** phải LLM. | `openclaw init` (xanh dương) |
+| `lifecycle_start` → `llm_first_token` | LLM warmup thực — từ lúc agent ready tới token đầu (thinking hoặc assistant delta). Đây là **TTFT thật**. | `llm ttft` (xanh dương) |
+| `llm_first_token` → `first tool_call` | LLM streaming + planning trước tool call đầu. | `llm streaming` (tím) |
+
+`llm_first_token` được emit bởi `OpenClawHandler.markFirstToken` (lumi/server/openclaw/delivery/sse/handler.go), đúng 1 lần/turn, ở delta đầu tiên trong case `thinking` hoặc `assistant`. JSONL detail: `{ run_id, stream }`.
+
+Khi optimize: nếu `openclaw init` lớn → check WS RTT + session context size; nếu `llm ttft` lớn → check prompt size / cache hit rate (auto-compact); nếu `llm streaming` lớn → giảm thinking budget hoặc số tool turn (xem Phase 1/2 ở trên).

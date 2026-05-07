@@ -129,17 +129,32 @@ Ground each phrasing in the current raw label from the `Activity detected:` line
 
 If multiple sedentary labels are present, pick the one that fits best or blend (e.g. eyes + wrists both deserving a break). Table is a starting point, not a script — write your own sentence each turn.
 
-## What to write (same turn as the spoken reply)
+## What to write (HW marker — fires async, no tool turn)
+
+Embed at the start of your spoken reply:
+
+```
+[HW:/wellbeing/log:{"action":"nudge_hydration","notes":"<your nudge text>","user":"<current_user>"}] <your nudge sentence>
+```
+
+Same for break → `action="nudge_break"`. The marker:
+- Is parsed and stripped by the runtime before TTS speaks the rest of your reply.
+- Fires the POST asynchronously in the background; you do NOT wait for the result and there is NO tool turn here.
+- Acts as the next reset point for that timer (timeline + delta computation).
+
+Skip the marker entirely when you decided not to nudge (`NO_REPLY`). The `notes` field is the same sentence you're about to speak — it's what the timeline will display.
+
+**Do NOT use `curl` exec for this log.** That would consume a tool turn (~5-7s LLM-think on the result) for a side-effect that has nothing to wait for. The HW marker path is single-trip.
+
+### Fallback (only if HW marker is rejected by the runtime)
+
+If you see a runtime error parsing `[HW:/wellbeing/log:...]`, fall back to:
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/wellbeing/log \
   -H 'Content-Type: application/json' \
   -d '{"action":"nudge_hydration","notes":"<your nudge text>","user":"<current_user>"}'
 ```
-
-Same for break → `action="nudge_break"`. This row is timeline visibility AND the reset point for the next window.
-
-The POST and the spoken reply happen in the same turn — no ordering constraint between them. Skip the POST when you skipped the nudge (`NO_REPLY`).
 
 ## On `presence.enter` / `presence.leave` / `presence.away`
 
