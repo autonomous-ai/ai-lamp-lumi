@@ -22,15 +22,16 @@ logger = logging.getLogger(__name__)
 # Default wiring for Raspberry Pi 4/5 (BCM 17 on gpiochip0).
 PI_BUTTON_CHIP = 0
 PI_BUTTON_PIN = 17
-# wm8960 button on Pi 4/5 bounces past 30 ms (field logs showed 2 callback
-# edges per physical click). 100 ms covers it.
-PI_DEBOUNCE_NS = 100_000_000
+# wm8960 button on Pi 4/5: 100 ms wasn't enough (deterministic 2 callback
+# edges per physical click). Bump to 200 ms — still leaves 200 ms inside
+# DOUBLE_CLICK_WINDOW which is more than the typical human inter-click gap.
+PI_DEBOUNCE_NS = 200_000_000
 
 # OrangePi sun60iw2 (4 Pro / A733): button on header pin 11 = PL9 → gpiochip1 line 9.
 OPI_SUN60_BUTTON_CHIP = 1
 OPI_SUN60_BUTTON_PIN = 9
-# gpiochip1 on sun60iw2 reports more contact bounce than the Pi — pad to 150 ms.
-OPI_SUN60_DEBOUNCE_NS = 150_000_000
+# gpiochip1 on sun60iw2 reports more contact bounce than the Pi — pad to 250 ms.
+OPI_SUN60_DEBOUNCE_NS = 250_000_000
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
@@ -78,13 +79,26 @@ class GPIOButtonHandler:
         lgpio.gpio_claim_alert(
             self._handle, self._pin, lgpio.BOTH_EDGES, lgpio.SET_PULL_UP
         )
+        # Kernel-level debounce filter — drops edges shorter than the window at
+        # the lgpio driver layer, before they reach the Python callback. The
+        # manual per-edge debounce in _on_edge stays as a fallback for older
+        # lgpio builds without gpio_set_debounce_micros, and as a backstop in
+        # case the kernel filter behaves differently than expected.
+        kernel_debounce_us = self._debounce_ns // 1000
+        kernel_status = "off"
+        try:
+            lgpio.gpio_set_debounce_micros(self._handle, self._pin, kernel_debounce_us)
+            kernel_status = f"{kernel_debounce_us // 1000}ms"
+        except Exception as e:
+            logger.warning("gpio_set_debounce_micros unavailable (%s)", e)
         self._callback = lgpio.callback(
             self._handle, self._pin, lgpio.BOTH_EDGES, self._on_edge
         )
         logger.info(
-            "GPIO button ready on gpiochip%d line %d (debounce %d ms)",
+            "GPIO button ready on gpiochip%d line %d (kernel debounce %s, manual %d ms)",
             self._chip,
             self._pin,
+            kernel_status,
             self._debounce_ns // 1_000_000,
         )
 
