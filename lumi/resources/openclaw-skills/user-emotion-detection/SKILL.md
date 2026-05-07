@@ -47,20 +47,26 @@ This skill does NOT:
 | `Disgust` | `frustrated` |
 | `Neutral` | `normal` |
 
-## Workflow
+## What this skill produces
 
-1. Parse the detected emotion from the message.
-2. **Fire this tool call immediately — do not paraphrase it in `thinking`:**
+A single `kind=signal` row in the mood log:
 
-   ```bash
-   curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-     -H 'Content-Type: application/json' \
-     -d '{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped>","user":"<current_user>"}'
-   ```
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped>","user":"<current_user>"}'
+```
 
-   Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood skill needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no tool_call fires this turn, the skill failed.
-3. **You must now continue the Mood skill's full workflow yourself — it does not run itself.** Read `mood/SKILL.md` if you haven't this turn, then:
-   - Step 2 (Mood): GET recent mood history.
-   - Step 3 (Mood): decide the fused mood.
-   - Step 4 (Mood): POST the `kind=decision` row.
-4. Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Do not narrate any of the steps above in your reply.
+Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no `POST /api/mood/log` tool call fires this turn, the skill failed.
+
+## Combined with mood + music-suggestion
+
+The backend injects this turn with `[REQUIRED — run both skills this turn]`. That means a single combined plan, not three sequential workflows:
+
+- **Reads (batch in one bash with `&` + `wait`)** — `GET /api/openclaw/mood-history?last=15` (mood decision input), plus the music-suggestion read set listed in `music-suggestion/SKILL.md`.
+- **Decide locally** — map detected emotion → signal mood, apply mood decision rules from `mood/SKILL.md`, evaluate music skip/genre rules from `music-suggestion/SKILL.md`.
+- **Writes (batch in one bash with `&` + `wait`)** — POST mood signal (this skill), POST mood decision (mood), POST music-suggestion log if suggesting (music-suggestion).
+
+Tool calls without data dependencies must fire concurrently. Do not split mood signal, mood decision, and music-suggestion across multiple tool turns.
+
+Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Never narrate the mapping or logging in the reply.

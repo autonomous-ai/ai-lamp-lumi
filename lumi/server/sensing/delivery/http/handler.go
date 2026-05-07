@@ -347,9 +347,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[REQUIRED — complete ALL steps before replying:]"
-			msg += "\n[Step 1: user-emotion-detection/SKILL.md — log mood signal + decision]"
-			msg += "\n[Step 2: music-suggestion/SKILL.md — run AFTER mood decision is logged]"
+			msg += "\n[REQUIRED — run both skills this turn: user-emotion-detection + music-suggestion]"
+			msg += "\n[Tool calls without data dependencies must fire concurrently. Batch reads in one bash with `& ... wait`, decide locally, batch writes the same way. Do not sequence them across multiple tool turns.]"
 		}
 	}
 

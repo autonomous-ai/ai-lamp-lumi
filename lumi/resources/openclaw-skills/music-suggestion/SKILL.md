@@ -1,6 +1,6 @@
 ---
 name: music-suggestion
-description: Proactive music suggestion. Runs as Step 2 of emotion.detected handling — AFTER user-emotion-detection/SKILL.md logs the mood signal and the Mood skill writes a suggestion-worthy decision (sad/stressed/tired/excited/happy/bored); the backend injects a Step 2 hint into the event message. Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
+description: Proactive music suggestion. Runs together with user-emotion-detection + mood on every emotion.detected event — reads, decision, and writes share the same parallel batch in a single turn (the backend injects [REQUIRED — run both skills this turn]). Triggered when the synthesized mood is suggestion-worthy (sad/stressed/tired/excited/happy/bored). Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
 ---
 
 # Music Suggestion (Proactive)
@@ -26,14 +26,30 @@ Only one trigger: **Mood** — after logging a mood `decision` that is suggestio
 
 `{name}` MUST come from `[context: current_user=X]` tag. If missing, use `"unknown"`. NEVER infer from memory or chat history.
 
-## Before suggesting (silently, in `thinking`)
+## What to read (batch with the rest of the turn)
 
-1. Check `GET /audio/status` — skip if music already playing.
-2. Check `GET /api/openclaw/music-suggestion-history?user={name}&last=1` — skip if last suggestion was less than 7 minutes ago. *(production: change to 30 min before ship)*
-3. For mood trigger: check `GET /api/openclaw/mood-history?user={name}&kind=decision&last=1` — skip if stale (>30 min) or missing.
-4. Check `GET /audio/history?person={name}&last=1` — use to personalize genre.
+These four GETs have no data dependency on each other — fire them concurrently with the mood-history read in one bash via `& ... wait`:
 
-If any check says skip → reply `<say></say>`. Do not narrate why.
+```bash
+curl -s http://127.0.0.1:5001/audio/status &
+curl -s "http://127.0.0.1:5000/api/openclaw/music-suggestion-history?user={name}&last=1" &
+curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user={name}&kind=decision&last=1" &
+curl -s "http://127.0.0.1:5001/audio/history?person={name}&last=1" &
+wait
+```
+
+Note: `mood-history?kind=decision` is the **prior** decision (before this turn's write). Use it for the staleness/recency check; the freshly synthesized decision lives in `thinking` from this turn.
+
+## Skip rules (apply silently in `thinking`)
+
+After the read batch returns, decide whether to skip:
+
+- `audio/status` shows music already playing → skip.
+- `music-suggestion-history last=1` shows last suggestion < 7 min ago → skip. *(production: change to 30 min before ship)*
+- `mood-history kind=decision last=1` is missing or > 30 min stale **AND** this turn did not synthesize a fresh decision → skip.
+- Detected emotion bucket is non-suggestion-worthy (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) → skip.
+
+If any rule says skip → reply `<say></say>`. Do not narrate why. Use `audio/history` to personalize genre when not skipping.
 
 ## Pick genre
 
@@ -65,7 +81,9 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - **Known users** — speak + DM via Telegram: `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text</say>`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
 - **Unknown users** — speak only (no DM): `<say>[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text</say>`. Log with `user:"unknown"`.
 
-## Log suggestion (REQUIRED after speaking)
+## What to write (batch with the mood writes)
+
+The suggestion log POST shares the write batch with mood signal + mood decision. Fire all three concurrently in one bash via `& ... wait`:
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
@@ -73,7 +91,9 @@ curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
   -d '{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}'
 ```
 
-Response includes `seq` and `day`. When user responds:
+Skip this POST when you skipped the suggestion (the `<say></say>` path).
+
+Response includes `seq` and `day`. When user responds (in a later turn):
 - Accepts → `POST /api/music-suggestion/status` with `{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}`
 - Rejects → same body, `"status":"rejected"`
 - Ignores → no update
