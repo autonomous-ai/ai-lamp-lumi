@@ -1,11 +1,15 @@
 package http
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -756,4 +760,106 @@ func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
 	default:
 		return inVoiceWindow
 	}
+}
+
+// VoiceEnrollRequest is the payload from the Setup web UI.
+// Browser captures audio via MediaRecorder (webm/opus) and sends it as
+// base64. Lumi shells out to ffmpeg to normalize → 16kHz mono WAV, then
+// proxies to lelamp /speaker/enroll which only accepts file paths.
+type VoiceEnrollRequest struct {
+	Label       string `json:"label" validate:"required"`
+	AudioBase64 string `json:"audio_base64" validate:"required"`
+	// Mime is the recorded blob's MIME type (e.g. "audio/webm;codecs=opus").
+	// Used to pick the right input file extension so ffmpeg auto-detects.
+	Mime string `json:"mime,omitempty"`
+}
+
+// EnrollVoice receives a browser-recorded audio blob, normalizes it via
+// ffmpeg (16kHz mono WAV — what speaker_recognizer expects), then forwards
+// the WAV path to lelamp /speaker/enroll. Used by the Setup page so a user
+// can enroll their voice during initial provisioning from a laptop.
+func (h *SensingHandler) EnrollVoice(c *gin.Context) {
+	var req VoiceEnrollRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	label := strings.ToLower(strings.TrimSpace(req.Label))
+	if label == "" {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("label required"))
+		return
+	}
+
+	audio, err := base64.StdEncoding.DecodeString(req.AudioBase64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("invalid audio_base64: "+err.Error()))
+		return
+	}
+	if len(audio) < 1024 {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("audio too short"))
+		return
+	}
+
+	// Pick input extension from MIME so ffmpeg's demuxer auto-detection works.
+	// Default to .webm since MediaRecorder almost always produces webm/opus.
+	inExt := ".webm"
+	switch {
+	case strings.Contains(req.Mime, "ogg"):
+		inExt = ".ogg"
+	case strings.Contains(req.Mime, "mp4"), strings.Contains(req.Mime, "m4a"):
+		inExt = ".m4a"
+	case strings.Contains(req.Mime, "wav"):
+		inExt = ".wav"
+	}
+
+	ts := time.Now().UnixMilli()
+	inPath := filepath.Join(os.TempDir(), fmt.Sprintf("voice-enroll-%s-%d%s", label, ts, inExt))
+	outPath := filepath.Join(os.TempDir(), fmt.Sprintf("voice-enroll-%s-%d.wav", label, ts))
+	if err := os.WriteFile(inPath, audio, 0o600); err != nil {
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("write temp: "+err.Error()))
+		return
+	}
+	defer os.Remove(inPath)
+
+	// 16kHz mono PCM s16 — speaker_recognizer normalizes to this anyway, but
+	// doing it here means the file is ready in one read and we can validate
+	// duration before bothering lelamp.
+	cmd := exec.Command("ffmpeg", "-y", "-i", inPath, "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", outPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		slog.Warn("voice enroll ffmpeg failed", "component", "voice", "error", err, "out", string(out))
+		c.JSON(http.StatusInternalServerError, serializers.ResponseError("audio convert failed: "+err.Error()))
+		return
+	}
+	defer os.Remove(outPath)
+
+	body, _ := json.Marshal(map[string]any{
+		"name":      label,
+		"wav_paths": []string{outPath},
+		"origin":    "web_setup",
+	})
+	resp, err := http.Post("http://127.0.0.1:5001/speaker/enroll", "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("voice enroll lelamp call failed", "component", "voice", "error", err)
+		c.JSON(http.StatusBadGateway, serializers.ResponseError("lelamp unreachable: "+err.Error()))
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		slog.Warn("voice enroll lelamp returned error", "component", "voice", "status", resp.StatusCode, "body", string(respBody))
+		c.JSON(resp.StatusCode, serializers.ResponseError("lelamp: "+string(respBody)))
+		return
+	}
+
+	slog.Info("voice enroll ok", "component", "voice", "label", label, "audio_bytes", len(audio))
+	var lelampResp map[string]any
+	_ = json.Unmarshal(respBody, &lelampResp)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"label":  label,
+		"lelamp": lelampResp,
+	}))
 }

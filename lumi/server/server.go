@@ -264,6 +264,12 @@ func (s *Server) Serve(closeFn func()) error {
 	sensing.POST("event", s.sensingHandler.PostEvent)
 	sensing.GET("snapshot/:category/:name", s.sensingHandler.GetSnapshot)
 
+	// Voice enroll from web Setup page — converts browser-recorded blob
+	// (webm/opus) to 16kHz mono WAV via ffmpeg, then proxies to lelamp
+	// /speaker/enroll which only accepts file paths.
+	voice := api.Group("voice")
+	voice.POST("enroll", s.sensingHandler.EnrollVoice)
+
 	guard := api.Group("guard")
 	guard.POST("enable", s.sensingHandler.EnableGuard)
 	guard.POST("disable", s.sensingHandler.DisableGuard)
