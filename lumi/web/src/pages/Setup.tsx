@@ -4,7 +4,7 @@ import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfi
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -304,14 +304,15 @@ export default function Setup() {
     [searchParams],
   );
 
-  // Fixed order. Face / STT (Deepgram) / MQTT are intentionally hidden
-  // — their state is still wired up and submitted with empty or
-  // URL-prefilled defaults, so re-adding a SectionCard + a SECTIONS
-  // entry brings them back without other plumbing.
+  // Fixed order. STT (Deepgram) / MQTT are intentionally hidden — their
+  // state is still wired up and submitted with empty or URL-prefilled
+  // defaults, so re-adding a SectionCard + a SECTIONS entry brings them
+  // back without other plumbing.
   const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
+    { id: "face",   label: "Face",   icon: <UserCircle size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
     { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
   ];
@@ -374,6 +375,72 @@ export default function Setup() {
   const [mqttPassword, setMqttPassword] = useState("");
   const [faChannel, setFaChannel] = useState("");
   const [fdChannel, setFdChannel] = useState("");
+
+  // Face enroll — same flow as EditConfig.Face. Uses /hw/face endpoints
+  // directly so user can enroll without finishing the rest of setup.
+  const [faceName, setFaceName] = useState("");
+  const [faceFiles, setFaceFiles] = useState<File[]>([]);
+  const [faceUploading, setFaceUploading] = useState(false);
+  const [faceMsg, setFaceMsg] = useState<string | null>(null);
+  const faceInputRef = useRef<HTMLInputElement>(null);
+  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[] }[]>([]);
+
+  const loadFaceOwners = useCallback(async () => {
+    try {
+      const r = await fetch("/hw/face/owners").then((x) => x.json());
+      if (Array.isArray(r?.persons)) setFaceOwners(r.persons);
+    } catch { /* hardware may not be reachable during setup; silent */ }
+  }, []);
+
+  useEffect(() => { loadFaceOwners(); }, [loadFaceOwners]);
+
+  const removeFaceOwner = async (label: string) => {
+    if (!confirm(`Remove enrolled face "${label}"?`)) return;
+    try {
+      await fetch("/hw/face/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      loadFaceOwners();
+    } catch { /* ignore */ }
+  };
+
+  const handleFaceEnroll = async () => {
+    if (!faceName.trim() || faceFiles.length === 0) return;
+    setFaceUploading(true);
+    setFaceMsg(null);
+    const label = faceName.trim().toLowerCase();
+    let ok = 0;
+    let lastErr = "";
+    for (const file of faceFiles) {
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const resp = await fetch("/hw/face/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, image_base64: b64 }),
+        });
+        const data = await resp.json();
+        if (resp.ok) ok++;
+        else lastErr = data.detail || data.message || `Failed: ${file.name}`;
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (ok > 0) {
+      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
+        + (lastErr ? ` (${lastErr})` : ""));
+      setFaceName("");
+      setFaceFiles([]);
+      if (faceInputRef.current) faceInputRef.current.value = "";
+      loadFaceOwners();
+    } else {
+      setFaceMsg(`Error: ${lastErr}`);
+    }
+    setFaceUploading(false);
+  };
 
   useEffect(() => {
     setMqttEndpoint((prev) => prev || urlParams.mqttEndpoint);
@@ -785,8 +852,98 @@ export default function Setup() {
                     </label>
                   </SectionCard>
 
+                  {/* Face enrollment — optional during setup; user can enroll
+                      themselves so the lamp recognizes them on first boot. */}
+                  <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                      Upload photos so the lamp can recognize you.
+                    </div>
+                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Photos ({faceFiles.length} selected)
+                      </label>
+                      <input
+                        ref={faceInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
+                        style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    {faceMsg && (
+                      <div style={{
+                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
+                          ? C.red : "rgb(52,211,153)",
+                      }}>{faceMsg}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleFaceEnroll}
+                      disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
+                      style={{
+                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
+                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
+                        background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
+                        border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
+                        color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
+                      }}
+                    >
+                      {faceUploading ? "Uploading…" : "Enroll Face"}
+                    </button>
+                    {faceOwners.length > 0 && (
+                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                          Enrolled ({faceOwners.length})
+                        </div>
+                        {faceOwners.filter((p) => p.photo_count > 0).map((p) => (
+                          <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: p.photos.length > 1 ? 8 : 0 }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.label}</div>
+                                <div style={{ fontSize: 10, color: C.textMuted }}>{p.photo_count} photo{p.photo_count !== 1 ? "s" : ""}</div>
+                              </div>
+                              {p.label !== "unknown" && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeFaceOwner(p.label)}
+                                  style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    fontSize: 11, color: C.red, padding: "4px 8px",
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                            {p.photos.length > 0 && (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {p.photos.map((photo) => (
+                                  <img
+                                    key={photo}
+                                    src={`/hw/face/photo/${p.label}/${photo}`}
+                                    onClick={() => window.open(`/hw/face/photo/${p.label}/${photo}`, "_blank")}
+                                    style={{
+                                      width: 48, height: 48, borderRadius: 8, objectFit: "cover",
+                                      border: `1px solid ${C.border}`, cursor: "pointer",
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
+
                   {/* Channel */}
                   <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
+
                     <div style={{ marginBottom: 12 }}>
                       <label htmlFor="channel" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel *</label>
                       <select
