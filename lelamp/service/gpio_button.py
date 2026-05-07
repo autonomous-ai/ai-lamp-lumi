@@ -29,7 +29,9 @@ OPI_SUN60_BUTTON_PIN = 9
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
-DEBOUNCE_US = 50_000  # microseconds — filter contact bounce on each edge
+# lgpio.callback tick is nanoseconds, so debounce must be in ns. 30 ms covers
+# OrangePi gpiochip1 bounce without dropping legit fast clicks (>100 ms apart).
+DEBOUNCE_NS = 30_000_000
 
 
 def _is_orangepi_sun60() -> bool:
@@ -84,11 +86,11 @@ class GPIOButtonHandler:
         # dropped, while bouncy repeats of the same edge are filtered out.
         # OrangePi's gpiochip1 reports more contact bounce than the Pi.
         if level == 0:
-            if tick - self._last_press_tick < DEBOUNCE_US:
+            if tick - self._last_press_tick < DEBOUNCE_NS:
                 return
             self._last_press_tick = tick
         else:
-            if tick - self._last_release_tick < DEBOUNCE_US:
+            if tick - self._last_release_tick < DEBOUNCE_NS:
                 return
             self._last_release_tick = tick
 
