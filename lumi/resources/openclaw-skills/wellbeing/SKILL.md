@@ -14,8 +14,8 @@ All reasoning, deltas, timestamps, and math stay in the `thinking` block — thi
 as you need. Only the content between `<say>` and `</say>` is spoken. Anything outside
 those tags is scratch and is discarded.
 
-Examples:
-- Nudge: `<say>Been at the screen — grab a glass of water?</say>`
+Examples (illustrate the wrapper — paraphrase the words each turn, never repeat verbatim):
+- Nudge: `<say>You've been at the screen a while. Want some water?</say>`
 - Skip:  `<say></say>`
 
 ## Gotchas (concrete facts, NOT suggestions)
@@ -112,20 +112,22 @@ Example: *hydration nudge fires at 9:15am, patterns.json says drink @ hour=9 typ
 
 ### Step 4 — Speak (if nudging)
 
-Ground the phrasing in the current raw label from the `Activity detected:` line so the nudge feels observed, not generic. Vary wording each time.
+**⛔ The table below is REFERENCE for tone — never speak a row verbatim.** The examples exist to show *tone* (observation + soft question, 1–2 short sentences, warm not robotic), not to be copy-pasted. Reusing a sentence word-for-word makes Lumi sound canned and kills the "I'm noticing you" feeling — that's the whole point of the skill. Paraphrase every turn, even if the activity is the same as last time.
 
-| Raw label | Hydration example | Break example |
+Ground each phrasing in the current raw label from the `Activity detected:` line so the nudge feels observed, not generic. Vary wording each time.
+
+| Raw label | Hydration tone (paraphrase!) | Break tone (paraphrase!) |
 |---|---|---|
-| `using computer` | *"Been at the screen — grab a glass of water?"* | *"Eyes off the screen for a sec?"* |
-| `writing` | *"Pen down for some water?"* | *"Wrist break — time to stretch."* |
-| `texting` | *"Phone down, water break?"* | *"Phone down — stand up for a sec?"* |
-| `reading book` | *"Bookmark it and grab some water?"* | *"Been reading a while — give your eyes a rest?"* |
-| `reading newspaper` | *"Page down, time for water?"* | *"Eyes need a break from the page?"* |
-| `drawing` | *"Brush down, sip of water?"* | *"Hands cramping? Quick stretch."* |
-| `playing controller` | *"Pause and grab some water?"* | *"Been gaming a while — stand up?"* |
-| (no label / generic) | *"Been a while since you drank — grab some water?"* | *"Quick stand-up? Your back will thank you."* |
+| `using computer` | *"You've been at the screen a while. Want some water?"* | *"Your eyes have been working. Look up for a sec?"* |
+| `writing` | *"Pen's been moving a while. Sip of water?"* | *"Your hand's been busy. Time for a stretch?"* |
+| `texting` | *"Phone's had your attention a bit. Water nearby?"* | *"You've been on your phone a while. Stand up for a sec?"* |
+| `reading book` | *"Deep in it. Water before the next chapter?"* | *"You've been reading a while. Rest your eyes?"* |
+| `reading newspaper` | *"You've been on the page a while. Water alongside?"* | *"Eyes have been working. Look up for a moment?"* |
+| `drawing` | *"You've been at it. Sip of water?"* | *"Your hand's been working. Quick stretch?"* |
+| `playing controller` | *"Mid-session. Water within reach?"* | *"You've been playing a while. Stand up between rounds?"* |
+| (no label / generic) | *"Been a while since I saw you drink anything. Water?"* | *"You've been still a while. Stretch?"* |
 
-If multiple sedentary labels are present, pick the one that fits best or blend (*"Eyes and wrists both deserve a break."*). Table is a starting point, not a script.
+If multiple sedentary labels are present, pick the one that fits best or blend (e.g. eyes + wrists both deserving a break). Table is a starting point, not a script — write your own sentence each turn.
 
 ### Step 5 — Log the nudge after speaking
 

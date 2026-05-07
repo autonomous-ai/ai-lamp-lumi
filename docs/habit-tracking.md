@@ -210,7 +210,7 @@ curl -s -X POST 'http://<lumi-ip>/api/sensing/event' \
 | Flow A bootstrap | reads 47 days of wellbeing logs, computes patterns |
 | `patterns.json` written | `/root/local/users/gray/habit/patterns.json` (18 patterns, all weak — frequency ≤ 0.17) |
 | Step 3b match | no moderate+ habit found → use generic phrasing |
-| Step 4 speak | `<say>Been at the screen — grab a glass of water? [sigh]</say>` |
+| Step 4 speak | `<say>You've been at the screen a while. Want some water? [sigh]</say>` |
 | Step 5 log | `nudge_hydration` row appended to today's wellbeing JSONL |
 
 ### Verify

@@ -27,11 +27,11 @@ Mỗi lần camera phát hiện hoạt động (`motion.activity`), Lumi tính t
 
 ## 3. Tone & ràng buộc câu nói
 
-- **1 câu duy nhất**, không tách 2–3 câu, không xuống dòng.
+- **1–2 câu ngắn**, không xuống dòng. Pattern khuyến nghị: 1 câu quan sát + 1 câu rủ hành động (vd: *"You've been at the screen a while. Want some water?"*). 1 câu cũng OK nếu gọn và đủ ấm.
 - Ấm áp, kiểu **bạn bè quan sát** — không phải robot báo động, không "thưa anh/chị".
 - **Phải có dấu hỏi hoặc lời rủ hành động** ("...?", "...for a sec?") — mục tiêu là rủ user uống/nghỉ chứ không phải thông báo.
 - **Bám vào hành động đang thấy** (đang dùng máy tính, đang viết, đang đọc...) cho cảm giác Lumi để ý người dùng thật.
-- **Không lặp lại** — mỗi lần phải đổi cách nói, nên cần nhiều biến thể.
+- **Không lặp lại** — mỗi lần phải đổi cách nói. Bảng dưới là **tham khảo tone**, agent không bao giờ được nói y chang một dòng trong bảng.
 - Không emoji, không hashtag.
 
 ---
@@ -40,20 +40,20 @@ Mỗi lần camera phát hiện hoạt động (`motion.activity`), Lumi tính t
 
 Lumi chọn câu dựa trên **hoạt động đang quan sát** (raw label từ camera):
 
-| Hoạt động đang thấy | Câu nhắc nước | Câu nhắc nghỉ |
+| Hoạt động đang thấy | Câu nhắc nước (tone, không copy y nguyên) | Câu nhắc nghỉ (tone, không copy y nguyên) |
 |---|---|---|
-| `using computer` | *"Been at the screen — grab a glass of water?"* | *"Eyes off the screen for a sec?"* |
-| `writing` | *"Pen down for some water?"* | *"Wrist break — time to stretch."* |
-| `texting` | *"Phone down, water break?"* | *"Phone down — stand up for a sec?"* |
-| `reading book` | *"Bookmark it and grab some water?"* | *"Been reading a while — give your eyes a rest?"* |
-| `reading newspaper` | *"Page down, time for water?"* | *"Eyes need a break from the page?"* |
-| `drawing` | *"Brush down, sip of water?"* | *"Hands cramping? Quick stretch."* |
-| `playing controller` | *"Pause and grab some water?"* | *"Been gaming a while — stand up?"* |
-| (không rõ / chung chung) | *"Been a while since you drank — grab some water?"* | *"Quick stand-up? Your back will thank you."* |
+| `using computer` | *"You've been at the screen a while. Want some water?"* | *"Your eyes have been working. Look up for a sec?"* |
+| `writing` | *"Pen's been moving a while. Sip of water?"* | *"Your hand's been busy. Time for a stretch?"* |
+| `texting` | *"Phone's had your attention a bit. Water nearby?"* | *"You've been on your phone a while. Stand up for a sec?"* |
+| `reading book` | *"Deep in it. Water before the next chapter?"* | *"You've been reading a while. Rest your eyes?"* |
+| `reading newspaper` | *"You've been on the page a while. Water alongside?"* | *"Eyes have been working. Look up for a moment?"* |
+| `drawing` | *"You've been at it. Sip of water?"* | *"Your hand's been working. Quick stretch?"* |
+| `playing controller` | *"Mid-session. Water within reach?"* | *"You've been playing a while. Stand up between rounds?"* |
+| (không rõ / chung chung) | *"Been a while since I saw you drink anything. Water?"* | *"You've been still a while. Stretch?"* |
 
 **Lưu ý:**
-- Bảng này là **gợi ý**, Lumi có thể biến tấu.
-- Nhiều hoạt động cùng lúc → có thể gộp, vd: *"Eyes and wrists both deserve a break."*
+- Bảng này là **tham khảo tone**, không phải template — agent phải paraphrase mỗi lượt, không nói y nguyên 1 dòng.
+- Nhiều hoạt động cùng lúc → có thể gộp tự nhiên (vd nhắc cả mắt và cổ tay trong 1 câu).
 - Hiện copy đang **full English**. Muốn dùng tiếng Việt cần thêm cột `vi` cho từng raw label.
 
 ---
@@ -96,8 +96,9 @@ Phần này dài hơn 1 câu, vì user chủ động hỏi:
 
 Trước khi merge bản copy mới, kiểm tra:
 
-- [ ] Mỗi ô trong bảng vẫn là **1 câu** (không 2 câu, không xuống dòng).
+- [ ] Mỗi ô trong bảng là **1–2 câu ngắn**, không xuống dòng. Pattern khuyến nghị: quan sát + rủ hành động.
 - [ ] Có dấu hỏi hoặc gợi ý hành động (không phải thông báo trống "Đã đến giờ uống nước.").
+- [ ] Bảng được hiểu là **tham khảo tone** — agent paraphrase mỗi lượt, không copy verbatim.
 - [ ] Ngôi xưng **nhất quán** với các skill khác Lumi đang dùng (hiện: bạn bè, không "anh/chị/quý khách").
 - [ ] Câu **bám vào hành động** trong cột bên trái (vd cột `writing` không nên copy giống cột `using computer`).
 - [ ] Có **ít nhất 2–3 biến thể** cho mỗi ô để Lumi không lặp.
