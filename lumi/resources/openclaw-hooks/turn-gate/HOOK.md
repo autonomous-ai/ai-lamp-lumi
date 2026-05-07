@@ -21,6 +21,6 @@ This closes the timing gap for channel-initiated turns (Telegram, Slack, Discord
 
 - Skips `[sensing:*]` messages — those are Lumi-originated, busy state is already set proactively in sendChat
 - Skips empty messages
-- Skips OpenClaw heartbeat / memory-flush turns (`target=none` or `isHeartbeat=true`) — these never emit `lifecycle.end` SSE, so setting busy=true would wedge Lumi for the full 5-min `busyTTL` (see `docs/debug/busy-stuck.md`)
+- Skips OpenClaw heartbeat / memory-flush / system turns (`messageChannel` ∈ {heartbeat, system, internal}, or legacy `target=none` / `isHeartbeat=true`) — these never emit `lifecycle.end` SSE, so setting busy=true would wedge Lumi for the full 5-min `busyTTL` (see `docs/debug/busy-stuck.md`)
 - Calls `POST http://127.0.0.1:5000/api/openclaw/busy` on Lumi server
 - Fails silently — never blocks message delivery
