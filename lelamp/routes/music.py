@@ -86,6 +86,13 @@ MUSIC_BACKCHANNEL_PHRASES: list[str] = [
     "Got it.",
     "Sure thing.",
     "One sec.",
+    "Cueing it up.",
+    "Pulling that up.",
+    "Let me find it.",
+    "Hold on a sec.",
+    "Right away.",
+    "Loading that now.",
+    "Just a moment.",
 ]
 
 
