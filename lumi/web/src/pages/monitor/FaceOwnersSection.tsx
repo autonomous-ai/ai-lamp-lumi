@@ -410,6 +410,28 @@ export function FaceOwnersSection() {
     }
   };
 
+  // Voice sample delete — only audio files. JSON/NPY (metadata, embedding
+  // cache) are protected because deleting them silently corrupts the
+  // speaker_recognizer profile. Backend Lumi /api/voice/file/remove
+  // re-enrolls from remaining samples to refresh the embedding.
+  const handleRemoveVoiceFile = async (label: string, filename: string) => {
+    if (!confirm(`Remove voice sample "${filename}" from ${label}?`)) return;
+    const key = `${label}/voice/${filename}`;
+    setDeletingPhoto(key);
+    try {
+      await fetch(`/api/voice/file/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: label, file: filename }),
+      });
+      refresh();
+    } catch {
+      // ignore
+    } finally {
+      setDeletingPhoto(null);
+    }
+  };
+
   const inputStyle: React.CSSProperties = {
     fontSize: 12,
     padding: "6px 10px",
@@ -774,8 +796,13 @@ export function FaceOwnersSection() {
                             const isChildAudio = /\.(wav|mp3|ogg|webm)$/i.test(child);
                             const audioKey = `${person.label}/${childPath}`;
                             const isPlaying = playingAudio === audioKey;
+                            // Per-file delete only for audio in voice/. metadata.json /
+                            // .npy stay protected — deleting them corrupts the profile.
+                            const canDelete = item.name === "voice" && isChildAudio && person.label !== "unknown";
+                            const deleteKey = `${person.label}/voice/${child}`;
+                            const isDeleting = deletingPhoto === deleteKey;
                             return (
-                              <div key={child}>
+                              <div key={child} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 <span
                                   style={{ cursor: "pointer" }}
                                   onClick={() => openFile(person.label, childPath)}
@@ -793,6 +820,19 @@ export function FaceOwnersSection() {
                                     textUnderlineOffset: 3,
                                   }}>{child}</span>
                                 </span>
+                                {canDelete && (
+                                  <span
+                                    onClick={(e) => { e.stopPropagation(); handleRemoveVoiceFile(person.label, child); }}
+                                    title={`Remove ${child}`}
+                                    style={{
+                                      cursor: isDeleting ? "wait" : "pointer",
+                                      fontSize: 10,
+                                      color: "rgb(239,68,68)",
+                                      opacity: isDeleting ? 0.5 : 0.6,
+                                      fontWeight: 600,
+                                    }}
+                                  >✕</span>
+                                )}
                               </div>
                             );
                           })}
@@ -915,90 +955,65 @@ export function FaceOwnersSection() {
         )}
 
         {!strangersError && strangers && strangers.clusters.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {strangers.clusters.map((cluster) => {
               const isOpen = expandedCluster[cluster.hash] ?? false;
               return (
                 <div key={cluster.hash} style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
+                  padding: "5px 9px",
+                  borderRadius: 6,
                   background: "var(--lm-surface)",
                   border: "1px solid var(--lm-border)",
                 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div
-                      style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1, minWidth: 0 }}
                       onClick={() => setExpandedCluster((p) => ({ ...p, [cluster.hash]: !isOpen }))}
                     >
-                      <span style={{ color: "rgb(168,85,247)", fontSize: 11 }}>
-                        {isOpen ? "▾" : "▸"}
-                      </span>
-                      <span style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: "rgb(168,85,247)",
-                        fontFamily: "monospace",
-                      }}>
+                      <span style={{ color: "rgb(168,85,247)", fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "rgb(168,85,247)", fontFamily: "monospace" }}>
                         {cluster.hash}
                       </span>
-                      <span style={{
-                        fontSize: 9,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        background: "rgba(168,85,247,0.15)",
-                        color: "rgb(168,85,247)",
-                        fontWeight: 600,
-                      }}>
-                        {cluster.sample_count} sample{cluster.sample_count !== 1 ? "s" : ""}
+                      <span style={{ fontSize: 9, color: "rgb(168,85,247)", fontWeight: 600 }}>
+                        ×{cluster.sample_count}
+                      </span>
+                      <span style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>
+                        · {fmtAgo(cluster.latest_mtime)}
                       </span>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                        last {fmtAgo(cluster.latest_mtime)}
-                      </span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteCluster(cluster.hash, cluster.sample_count); }}
-                        disabled={deletingCluster === cluster.hash}
-                        title={`Delete cluster ${cluster.hash}`}
-                        style={{
-                          ...btnStyle,
-                          padding: "2px 7px",
-                          background: "rgba(239,68,68,0.1)",
-                          color: "rgb(239,68,68)",
-                          border: "1px solid rgba(239,68,68,0.2)",
-                          cursor: deletingCluster === cluster.hash ? "wait" : "pointer",
-                          opacity: deletingCluster === cluster.hash ? 0.5 : 1,
-                        }}
-                      >
-                        {deletingCluster === cluster.hash ? "..." : "🗑"}
-                      </button>
-                    </div>
+                    <span
+                      onClick={(e) => { e.stopPropagation(); if (deletingCluster !== cluster.hash) handleDeleteCluster(cluster.hash, cluster.sample_count); }}
+                      title={`Delete cluster ${cluster.hash}`}
+                      style={{
+                        cursor: deletingCluster === cluster.hash ? "wait" : "pointer",
+                        fontSize: 11, color: "rgb(239,68,68)",
+                        opacity: deletingCluster === cluster.hash ? 0.5 : 0.7,
+                        fontWeight: 600, flexShrink: 0, padding: "0 4px",
+                      }}
+                    >
+                      {deletingCluster === cluster.hash ? "…" : "✕"}
+                    </span>
                   </div>
 
                   {isOpen && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
                       {cluster.samples.map((s) => {
                         const fileKey = `${cluster.hash}/${s.filename}`;
                         const isDeletingFile = deletingStrangerFile === fileKey;
                         return (
-                          <div key={s.filename} style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            fontSize: 10,
-                            color: "var(--lm-text-muted)",
-                            fontFamily: "monospace",
+                          <div key={s.filename} title={s.filename} style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            fontSize: 10, color: "var(--lm-text-muted)", fontFamily: "monospace",
                           }}>
                             <audio
-                              controls
-                              preload="none"
+                              controls preload="none"
                               src={`${HW}/voice/strangers/audio/${cluster.hash}/${encodeURIComponent(s.filename)}`}
-                              style={{ height: 28, flexShrink: 0 }}
+                              style={{ height: 22, flexShrink: 0, width: 180 }}
                             />
                             <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {s.filename}
                             </span>
-                            <span style={{ flexShrink: 0 }}>
+                            <span style={{ flexShrink: 0, fontSize: 9 }}>
                               {fmtSize(s.size_bytes)} · {fmtAgo(s.mtime)}
                             </span>
                             <span
@@ -1006,11 +1021,9 @@ export function FaceOwnersSection() {
                               title={`Remove ${s.filename}`}
                               style={{
                                 cursor: isDeletingFile ? "wait" : "pointer",
-                                fontSize: 12,
-                                color: "rgb(239,68,68)",
+                                fontSize: 11, color: "rgb(239,68,68)",
                                 opacity: isDeletingFile ? 0.5 : 0.7,
-                                fontWeight: 600,
-                                flexShrink: 0,
+                                fontWeight: 600, flexShrink: 0, padding: "0 2px",
                               }}
                             >✕</span>
                           </div>
