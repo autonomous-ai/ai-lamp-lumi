@@ -428,7 +428,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 
 								// Auto-new-session — instant, drops in-session conversation
 								// history but keeps Lumi external memory (mood/habit/owner).
-								h.maybeAutoNewSession(h.agentGateway.GetSessionKey(), u.TotalTokens, capturedFlowRunID)
+								// h.maybeAutoNewSession(h.agentGateway.GetSessionKey(), u.TotalTokens, capturedFlowRunID)
 								break
 							}
 						}
