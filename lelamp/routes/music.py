@@ -12,6 +12,7 @@ from lelamp.models import (
     MusicStatusResponse,
     StatusResponse,
 )
+from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS
 from lelamp.presets import (
     EMO_CURIOUS,
     EMO_EXCITED,
@@ -95,10 +96,39 @@ MUSIC_BACKCHANNEL_PHRASES: list[str] = [
     "Hmm, let me see.",
 ]
 
+# ElevenLabs eleven_v3 audio tags — index-aligned with the plain pool so the
+# no-repeat tracker works the same regardless of provider. Tags are inline
+# directives that v3 interprets as audio direction (not spoken). OpenAI
+# provider must NOT see these — its strip regex only whitelists a subset
+# (`tts_openai.py:_strip_audio_tags`), so unknown tags would be read aloud.
+# We pick the pool by provider in `_fire_music_backchannel`.
+MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS: list[str] = [
+    "[excited] On it!",
+    "[excited] Coming right up.",
+    "Got it.",
+    "Sure thing.",
+    "One sec.",
+    "[curious] Let me find it.",
+    "[curious] Looking it up.",
+    "[excited] Tuning in.",
+    "[excited] Spinning that up.",
+    "[excited] Music coming.",
+    "Nice pick.",
+    "[curious] Hmm, let me see.",
+]
+
 # Index of the last spoken phrase — excluded from the next pick so the lamp
 # never repeats itself back-to-back. -1 = nothing spoken yet (first call
 # picks freely).
 _last_backchannel_idx: int = -1
+
+
+def _backchannel_pool() -> list[str]:
+    """Return the phrase pool for the active TTS provider."""
+    provider = getattr(state.tts_service, "_provider", "")
+    if provider == PROVIDER_ELEVENLABS:
+        return MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS
+    return MUSIC_BACKCHANNEL_PHRASES
 
 
 def _fire_music_backchannel() -> None:
@@ -123,11 +153,10 @@ def _fire_music_backchannel() -> None:
     if state.voice_service and state.voice_service.listening:
         state.logger.info("Music backchannel suppressed: STT session active")
         return
-    candidates = [
-        i for i in range(len(MUSIC_BACKCHANNEL_PHRASES)) if i != _last_backchannel_idx
-    ]
+    pool = _backchannel_pool()
+    candidates = [i for i in range(len(pool)) if i != _last_backchannel_idx]
     idx = random.choice(candidates)
-    phrase = MUSIC_BACKCHANNEL_PHRASES[idx]
+    phrase = pool[idx]
     try:
         tts.speak_cached(phrase)
         _last_backchannel_idx = idx
