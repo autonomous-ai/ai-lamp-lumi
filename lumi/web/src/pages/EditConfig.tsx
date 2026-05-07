@@ -323,7 +323,7 @@ export default function EditConfig() {
   const [faceUploading, setFaceUploading] = useState(false);
   const [faceMsg, setFaceMsg] = useState<string | null>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
-  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[] }[]>([]);
+  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[]; voice_samples?: string[] }[]>([]);
 
   const loadFaceOwners = useCallback(async () => {
     try {
@@ -366,26 +366,23 @@ export default function EditConfig() {
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<BlobPart[]>([]);
   const voiceTimerRef = useRef<number | null>(null);
-  const [voiceOwners, setVoiceOwners] = useState<{ name: string; display_name: string; num_samples: number; enrollment_sources: string[] }[]>([]);
+  // Voice samples per person come from /hw/face/owners (voice_samples
+  // field). Files served via /hw/face/file/<label>/voice/<filename>.
+  // Single-file delete uses Lumi /api/voice/file/remove which also
+  // re-enrolls from remaining samples to refresh the embedding.
+  const [voiceExpanded, setVoiceExpanded] = useState<Record<string, boolean>>({});
+  const toggleVoiceExpanded = (label: string) =>
+    setVoiceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
 
-  const loadVoiceOwners = useCallback(async () => {
+  const removeVoiceFile = async (name: string, file: string) => {
+    if (!confirm(`Delete voice sample "${file}" for "${name}"?`)) return;
     try {
-      const r = await fetch("/hw/speaker/list").then((x) => x.json());
-      if (Array.isArray(r?.speakers)) setVoiceOwners(r.speakers);
-    } catch { /* lelamp may be unreachable; silent */ }
-  }, []);
-
-  useEffect(() => { loadVoiceOwners(); }, [loadVoiceOwners]);
-
-  const removeVoiceOwner = async (name: string) => {
-    if (!confirm(`Remove enrolled voice "${name}"?`)) return;
-    try {
-      await fetch("/hw/speaker/remove", {
+      await fetch("/api/voice/file/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, file }),
       });
-      loadVoiceOwners();
+      loadFaceOwners();
     } catch { /* ignore */ }
   };
 
@@ -457,7 +454,6 @@ export default function EditConfig() {
         if (voiceUrl) URL.revokeObjectURL(voiceUrl);
         setVoiceUrl("");
         loadFaceOwners();
-        loadVoiceOwners();
       } else {
         setVoiceMsg(`Error: ${data.message ?? "enroll failed"}`);
       }
@@ -896,37 +892,92 @@ export default function EditConfig() {
                   >
                     {voiceUploading ? "Uploading…" : "Enroll Voice"}
                   </button>
-                  {voiceOwners.length > 0 && (
-                    <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                        Enrolled ({voiceOwners.length})
-                      </div>
-                      {voiceOwners.map((p) => (
-                        <div key={p.name} style={{
-                          padding: "10px 0", borderBottom: `1px solid ${C.border}`,
-                          display: "flex", alignItems: "center", gap: 10,
-                        }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.display_name || p.name}</div>
-                            <div style={{ fontSize: 10, color: C.textMuted }}>
-                              {p.num_samples} sample{p.num_samples !== 1 ? "s" : ""}
-                              {p.enrollment_sources.length > 0 && ` · ${p.enrollment_sources.join(", ")}`}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeVoiceOwner(p.name)}
-                            style={{
-                              background: "none", border: "none", cursor: "pointer",
-                              fontSize: 11, color: C.red, padding: "4px 8px",
-                            }}
-                          >
-                            Remove
-                          </button>
+                  {(() => {
+                    const withVoice = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
+                    if (withVoice.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
+                          Voice Files
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        {withVoice.map((p) => {
+                          const expanded = !!voiceExpanded[p.label];
+                          return (
+                          <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 8 : 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => toggleVoiceExpanded(p.label)}
+                                style={{
+                                  flex: 1, display: "flex", alignItems: "center", gap: 8,
+                                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                                  textAlign: "left", color: C.text,
+                                }}
+                              >
+                                <span style={{ fontSize: 11, color: C.textMuted, transition: "transform 0.15s", transform: expanded ? "rotate(90deg)" : "none" }}>▶</span>
+                                <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
+                                <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}>({p.voice_samples!.length} file{p.voice_samples!.length !== 1 ? "s" : ""})</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!confirm(`Remove ALL voice files for "${p.label}"? Face data is preserved.`)) return;
+                                  try {
+                                    await fetch("/hw/speaker/remove", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ name: p.label }),
+                                    });
+                                    loadFaceOwners();
+                                  } catch { /* ignore */ }
+                                }}
+                                style={{
+                                  background: "none", border: `1px solid ${C.border}`, borderRadius: 5,
+                                  cursor: "pointer", fontSize: 10, color: C.red, padding: "3px 8px",
+                                }}
+                              >
+                                Remove all
+                              </button>
+                            </div>
+                            {expanded && (<>
+
+                            {p.voice_samples!.map((file) => {
+                              const ext = file.toLowerCase().split(".").pop() || "";
+                              const url = `/hw/face/file/${p.label}/voice/${encodeURIComponent(file)}`;
+                              const isAudio = ["wav", "ogg", "mp3", "webm", "m4a"].includes(ext);
+                              const viewLabel = ["json", "jsonl", "txt"].includes(ext) ? "view" : "open";
+                              return (
+                                <div key={file} title={file} style={{
+                                  display: "flex", alignItems: "center", gap: 6, padding: "3px 0",
+                                  fontSize: 11, color: C.textDim,
+                                }}>
+                                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+                                    {file}
+                                  </span>
+                                  {isAudio ? (
+                                    <>
+                                      <audio controls src={url} style={{ width: 180, height: 24 }} />
+                                      <button type="button" onClick={() => removeVoiceFile(p.label, file)}
+                                        style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, lineHeight: 1, padding: "0 4px" }} title="Delete">
+                                        ×
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <a href={url} target="_blank" rel="noreferrer"
+                                      style={{ fontSize: 10, color: C.amber, textDecoration: "none", padding: "2px 6px", border: `1px solid ${C.border}`, borderRadius: 4 }}>
+                                      {viewLabel}
+                                    </a>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            </>)}
+                          </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </SectionCard>
 
                 <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>

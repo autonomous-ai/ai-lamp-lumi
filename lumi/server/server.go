@@ -269,6 +269,7 @@ func (s *Server) Serve(closeFn func()) error {
 	// /speaker/enroll which only accepts file paths.
 	voice := api.Group("voice")
 	voice.POST("enroll", s.sensingHandler.EnrollVoice)
+	voice.POST("file/remove", s.sensingHandler.RemoveVoiceFile)
 
 	guard := api.Group("guard")
 	guard.POST("enable", s.sensingHandler.EnableGuard)
