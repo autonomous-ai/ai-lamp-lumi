@@ -312,7 +312,10 @@ def release_servos():
         "wrist_pitch.pos": 0.0,
     }
     try:
-        state.animation_service.move_to(rest_pos, duration=2.0)
+        # Linear interp + load → servo lag commanded ramp; cần duration dài
+        # và settle delay để vị trí thật chạm target trước khi cắt torque.
+        state.animation_service.move_to(rest_pos, duration=4.0)
+        time.sleep(0.5)
     except Exception as e:
         state.logger.warning(f"Could not move to rest before release: {e}")
     bus = state.animation_service.robot.bus

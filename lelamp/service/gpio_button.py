@@ -178,6 +178,8 @@ class GPIOButtonHandler:
     def _on_long_press(self):
         logger.info("GPIO button long press -- shutting down OS")
         self._long_press_timer = None
+
+        # Step 1: TTS announce.
         if (
             state.tts_service
             and state.tts_service.available
@@ -185,6 +187,18 @@ class GPIOButtonHandler:
         ):
             state.tts_service.speak_cached("Shutting down now")
             time.sleep(5)
+
+        # Step 2: park servo in safe pose then cut torque, otherwise the
+        # body slams down when systemd kills the process mid-pose.
+        try:
+            from lelamp.routes.servo import release_servos
+
+            logger.info("GPIO long press -- releasing servo before shutdown")
+            release_servos()
+        except Exception as e:
+            logger.warning(f"Servo release before shutdown failed: {e}")
+
+        # Step 3: shutdown OS.
         subprocess.Popen(
             ["sudo", "shutdown", "-h", "now"],
             stdout=subprocess.DEVNULL,
