@@ -383,6 +383,25 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"MusicService failed to start: {e}")
 
+    # Pre-render music backchannel cues so audio_play hits the cache (~50ms)
+    # instead of paying a TTS round-trip on the first play. Runs in a daemon
+    # thread so a slow first render doesn't delay startup.
+    def _prerender_music_backchannel():
+        if not state.tts_service or not getattr(state.tts_service, "available", False):
+            return
+        try:
+            from lelamp.routes.music import MUSIC_BACKCHANNEL_PHRASES
+            for phrase in MUSIC_BACKCHANNEL_PHRASES:
+                state.tts_service.speak_cached(phrase, prerender=True)
+        except Exception as e:
+            logger.warning("Music backchannel prerender failed: %s", e)
+
+    threading.Thread(
+        target=_prerender_music_backchannel,
+        daemon=True,
+        name="prerender-music-backchannel",
+    ).start()
+
     # --- Phase 3: Wait for hardware threads, then start hardware-dependent services ---
     for t in hw_threads:
         t.join(timeout=10)

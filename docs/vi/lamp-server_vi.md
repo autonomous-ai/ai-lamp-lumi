@@ -154,7 +154,7 @@ Truy cập qua nginx proxy: `/hw/*` → `127.0.0.1:5001`
 | GET | `/audio/volume` | Get volume |
 | POST | `/audio/play-tone` | Phát test tone |
 | POST | `/audio/record` | Thu âm WAV |
-| POST | `/audio/play` | Phát nhạc theo query. Body: `{"query":"tên bài","person":"tên"}`. `person` tuỳ chọn — lưu lịch sử theo người. |
+| POST | `/audio/play` | Phát nhạc theo query. Body: `{"query":"tên bài","person":"tên"}`. `person` tuỳ chọn — lưu lịch sử theo người. Trước khi yt-dlp resolve sẽ phát một câu TTS ngắn cached ("On it.", "Coming up.", …) để lamp không im lặng trong lúc ffmpeg load. Bỏ qua câu này khi loa đang mute, TTS đang nói, nhạc đang phát, hoặc VoiceService đang giữa session STT. |
 | POST | `/audio/stop` | Dừng phát nhạc |
 | GET | `/audio/status` | Trạng thái phát nhạc (đang phát, tên bài, thời gian) |
 | GET | `/audio/history` | Lịch sử phát nhạc. Query: `?person=tên&date=YYYY-MM-DD&last=50`. `person` lọc theo người; bỏ trống = shared. |
