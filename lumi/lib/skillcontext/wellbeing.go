@@ -24,13 +24,17 @@ import (
 )
 
 const (
-	usersDir          = "/root/local/users"
-	patternsSubpath   = "habit/patterns.json"
-	wellbeingSubdir   = "wellbeing"
-	patternsFreshAge  = 6 * time.Hour
-	wellbeingHistoryN = 50
-	bootstrapMinDays  = 3
+	usersDir         = "/root/local/users"
+	patternsSubpath  = "habit/patterns.json"
+	wellbeingSubdir  = "wellbeing"
+	patternsFreshAge = 6 * time.Hour
+	bootstrapMinDays = 3
 )
+
+// reactionCountActions are the user-driven reset actions the skill surfaces
+// as "lần thứ N hôm nay" reaction fuel. Sedentary labels are intentionally
+// excluded — counting them would explode the map and isn't useful phrasing.
+var reactionCountActions = []string{"drink", "break"}
 
 // wellbeingContext is the digest the agent reads. Deltas are pre-computed so
 // the skill only applies thresholds; raw history is dropped from the prompt.
@@ -38,6 +42,8 @@ type wellbeingContext struct {
 	HydrationDeltaMin int                      `json:"hydration_delta_min"` // minutes since last drink/enter/nudge_hydration; -1 if no reset today
 	BreakDeltaMin     int                      `json:"break_delta_min"`     // minutes since last break/enter/nudge_break;     -1 if no reset today
 	LatestActivity    string                   `json:"latest_activity"`     // most recent action label (sedentary or reset); "" if no events today
+	CountToday        map[string]int           `json:"count_today,omitempty"` // count of reset actions today (drink, break); zeros omitted
+	TimeOfDay         string                   `json:"time_of_day"`         // morning|noon|afternoon|evening|night — flavors reaction phrasing
 	Patterns          map[string]patternDigest `json:"patterns,omitempty"`  // wellbeing_patterns from patterns.json, keyed by action ("drink"/"break")
 	BootstrapNeeded   bool                     `json:"bootstrap_needed"`    // patterns missing/stale AND days >= 3 → invoke habit Flow A only when nudging
 }
@@ -62,10 +68,12 @@ func BuildWellbeingContext(user string) string {
 	now := time.Now()
 	today := now.Format("2006-01-02")
 
-	events := wellbeing.Query(user, today, wellbeingHistoryN)
+	events := wellbeing.Query(user, today, 0)
 	hydrationDelta := computeDeltaMin(events, now, []string{"drink", "enter", "nudge_hydration"})
 	breakDelta := computeDeltaMin(events, now, []string{"break", "enter", "nudge_break"})
 	latestActivity := latestAction(events)
+	countToday := countTodayActions(events, reactionCountActions)
+	timeOfDay := timeOfDayLabel(now)
 
 	patterns, patternsFresh := readWellbeingPatterns(user)
 	days := countWellbeingDays(user)
@@ -75,6 +83,8 @@ func BuildWellbeingContext(user string) string {
 		HydrationDeltaMin: hydrationDelta,
 		BreakDeltaMin:     breakDelta,
 		LatestActivity:    latestActivity,
+		CountToday:        countToday,
+		TimeOfDay:         timeOfDay,
 		Patterns:          patterns,
 		BootstrapNeeded:   bootstrapNeeded,
 	}
@@ -113,6 +123,48 @@ func latestAction(events []wellbeing.Event) string {
 		return ""
 	}
 	return events[len(events)-1].Action
+}
+
+// countTodayActions tallies how many times each tracked action appears in
+// today's events. Empty entries are dropped so the JSON block stays compact
+// (a missing key reads as zero).
+func countTodayActions(events []wellbeing.Event, actions []string) map[string]int {
+	counts := make(map[string]int, len(actions))
+	for _, a := range actions {
+		counts[a] = 0
+	}
+	for _, e := range events {
+		if _, ok := counts[e.Action]; ok {
+			counts[e.Action]++
+		}
+	}
+	for k, v := range counts {
+		if v == 0 {
+			delete(counts, k)
+		}
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	return counts
+}
+
+// timeOfDayLabel buckets the hour into a coarse phrase the skill can weave
+// into reactions ("cuối ngày rồi mà...", "morning kickoff..."). Boundaries
+// are intentionally fuzzy — exact hour is in the patterns block when needed.
+func timeOfDayLabel(now time.Time) string {
+	switch h := now.Hour(); {
+	case h >= 5 && h < 11:
+		return "morning"
+	case h >= 11 && h < 13:
+		return "noon"
+	case h >= 13 && h < 18:
+		return "afternoon"
+	case h >= 18 && h < 22:
+		return "evening"
+	default:
+		return "night"
+	}
 }
 
 func contains(haystack []string, needle string) bool {

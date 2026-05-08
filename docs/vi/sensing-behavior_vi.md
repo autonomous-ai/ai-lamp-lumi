@@ -235,12 +235,15 @@ Tới thời điểm agent thấy event, LeLamp đã tự log mọi label activi
    ```
 
    Ba điểm reset: hoạt động thực tế (`drink`/`break`), mới vào session (`enter`), hoặc lần nhắc gần nhất (`nudge_*`). Nudge reset là điểm mấu chốt: sau khi Lumi nhắc, delta về 0 → lần nhắc tiếp theo chỉ fire sau 1 threshold window nữa — không cần cooldown constant riêng.
-3. **Quyết định có nudge không** (tối đa 1 nudge/turn, hydration ưu tiên hơn break):
-   - Hydration delta ≥ hydration threshold → nhắc uống nước.
-   - Else break delta ≥ break threshold → nhắc nghỉ/stretch.
-   - Else → caring observation hoặc `NO_REPLY`.
-4. **Sau khi nhắc**, log entry `nudge_hydration` hoặc `nudge_break` — đây là cái reset delta cho window tiếp theo (và hiện lên timeline user).
+3. **Chọn path** (tối đa 1 phản hồi/turn, reaction ưu tiên hơn nudge — user vừa làm rồi, nudge tiếp sẽ thấy vô duyên):
+   - **Reaction** — labels có `drink` hoặc `break` → nói 1–3 câu acknowledge ngắn (kiểu "quao uống nước thứ 3 hôm nay rồi đó", playful/ngạc nhiên, KHÔNG phải lời khuyên). Dùng `count_today` ("lần thứ N hôm nay"), `time_of_day`, và gap delta để biến hoá phrasing. **Không log entry** — row `drink` / `break` đã được LeLamp ghi sẵn upstream rồi.
+   - **Hydration nudge** — else nếu hydration delta ≥ hydration threshold → nhắc uống nước.
+   - **Break nudge** — else nếu break delta ≥ break threshold → nhắc nghỉ/stretch.
+   - Else (sedentary chưa qua threshold, hoặc chưa có reset nào hôm nay) → `NO_REPLY`.
+4. **Sau khi nhắc** (chỉ nudge, không phải reaction), log entry `nudge_hydration` hoặc `nudge_break` — đây là cái reset delta cho window tiếp theo (và hiện lên timeline user).
 5. **KHÔNG BAO GIỜ đoán** time-since từ memory — luôn tính từ log.
+
+Reaction path được thêm vào để hành động tích cực không bị im lặng: trước đây user uống nước mà chưa qua threshold thì Lumi `NO_REPLY`, cảm giác như đèn chết. Reaction được nuôi bởi 2 field thêm trong `[wellbeing_context: ...]` — `count_today` (đếm số lần `drink` / `break` hôm nay) và `time_of_day` (`morning` / `noon` / `afternoon` / `evening` / `night`) — để câu thoại có cái cụ thể bám vào mà không tốn thêm tool call. Visual caption (kiểu "chai Lavie xanh") cố ý CHƯA làm — vision pipeline hiện chỉ trả class label, không có free-text mô tả.
 
 ### Ngưỡng
 
