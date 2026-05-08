@@ -401,12 +401,23 @@ export function FlowDiagram({
                 fill={color} fontSize={7} opacity={0.9}>
                 {node.label}
               </text>
-              {node.desc.split(" · ").map((part, i) => (
-                <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 14 + i * 10} textAnchor="middle"
-                  fill={color} fontSize={5.5} opacity={0.6}>
-                  {part}
-                </text>
-              ))}
+              {node.desc.split(" · ").map((part, i) => {
+                // llm_first_token sits at the right satellite position (x=1110)
+                // and has a long desc — anchor it to the right of the node and
+                // flow rightward so the text gets ~180px of clear space instead
+                // of being squeezed centered between agent_thinking and the
+                // canvas edge.
+                const flowRight = node.id === "llm_first_token";
+                return (
+                  <text key={`d${i}`}
+                    x={flowRight ? pos.x + nodeR + 6 : pos.x}
+                    y={flowRight ? pos.y - 4 + i * 9 : pos.y + nodeR + 14 + i * 10}
+                    textAnchor={flowRight ? "start" : "middle"}
+                    fill={color} fontSize={5.5} opacity={0.6}>
+                    {part}
+                  </text>
+                );
+              })}
 
               {hasInfo && (() => {
                 const textLines = lines.filter((l) => !l.startsWith("🖼"));
