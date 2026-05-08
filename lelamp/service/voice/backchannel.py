@@ -32,9 +32,33 @@ from typing import Optional
 
 logger = logging.getLogger("lelamp.voice.backchannel")
 
-# Config from env
+# Default filler pools per stt_language (read from Lumi's config.json).
+# These are short listening cues — ideally 1-2 syllables — so the user
+# barely notices them when pausing mid-sentence. Mixed-language pools are
+# fine (e.g. Vietnamese keeps "Hmm" alongside "Ờ" / "Ừm") because those
+# universal interjections sound natural in any tongue.
+_DEFAULT_FILLERS_BY_LANG = {
+    "en": "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh",
+    "vi": "Ờ,Ừm,Dạ,Vâng,À,Hmm,Uhm,Ơ",
+    "zh-CN": "嗯,好,啊,是,嗯嗯,对,哦,呃",
+    "zh-TW": "嗯,好,啊,是,嗯嗯,對,哦,呃",
+}
+
+
+def _default_fillers_for_active_lang() -> str:
+    """Pick the default filler list based on Lumi's stt_language. Falls
+    back to English when the config can't be read or the language is
+    empty/unknown. Caller can still override with LELAMP_BACKCHANNEL_FILLERS."""
+    try:
+        from lelamp.config import _lumi_cfg_get
+        lang = (_lumi_cfg_get("stt_language") or "").strip()
+    except Exception:
+        lang = ""
+    return _DEFAULT_FILLERS_BY_LANG.get(lang, _DEFAULT_FILLERS_BY_LANG["en"])
+
+
 # Comma-separated filler words to play as listening cues. Empty string = feature disabled.
-_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh")
+_fillers_env = os.environ.get("LELAMP_BACKCHANNEL_FILLERS", _default_fillers_for_active_lang())
 FILLERS = [w.strip() for w in _fillers_env.split(",") if w.strip()]
 # How long (seconds) the partial transcript must stay unchanged before playing a cue.
 # 0 = play on every new partial (still throttled by MIN_INTERVAL_S).
