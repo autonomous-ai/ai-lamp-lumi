@@ -37,17 +37,20 @@ var OpeningFillers = []string{
 	"One sec",
 }
 
-// ContinuationFillers play on re-arm after a tool finishes. Tone: progress.
+// ContinuationFillers play on re-arm after a tool finishes. Tone: neutral
+// "still working" — never claim "almost done" because filler #2 of 3 in a
+// long multi-tool turn may still be far from finished, and a wrong promise
+// damages trust more than dead air.
 // English pool — also the fallback when STTLanguage is empty/unknown.
 var ContinuationFillers = []string{
-	"Still working on it",
-	"Almost there",
-	"One more sec",
-	"Just a bit more",
+	"Still on it",
+	"Still thinking",
+	"Let me check",
+	"Hmm, processing",
 	"Hang on",
 	"Bear with me",
-	"Almost done",
-	"Hmm, getting close",
+	"Still here",
+	"One moment",
 }
 
 // Vietnamese pools (STTLanguage="vi"). Tone matches EN: short acknowledgements
@@ -66,13 +69,13 @@ var OpeningFillersVI = []string{
 
 var ContinuationFillersVI = []string{
 	"Vẫn đang nghĩ",
-	"Sắp xong rồi",
-	"Một chút nữa thôi",
-	"Thêm chút nữa",
-	"Đợi thêm tí",
-	"Sắp được rồi",
-	"Gần xong rồi",
-	"Hmm sắp xong",
+	"Để mình xem",
+	"Đang xử lý nhé",
+	"Đợi chút nhé",
+	"Hmm, để xem",
+	"Vẫn đây mà",
+	"Mình đang làm tiếp",
+	"Còn đang nghĩ",
 }
 
 // Chinese Simplified pools (STTLanguage="zh-CN").
@@ -89,14 +92,14 @@ var OpeningFillersZhCN = []string{
 }
 
 var ContinuationFillersZhCN = []string{
-	"还在处理",
-	"快好了",
-	"再等一下",
-	"稍等片刻",
-	"等等",
-	"请稍等",
-	"差不多了",
-	"嗯，快好了",
+	"还在想",
+	"让我看看",
+	"我在处理",
+	"稍等一下",
+	"嗯，再想想",
+	"我还在",
+	"再等等",
+	"还在弄",
 }
 
 // Chinese Traditional pools (STTLanguage="zh-TW").
@@ -113,14 +116,14 @@ var OpeningFillersZhTW = []string{
 }
 
 var ContinuationFillersZhTW = []string{
-	"還在處理",
-	"快好了",
-	"再等一下",
-	"稍等片刻",
-	"等等",
-	"請稍等",
-	"差不多了",
-	"嗯，快好了",
+	"還在想",
+	"讓我看看",
+	"我在處理",
+	"稍等一下",
+	"嗯，再想想",
+	"我還在",
+	"再等等",
+	"還在弄",
 }
 
 // poolsForLang returns the (opening, continuation) pools for a BCP-47 STT

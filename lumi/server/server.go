@@ -425,8 +425,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 					slog.Warn("init volume failed", "component", "server", "error", err)
 				}
 
-				// Greet user now that agent + voice pipeline are ready
-			if _, err := s.agentGateway.SendSystemChatMessage("You just woke up. Greet the user briefly."); err != nil {
+				// Greet user now that agent + voice pipeline are ready.
+				// Prompt is localized by STTLanguage so the very first turn
+				// lands in the owner's language without relying on the agent
+				// to translate the priming message.
+			if _, err := s.agentGateway.SendSystemChatMessage(wakeGreetingPrompt(s.config.STTLanguage)); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
 			}
 
