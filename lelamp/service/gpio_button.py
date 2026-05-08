@@ -81,6 +81,25 @@ def _phrase(key: str) -> str:
     return pool.get(lang) or pool.get("en", "")
 
 
+def _announce_listening():
+    """Speak the localized listening cue, preempting any in-flight TTS.
+    speak_cached() uses a non-blocking acquire — if the service is busy
+    and the current speech wasn't marked interruptible, the cue is
+    silently dropped. stop() flips stop_event but only the playback loop
+    checks it; if the previous speech is in the render phase (live TTS
+    round-trip, 2-5s), the lock won't free until render + short play
+    break finish. Retry with backoff so the cue lands as soon as the
+    lock releases. ~6s total cap covers a worst-case fresh render before
+    giving up silently."""
+    text = _phrase("listening")
+    state.tts_service.stop()
+    for delay in (0.15, 0.4, 0.8, 1.6, 3.0):
+        time.sleep(delay)
+        if state.tts_service.speak_cached(text):
+            return
+    logger.warning("listening cue dropped: TTS busy after retries")
+
+
 def _is_orangepi_sun60() -> bool:
     """Detect Allwinner sun60iw2 (OrangePi 4 Pro / A733) via device-tree model."""
     try:
@@ -189,46 +208,32 @@ class GPIOButtonHandler:
             logger.info("GPIO button %d clicks -- ignored (only 1=stop, 3=reboot)", count)
 
     def _single_click(self):
+        from lelamp.routes.music import audio_stop
+        from lelamp.routes.voice import stop_tts, unmute_mic
+
         if state._mic_muted:
             logger.info("GPIO button single click -- unmuting mic")
-            from lelamp.routes.voice import unmute_mic
-
             unmute_mic()
-            if (
-                state.tts_service
-                and state.tts_service.available
-                and not state._speaker_muted
-            ):
-                # Preempt any in-flight TTS so the listening cue is actually
-                # heard. speak_cached() uses a non-blocking acquire — if the
-                # service is busy and the current speech wasn't marked
-                # interruptible, the cue is silently dropped. stop() flips
-                # the stop_event but only the playback loop checks it; if
-                # the previous speech is in the render phase (live TTS
-                # round-trip, 2-5s), the lock won't free until render +
-                # short play break finish. Retry with backoff so the cue
-                # lands as soon as the lock releases. ~6s total cap covers
-                # a worst-case fresh render before giving up silently.
-                def _announce_listening():
-                    text = _phrase("listening")
-                    state.tts_service.stop()
-                    for delay in (0.15, 0.4, 0.8, 1.6, 3.0):
-                        time.sleep(delay)
-                        if state.tts_service.speak_cached(text):
-                            return
-                    logger.warning("listening cue dropped: TTS busy after retries")
-                threading.Thread(
-                    target=_announce_listening,
-                    daemon=True,
-                    name="unmute-tts",
-                ).start()
-            return
-        logger.info("GPIO button single click -- stopping speaker")
-        from lelamp.routes.voice import stop_tts
-        from lelamp.routes.music import audio_stop
-
-        stop_tts()
-        audio_stop()
+        else:
+            logger.info("GPIO button single click -- stopping speaker")
+            stop_tts()
+            audio_stop()
+        # Always announce the listening cue so the user hears confirmation
+        # of the click — both for unmute (mic just opened) and for
+        # stop-speaker (Lumi was talking, user wants the floor). The cue
+        # itself preempts in-flight TTS via stop() + speak_cached retry,
+        # so calling stop_tts() above is fine — _announce_listening
+        # handles the lock handoff.
+        if (
+            state.tts_service
+            and state.tts_service.available
+            and not state._speaker_muted
+        ):
+            threading.Thread(
+                target=_announce_listening,
+                daemon=True,
+                name="single-click-tts",
+            ).start()
 
     def _triple_click(self):
         logger.info("GPIO button triple click -- rebooting OS")
