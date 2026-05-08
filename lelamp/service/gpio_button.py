@@ -199,8 +199,18 @@ class GPIOButtonHandler:
                 and state.tts_service.available
                 and not state._speaker_muted
             ):
+                # Preempt any in-flight TTS so the listening cue is actually
+                # heard. speak_cached() uses a non-blocking acquire — if the
+                # service is busy and the current speech wasn't marked
+                # interruptible, the cue is silently dropped. stop() flips
+                # the stop_event; the playback thread releases the lock
+                # within ~50-100ms, so a 200ms sleep covers the handoff.
+                def _announce_listening():
+                    state.tts_service.stop()
+                    time.sleep(0.2)
+                    state.tts_service.speak_cached(_phrase("listening"))
                 threading.Thread(
-                    target=lambda: state.tts_service.speak_cached(_phrase("listening")),
+                    target=_announce_listening,
                     daemon=True,
                     name="unmute-tts",
                 ).start()
