@@ -195,8 +195,10 @@ func lastSuggestionAgeMin(events []musicsuggestion.Event, now time.Time) int {
 	return int(now.Sub(time.Unix(int64(last.TS), 0)).Minutes())
 }
 
-// fetchAudioPlaying calls lelamp /audio/status with a tight timeout. Returns
-// false on any error so a missing/down lelamp cannot block the agent turn.
+// fetchAudioPlaying calls lelamp /audio/status with a tight timeout.
+// Schema (verified on Pi): {available, playing, title, speaker_muted}.
+// Returns false on any error so a missing/down lelamp cannot block the
+// agent turn.
 func fetchAudioPlaying() bool {
 	client := &http.Client{Timeout: audioStatusTimeout}
 	resp, err := client.Get(lelamp.BaseURL + "/audio/status")
@@ -213,15 +215,19 @@ func fetchAudioPlaying() bool {
 	}
 	var payload struct {
 		Playing bool `json:"playing"`
-		State   string `json:"state"`
 	}
 	if json.Unmarshal(body, &payload) != nil {
 		return false
 	}
-	return payload.Playing || payload.State == "playing"
+	return payload.Playing
 }
 
 // fetchAudioRecent calls lelamp /audio/history?person=<user>&last=1.
+// Schema (verified on Pi):
+//
+//	{"date":"today","person":"<user>","entries":[
+//	  {"ts","date","hour","query","title","duration_s","stopped_by","person"}
+//	],"count":<n>}
 func fetchAudioRecent(user string) *audioRecentDigest {
 	client := &http.Client{Timeout: audioHistoryTimeout}
 	url := fmt.Sprintf("%s/audio/history?person=%s&last=1", lelamp.BaseURL, user)
@@ -238,25 +244,23 @@ func fetchAudioRecent(user string) *audioRecentDigest {
 		return nil
 	}
 	var payload struct {
-		Data struct {
-			Events []struct {
-				Track     string `json:"track"`
-				Duration  int    `json:"duration_s"`
-				Stopped   string `json:"stopped"`
-			} `json:"events"`
-		} `json:"data"`
+		Entries []struct {
+			Title     string  `json:"title"`
+			Duration  float64 `json:"duration_s"`
+			StoppedBy string  `json:"stopped_by"`
+		} `json:"entries"`
 	}
-	if json.Unmarshal(body, &payload) != nil || len(payload.Data.Events) == 0 {
+	if json.Unmarshal(body, &payload) != nil || len(payload.Entries) == 0 {
 		return nil
 	}
-	last := payload.Data.Events[len(payload.Data.Events)-1]
-	if last.Track == "" {
+	last := payload.Entries[len(payload.Entries)-1]
+	if last.Title == "" {
 		return nil
 	}
 	return &audioRecentDigest{
-		Track:       last.Track,
-		DurationS:   last.Duration,
-		StoppedKind: last.Stopped,
+		Track:       last.Title,
+		DurationS:   int(last.Duration),
+		StoppedKind: last.StoppedBy,
 	}
 }
 
