@@ -1,16 +1,56 @@
 package sse
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"go-lamp.autonomous.ai/lib/core/system"
 	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/server/serializers"
 )
+
+// openclawSemverRe captures the first semver-like token in `openclaw --version`
+// output (e.g. "OpenClaw 2026.3.8 (3caab92)" → "2026.3.8"). Mirrors the regex
+// used in bootstrap; duplicated here to avoid pulling bootstrap into server.
+var openclawSemverRe = regexp.MustCompile(`(\d+\.\d+\.\d+(?:[-+._][0-9A-Za-z.-]+)?)`)
+
+// openClawVersion caches the OpenClaw runtime version. Package-level (not
+// a struct field) because OpenClawHandler is returned by value through wire
+// and a struct copy would orphan the field. Populated once at handler init
+// via populateOpenClawVersion(); stays valid until the process restarts.
+var openClawVersion atomic.Pointer[string]
+
+// populateOpenClawVersion shells out to `openclaw --version` with a short
+// timeout and stores the normalized semver in openClawVersion. Empty result
+// when openclaw is not on PATH or the command fails — the Status endpoint
+// then returns "" and the UI renders nothing for that field.
+func populateOpenClawVersion() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := system.Run(ctx, "openclaw", "--version")
+	if err != nil {
+		slog.Warn("read openclaw version failed", "component", "openclaw", "error", err)
+		return
+	}
+	line := strings.TrimSpace(strings.TrimRight(string(out), "\r\n"))
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	v := ""
+	if loc := openclawSemverRe.FindStringSubmatch(line); len(loc) > 1 {
+		v = loc[1]
+	}
+	openClawVersion.Store(&v)
+}
 
 // StopTTS interrupts active TTS playback on LeLamp.
 func (h *OpenClawHandler) StopTTS(c *gin.Context) {
@@ -35,11 +75,17 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 	// Get real emotion from LeLamp (source of truth) instead of parsed text
 	emotion := h.fetchLeLampEmotion()
 
+	version := ""
+	if v := openClawVersion.Load(); v != nil {
+		version = *v
+	}
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"name":       h.agentGateway.Name(),
 		"connected":  h.agentGateway.IsReady(),
 		"sessionKey": h.agentGateway.GetSessionKey() != "",
 		"emotion":    emotion,
+		"version":    version,
 	}))
 }
 

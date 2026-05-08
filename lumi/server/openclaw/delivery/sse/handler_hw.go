@@ -17,12 +17,14 @@ import (
 
 // trackFailFmtByLang is the apology template spoken when /servo/track fails.
 // %s is the requested target name (e.g. "the cup"). Falls back to English
-// when the language is empty/unknown.
+// when the language is empty/unknown. Phrasing is a soft ask-for-help (per
+// SOUL.md "if you can't do something, be honest and warm") rather than an
+// assistant-style "Try X, or Y" option dispatch.
 var trackFailFmtByLang = map[string]string{
-	"en":    "I can't see %s right now. Try pointing me toward it, or try a different name.",
-	"vi":    "Mình không thấy %s lúc này. Bạn thử quay mình về phía đó xem, hoặc gọi tên khác nhé.",
-	"zh-CN": "我现在看不到%s。试着让我朝它的方向看，或者换个名字试试。",
-	"zh-TW": "我現在看不到%s。試著讓我朝它的方向看，或者換個名字試試。",
+	"en":    "[sigh] I can't quite see %s — point me that way, or call it something else?",
+	"vi":    "[sigh] Mình không rõ %s lắm — quay mình về phía đó được không, hay gọi tên khác xem?",
+	"zh-CN": "[sigh] 我看不太清%s — 让我朝那边看看，或者换个名字？",
+	"zh-TW": "[sigh] 我看不太清%s — 讓我朝那邊看看，或者換個名字？",
 }
 
 func trackFailMessage(target string) string {
