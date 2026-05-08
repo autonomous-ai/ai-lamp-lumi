@@ -169,11 +169,17 @@ func StopVoicePipeline() error {
 	return post("/voice/stop", []byte("{}"))
 }
 
-// ListVoices returns available TTS voices for the given provider.
-// Returns an error if LeLamp is unreachable or returns non-2xx — callers
-// should fall back to a static list in that case.
-func ListVoices(provider string) ([]string, error) {
-	resp, err := httpClient.Get(BaseURL + "/voice/voices?provider=" + provider)
+// ListVoices returns available TTS voices for the given provider, filtered
+// to lang's curated bucket when lang is non-empty (BCP-47, e.g. "vi",
+// "zh-CN"). Empty lang returns the full flat list. Returns an error if
+// LeLamp is unreachable or returns non-2xx — callers should fall back to
+// a static list in that case.
+func ListVoices(provider, lang string) ([]string, error) {
+	url := BaseURL + "/voice/voices?provider=" + provider
+	if lang != "" {
+		url += "&lang=" + lang
+	}
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
