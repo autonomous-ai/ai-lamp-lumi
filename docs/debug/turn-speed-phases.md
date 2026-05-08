@@ -126,9 +126,9 @@ Pattern y nguyên wellbeing, áp dụng cho 3-skill chain (`user-emotion-detecti
 | Mốc → Mốc | Ý nghĩa | Color UI |
 |---|---|---|
 | `chat_send` → `lifecycle_start` | OpenClaw nhận RPC + init turn (network + load session/context + boot agent). **KHÔNG** phải LLM. | `openclaw init` (xanh dương) |
-| `lifecycle_start` → `llm_first_token` | LLM warmup thực — từ lúc agent ready tới token đầu (thinking hoặc assistant delta). Đây là **TTFT thật**. | `llm ttft` (xanh dương) |
-| `llm_first_token` → `first tool_call` | LLM streaming + planning trước tool call đầu. | `llm streaming` (tím) |
+| `lifecycle_start` → first `thinking`/`assistant` delta | LLM warmup thực — model reasoning silently trước khi token đầu chảy ra. Đo trực tiếp từ stream events (`type === "thinking"` / `"assistant_delta"`). | `llm warmup` (xanh dương) |
+| first delta → `first tool_call` | LLM streaming + planning trước tool call đầu. | `llm streaming` (tím) |
 
-`llm_first_token` được emit bởi `OpenClawHandler.markFirstToken` (lumi/server/openclaw/delivery/sse/handler.go), đúng 1 lần/turn, ở delta đầu tiên trong case `thinking` hoặc `assistant`. JSONL detail: `{ run_id, stream }`.
+(Lưu ý: trước đây có `llm_first_token` flow event tự chế trong Lumi handler để mark warmup, đã bỏ — Lumi giờ đo trực tiếp từ stream events trong UI helpers. Pipeline aggregator + timing strip cùng nguồn truth.)
 
 Khi optimize: nếu `openclaw init` lớn → check WS RTT + session context size; nếu `llm ttft` lớn → check prompt size / cache hit rate (auto-compact); nếu `llm streaming` lớn → giảm thinking budget hoặc số tool turn (xem Phase 1/2 ở trên).

@@ -7,6 +7,12 @@ replaced with a single **Event Pipeline** rect that lists OpenClaw stream
 events in chronological order, with consecutive same-type deltas merged
 into one summary row.
 
+The custom `llm_first_token` flow event (Lumi-generated marker for the
+first thinking/assistant delta) was also removed — the pipeline aggregator
+and timing strip now observe the first stream delta directly from
+`type === "thinking"` / `"assistant_delta"` SSE events, so the marker
+became redundant.
+
 ## Why the change
 
 OpenClaw emits 12 stream types under `event:"agent"` (`lifecycle`,
@@ -49,9 +55,9 @@ they only exist while the UI is open.
 
 Replaying an old turn from JSONL still works but only shows the
 flow events that were written: `lifecycle_start`, `lifecycle_end`,
-`tool_call`, `llm_first_token`, etc. Per-delta chunk/char counts are
-unavailable for replay. This is intentional — adding deltas to JSONL
-would 12× the file size for marginal value.
+`tool_call`, etc. Per-delta chunk/char counts are unavailable for
+replay. This is intentional — adding deltas to JSONL would 12× the
+file size for marginal value.
 
 ## Reverting to the 5-core node design
 
@@ -68,8 +74,9 @@ to be re-added.
 - `lumi/web/src/pages/monitor/FlowSection/helpers.ts` — `aggregateEvents()`
   + `PipelineRow` type
 - `lumi/web/src/pages/monitor/FlowSection/FlowDiagram.tsx` — new
-  pipeline rect + foreignObject row list; `llm_first_token`,
-  `agent_thinking`, `tool_exec` node circles skipped (FlowStage
-  entries kept for edge anchors and visited tracking).
+  pipeline rect + foreignObject row list; `agent_thinking` and
+  `tool_exec` node circles skipped (FlowStage entries kept for edge
+  anchors and visited tracking; `llm_first_token` FlowStage was
+  removed entirely).
 - `docs/flow-monitor.md` + `docs/vi/flow-monitor_vi.md` — updated
   the "OpenClaw section" diagram description.

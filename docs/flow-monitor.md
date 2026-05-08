@@ -216,8 +216,7 @@ mic_input → intent_check → local_match → hw_emotion / hw_led / hw_servo / 
 cam_input → intent_check → agent_call
 schedule_trigger → agent_call
 telegram_input → agent_call
-agent_call → llm_first_token (LLM Start) → agent_thinking → tool_exec → agent_response
-                                                          → agent_response
+agent_call → [Event Pipeline rect — thinking/assistant/tool rows] → agent_response
 tool_exec → hw_emotion         (OpenClaw /emotion call → LeLamp)
 tool_exec → hw_led             (OpenClaw /led/* or /scene call → LeLamp)
 tool_exec → hw_servo           (OpenClaw /servo/* call → LeLamp)
@@ -242,11 +241,6 @@ Node info extracted from turn events:
 - `chat_input` → Telegram In node
 - `intent_match` → Local Match node
 - `lifecycle_start` → Agent Call node + first row in the Event Pipeline.
-- `llm_first_token` → flows into the Event Pipeline as part of the first
-  thinking/assistant row's `startMs`. Emitted exactly once per turn at the
-  first thinking or assistant delta. Detail: `{ run_id, stream }`. The gap
-  `lifecycle_start → llm_first_token` is LLM warmup (before any token streams);
-  it shows up as time before the first row in the pipeline.
 - `tool_call` → one Event Pipeline row per tool invocation, kind=`tool`,
   label=`tool · <name>`, with `start`/`result` phases collapsed into the
   row's duration. Outgoing HW edges (LED / servo / emotion / audio /
