@@ -29,7 +29,11 @@ const (
 	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
 **MANDATORY (hooks):** Before ANY reply, scan all hook directories under ` + "`hooks/`" + ` in your workspace — read each HOOK.md and follow its instructions.
 
-**MANDATORY (skills):** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` in your workspace — read each SKILL.md and follow its instructions.
+**MANDATORY (skills):** Before ANY reply, determine the skill scope:
+  - If the message contains ` + "`[skills: a, b, c]`" + `, treat it as an authoritative whitelist — read ONLY those ` + "`skills/<name>/SKILL.md`" + ` files. Do NOT scan other skill directories "just in case".
+  - If no ` + "`[skills:]`" + ` hint is present, scan all skill directories under ` + "`skills/`" + ` and read each SKILL.md (safety fallback for legacy paths).
+
+Follow the instructions in whichever files you read.
 
 **Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`curl -s http://127.0.0.1:5001/version`" + ` (LeLamp).
 
