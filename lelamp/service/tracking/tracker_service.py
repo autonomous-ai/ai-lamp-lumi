@@ -303,8 +303,7 @@ class TrackerService:
         last_yolo_cy: Optional[float] = None
         last_yolo_area: Optional[float] = None   # area of last accepted YOLO bbox
         yolo_cx_this_frame: Optional[float] = None
-        last_x2: Optional[float] = None          # x2: last confirmed tracker position
-        last_y2: Optional[float] = None
+        csrt_score: float = 1.0                   # CSRT confidence from last frame
 
         # Schedule first YOLO immediately if initial detection failed
         if not tracker_ok:
@@ -364,25 +363,10 @@ class TrackerService:
                                 or new_area < last_yolo_area / 4.0
                             )
                         )
-                        # Reject bbox if center is too far from current tracker position —
-                        # YOLO found a different object in the scene, not the tracked one.
-                        max_jump = w_fr * 0.25
-                        if last_x2 is not None and last_y2 is not None:
-                            dist = ((cx3 - last_x2) ** 2 + (cy3 - last_y2) ** 2) ** 0.5
-                            prox_ok = dist <= max_jump
-                        else:
-                            dist = 0.0
-                            prox_ok = True
-
                         if not size_ok:
                             logger.info(
                                 "YOLO: size jump rejected area=%d vs last=%d",
                                 new_area, last_yolo_area,
-                            )
-                        elif not prox_ok:
-                            logger.info(
-                                "YOLO: proximity rejected dist=%.0fpx > %.0fpx x2=(%.0f,%.0f) x3=(%.0f,%.0f)",
-                                dist, max_jump, last_x2, last_y2, cx3, cy3,
                             )
                         else:
                             state.bbox = yolo_bbox
@@ -429,8 +413,8 @@ class TrackerService:
                             state.bbox = (bx, by, bw, bh)
                             cx_obj = bx + bw / 2.0
                             cy_obj = by + bh / 2.0
-                            last_x2, last_y2 = cx_obj, cy_obj
-                            state.confidence = self._get_tracker_score(local_tracker)
+                            csrt_score = self._get_tracker_score(local_tracker)
+                            state.confidence = csrt_score
                         else:
                             tracker_ok = False
                     except Exception as e:
@@ -448,11 +432,11 @@ class TrackerService:
                     raw_dy = y2 - y1
 
                     logger.info(
-                        "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f)",
+                        "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f) csrt=%.2f",
                         x1, y1,
                         x2, y2,
                         "(%.0f,%.0f)" % (x3, y3) if x3 is not None else "none",
-                        raw_dx, raw_dy,
+                        raw_dx, raw_dy, csrt_score,
                     )
 
                     # EMA smoothing: absorbs per-frame tracker jitter.
