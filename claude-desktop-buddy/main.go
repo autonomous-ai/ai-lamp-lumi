@@ -48,6 +48,13 @@ func main() {
 
 	cfg.DeviceName = resolveDeviceName(cfg.DeviceName, cfg.LumiURL)
 
+	// Register a BlueZ agent so LE Secure Connections pairing can complete.
+	// Without an agent, BlueZ rejects pairing requests and Claude Desktop's
+	// Hardware Buddy picker won't see (or won't connect to) the device.
+	if err := registerBluezAgent(); err != nil {
+		log.Printf("[buddy] WARN: register agent failed: %v (pairing will likely fail)", err)
+	}
+
 	bridge := NewBridge(cfg.LeLampURL, cfg.LumiURL)
 	startTime := time.Now()
 
@@ -219,7 +226,7 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 func loadConfig(path string) Config {
 	cfg := Config{
 		Enabled:            true,
-		DeviceName:         "Lamp-{deviceid}",
+		DeviceName:         "Claude-{deviceid}",
 		HTTPPort:           5002,
 		LeLampURL:          "http://127.0.0.1:5001",
 		LumiURL:            "http://127.0.0.1:5000",
@@ -245,9 +252,21 @@ func loadConfig(path string) Config {
 // device_id from Lumi's /api/system/info. Buddy may start before Lumi is
 // ready, so we retry transport errors for a short window. Names without
 // the placeholder pass through untouched.
+//
+// The default uses a "Claude-" prefix because Claude Desktop's Hardware
+// Buddy device picker filters scan results to names starting with "Claude"
+// (per the BLE advertisement requirements at
+// github.com/anthropics/claude-desktop-buddy). Renaming away from that
+// prefix makes the device invisible in the official picker.
+//
+// {deviceid} is shortened to its trailing segment (last 4 chars after the
+// last dash) so the resolved name fits in the 31-byte primary BLE
+// advertisement alongside the 128-bit Nordic UART service UUID. With a
+// long name the system pushes it to the scan response, which some
+// scanners only fetch via active scan and may miss.
 func resolveDeviceName(name, lumiURL string) string {
 	if name == "" {
-		name = "Lamp-{deviceid}"
+		name = "Claude-{deviceid}"
 	}
 	if !strings.Contains(name, "{deviceid}") {
 		return name
@@ -258,15 +277,38 @@ func resolveDeviceName(name, lumiURL string) string {
 	case id != "":
 		log.Printf("[buddy] resolved device_id=%q from Lumi", id)
 	case reason == "empty":
-		log.Printf("[buddy] WARN: Lumi reachable at %s but device_id is empty — device not yet provisioned via /device/setup. BLE name will fall back to %q",
-			lumiURL, "Lamp-unknown")
+		log.Printf("[buddy] WARN: Lumi reachable at %s but device_id is empty — device not yet provisioned via /device/setup", lumiURL)
 		id = "unknown"
 	default:
-		log.Printf("[buddy] WARN: failed to fetch device_id from %s after %d attempts (%s) — BLE name will fall back to %q",
-			lumiURL, fetchAttempts, reason, "Lamp-unknown")
+		log.Printf("[buddy] WARN: failed to fetch device_id from %s after %d attempts (%s)",
+			lumiURL, fetchAttempts, reason)
 		id = "unknown"
 	}
-	return strings.ReplaceAll(name, "{deviceid}", id)
+	short := shortDeviceID(id)
+	if short != id {
+		log.Printf("[buddy] shortened device_id %q → %q for BLE adv fit", id, short)
+	}
+	return strings.ReplaceAll(name, "{deviceid}", short)
+}
+
+// shortDeviceID returns a compact form of the device id suitable for the
+// BLE local name. Takes the last dash-separated segment (e.g. "lumi-004"
+// → "004"; "abc-def-12" → "12"; "abcdef" → "abcdef") and truncates to 4
+// chars. The 4-char cap leaves room for the "Claude-" prefix plus the
+// 128-bit Nordic UART UUID inside the 31-byte primary advertisement
+// payload, so macOS picks up the name in passive scan without requiring
+// a SCAN_REQ round-trip.
+func shortDeviceID(id string) string {
+	if id == "" {
+		return "unk"
+	}
+	if i := strings.LastIndexByte(id, '-'); i >= 0 && i+1 < len(id) {
+		id = id[i+1:]
+	}
+	if len(id) > 4 {
+		id = id[len(id)-4:]
+	}
+	return id
 }
 
 const fetchAttempts = 15
