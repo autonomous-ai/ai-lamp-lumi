@@ -76,6 +76,10 @@ export function FlowDiagram({
     hw_servo:          { x: 200, y: 660 },
     hw_audio:          { x: 200, y: 795 },
     hw_wellbeing:      { x: 467, y: 660 },
+    // Lumi-side log writes (mood + music-suggestion) — stack with hw_wellbeing
+    // since they all go through the same async POST path on port 5000/api/*.
+    hw_mood:           { x: 467, y: 525 },
+    hw_music_suggestion: { x: 467, y: 795 },
     tts_speak:         { x: 200, y: 930 },
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
     schedule_trigger:  { x: 750, y: 240 },
@@ -120,6 +124,8 @@ export function FlowDiagram({
     ["lumi_gate",         "hw_servo"],
     ["lumi_gate",         "hw_audio"],
     ["lumi_gate",         "hw_wellbeing"],
+    ["lumi_gate",         "hw_mood"],
+    ["lumi_gate",         "hw_music_suggestion"],
     ["lumi_gate",         "tts_speak"],
     ["lumi_gate",         "tg_out"],
     ["lumi_gate",         "tg_alert"],
@@ -284,7 +290,7 @@ export function FlowDiagram({
 
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
-          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing");
+          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing" || to === "hw_mood" || to === "hw_music_suggestion");
           const dx = t.x - f.x, dy = t.y - f.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const x1 = f.x + (dx / len) * nodeR;
