@@ -1151,6 +1151,7 @@ export default function EditConfig() {
                     <button
                       type="button"
                       onClick={() => testTTSVoice(ttsVoice, {
+                        lang: sttLanguage,
                         provider: ttsProvider,
                         ttsApiKey, ttsBaseUrl,
                         llmApiKey, llmBaseUrl: llmUrl,
