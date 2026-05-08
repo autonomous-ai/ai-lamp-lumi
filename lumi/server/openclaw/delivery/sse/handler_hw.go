@@ -96,12 +96,16 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 				continue
 			}
 			// Lumi-bound HW markers (log writes that live on Lumi, not LeLamp):
-			// /wellbeing/log → http://127.0.0.1:5000/api/wellbeing/log. Lets the
-			// agent fire the side-effect POST without consuming a tool turn,
-			// since fireHWCalls runs async in this goroutine and the reply text
-			// is already on its way to TTS.
+			//   /wellbeing/log         → POST :5000/api/wellbeing/log
+			//   /mood/log              → POST :5000/api/mood/log (signal + decision share endpoint, kind in body)
+			//   /music-suggestion/log  → POST :5000/api/music-suggestion/log
+			// Lets the agent fire side-effect POSTs without consuming a tool
+			// turn — fireHWCalls runs async in this goroutine and the reply
+			// text is already on its way to TTS.
 			postURL := lelamp.BaseURL + c.path
-			if strings.HasPrefix(c.path, "/wellbeing/") {
+			if strings.HasPrefix(c.path, "/wellbeing/") ||
+				strings.HasPrefix(c.path, "/mood/") ||
+				strings.HasPrefix(c.path, "/music-suggestion/") {
 				postURL = "http://127.0.0.1:5000/api" + c.path
 			}
 			resp, err := http.Post(postURL, "application/json", strings.NewReader(c.body))
@@ -155,6 +159,12 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 			case strings.HasPrefix(c.path, "/wellbeing/"):
 				flow.Log("hw_wellbeing", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_wellbeing", Summary: c.path + " " + c.body, RunID: flowRunID})
+			case strings.HasPrefix(c.path, "/mood/"):
+				flow.Log("hw_mood", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_mood", Summary: c.path + " " + c.body, RunID: flowRunID})
+			case strings.HasPrefix(c.path, "/music-suggestion/"):
+				flow.Log("hw_music_suggestion", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
+				h.monitorBus.Push(domain.MonitorEvent{Type: "hw_music_suggestion", Summary: c.path + " " + c.body, RunID: flowRunID})
 			default:
 				flow.Log("hw_call", map[string]any{"path": c.path, "args": c.body, "run_id": flowRunID}, flowRunID)
 			}
