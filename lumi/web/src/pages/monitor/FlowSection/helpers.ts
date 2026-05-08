@@ -116,14 +116,19 @@ export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
       continue;
     }
 
-    // Tool call events — never merged. phase=start opens a row; phase=result
-    // emits a "tool_result" row that the UI can render attached to the
-    // preceding start.
+    // Tool call events. Lumi flow.Log("tool_call") fires twice per phase
+    // for each tool (once from the `agent` stream without args, once from
+    // `session.tool` with args + source) — collapse those duplicates by
+    // merging into the trailing row when the preceding event was the same
+    // tool name+phase within 1 second.
     const isTool = ev.type === "tool_call" || fnode === "tool_call";
     if (isTool) {
       const d = ev.detail as Record<string, any> | undefined;
       const phase = d?.data?.phase ?? d?.phase ?? "";
-      const toolName = d?.data?.name ?? d?.name ?? d?.tool ?? "tool";
+      const toolName =
+        d?.data?.name ?? d?.data?.tool
+        ?? d?.name ?? d?.tool
+        ?? "tool";
       const t = ts(ev);
       if (phase === "start" || phase === "") {
         const argsObj = d?.data?.args ?? d?.args;
@@ -135,6 +140,16 @@ export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
           } catch { argsSummary = String(argsObj); }
           if (argsSummary.length > 80) argsSummary = argsSummary.slice(0, 80) + "…";
         }
+        // Deduplicate the agent-stream + session.tool double-emit: if the
+        // last row is a `tool · <same name>` start within 1 second, fold
+        // this event into it (prefer the variant that carries args).
+        const last = rows[rows.length - 1];
+        if (last && last.kind === "tool" && last.label === `tool · ${toolName}` && (t - last.startMs) < 1000 && last.durationMs === 0) {
+          if (argsSummary && !last.detail) last.detail = argsSummary;
+          // keep last.startMs (earliest); update endMs if newer
+          if (t > last.endMs) last.endMs = t;
+          continue;
+        }
         rows.push({
           kind: "tool",
           label: `tool · ${toolName}`,
@@ -142,11 +157,10 @@ export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
           startMs: t, endMs: t, durationMs: 0, chunks: 1, chars: 0,
         });
       } else if (phase === "result" || phase === "end") {
-        // Attach duration to the most recent tool row of the same name; emit
-        // a small "result" row regardless so multi-tool turns stay readable.
+        // Attach duration to the most recent tool row of the same name.
         for (let i = rows.length - 1; i >= 0; i--) {
           const r = rows[i];
-          if (r.kind === "tool" && r.label.endsWith(toolName)) {
+          if (r.kind === "tool" && r.label === `tool · ${toolName}`) {
             r.endMs = t;
             r.durationMs = r.endMs - r.startMs;
             break;
@@ -665,7 +679,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
     mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
-    agent_call: [], llm_first_token: [], agent_thinking: [], tool_exec: [],
+    agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
     lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], hw_mood: [], hw_music_suggestion: [], tg_out: [], tg_alert: [],
     ambient: [],
@@ -1062,8 +1076,11 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       nLifecycleEndTs = ts;
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "llm_first_token") {
-      if (!nLlmFirstTokenTs) nLlmFirstTokenTs = ts;
+    // First thinking or assistant delta = LLM started streaming (warmup edge).
+    // Replaces the legacy `llm_first_token` flow event marker with a direct
+    // observation of the actual first stream delta.
+    if ((ev.type === "thinking" || ev.type === "assistant_delta") && !nLlmFirstTokenTs) {
+      nLlmFirstTokenTs = ts;
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!nTtsTs) nTtsTs = ts;
@@ -1117,14 +1134,10 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
   }
 
-  // llm_first_token: lifecycle_start → first thinking/assistant delta (warmup / TTFT)
-  if (nLifecycleStartTs && nLlmFirstTokenTs && nLlmFirstTokenTs > nLifecycleStartTs) {
-    info.llm_first_token.unshift(`⏱ ${fmtDur(nLlmFirstTokenTs - nLifecycleStartTs)}`);
-  }
-
-  // agent_thinking: post-warmup streaming time. Use llm_first_token as start
-  // when available (so warmup is not double-counted with the LLM Start node);
-  // otherwise fall back to lifecycle_start.
+  // agent_thinking: post-warmup streaming time. Use first thinking/assistant
+  // delta timestamp as start when available (warmup edge — observed directly
+  // from the stream, no marker event needed); otherwise fall back to
+  // lifecycle_start.
   const thinkStartTs = nLlmFirstTokenTs || nLifecycleStartTs;
   if (thinkStartTs) {
     const to = nFirstToolTs || nLifecycleEndTs;
@@ -1203,8 +1216,10 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     if (ev.type === "flow_event" && ev.detail?.node === "lifecycle_end") {
       lifecycleEndTs = ts;
     }
-    if (ev.type === "flow_event" && ev.detail?.node === "llm_first_token") {
-      if (!llmFirstTokenTs) llmFirstTokenTs = ts;
+    // First thinking or assistant delta = LLM started streaming. Replaces
+    // the legacy llm_first_token marker with direct stream observation.
+    if ((ev.type === "thinking" || ev.type === "assistant_delta") && !llmFirstTokenTs) {
+      llmFirstTokenTs = ts;
     }
     if (ev.type === "tts" || (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed"))) {
       if (!ttsTs) ttsTs = ts;
@@ -1244,23 +1259,27 @@ export function extractTurnTiming(events: DisplayEvent[], startTime?: string, en
     if (ms > 0) segments.push({ label: `openclaw init ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "chat_send (lumi)", to: "lifecycle_start (openclaw)" });
   }
 
-  // LLM warmup: lifecycle_start → llm_first_token (TTFT — before any streamed token)
+  // LLM warmup: lifecycle_start → first thinking/assistant delta. The model
+  // is reasoning silently before any token streams. Source: direct stream
+  // observation (no marker event).
   if (lifecycleStartTs && llmFirstTokenTs && llmFirstTokenTs > lifecycleStartTs) {
     const ms = llmFirstTokenTs - lifecycleStartTs;
-    segments.push({ label: `llm warmup ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "lifecycle_start (openclaw)", to: "llm_first_token (openclaw)" });
+    segments.push({ label: `llm warmup ${fmtDur(ms)}`, ms, color: "var(--lm-blue)", from: "lifecycle_start (openclaw)", to: "first delta (openclaw)" });
   }
 
-  // LLM streaming (post-warmup)
+  // LLM streaming (post-warmup): first delta → first tool_call (or
+  // lifecycle_end when no tool fired).
   if (llmFirstTokenTs && firstToolCallTs && firstToolCallTs > llmFirstTokenTs) {
     const ms = firstToolCallTs - llmFirstTokenTs;
-    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "llm_first_token (openclaw)", to: "first tool_call (openclaw)" });
+    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "first delta (openclaw)", to: "first tool_call (openclaw)" });
   } else if (lifecycleStartTs && firstToolCallTs && !llmFirstTokenTs) {
-    // No llm_first_token event — fall back to legacy lifecycle_start → first tool_call.
+    // Tool fired but no thinking/assistant delta seen first — silent reasoning
+    // straight into a tool call. Attribute the gap as thinking.
     const ms = firstToolCallTs - lifecycleStartTs;
     segments.push({ label: `llm thinking ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "first tool_call (openclaw)" });
   } else if (llmFirstTokenTs && lifecycleEndTs && !firstToolCallTs && lifecycleEndTs > llmFirstTokenTs) {
     const ms = lifecycleEndTs - llmFirstTokenTs;
-    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "llm_first_token (openclaw)", to: "lifecycle_end (openclaw)" });
+    segments.push({ label: `llm streaming ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "first delta (openclaw)", to: "lifecycle_end (openclaw)" });
   } else if (lifecycleStartTs && lifecycleEndTs && !firstToolCallTs && !llmFirstTokenTs) {
     const ms = lifecycleEndTs - lifecycleStartTs;
     segments.push({ label: `llm processing ${fmtDur(ms)}`, ms, color: "var(--lm-purple)", from: "lifecycle_start (openclaw)", to: "lifecycle_end (openclaw)" });
