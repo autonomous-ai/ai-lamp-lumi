@@ -255,6 +255,19 @@ export function FlowSection({
     for (const flowNode of FLOW_NODES) {
       if (flowNode.triggers.includes(key)) visitedStages.add(flowNode.id);
     }
+    // tool_exec is the FlowStage anchor for the Event Pipeline rect (see
+    // FlowDiagram.tsx — its node circle is hidden, the rect is rendered in
+    // its place). Treat the pipeline as "visited" whenever any agent core
+    // stream event arrives — thinking / assistant deltas, lifecycle markers
+    // — so the agent_call → pipeline → response edges and the pipeline →
+    // hw_* edges light up correctly even on turns without explicit
+    // tool_call events.
+    if (ev.type === "thinking" || ev.type === "assistant_delta") {
+      visitedStages.add("tool_exec");
+    }
+    if (ev.type === "flow_event" && (node === "lifecycle_start" || node === "lifecycle_end")) {
+      visitedStages.add("tool_exec");
+    }
   }
   for (const ev of turnEvents) {
     // Detect sensing type from sensing_input, chat_send, or agent_call events
