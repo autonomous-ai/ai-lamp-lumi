@@ -30,9 +30,9 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
   { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
-  { id: "voice",    label: "Voice",    icon: <MicVocal size={ICON_SIZE} /> },
+  { id: "voice",    label: "My Voice", icon: <MicVocal size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
-  { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
+  { id: "tts",      label: "Lumi's Voice", icon: <Volume2 size={ICON_SIZE} /> },
   { id: "stt",      label: "STT",      icon: <Mic size={ICON_SIZE} /> },
   { id: "channel",  label: "Channels", icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
@@ -851,7 +851,7 @@ export default function EditConfig() {
                   </label>
                 </SectionCard>
 
-                <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
+                <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
                   <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
                     {VOICE_INTRO}
                   </div>
@@ -1106,7 +1106,7 @@ export default function EditConfig() {
                   })()}
                 </SectionCard>
 
-                <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
                   <LockedPasswordField lockedInitially={ttsLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
                   <LockedField lockedInitially={ttsLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
                   <div style={{ marginBottom: 12 }}>
