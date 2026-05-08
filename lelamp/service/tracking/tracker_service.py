@@ -14,6 +14,7 @@ import queue
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
@@ -45,7 +46,7 @@ FAST_LOOP_FPS = 15
 YOLO_REDETECT_S = 1.0
 
 # How many consecutive YOLO misses (each YOLO_REDETECT_S) before stopping.
-YOLO_MAX_MISS = 4
+YOLO_MAX_MISS = 6
 
 # Gimbal correction gain: fraction of error corrected per frame.
 # 0.25 at 15fps → smooth ~4-frame convergence, no overshoot.
@@ -64,8 +65,8 @@ GIMBAL_MAX_STEP = 2.0
 # Object in center (1 - 2*EDGE) → servo silent.
 # Object in edge zone → proportional nudge away from edge.
 # 0.22 → outer 22% each side, center 56% is dead.
-EDGE_ZONE_H = 0.40   # left/right edges
-EDGE_ZONE_V = 0.30   # top/bottom edges
+EDGE_ZONE_H = 0.42   # left/right edges
+EDGE_ZONE_V = 0.33   # top/bottom edges
 
 # FOV mapping for correction magnitude.
 CAMERA_FOV_DEG = 60.0
@@ -87,6 +88,14 @@ WRIST_PITCH_MIN, WRIST_PITCH_MAX       = -90.0,  90.0
 
 # Maximum tracking duration (seconds)
 MAX_TRACK_DURATION_S = 300
+
+# Phase 1 momentum — coast after object lost
+MOMENTUM_DURATION_S  = 1.5   # how long to keep moving after lost
+MOMENTUM_DECAY       = 0.80  # velocity multiplied per frame (natural deceleration)
+MOMENTUM_MIN_SPEED   = 30.0  # px/s minimum to trigger momentum at all
+
+# Predictive tracking — servo runs ahead to intercept moving object
+LOOKAHEAD_S = 0.4   # seconds to predict ahead (tune up if still lagging)
 
 
 @dataclass
@@ -312,6 +321,8 @@ class TrackerService:
 
         track_start_t = time.perf_counter()
         _frame_count = 0
+        _pos_history: deque = deque(maxlen=8)  # (x, y, t) last ~0.5s at 15fps
+        _lost_naturally = False                # True when YOLO miss 4/4 (not user stop)
         _hw = {"cpu": 0.0, "load": "0", "throttled": "throttled=0x0",
                "volts": "volt=0V", "ram": "0/0MB"}
 
@@ -409,6 +420,7 @@ class TrackerService:
                         logger.info("Gimbal: YOLO miss %d/%d", yolo_miss_count, YOLO_MAX_MISS)
                         if yolo_miss_count >= YOLO_MAX_MISS:
                             logger.warning("Gimbal: lost '%s' after %d YOLO misses", state.target_label, YOLO_MAX_MISS)
+                            _lost_naturally = True
                             break
                 except queue.Empty:
                     pass
@@ -442,13 +454,22 @@ class TrackerService:
                         logger.debug("Gimbal: local tracker update error: %s", e)
                         tracker_ok = False
 
+                # Record position for momentum estimation
+                if cx_obj is not None and cy_obj is not None:
+                    _pos_history.append((cx_obj, cy_obj, time.perf_counter()))
+
                 # --- Edge trigger servo ---
-                # Use x3 (YOLO ground truth) for servo decisions — CSRT box (x2)
-                # is for smooth UI display only; YOLO gives the real object position.
                 if cx_obj is not None and cy_obj is not None:
                     x1, y1 = w_fr / 2.0, h_fr / 2.0
                     x2, y2 = cx_obj, cy_obj              # CSRT box — UI display only
                     x3, y3 = last_yolo_cx, last_yolo_cy  # YOLO ground truth — servo input
+
+                    # If CSRT has drifted far from YOLO, use x3 for servo trigger.
+                    # CSRT can silently lock onto wrong object — x3 is ground truth.
+                    if x3 is not None and y3 is not None:
+                        drift = ((x2 - x3) ** 2 + (y2 - y3) ** 2) ** 0.5
+                        if drift > 200:
+                            x2, y2 = x3, y3
 
                     logger.info(
                         "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f) csrt=%.2f",
@@ -462,18 +483,38 @@ class TrackerService:
                     ey1 = h_fr * EDGE_ZONE_V
                     ey2 = h_fr * (1.0 - EDGE_ZONE_V)
 
-                    # --- Edge trigger (based on x2 CSRT position) ---
-                    if x2 < ex1:
-                        yaw_step = -((ex1 - x2) / ex1) * GIMBAL_MAX_STEP
-                    elif x2 > ex2:
-                        yaw_step = ((x2 - ex2) / (w_fr - ex2)) * GIMBAL_MAX_STEP
+                    # --- Predictive tracking: estimate velocity → predict future pos ---
+                    if len(_pos_history) >= 3:
+                        dt_h = _pos_history[-1][2] - _pos_history[-3][2]
+                        if dt_h > 0:
+                            vx = (_pos_history[-1][0] - _pos_history[-3][0]) / dt_h
+                            vy = (_pos_history[-1][1] - _pos_history[-3][1]) / dt_h
+                            px = x2 + vx * LOOKAHEAD_S
+                            py = y2 + vy * LOOKAHEAD_S
+                        else:
+                            px, py = x2, y2
+                    else:
+                        px, py = x2, y2
+
+                    # --- Edge trigger on predicted position (px,py) ---
+                    # Servo runs ahead to intercept — no more chasing after the fact.
+                    _min = GIMBAL_MAX_STEP * 0.2
+
+                    if px < ex1:
+                        raw = ((ex1 - px) / ex1) * GIMBAL_MAX_STEP
+                        yaw_step = -max(_min, raw)
+                    elif px > ex2:
+                        raw = ((px - ex2) / (w_fr - ex2)) * GIMBAL_MAX_STEP
+                        yaw_step = max(_min, raw)
                     else:
                         yaw_step = 0.0
 
-                    if y2 < ey1:
-                        pitch_step = -((ey1 - y2) / ey1) * GIMBAL_MAX_STEP
-                    elif y2 > ey2:
-                        pitch_step = ((y2 - ey2) / (h_fr - ey2)) * GIMBAL_MAX_STEP
+                    if py < ey1:
+                        raw = ((ey1 - py) / ey1) * GIMBAL_MAX_STEP
+                        pitch_step = -max(_min, raw)
+                    elif py > ey2:
+                        raw = ((py - ey2) / (h_fr - ey2)) * GIMBAL_MAX_STEP
+                        pitch_step = max(_min, raw)
                     else:
                         pitch_step = 0.0
 
@@ -522,6 +563,42 @@ class TrackerService:
                 time.sleep(max(0.0, 1.0 / FAST_LOOP_FPS - elapsed))
 
         finally:
+            # --- Phase 1: Momentum coast ---
+            if _lost_naturally and len(_pos_history) >= 3:
+                dt = _pos_history[-1][2] - _pos_history[0][2]
+                if dt > 0:
+                    vel_x = (_pos_history[-1][0] - _pos_history[0][0]) / dt
+                    vel_y = (_pos_history[-1][1] - _pos_history[0][1]) / dt
+                    speed = (vel_x ** 2 + vel_y ** 2) ** 0.5
+                    if speed >= MOMENTUM_MIN_SPEED:
+                        logger.info("Momentum: vel=(%.0f,%.0f)px/s coasting %.1fs", vel_x, vel_y, MOMENTUM_DURATION_S)
+                        decay = 1.0
+                        t_end = time.perf_counter() + MOMENTUM_DURATION_S
+                        deg_per_px = CAMERA_FOV_DEG / w_fr
+                        while time.perf_counter() < t_end:
+                            decay *= MOMENTUM_DECAY
+                            ys = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, vel_x * decay * deg_per_px))
+                            ps = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, vel_y * decay * deg_per_px))
+                            if abs(ys) < 0.05 and abs(ps) < 0.05:
+                                break
+                            new_yaw   = max(YAW_MIN,        min(YAW_MAX,        yaw   + ys))
+                            new_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX, pitch + ps * PITCH_WEIGHT_BASE))
+                            new_elbow = max(ELBOW_PITCH_MIN,min(ELBOW_PITCH_MAX,elbow + ps * PITCH_WEIGHT_ELBOW))
+                            new_wrist = max(WRIST_PITCH_MIN,min(WRIST_PITCH_MAX,wrist + ps * PITCH_WEIGHT_WRIST))
+                            try:
+                                with animation_service.bus_lock:
+                                    animation_service.robot.send_action({
+                                        "base_yaw.pos":    new_yaw,
+                                        "base_pitch.pos":  new_pitch,
+                                        "elbow_pitch.pos": new_elbow,
+                                        "wrist_pitch.pos": new_wrist,
+                                    })
+                                yaw, pitch, elbow, wrist = new_yaw, new_pitch, new_elbow, new_wrist
+                            except Exception:
+                                break
+                            time.sleep(1.0 / FAST_LOOP_FPS)
+                        logger.info("Momentum ended — yaw=%.1f pitch=%.1f", yaw, pitch)
+
             animation_service._tracking_active = False
             animation_service._zero_mode = False
             with animation_service._event_lock:
