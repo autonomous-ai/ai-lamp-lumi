@@ -162,7 +162,7 @@ These are the **stable rules** for nodes inside the OpenClaw rectangle; `positio
 | Col | Stages |
 |-----|--------|
 | **1** | Tool Exec, Response (stacked — Response under Tool) |
-| **2** | Agent Call, Thinking (stacked — Think under Agent) |
+| **2** | Agent Call (top) → Event Pipeline rect (middle) → Response (bottom). The pipeline contains rows for thinking / assistant / tool / lifecycle / compaction / error events in order; see `docs/debug/flow-monitor-pipeline.md` for aggregation rules and the rationale for collapsing the previous 3-node `LLM Start / Thinking / Tool Exec` chain into one rect. |
 | **3** | Telegram In (`TG IN`) |
 
 **Rows (top → bottom)**
@@ -241,10 +241,17 @@ Node info extracted from turn events:
   - `{ action: "drop" }` — dropped by dedup or suppression window
 - `chat_input` → Telegram In node
 - `intent_match` → Local Match node
-- `lifecycle_start` → Agent Call + Thinking nodes
-- `llm_first_token` → LLM Start node. Emitted exactly once per turn at the first thinking or assistant delta. Detail: `{ run_id, stream }` where `stream` is `"thinking"` or `"assistant"` (whichever delta arrived first). The gap `lifecycle_start → llm_first_token` is true LLM warmup / TTFT (before any token streams). Note that `stream:"thinking"` means the model just started reasoning (extended thinking) — NOT that thinking is finished. With extended thinking enabled (Claude 4.x default), `stream` will typically be `"thinking"`; without it, `"assistant"`. Emitted by `OpenClawHandler.markFirstToken` from `lumi/server/openclaw/delivery/sse/handler.go`; `firstTokenSeen` is cleared at `lifecycle_end`/`error`. Channel-driven turns (Telegram queue mode) do not currently emit this event because the agent-stream `thinking`/`assistant` cases are gated by OpenClaw 5.x.
-- `tool_call` → Tool Exec node. Only `phase:"start"` events shown (has args). Displays full curl command from `args.command`. Each tool entry has a 📋 copy button for the curl command. OpenClaw sends tool name in `data.name` (not `data.tool`); args as object in `data.args` (e.g. `{"command":"curl ..."}`).
-- `lifecycle_end` → Response node
+- `lifecycle_start` → Agent Call node + first row in the Event Pipeline.
+- `llm_first_token` → flows into the Event Pipeline as part of the first
+  thinking/assistant row's `startMs`. Emitted exactly once per turn at the
+  first thinking or assistant delta. Detail: `{ run_id, stream }`. The gap
+  `lifecycle_start → llm_first_token` is LLM warmup (before any token streams);
+  it shows up as time before the first row in the pipeline.
+- `tool_call` → one Event Pipeline row per tool invocation, kind=`tool`,
+  label=`tool · <name>`, with `start`/`result` phases collapsed into the
+  row's duration. Outgoing HW edges (LED / servo / emotion / audio /
+  lumi_gate) anchor at the pipeline's right edge.
+- `lifecycle_end` → Response node + final row in the Event Pipeline.
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)
 - `tts_suppressed` → 🔇 marker in Lumi gate column. `data.reason` discriminates: `channel_run` (cron/Telegram-origin turn, speaker gated by default), `music_playing` (audio shares the speaker), `already_spoken` (built-in tts tool already routed). Emitted *instead of* `tts_send` when the actual `SendToLeLampTTS` call is skipped — prevents the UI from misleadingly claiming TTS happened.
 - `token_usage` → Response node (token counts).
