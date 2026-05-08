@@ -7,6 +7,12 @@ require (
 	tinygo.org/x/bluetooth v0.14.0
 )
 
+// Local fork: extends BlueZ characteristic flags with secure-read /
+// secure-write so Claude Desktop's Hardware Buddy bonding requirement is
+// met (upstream gatts_linux.go only maps the 6 basic flags). See REFERENCE
+// at github.com/anthropics/claude-desktop-buddy.
+replace tinygo.org/x/bluetooth => ./third_party/bluetooth
+
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
