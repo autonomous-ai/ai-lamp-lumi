@@ -37,6 +37,152 @@ export function containsSensingPrefix(msg: string): boolean {
   return SENSING_PREFIX_ANYWHERE_RE.test(msg);
 }
 
+// PipelineRow describes one row in the OpenClaw event pipeline visualization.
+// Consecutive deltas of the same stream type are merged into a single row;
+// every tool call and every operational stream event (compaction/error/etc.)
+// becomes its own row so rare events stand out.
+export interface PipelineRow {
+  /** Underlying OpenClaw stream type — drives row color/label. */
+  kind: "thinking" | "assistant" | "tool" | "tool_result" | "lifecycle_start" | "lifecycle_end" | "compaction" | "error" | "other";
+  label: string;        // e.g. "thinking", "tool · bash", "lifecycle:start"
+  detail?: string;      // optional secondary text (tool args summary, error msg)
+  startMs: number;      // first event timestamp
+  endMs: number;        // last event timestamp (== startMs for one-shot rows)
+  durationMs: number;   // endMs - startMs
+  chunks: number;       // number of merged source events (1 for one-shot rows)
+  chars: number;        // total streamed text length (0 for non-text events)
+}
+
+// Aggregate the raw turn events into a sequential list of pipeline rows. The
+// caller is expected to pass the FULL turn events (already filtered by
+// runId), in chronological order. Output preserves the original order so the
+// UI can render top-to-bottom = first-to-last.
+//
+// Aggregation rules:
+// - Consecutive `thinking` deltas → one row "thinking" (chunks/chars/dur).
+// - Consecutive `assistant_delta` events → one row "assistant".
+// - Each `tool_call` (any phase) → its own row labeled "tool · <name>". A
+//   `result` phase is emitted as a "tool_result" row attached to the
+//   preceding tool start (linked by run_id+name).
+// - `flow_event:lifecycle_start` / `lifecycle_end` → one-shot rows.
+// - Operational streams (compaction, error, item, plan, approval,
+//   command_output, patch) → one row each, kind="compaction"|"error"|"other".
+// - Other flow events (chat_send, hw_*, tts_send, …) are NOT aggregated
+//   into the pipeline — they belong to the surrounding flow nodes
+//   (Agent Call, Lumi Hook, etc.) and would clutter the pipeline.
+export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
+  const rows: PipelineRow[] = [];
+
+  const flowEventNode = (ev: DisplayEvent): string | undefined => {
+    if (ev.type !== "flow_event") return undefined;
+    const d = ev.detail as Record<string, any> | undefined;
+    return d?.node;
+  };
+
+  const ts = (ev: DisplayEvent) => new Date(ev.time).getTime();
+  const deltaText = (ev: DisplayEvent): string => {
+    const d = ev.detail as Record<string, any> | undefined;
+    return (d?.delta ?? d?.text ?? d?.data?.delta ?? d?.data?.text ?? ev.summary ?? "");
+  };
+
+  for (const ev of events) {
+    const fnode = flowEventNode(ev);
+
+    // Streaming deltas: merge into the trailing row if the kind matches.
+    let kind: PipelineRow["kind"] | null = null;
+    if (ev.type === "thinking") kind = "thinking";
+    else if (ev.type === "assistant_delta") kind = "assistant";
+
+    if (kind) {
+      const t = ts(ev);
+      const text = deltaText(ev);
+      const last = rows[rows.length - 1];
+      if (last && last.kind === kind) {
+        last.endMs = t;
+        last.durationMs = last.endMs - last.startMs;
+        last.chunks += 1;
+        last.chars += text.length;
+      } else {
+        rows.push({
+          kind,
+          label: kind,
+          startMs: t,
+          endMs: t,
+          durationMs: 0,
+          chunks: 1,
+          chars: text.length,
+        });
+      }
+      continue;
+    }
+
+    // Tool call events — never merged. phase=start opens a row; phase=result
+    // emits a "tool_result" row that the UI can render attached to the
+    // preceding start.
+    const isTool = ev.type === "tool_call" || fnode === "tool_call";
+    if (isTool) {
+      const d = ev.detail as Record<string, any> | undefined;
+      const phase = d?.data?.phase ?? d?.phase ?? "";
+      const toolName = d?.data?.name ?? d?.name ?? d?.tool ?? "tool";
+      const t = ts(ev);
+      if (phase === "start" || phase === "") {
+        const argsObj = d?.data?.args ?? d?.args;
+        let argsSummary = "";
+        if (argsObj) {
+          try {
+            const parsed = typeof argsObj === "string" ? JSON.parse(argsObj) : argsObj;
+            argsSummary = parsed?.command ?? JSON.stringify(parsed);
+          } catch { argsSummary = String(argsObj); }
+          if (argsSummary.length > 80) argsSummary = argsSummary.slice(0, 80) + "…";
+        }
+        rows.push({
+          kind: "tool",
+          label: `tool · ${toolName}`,
+          detail: argsSummary || undefined,
+          startMs: t, endMs: t, durationMs: 0, chunks: 1, chars: 0,
+        });
+      } else if (phase === "result" || phase === "end") {
+        // Attach duration to the most recent tool row of the same name; emit
+        // a small "result" row regardless so multi-tool turns stay readable.
+        for (let i = rows.length - 1; i >= 0; i--) {
+          const r = rows[i];
+          if (r.kind === "tool" && r.label.endsWith(toolName)) {
+            r.endMs = t;
+            r.durationMs = r.endMs - r.startMs;
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    // Lifecycle markers — show start/end as one-shot rows so the pipeline
+    // boundaries are explicit even if no deltas arrived in between.
+    if (fnode === "lifecycle_start" || fnode === "lifecycle_end") {
+      const t = ts(ev);
+      rows.push({
+        kind: fnode === "lifecycle_start" ? "lifecycle_start" : "lifecycle_end",
+        label: fnode.replace("_", ":"),
+        startMs: t, endMs: t, durationMs: 0, chunks: 1, chars: 0,
+      });
+      continue;
+    }
+
+    // Operational streams (rare, but worth surfacing in the pipeline).
+    if (fnode === "compaction" || ev.type === "compaction") {
+      rows.push({ kind: "compaction", label: "compaction", startMs: ts(ev), endMs: ts(ev), durationMs: 0, chunks: 1, chars: 0 });
+      continue;
+    }
+    if (fnode === "error" || fnode === "agent_error") {
+      const errMsg = ((ev.detail as Record<string, any> | undefined)?.error
+        ?? (ev.detail as Record<string, any> | undefined)?.data?.error ?? "") as string;
+      rows.push({ kind: "error", label: "error", detail: errMsg ? String(errMsg).slice(0, 120) : undefined, startMs: ts(ev), endMs: ts(ev), durationMs: 0, chunks: 1, chars: 0 });
+      continue;
+    }
+  }
+  return rows;
+}
+
 // Derive active stage from most recent relevant events
 export function deriveActiveStage(events: DisplayEvent[]): ActiveFlowStage {
   const recent = events.slice(-30);
