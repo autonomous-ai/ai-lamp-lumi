@@ -30,6 +30,7 @@ import (
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/statusled"
 	devicebutton "go-lamp.autonomous.ai/lib/devicebutton"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/logger"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/lib/safego"
@@ -425,11 +426,16 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 					slog.Warn("init volume failed", "component", "server", "error", err)
 				}
 
+				// Wire i18n early so wakeGreetingPrompt() and every other
+				// localized TTS site reads the right language from
+				// lib/i18n at fire time.
+			i18n.SetConfig(s.config)
+
 				// Greet user now that agent + voice pipeline are ready.
 				// Prompt is localized by STTLanguage so the very first turn
 				// lands in the owner's language without relying on the agent
 				// to translate the priming message.
-			if _, err := s.agentGateway.SendSystemChatMessage(wakeGreetingPrompt(s.config.STTLanguage)); err != nil {
+			if _, err := s.agentGateway.SendSystemChatMessage(wakeGreetingPrompt()); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
 			}
 
@@ -437,11 +443,7 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			// a cache hit (~50ms) instead of a 1.5s ElevenLabs roundtrip.
 			// Runs in a goroutine because rendering ~17 phrases serially can
 			// take 30-60s and must not block the boot greeting.
-			// Pool is selected by STTLanguage so VN/CN owners get translated
-			// fillers; FillerManager reads the same field at fire time.
-			_sensingHttpDeliver.DefaultFillerManager.SetConfig(s.config)
-			lang := s.config.STTLanguage
-			safego.Go("prewarm-fillers", func() { _sensingHttpDeliver.PrewarmFillers(lang) })
+			safego.Go("prewarm-fillers", func() { _sensingHttpDeliver.PrewarmFillers() })
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
 			safego.Go("ambient", func() { s.ambientService.Start(s.monitorCtx) })
 			// Watch LeLamp component health; auto-restart voice on ALSA failure
