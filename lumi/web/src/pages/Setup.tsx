@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, getSetupStatus, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
@@ -281,6 +281,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const isContinue = mode === "continue";
   const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   useDocumentTitle("Setup");
 
   const channelParam = searchParams.get("channel");
@@ -590,16 +591,24 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   // Continue mode: scroll the user to the first section that still needs
   // attention so they can see what's left to do without hunting through
-  // the sidebar.
+  // the sidebar. If every required section is already done on first load,
+  // bounce straight to /monitor — Setup has nothing left to ask for, and
+  // Voice/Face are optional so we don't block on them.
   const autoScrolledRef = useRef(false);
   useEffect(() => {
     if (!isContinue || autoScrolledRef.current) return;
     if (!llmApiKey) return; // wait until config has loaded
+    const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts"];
+    if (required.every((id) => sectionDone[id])) {
+      autoScrolledRef.current = true;
+      navigate("/monitor", { replace: true });
+      return;
+    }
     const order: SectionId[] = ["device", "wifi", "llm", "channel", "language", "tts", "voice", "face"];
     const next = order.find((id) => !sectionDone[id]) ?? "tts";
     setActiveSection(next);
     autoScrolledRef.current = true;
-  }, [isContinue, llmApiKey, sectionDone]);
+  }, [isContinue, llmApiKey, sectionDone, navigate]);
 
   useEffect(() => {
     const maxAttempts = 4;
