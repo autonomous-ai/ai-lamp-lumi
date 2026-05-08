@@ -210,6 +210,11 @@ func (s *Server) Serve(closeFn func()) error {
 	// Signal booting state so the LED shows a slow blue pulse while initializing.
 	s.statusLED.Set(statusled.StateBooting)
 
+	// Wire i18n before any TTS-firing goroutine starts. Must precede StartWS
+	// below — a WS reconnect that lands before i18n is wired falls back to
+	// English even when STTLanguage is "vi"/"zh-*".
+	i18n.SetConfig(s.config)
+
 	// device button — disabled here so lelamp (Python) gpio_button can grab
 	// GPIO17. Long-press shutdown w/ servo release lives in lelamp.
 	// if err := s.deviceButton.Init(); err == nil {
@@ -425,11 +430,6 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 				if err := s.agentGateway.SetVolume(100); err != nil {
 					slog.Warn("init volume failed", "component", "server", "error", err)
 				}
-
-				// Wire i18n early so wakeGreetingPrompt() and every other
-				// localized TTS site reads the right language from
-				// lib/i18n at fire time.
-			i18n.SetConfig(s.config)
 
 				// Greet user now that agent + voice pipeline are ready.
 				// Prompt is localized by STTLanguage so the very first turn
