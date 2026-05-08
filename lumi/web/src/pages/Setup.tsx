@@ -323,8 +323,8 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
-    { id: "language", label: "Language", icon: <Globe size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
+    { id: "language", label: "Language", icon: <Globe size={15} /> },
     { id: "tts",    label: "Lumi's Voice", icon: <Volume2 size={15} /> },
     // Voice / Face appear in continue mode only — they need the lamp's
     // hardware + backend, both unavailable while we're still on the AP.
@@ -595,7 +595,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   useEffect(() => {
     if (!isContinue || autoScrolledRef.current) return;
     if (!llmApiKey) return; // wait until config has loaded
-    const order: SectionId[] = ["device", "wifi", "llm", "language", "channel", "tts", "voice", "face"];
+    const order: SectionId[] = ["device", "wifi", "llm", "channel", "language", "tts", "voice", "face"];
     const next = order.find((id) => !sectionDone[id]) ?? "tts";
     setActiveSection(next);
     autoScrolledRef.current = true;
@@ -1116,38 +1116,6 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                     </label>
                   </SectionCard>
 
-                  {/* Language — picks STT language; backend auto-derives the
-                      Deepgram model behind the scenes. Default is read from
-                      navigator.language so VN/CN locales land pre-selected. */}
-                  <SectionCard id="language" title="Language" active={activeSection === "language"}>
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>
-                      Pick the language the lamp listens for. You can change this anytime from the Edit page.
-                    </div>
-                    <div style={{ marginBottom: 4 }}>
-                      <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Language
-                      </label>
-                      <select
-                        id="stt_language"
-                        value={sttLanguage}
-                        onChange={(e) => setSttLanguage(e.target.value)}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        <option value="">Auto (default)</option>
-                        <option value="en">English</option>
-                        <option value="vi">Vietnamese</option>
-                        <option value="zh-CN">Chinese (Simplified)</option>
-                        <option value="zh-TW">Chinese (Traditional)</option>
-                      </select>
-                    </div>
-                  </SectionCard>
-
-
                   {/* Channel */}
                   <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
 
@@ -1189,6 +1157,37 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                         <LockedField required lockedInitially={channelLoaded.discordUserId} label="User ID *" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
                       </>
                     )}
+                  </SectionCard>
+
+                  {/* Language — picks STT language; backend auto-derives the
+                      Deepgram model behind the scenes. Default is read from
+                      navigator.language so VN/CN locales land pre-selected. */}
+                  <SectionCard id="language" title="Language" active={activeSection === "language"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>
+                      Pick the language the lamp listens for. You can change this anytime from the Edit page.
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Language
+                      </label>
+                      <select
+                        id="stt_language"
+                        value={sttLanguage}
+                        onChange={(e) => setSttLanguage(e.target.value)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="">Auto (default)</option>
+                        <option value="en">English</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="zh-TW">Chinese (Traditional)</option>
+                      </select>
+                    </div>
                   </SectionCard>
 
                   {/* TTS */}
