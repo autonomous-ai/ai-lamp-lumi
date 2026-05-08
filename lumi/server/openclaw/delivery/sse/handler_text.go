@@ -139,6 +139,9 @@ var lumiInternalPrefixes = []string{
 	"[music-proactive]",
 	"[system]",
 	"You just woke up",
+	"Bạn vừa thức dậy",
+	"你刚刚醒来",
+	"你剛剛醒來",
 }
 
 // isLumiInternalMessage returns true when the message text was issued by
