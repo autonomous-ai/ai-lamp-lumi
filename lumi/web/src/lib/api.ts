@@ -58,6 +58,19 @@ export async function setupDevice(body: SetupRequest): Promise<boolean> {
   });
 }
 
+export interface SetupStatus {
+  phase: "idle" | "connecting" | "connected" | "failed";
+  lan_ip: string;
+  error: string;
+}
+
+/** Polled by Setup.tsx during the AP→STA transition. Returns the device's
+ *  current setup phase plus the LAN IP once Wi-Fi is associated, so the web
+ *  client can redirect the user to the new URL. */
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return apiRequest<SetupStatus>(`${API_BASE}/api/device/setup/status`);
+}
+
 export async function checkInternet(): Promise<boolean> {
   return apiRequest<boolean>(`${API_BASE}/api/network/check-internet`);
 }
