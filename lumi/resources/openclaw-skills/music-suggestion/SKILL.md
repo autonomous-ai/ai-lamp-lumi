@@ -79,22 +79,38 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
 - **Unknown users** — speak only (no DM): `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text`. Log with `user:"unknown"`.
 
-## What to write (batch with the mood writes)
+## What to write (HW marker — fires async, no tool turn)
 
-The suggestion log POST shares the write batch with mood signal + mood decision. Fire all three concurrently in one bash via `& ... wait`:
+Embed at the start of your spoken reply, alongside the mood signal/decision markers and the emotion / dm markers:
+
+```
+[HW:/music-suggestion/log:{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}]
+```
+
+The runtime parses, strips, fires the POST in a goroutine. Skip the marker entirely when you skipped the suggestion (`NO_REPLY` path).
+
+**Do NOT use `curl` exec for this log** — same reason as the mood logs: a tool turn for a side-effect with nothing to wait on.
+
+**Regex caveat:** the body must not contain `}`. The `message` field is usually a short caring sentence, but if it would contain `}` (rare — emoji, formula text) fall back to curl.
+
+When the user responds in a later turn (accept / reject), POST status via curl as before — that's a regular agent action, not a fire-and-forget side effect:
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/status \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}'
+```
+- Accepts → `"status":"accepted"`
+- Rejects → `"status":"rejected"`
+- Ignores → no update
+
+### Fallback (only if HW marker is rejected by the runtime)
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
   -H 'Content-Type: application/json' \
   -d '{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}'
 ```
-
-Skip this POST when you skipped the suggestion (the `NO_REPLY` path).
-
-Response includes `seq` and `day`. When user responds (in a later turn):
-- Accepts → `POST /api/music-suggestion/status` with `{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}`
-- Rejects → same body, `"status":"rejected"`
-- Ignores → no update
 
 ## Learning from history
 
