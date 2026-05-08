@@ -2,6 +2,7 @@ package sse
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,8 +11,27 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
+
+// trackFailFmtByLang is the apology template spoken when /servo/track fails.
+// %s is the requested target name (e.g. "the cup"). Falls back to English
+// when the language is empty/unknown.
+var trackFailFmtByLang = map[string]string{
+	"en":    "I can't see %s right now. Try pointing me toward it, or try a different name.",
+	"vi":    "Mình không thấy %s lúc này. Bạn thử quay mình về phía đó xem, hoặc gọi tên khác nhé.",
+	"zh-CN": "我现在看不到%s。试着让我朝它的方向看，或者换个名字试试。",
+	"zh-TW": "我現在看不到%s。試著讓我朝它的方向看，或者換個名字試試。",
+}
+
+func trackFailMessage(target string) string {
+	tmpl, ok := trackFailFmtByLang[i18n.Lang()]
+	if !ok || tmpl == "" {
+		tmpl = trackFailFmtByLang["en"]
+	}
+	return fmt.Sprintf(tmpl, target)
+}
 
 // parseTrackTarget pulls the first candidate label out of a
 // [HW:/servo/track:{"target":...}] body. Accepts string or []string forms.
@@ -103,8 +123,7 @@ func (h *OpenClawHandler) fireHWCalls(calls []hwCall, flowRunID string) {
 				// /update have different semantics.
 				if c.path == "/servo/track" {
 					target := parseTrackTarget(c.body)
-					fallback := "I can't see " + target + " right now. Try pointing me toward it, or try a different name."
-					if err := lelamp.Speak(fallback); err != nil {
+					if err := lelamp.Speak(trackFailMessage(target)); err != nil {
 						slog.Warn("track fallback TTS failed", "component", "openclaw", "error", err)
 					}
 				}

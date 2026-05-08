@@ -1,5 +1,7 @@
 package server
 
+import "go-lamp.autonomous.ai/lib/i18n"
+
 // System-originated prompts sent to the OpenClaw agent. Kept separate from
 // server.go so they can be translated without touching boot wiring, and so
 // future system messages (skill watcher updates, wellbeing nudges, …) have
@@ -9,9 +11,10 @@ package server
 // pipeline becomes ready. SOUL.md already tells the agent to mirror the
 // owner's language, but an English prompt still primes English replies for
 // the very first turn — so emit the prompt itself in the owner's language.
-// Empty / unknown lang → English.
-func wakeGreetingPrompt(lang string) string {
-	switch lang {
+// Empty / unknown lang → English. Language is read from lib/i18n at call
+// time, so caller must i18n.SetConfig before invoking.
+func wakeGreetingPrompt() string {
+	switch i18n.Lang() {
 	case "vi":
 		return "Bạn vừa thức dậy. Chào hỏi chủ nhân ngắn gọn."
 	case "zh-CN":
