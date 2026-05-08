@@ -1125,14 +1125,12 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   // local_match: intent_match duration (instant, but show if > 0)
   // (local_match is triggered by intent_match, timing is included in intent_check)
 
-  // agent_call: chat_send → lifecycle_start
-  if (nChatSendTs && nLifecycleStartTs) {
-    const ms = nLifecycleStartTs - nChatSendTs;
-    if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
-  } else if (nChatInputTs && nLifecycleStartTs) {
-    const ms = nLifecycleStartTs - nChatInputTs;
-    if (ms > 0) info.agent_call.unshift(`⏱ ${fmtDur(ms)}`);
-  }
+  // agent_call has no duration of its own — it's the act of Lumi writing
+  // chat.send to the WS, which is sub-millisecond on localhost. The 1-2s
+  // commonly seen between chat_send and lifecycle_start is OpenClaw's
+  // internal init (queue + hooks + skill load + prompt build), shown on
+  // the pipeline header summary as "init Xs". Don't add a ⏱ here so the
+  // node info doesn't mislabel that time as belonging to agent_call.
 
   // agent_thinking: post-warmup streaming time. Use first thinking/assistant
   // delta timestamp as start when available (warmup edge — observed directly
