@@ -325,12 +325,12 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
     { id: "language", label: "Language", icon: <Globe size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
-    { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
+    { id: "tts",    label: "Lumi's Voice", icon: <Volume2 size={15} /> },
     // Voice / Face appear in continue mode only — they need the lamp's
     // hardware + backend, both unavailable while we're still on the AP.
     ...(isContinue ? [
-      { id: "voice" as SectionId, label: "Voice", icon: <Mic size={15} /> },
-      { id: "face"  as SectionId, label: "Face",  icon: <UserCircle size={15} /> },
+      { id: "voice" as SectionId, label: "My Voice", icon: <Mic size={15} /> },
+      { id: "face"  as SectionId, label: "Face",     icon: <UserCircle size={15} /> },
     ] : []),
   ];
 
@@ -1189,7 +1189,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                   </SectionCard>
 
                   {/* TTS */}
-                  <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                  <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
                     {/* tts_api_key + tts_base_url are not exposed in Setup —
                         they're auto-mirrored from AI Brain via useEffect and
                         submitted silently. */}
@@ -1257,7 +1257,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                   </SectionCard>
 
                   {isContinue && (
-                    <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
+                    <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
                       <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
                         Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
                       </div>
