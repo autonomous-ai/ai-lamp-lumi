@@ -602,17 +602,20 @@ export default function EditConfig() {
     getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
-  // Refetch voices when provider changes — only reset voice if current voice is not in new list
+  // Refetch voices when provider OR stt_language changes — only reset voice
+  // if the currently-saved voice is not in the new (filtered) list.
+  // Passing sttLanguage filters ElevenLabs voices to the active language's
+  // bucket so VN/CN owners only see voices that sound natural for them.
   const providerChangedByUser = useRef(false);
   useEffect(() => {
-    getTTSVoices(ttsProvider).then((voices) => {
+    getTTSVoices(ttsProvider, sttLanguage).then((voices) => {
       setTtsVoices(voices);
       if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
         setTtsVoice(voices[0]);
       }
       providerChangedByUser.current = true;
     }).catch(() => {});
-  }, [ttsProvider]);
+  }, [ttsProvider, sttLanguage]);
 
   // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
   // Once the user types into TTS the sync stops; clearing it re-enables mirroring.

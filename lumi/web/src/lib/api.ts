@@ -114,8 +114,11 @@ export interface DeviceConfig {
   fd_channel: string;
 }
 
-export async function getTTSVoices(provider?: string): Promise<string[]> {
-  const params = provider ? `?provider=${provider}` : "";
+export async function getTTSVoices(provider?: string, lang?: string): Promise<string[]> {
+  const qs = new URLSearchParams();
+  if (provider) qs.set("provider", provider);
+  if (lang) qs.set("lang", lang);
+  const params = qs.toString() ? `?${qs.toString()}` : "";
   return apiRequest<string[]>(`${API_BASE}/api/device/voices${params}`);
 }
 
