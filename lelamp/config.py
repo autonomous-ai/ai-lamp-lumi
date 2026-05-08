@@ -93,6 +93,10 @@ DL_MOTION_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_MOTION_ENDPOINT.st
 
 # --- Sensing: Motion detection (action recognition via dlbackend) ---
 MOTION_ENABLED = os.environ.get("LELAMP_MOTION_ENABLED", "true").lower() == "true"
+MOTION_PER_FACE_ENABLED = os.environ.get("LELAMP_MOTION_PER_FACE_ENABLED", "false").lower() == "true"
+MOTION_PER_FACE_DEDUP_WINDOW_S = float(os.environ.get("LELAMP_MOTION_PER_FACE_DEDUP_WINDOW_S", "300.0"))
+MOTION_PER_FACE_SESSION_TTL_S = float(os.environ.get("LELAMP_MOTION_PER_FACE_SESSION_TTL_S", "30.0"))
+MOTION_PER_FACE_MIN_FRAMES = int(os.environ.get("LELAMP_MOTION_PER_FACE_MIN_FRAMES", "4"))
 MOTION_CONFIDENCE_THRESHOLD = float(
     os.environ.get("LELAMP_MOTION_CONFIDENCE_THRESHOLD", "0.3")
 )
@@ -100,6 +104,7 @@ MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
 MOTION_EVENT_COOLDOWN_S = float(
     os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0")
 )
+MOTION_PERSON_DETECTION_ENABLED = os.environ.get("LELAMP_MOTION_PERSON_DETECTION_ENABLED", "true").lower() == "true"
 MOTION_PERSON_MIN_AREA_RATIO = float(
     os.environ.get("LELAMP_MOTION_PERSON_MIN_AREA_RATIO", "0.25")
 )
