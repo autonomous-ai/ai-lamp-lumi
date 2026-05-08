@@ -203,12 +203,20 @@ class GPIOButtonHandler:
                 # heard. speak_cached() uses a non-blocking acquire — if the
                 # service is busy and the current speech wasn't marked
                 # interruptible, the cue is silently dropped. stop() flips
-                # the stop_event; the playback thread releases the lock
-                # within ~50-100ms, so a 200ms sleep covers the handoff.
+                # the stop_event but only the playback loop checks it; if
+                # the previous speech is in the render phase (live TTS
+                # round-trip, 2-5s), the lock won't free until render +
+                # short play break finish. Retry with backoff so the cue
+                # lands as soon as the lock releases. ~6s total cap covers
+                # a worst-case fresh render before giving up silently.
                 def _announce_listening():
+                    text = _phrase("listening")
                     state.tts_service.stop()
-                    time.sleep(0.2)
-                    state.tts_service.speak_cached(_phrase("listening"))
+                    for delay in (0.15, 0.4, 0.8, 1.6, 3.0):
+                        time.sleep(delay)
+                        if state.tts_service.speak_cached(text):
+                            return
+                    logger.warning("listening cue dropped: TTS busy after retries")
                 threading.Thread(
                     target=_announce_listening,
                     daemon=True,
