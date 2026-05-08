@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DisplayEvent } from "../types";
 import type { FlowStage, ActiveFlowStage } from "./types";
 import { FLOW_NODES } from "./types";
-import { extractNodeInfo } from "./helpers";
+import { extractNodeInfo, aggregateEvents } from "./helpers";
 
 export function FlowDiagram({
   activeStage,
@@ -22,6 +22,7 @@ export function FlowDiagram({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const [pipelineGuideOpen, setPipelineGuideOpen] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -62,6 +63,28 @@ export function FlowDiagram({
   const vbX = (VW - vbW) / 2 - pan.x;
   const vbY = (VH - vbH) / 2 - pan.y;
 
+  // Event Pipeline rect — centered between agent_call (950,240) and
+  // agent_response (950,795). Shared between the rect rendering, the
+  // tool_exec edge anchoring (so HW edges latch to the rect boundary
+  // instead of a phantom point inside it), and the foreignObject row
+  // list. Update one place, all three follow.
+  const PIPE = { x: 798, y: 330, w: 304, h: 376 };
+  // Returns the point on the pipeline rect boundary along the line from
+  // the rect center toward (extX, extY). Used to anchor edges that go
+  // to/from tool_exec — the conceptual "tool" anchor is the whole rect,
+  // not a circle, so each edge meets the rect at its closest edge.
+  const pipeAnchor = (extX: number, extY: number) => {
+    const cx = PIPE.x + PIPE.w / 2;
+    const cy = PIPE.y + PIPE.h / 2;
+    const dx = extX - cx;
+    const dy = extY - cy;
+    if (dx === 0 && dy === 0) return { x: cx, y: cy };
+    const tx = dx === 0 ? Infinity : (PIPE.w / 2) / Math.abs(dx);
+    const ty = dy === 0 ? Infinity : (PIPE.h / 2) / Math.abs(dy);
+    const t = Math.min(tx, ty);
+    return { x: cx + dx * t, y: cy + dy * t };
+  };
+
   const positions: Record<FlowStage, { x: number; y: number }> = {
     // Lumi — top row
     intent_check:      { x: 80, y: 50 },
@@ -84,17 +107,28 @@ export function FlowDiagram({
     hw_wellbeing:        { x: 467, y: 1200 },
     hw_music_suggestion: { x: 467, y: 1335 },
     tts_speak:         { x: 200, y: 930 },
-    // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
+    // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call).
+    // The 3 inner nodes (llm_first_token, agent_thinking, tool_exec) are
+    // rendered as a single Event Pipeline rect between agent_call and
+    // agent_response — see <EventPipeline> below. Their FlowStage entries
+    // are kept (visited tracking, edges, info maps still reference them)
+    // but their node circles are not drawn; their positions sit on the
+    // pipeline rect right edge so the existing tool_exec → hw_* edges
+    // visually originate from the pipeline.
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
-    // llm_first_token sits in-line between agent_call (y=240) and
-    // agent_thinking (y=615) — midpoint y=427 keeps the LLM stage
-    // visually centered in the agent column instead of drifting toward
-    // agent_call.
-    llm_first_token:   { x: 950, y: 427 },
-    tool_exec:         { x: 750, y: 615 },
-    agent_thinking:    { x: 950, y: 615 },
-    agent_response:    { x: 750, y: 795 },
+    // llm_first_token / agent_thinking are inert anchors (no edges, no
+    // node circle rendered) — park them on the pipeline rect right edge
+    // out of the way. tool_exec is the visible edge anchor for HW
+    // outgoing edges, so put it on the LEFT edge of the pipeline rect
+    // (closest to the hw_* column at x=200) — keeps those 5 edges
+    // visually short and from looking like they sweep across the whole
+    // canvas. Y is mid-bottom of pipeline so it correlates with where
+    // tool rows visually appear.
+    llm_first_token:   { x: 1180, y: 360 },
+    agent_thinking:    { x: 1180, y: 480 },
+    tool_exec:         { x: 820, y: 600 },
+    agent_response:    { x: 950, y: 795 },
     // External channels — outside OpenClaw
     channel_input:     { x: 1300, y: 240 },
     webchat_input:     { x: 1300, y: 440 },
@@ -114,10 +148,12 @@ export function FlowDiagram({
     ["channel_input",     "agent_call"],
     ["webchat_input",     "agent_call"],
     ["schedule_trigger",  "agent_call"],
-    ["agent_call",        "llm_first_token"],
-    ["llm_first_token",   "agent_thinking"],
-    ["agent_thinking",    "tool_exec"],
-    ["agent_thinking",    "agent_response"],
+    // agent_call → pipeline → agent_response. The pipeline is a single
+    // visual rect (rendered below) containing aggregated event rows.
+    // tool_exec sits at the right edge of that rect so HW edges look like
+    // they originate from the pipeline.
+    ["agent_call",        "tool_exec"],
+    ["tool_exec",         "agent_response"],
     ["tool_exec",         "hw_led"],
     ["tool_exec",         "hw_servo"],
     ["tool_exec",         "hw_emotion"],
@@ -239,11 +275,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={695} y={185} width={470} height={665} rx={14}
+          <rect x={695} y={185} width={520} height={665} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={930} y={175} textAnchor="middle"
+          <text x={955} y={175} textAnchor="middle"
             fill="var(--lm-blue)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
@@ -316,12 +352,37 @@ export function FlowDiagram({
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
           const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing" || to === "hw_mood" || to === "hw_music_suggestion");
-          const dx = t.x - f.x, dy = t.y - f.y;
-          const len = Math.sqrt(dx * dx + dy * dy) || 1;
-          const x1 = f.x + (dx / len) * nodeR;
-          const y1 = f.y + (dy / len) * nodeR;
-          const x2 = t.x - (dx / len) * (nodeR + 4);
-          const y2 = t.y - (dy / len) * (nodeR + 4);
+
+          // tool_exec is rendered as a rect (the Event Pipeline), not a
+          // circle. Anchor any edge that touches it on the rect boundary
+          // closest to the OTHER endpoint, so arrows latch precisely to
+          // the rect edge instead of pointing at a floating interior
+          // pixel.
+          let x1: number, y1: number, x2: number, y2: number;
+          if (from === "tool_exec" && to !== "tool_exec") {
+            const a = pipeAnchor(t.x, t.y);
+            const dxA = t.x - a.x, dyA = t.y - a.y;
+            const lenA = Math.sqrt(dxA * dxA + dyA * dyA) || 1;
+            x1 = a.x;
+            y1 = a.y;
+            x2 = t.x - (dxA / lenA) * (nodeR + 4);
+            y2 = t.y - (dyA / lenA) * (nodeR + 4);
+          } else if (to === "tool_exec" && from !== "tool_exec") {
+            const a = pipeAnchor(f.x, f.y);
+            const dxA = a.x - f.x, dyA = a.y - f.y;
+            const lenA = Math.sqrt(dxA * dxA + dyA * dyA) || 1;
+            x1 = f.x + (dxA / lenA) * nodeR;
+            y1 = f.y + (dyA / lenA) * nodeR;
+            x2 = a.x;
+            y2 = a.y;
+          } else {
+            const dx = t.x - f.x, dy = t.y - f.y;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            x1 = f.x + (dx / len) * nodeR;
+            y1 = f.y + (dy / len) * nodeR;
+            x2 = t.x - (dx / len) * (nodeR + 4);
+            y2 = t.y - (dy / len) * (nodeR + 4);
+          }
           const dashArray = isGateEdge || isHWMarkerEdge ? "6 4" : undefined;
           return (
             <line key={`${from}-${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
@@ -332,8 +393,191 @@ export function FlowDiagram({
           );
         })}
 
+        {/* Event Pipeline — replaces the old llm_first_token / agent_thinking /
+            tool_exec nodes. Lists OpenClaw stream events in chronological order
+            with consecutive same-type deltas merged into one row. */}
+        {(() => {
+          const px = PIPE.x, py = PIPE.y, pw = PIPE.w, ph = PIPE.h;
+          const pipelineRows = aggregateEvents(turnEvents);
+          // Only show the pipeline when the agent path was taken (lifecycle_start
+          // visited). Otherwise it's a local-match turn — keep canvas clean.
+          const isAgentTurn = visitedStages.has("agent_call") || activeStage === "agent_call";
+          if (!isAgentTurn) return null;
+          const pipelineColor = "var(--lm-blue)";
+          const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
+            : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+          const fmtChars = (n: number) => n >= 1000 ? `~${(n / 1000).toFixed(1)}k chars` : `${n} chars`;
+          const rowColor = (kind: string) => {
+            if (kind === "thinking") return "var(--lm-purple)";
+            if (kind === "assistant") return "var(--lm-blue)";
+            if (kind === "tool" || kind === "tool_result") return "#f59e0b";
+            if (kind === "error") return "#ef4444";
+            if (kind === "compaction") return "#a78bfa";
+            return "var(--lm-text-muted)";
+          };
+          const guideBtnX = px + pw - 14;
+          const guideBtnY = py + 10;
+          const guideEntries: { stream: string; desc: string; common: boolean }[] = [
+            { stream: "lifecycle:start", desc: "Turn begins. OpenClaw acked chat.send and is about to call the LLM.", common: true },
+            { stream: "thinking",        desc: "LLM reasoning delta. Codex thinking=low / Claude extended thinking. Many per turn.", common: true },
+            { stream: "assistant",       desc: "LLM reply text delta. The string that becomes the assistant message / TTS.", common: true },
+            { stream: "tool · start",    desc: "Tool function call started. Carries the tool name + args.", common: true },
+            { stream: "tool · result",   desc: "Tool returned. Lumi attaches duration to the tool row.", common: true },
+            { stream: "lifecycle:end",   desc: "Turn complete. Includes optional usage tokens. Lumi flushes TTS here.", common: true },
+            { stream: "error",           desc: "Turn errored mid-run (network, model, quota). Rare — investigate.", common: false },
+            { stream: "compaction",      desc: "Auto-compact in progress. Session history is being summarized.", common: false },
+            { stream: "item",            desc: "Codex CLI internal: each reasoning / tool / message wrapped as an item.", common: false },
+            { stream: "plan",            desc: "Codex CLI planning step. Not used by Lumi.", common: false },
+            { stream: "approval",        desc: "Codex CLI approval prompt. Not used by Lumi.", common: false },
+            { stream: "command_output",  desc: "Bash tool stdout streaming. Fires for shell commands.", common: false },
+            { stream: "patch",           desc: "Codex CLI file patch. Not used by Lumi.", common: false },
+          ];
+          return (
+            <g>
+              <rect x={px} y={py} width={pw} height={ph} rx={10}
+                fill="var(--lm-card)" fillOpacity={0.55}
+                stroke={pipelineColor} strokeOpacity={0.5} strokeWidth={1.5}
+                strokeDasharray="3 2"
+              />
+              <text x={px + 8} y={py + 12}
+                fill={pipelineColor} fontSize={7} fontWeight={700}
+                fontFamily="monospace" opacity={0.85} style={{ letterSpacing: "0.06em" }}>
+                ⟨openclaw event pipeline⟩
+              </text>
+              {/* Guide button: top-right corner. Click toggles a popup
+                  listing the OpenClaw stream types this pipeline can show. */}
+              <g
+                onMouseDown={(e: React.MouseEvent) => { e.stopPropagation(); }}
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPipelineGuideOpen(v => !v); }}
+                style={{ cursor: "pointer" }}
+              >
+                <circle cx={guideBtnX} cy={guideBtnY} r={5}
+                  fill={pipelineGuideOpen ? pipelineColor : "var(--lm-card)"}
+                  fillOpacity={pipelineGuideOpen ? 0.9 : 0.7}
+                  stroke={pipelineColor} strokeWidth={1} strokeOpacity={0.8}
+                />
+                <text x={guideBtnX} y={guideBtnY + 1.8} textAnchor="middle"
+                  fontSize={6.5} fontWeight={700} fontFamily="monospace"
+                  fill={pipelineGuideOpen ? "var(--lm-card)" : pipelineColor}
+                  style={{ pointerEvents: "none" }}>
+                  ?
+                </text>
+              </g>
+              <foreignObject x={px + 6} y={py + 18} width={pw - 12} height={ph - 24} overflow="visible">
+                <div
+                  // @ts-expect-error xmlns required for foreignObject HTML
+                  xmlns="http://www.w3.org/1999/xhtml"
+                  onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: 6.5,
+                    lineHeight: 1.55,
+                    color: "var(--lm-text)",
+                    overflow: "auto",
+                    maxHeight: ph - 24,
+                    userSelect: "text",
+                    WebkitUserSelect: "text",
+                  }}
+                >
+                  {pipelineRows.length === 0 ? (
+                    <div style={{ opacity: 0.45, padding: "6px 4px" }}>
+                      (no agent stream events captured for this turn)
+                    </div>
+                  ) : pipelineRows.map((r, i) => {
+                    const c = rowColor(r.kind);
+                    const isStream = r.kind === "thinking" || r.kind === "assistant";
+                    const isOneShot = r.kind === "lifecycle_start" || r.kind === "lifecycle_end" || r.kind === "compaction" || r.kind === "error";
+                    return (
+                      <div key={i} style={{ display: "flex", gap: 4, padding: "1px 2px", borderLeft: `2px solid ${c}`, paddingLeft: 4, marginBottom: 1 }}>
+                        <span style={{ color: c, fontWeight: 700, minWidth: 56 }}>{r.label}</span>
+                        {isStream && (
+                          <span style={{ opacity: 0.85 }}>
+                            {fmtDur(r.durationMs)} · {r.chunks} chunks · {fmtChars(r.chars)}
+                          </span>
+                        )}
+                        {r.kind === "tool" && (
+                          <span style={{ opacity: 0.85 }}>
+                            {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
+                            {r.detail ? <span style={{ opacity: 0.6, marginLeft: 6 }}>{r.detail}</span> : null}
+                          </span>
+                        )}
+                        {isOneShot && r.detail && (
+                          <span style={{ opacity: 0.6 }}>{r.detail}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </foreignObject>
+              {/* Guide popup rendered LAST inside the pipeline group so it
+                  paints on top of the event-row foreignObject (otherwise the
+                  row list overlays the popup and swallows clicks on ✕). */}
+              {pipelineGuideOpen && (
+                <foreignObject
+                  x={px + pw - 320} y={py + 22} width={320} height={ph - 30}
+                  overflow="visible"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <div
+                    // @ts-expect-error xmlns required for foreignObject HTML
+                    xmlns="http://www.w3.org/1999/xhtml"
+                    onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
+                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    style={{
+                      background: "#34D399",
+                      border: "1px solid #0F766E",
+                      borderRadius: 6,
+                      padding: 8,
+                      fontFamily: "monospace",
+                      fontSize: 7,
+                      lineHeight: 1.5,
+                      color: "#0A2A1F",
+                      maxHeight: ph - 30,
+                      overflow: "auto",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                      pointerEvents: "auto",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, color: "#0A2A1F", fontSize: 7.5 }}>
+                        OpenClaw streams (event:"agent")
+                      </span>
+                      <button
+                        type="button"
+                        onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
+                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPipelineGuideOpen(false); }}
+                        style={{
+                          cursor: "pointer", opacity: 0.85, fontWeight: 700, fontSize: 10,
+                          background: "transparent", border: "none", color: "#0A2A1F",
+                          padding: "0 4px", lineHeight: 1,
+                        }}
+                      >✕</button>
+                    </div>
+                    <div style={{ opacity: 0.8, marginBottom: 5, fontSize: 6.5, color: "#0A2A1F" }}>
+                      Common turn: lifecycle:start → thinking / assistant / tool — lifecycle:end. The other 7 fire only in special situations.
+                    </div>
+                    {guideEntries.map((e) => (
+                      <div key={e.stream} style={{ marginBottom: 4, opacity: e.common ? 1 : 0.7 }}>
+                        <span style={{ color: "#0A2A1F", fontWeight: 700 }}>{e.stream}</span>
+                        <span style={{ marginLeft: 6, color: "#0A2A1F", opacity: e.common ? 0.9 : 0.75 }}>{e.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </foreignObject>
+              )}
+            </g>
+          );
+        })()}
+
         {/* Nodes */}
         {FLOW_NODES.map((node) => {
+          // Hidden agent-core anchors — their FlowStage entries remain so
+          // edges and visited tracking still work, but their node circles
+          // are absorbed into the Event Pipeline rect (rendered separately
+          // below). Skip rendering here.
+          if (node.id === "llm_first_token" || node.id === "agent_thinking" || node.id === "tool_exec") {
+            return null;
+          }
           const pos = positions[node.id];
           const isActive = node.id === activeStage;
           const isVisited = visitedStages.has(node.id);
@@ -342,7 +586,9 @@ export function FlowDiagram({
           const lines = nodeInfo[node.id] ?? [];
           const hasInfo = lines.length > 0 && (isActive || isVisited);
           const descLines = node.desc.split(" · ").length;
-          const boxAbove = node.id === "tool_exec";
+          // agent_call info box renders ABOVE the node so its (often long)
+          // message + token block doesn't sit on top of the Event Pipeline rect.
+          const boxAbove = node.id === "agent_call";
           const boxY = boxAbove ? pos.y - nodeR - 4 : pos.y + nodeR + 14 + descLines * 10;
           return (
             <g key={node.id} opacity={opacity}>
@@ -419,9 +665,17 @@ export function FlowDiagram({
                 const boxW = isWide ? 480 : 190;
                 const halfDefault = 95; // = original 190 / 2 — keep left edge stable
                 const xCentered = isWide ? pos.x - halfDefault : pos.x - boxW / 2;
+                // agent_call box anchors at the right side of the node and
+                // flows rightward (toward channel_input) so the long message
+                // / token block reads left-aligned without sweeping over the
+                // pipeline rect on the left.
+                const boxRight = node.id === "agent_call";
+                const boxX = boxRight
+                  ? pos.x + nodeR + 6
+                  : (boxAbove ? pos.x + nodeR - boxW : xCentered);
                 return (
                   <foreignObject
-                    x={boxAbove ? pos.x + nodeR - boxW : xCentered} y={boxY - 2}
+                    x={boxX} y={boxY - 2}
                     width={boxW} height={1}
                     overflow="visible"
                   >
