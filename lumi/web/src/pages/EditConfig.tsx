@@ -30,10 +30,12 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
   { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
+  // Language above Lumi's Voice — picking the language determines which
+  // voices sound natural, so the operator should set it first.
+  { id: "stt",      label: "Language", icon: <Globe size={ICON_SIZE} /> },
+  { id: "tts",      label: "Lumi's Voice", icon: <Volume2 size={ICON_SIZE} /> },
   { id: "voice",    label: "My Voice", icon: <MicVocal size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
-  { id: "tts",      label: "Lumi's Voice", icon: <Volume2 size={ICON_SIZE} /> },
-  { id: "stt",      label: "Language", icon: <Globe size={ICON_SIZE} /> },
   { id: "channel",  label: "Channels", icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
