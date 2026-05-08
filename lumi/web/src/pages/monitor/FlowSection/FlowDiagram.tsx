@@ -416,12 +416,18 @@ export function FlowDiagram({
           const initMs = (chatSendTs && lcStartTs && lcStartTs > chatSendTs) ? lcStartTs - chatSendTs : 0;
           const turnLlmMs = (lcStartTs && lcEndTs && lcEndTs > lcStartTs) ? (lcEndTs - lcStartTs) - toolTotalMs : 0;
           const totalMs = (chatSendTs && lcEndTs) ? lcEndTs - chatSendTs : 0;
-          const summaryParts: string[] = [];
-          if (initMs > 0) summaryParts.push(`init ${fmtDur(initMs)}`);
-          if (turnLlmMs > 0) summaryParts.push(`llm ${fmtDur(turnLlmMs)}`);
-          if (toolTotalMs > 0) summaryParts.push(`tool ${fmtDur(toolTotalMs)}`);
-          if (totalMs > 0) summaryParts.push(`total ${fmtDur(totalMs)}`);
-          const headerSummary = summaryParts.join("  ·  ");
+          // Sum components are joined with "·" and the total is glued on
+          // with " = " so the line reads as a literal sum:
+          //   init 2.8s · llm 15.1s · tool 0.5s = total 18.4s
+          const sumParts: string[] = [];
+          if (initMs > 0) sumParts.push(`init ${fmtDur(initMs)}`);
+          if (turnLlmMs > 0) sumParts.push(`llm ${fmtDur(turnLlmMs)}`);
+          if (toolTotalMs > 0) sumParts.push(`tool ${fmtDur(toolTotalMs)}`);
+          const headerSummary = sumParts.length > 0 && totalMs > 0
+            ? `${sumParts.join("  ·  ")}  =  total ${fmtDur(totalMs)}`
+            : sumParts.length > 0
+            ? sumParts.join("  ·  ")
+            : (totalMs > 0 ? `total ${fmtDur(totalMs)}` : "");
           const rowColor = (kind: string) => {
             if (kind === "thinking") return "var(--lm-purple)";
             if (kind === "assistant") return "var(--lm-blue)";
