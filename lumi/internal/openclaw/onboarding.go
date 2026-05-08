@@ -192,8 +192,9 @@ func (s *Service) EnsureOnboarding() error {
 		needRestart = true
 	}
 
-	// Pin messages.queue.mode=queue to dodge OpenClaw 5.2's `steer` regression
-	// (issue #48003 + ReplyRunAlreadyActive races on followup drain).
+	// Pin messages.queue.mode=steer so Lumi's concurrent producers (sensing
+	// drains, voice, Telegram, web chat) batch into the active turn at the
+	// next model boundary instead of fanning out as serialized followup turns.
 	if queueAdded, err := s.ensureMessagesQueueConfig(); err != nil {
 		slog.Error("ensure messages.queue config failed", "component", "onboarding", "error", err)
 	} else if queueAdded {
@@ -549,18 +550,19 @@ func (s *Service) ensureControlUIConfig() (bool, error) {
 	return true, nil
 }
 
-// ensureMessagesQueueConfig pins messages.queue.mode to "queue" so OpenClaw
-// uses the legacy strict serial command queue instead of the 5.2 default
-// "steer" mode. The new steer path has a regression where rapid messages
-// trigger a followup-queue drain race that surfaces as ReplyRunAlreadyActive
-// errors and out-of-order replies on shared sessions like agent:main:main
-// (where webchat, Telegram, and Lumi internal messages all coexist).
+// ensureMessagesQueueConfig pins messages.queue.mode to "steer" so concurrent
+// messages (sensing drains, voice + Telegram interleave) get batched into the
+// active turn at the next model boundary instead of spawning serialized
+// followup turns. Lumi has multiple producers (sensing handler, voice, web
+// chat, Telegram) feeding agent:main:main; legacy "queue" mode runs each as
+// its own turn, missing batch opportunities the steer path can collapse.
 //
-// See: https://github.com/openclaw/openclaw/issues/48003
+// Trade-offs are tracked in issue #48003 (steer fallback to followup on Pi
+// main session via KeyedAsyncQueue) and the ReplyRunAlreadyActive race seen
+// on 5.2 — verify on 5.7+ before relying on steer batching savings.
 //
-// Idempotent: only writes when messages.queue.mode is unset, so an operator
-// can opt back into "steer" by setting it explicitly once the regression is
-// fixed upstream.
+// Always overwrites — Lumi owns this config knob; an operator who flips it
+// to "queue" will see Lumi correct on the next boot.
 func (s *Service) ensureMessagesQueueConfig() (bool, error) {
 	configPath := filepath.Join(s.config.OpenclawConfigDir, "openclaw.json")
 	configBytes, err := os.ReadFile(configPath)
@@ -582,11 +584,10 @@ func (s *Service) ensureMessagesQueueConfig() (bool, error) {
 		queue = map[string]interface{}{}
 		messages["queue"] = queue
 	}
-	if _, ok := queue["mode"]; ok {
-		// Operator-set value wins.
+	if v, _ := queue["mode"].(string); v == "steer" {
 		return false, nil
 	}
-	queue["mode"] = "queue"
+	queue["mode"] = "steer"
 
 	outBytes, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
@@ -595,7 +596,7 @@ func (s *Service) ensureMessagesQueueConfig() (bool, error) {
 	if err := os.WriteFile(configPath, outBytes, 0600); err != nil {
 		return false, fmt.Errorf("write openclaw.json: %w", err)
 	}
-	slog.Info("pinned messages.queue.mode=queue in openclaw.json", "component", "onboarding")
+	slog.Info("pinned messages.queue.mode=steer in openclaw.json", "component", "onboarding")
 	return true, nil
 }
 
@@ -711,9 +712,19 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 		changed = true
 	}
 
-	// Cache retention on all known models — seed entries if missing
+	// /think default — favor low latency over deep reasoning for voice turns.
+	// Per-message override (`/think medium`) still wins; this only sets the
+	// fallback when neither session nor inline directive specify a level.
+	if v, _ := defaultsMap["thinkingDefault"].(string); v != "low" {
+		defaultsMap["thinkingDefault"] = "low"
+		changed = true
+	}
+
+	// Cache retention (Claude only) + /fast default = on (priority tier) on all known models.
+	// `fastMode=true` maps to provider-specific priority routing — `service_tier=priority`
+	// on OpenAI/Codex; no-op on providers that don't expose a priority tier.
 	modelsMap := ensureMap(defaultsMap, "models")
-	knownModels := []string{"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-6"}
+	knownModels := []string{"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-6", "openai-codex/gpt-5.5"}
 	for _, modelKey := range knownModels {
 		m, ok := modelsMap[modelKey].(map[string]interface{})
 		if !ok {
@@ -722,12 +733,18 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 			changed = true
 		}
 		params := ensureMap(m, "params")
-		if v, _ := params["cacheRetention"].(string); v != "short" {
-			params["cacheRetention"] = "short"
-			m["params"] = params
-			modelsMap[modelKey] = m
+		if strings.HasPrefix(modelKey, "claude-") {
+			if v, _ := params["cacheRetention"].(string); v != "short" {
+				params["cacheRetention"] = "short"
+				changed = true
+			}
+		}
+		if v, _ := params["fastMode"].(bool); !v {
+			params["fastMode"] = true
 			changed = true
 		}
+		m["params"] = params
+		modelsMap[modelKey] = m
 	}
 
 	// Sync reasoning field on all provider model entries with current disable_thinking config.
