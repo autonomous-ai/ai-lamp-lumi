@@ -115,6 +115,12 @@ export function OverviewSection({
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Agent</span>
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>{oc.name}</span>
               </div>
+              {oc.version && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Version</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)", fontFamily: "monospace" }}>{oc.version}</span>
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Session</span>
                 <span style={{

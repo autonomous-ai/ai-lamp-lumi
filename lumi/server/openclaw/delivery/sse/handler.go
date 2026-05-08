@@ -133,10 +133,15 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	mood.Init()
 	wellbeing.Init()
 	musicsuggestion.Init()
+	// Populate OpenClaw version cache in the background so the first Status
+	// poll has it ready. Stays in package-level state because the handler
+	// struct is returned by value through wire — capturing &h.field here
+	// would write to a soon-to-be-discarded copy.
+	go populateOpenClawVersion()
 	return OpenClawHandler{
-		agentGateway:       gw,
-		monitorBus:         bus,
-		statusLED:          sled,
+		agentGateway:         gw,
+		monitorBus:           bus,
+		statusLED:            sled,
 		assistantBuf:         make(map[string]*strings.Builder),
 		ttsSuppressReasons:   make(map[string]string),
 		runIDMap:             make(map[string]string),
