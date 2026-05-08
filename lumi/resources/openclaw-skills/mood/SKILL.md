@@ -87,35 +87,46 @@ Apply this judgment when synthesizing the fused mood:
 4. **Reinforcement.** New signal matches the previous decision → keep the decision (still log a fresh row so downstream sees the timestamp move).
 5. **Drift.** New signal is close-but-different (e.g. `tired` after a `stressed` decision) → shift, don't snap.
 
-## What to write
+## What to write (HW markers — fire async, no tool turn)
 
-Two POSTs to `http://127.0.0.1:5000/api/mood/log`. They have no data dependency on each other once you've read the history and applied the rules above — fire both concurrently in the same write batch.
+Embed both rows at the start of your spoken reply as HW markers. The runtime parses them, fires the POSTs in parallel goroutines, and strips them before TTS speaks the rest.
 
 **Signal row** (raw evidence):
 
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"signal","mood":"<mood>","source":"<camera|voice|telegram|conversation>","trigger":"<short reason>","user":"<name>"}'
 ```
-
-`kind` defaults to `signal` so you can omit it, but be explicit when in doubt.
+[HW:/mood/log:{"kind":"signal","mood":"<mood>","source":"<camera|voice|telegram|conversation>","trigger":"<short reason>","user":"<name>"}]
+```
 
 **Decision row** (synthesized):
 
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"decision","mood":"<fused mood>","based_on":"<short summary of inputs>","reasoning":"<why this mood>","user":"<name>"}'
 ```
+[HW:/mood/log:{"kind":"decision","mood":"<fused mood>","based_on":"<short summary>","reasoning":"<why>","user":"<name>"}]
+```
+
+Both markers can sit in the same reply (signal first, then decision is fine — they fire concurrently anyway). They use the same endpoint; `kind` in the body distinguishes them.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `kind` | Yes | must be `decision` |
+| `kind` | Yes | `signal` or `decision` |
 | `mood` | Yes | from the values list above |
-| `based_on` | Yes | e.g. `"3 signals last 20min + last decision (stressed, 18min ago)"` |
-| `reasoning` | Yes | one sentence, e.g. `"telegram complaints outweigh the smile from camera"` |
+| `based_on` | Decision only | e.g. `"3 signals last 20min + last decision (stressed, 18min ago)"` |
+| `reasoning` | Decision only | one sentence, e.g. `"telegram complaints outweigh the smile from camera"` |
 | `user` | No | omit to use current presence user |
+
+**Do NOT use `curl` exec for these logs.** Each curl consumes a tool turn (~5-7s LLM-think on the result) for a side-effect with nothing to wait on. The HW marker path is single-trip.
+
+**Regex caveat:** the marker body must not contain `}`. `based_on` / `reasoning` are usually plain English so this is rarely a problem; if a value would contain `}` use the curl fallback instead.
+
+### Fallback (only if HW marker is rejected by the runtime)
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"signal","mood":"<mood>","source":"...","trigger":"...","user":"<name>"}'
+curl -s -X POST http://127.0.0.1:5000/api/mood/log \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"decision","mood":"<fused>","based_on":"...","reasoning":"...","user":"<name>"}'
+```
 
 `source` is automatically set to `"agent"` for decisions; do not pass `source` or `trigger`.
 

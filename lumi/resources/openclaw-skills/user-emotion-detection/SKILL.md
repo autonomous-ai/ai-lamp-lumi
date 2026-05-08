@@ -49,15 +49,15 @@ This skill does NOT:
 
 ## What this skill produces
 
-A single `kind=signal` row in the mood log:
+A single `kind=signal` row in the mood log, emitted as an HW marker at the start of your spoken reply (the runtime fires the POST async, no tool turn):
 
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped>","user":"<current_user>"}'
+```
+[HW:/mood/log:{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped_mood>","user":"<current_user>"}]
 ```
 
-Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no `POST /api/mood/log` tool call fires this turn, the skill failed.
+`mapped_mood` comes straight from the `[emotion_context: ...]` block — do NOT look it up from the table on the fly. Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing.
+
+**Do NOT use `curl` exec for this signal log** — see `mood/SKILL.md`'s "What to write" section for the rationale (HW marker is single-trip, curl burns a tool turn). If no `[HW:/mood/log:...]` marker appears in the reply this turn, the skill failed.
 
 ## Combined with mood + music-suggestion
 
