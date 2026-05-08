@@ -34,8 +34,8 @@ _YOLO_TIMEOUT = 10.0
 
 # Detection filters
 DETECT_MIN_AREA_RATIO = 0.003
-DETECT_MAX_AREA_RATIO = 0.30
-DETECT_MIN_CONFIDENCE = 0.28
+DETECT_MAX_AREA_RATIO = 0.55
+DETECT_MIN_CONFIDENCE = 0.20
 
 # Gimbal loop rate (fps). CSRT on Pi runs ~15-20fps.
 FAST_LOOP_FPS = 15
@@ -48,16 +48,16 @@ YOLO_MAX_MISS = 4
 
 # Gimbal correction gain: fraction of error corrected per frame.
 # 0.25 at 15fps → smooth ~4-frame convergence, no overshoot.
-GIMBAL_GAIN = 0.18
+GIMBAL_GAIN = 0.28
 
 # EMA smoothing on raw CSRT offset before it reaches the servo.
 # Filters per-frame tracker jitter so the servo only reacts to real motion.
 # Lower = smoother (less jitter) but slightly laggier.
-EMA_ALPHA = 0.2
+EMA_ALPHA = 0.45
 
 # Max correction per frame (degrees/units). Keeps motion smooth even for
 # large offsets. At 15fps × 2° = 30°/s max angular speed.
-GIMBAL_MAX_STEP = 1.0
+GIMBAL_MAX_STEP = 2.0
 
 # Dead zone in pixels — no command when object is within this of center.
 DEAD_ZONE_PX = 5
@@ -294,6 +294,10 @@ class TrackerService:
         last_yolo_t = time.perf_counter()
         ema_dx: Optional[float] = None
         ema_dy: Optional[float] = None
+        last_yolo_cx: Optional[float] = None  # x3: last YOLO ground-truth center
+        last_yolo_cy: Optional[float] = None
+        last_yolo_area: Optional[float] = None   # area of last accepted YOLO bbox
+        yolo_cx_this_frame: Optional[float] = None
 
         # Schedule first YOLO immediately if initial detection failed
         if not tracker_ok:
@@ -315,31 +319,41 @@ class TrackerService:
                     time.sleep(1.0 / FAST_LOOP_FPS)
                     continue
                 frame = raw.copy()
-                cur_pos = _read_pos()
                 animation_service.unfreeze()
 
                 w_fr, h_fr = frame.shape[1], frame.shape[0]
 
-                # Update tracked servo position from hardware
-                if cur_pos:
-                    yaw   = cur_pos.get("base_yaw.pos",   yaw)
-                    pitch = cur_pos.get("base_pitch.pos", pitch)
-                    elbow = cur_pos.get("elbow_pitch.pos", elbow)
-                    wrist = cur_pos.get("wrist_pitch.pos", wrist)
+                # Do NOT read back hardware position during tracking — the animation
+                # service fights back to its hold position immediately after each
+                # tracking command, so _read_pos() always returns the hold value and
+                # resets yaw/pitch, preventing incremental accumulation.
+                # We trust commanded positions instead.
+
+                yolo_cx_this_frame = None
 
                 # --- Consume YOLO result if available ---
                 try:
                     yolo_bbox = _yolo_q.get_nowait()
                     if yolo_bbox is not None:
                         yolo_miss_count = 0
-                        state.bbox = yolo_bbox
-                        # Use YOLO position directly — drives servo even if local tracker
-                        # is unavailable or failing (MIL fallback on Pi often returns
-                        # ok=False on first update, leaving cx_obj=None).
                         cx3 = yolo_bbox[0] + yolo_bbox[2] / 2.0
                         cy3 = yolo_bbox[1] + yolo_bbox[3] / 2.0
-                        cx_obj = cx3
-                        cy_obj = cy3
+                        new_area = yolo_bbox[2] * yolo_bbox[3]
+                        # Reject bbox if area jumps >4x vs last — likely a different
+                        # object or noise. Skip update but don't count as miss.
+                        if last_yolo_area is not None and (
+                            new_area > last_yolo_area * 4.0
+                            or new_area < last_yolo_area / 4.0
+                        ):
+                            logger.info(
+                                "YOLO: size jump rejected area=%d vs last=%d — skipping",
+                                new_area, last_yolo_area,
+                            )
+                        else:
+                            state.bbox = yolo_bbox
+                            last_yolo_area = new_area
+                            last_yolo_cx, last_yolo_cy = cx3, cy3
+                            yolo_cx_this_frame = cx3
                         # Prime EMA with YOLO ground-truth aim error (no cold-start).
                         ema_dx = cx3 - w_fr / 2.0
                         ema_dy = cy3 - h_fr / 2.0
@@ -367,7 +381,11 @@ class TrackerService:
                     threading.Thread(target=_yolo_worker, args=(frame,), daemon=True).start()
 
                 # --- Local tracker update ---
-                cx_obj, cy_obj = None, None
+                # Only use fresh YOLO position for servo correction. Stale fallback
+                # causes servo to keep accumulating in one direction (spin-out) since
+                # the error never decreases without a local tracker updating it.
+                cx_obj = yolo_cx_this_frame
+                cy_obj = last_yolo_cy if yolo_cx_this_frame is not None else None
                 if local_tracker and tracker_ok:
                     try:
                         ok, tb = local_tracker.update(frame)
@@ -385,11 +403,23 @@ class TrackerService:
 
                 # --- Gimbal correction ---
                 if cx_obj is not None and cy_obj is not None:
-                    raw_dx = cx_obj - w_fr / 2.0
-                    raw_dy = cy_obj - h_fr / 2.0
+                    x1, y1 = w_fr / 2.0, h_fr / 2.0   # crosshair (screen center)
+                    x2, y2 = cx_obj, cy_obj             # tracker box center
+                    x3 = last_yolo_cx                   # last YOLO ground-truth
+                    y3 = last_yolo_cy
 
-                    # EMA smoothing: absorbs per-frame CSRT jitter so the servo
-                    # doesn't chase noise. Real motion changes EMA gradually.
+                    raw_dx = x2 - x1
+                    raw_dy = y2 - y1
+
+                    logger.info(
+                        "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f)",
+                        x1, y1,
+                        x2, y2,
+                        "(%.0f,%.0f)" % (x3, y3) if x3 is not None else "none",
+                        raw_dx, raw_dy,
+                    )
+
+                    # EMA smoothing: absorbs per-frame tracker jitter.
                     if ema_dx is None or ema_dy is None:
                         ema_dx, ema_dy = raw_dx, raw_dy
                     else:
@@ -397,11 +427,6 @@ class TrackerService:
                         ema_dy = EMA_ALPHA * raw_dy + (1.0 - EMA_ALPHA) * ema_dy
 
                     dx, dy = float(ema_dx), float(ema_dy)
-
-                    logger.debug(
-                        "Gimbal: raw=(%.0f,%.0f) ema=(%.0f,%.0f)",
-                        raw_dx, raw_dy, dx, dy,
-                    )
 
                     if abs(dx) > DEAD_ZONE_PX or abs(dy) > DEAD_ZONE_PX:
                         deg_per_px = (CAMERA_FOV_DEG / w_fr) * GIMBAL_GAIN
@@ -426,15 +451,19 @@ class TrackerService:
                             new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
 
                             logger.info(
-                                "Gimbal aim: off=(%.0f,%.0f) step=(%.2f°,%.2f°) yaw=%.1f→%.1f pitch=%.1f→%.1f",
-                                dx, dy, yaw_step, pitch_step, yaw, new_yaw, pitch, new_pitch,
+                                "servo| ema=(%.0f,%.0f) step=(%.2f°,%.2f°)"
+                                " yaw=%.1f→%.1f pitch=%.1f→%.1f"
+                                " elbow=%.1f→%.1f wrist=%.1f→%.1f",
+                                dx, dy, yaw_step, pitch_step,
+                                yaw, new_yaw, pitch, new_pitch,
+                                elbow, new_elbow, wrist, new_wrist,
                             )
 
                             try:
                                 with animation_service.bus_lock:
                                     animation_service.robot.send_action({
-                                        "base_yaw.pos":   new_yaw,
-                                        "base_pitch.pos": new_pitch,
+                                        "base_yaw.pos":    new_yaw,
+                                        "base_pitch.pos":  new_pitch,
                                         "elbow_pitch.pos": new_elbow,
                                         "wrist_pitch.pos": new_wrist,
                                     })
@@ -442,6 +471,8 @@ class TrackerService:
                                 time.sleep(SERVO_SETTLE_S)
                             except Exception as e:
                                 logger.warning("Gimbal: servo command failed: %s", e)
+                    else:
+                        logger.info("scope| in dead zone (%.0f,%.0f) ≤ %dpx — no servo", dx, dy, DEAD_ZONE_PX)
 
                 # Max duration guard
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
