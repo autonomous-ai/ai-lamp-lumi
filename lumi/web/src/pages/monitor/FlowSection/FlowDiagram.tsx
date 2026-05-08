@@ -84,11 +84,12 @@ export function FlowDiagram({
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
-    // llm_first_token sits offset to the right (satellite) so the runtime
-    // info text column under agent_call / agent_thinking does not overlap it.
-    llm_first_token:   { x: 1110, y: 360 },
-    tool_exec:         { x: 750, y: 480 },
-    agent_thinking:    { x: 950, y: 480 },
+    // llm_first_token sits in-line between agent_call and agent_thinking
+    // (same x=950 column) so the LLM stage reads top→bottom with the rest
+    // of the agent core nodes.
+    llm_first_token:   { x: 950, y: 360 },
+    tool_exec:         { x: 750, y: 615 },
+    agent_thinking:    { x: 950, y: 615 },
     agent_response:    { x: 750, y: 795 },
     // External channels — outside OpenClaw
     channel_input:     { x: 1300, y: 240 },
@@ -234,11 +235,11 @@ export function FlowDiagram({
           </text>
         </g>
         <g>
-          <rect x={695} y={185} width={310} height={665} rx={14}
+          <rect x={695} y={185} width={470} height={665} rx={14}
             fill="var(--lm-blue)" fillOpacity={0.04} stroke="var(--lm-blue)" strokeWidth={1} opacity={0.3}
             strokeDasharray="4 4"
           />
-          <text x={850} y={175} textAnchor="middle"
+          <text x={930} y={175} textAnchor="middle"
             fill="var(--lm-blue)" fontSize={11} fontWeight={700}
             fontFamily="monospace" opacity={0.6}
             style={{ letterSpacing: "0.08em" }}>
