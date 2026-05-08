@@ -277,9 +277,31 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 
 			// Track busy state so passive sensing events can be suppressed during active turns.
+			// Only gate on lifecycles that belong to a Lumi-initiated turn — these are
+			// the only ones whose `end` is reliably round-tripped through SSE.
+			// Heartbeat (target:"none"), channel turns merged by steer mode, and other
+			// OpenClaw self-trigger lifecycles can drop their `end` SSE (per the
+			// busyTTL comment in service_events.go); gating on them strands activeTurn=true
+			// for up to 5 minutes — every Lumi sensing event in that window queues
+			// instead of forwarding.
+			//
+			// External turns don't NEED Lumi-side gating: with messages.queue.mode=steer
+			// (pinned in onboarding), concurrent sensing events arriving during a
+			// channel/cron turn are batched into the active turn at the next model
+			// boundary by OpenClaw itself — no need for Lumi to pre-suppress them.
+			//
+			// Lumi-initiated turns also flip activeTurn=true at chat.send time
+			// (service_chat.go), so a missed lifecycle.start here is harmless.
 			// LED is managed by the agent via /emotion skill calls — do not override here.
 			if payload.Data.Phase == "start" {
-				h.agentGateway.SetBusy(true)
+				lumiInitiated := isLumiOutboundChatRunID(payload.RunID) || isLumiOutboundChatRunID(flowRunID)
+				if lumiInitiated {
+					h.agentGateway.SetBusy(true)
+				} else {
+					slog.Info("lifecycle.start skipped for busy gating",
+						"component", "agent", "run_id", payload.RunID, "flow_run_id", flowRunID,
+						"reason", "not lumi-initiated — heartbeat/channel/cron handled by OpenClaw steer batching")
+				}
 				// Arm the dead-air filler timer for voice turns. No-op
 				// unless sensing handler called MarkVoiceRun(flowRunID)
 				// before forwarding this turn.
