@@ -401,30 +401,27 @@ export function FlowDiagram({
                 fill={color} fontSize={7} opacity={0.9}>
                 {node.label}
               </text>
-              {node.desc.split(" · ").map((part, i) => {
-                // llm_first_token sits at the right satellite position (x=1110)
-                // and has a long desc — anchor it to the right of the node and
-                // flow rightward so the text gets ~180px of clear space instead
-                // of being squeezed centered between agent_thinking and the
-                // canvas edge.
-                const flowRight = node.id === "llm_first_token";
-                return (
-                  <text key={`d${i}`}
-                    x={flowRight ? pos.x + nodeR + 6 : pos.x}
-                    y={flowRight ? pos.y - 4 + i * 9 : pos.y + nodeR + 14 + i * 10}
-                    textAnchor={flowRight ? "start" : "middle"}
-                    fill={color} fontSize={5.5} opacity={0.6}>
-                    {part}
-                  </text>
-                );
-              })}
+              {node.desc.split(" · ").map((part, i) => (
+                <text key={`d${i}`} x={pos.x} y={pos.y + nodeR + 14 + i * 10} textAnchor="middle"
+                  fill={color} fontSize={5.5} opacity={0.6}>
+                  {part}
+                </text>
+              ))}
 
               {hasInfo && (() => {
                 const textLines = lines.filter((l) => !l.startsWith("🖼"));
-                const boxW = 190;
+                // agent_call carries the full chat_send message (often the
+                // pre-injected context for emotion.detected / motion.activity
+                // Phase 2 — several KB of JSON). Widen its box and anchor the
+                // left edge at the original centered position so it grows
+                // rightward into the empty space toward channel_input.
+                const isWide = node.id === "agent_call";
+                const boxW = isWide ? 480 : 190;
+                const halfDefault = 95; // = original 190 / 2 — keep left edge stable
+                const xCentered = isWide ? pos.x - halfDefault : pos.x - boxW / 2;
                 return (
                   <foreignObject
-                    x={boxAbove ? pos.x + nodeR - boxW : pos.x - boxW / 2} y={boxY - 2}
+                    x={boxAbove ? pos.x + nodeR - boxW : xCentered} y={boxY - 2}
                     width={boxW} height={1}
                     overflow="visible"
                   >
