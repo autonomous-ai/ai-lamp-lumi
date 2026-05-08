@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"tinygo.org/x/bluetooth"
@@ -83,6 +85,13 @@ func (s *BLEServer) Start() error {
 	if err := adapter.Enable(); err != nil {
 		return err
 	}
+
+	// tinygo bluetooth v0.14.0 has a TODO for MinInterval/MaxInterval on Linux,
+	// so BlueZ falls back to its 1.28s default — way too slow for macOS scan
+	// windows, leaving Claude Desktop frequently unable to discover the device.
+	// Override via the kernel debugfs knobs (writable as root) before
+	// adv.Start() so the registered advertisement uses faster timing.
+	tuneAdvIntervals()
 
 	// Reset the RX buffer on disconnect so a leftover partial line from the
 	// prior session doesn't corrupt the next. Dedup both edges — BlueZ can
@@ -208,3 +217,38 @@ func (s *BLEServer) Send(data []byte) error {
 // registered. This is a workaround.
 // Close is a no-op for tinygo bluetooth.
 func (s *BLEServer) Close() {}
+
+// tuneAdvIntervals writes desired LE advertising min/max intervals to the
+// kernel's hci debugfs knobs so BlueZ uses fast timings (100–200 ms) instead
+// of the 1.28 s default. Values are in 0.625 ms units. Best-effort: any error
+// (debugfs not mounted, different hci index, kernel without these knobs) is
+// logged and we proceed with whatever BlueZ chooses.
+func tuneAdvIntervals() {
+	const minVal = "160" // 100 ms
+	const maxVal = "320" // 200 ms
+
+	// Try every hci<n> debugfs dir so this works on boards where the
+	// controller isn't always hci0.
+	matches, err := filepath.Glob("/sys/kernel/debug/bluetooth/hci*")
+	if err != nil || len(matches) == 0 {
+		log.Printf("[ble] WARN: bluetooth debugfs not available — using BlueZ default 1280ms advertising")
+		return
+	}
+
+	for _, dir := range matches {
+		minPath := filepath.Join(dir, "adv_min_interval")
+		maxPath := filepath.Join(dir, "adv_max_interval")
+		// Order matters: kernel rejects min > current max, so write max first
+		// when raising, min first when lowering. We only ever lower, so
+		// writing min first is safe (new min < old max=2048).
+		if err := os.WriteFile(minPath, []byte(minVal), 0644); err != nil {
+			log.Printf("[ble] WARN: tune %s: %v", minPath, err)
+			continue
+		}
+		if err := os.WriteFile(maxPath, []byte(maxVal), 0644); err != nil {
+			log.Printf("[ble] WARN: tune %s: %v", maxPath, err)
+			continue
+		}
+		log.Printf("[ble] tuned advertising interval on %s: min=%s max=%s (units of 0.625ms)", dir, minVal, maxVal)
+	}
+}
