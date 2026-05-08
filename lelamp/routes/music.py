@@ -81,6 +81,13 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
 # A short cached TTS line fills that gap so the lamp sounds responsive.
 # Phrases are intentionally generic and short so one cache pool covers
 # every style/query. Cache is keyed by provider/voice/model in TTSService.
+#
+# Pools are split by language × provider:
+#   - language is read from Lumi's stt_language (config.json) at fire time,
+#     so changing the language picker doesn't require code edits — only a
+#     lelamp restart so the prewarm hits the new pool.
+#   - ElevenLabs variants embed eleven_v3 audio tags ([excited], [curious])
+#     which the OpenAI provider would speak aloud, hence two separate pools.
 MUSIC_BACKCHANNEL_PHRASES: list[str] = [
     "On it!",
     "Coming right up.",
@@ -117,18 +124,137 @@ MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS: list[str] = [
     "[curious] Hmm, let me see.",
 ]
 
+# Vietnamese (stt_language="vi").
+MUSIC_BACKCHANNEL_PHRASES_VI: list[str] = [
+    "Đang tìm!",
+    "Một chút nhé.",
+    "Ok rồi.",
+    "Để mình tìm.",
+    "Đợi tí.",
+    "Đang mở đây.",
+    "Hay đấy.",
+    "Hmm, để xem.",
+    "Đang tải.",
+    "Sắp có ngay.",
+    "Pick xịn đó.",
+    "Một giây thôi.",
+]
+
+MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS: list[str] = [
+    "[excited] Đang tìm!",
+    "Một chút nhé.",
+    "Ok rồi.",
+    "[curious] Để mình tìm.",
+    "Đợi tí.",
+    "[excited] Đang mở đây.",
+    "[excited] Hay đấy.",
+    "[curious] Hmm, để xem.",
+    "Đang tải.",
+    "[excited] Sắp có ngay.",
+    "Pick xịn đó.",
+    "Một giây thôi.",
+]
+
+# Chinese Simplified (stt_language="zh-CN").
+MUSIC_BACKCHANNEL_PHRASES_ZH_CN: list[str] = [
+    "好，马上！",
+    "稍等一下。",
+    "明白！",
+    "让我找找。",
+    "等一下。",
+    "正在播放。",
+    "选得好！",
+    "嗯，让我看看。",
+    "正在加载。",
+    "马上就来。",
+    "不错的选择。",
+    "稍等。",
+]
+
+MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS: list[str] = [
+    "[excited] 好，马上！",
+    "稍等一下。",
+    "明白！",
+    "[curious] 让我找找。",
+    "等一下。",
+    "[excited] 正在播放。",
+    "[excited] 选得好！",
+    "[curious] 嗯，让我看看。",
+    "正在加载。",
+    "[excited] 马上就来。",
+    "不错的选择。",
+    "稍等。",
+]
+
+# Chinese Traditional (stt_language="zh-TW").
+MUSIC_BACKCHANNEL_PHRASES_ZH_TW: list[str] = [
+    "好，馬上！",
+    "稍等一下。",
+    "明白！",
+    "讓我找找。",
+    "等一下。",
+    "正在播放。",
+    "選得好！",
+    "嗯，讓我看看。",
+    "正在載入。",
+    "馬上就來。",
+    "不錯的選擇。",
+    "稍等。",
+]
+
+MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS: list[str] = [
+    "[excited] 好,馬上!",
+    "稍等一下。",
+    "明白!",
+    "[curious] 讓我找找。",
+    "等一下。",
+    "[excited] 正在播放。",
+    "[excited] 選得好!",
+    "[curious] 嗯，讓我看看。",
+    "正在載入。",
+    "[excited] 馬上就來。",
+    "不錯的選擇。",
+    "稍等。",
+]
+
+# (lang, provider_is_elevenlabs) → pool. Lookup falls back to English when
+# the active language has no translated pool.
+_POOLS: dict[tuple[str, bool], list[str]] = {
+    ("en", False): MUSIC_BACKCHANNEL_PHRASES,
+    ("en", True): MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS,
+    ("vi", False): MUSIC_BACKCHANNEL_PHRASES_VI,
+    ("vi", True): MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS,
+    ("zh-CN", False): MUSIC_BACKCHANNEL_PHRASES_ZH_CN,
+    ("zh-CN", True): MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS,
+    ("zh-TW", False): MUSIC_BACKCHANNEL_PHRASES_ZH_TW,
+    ("zh-TW", True): MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS,
+}
+
 # Index of the last spoken phrase — excluded from the next pick so the lamp
 # never repeats itself back-to-back. -1 = nothing spoken yet (first call
 # picks freely).
 _last_backchannel_idx: int = -1
 
 
+def _active_stt_language() -> str:
+    """Read stt_language from Lumi's config.json. Empty/missing → ""."""
+    try:
+        from lelamp.config import _lumi_cfg_get
+        return (_lumi_cfg_get("stt_language") or "").strip()
+    except Exception:
+        return ""
+
+
 def _backchannel_pool() -> list[str]:
-    """Return the phrase pool for the active TTS provider."""
-    provider = getattr(state.tts_service, "_provider", "")
-    if provider == PROVIDER_ELEVENLABS:
-        return MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS
-    return MUSIC_BACKCHANNEL_PHRASES
+    """Return the phrase pool for the active language × TTS provider.
+    Unknown language falls back to English; unknown provider falls back
+    to the plain (no audio-tag) pool."""
+    is_elevenlabs = getattr(state.tts_service, "_provider", "") == PROVIDER_ELEVENLABS
+    lang = _active_stt_language()
+    pool = _POOLS.get((lang, is_elevenlabs))
+    if pool is None:
+        pool = _POOLS[("en", is_elevenlabs)]
+    return pool
 
 
 def _fire_music_backchannel() -> None:

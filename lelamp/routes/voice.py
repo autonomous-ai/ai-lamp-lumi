@@ -160,14 +160,25 @@ def update_voice_config(req: VoiceConfigRequest):
 
 
 @router.get("/voice/voices")
-def get_voices(provider: Optional[str] = None):
-    """Return available TTS voices for the requested (or current) provider."""
+def get_voices(provider: Optional[str] = None, lang: Optional[str] = None):
+    """Return available TTS voices for the requested (or current) provider.
+
+    `lang` is a BCP-47 stt_language code (e.g. "vi", "zh-CN"). When set,
+    ElevenLabs voices are filtered to that language's curated bucket so
+    VN/CN owners see only voices that sound natural in their language.
+    Empty / unknown lang returns the full flat list (back-compat for
+    older clients that don't send lang). OpenAI voices ignore lang —
+    its built-in voices are language-agnostic.
+    """
     from lelamp.service.voice.tts_elevenlabs import ElevenLabsTTSBackend
     from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS, PROVIDER_OPENAI as _PO
     if provider is None:
         provider = getattr(state.tts_service, "_provider", _PO) if state.tts_service else _PO
     if provider == PROVIDER_ELEVENLABS:
-        return {"provider": provider, "voices": list(ElevenLabsTTSBackend.VOICE_IDS.keys())}
+        return {
+            "provider": provider,
+            "voices": ElevenLabsTTSBackend.voices_for_language(lang or ""),
+        }
     return {"provider": provider, "voices": ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]}
 
 

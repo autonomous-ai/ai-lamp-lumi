@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strconv"
+	"sync"
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
@@ -15,11 +16,43 @@ import (
 	"go-lamp.autonomous.ai/server/config"
 )
 
+// Setup phase strings exposed via /api/setup/status so the web client can
+// follow the device through the AP→STA transition. Phases progress only
+// forward; failures park at "failed".
+const (
+	SetupPhaseIdle       = "idle"
+	SetupPhaseConnecting = "connecting"
+	SetupPhaseConnected  = "connected"
+	SetupPhaseFailed     = "failed"
+)
+
+type setupState struct {
+	mu    sync.RWMutex
+	phase string
+	lanIP string
+	error string
+}
+
+func (st *setupState) snapshot() (phase, ip, errMsg string) {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.phase, st.lanIP, st.error
+}
+
+func (st *setupState) set(phase, ip, errMsg string) {
+	st.mu.Lock()
+	st.phase = phase
+	st.lanIP = ip
+	st.error = errMsg
+	st.mu.Unlock()
+}
+
 type Service struct {
 	config         *config.Config
 	networkService *network.Service
 	agentGateway   domain.AgentGateway
 	beClient       *beclient.Client
+	setupState     setupState
 }
 
 func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentGateway, be *beclient.Client) *Service {
@@ -28,17 +61,46 @@ func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentG
 		networkService: ns,
 		agentGateway:   gw,
 		beClient:       be,
+		setupState:     setupState{phase: SetupPhaseIdle},
 	}
+}
+
+// SetupStatus returns the current Setup phase + LAN IP so the web client
+// can poll progress through the AP→STA switch. When no Setup run has
+// happened (phase=idle) but the device is already on home Wi-Fi from a
+// previous session, fall back to the live wlan0 address so the web
+// client can still detect "you're at the AP IP but the lamp lives at X"
+// and redirect.
+func (s *Service) SetupStatus() (phase, lanIP, errMsg string) {
+	phase, lanIP, errMsg = s.setupState.snapshot()
+	if lanIP == "" {
+		if ip, err := s.networkService.GetCurrentIP(); err == nil {
+			lanIP = ip
+		}
+	}
+	return phase, lanIP, errMsg
 }
 
 func (s *Service) Setup(data domain.SetupRequest) error {
 	slog.Info("starting setup", "component", "device")
+	s.setupState.set(SetupPhaseConnecting, "", "")
 	result, err := s.networkService.SetupNetwork(data.SSID, data.Password)
 	if err != nil {
+		s.setupState.set(SetupPhaseFailed, "", err.Error())
 		return fmt.Errorf("setup network: %w", err)
 	}
 	if !result {
+		s.setupState.set(SetupPhaseFailed, "", "network setup failed")
 		return fmt.Errorf("network setup failed")
+	}
+	// Capture the LAN IP immediately after WiFi associates so the web
+	// client polling /api/setup/status can read it before AP shuts down.
+	if ip, ipErr := s.networkService.GetCurrentIP(); ipErr == nil && ip != "" {
+		s.setupState.set(SetupPhaseConnected, ip, "")
+		slog.Info("setup: WiFi associated", "component", "device", "lan_ip", ip)
+	} else {
+		s.setupState.set(SetupPhaseConnected, "", "")
+		slog.Warn("setup: WiFi associated but no IP detected", "component", "device", "error", ipErr)
 	}
 
 	if err := s.agentGateway.SetupAgent(data); err != nil {
@@ -72,6 +134,8 @@ func (s *Service) Setup(data domain.SetupRequest) error {
 	s.config.TTSAPIKey = data.TTSAPIKey
 	s.config.STTBaseURL = data.STTBaseURL
 	s.config.TTSBaseURL = data.TTSBaseURL
+	s.config.STTLanguage = data.STTLanguage
+	s.config.STTModel = sttModelForLanguage(data.STTLanguage)
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -221,6 +285,8 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		TTSAPIKey:          s.config.TTSAPIKey,
 		STTBaseURL:         s.config.STTBaseURL,
 		TTSBaseURL:         s.config.TTSBaseURL,
+		STTLanguage:        s.config.STTLanguage,
+		STTModel:           s.config.STTModel,
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           deviceID,
@@ -259,6 +325,10 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	s.config.TTSAPIKey = data.TTSAPIKey
 	s.config.STTBaseURL = data.STTBaseURL
 	s.config.TTSBaseURL = data.TTSBaseURL
+	// Operators pick a language; the matching Deepgram SKU is auto-derived
+	// because end users don't know which model handles which language.
+	s.config.STTLanguage = data.STTLanguage
+	s.config.STTModel = sttModelForLanguage(data.STTLanguage)
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -355,6 +425,23 @@ func (s *Service) RePushVoiceConfig() {
 			slog.Info("lumi-lelamp restarted for TTS config", "component", "device", "voice", s.config.TTSVoice, "provider", s.config.TTSProvider)
 		}
 	}()
+}
+
+// sttModelForLanguage maps a BCP-47 language code to the Deepgram SKU exposed
+// by the Autonomous STT proxy. Empty input → empty model so lelamp falls back
+// to its built-in default (flux-general-en). Vietnamese rides on Nova-3 (added
+// Jan 2026); Chinese still requires Nova-2 because Nova-3 hasn't shipped zh.
+func sttModelForLanguage(lang string) string {
+	switch lang {
+	case "":
+		return ""
+	case "en":
+		return "flux-general-en"
+	case "zh", "zh-CN", "zh-Hans", "zh-TW", "zh-Hant":
+		return "nova-2-general"
+	default:
+		return "nova-3-general"
+	}
 }
 
 // WaitForAgentReady polls agentGateway.IsReady until it returns true or the timeout elapses.
