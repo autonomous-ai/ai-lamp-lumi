@@ -137,6 +137,7 @@ var lumiInternalPrefixes = []string{
 	"[emotion]",
 	"[wellbeing]",
 	"[music-proactive]",
+	"[system]",
 	"You just woke up",
 }
 
