@@ -9,6 +9,7 @@ import (
 
 	"go-lamp.autonomous.ai/internal/intent"
 	"go-lamp.autonomous.ai/lib/lelamp"
+	"go-lamp.autonomous.ai/server/config"
 )
 
 // Dead air filler — short TTS cues spoken by LeLamp while OpenClaw is busy,
@@ -23,6 +24,7 @@ import (
 // Pool empty = that position is silent. Both empty = feature disabled.
 
 // OpeningFillers play first in a turn. Tone: short acknowledgement.
+// English pool — also the fallback when STTLanguage is empty/unknown.
 var OpeningFillers = []string{
 	"Hmm, let me think",
 	"Ok, got it",
@@ -36,6 +38,7 @@ var OpeningFillers = []string{
 }
 
 // ContinuationFillers play on re-arm after a tool finishes. Tone: progress.
+// English pool — also the fallback when STTLanguage is empty/unknown.
 var ContinuationFillers = []string{
 	"Still working on it",
 	"Almost there",
@@ -45,6 +48,94 @@ var ContinuationFillers = []string{
 	"Bear with me",
 	"Almost done",
 	"Hmm, getting close",
+}
+
+// Vietnamese pools (STTLanguage="vi"). Tone matches EN: short acknowledgements
+// for opening, progress beats for continuation.
+var OpeningFillersVI = []string{
+	"Hmm để xem",
+	"Ờ rồi",
+	"Vâng một chút",
+	"Vâng",
+	"Hiểu rồi",
+	"Dạ",
+	"Ờ",
+	"Để xem",
+	"Chờ chút",
+}
+
+var ContinuationFillersVI = []string{
+	"Vẫn đang nghĩ",
+	"Sắp xong rồi",
+	"Một chút nữa thôi",
+	"Thêm chút nữa",
+	"Đợi thêm tí",
+	"Sắp được rồi",
+	"Gần xong rồi",
+	"Hmm sắp xong",
+}
+
+// Chinese Simplified pools (STTLanguage="zh-CN").
+var OpeningFillersZhCN = []string{
+	"嗯，让我想想",
+	"好的",
+	"稍等一下",
+	"好",
+	"明白了",
+	"嗯",
+	"等一下",
+	"稍等",
+	"好的好的",
+}
+
+var ContinuationFillersZhCN = []string{
+	"还在处理",
+	"快好了",
+	"再等一下",
+	"稍等片刻",
+	"等等",
+	"请稍等",
+	"差不多了",
+	"嗯，快好了",
+}
+
+// Chinese Traditional pools (STTLanguage="zh-TW").
+var OpeningFillersZhTW = []string{
+	"嗯，讓我想想",
+	"好的",
+	"稍等一下",
+	"好",
+	"明白了",
+	"嗯",
+	"等一下",
+	"稍等",
+	"好的好的",
+}
+
+var ContinuationFillersZhTW = []string{
+	"還在處理",
+	"快好了",
+	"再等一下",
+	"稍等片刻",
+	"等等",
+	"請稍等",
+	"差不多了",
+	"嗯，快好了",
+}
+
+// poolsForLang returns the (opening, continuation) pools for a BCP-47 STT
+// language code. Empty / unknown / "en*" → English. Falls through to English
+// when the requested pool is empty so a misconfigured pool stays graceful.
+func poolsForLang(lang string) (opening, continuation []string) {
+	switch lang {
+	case "vi":
+		return OpeningFillersVI, ContinuationFillersVI
+	case "zh-CN":
+		return OpeningFillersZhCN, ContinuationFillersZhCN
+	case "zh-TW":
+		return OpeningFillersZhTW, ContinuationFillersZhTW
+	}
+	return OpeningFillers, ContinuationFillers
 }
 
 // Filler tuning. All durations are wall-clock.
@@ -95,20 +186,23 @@ type fillerRun struct {
 	lastSpoken     string    // text of the most recent filler — used to dedup back-to-back picks
 }
 
-// fillersDisabled reports whether both pools are empty — the kill switch.
+// fillersDisabled reports whether both English pools are empty — the kill
+// switch. Per-language pools are not considered: emptying English alone
+// disables the feature for every language.
 func fillersDisabled() bool {
 	return len(OpeningFillers) == 0 && len(ContinuationFillers) == 0
 }
 
-// pickFiller returns a phrase appropriate for the current turn position,
-// avoiding lastSpoken when an alternative exists. Fired==0 prefers the
-// Opening pool; subsequent fillers prefer Continuation. Each falls back
-// to the other pool when its own is empty so a single-pool config still
-// works.
-func pickFiller(fired int, lastSpoken string) string {
-	primary, fallback := OpeningFillers, ContinuationFillers
+// pickFiller returns a phrase appropriate for the current turn position
+// in the requested language, avoiding lastSpoken when an alternative exists.
+// Fired==0 prefers the Opening pool; subsequent fillers prefer Continuation.
+// Each falls back to the other pool when its own is empty so a single-pool
+// config still works.
+func pickFiller(fired int, lastSpoken, lang string) string {
+	opening, continuation := poolsForLang(lang)
+	primary, fallback := opening, continuation
 	if fired > 0 {
-		primary, fallback = ContinuationFillers, OpeningFillers
+		primary, fallback = continuation, opening
 	}
 	if pick := pickFrom(primary, lastSpoken); pick != "" {
 		return pick
@@ -145,13 +239,20 @@ func pickFrom(pool []string, lastSpoken string) string {
 }
 
 // PrewarmFillers asks lelamp to render+save WAV for every filler phrase
-// so the first runtime fire is a cache hit (no ElevenLabs roundtrip).
-// Polls lelamp /health until it answers (lumi.service starts before
-// lumi-lelamp.service is ready -- without this guard every prerender
-// races and all 17 fail with connection refused). Then prerenders
-// serially. Logs failures but never panics; cache misses fall back to
-// live speak at fire time.
-func PrewarmFillers() {
+// in the active STT language so the first runtime fire is a cache hit
+// (no ElevenLabs roundtrip). Polls lelamp /health until it answers
+// (lumi.service starts before lumi-lelamp.service is ready -- without
+// this guard every prerender races and all phrases fail with connection
+// refused). Then prerenders serially. Logs failures but never panics;
+// cache misses fall back to live speak at fire time.
+//
+// `lang` selects the pool: "vi", "zh-CN", "zh-TW" pick the matching
+// translated pool; anything else falls back to English. intent.CacheableReplies
+// is always English (intent rules only match English keywords) so it's
+// prewarmed regardless of lang. Switching language at runtime causes a
+// one-time miss on the first filler — acceptable since lumi-lelamp restarts
+// on EditConfig anyway.
+func PrewarmFillers(lang string) {
 	const (
 		readyMaxWait  = 120 * time.Second
 		readyInterval = 2 * time.Second
@@ -171,8 +272,9 @@ func PrewarmFillers() {
 		return
 	}
 
-	all := append([]string{}, OpeningFillers...)
-	all = append(all, ContinuationFillers...)
+	opening, continuation := poolsForLang(lang)
+	all := append([]string{}, opening...)
+	all = append(all, continuation...)
 	all = append(all, intent.CacheableReplies...)
 	rendered := 0
 	for _, phrase := range all {
@@ -193,29 +295,30 @@ func PrewarmFillers() {
 		rendered++
 		slog.Debug("filler prerendered", "component", "sensing", "phrase", phrase)
 	}
-	slog.Info("filler cache prewarm complete", "component", "sensing", "rendered", rendered, "total", len(all))
+	slog.Info("filler cache prewarm complete", "component", "sensing", "lang", lang, "rendered", rendered, "total", len(all))
 }
 
 // PlayOpeningFillerNow fires a single Opening-pool filler immediately,
 // fire-and-forget, without going through FillerManager. Called by the
 // sensing handler right after a voice/voice_command turn is forwarded.
 //
-// Uses the lelamp WAV cache (SpeakCachedInterruptible) so the filler
-// nhả tiếng ~50ms after this call instead of 1.5s — fillers were
-// previously fired ~5-10s ahead of the real reply just to mask
-// ElevenLabs latency; with cached audio that workaround is unnecessary,
-// but the call site stays the same for now.
+// `lang` picks the language pool (see poolsForLang). Uses the lelamp WAV
+// cache (SpeakCachedInterruptible) so the filler nhả tiếng ~50ms after this
+// call instead of 1.5s — fillers were previously fired ~5-10s ahead of the
+// real reply just to mask ElevenLabs latency; with cached audio that
+// workaround is unnecessary, but the call site stays the same for now.
 //
-// No-op when OpeningFillers pool is empty.
-func PlayOpeningFillerNow() {
-	if len(OpeningFillers) == 0 {
+// No-op when the resolved Opening pool is empty.
+func PlayOpeningFillerNow(lang string) {
+	opening, _ := poolsForLang(lang)
+	if len(opening) == 0 {
 		return
 	}
-	filler := pickFrom(OpeningFillers, "")
+	filler := pickFrom(opening, "")
 	if filler == "" {
 		return
 	}
-	slog.Info("opening filler firing (immediate, cached)", "component", "sensing", "filler", filler)
+	slog.Info("opening filler firing (immediate, cached)", "component", "sensing", "lang", lang, "filler", filler)
 	if err := lelamp.SpeakCachedInterruptible(filler); err != nil {
 		slog.Warn("opening filler failed", "component", "sensing", "error", err)
 	}
@@ -246,14 +349,33 @@ type FillerManager struct {
 	mu        sync.Mutex
 	runs      map[string]*fillerRun
 	voiceRuns map[string]bool
+	cfg       *config.Config // STTLanguage source; nil → English fallback
 }
 
-// NewFillerManager constructs an empty FillerManager.
+// NewFillerManager constructs an empty FillerManager. cfg is nil-safe; call
+// SetConfig once the config is available so fillers can pick the right
+// language pool at fire time.
 func NewFillerManager() *FillerManager {
 	return &FillerManager{
 		runs:      make(map[string]*fillerRun),
 		voiceRuns: make(map[string]bool),
 	}
+}
+
+// SetConfig wires the active config so fire() can read STTLanguage at
+// runtime. Safe to call from server bootstrap; no-op for nil cfg.
+func (fm *FillerManager) SetConfig(cfg *config.Config) {
+	fm.mu.Lock()
+	fm.cfg = cfg
+	fm.mu.Unlock()
+}
+
+// currentLangLocked returns the active STT language code. Caller holds fm.mu.
+func (fm *FillerManager) currentLangLocked() string {
+	if fm.cfg == nil {
+		return ""
+	}
+	return fm.cfg.STTLanguage
 }
 
 // DefaultFillerManager is the process-wide singleton shared by the sensing
@@ -414,7 +536,7 @@ func (fm *FillerManager) fire(runID string) {
 		fm.mu.Unlock()
 		return
 	}
-	filler := pickFiller(run.fired, run.lastSpoken)
+	filler := pickFiller(run.fired, run.lastSpoken, fm.currentLangLocked())
 	if filler == "" {
 		// Both pools empty after live edit. Bail without playing.
 		run.timer = nil
