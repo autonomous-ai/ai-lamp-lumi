@@ -40,13 +40,16 @@ class YOLOPersonDetector(PersonDetector):
         model_name: str = settings.person_detector.model_name,
         threshold: float = settings.person_detector.confidence_threshold,
         bbox_expand_scale: float = settings.person_detector.bbox_expand_scale,
+        min_area_ratio: float = settings.person_detector.min_area_ratio,
     ):
         """
         Args:
             model_name: Ultralytics model identifier, e.g. ``"yolo12x.pt"``.
             threshold:  Minimum detection confidence to keep.
             bbox_expand_scale: Scale factor to expand detected bbox around center.
+            min_area_ratio: Skip persons covering less than this fraction of frame area.
         """
+        super().__init__(min_area_ratio=min_area_ratio)
         self._model_name: str = model_name
         self._threshold: float = threshold
         self._bbox_expand_scale: float = bbox_expand_scale
@@ -102,14 +105,10 @@ class YOLOPersonDetector(PersonDetector):
                 if r.boxes is None or len(r.boxes) == 0:
                     continue
                 for box in r.boxes:
-                    x1, y1, x2, y2 = self._scale_and_clamp_bbox(
-                        [int(v) for v in box.xyxy[0].tolist()],
-                        H,
-                        W,
-                        self._bbox_expand_scale,
-                    )
+                    raw = [int(v) for v in box.xyxy[0].tolist()]
+                    area = max(0, raw[2] - raw[0]) * max(0, raw[3] - raw[1])
+                    x1, y1, x2, y2 = self._scale_and_clamp_bbox(raw, H, W, self._bbox_expand_scale)
                     conf = float(box.conf[0])
-                    area = max(0, x2 - x1) * max(0, y2 - y1)
                     detections.append(
                         PersonDetection(
                             bbox_xyxy=(x1, y1, x2, y2),

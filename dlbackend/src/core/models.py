@@ -31,6 +31,7 @@ class ActionConfigRequest(BaseModel):
     task: Literal["action"] = "action"
     whitelist: list[str] | None = None
     threshold: float = 0.3
+    person_min_area_ratio: float | None = None  # override person detector min area ratio for this session
 
 
 class ActionHeartBeatRequest(BaseModel):
