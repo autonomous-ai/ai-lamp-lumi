@@ -5,7 +5,7 @@ import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MicVocal, MessageSquare, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, MicVocal, MessageSquare, Globe, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "voice",    label: "My Voice", icon: <MicVocal size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
   { id: "tts",      label: "Lumi's Voice", icon: <Volume2 size={ICON_SIZE} /> },
-  { id: "stt",      label: "STT",      icon: <Mic size={ICON_SIZE} /> },
+  { id: "stt",      label: "Language", icon: <Globe size={ICON_SIZE} /> },
   { id: "channel",  label: "Channels", icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
@@ -1167,15 +1167,15 @@ export default function EditConfig() {
                   </div>
                 </SectionCard>
 
-                <SectionCard id="stt" title="STT (Speech-to-Text)" active={activeSection === "stt"}>
+                <SectionCard id="stt" title="Language" active={activeSection === "stt"}>
                   <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                      Provider
+                    <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                      Language (what the lamp listens for)
                     </label>
                     <select
-                      id="stt_provider"
-                      value={sttProvider}
-                      onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
+                      id="stt_language"
+                      value={sttLanguage}
+                      onChange={(e) => setSttLanguage(e.target.value)}
                       style={{
                         width: "100%", boxSizing: "border-box",
                         background: C.surface, border: `1px solid ${C.border}`,
@@ -1183,40 +1183,46 @@ export default function EditConfig() {
                         fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
                       }}
                     >
-                      <option value="autonomous">Autonomous (reuse AI brain)</option>
-                      <option value="deepgram">Deepgram</option>
+                      <option value="">Auto (default)</option>
+                      <option value="en">English</option>
+                      <option value="vi">Vietnamese</option>
+                      <option value="zh-CN">Chinese (Simplified)</option>
+                      <option value="zh-TW">Chinese (Traditional)</option>
                     </select>
                   </div>
-                  {sttProvider === "deepgram" ? (
-                    <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
-                  ) : (
-                    <>
-                      <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
-                      <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
-                      <div style={{ marginBottom: 12 }}>
-                        <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                          Language
-                        </label>
-                        <select
-                          id="stt_language"
-                          value={sttLanguage}
-                          onChange={(e) => setSttLanguage(e.target.value)}
-                          style={{
-                            width: "100%", boxSizing: "border-box",
-                            background: C.surface, border: `1px solid ${C.border}`,
-                            borderRadius: 7, padding: "8px 11px",
-                            fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                          }}
-                        >
-                          <option value="">Auto (default)</option>
-                          <option value="en">English</option>
-                          <option value="vi">Vietnamese</option>
-                          <option value="zh-CN">Chinese (Simplified)</option>
-                          <option value="zh-TW">Chinese (Traditional)</option>
-                        </select>
-                      </div>
-                    </>
-                  )}
+
+                  <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                      Advanced
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Provider
+                      </label>
+                      <select
+                        id="stt_provider"
+                        value={sttProvider}
+                        onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="autonomous">Autonomous (reuse AI brain)</option>
+                        <option value="deepgram">Deepgram</option>
+                      </select>
+                    </div>
+                    {sttProvider === "deepgram" ? (
+                      <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
+                    ) : (
+                      <>
+                        <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
+                        <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
+                      </>
+                    )}
+                  </div>
                 </SectionCard>
 
                 <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
