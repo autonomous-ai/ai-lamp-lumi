@@ -327,8 +327,10 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	s.config.TTSBaseURL = data.TTSBaseURL
 	// Operators pick a language; the matching Deepgram SKU is auto-derived
 	// because end users don't know which model handles which language.
+	prevLang := s.config.STTLanguage
 	s.config.STTLanguage = data.STTLanguage
 	s.config.STTModel = sttModelForLanguage(data.STTLanguage)
+	langChanged := prevLang != s.config.STTLanguage
 	if data.TTSProvider != "" {
 		s.config.TTSProvider = data.TTSProvider
 	}
@@ -407,6 +409,22 @@ func (s *Service) UpdateConfig(data domain.UpdateConfigRequest) error {
 	if thinkingChanged && s.agentGateway != nil {
 		if err := s.agentGateway.RefreshModelsConfig(); err != nil {
 			slog.Error("refresh models config failed", "component", "device", "error", err)
+		}
+	}
+	// When the operator switches stt_language explicitly, drop the in-session
+	// chat history so the LLM doesn't keep replying in the previous language
+	// out of inertia. SOUL.md tells it the latest turn wins, but a heavily
+	// English/Vietnamese-biased history can still pull the next reply back —
+	// a fresh session is the cleanest break.
+	if langChanged && s.agentGateway != nil {
+		if key := s.agentGateway.GetSessionKey(); key != "" {
+			go func() {
+				if err := s.agentGateway.NewSession(key); err != nil {
+					slog.Warn("openclaw NewSession on stt_language change failed", "component", "device", "error", err)
+				} else {
+					slog.Info("openclaw session reset for stt_language change", "component", "device", "from", prevLang, "to", s.config.STTLanguage)
+				}
+			}()
 		}
 	}
 	// Re-push voice config to LeLamp on any config change
