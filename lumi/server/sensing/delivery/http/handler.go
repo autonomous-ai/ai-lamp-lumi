@@ -394,7 +394,11 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// suppression toggle above when done — search "TEMP: disabled to test TTS".
 	if isVoice || isWebChat {
 		DefaultFillerManager.MarkVoiceRun(runID)
-		go PlayOpeningFillerNow()
+		lang := ""
+		if h.config != nil {
+			lang = h.config.STTLanguage
+		}
+		go PlayOpeningFillerNow(lang)
 	}
 
 	var err error

@@ -434,7 +434,11 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			// a cache hit (~50ms) instead of a 1.5s ElevenLabs roundtrip.
 			// Runs in a goroutine because rendering ~17 phrases serially can
 			// take 30-60s and must not block the boot greeting.
-			safego.Go("prewarm-fillers", func() { _sensingHttpDeliver.PrewarmFillers() })
+			// Pool is selected by STTLanguage so VN/CN owners get translated
+			// fillers; FillerManager reads the same field at fire time.
+			_sensingHttpDeliver.DefaultFillerManager.SetConfig(s.config)
+			lang := s.config.STTLanguage
+			safego.Go("prewarm-fillers", func() { _sensingHttpDeliver.PrewarmFillers(lang) })
 			// Start ambient life behaviors (breathing LED, micro-movements, mumbles)
 			safego.Go("ambient", func() { s.ambientService.Start(s.monitorCtx) })
 			// Watch LeLamp component health; auto-restart voice on ALSA failure
