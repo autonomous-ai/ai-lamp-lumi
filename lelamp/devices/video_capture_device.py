@@ -151,6 +151,12 @@ class LocalVideoCaptureDevice(VideoCaptureDeviceBase):
         # with the default YUYV format on Pi 5 but work fine with MJPEG.
         video_capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
+        # Request desired resolution — camera will use closest supported mode.
+        if self._max_width:
+            video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self._max_width)
+        if self._max_height:
+            video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self._max_height)
+
         w = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         device_fps = video_capture.get(cv2.CAP_PROP_FPS)

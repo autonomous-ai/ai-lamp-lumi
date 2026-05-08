@@ -11,6 +11,7 @@ import base64
 import logging
 import os
 import queue
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -37,8 +38,8 @@ DETECT_MIN_AREA_RATIO = 0.003
 DETECT_MAX_AREA_RATIO = 0.55
 DETECT_MIN_CONFIDENCE = 0.20
 
-# Gimbal loop rate (fps). CSRT on Pi runs ~15-20fps.
-FAST_LOOP_FPS = 15
+# Gimbal loop rate (fps). CSRT on Pi runs ~20-25fps with opencv-contrib.
+FAST_LOOP_FPS = 24
 
 # Background YOLO re-detection interval (seconds). Corrects CSRT drift.
 YOLO_REDETECT_S = 1.5
@@ -305,6 +306,17 @@ class TrackerService:
             threading.Thread(target=_yolo_worker, args=(snap,), daemon=True).start()
 
         track_start_t = time.perf_counter()
+        _frame_count = 0
+
+        def _log_sysmon():
+            try:
+                temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
+                throttled = subprocess.check_output(
+                    ["vcgencmd", "get_throttled"], text=True, timeout=1
+                ).strip()
+                logger.info("sysmon| cpu=%.1f°C %s", temp, throttled)
+            except Exception:
+                pass
 
         try:
             while state.running.is_set():
@@ -473,6 +485,11 @@ class TrackerService:
                                 logger.warning("Gimbal: servo command failed: %s", e)
                     else:
                         logger.info("scope| in dead zone (%.0f,%.0f) ≤ %dpx — no servo", dx, dy, DEAD_ZONE_PX)
+
+                # Sysmon every 48 frames (~2s at 24fps)
+                _frame_count += 1
+                if _frame_count % 48 == 0:
+                    _log_sysmon()
 
                 # Max duration guard
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
