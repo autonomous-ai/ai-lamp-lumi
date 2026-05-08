@@ -75,19 +75,23 @@ export function FlowDiagram({
     hw_led:            { x: 200, y: 525 },
     hw_servo:          { x: 200, y: 660 },
     hw_audio:          { x: 200, y: 795 },
-    hw_wellbeing:      { x: 467, y: 660 },
-    // Lumi-side log writes (mood + music-suggestion) — stack with hw_wellbeing
-    // since they all go through the same async POST path on port 5000/api/*.
-    hw_mood:           { x: 467, y: 525 },
-    hw_music_suggestion: { x: 467, y: 795 },
+    // Lumi-side log writes — stack BELOW the BCAST node (tg_alert at y=930)
+    // so HOOK / BCAST stay grouped at the top of the Lumi column and the
+    // three async-POST logs hang off the bottom in their own block.
+    // x=467 same column. Edges from lumi_gate use elbow routing
+    // (right → down → left) to avoid running through tg_alert.
+    hw_mood:             { x: 467, y: 1065 },
+    hw_wellbeing:        { x: 467, y: 1200 },
+    hw_music_suggestion: { x: 467, y: 1335 },
     tts_speak:         { x: 200, y: 930 },
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call)
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
-    // llm_first_token sits in-line between agent_call and agent_thinking
-    // (same x=950 column) so the LLM stage reads top→bottom with the rest
-    // of the agent core nodes.
-    llm_first_token:   { x: 950, y: 360 },
+    // llm_first_token sits in-line between agent_call (y=240) and
+    // agent_thinking (y=615) — midpoint y=427 keeps the LLM stage
+    // visually centered in the agent column instead of drifting toward
+    // agent_call.
+    llm_first_token:   { x: 950, y: 427 },
     tool_exec:         { x: 750, y: 615 },
     agent_thinking:    { x: 950, y: 615 },
     agent_response:    { x: 750, y: 795 },
@@ -211,7 +215,7 @@ export function FlowDiagram({
             fill="var(--lm-teal)" fillOpacity={0.12} stroke="var(--lm-teal)" strokeWidth={2} opacity={0.6}
             strokeDasharray="4 4"
           />
-          <rect x={417} y={100} width={110} height={890} rx={10}
+          <rect x={417} y={100} width={110} height={1280} rx={10}
             fill="var(--lm-teal)" fillOpacity={0.12} stroke="var(--lm-teal)" strokeWidth={2} opacity={0.6}
             strokeDasharray="4 4"
           />
@@ -268,6 +272,26 @@ export function FlowDiagram({
                 d={`M ${f.x - nodeR * 0.7} ${f.y + nodeR * 0.7} L ${elbowX} ${startY + 20} L ${elbowX} ${endY} L ${endX} ${endY}`}
                 stroke={color} strokeWidth={sw} fill="none"
                 markerEnd={marker} opacity={op}
+              />
+            );
+          }
+
+          // Elbow edges: lumi_gate → log nodes (hw_mood / hw_wellbeing /
+          // hw_music_suggestion) sitting BELOW tg_alert in the same column.
+          // Route right out of lumi_gate, down past tg_alert, then left back
+          // into the target so the line never overlaps tg_alert.
+          if (from === "lumi_gate" && (to === "hw_mood" || to === "hw_wellbeing" || to === "hw_music_suggestion")) {
+            const elbowX = f.x + 90; // offset right of source/target column
+            const startX = f.x + nodeR + 4;
+            const startY = f.y;
+            const endX = t.x + nodeR + 4; // enter from right side
+            const endY = t.y;
+            return (
+              <path key={`${from}-${to}`}
+                d={`M ${startX} ${startY} L ${elbowX} ${startY} L ${elbowX} ${endY} L ${endX} ${endY}`}
+                stroke={color} strokeWidth={sw} fill="none"
+                markerEnd={marker} opacity={op}
+                strokeDasharray="6 4"
               />
             );
           }
