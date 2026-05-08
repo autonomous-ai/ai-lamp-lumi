@@ -61,12 +61,20 @@ Every detected emotion in the mapping table gets logged (including `Neutral` →
 
 ## Combined with mood + music-suggestion
 
-The backend injects this turn with `[REQUIRED — run both skills this turn]`. That means a single combined plan, not three sequential workflows:
+The backend injects this turn with `[REQUIRED — run both skills this turn]` PLUS an `[emotion_context: {...JSON...}]` block that pre-computes everything the three skills need. **Do NOT fire any read tool calls** — the data is already in the message.
 
-- **Reads (batch in one bash with `&` + `wait`)** — `GET /api/openclaw/mood-history?last=15` (mood decision input), plus the music-suggestion read set listed in `music-suggestion/SKILL.md`.
-- **Decide locally** — map detected emotion → signal mood, apply mood decision rules from `mood/SKILL.md`, evaluate music skip/genre rules from `music-suggestion/SKILL.md`.
+Pre-fetched fields (use directly):
+- `mapped_mood` — already maps this turn's `<EmotionName>` per the table above. This is the value to log as the signal mood. **You no longer need to look it up yourself.**
+- `recent_signals`, `prior_decision`, `is_decision_stale` — feed `mood/SKILL.md`'s decision rules.
+- `audio_playing`, `last_suggestion_age_min`, `audio_recent`, `music_pattern_for_hour`, `suggestion_worthy` — feed `music-suggestion/SKILL.md`'s skip rules and genre pick.
+
+Single combined plan, not three sequential workflows:
+
+- **Decide locally** — apply mood decision rules from `mood/SKILL.md`; evaluate music skip + genre from `music-suggestion/SKILL.md`.
 - **Writes (batch in one bash with `&` + `wait`)** — POST mood signal (this skill), POST mood decision (mood), POST music-suggestion log if suggesting (music-suggestion).
 
-Tool calls without data dependencies must fire concurrently. Do not split mood signal, mood decision, and music-suggestion across multiple tool turns.
+### Fallback (only if `[emotion_context: ...]` is missing)
+
+If the message has no context block (pre-fetch failed), fall back to the read batch from `mood/SKILL.md` and `music-suggestion/SKILL.md` (concurrent GETs in one bash via `& ... wait`).
 
 Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Never narrate the mapping or logging in the reply.

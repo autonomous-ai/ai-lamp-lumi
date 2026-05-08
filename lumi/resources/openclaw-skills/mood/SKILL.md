@@ -60,17 +60,22 @@ Skip only if: quoting someone else, or speaking purely hypothetically.
 
 ---
 
-## What to read
+## What to read (pre-fetched on emotion.detected)
+
+When this skill runs as part of the `emotion.detected` pipeline, the backend injects an `[emotion_context: {...}]` block with everything you need pre-computed:
+- `recent_signals` — array of `{age_min, mood, source, trigger}` for signals within the last 30 minutes.
+- `prior_decision` — the most recent `kind=decision` row as `{mood, age_min}`, or `null`.
+- `is_decision_stale` — boolean (`age_min >= 30` or no decision today).
+
+**Do NOT GET `mood-history` again** in that case — use the context block.
+
+When the skill runs from another path (voice/telegram-driven mood signal, no `[emotion_context:]` block), fall back to:
 
 ```bash
 curl -s "http://127.0.0.1:5000/api/openclaw/mood-history?user=<name>&last=15"
 ```
 
-Returns both `signal` and `decision` rows in time order. You need:
-- Other signals from the last ~30 minutes (camera + voice + telegram).
-- The most recent `decision` row (if any) and how long ago it was.
-
-This GET should batch concurrently with any other reads in the turn (no data dependency).
+This returns the full ordered list `{signal, decision}`; derive the same three fields locally. The GET should batch concurrently with any other reads in the same turn (no data dependency).
 
 ## Decision rules
 
