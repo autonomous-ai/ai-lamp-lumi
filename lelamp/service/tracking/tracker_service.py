@@ -60,12 +60,12 @@ EMA_ALPHA = 0.45
 # large offsets. At 15fps × 2° = 30°/s max angular speed.
 GIMBAL_MAX_STEP = 2.0
 
-# 3×3 grid dead zone — frame split into 9 cells by 2 vertical + 2 horizontal lines.
-# Center cell = no servo correction (prevents spam when target roughly centered).
-# Outer 8 cells = proportional correction toward center.
-# Values are fractions of frame dimension (0.35 → lines at 35% and 65%).
-GRID_DEAD_V = 0.35   # vertical lines
-GRID_DEAD_H = 0.35   # horizontal lines
+# Edge trigger zone — outer fraction of frame that nudges servo.
+# Object in center (1 - 2*EDGE) → servo silent.
+# Object in edge zone → proportional nudge away from edge.
+# 0.22 → outer 22% each side, center 56% is dead.
+EDGE_ZONE_H = 0.40   # left/right edges
+EDGE_ZONE_V = 0.40   # top/bottom edges
 
 # FOV mapping for correction magnitude.
 CAMERA_FOV_DEG = 60.0
@@ -340,6 +340,7 @@ class TrackerService:
         try:
             while state.running.is_set():
                 t0 = time.perf_counter()
+                tracker_just_reinited = False
 
                 # --- Grab frame (light freeze to avoid ego-motion blur) ---
                 animation_service.freeze()
@@ -396,6 +397,7 @@ class TrackerService:
                             try:
                                 ok = local_tracker.init(frame, yolo_bbox)
                                 tracker_ok = ok is not False
+                                tracker_just_reinited = True
                                 logger.info("Gimbal: re-init tracker from YOLO bbox=%s", yolo_bbox)
                             except Exception as e:
                                 logger.warning("Gimbal: tracker re-init failed: %s", e)
@@ -421,7 +423,7 @@ class TrackerService:
                 # the error never decreases without a local tracker updating it.
                 cx_obj = yolo_cx_this_frame
                 cy_obj = last_yolo_cy if yolo_cx_this_frame is not None else None
-                if local_tracker and tracker_ok:
+                if local_tracker and tracker_ok and not tracker_just_reinited:
                     try:
                         ok, tb = local_tracker.update(frame)
                         if ok:
@@ -437,76 +439,68 @@ class TrackerService:
                         logger.debug("Gimbal: local tracker update error: %s", e)
                         tracker_ok = False
 
-                # --- Gimbal correction ---
+                # --- Edge trigger servo ---
+                # Servo only activates when object enters outer edge zone.
+                # Center (56%) = silent. Edge (22% each side) = proportional nudge.
                 if cx_obj is not None and cy_obj is not None:
-                    x1, y1 = w_fr / 2.0, h_fr / 2.0   # crosshair (screen center)
-                    x2, y2 = cx_obj, cy_obj             # CSRT box center — single servo input
-                    x3 = last_yolo_cx                   # YOLO ground-truth (log only)
-                    y3 = last_yolo_cy
-
-                    raw_dx = x2 - x1
-                    raw_dy = y2 - y1
+                    x1, y1 = w_fr / 2.0, h_fr / 2.0
+                    x2, y2 = cx_obj, cy_obj
+                    x3, y3 = last_yolo_cx, last_yolo_cy
 
                     logger.info(
                         "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f) csrt=%.2f",
-                        x1, y1,
-                        x2, y2,
+                        x1, y1, x2, y2,
                         "(%.0f,%.0f)" % (x3, y3) if x3 is not None else "none",
-                        raw_dx, raw_dy, csrt_score,
+                        x2 - x1, y2 - y1, csrt_score,
                     )
 
-                    # EMA smoothing: absorbs per-frame tracker jitter.
-                    if ema_dx is None or ema_dy is None:
-                        ema_dx, ema_dy = raw_dx, raw_dy
+                    ex1 = w_fr * EDGE_ZONE_H
+                    ex2 = w_fr * (1.0 - EDGE_ZONE_H)
+                    ey1 = h_fr * EDGE_ZONE_V
+                    ey2 = h_fr * (1.0 - EDGE_ZONE_V)
+
+                    # --- Edge trigger ---
+                    if x2 < ex1:
+                        yaw_step = -((ex1 - x2) / ex1) * GIMBAL_MAX_STEP
+                    elif x2 > ex2:
+                        yaw_step = ((x2 - ex2) / (w_fr - ex2)) * GIMBAL_MAX_STEP
                     else:
-                        ema_dx = EMA_ALPHA * raw_dx + (1.0 - EMA_ALPHA) * ema_dx
-                        ema_dy = EMA_ALPHA * raw_dy + (1.0 - EMA_ALPHA) * ema_dy
+                        yaw_step = 0.0
 
-                    dx, dy = float(ema_dx), float(ema_dy)
-
-                    # 3×3 grid dead zone — object in center cell → no servo.
-                    # Lines at GRID_DEAD_V / GRID_DEAD_H fraction from each edge.
-                    half_dead_x = w_fr * (0.5 - GRID_DEAD_V)
-                    half_dead_y = h_fr * (0.5 - GRID_DEAD_H)
-                    in_center   = abs(dx) <= half_dead_x and abs(dy) <= half_dead_y
-
-                    if not in_center:
-                        deg_per_px = (CAMERA_FOV_DEG / w_fr) * GIMBAL_GAIN
-
-                        # Yaw: positive dx → turn right (increase yaw)
-                        yaw_step   = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dx * deg_per_px))
-                        # Pitch: positive dy (below center) → look down (increase pitch)
-                        pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dy * deg_per_px))
-
-                        if yaw_step != 0.0 or pitch_step != 0.0:
-                            new_yaw   = max(YAW_MIN,         min(YAW_MAX,         yaw   + yaw_step))
-                            new_pitch = max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  pitch + pitch_step * PITCH_WEIGHT_BASE))
-                            new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, elbow + pitch_step * PITCH_WEIGHT_ELBOW))
-                            new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
-
-                            logger.info(
-                                "servo| ema=(%.0f,%.0f) step=(%.2f°,%.2f°)"
-                                " yaw=%.1f→%.1f pitch=%.1f→%.1f"
-                                " elbow=%.1f→%.1f wrist=%.1f→%.1f",
-                                dx, dy, yaw_step, pitch_step,
-                                yaw, new_yaw, pitch, new_pitch,
-                                elbow, new_elbow, wrist, new_wrist,
-                            )
-
-                            try:
-                                with animation_service.bus_lock:
-                                    animation_service.robot.send_action({
-                                        "base_yaw.pos":    new_yaw,
-                                        "base_pitch.pos":  new_pitch,
-                                        "elbow_pitch.pos": new_elbow,
-                                        "wrist_pitch.pos": new_wrist,
-                                    })
-                                yaw, pitch, elbow, wrist = new_yaw, new_pitch, new_elbow, new_wrist
-                                time.sleep(SERVO_SETTLE_S)
-                            except Exception as e:
-                                logger.warning("Gimbal: servo command failed: %s", e)
+                    if y2 < ey1:
+                        pitch_step = -((ey1 - y2) / ey1) * GIMBAL_MAX_STEP
+                    elif y2 > ey2:
+                        pitch_step = ((y2 - ey2) / (h_fr - ey2)) * GIMBAL_MAX_STEP
                     else:
-                        logger.debug("scope| center cell (%.0f,%.0f) — no servo", dx, dy)
+                        pitch_step = 0.0
+
+                    # Clamp step
+                    yaw_step   = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, yaw_step))
+                    pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, pitch_step))
+
+                    if yaw_step != 0.0 or pitch_step != 0.0:
+                        new_yaw   = max(YAW_MIN,         min(YAW_MAX,         yaw   + yaw_step))
+                        new_pitch = max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  pitch + pitch_step * PITCH_WEIGHT_BASE))
+                        new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, elbow + pitch_step * PITCH_WEIGHT_ELBOW))
+                        new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
+
+                        logger.info(
+                            "servo| step=(%.2f°,%.2f°) yaw=%.1f→%.1f pitch=%.1f→%.1f",
+                            yaw_step, pitch_step, yaw, new_yaw, pitch, new_pitch,
+                        )
+
+                        try:
+                            with animation_service.bus_lock:
+                                animation_service.robot.send_action({
+                                    "base_yaw.pos":    new_yaw,
+                                    "base_pitch.pos":  new_pitch,
+                                    "elbow_pitch.pos": new_elbow,
+                                    "wrist_pitch.pos": new_wrist,
+                                })
+                            yaw, pitch, elbow, wrist = new_yaw, new_pitch, new_elbow, new_wrist
+                            time.sleep(SERVO_SETTLE_S)
+                        except Exception as e:
+                            logger.warning("Gimbal: servo command failed: %s", e)
 
                 # Sysmon every 48 frames (~2s at 24fps)
                 _frame_count += 1
