@@ -65,7 +65,7 @@ GIMBAL_MAX_STEP = 2.0
 # Object in edge zone → proportional nudge away from edge.
 # 0.22 → outer 22% each side, center 56% is dead.
 EDGE_ZONE_H = 0.40   # left/right edges
-EDGE_ZONE_V = 0.40   # top/bottom edges
+EDGE_ZONE_V = 0.30   # top/bottom edges
 
 # FOV mapping for correction magnitude.
 CAMERA_FOV_DEG = 60.0
