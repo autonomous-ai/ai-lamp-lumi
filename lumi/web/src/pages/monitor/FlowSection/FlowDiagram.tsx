@@ -108,24 +108,16 @@ export function FlowDiagram({
     hw_music_suggestion: { x: 467, y: 1335 },
     tts_speak:         { x: 200, y: 930 },
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call).
-    // The 3 inner nodes (llm_first_token, agent_thinking, tool_exec) are
-    // rendered as a single Event Pipeline rect between agent_call and
-    // agent_response — see <EventPipeline> below. Their FlowStage entries
-    // are kept (visited tracking, edges, info maps still reference them)
-    // but their node circles are not drawn; their positions sit on the
-    // pipeline rect right edge so the existing tool_exec → hw_* edges
-    // visually originate from the pipeline.
+    // The 2 inner nodes (agent_thinking, tool_exec) are rendered as a
+    // single Event Pipeline rect between agent_call and agent_response —
+    // see <EventPipeline> below. Their FlowStage entries are kept
+    // (visited tracking, edges, info maps still reference them) but
+    // their node circles are not drawn. tool_exec is the visible edge
+    // anchor for HW outgoing edges; put it on the LEFT edge of the
+    // pipeline rect (closest to the hw_* column at x=200) so those 5
+    // edges stay visually short. agent_thinking is an inert anchor.
     schedule_trigger:  { x: 750, y: 240 },
     agent_call:        { x: 950, y: 240 },
-    // llm_first_token / agent_thinking are inert anchors (no edges, no
-    // node circle rendered) — park them on the pipeline rect right edge
-    // out of the way. tool_exec is the visible edge anchor for HW
-    // outgoing edges, so put it on the LEFT edge of the pipeline rect
-    // (closest to the hw_* column at x=200) — keeps those 5 edges
-    // visually short and from looking like they sweep across the whole
-    // canvas. Y is mid-bottom of pipeline so it correlates with where
-    // tool rows visually appear.
-    llm_first_token:   { x: 1180, y: 360 },
     agent_thinking:    { x: 1180, y: 480 },
     tool_exec:         { x: 820, y: 600 },
     agent_response:    { x: 950, y: 795 },
@@ -407,10 +399,34 @@ export function FlowDiagram({
           const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
             : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
           const fmtChars = (n: number) => n >= 1000 ? `~${(n / 1000).toFixed(1)}k chars` : `${n} chars`;
+          // Header summary: openclaw init / llm work / tool exec / writing tail.
+          // Pulled from turnEvents (chat_send, lifecycle_*) + pipelineRows
+          // (tool durations).
+          let chatSendTs = 0, lcStartTs = 0, lcEndTs = 0;
+          for (const ev of turnEvents) {
+            const tt = new Date(ev.time).getTime();
+            const fn = (ev.detail as Record<string, any> | undefined)?.node;
+            if ((ev.type === "chat_send" || fn === "chat_send") && !chatSendTs) chatSendTs = tt;
+            if (fn === "lifecycle_start" && !lcStartTs) lcStartTs = tt;
+            if (fn === "lifecycle_end") lcEndTs = tt;
+          }
+          const toolTotalMs = pipelineRows
+            .filter((r) => r.kind === "tool" && r.durationMs > 0)
+            .reduce((acc, r) => acc + r.durationMs, 0);
+          const initMs = (chatSendTs && lcStartTs && lcStartTs > chatSendTs) ? lcStartTs - chatSendTs : 0;
+          const turnLlmMs = (lcStartTs && lcEndTs && lcEndTs > lcStartTs) ? (lcEndTs - lcStartTs) - toolTotalMs : 0;
+          const totalMs = (chatSendTs && lcEndTs) ? lcEndTs - chatSendTs : 0;
+          const summaryParts: string[] = [];
+          if (initMs > 0) summaryParts.push(`init ${fmtDur(initMs)}`);
+          if (turnLlmMs > 0) summaryParts.push(`llm ${fmtDur(turnLlmMs)}`);
+          if (toolTotalMs > 0) summaryParts.push(`tool ${fmtDur(toolTotalMs)}`);
+          if (totalMs > 0) summaryParts.push(`total ${fmtDur(totalMs)}`);
+          const headerSummary = summaryParts.join("  ·  ");
           const rowColor = (kind: string) => {
             if (kind === "thinking") return "var(--lm-purple)";
             if (kind === "assistant") return "var(--lm-blue)";
             if (kind === "tool" || kind === "tool_result") return "#f59e0b";
+            if (kind === "lifecycle_start" || kind === "lifecycle_end") return "var(--lm-green)";
             if (kind === "error") return "#ef4444";
             if (kind === "compaction") return "#a78bfa";
             return "var(--lm-text-muted)";
@@ -479,6 +495,18 @@ export function FlowDiagram({
                     WebkitUserSelect: "text",
                   }}
                 >
+                  {/* Header summary: openclaw init / llm / tool / total */}
+                  {headerSummary && (
+                    <div style={{
+                      display: "flex", gap: 8, marginBottom: 4, padding: "2px 4px",
+                      fontSize: 6, opacity: 0.85,
+                      color: "var(--lm-text-dim)", borderBottom: "1px dashed color-mix(in srgb, var(--lm-blue) 40%, transparent)",
+                      paddingBottom: 3,
+                    }}>
+                      <span style={{ color: pipelineColor, fontWeight: 700 }}>⏱</span>
+                      <span>{headerSummary}</span>
+                    </div>
+                  )}
                   {pipelineRows.length === 0 ? (
                     <div style={{ opacity: 0.45, padding: "6px 4px" }}>
                       (no agent stream events captured for this turn)
@@ -487,22 +515,39 @@ export function FlowDiagram({
                     const c = rowColor(r.kind);
                     const isStream = r.kind === "thinking" || r.kind === "assistant";
                     const isOneShot = r.kind === "lifecycle_start" || r.kind === "lifecycle_end" || r.kind === "compaction" || r.kind === "error";
+                    // Gap to NEXT row — rendered below this row when > 200ms
+                    // so the user sees idle time (e.g., "+ 6.3s" between
+                    // lifecycle_start and the first tool call = LLM thinking
+                    // before any tool was invoked).
+                    const next = pipelineRows[i + 1];
+                    const gapMs = next ? next.startMs - r.endMs : 0;
                     return (
-                      <div key={i} style={{ display: "flex", gap: 4, padding: "1px 2px", borderLeft: `2px solid ${c}`, paddingLeft: 4, marginBottom: 1 }}>
-                        <span style={{ color: c, fontWeight: 700, minWidth: 56 }}>{r.label}</span>
-                        {isStream && (
-                          <span style={{ opacity: 0.85 }}>
-                            {fmtDur(r.durationMs)} · {r.chunks} chunks · {fmtChars(r.chars)}
-                          </span>
-                        )}
-                        {r.kind === "tool" && (
-                          <span style={{ opacity: 0.85 }}>
-                            {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
-                            {r.detail ? <span style={{ opacity: 0.6, marginLeft: 6 }}>{r.detail}</span> : null}
-                          </span>
-                        )}
-                        {isOneShot && r.detail && (
-                          <span style={{ opacity: 0.6 }}>{r.detail}</span>
+                      <div key={i}>
+                        <div style={{ display: "flex", gap: 4, padding: "1px 2px", borderLeft: `2px solid ${c}`, paddingLeft: 4, marginBottom: 1 }}>
+                          <span style={{ color: c, fontWeight: 700, minWidth: 56 }}>{r.label}</span>
+                          {isStream && (
+                            <span style={{ opacity: 0.85 }}>
+                              {fmtDur(r.durationMs)} · {r.chunks} chunks · {fmtChars(r.chars)}
+                            </span>
+                          )}
+                          {r.kind === "tool" && (
+                            <span style={{ opacity: 0.85 }}>
+                              {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
+                              {r.detail ? <span style={{ opacity: 0.6, marginLeft: 6 }}>{r.detail}</span> : null}
+                            </span>
+                          )}
+                          {isOneShot && r.detail && (
+                            <span style={{ opacity: 0.6 }}>{r.detail}</span>
+                          )}
+                        </div>
+                        {gapMs > 200 && (
+                          <div style={{
+                            paddingLeft: 18, fontSize: 5.8, opacity: 0.55,
+                            color: "var(--lm-text-dim)", fontStyle: "italic",
+                            marginBottom: 1,
+                          }}>
+                            ⋯ + {fmtDur(gapMs)} idle / llm internal
+                          </div>
                         )}
                       </div>
                     );
@@ -575,7 +620,7 @@ export function FlowDiagram({
           // edges and visited tracking still work, but their node circles
           // are absorbed into the Event Pipeline rect (rendered separately
           // below). Skip rendering here.
-          if (node.id === "llm_first_token" || node.id === "agent_thinking" || node.id === "tool_exec") {
+          if (node.id === "agent_thinking" || node.id === "tool_exec") {
             return null;
           }
           const pos = positions[node.id];

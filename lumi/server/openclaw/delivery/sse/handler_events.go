@@ -488,7 +488,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// Clear only after lifecycle_end so openclaw UUID → device runId mapping still succeeds.
 			if payload.Data.Phase == "end" || payload.Data.Phase == "error" {
 				flow.ClearTrace()
-				h.clearFirstTokenSeen(flowRunID)
 			}
 
 		case "tool":
@@ -591,7 +590,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			// Don't truncate deltas — they are merged in the frontend
 			if delta != "" {
-				h.markFirstToken(flowRunID, "thinking")
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "thinking",
 					Summary: delta,
@@ -606,7 +604,6 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			}
 			// Don't truncate deltas — they are merged in the frontend
 			if delta != "" {
-				h.markFirstToken(flowRunID, "assistant")
 				// Real assistant text is streaming — hard-cancel any
 				// pending or in-flight filler so the lamp doesn't talk
 				// over the actual reply. Cancel is idempotent so calling
