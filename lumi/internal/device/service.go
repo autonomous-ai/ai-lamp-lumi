@@ -66,9 +66,19 @@ func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentG
 }
 
 // SetupStatus returns the current Setup phase + LAN IP so the web client
-// can poll progress through the AP→STA switch.
+// can poll progress through the AP→STA switch. When no Setup run has
+// happened (phase=idle) but the device is already on home Wi-Fi from a
+// previous session, fall back to the live wlan0 address so the web
+// client can still detect "you're at the AP IP but the lamp lives at X"
+// and redirect.
 func (s *Service) SetupStatus() (phase, lanIP, errMsg string) {
-	return s.setupState.snapshot()
+	phase, lanIP, errMsg = s.setupState.snapshot()
+	if lanIP == "" {
+		if ip, err := s.networkService.GetCurrentIP(); err == nil {
+			lanIP = ip
+		}
+	}
+	return phase, lanIP, errMsg
 }
 
 func (s *Service) Setup(data domain.SetupRequest) error {
