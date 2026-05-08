@@ -79,6 +79,24 @@ func (h *DeviceHandler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(cfg))
 }
 
+// SetupStatus godoc
+//
+//	@Summary	current setup phase + LAN IP
+//	@Description	web polls this during the AP→STA transition to learn the
+//	@Description	device's new LAN IP and redirect the user. Phase progresses
+//	@Description	idle → connecting → connected (or failed).
+//	@Tags			device
+//	@Success		200	{object}	serializers.ResponseSuccess
+//	@Router			/device/setup/status [get]
+func (h *DeviceHandler) SetupStatus(c *gin.Context) {
+	phase, lanIP, errMsg := h.service.SetupStatus()
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(gin.H{
+		"phase":  phase,
+		"lan_ip": lanIP,
+		"error":  errMsg,
+	}))
+}
+
 // UpdateConfig godoc
 //
 //	@Summary	update device config

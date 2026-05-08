@@ -250,6 +250,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
+	device.GET("setup/status", s.deviceHandler.SetupStatus)
 	device.POST("channel", s.deviceHandler.ChangeChannel)
 	device.GET("config", s.deviceHandler.GetConfig)
 	device.PUT("config", s.deviceHandler.UpdateConfig)

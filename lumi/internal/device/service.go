@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strconv"
+	"sync"
 	"time"
 
 	"go-lamp.autonomous.ai/domain"
@@ -15,11 +16,43 @@ import (
 	"go-lamp.autonomous.ai/server/config"
 )
 
+// Setup phase strings exposed via /api/setup/status so the web client can
+// follow the device through the AP→STA transition. Phases progress only
+// forward; failures park at "failed".
+const (
+	SetupPhaseIdle       = "idle"
+	SetupPhaseConnecting = "connecting"
+	SetupPhaseConnected  = "connected"
+	SetupPhaseFailed     = "failed"
+)
+
+type setupState struct {
+	mu    sync.RWMutex
+	phase string
+	lanIP string
+	error string
+}
+
+func (st *setupState) snapshot() (phase, ip, errMsg string) {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.phase, st.lanIP, st.error
+}
+
+func (st *setupState) set(phase, ip, errMsg string) {
+	st.mu.Lock()
+	st.phase = phase
+	st.lanIP = ip
+	st.error = errMsg
+	st.mu.Unlock()
+}
+
 type Service struct {
 	config         *config.Config
 	networkService *network.Service
 	agentGateway   domain.AgentGateway
 	beClient       *beclient.Client
+	setupState     setupState
 }
 
 func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentGateway, be *beclient.Client) *Service {
@@ -28,17 +61,36 @@ func ProvideService(config *config.Config, ns *network.Service, gw domain.AgentG
 		networkService: ns,
 		agentGateway:   gw,
 		beClient:       be,
+		setupState:     setupState{phase: SetupPhaseIdle},
 	}
+}
+
+// SetupStatus returns the current Setup phase + LAN IP so the web client
+// can poll progress through the AP→STA switch.
+func (s *Service) SetupStatus() (phase, lanIP, errMsg string) {
+	return s.setupState.snapshot()
 }
 
 func (s *Service) Setup(data domain.SetupRequest) error {
 	slog.Info("starting setup", "component", "device")
+	s.setupState.set(SetupPhaseConnecting, "", "")
 	result, err := s.networkService.SetupNetwork(data.SSID, data.Password)
 	if err != nil {
+		s.setupState.set(SetupPhaseFailed, "", err.Error())
 		return fmt.Errorf("setup network: %w", err)
 	}
 	if !result {
+		s.setupState.set(SetupPhaseFailed, "", "network setup failed")
 		return fmt.Errorf("network setup failed")
+	}
+	// Capture the LAN IP immediately after WiFi associates so the web
+	// client polling /api/setup/status can read it before AP shuts down.
+	if ip, ipErr := s.networkService.GetCurrentIP(); ipErr == nil && ip != "" {
+		s.setupState.set(SetupPhaseConnected, ip, "")
+		slog.Info("setup: WiFi associated", "component", "device", "lan_ip", ip)
+	} else {
+		s.setupState.set(SetupPhaseConnected, "", "")
+		slog.Warn("setup: WiFi associated but no IP detected", "component", "device", "error", ipErr)
 	}
 
 	if err := s.agentGateway.SetupAgent(data); err != nil {
