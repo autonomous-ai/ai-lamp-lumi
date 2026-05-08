@@ -30,7 +30,7 @@ class EmotionModel:
     def __init__(
         self,
         yunet_path: Path | None = None,
-        fer_path: Path | None = None,
+        emotion_model_path: Path | None = None,
         score_threshold: float = 0.7,
         nms_threshold: float = 0.3,
         top_k: int = 5000,
@@ -41,7 +41,7 @@ class EmotionModel:
             nms_threshold=nms_threshold,
             top_k=top_k,
         )
-        self._fer: EmotionRecognizer = create_classifier(fer_path)
+        self._fer: EmotionRecognizer = create_classifier(emotion_model_path)
         self._running: bool = False
 
     def start(self):
@@ -57,7 +57,9 @@ class EmotionModel:
 
     def stop(self):
         self._fer.stop()
+        self._face_detector.stop()
         self._running = False
+        logger.info("[EmotionModel] stopped")
 
     def is_ready(self) -> bool:
         return self._running and self._face_detector.is_ready() and self._fer.is_ready()

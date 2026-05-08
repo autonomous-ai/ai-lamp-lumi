@@ -54,7 +54,7 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 @pytest.fixture(scope="session")
 def model():
     """Load the real EmotionModel once for the entire test session."""
-    m = EmotionModel(fer_path=EMONET_MODEL_PATH)
+    m = EmotionModel(emotion_model_path=EMONET_MODEL_PATH)
     m.start()
     return m
 

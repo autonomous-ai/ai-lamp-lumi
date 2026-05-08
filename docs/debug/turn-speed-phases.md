@@ -91,7 +91,33 @@ Read batch chạy ~700-950ms cho 3-5 reads concurrent (với `& wait`). Write ba
 - Cùng pattern routing trong `handler_hw.go` (path prefix `/mood/`, `/music-suggestion/` → port 5000).
 - Đợi motion.activity chạy production 1-2 ngày, ổn rồi áp tương tự cho emotion.detected.
 
-**Phase 3 status (motion.activity):** committed, chờ deploy + verify.
+**Phase 3 status (motion.activity):** verified live trên .38 — turn ~10s. (vs Phase 2 ~14s, Phase 1 ~23s, Phase 0 ~50s.)
+
+## Phase 2 + Phase 3 — emotion.detected pipeline (mood + music-suggestion)
+
+Pattern y nguyên wellbeing, áp dụng cho 3-skill chain (`user-emotion-detection` + `mood` + `music-suggestion`). Chia 4 commit độc lập:
+
+1. **commit 1/4** — Phase 2 pre-inject. Backend `BuildEmotionContext(detectedEmotion, user)` trong `lib/skillcontext/emotion.go` → digest `[emotion_context: {mapped_mood, recent_signals, prior_decision, is_decision_stale, audio_playing, last_suggestion_age_min, audio_recent, music_pattern_for_hour, suggestion_worthy}]`. 3 SKILL.md đổi "What to read" → use context block với fallback bash batch. Decision rules vẫn ở agent (5 rules synthesis, threshold cooldown, genre pick, phrasing).
+2. **commit 2/4** — Phase 3a HW route. `handler_hw.go` extend prefix list từ chỉ `/wellbeing/` → `/wellbeing/`, `/mood/`, `/music-suggestion/`. Thêm flow event types `hw_mood`, `hw_music_suggestion`. Backend-only no-op.
+3. **commit 3/4** — Phase 3b SKILL.md HW marker. `mood/SKILL.md` (signal + decision đều dùng `[HW:/mood/log:{...}]`, kind trong body), `music-suggestion/SKILL.md` (`[HW:/music-suggestion/log:{...}]`), `user-emotion-detection/SKILL.md` (signal cũng dùng HW marker với `mapped_mood` từ context). Curl POST giữ làm fallback nếu marker regex bị reject (notes/reasoning chứa `}`).
+4. **commit 4/4** — UI flow events. `types.ts` + `helpers.ts` + `FlowDiagram.tsx` add `hw_mood`, `hw_music_suggestion` (stack với hw_wellbeing ở Lumi-side column).
+
+**Estimated speedup emotion turn:**
+
+| Phase | Time | Reduction vs Phase 0 |
+|---|---|---|
+| Phase 0 (no refactor) | ~36s | — |
+| Phase 1 (parallel batch) | ~26s | -28% |
+| Phase 2 (pre-inject) | ~12-13s | -64% |
+| Phase 3 (HW markers) | **~5-7s** | **-83%** |
+
+**Order deploy:**
+1. Deploy commit 1 → 1 emotion turn → confirm `[emotion_context:]` xuất hiện trong chat_input → kỳ vọng turn ~12-13s.
+2. Deploy commit 2 (no behavior change yet, chỉ chuẩn bị route).
+3. Deploy commit 3 → 1 emotion turn → confirm `hw_mood` + `hw_music_suggestion` flow events thay cho `tool_call exec POST` → kỳ vọng turn ~5-7s.
+4. Deploy commit 4 → UI hiện node mood/music-suggestion.
+
+**Phase 2+3 emotion status:** all 4 commits ready in local — chờ deploy + verify trên Pi.
 
 ## Đo TTFT (time-to-first-token)
 

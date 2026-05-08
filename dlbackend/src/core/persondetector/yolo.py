@@ -7,6 +7,7 @@ to extract the crop of the largest person for downstream action recognition.
 import logging
 
 import cv2
+from typing_extensions import override
 from ultralytics.models.yolo import YOLO
 
 from config import settings
@@ -53,16 +54,19 @@ class YOLOPersonDetector(PersonDetector):
         self._model: YOLO | None = None
         self._running: bool = False
 
+    @override
     def start(self) -> None:
         """Load the YOLO model weights (blocking)."""
         logger.info("[%s] Loading YOLO model '%s'", self.__class__.__name__, self._model_name)
         self._model = YOLO(self._model_name)
         self._running = True
 
+    @override
     def stop(self) -> None:
         self._model = None
         self._running = False
 
+    @override
     def is_ready(self) -> bool:
         return self._running and self._model is not None
 
@@ -78,6 +82,7 @@ class YOLOPersonDetector(PersonDetector):
 
         return [x1, y1, x2, y2]
 
+    @override
     def detect(self, frame: cv2.typing.MatLike) -> list[PersonDetection]:
         """Run person detection on *frame* and return all person detections."""
         if self._model is None:
