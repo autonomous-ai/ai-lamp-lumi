@@ -329,6 +329,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			guardTag += "[guard-instruction: " + inst + "]"
 		}
 		msg = guardTag + " " + req.Message
+		// guard/SKILL.md owns the reaction; sensing/SKILL.md kept for the
+		// `[sensing:*]` parse + cross-references guard explicitly disables.
+		msg += "\n[skills: guard, sensing]"
 	} else {
 		// Passive sensing. motion.activity and emotion.detected use domain-specific
 		// prefixes so SOUL.md's "[sensing:*] → load sensing/SKILL.md" rule doesn't
@@ -341,6 +344,25 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			msg = "[emotion] " + req.Message
 		default:
 			msg = "[sensing:" + req.Type + "] " + req.Message
+		}
+		// Scope the agent's skill scan to the handlers this event actually needs
+		// (see onboarding.go MANDATORY (skills) — `[skills:]` is an authoritative
+		// whitelist, agent reads ONLY those SKILL.md files and skips the other ~18).
+		switch req.Type {
+		case "motion.activity":
+			msg += "\n[skills: wellbeing]"
+		case "emotion.detected":
+			msg += "\n[skills: user-emotion-detection, music-suggestion, mood]"
+		default:
+			// presence.*, sound, light.level — all route to sensing/SKILL.md
+			// per SOUL.md's "[sensing:*] → load sensing/SKILL.md" rule.
+			// Add face-enroll when lelamp surfaces a familiar-stranger prompt
+			// (Flow C in face-enroll/SKILL.md) — only fires on presence.enter.
+			skills := "sensing"
+			if strings.Contains(req.Message, "familiar stranger") {
+				skills += ", face-enroll"
+			}
+			msg += "\n[skills: " + skills + "]"
 		}
 		// Reply-hygiene rules live inside the respective SKILL.md files.
 		switch req.Type {

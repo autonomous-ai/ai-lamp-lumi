@@ -215,6 +215,21 @@ func (s *Service) drainPendingEvents() {
 			default:
 				msg = "[sensing:" + ev.eventType + "] " + ev.msg
 			}
+			// Scope the agent's skill scan to the handlers this event actually
+			// needs (see onboarding.go MANDATORY (skills)). Mirrors the direct
+			// sensing handler so replayed events get the same focus.
+			switch ev.eventType {
+			case "motion.activity":
+				msg += "\n[skills: wellbeing]"
+			case "emotion.detected":
+				msg += "\n[skills: user-emotion-detection, music-suggestion, mood]"
+			default:
+				skills := "sensing"
+				if strings.Contains(ev.msg, "familiar stranger") {
+					skills += ", face-enroll"
+				}
+				msg += "\n[skills: " + skills + "]"
+			}
 			// Reply-hygiene rules live inside the respective SKILL.md files.
 			switch ev.eventType {
 			case "presence.leave", "presence.away":
