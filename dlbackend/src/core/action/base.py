@@ -15,8 +15,8 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from core.action.constants import RESOURCES_DIR
-from core.persondetector import PersonDetector
 from core.models import ActionDetection, ActionResponse
+from core.persondetector import PersonDetector
 
 MODEL_T = TypeVar("MODEL_T", bound="HumanActionRecognizerModel")
 
@@ -283,8 +283,13 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
 
         return ActionResponse(detected_classes=detected_classes)
 
-    def set_config(self, whitelist: list[str] | None, threshold: float = 0.3) -> None:
-        """Set or clear the action whitelist."""
+    def set_config(
+        self,
+        whitelist: list[str] | None,
+        threshold: float = 0.3,
+        person_min_area_ratio: float | None = None,
+    ) -> None:
+        """Set or clear the action whitelist and optionally update person detector settings."""
         if whitelist is None:
             self._class_mask = self._model.default_mask.copy()
         else:
@@ -294,6 +299,9 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             )
 
         self._threshold = threshold
+
+        if person_min_area_ratio is not None and self._model._person_detector is not None:
+            self._model._person_detector.min_area_ratio = person_min_area_ratio
 
         self._logger.info(
             "[%s] Config updated — %d classes enabled, threshold=%f",

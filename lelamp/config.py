@@ -100,6 +100,9 @@ MOTION_FLUSH_S = float(os.environ.get("LELAMP_MOTION_FLUSH_S", "10.0"))
 MOTION_EVENT_COOLDOWN_S = float(
     os.environ.get("LELAMP_MOTION_EVENT_COOLDOWN_S", "360.0")
 )
+MOTION_PERSON_MIN_AREA_RATIO = float(
+    os.environ.get("LELAMP_MOTION_PERSON_MIN_AREA_RATIO", "0.25")
+)
 MOTION_SNAPSHOT_DIR = os.environ.get(
     "LELAMP_MOTION_SNAPSHOT_DIR",
     os.path.join(tempfile.gettempdir(), "lumi-motion-snapshots"),
