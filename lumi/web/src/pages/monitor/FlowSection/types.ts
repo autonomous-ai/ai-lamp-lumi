@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
   | "agent_call" | "llm_first_token" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "tg_out" | "tg_alert";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "hw_mood" | "hw_music_suggestion" | "tg_out" | "tg_alert";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -230,6 +230,24 @@ export const FLOW_NODES: FlowNodeDef[] = [
     triggers: [
       "hw_wellbeing",
       "flow_event:hw_wellbeing",
+    ] },
+
+  { id: "hw_mood",
+    label: "Mood log", short: "MOOD", icon: "🧠", color: "#06b6d4", path: "agent",
+    shape: "diamond",
+    desc: "Mood signal/decision log · async POST via [HW:/mood/log:{...}]",
+    triggers: [
+      "hw_mood",
+      "flow_event:hw_mood",
+    ] },
+
+  { id: "hw_music_suggestion",
+    label: "Music suggest log", short: "MSUG", icon: "🎼", color: "#06b6d4", path: "agent",
+    shape: "diamond",
+    desc: "Music suggestion log · async POST via [HW:/music-suggestion/log:{...}]",
+    triggers: [
+      "hw_music_suggestion",
+      "flow_event:hw_music_suggestion",
     ] },
 ];
 
