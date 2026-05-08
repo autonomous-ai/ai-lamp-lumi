@@ -35,7 +35,7 @@ _YOLO_TIMEOUT = 10.0
 
 # Detection filters
 DETECT_MIN_AREA_RATIO = 0.003
-DETECT_MAX_AREA_RATIO = 0.55
+DETECT_MAX_AREA_RATIO = 0.80
 DETECT_MIN_CONFIDENCE = 0.20
 
 # Gimbal loop rate (fps). CSRT on Pi runs ~20-25fps with opencv-contrib.
@@ -60,8 +60,12 @@ EMA_ALPHA = 0.45
 # large offsets. At 15fps × 2° = 30°/s max angular speed.
 GIMBAL_MAX_STEP = 2.0
 
-# Dead zone in pixels — no command when object is within this of center.
-DEAD_ZONE_PX = 5
+# 3×3 grid dead zone — frame split into 9 cells by 2 vertical + 2 horizontal lines.
+# Center cell = no servo correction (prevents spam when target roughly centered).
+# Outer 8 cells = proportional correction toward center.
+# Values are fractions of frame dimension (0.35 → lines at 35% and 65%).
+GRID_DEAD_V = 0.35   # vertical lines
+GRID_DEAD_H = 0.35   # horizontal lines
 
 # FOV mapping for correction magnitude.
 CAMERA_FOV_DEG = 60.0
@@ -299,6 +303,8 @@ class TrackerService:
         last_yolo_cy: Optional[float] = None
         last_yolo_area: Optional[float] = None   # area of last accepted YOLO bbox
         yolo_cx_this_frame: Optional[float] = None
+        last_x2: Optional[float] = None          # x2: last confirmed tracker position
+        last_y2: Optional[float] = None
 
         # Schedule first YOLO immediately if initial detection failed
         if not tracker_ok:
@@ -351,15 +357,32 @@ class TrackerService:
                         cx3 = yolo_bbox[0] + yolo_bbox[2] / 2.0
                         cy3 = yolo_bbox[1] + yolo_bbox[3] / 2.0
                         new_area = yolo_bbox[2] * yolo_bbox[3]
-                        # Reject bbox if area jumps >4x vs last — likely a different
-                        # object or noise. Skip update but don't count as miss.
-                        if last_yolo_area is not None and (
-                            new_area > last_yolo_area * 4.0
-                            or new_area < last_yolo_area / 4.0
-                        ):
+                        # Reject bbox if area jumps >4x vs last — likely a different object.
+                        size_ok = not (
+                            last_yolo_area is not None and (
+                                new_area > last_yolo_area * 4.0
+                                or new_area < last_yolo_area / 4.0
+                            )
+                        )
+                        # Reject bbox if center is too far from current tracker position —
+                        # YOLO found a different object in the scene, not the tracked one.
+                        max_jump = w_fr * 0.25
+                        if last_x2 is not None and last_y2 is not None:
+                            dist = ((cx3 - last_x2) ** 2 + (cy3 - last_y2) ** 2) ** 0.5
+                            prox_ok = dist <= max_jump
+                        else:
+                            dist = 0.0
+                            prox_ok = True
+
+                        if not size_ok:
                             logger.info(
-                                "YOLO: size jump rejected area=%d vs last=%d — skipping",
+                                "YOLO: size jump rejected area=%d vs last=%d",
                                 new_area, last_yolo_area,
+                            )
+                        elif not prox_ok:
+                            logger.info(
+                                "YOLO: proximity rejected dist=%.0fpx > %.0fpx x2=(%.0f,%.0f) x3=(%.0f,%.0f)",
+                                dist, max_jump, last_x2, last_y2, cx3, cy3,
                             )
                         else:
                             state.bbox = yolo_bbox
@@ -406,6 +429,7 @@ class TrackerService:
                             state.bbox = (bx, by, bw, bh)
                             cx_obj = bx + bw / 2.0
                             cy_obj = by + bh / 2.0
+                            last_x2, last_y2 = cx_obj, cy_obj
                             state.confidence = self._get_tracker_score(local_tracker)
                         else:
                             tracker_ok = False
@@ -440,21 +464,19 @@ class TrackerService:
 
                     dx, dy = float(ema_dx), float(ema_dy)
 
-                    if abs(dx) > DEAD_ZONE_PX or abs(dy) > DEAD_ZONE_PX:
+                    # 3×3 grid dead zone — object in center cell → no servo.
+                    # Lines at GRID_DEAD_V / GRID_DEAD_H fraction from each edge.
+                    half_dead_x = w_fr * (0.5 - GRID_DEAD_V)
+                    half_dead_y = h_fr * (0.5 - GRID_DEAD_H)
+                    in_center   = abs(dx) <= half_dead_x and abs(dy) <= half_dead_y
+
+                    if not in_center:
                         deg_per_px = (CAMERA_FOV_DEG / w_fr) * GIMBAL_GAIN
 
-                        # Each axis handled independently — zero if within dead zone.
                         # Yaw: positive dx → turn right (increase yaw)
-                        if abs(dx) > DEAD_ZONE_PX:
-                            yaw_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dx * deg_per_px))
-                        else:
-                            yaw_step = 0.0
-
+                        yaw_step   = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dx * deg_per_px))
                         # Pitch: positive dy (below center) → look down (increase pitch)
-                        if abs(dy) > DEAD_ZONE_PX:
-                            pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dy * deg_per_px))
-                        else:
-                            pitch_step = 0.0
+                        pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dy * deg_per_px))
 
                         if yaw_step != 0.0 or pitch_step != 0.0:
                             new_yaw   = max(YAW_MIN,         min(YAW_MAX,         yaw   + yaw_step))
@@ -484,7 +506,7 @@ class TrackerService:
                             except Exception as e:
                                 logger.warning("Gimbal: servo command failed: %s", e)
                     else:
-                        logger.info("scope| in dead zone (%.0f,%.0f) ≤ %dpx — no servo", dx, dy, DEAD_ZONE_PX)
+                        logger.debug("scope| center cell (%.0f,%.0f) — no servo", dx, dy)
 
                 # Sysmon every 48 frames (~2s at 24fps)
                 _frame_count += 1
