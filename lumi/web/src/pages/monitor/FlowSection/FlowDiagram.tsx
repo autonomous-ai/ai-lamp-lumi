@@ -399,10 +399,10 @@ export function FlowDiagram({
         {(() => {
           const px = PIPE.x, py = PIPE.y, pw = PIPE.w, ph = PIPE.h;
           const pipelineRows = aggregateEvents(turnEvents);
-          // Only show the pipeline when the agent path was taken (lifecycle_start
-          // visited). Otherwise it's a local-match turn — keep canvas clean.
-          const isAgentTurn = visitedStages.has("agent_call") || activeStage === "agent_call";
-          if (!isAgentTurn) return null;
+          // Pipeline is always visible — it's the canonical visual anchor for
+          // the agent core. When the turn is local-match / idle / dropped, the
+          // rows list shows the "(no agent stream events ...)" placeholder so
+          // the canvas shape stays consistent across turn types.
           const pipelineColor = "var(--lm-blue)";
           const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
             : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
