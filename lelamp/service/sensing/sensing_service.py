@@ -104,6 +104,7 @@ class SensingService:
             perception_config=PerceptionConfig(
                 enable_face=True,
                 enable_motion=config.MOTION_ENABLED,
+                enable_motion_per_face=config.MOTION_PER_FACE_ENABLED,
                 enable_emotion=config.EMOTION_ENABLED,
                 enable_light=True,
                 enable_sound=True,
