@@ -5,7 +5,9 @@ import (
 	"flag"
 	"io"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -43,6 +45,8 @@ func main() {
 		log.Println("[buddy] disabled in config, exiting")
 		return
 	}
+
+	cfg.DeviceName = resolveDeviceName(cfg.DeviceName, cfg.LumiURL)
 
 	bridge := NewBridge(cfg.LeLampURL, cfg.LumiURL)
 	startTime := time.Now()
@@ -215,7 +219,7 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 func loadConfig(path string) Config {
 	cfg := Config{
 		Enabled:            true,
-		DeviceName:         "Claude-Lumi",
+		DeviceName:         "Lamp-{deviceid}",
 		HTTPPort:           5002,
 		LeLampURL:          "http://127.0.0.1:5001",
 		LumiURL:            "http://127.0.0.1:5000",
@@ -235,4 +239,81 @@ func loadConfig(path string) Config {
 
 	log.Printf("[buddy] loaded config from %s", path)
 	return cfg
+}
+
+// resolveDeviceName expands the {deviceid} placeholder in name by fetching
+// device_id from Lumi's /api/system/info. Buddy may start before Lumi is
+// ready, so we retry transport errors for a short window. Names without
+// the placeholder pass through untouched.
+func resolveDeviceName(name, lumiURL string) string {
+	if name == "" {
+		name = "Lamp-{deviceid}"
+	}
+	if !strings.Contains(name, "{deviceid}") {
+		return name
+	}
+
+	id, reason := fetchDeviceID(lumiURL)
+	switch {
+	case id != "":
+		log.Printf("[buddy] resolved device_id=%q from Lumi", id)
+	case reason == "empty":
+		log.Printf("[buddy] WARN: Lumi reachable at %s but device_id is empty — device not yet provisioned via /device/setup. BLE name will fall back to %q",
+			lumiURL, "Lamp-unknown")
+		id = "unknown"
+	default:
+		log.Printf("[buddy] WARN: failed to fetch device_id from %s after %d attempts (%s) — BLE name will fall back to %q",
+			lumiURL, fetchAttempts, reason, "Lamp-unknown")
+		id = "unknown"
+	}
+	return strings.ReplaceAll(name, "{deviceid}", id)
+}
+
+const fetchAttempts = 15
+
+// fetchDeviceID returns (id, reason). reason is one of:
+//   "" on success, "empty" if Lumi answered with an empty device_id (not
+//   provisioned), or a transport-level failure summary if all retries failed.
+func fetchDeviceID(lumiURL string) (string, string) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	url := lumiURL + "/api/system/info"
+	var lastErr string
+	for i := 0; i < fetchAttempts; i++ {
+		id, ok, errStr := tryFetchDeviceID(client, url)
+		if ok {
+			if id == "" {
+				return "", "empty"
+			}
+			return id, ""
+		}
+		lastErr = errStr
+		time.Sleep(2 * time.Second)
+	}
+	if lastErr == "" {
+		lastErr = "unknown error"
+	}
+	return "", lastErr
+}
+
+// tryFetchDeviceID returns (id, ok, errStr). ok=true means Lumi answered with
+// a parseable response (id may still be empty if device_id is unset). ok=false
+// means transport/decode failure — caller should retry.
+func tryFetchDeviceID(client *http.Client, url string) (string, bool, string) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", false, "http: " + err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false, "http " + resp.Status
+	}
+	var wrap struct {
+		Data struct {
+			DeviceID string `json:"deviceId"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&wrap); err != nil {
+		return "", false, "decode: " + err.Error()
+	}
+	return wrap.Data.DeviceID, true, ""
 }
