@@ -27,7 +27,9 @@ const (
 	lumiMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
 
 	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
-**MANDATORY:** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` and all hook directories under ` + "`hooks/`" + ` in your workspace — read each SKILL.md / HOOK.md and follow their instructions.
+**MANDATORY (hooks):** Before ANY reply, scan all hook directories under ` + "`hooks/`" + ` in your workspace — read each HOOK.md and follow its instructions.
+
+**MANDATORY (skills):** Before ANY reply, scan all skill directories under ` + "`skills/`" + ` in your workspace — read each SKILL.md and follow its instructions.
 
 **Version check:** ` + "`lumi-server --version`" + ` (Lumi), ` + "`openclaw --version`" + ` (OpenClaw), ` + "`curl -s http://127.0.0.1:5001/version`" + ` (LeLamp).
 
