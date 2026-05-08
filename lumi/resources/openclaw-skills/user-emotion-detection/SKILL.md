@@ -11,7 +11,7 @@ Runs **only** when this turn's input has `[emotion] Emotion detected: <EmotionNa
 
 For any other event (`[sensing:presence.*]`, `[activity]`, `[sensing:sound]`, `[sensing:light.*]`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `[emotion]` event in THIS turn.
 
-> **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST fire a `POST /api/mood/log` tool call for this event. Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no tool_call fires this turn, the skill failed. Every `emotion.detected` event = at least one `POST /api/mood/log` call. No exceptions, no skips, no "already logged recently" reasoning.
+> **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST embed a `[HW:/mood/log:{...}]` marker in the reply for this event (it fires the POST async via the runtime — see "What this skill produces" below). Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no `[HW:/mood/log:...]` marker appears in the reply text this turn, the skill failed. Every `emotion.detected` event = at least one mood signal log. No exceptions, no skips, no "already logged recently" reasoning. (`curl` POST is the documented fallback only when the HW marker would break the body regex; do not use it as the default.)
 
 > **This skill is silent.** It only logs mood data — no spoken reply needed. All steps stay in `thinking`. If you want to speak, follow normal sensing reply rules. NEVER narrate mood logging, mapping, or workflow steps in the reply.
 
@@ -49,24 +49,32 @@ This skill does NOT:
 
 ## What this skill produces
 
-A single `kind=signal` row in the mood log:
+A single `kind=signal` row in the mood log, emitted as an HW marker at the start of your spoken reply (the runtime fires the POST async, no tool turn):
 
-```bash
-curl -s -X POST http://127.0.0.1:5000/api/mood/log \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped>","user":"<current_user>"}'
+```
+[HW:/mood/log:{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped_mood>","user":"<current_user>"}]
 ```
 
-Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing. If no `POST /api/mood/log` tool call fires this turn, the skill failed.
+`mapped_mood` comes straight from the `[emotion_context: ...]` block — do NOT look it up from the table on the fly. Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing.
+
+**Do NOT use `curl` exec for this signal log** — see `mood/SKILL.md`'s "What to write" section for the rationale (HW marker is single-trip, curl burns a tool turn). If no `[HW:/mood/log:...]` marker appears in the reply this turn, the skill failed.
 
 ## Combined with mood + music-suggestion
 
-The backend injects this turn with `[REQUIRED — run both skills this turn]`. That means a single combined plan, not three sequential workflows:
+The backend injects this turn with `[REQUIRED — run both skills this turn]` PLUS an `[emotion_context: {...JSON...}]` block that pre-computes everything the three skills need. **Do NOT fire any read tool calls** — the data is already in the message.
 
-- **Reads (batch in one bash with `&` + `wait`)** — `GET /api/openclaw/mood-history?last=15` (mood decision input), plus the music-suggestion read set listed in `music-suggestion/SKILL.md`.
-- **Decide locally** — map detected emotion → signal mood, apply mood decision rules from `mood/SKILL.md`, evaluate music skip/genre rules from `music-suggestion/SKILL.md`.
+Pre-fetched fields (use directly):
+- `mapped_mood` — already maps this turn's `<EmotionName>` per the table above. This is the value to log as the signal mood. **You no longer need to look it up yourself.**
+- `recent_signals`, `prior_decision`, `is_decision_stale` — feed `mood/SKILL.md`'s decision rules.
+- `audio_playing`, `last_suggestion_age_min`, `audio_recent`, `music_pattern_for_hour`, `suggestion_worthy` — feed `music-suggestion/SKILL.md`'s skip rules and genre pick.
+
+Single combined plan, not three sequential workflows:
+
+- **Decide locally** — apply mood decision rules from `mood/SKILL.md`; evaluate music skip + genre from `music-suggestion/SKILL.md`.
 - **Writes (batch in one bash with `&` + `wait`)** — POST mood signal (this skill), POST mood decision (mood), POST music-suggestion log if suggesting (music-suggestion).
 
-Tool calls without data dependencies must fire concurrently. Do not split mood signal, mood decision, and music-suggestion across multiple tool turns.
+### Fallback (only if `[emotion_context: ...]` is missing)
+
+If the message has no context block (pre-fetch failed), fall back to the read batch from `mood/SKILL.md` and `music-suggestion/SKILL.md` (concurrent GETs in one bash via `& ... wait`).
 
 Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Never narrate the mapping or logging in the reply.

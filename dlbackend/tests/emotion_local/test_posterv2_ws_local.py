@@ -46,7 +46,7 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    m = EmotionModel(fer_path=POSTERV2_MODEL_PATH)
+    m = EmotionModel(emotion_model_path=POSTERV2_MODEL_PATH)
     m.start()
     return m
 

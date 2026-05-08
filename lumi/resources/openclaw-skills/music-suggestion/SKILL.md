@@ -15,9 +15,23 @@ Only one trigger: **Mood** — after logging a mood `decision` that is suggestio
 
 `{name}` MUST come from `[context: current_user=X]` tag. If missing, use `"unknown"`. NEVER infer from memory or chat history.
 
-## What to read (batch with the rest of the turn)
+## What to read (pre-fetched in `[emotion_context: ...]`)
 
-These five reads have no data dependency on each other — fire them concurrently with the mood-history read in one bash via `& ... wait` (do NOT split `cat patterns.json` into a second tool turn):
+The backend injects everything you need on `emotion.detected`:
+
+- `audio_playing` (bool) — replaces `GET /audio/status`.
+- `last_suggestion_age_min` (int, `-1` if none today) — replaces `music-suggestion-history?last=1`.
+- `prior_decision` + `is_decision_stale` — replaces `mood-history?kind=decision&last=1`. The freshly synthesized decision from THIS turn still lives in your `thinking`.
+- `audio_recent` (`{track,duration_s,stopped}`) — replaces `audio/history?last=1`.
+- `music_pattern_for_hour` (`{preferred_genre,strength,peak_hour}` or `null`) — replaces `cat patterns.json` matching by current hour ±1.
+- `suggestion_worthy` (bool) — pre-applied bucket gate (true for `sad/stressed/tired/excited/happy/bored`).
+- `mapped_mood` — convenient mirror of `user-emotion-detection`'s mapping; useful when no fresh decision exists yet.
+
+**Do NOT fire any read tool calls when this block is present.**
+
+### Fallback (only if `[emotion_context: ...]` is missing)
+
+If the message has no context block (pre-fetch failed), fall back to the concurrent GET batch:
 
 ```bash
 curl -s http://127.0.0.1:5001/audio/status &
@@ -28,24 +42,22 @@ cat /root/local/users/{name}/habit/patterns.json 2>/dev/null &
 wait
 ```
 
-Note: `mood-history?kind=decision` is the **prior** decision (before this turn's write). Use it for the staleness/recency check; the freshly synthesized decision lives in `thinking` from this turn.
-
 ## Skip rules (apply silently in `thinking`)
 
-After the read batch returns, decide whether to skip:
+Read these straight from `[emotion_context: ...]`:
 
-- `audio/status` shows music already playing → skip.
-- `music-suggestion-history last=1` shows last suggestion < 7 min ago → skip. *(production: change to 30 min before ship)*
-- `mood-history kind=decision last=1` is missing or > 30 min stale **AND** this turn did not synthesize a fresh decision → skip.
-- Detected emotion bucket is non-suggestion-worthy (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) → skip.
+- `audio_playing == true` → skip.
+- `last_suggestion_age_min` ∈ [0, 7) → skip cooldown still active. *(production: change to 30 min before ship)*
+- `is_decision_stale == true` AND this turn did not synthesize a fresh decision → skip.
+- `suggestion_worthy == false` → skip (mapped_mood is in `frustrated/energetic/affectionate/unwell/normal`).
 
-If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio/history` to personalize genre when not skipping.
+If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio_recent` to personalize genre when not skipping.
 
 ## Pick genre
 
-**Use `patterns.json` from the read batch** (already fetched above; do NOT re-`cat` it here).
+**Use `music_pattern_for_hour` from the context block** (already matched by current hour ± 1; do NOT re-`cat` patterns.json).
 
-If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below. The file is bootstrapped lazily by wellbeing on its first threshold nudge; absent file = no habit data yet, fall back to the table without invoking habit Flow A here.
+If `music_pattern_for_hour` is non-null → use its `preferred_genre`. Otherwise fall back to the default table below. The pattern is bootstrapped lazily by wellbeing on its first threshold nudge; absent = no habit data yet, fall back without invoking habit Flow A here.
 
 **Otherwise, fall back to default genre table:**
 
@@ -67,22 +79,38 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
 - **Unknown users** — speak only (no DM): `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text`. Log with `user:"unknown"`.
 
-## What to write (batch with the mood writes)
+## What to write (HW marker — fires async, no tool turn)
 
-The suggestion log POST shares the write batch with mood signal + mood decision. Fire all three concurrently in one bash via `& ... wait`:
+Embed at the start of your spoken reply, alongside the mood signal/decision markers and the emotion / dm markers:
+
+```
+[HW:/music-suggestion/log:{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}]
+```
+
+The runtime parses, strips, fires the POST in a goroutine. Skip the marker entirely when you skipped the suggestion (`NO_REPLY` path).
+
+**Do NOT use `curl` exec for this log** — same reason as the mood logs: a tool turn for a side-effect with nothing to wait on.
+
+**Regex caveat:** the body must not contain `}`. The `message` field is usually a short caring sentence, but if it would contain `}` (rare — emoji, formula text) fall back to curl.
+
+When the user responds in a later turn (accept / reject), POST status via curl as before — that's a regular agent action, not a fire-and-forget side effect:
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/status \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}'
+```
+- Accepts → `"status":"accepted"`
+- Rejects → `"status":"rejected"`
+- Ignores → no update
+
+### Fallback (only if HW marker is rejected by the runtime)
 
 ```bash
 curl -s -X POST http://127.0.0.1:5000/api/music-suggestion/log \
   -H 'Content-Type: application/json' \
   -d '{"user":"{name}","trigger":"mood:tired","message":"Want some calm piano?"}'
 ```
-
-Skip this POST when you skipped the suggestion (the `NO_REPLY` path).
-
-Response includes `seq` and `day`. When user responds (in a later turn):
-- Accepts → `POST /api/music-suggestion/status` with `{"user":"{name}","day":"<day>","seq":<seq>,"status":"accepted"}`
-- Rejects → same body, `"status":"rejected"`
-- Ignores → no update
 
 ## Learning from history
 

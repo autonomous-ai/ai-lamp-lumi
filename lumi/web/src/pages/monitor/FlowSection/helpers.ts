@@ -521,7 +521,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
     agent_call: [], llm_first_token: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], tg_out: [], tg_alert: [],
+    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], hw_mood: [], hw_music_suggestion: [], tg_out: [], tg_alert: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -829,6 +829,25 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         pushUnique(info.hw_wellbeing, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
         const m = body.match(/"action"\s*:\s*"([^"]+)"/);
         pushUnique(info.lumi_gate, `💧 → wellbeing ${m ? m[1] : path}`);
+      }
+    }
+    if (ev.type === "hw_mood" || (ev.type === "flow_event" && ev.detail?.node === "hw_mood")) {
+      const { path, body } = parseHWEvent(ev, "/mood/log");
+      if (body && body.startsWith("{")) {
+        pushUnique(info.hw_mood, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
+        const kindMatch = body.match(/"kind"\s*:\s*"([^"]+)"/);
+        const moodMatch = body.match(/"mood"\s*:\s*"([^"]+)"/);
+        const kind = kindMatch ? kindMatch[1] : "log";
+        const mood = moodMatch ? moodMatch[1] : "?";
+        pushUnique(info.lumi_gate, `🧠 → mood ${kind}=${mood}`);
+      }
+    }
+    if (ev.type === "hw_music_suggestion" || (ev.type === "flow_event" && ev.detail?.node === "hw_music_suggestion")) {
+      const { path, body } = parseHWEvent(ev, "/music-suggestion/log");
+      if (body && body.startsWith("{")) {
+        pushUnique(info.hw_music_suggestion, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
+        const triggerMatch = body.match(/"trigger"\s*:\s*"([^"]+)"/);
+        pushUnique(info.lumi_gate, `🎼 → music-suggest ${triggerMatch ? triggerMatch[1] : path}`);
       }
     }
     if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")) {
