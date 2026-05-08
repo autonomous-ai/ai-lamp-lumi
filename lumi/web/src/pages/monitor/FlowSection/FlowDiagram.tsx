@@ -439,6 +439,43 @@ export function FlowDiagram({
           };
           const guideBtnX = px + pw - 14;
           const guideBtnY = py + 10;
+          const copyBtnX = px + pw - 28;
+          const copyBtnY = py + 10;
+          // Plain-text dump of the pipeline content for the clipboard.
+          // Same shape as what the user reads on screen, easy to paste into
+          // a bug report or log.
+          const buildPipelineText = (): string => {
+            const lines: string[] = [];
+            lines.push(`⟨openclaw event pipeline⟩`);
+            if (headerSummary) lines.push(`⏱ ${headerSummary}`);
+            for (let i = 0; i < pipelineRows.length; i++) {
+              const r = pipelineRows[i];
+              let line = r.label;
+              if (r.kind === "thinking" || r.kind === "assistant") {
+                line += `  ${fmtDur(r.durationMs)} · ${r.chunks} chunks · ${fmtChars(r.chars)}`;
+              } else if (r.kind === "tool") {
+                line += `  ${r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}`;
+                if (r.detail) line += `  ${r.detail}`;
+              } else if (r.detail) {
+                line += `  ${r.detail}`;
+              }
+              lines.push(line);
+              const next = pipelineRows[i + 1];
+              const gapMs = next ? next.startMs - r.endMs : 0;
+              if (gapMs > 200) {
+                lines.push(`    ⋯ + ${fmtDur(gapMs)} lumi waiting next event`);
+              }
+            }
+            return lines.join("\n");
+          };
+          const handleCopyPipeline = () => {
+            const text = buildPipelineText();
+            try {
+              navigator.clipboard?.writeText(text);
+            } catch {
+              // best-effort; ignore failures (e.g. http origin without clipboard API)
+            }
+          };
           const guideEntries: { stream: string; desc: string; common: boolean }[] = [
             { stream: "lifecycle:start", desc: "Turn begins. OpenClaw acked chat.send and is about to call the LLM.", common: true },
             { stream: "thinking",        desc: "LLM reasoning delta. Codex thinking=low / Claude extended thinking. Many per turn.", common: true },
@@ -466,6 +503,24 @@ export function FlowDiagram({
                 fontFamily="monospace" opacity={0.85} style={{ letterSpacing: "0.06em" }}>
                 ⟨openclaw event pipeline⟩
               </text>
+              {/* Copy button: just left of the guide ?. Copies the pipeline
+                  content as plain text to the clipboard. */}
+              <g
+                onMouseDown={(e: React.MouseEvent) => { e.stopPropagation(); }}
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleCopyPipeline(); }}
+                style={{ cursor: "pointer" }}
+              >
+                <circle cx={copyBtnX} cy={copyBtnY} r={5}
+                  fill="var(--lm-card)" fillOpacity={0.7}
+                  stroke={pipelineColor} strokeWidth={1} strokeOpacity={0.8}
+                />
+                <text x={copyBtnX} y={copyBtnY + 1.8} textAnchor="middle"
+                  fontSize={5.5} fontWeight={700} fontFamily="monospace"
+                  fill={pipelineColor}
+                  style={{ pointerEvents: "none" }}>
+                  ⎘
+                </text>
+              </g>
               {/* Guide button: top-right corner. Click toggles a popup
                   listing the OpenClaw stream types this pipeline can show. */}
               <g
@@ -546,11 +601,28 @@ export function FlowDiagram({
                             </span>
                           )}
                           {r.kind === "tool" && (
-                            <span>
+                            <span style={{ minWidth: 0, flex: 1 }}>
                               <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
                                 {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
                               </span>
-                              {r.detail ? <span style={{ color: "var(--lm-text)", opacity: 0.7, marginLeft: 6 }}>{r.detail}</span> : null}
+                              {r.detail ? (
+                                <span
+                                  title={r.detail}
+                                  style={{
+                                    color: "var(--lm-text)", opacity: 0.7, marginLeft: 6,
+                                    // Clamp long tool args to 3 lines so a single
+                                    // tool row never blows up the pipeline layout.
+                                    // Hover tooltip shows the full text.
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 3,
+                                    WebkitBoxOrient: "vertical" as const,
+                                    overflow: "hidden",
+                                    wordBreak: "break-all" as const,
+                                  }}
+                                >
+                                  {r.detail}
+                                </span>
+                              ) : null}
                             </span>
                           )}
                           {isOneShot && r.detail && (
