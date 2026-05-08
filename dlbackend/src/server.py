@@ -206,7 +206,12 @@ async def action_analysis_ws(websocket: WebSocket):
                         await websocket.send_json(result.model_dump())
 
                 case ActionConfigRequest():
-                    action_recognizer.set_config(req.whitelist, req.threshold, req.person_min_area_ratio)
+                    action_recognizer.set_config(
+                        req.whitelist,
+                        req.threshold,
+                        req.person_detection_enabled,
+                        req.person_min_area_ratio,
+                    )
                     await websocket.send_json({"status": "config_updated"})
 
                 case ActionHeartBeatRequest():

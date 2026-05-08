@@ -416,12 +416,18 @@ export function FlowDiagram({
           const initMs = (chatSendTs && lcStartTs && lcStartTs > chatSendTs) ? lcStartTs - chatSendTs : 0;
           const turnLlmMs = (lcStartTs && lcEndTs && lcEndTs > lcStartTs) ? (lcEndTs - lcStartTs) - toolTotalMs : 0;
           const totalMs = (chatSendTs && lcEndTs) ? lcEndTs - chatSendTs : 0;
-          const summaryParts: string[] = [];
-          if (initMs > 0) summaryParts.push(`init ${fmtDur(initMs)}`);
-          if (turnLlmMs > 0) summaryParts.push(`llm ${fmtDur(turnLlmMs)}`);
-          if (toolTotalMs > 0) summaryParts.push(`tool ${fmtDur(toolTotalMs)}`);
-          if (totalMs > 0) summaryParts.push(`total ${fmtDur(totalMs)}`);
-          const headerSummary = summaryParts.join("  ·  ");
+          // Sum components are joined with "·" and the total is glued on
+          // with " = " so the line reads as a literal sum:
+          //   init 2.8s · llm 15.1s · tool 0.5s = total 18.4s
+          const sumParts: string[] = [];
+          if (initMs > 0) sumParts.push(`init ${fmtDur(initMs)}`);
+          if (turnLlmMs > 0) sumParts.push(`llm ${fmtDur(turnLlmMs)}`);
+          if (toolTotalMs > 0) sumParts.push(`tool ${fmtDur(toolTotalMs)}`);
+          const headerSummary = sumParts.length > 0 && totalMs > 0
+            ? `${sumParts.join("  ·  ")}  =  total ${fmtDur(totalMs)}`
+            : sumParts.length > 0
+            ? sumParts.join("  ·  ")
+            : (totalMs > 0 ? `total ${fmtDur(totalMs)}` : "");
           const rowColor = (kind: string) => {
             if (kind === "thinking") return "var(--lm-purple)";
             if (kind === "assistant") return "var(--lm-blue)";
@@ -495,20 +501,24 @@ export function FlowDiagram({
                     WebkitUserSelect: "text",
                   }}
                 >
-                  {/* Header summary: openclaw init / llm / tool / total */}
+                  {/* Header summary: openclaw init / llm / tool / total.
+                      All timing text is purple (var(--lm-purple)) so any
+                      number-with-a-time-unit anywhere in the pipeline reads
+                      as the same conceptual category. */}
                   {headerSummary && (
                     <div style={{
                       display: "flex", gap: 8, marginBottom: 4, padding: "2px 4px",
-                      fontSize: 6, opacity: 0.85,
-                      color: "var(--lm-text-dim)", borderBottom: "1px dashed color-mix(in srgb, var(--lm-blue) 40%, transparent)",
+                      fontSize: 6, opacity: 0.95,
+                      color: "var(--lm-purple)",
+                      borderBottom: "1px dashed color-mix(in srgb, var(--lm-blue) 40%, transparent)",
                       paddingBottom: 3,
                     }}>
-                      <span style={{ color: pipelineColor, fontWeight: 700 }}>⏱</span>
+                      <span style={{ color: "var(--lm-purple)", fontWeight: 700 }}>⏱</span>
                       <span>{headerSummary}</span>
                     </div>
                   )}
                   {pipelineRows.length === 0 ? (
-                    <div style={{ opacity: 0.45, padding: "6px 4px" }}>
+                    <div style={{ opacity: 0.6, padding: "6px 4px", color: "var(--lm-text)" }}>
                       (no agent stream events captured for this turn)
                     </div>
                   ) : pipelineRows.map((r, i) => {
@@ -526,27 +536,38 @@ export function FlowDiagram({
                         <div style={{ display: "flex", gap: 4, padding: "1px 2px", borderLeft: `2px solid ${c}`, paddingLeft: 4, marginBottom: 1 }}>
                           <span style={{ color: c, fontWeight: 700, minWidth: 56 }}>{r.label}</span>
                           {isStream && (
-                            <span style={{ opacity: 0.85 }}>
-                              {fmtDur(r.durationMs)} · {r.chunks} chunks · {fmtChars(r.chars)}
+                            <span>
+                              <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
+                                {fmtDur(r.durationMs)}
+                              </span>
+                              <span style={{ color: "var(--lm-text)", opacity: 0.85 }}>
+                                {" "}· {r.chunks} chunks · {fmtChars(r.chars)}
+                              </span>
                             </span>
                           )}
                           {r.kind === "tool" && (
-                            <span style={{ opacity: 0.85 }}>
-                              {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
-                              {r.detail ? <span style={{ opacity: 0.6, marginLeft: 6 }}>{r.detail}</span> : null}
+                            <span>
+                              <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
+                                {r.durationMs > 0 ? fmtDur(r.durationMs) : "…"}
+                              </span>
+                              {r.detail ? <span style={{ color: "var(--lm-text)", opacity: 0.7, marginLeft: 6 }}>{r.detail}</span> : null}
                             </span>
                           )}
                           {isOneShot && r.detail && (
-                            <span style={{ opacity: 0.6 }}>{r.detail}</span>
+                            <span style={{ color: "var(--lm-text)", opacity: 0.7 }}>{r.detail}</span>
                           )}
                         </div>
                         {gapMs > 200 && (
                           <div style={{
-                            paddingLeft: 18, fontSize: 5.8, opacity: 0.55,
-                            color: "var(--lm-text-dim)", fontStyle: "italic",
-                            marginBottom: 1,
+                            paddingLeft: 18, fontSize: 5.8, marginBottom: 1,
+                            fontStyle: "italic",
                           }}>
-                            ⋯ + {fmtDur(gapMs)} idle / llm internal
+                            <span style={{ color: "var(--lm-purple)", fontWeight: 600 }}>
+                              ⋯ + {fmtDur(gapMs)}
+                            </span>
+                            <span style={{ color: "var(--lm-text)", opacity: 0.75 }}>
+                              {" "}lumi waiting next event
+                            </span>
                           </div>
                         )}
                       </div>

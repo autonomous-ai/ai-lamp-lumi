@@ -144,10 +144,11 @@ class HumanActionRecognizerModel(ABC):
         self,
         new_frame: npt.NDArray[np.uint8],
         frame_buffer: deque[npt.NDArray[np.uint8]],
+        person_detection_enabled: bool = True,
     ) -> deque[npt.NDArray[np.uint8]] | None:
         frame_rgb = cast(npt.NDArray[np.uint8], cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB))
 
-        if self._person_detector is not None:
+        if self._person_detector is not None and person_detection_enabled:
             frame_rgb = self._person_detector.detect_largest_crop(frame_rgb)
             if frame_rgb is None:
                 return None
@@ -243,6 +244,7 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         self._last_detected: list[tuple[str, float]] = []
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
         self._session_id: str = secrets.token_hex(4)
+        self._person_detection_enabled: bool = model._person_detector is not None
 
     def update(self, frame: npt.NDArray[np.uint8]) -> ActionResponse | None:
         """Buffer a frame and optionally run inference.
@@ -260,7 +262,7 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             "[%s] Received new frame (mean=%f, std=%f)", self._session_id, frame.mean(), frame.std()
         )
         if cur_ts - self._last_ts >= self._frame_interval:
-            frame_buffer = self._model.preprocess(frame, self._frame_buffer)
+            frame_buffer = self._model.preprocess(frame, self._frame_buffer, self._person_detection_enabled)
             if frame_buffer is None:
                 return ActionResponse(detected_classes=[])
 
@@ -287,6 +289,7 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
         self,
         whitelist: list[str] | None,
         threshold: float = 0.3,
+        person_detection_enabled: bool | None = None,
         person_min_area_ratio: float | None = None,
     ) -> None:
         """Set or clear the action whitelist and optionally update person detector settings."""
@@ -299,6 +302,9 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             )
 
         self._threshold = threshold
+
+        if person_detection_enabled is not None:
+            self._person_detection_enabled = person_detection_enabled
 
         if person_min_area_ratio is not None and self._model._person_detector is not None:
             self._model._person_detector.min_area_ratio = person_min_area_ratio
