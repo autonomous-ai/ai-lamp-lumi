@@ -160,6 +160,30 @@ The area ratio threshold filters out faces that are **too small** relative to th
 
 ---
 
+## Per-Face Motion Detection
+
+**File:** `lelamp/config.py`
+
+```python
+MOTION_PER_FACE_ENABLED = false            # Enable per-face action recognition
+MOTION_PER_FACE_DEDUP_WINDOW_S = 300.0     # Per-action dedup window (5 min)
+MOTION_PER_FACE_SESSION_TTL_S = 30.0       # Evict face session after this long unseen
+MOTION_PER_FACE_MIN_FRAMES = 4             # Min frames before first event fires
+```
+
+Per-face motion opens a separate WS session per detected face and runs action recognition on an expanded face crop. Each action is deduped independently per face.
+
+**Tuning:**
+
+| Symptom | Fix |
+|---------|-----|
+| Too many events per person | Increase `MOTION_PER_FACE_DEDUP_WINDOW_S` (300 → 600) |
+| Noisy single-frame classifications | Increase `MOTION_PER_FACE_MIN_FRAMES` (4 → 8) |
+| Sessions accumulate for briefly-seen faces | Decrease `MOTION_PER_FACE_SESSION_TTL_S` (30 → 15) |
+| WS connections pile up in multi-person scenes | Disable with `MOTION_PER_FACE_ENABLED=false` |
+
+---
+
 ## Apply Changes
 
 After editing `lelamp/config.py` or `voice_service.py` on the Pi:

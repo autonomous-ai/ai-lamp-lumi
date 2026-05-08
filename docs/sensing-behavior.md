@@ -442,6 +442,64 @@ The agent reads the `Activity detected:` line, splits on comma, and POSTs each l
 |---|---|---|
 | `motion.activity` | `curious` (0.4) | YES (caring observation with context) or NO_REPLY (sedentary) |
 
+### Per-Face Motion Activity (MotionPerFacePerception)
+
+An optional alternative to `MotionPerception` that runs action recognition **per detected face** rather than on the full frame. Enabled via `LELAMP_MOTION_PER_FACE_ENABLED=true` (default `false`).
+
+#### How it works
+
+1. Subscribes to `detected_faces` updates (same as emotion perception).
+2. For each face, **expands the bounding box** (1x face height up, 2x face width left/right/down) to capture upper body + hands — the region where desk activities happen.
+3. Crops the expanded region from the frame.
+4. Sends the crop to a **dedicated WS session** on the action recognition backend. Each `face_id` (e.g. `gray`, `stranger_5`) gets its own session with independent frame buffer.
+5. Person detection is always **disabled** on these sessions — the face bbox expansion already isolates the person.
+
+#### Per-action dedup
+
+Each face session maintains independent per-action dedup. Within the dedup window (default 5 min), a repeated action label for the same face is suppressed — but other actions still fire.
+
+Example:
+```
+t=0:00  leo → {drinking, using computer}     → SEND both
+t=1:00  leo → {drinking, using computer}     → DROP both (within 5 min)
+t=2:00  leo → {drinking, writing}            → SEND writing only (drinking still in window)
+t=5:01  leo → {drinking}                     → SEND drinking (expired from window)
+```
+
+#### Minimum frames gate
+
+A new face session must receive at least `MOTION_PER_FACE_MIN_FRAMES` frames (default 4) before its first event fires. This prevents noisy single-frame classifications from brief face detections.
+
+#### Session lifecycle
+
+- **Created** on first sight of a `face_id`.
+- **Evicted** after `MOTION_PER_FACE_SESSION_TTL_S` (default 30s) without seeing that face.
+- Eviction closes the WS connection to the backend and discards all buffered state.
+
+#### Configuration
+
+| Config | Env var | Default | Purpose |
+|---|---|---|---|
+| `MOTION_PER_FACE_ENABLED` | `LELAMP_MOTION_PER_FACE_ENABLED` | `false` | Enable per-face action recognition |
+| `MOTION_PER_FACE_DEDUP_WINDOW_S` | `LELAMP_MOTION_PER_FACE_DEDUP_WINDOW_S` | `300` (5 min) | Per-action dedup window per face |
+| `MOTION_PER_FACE_SESSION_TTL_S` | `LELAMP_MOTION_PER_FACE_SESSION_TTL_S` | `30` | Evict WS session after this long without seeing the face |
+| `MOTION_PER_FACE_MIN_FRAMES` | `LELAMP_MOTION_PER_FACE_MIN_FRAMES` | `4` | Min frames before first event fires |
+
+#### Message format
+
+```
+Activity detected (gray): using computer, writing.
+Activity detected (stranger_5): drinking.
+```
+
+Includes the `face_id` in parentheses so the agent knows which person the activity belongs to. Uses the same `motion.activity` event type as `MotionPerception`.
+
+#### When to use
+
+- **Multi-person scenes** — each person gets independent action classification.
+- **Camera ego-motion** — the face-anchored crop is more stable than the full frame when the servo is moving.
+- **Trade-off**: opens one WS connection per tracked face. For single-person desk use, standard `MotionPerception` is simpler.
+
 ---
 
 ## Emotion Detection — User Emotion (UC-M1) ✅
