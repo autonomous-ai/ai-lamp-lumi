@@ -38,11 +38,11 @@ DETECT_MIN_AREA_RATIO = 0.003
 DETECT_MAX_AREA_RATIO = 0.80
 DETECT_MIN_CONFIDENCE = 0.20
 
-# Gimbal loop rate (fps). CSRT on Pi runs ~20-25fps with opencv-contrib.
-FAST_LOOP_FPS = 24
+# Gimbal loop rate (fps). CSRT on Pi runs ~15-20fps.
+FAST_LOOP_FPS = 15
 
 # Background YOLO re-detection interval (seconds). Corrects CSRT drift.
-YOLO_REDETECT_S = 1.5
+YOLO_REDETECT_S = 1.0
 
 # How many consecutive YOLO misses (each YOLO_REDETECT_S) before stopping.
 YOLO_MAX_MISS = 4
@@ -319,7 +319,21 @@ class TrackerService:
                 throttled = subprocess.check_output(
                     ["vcgencmd", "get_throttled"], text=True, timeout=1
                 ).strip()
-                logger.info("sysmon| cpu=%.1f°C %s", temp, throttled)
+                volts = subprocess.check_output(
+                    ["vcgencmd", "measure_volts"], text=True, timeout=1
+                ).strip()
+                load = open("/proc/loadavg").read().split()[0]
+                mem = {}
+                for line in open("/proc/meminfo"):
+                    k, v = line.split()[0], int(line.split()[1])
+                    if k in ("MemTotal:", "MemAvailable:"):
+                        mem[k] = v
+                ram_used = (mem.get("MemTotal:", 0) - mem.get("MemAvailable:", 0)) // 1024
+                ram_total = mem.get("MemTotal:", 0) // 1024
+                logger.info(
+                    "sysmon| cpu=%.1f°C load=%s %s %s ram=%d/%dMB",
+                    temp, load, throttled, volts, ram_used, ram_total,
+                )
             except Exception:
                 pass
 
@@ -356,11 +370,13 @@ class TrackerService:
                         cx3 = yolo_bbox[0] + yolo_bbox[2] / 2.0
                         cy3 = yolo_bbox[1] + yolo_bbox[3] / 2.0
                         new_area = yolo_bbox[2] * yolo_bbox[3]
-                        # Reject bbox if area jumps >4x vs last — likely a different object.
+                        # Reject bbox if area jumps >8x vs last — catches hard switches to
+                        # completely different objects, but allows natural size change as
+                        # object moves toward/away from camera (4x was too strict).
                         size_ok = not (
                             last_yolo_area is not None and (
-                                new_area > last_yolo_area * 4.0
-                                or new_area < last_yolo_area / 4.0
+                                new_area > last_yolo_area * 8.0
+                                or new_area < last_yolo_area / 8.0
                             )
                         )
                         if not size_ok:
@@ -424,8 +440,8 @@ class TrackerService:
                 # --- Gimbal correction ---
                 if cx_obj is not None and cy_obj is not None:
                     x1, y1 = w_fr / 2.0, h_fr / 2.0   # crosshair (screen center)
-                    x2, y2 = cx_obj, cy_obj             # tracker box center
-                    x3 = last_yolo_cx                   # last YOLO ground-truth
+                    x2, y2 = cx_obj, cy_obj             # CSRT box center — single servo input
+                    x3 = last_yolo_cx                   # YOLO ground-truth (log only)
                     y3 = last_yolo_cy
 
                     raw_dx = x2 - x1
