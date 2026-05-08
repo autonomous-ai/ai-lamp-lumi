@@ -222,15 +222,22 @@ func fetchAudioPlaying() bool {
 	return payload.Playing
 }
 
-// fetchAudioRecent calls lelamp /audio/history?person=<user>&last=1.
+// fetchAudioRecent calls lelamp /audio/history?last=1 — without a person
+// filter. Verified on Pi (.38) that lelamp does not currently attribute
+// plays to a user (entry.person is always ""), so filtering by person
+// drops everything and audio_recent comes back nil for every user.
+// Until lelamp starts tagging plays, just take the latest global play —
+// music-suggestion uses this to nudge genre tone, which is approximate
+// enough that "the lamp's most recent play" is good signal.
+//
 // Schema (verified on Pi):
 //
-//	{"date":"today","person":"<user>","entries":[
+//	{"date":"today","person":"unknown","entries":[
 //	  {"ts","date","hour","query","title","duration_s","stopped_by","person"}
 //	],"count":<n>}
-func fetchAudioRecent(user string) *audioRecentDigest {
+func fetchAudioRecent(_ string) *audioRecentDigest {
 	client := &http.Client{Timeout: audioHistoryTimeout}
-	url := fmt.Sprintf("%s/audio/history?person=%s&last=1", lelamp.BaseURL, user)
+	url := lelamp.BaseURL + "/audio/history?last=1"
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil
