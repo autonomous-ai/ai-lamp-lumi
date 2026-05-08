@@ -1239,6 +1239,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                         <button
                           type="button"
                           onClick={() => testTTSVoice(ttsVoice, {
+                            lang: sttLanguage,
                             provider: ttsProvider,
                             ttsApiKey, ttsBaseUrl,
                             llmApiKey, llmBaseUrl: llmUrl,
