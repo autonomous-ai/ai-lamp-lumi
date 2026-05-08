@@ -312,27 +312,30 @@ class TrackerService:
 
         track_start_t = time.perf_counter()
         _frame_count = 0
+        _hw = {"cpu": 0.0, "load": "0", "throttled": "throttled=0x0",
+               "volts": "volt=0V", "ram": "0/0MB"}
 
-        def _log_sysmon():
+        def _refresh_hw():
             try:
-                temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
-                throttled = subprocess.check_output(
+                _hw["cpu"] = int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
+                _hw["load"] = open("/proc/loadavg").read().split()[0]
+                _hw["throttled"] = subprocess.check_output(
                     ["vcgencmd", "get_throttled"], text=True, timeout=1
                 ).strip()
-                volts = subprocess.check_output(
+                _hw["volts"] = subprocess.check_output(
                     ["vcgencmd", "measure_volts"], text=True, timeout=1
                 ).strip()
-                load = open("/proc/loadavg").read().split()[0]
                 mem = {}
                 for line in open("/proc/meminfo"):
                     k, v = line.split()[0], int(line.split()[1])
                     if k in ("MemTotal:", "MemAvailable:"):
                         mem[k] = v
-                ram_used = (mem.get("MemTotal:", 0) - mem.get("MemAvailable:", 0)) // 1024
-                ram_total = mem.get("MemTotal:", 0) // 1024
+                used = (mem.get("MemTotal:", 0) - mem.get("MemAvailable:", 0)) // 1024
+                total = mem.get("MemTotal:", 0) // 1024
+                _hw["ram"] = f"{used}/{total}MB"
                 logger.info(
-                    "sysmon| cpu=%.1f°C load=%s %s %s ram=%d/%dMB",
-                    temp, load, throttled, volts, ram_used, ram_total,
+                    "sysmon| cpu=%.1f°C load=%s %s %s ram=%s",
+                    _hw["cpu"], _hw["load"], _hw["throttled"], _hw["volts"], _hw["ram"],
                 )
             except Exception:
                 pass
@@ -440,12 +443,12 @@ class TrackerService:
                         tracker_ok = False
 
                 # --- Edge trigger servo ---
-                # Servo only activates when object enters outer edge zone.
-                # Center (56%) = silent. Edge (22% each side) = proportional nudge.
+                # Use x3 (YOLO ground truth) for servo decisions — CSRT box (x2)
+                # is for smooth UI display only; YOLO gives the real object position.
                 if cx_obj is not None and cy_obj is not None:
                     x1, y1 = w_fr / 2.0, h_fr / 2.0
-                    x2, y2 = cx_obj, cy_obj
-                    x3, y3 = last_yolo_cx, last_yolo_cy
+                    x2, y2 = cx_obj, cy_obj              # CSRT box — UI display only
+                    x3, y3 = last_yolo_cx, last_yolo_cy  # YOLO ground truth — servo input
 
                     logger.info(
                         "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f) csrt=%.2f",
@@ -459,7 +462,7 @@ class TrackerService:
                     ey1 = h_fr * EDGE_ZONE_V
                     ey2 = h_fr * (1.0 - EDGE_ZONE_V)
 
-                    # --- Edge trigger ---
+                    # --- Edge trigger (based on x2 CSRT position) ---
                     if x2 < ex1:
                         yaw_step = -((ex1 - x2) / ex1) * GIMBAL_MAX_STEP
                     elif x2 > ex2:
@@ -485,8 +488,10 @@ class TrackerService:
                         new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
 
                         logger.info(
-                            "servo| step=(%.2f°,%.2f°) yaw=%.1f→%.1f pitch=%.1f→%.1f",
+                            "servo| step=(%.2f°,%.2f°) yaw=%.1f→%.1f pitch=%.1f→%.1f"
+                            " cpu=%.1f°C load=%s ram=%s %s",
                             yaw_step, pitch_step, yaw, new_yaw, pitch, new_pitch,
+                            _hw["cpu"], _hw["load"], _hw["ram"], _hw["throttled"],
                         )
 
                         try:
@@ -505,7 +510,7 @@ class TrackerService:
                 # Sysmon every 48 frames (~2s at 24fps)
                 _frame_count += 1
                 if _frame_count % 48 == 0:
-                    _log_sysmon()
+                    _refresh_hw()
 
                 # Max duration guard
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
