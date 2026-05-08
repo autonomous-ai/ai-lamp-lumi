@@ -41,6 +41,45 @@ LONG_PRESS_DURATION = 3.0  # seconds to hold for shutdown
 # lgpio.callback tick is nanoseconds. Both per-board values stay well under
 # DOUBLE_CLICK_WINDOW so triple click is still detectable.
 
+# Localized button-action announcements. reboot/shutdown phrases stay
+# literal in every language ("rebooting", "shutting down") because the
+# user just pressed a destructive gesture and needs explicit confirmation
+# of which action fired — this is a safety announcement, not a persona
+# moment. Empty/unknown stt_language → English.
+_PHRASES_BY_LANG = {
+    "listening": {
+        "en": "I'm listening!",
+        "vi": "Mình nghe đây!",
+        "zh-CN": "我在听！",
+        "zh-TW": "我在聽！",
+    },
+    "reboot": {
+        "en": "Rebooting now.",
+        "vi": "Đang khởi động lại.",
+        "zh-CN": "正在重启。",
+        "zh-TW": "正在重啟。",
+    },
+    "shutdown": {
+        "en": "Shutting down now.",
+        "vi": "Đang tắt máy.",
+        "zh-CN": "正在关机。",
+        "zh-TW": "正在關機。",
+    },
+}
+
+
+def _phrase(key: str) -> str:
+    """Return the localized phrase for `key` based on Lumi's stt_language.
+    Falls back to English when the config can't be read or the language
+    is empty/unknown."""
+    try:
+        from lelamp.config import _lumi_cfg_get
+        lang = (_lumi_cfg_get("stt_language") or "").strip()
+    except Exception:
+        lang = ""
+    pool = _PHRASES_BY_LANG.get(key, {})
+    return pool.get(lang) or pool.get("en", "")
+
 
 def _is_orangepi_sun60() -> bool:
     """Detect Allwinner sun60iw2 (OrangePi 4 Pro / A733) via device-tree model."""
@@ -161,7 +200,7 @@ class GPIOButtonHandler:
                 and not state._speaker_muted
             ):
                 threading.Thread(
-                    target=lambda: state.tts_service.speak_cached("I'm listening!"),
+                    target=lambda: state.tts_service.speak_cached(_phrase("listening")),
                     daemon=True,
                     name="unmute-tts",
                 ).start()
@@ -180,7 +219,7 @@ class GPIOButtonHandler:
             and state.tts_service.available
             and not state._speaker_muted
         ):
-            state.tts_service.speak_cached("Rebooting now")
+            state.tts_service.speak_cached(_phrase("reboot"))
             # speak_cached is async; reboot kicks the OS before audio plays
             # without this. ~2s covers the cached "Rebooting now" clip
             # (matches the existing _on_long_press shutdown delay).
@@ -199,7 +238,7 @@ class GPIOButtonHandler:
             and state.tts_service.available
             and not state._speaker_muted
         ):
-            state.tts_service.speak_cached("Shutting down now")
+            state.tts_service.speak_cached(_phrase("shutdown"))
             time.sleep(5)
 
         # Step 2: park servo in safe pose then cut torque, otherwise the
