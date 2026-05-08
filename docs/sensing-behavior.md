@@ -235,12 +235,15 @@ By the time the agent sees the event, LeLamp has already logged the activity row
    ```
 
    Three reset points: the actual activity (`drink` / `break`), a fresh arrival (`enter`), or the last nudge of that kind (`nudge_*`). The nudge reset is the key: after Lumi reminds, the delta drops back to 0 so the next reminder only fires after another full threshold window — no separate cooldown variable needed.
-3. **Decide whether to nudge** (one nudge max per turn, hydration prioritised over break):
-   - Hydration delta ≥ hydration threshold → hydration nudge.
-   - Else break delta ≥ break threshold → break nudge.
-   - Else → normal caring observation or `NO_REPLY`.
-4. **After speaking a nudge**, log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
+3. **Decide path** (one response max per turn, reaction outranks nudge — the user just acted, nudging on top would feel tone-deaf):
+   - **Reaction** — labels list contains `drink` or `break` → speak a 1–3 sentence acknowledgment (surprised / playful, not advice). Uses `count_today` ("lần thứ N hôm nay"), `time_of_day`, and the gap delta to flavor the line. **No log entry** — the underlying `drink` / `break` row was already written by LeLamp upstream.
+   - **Hydration nudge** — else if hydration delta ≥ hydration threshold → hydration nudge.
+   - **Break nudge** — else if break delta ≥ break threshold → break nudge.
+   - Else (sedentary under threshold, or no reset today yet) → `NO_REPLY`.
+4. **After speaking a nudge** (not a reaction), log a `nudge_hydration` or `nudge_break` entry — this is what resets the delta for the next window (and makes the nudge visible on the user's timeline).
 5. **Never guess** time-since from memory — always compute from the log.
+
+The reaction path was added so positive actions don't fall into silence: drinking water that doesn't trigger a nudge used to produce `NO_REPLY`, which felt dead. The reaction is fed by two extra pre-computed fields in `[wellbeing_context: ...]` — `count_today` (tally of `drink` / `break` rows today) and `time_of_day` (`morning` / `noon` / `afternoon` / `evening` / `night`) — so phrasing has something specific to lean on without spawning extra tool calls. Visual captions (e.g. "blue water bottle") are intentionally NOT in scope yet — the vision pipeline returns class labels only.
 
 ### Thresholds
 
