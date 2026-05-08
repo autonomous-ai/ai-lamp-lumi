@@ -523,7 +523,8 @@ class TrackerService:
                     pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, pitch_step))
 
                     if yaw_step != 0.0 or pitch_step != 0.0:
-                        new_yaw   = max(YAW_MIN,         min(YAW_MAX,         yaw   + yaw_step))
+                        new_yaw = max(YAW_MIN, min(YAW_MAX, yaw + yaw_step))
+
                         new_pitch = max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  pitch + pitch_step * PITCH_WEIGHT_BASE))
                         new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, elbow + pitch_step * PITCH_WEIGHT_ELBOW))
                         new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
