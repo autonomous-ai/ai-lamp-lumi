@@ -82,6 +82,8 @@ type Server struct {
 	monitorMu sync.Mutex
 	// lastSetupCompleted is the last SetUpCompleted value we acted on. Used to avoid redundant handleSetUpCompleteChanged when config notifies but value unchanged.
 	lastSetupCompleted *bool
+	// lastDeviceID is the last DeviceID value we acted on. When this changes (typically empty → assigned at first /device/setup), we restart lumi-buddy so its BLE name picks up the new device_id.
+	lastDeviceID *string
 }
 
 // Engine ...
@@ -225,6 +227,7 @@ func (s *Server) Serve(closeFn func()) error {
 	// }
 
 	s.handleSetUpCompleteChange(s.config.SetUpCompleted)
+	s.handleDeviceIDChange(s.config.DeviceID)
 
 	configCtx, cancelConfig := context.WithCancel(context.Background())
 	defer cancelConfig()
@@ -372,8 +375,51 @@ func (s *Server) runConfigChangeListener(ctx context.Context) {
 			return
 		case <-ch:
 			s.handleSetUpCompleteChange(s.config.SetUpCompleted)
+			s.handleDeviceIDChange(s.config.DeviceID)
 		}
 	}
+}
+
+// handleDeviceIDChange restarts lumi-buddy when device_id changes so the BLE
+// advertised name (Lamp-{deviceid}) picks up the new id. Pre-setup the id is
+// empty and buddy advertises Lamp-unknown; once /device/setup populates it,
+// this restart triggers buddy to re-resolve via Lumi /api/system/info.
+//
+// On the first call (startup bootstrap) we just record the current value
+// without restarting — only later transitions trigger a restart.
+//
+// Best-effort: if lumi-buddy isn't installed (systemctl returns non-zero) we
+// log and move on.
+func (s *Server) handleDeviceIDChange(deviceID string) {
+	if s.lastDeviceID == nil {
+		s.lastDeviceID = &deviceID
+		return
+	}
+	if *s.lastDeviceID == deviceID {
+		return
+	}
+	prev := *s.lastDeviceID
+	s.lastDeviceID = &deviceID
+
+	slog.Info("device_id changed, restarting lumi-buddy", "component", "config", "old", prev, "new", deviceID)
+	safego.Go("lumi-buddy-restart", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Skip silently if lumi-buddy isn't installed on this Pi. `systemctl cat`
+		// exits non-zero when the unit doesn't exist; that's expected on lamps
+		// without the buddy plugin and we don't want to spam logs there.
+		if err := exec.CommandContext(ctx, "systemctl", "cat", "lumi-buddy.service").Run(); err != nil {
+			return
+		}
+
+		out, err := exec.CommandContext(ctx, "systemctl", "restart", "lumi-buddy").CombinedOutput()
+		if err != nil {
+			slog.Warn("lumi-buddy restart failed", "component", "config", "error", err, "output", strings.TrimSpace(string(out)))
+			return
+		}
+		slog.Info("lumi-buddy restarted", "component", "config")
+	})
 }
 
 // handleSetUpCompleteChange starts or stops the network monitor and status reporter based on SetUpCompleted.
