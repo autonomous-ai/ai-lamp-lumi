@@ -26,6 +26,7 @@ class PersonDetectorSetting(BaseModel):
     model_name: str = "yolo12x.pt"
     confidence_threshold: float = 0.4
     bbox_expand_scale: float = 2.0
+    min_area_ratio: float = 0.25  # skip persons covering less than 1/4 of frame
 
 
 class EmotionRecognizerSetting(BaseModel):

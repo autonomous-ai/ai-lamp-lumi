@@ -105,11 +105,13 @@ class RemoteMotionChecker:
         api_key: str,
         whitelist: list[str] | None = None,
         threshold: float = config.MOTION_CONFIDENCE_THRESHOLD,
+        person_min_area_ratio: float = config.MOTION_PERSON_MIN_AREA_RATIO,
     ):
         self._base_url: str = base_url
         self._api_key: str = api_key
         self._whitelist: list[str] | None = whitelist
         self._threshold: float = threshold
+        self._person_min_area_ratio: float = person_min_area_ratio
         self._ws_session: ClientConnection | None = None
 
         self._prepare_session()
@@ -136,6 +138,7 @@ class RemoteMotionChecker:
                         "task": "action",
                         "whitelist": self._whitelist,
                         "threshold": self._threshold,
+                        "person_min_area_ratio": self._person_min_area_ratio,
                     }
                 )
             )
