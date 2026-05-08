@@ -15,9 +15,23 @@ Only one trigger: **Mood** — after logging a mood `decision` that is suggestio
 
 `{name}` MUST come from `[context: current_user=X]` tag. If missing, use `"unknown"`. NEVER infer from memory or chat history.
 
-## What to read (batch with the rest of the turn)
+## What to read (pre-fetched in `[emotion_context: ...]`)
 
-These five reads have no data dependency on each other — fire them concurrently with the mood-history read in one bash via `& ... wait` (do NOT split `cat patterns.json` into a second tool turn):
+The backend injects everything you need on `emotion.detected`:
+
+- `audio_playing` (bool) — replaces `GET /audio/status`.
+- `last_suggestion_age_min` (int, `-1` if none today) — replaces `music-suggestion-history?last=1`.
+- `prior_decision` + `is_decision_stale` — replaces `mood-history?kind=decision&last=1`. The freshly synthesized decision from THIS turn still lives in your `thinking`.
+- `audio_recent` (`{track,duration_s,stopped}`) — replaces `audio/history?last=1`.
+- `music_pattern_for_hour` (`{preferred_genre,strength,peak_hour}` or `null`) — replaces `cat patterns.json` matching by current hour ±1.
+- `suggestion_worthy` (bool) — pre-applied bucket gate (true for `sad/stressed/tired/excited/happy/bored`).
+- `mapped_mood` — convenient mirror of `user-emotion-detection`'s mapping; useful when no fresh decision exists yet.
+
+**Do NOT fire any read tool calls when this block is present.**
+
+### Fallback (only if `[emotion_context: ...]` is missing)
+
+If the message has no context block (pre-fetch failed), fall back to the concurrent GET batch:
 
 ```bash
 curl -s http://127.0.0.1:5001/audio/status &
@@ -28,24 +42,22 @@ cat /root/local/users/{name}/habit/patterns.json 2>/dev/null &
 wait
 ```
 
-Note: `mood-history?kind=decision` is the **prior** decision (before this turn's write). Use it for the staleness/recency check; the freshly synthesized decision lives in `thinking` from this turn.
-
 ## Skip rules (apply silently in `thinking`)
 
-After the read batch returns, decide whether to skip:
+Read these straight from `[emotion_context: ...]`:
 
-- `audio/status` shows music already playing → skip.
-- `music-suggestion-history last=1` shows last suggestion < 7 min ago → skip. *(production: change to 30 min before ship)*
-- `mood-history kind=decision last=1` is missing or > 30 min stale **AND** this turn did not synthesize a fresh decision → skip.
-- Detected emotion bucket is non-suggestion-worthy (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) → skip.
+- `audio_playing == true` → skip.
+- `last_suggestion_age_min` ∈ [0, 7) → skip cooldown still active. *(production: change to 30 min before ship)*
+- `is_decision_stale == true` AND this turn did not synthesize a fresh decision → skip.
+- `suggestion_worthy == false` → skip (mapped_mood is in `frustrated/energetic/affectionate/unwell/normal`).
 
-If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio/history` to personalize genre when not skipping.
+If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio_recent` to personalize genre when not skipping.
 
 ## Pick genre
 
-**Use `patterns.json` from the read batch** (already fetched above; do NOT re-`cat` it here).
+**Use `music_pattern_for_hour` from the context block** (already matched by current hour ± 1; do NOT re-`cat` patterns.json).
 
-If the file exists and `music_patterns` has an entry where current hour is within `peak_hour ± 1` → use `preferred_genre` instead of the table below. The file is bootstrapped lazily by wellbeing on its first threshold nudge; absent file = no habit data yet, fall back to the table without invoking habit Flow A here.
+If `music_pattern_for_hour` is non-null → use its `preferred_genre`. Otherwise fall back to the default table below. The pattern is bootstrapped lazily by wellbeing on its first threshold nudge; absent = no habit data yet, fall back without invoking habit Flow A here.
 
 **Otherwise, fall back to default genre table:**
 

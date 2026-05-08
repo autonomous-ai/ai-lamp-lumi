@@ -227,6 +227,8 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += "\n[REQUIRED — run both skills this turn: user-emotion-detection + music-suggestion]"
 				msg += "\n[Tool calls without data dependencies must fire concurrently. Batch reads in one bash with `& ... wait`, decide locally, batch writes the same way. Do not sequence them across multiple tool turns.]"
+				// See sensing handler: pre-fetch emotion pipeline reads.
+				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
 			}
 		}
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
