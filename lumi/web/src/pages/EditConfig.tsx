@@ -5,7 +5,7 @@ import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, Mic, MicVocal, MessageSquare, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, MicVocal, MessageSquare, Globe, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 // ── CSS vars / helpers ────────────────────────────────────────────────────────
 
@@ -30,10 +30,12 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
   { id: "wifi",     label: "Wi-Fi",    icon: <Wifi size={ICON_SIZE} /> },
   { id: "llm",      label: "AI Brain", icon: <Brain size={ICON_SIZE} /> },
-  { id: "voice",    label: "Voice",    icon: <MicVocal size={ICON_SIZE} /> },
+  // Language above Lumi's Voice — picking the language determines which
+  // voices sound natural, so the operator should set it first.
+  { id: "stt",      label: "Language", icon: <Globe size={ICON_SIZE} /> },
+  { id: "tts",      label: "Lumi's Voice", icon: <Volume2 size={ICON_SIZE} /> },
+  { id: "voice",    label: "My Voice", icon: <MicVocal size={ICON_SIZE} /> },
   { id: "face",     label: "Face",     icon: <UserCircle size={ICON_SIZE} /> },
-  { id: "tts",      label: "TTS",      icon: <Volume2 size={ICON_SIZE} /> },
-  { id: "stt",      label: "STT",      icon: <Mic size={ICON_SIZE} /> },
   { id: "channel",  label: "Channels", icon: <MessageSquare size={ICON_SIZE} /> },
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
@@ -278,6 +280,8 @@ export default function EditConfig() {
   // STT provider: derived from saved config (deepgram if key present, else autonomous).
   // Default for fresh devices is "autonomous" — uses LLM endpoint as fallback.
   const [sttProvider, setSttProvider] = useState<"autonomous" | "deepgram">("autonomous");
+  // STT language drives model selection on the server (operators don't pick model directly).
+  const [sttLanguage, setSttLanguage] = useState("");
   const [ttsApiKey, setTtsApiKey] = useState("");
   const [ttsBaseUrl, setTtsBaseUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("openai");
@@ -365,11 +369,40 @@ export default function EditConfig() {
   // Voice enroll — remote-trigger lelamp's /speaker/record-enroll. Lamp
   // captures via its own mic; web only does countdown UI. Sharing label
   // with face enroll keeps both biometrics in one per-user folder.
-  const VOICE_PHRASES = [
-    "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
-    "The quick brown fox jumps over the lazy dog near the bright morning window.",
-    "Today is a great day to start something new, and I'm looking forward to it.",
-  ];
+  //
+  // Phrases + intro are picked by stt_language so VN/CN owners read prompts
+  // in their own language; embedding quality drops if the owner stumbles
+  // through English they don't speak natively. Unknown lang → English.
+  const VOICE_PHRASES_BY_LANG: Record<string, string[]> = {
+    en: [
+      "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
+      "The quick brown fox jumps over the lazy dog near the bright morning window.",
+      "Today is a great day to start something new, and I'm looking forward to it.",
+    ],
+    vi: [
+      "Chào Lumi, mình đang đăng ký giọng nói để bạn nhận ra mình khi nói chuyện.",
+      "Hôm nay là một ngày tuyệt vời, mình rất mong chờ những điều mới mẻ phía trước.",
+      "Một cốc cà phê nóng vào buổi sáng giúp mình tỉnh táo và bắt đầu công việc tốt hơn.",
+    ],
+    "zh-CN": [
+      "你好 Lumi，我正在录入我的声音，这样你听到我说话就能认出我。",
+      "今天天气不错，是开始新事情的好日子，我期待接下来的一切。",
+      "早晨喝一杯热咖啡能让我精神焕发，更好地开始一天的工作。",
+    ],
+    "zh-TW": [
+      "你好 Lumi，我正在錄入我的聲音，這樣你聽到我說話就能認出我。",
+      "今天天氣不錯，是開始新事情的好日子，我期待接下來的一切。",
+      "早晨喝一杯熱咖啡能讓我精神煥發，更好地開始一天的工作。",
+    ],
+  };
+  const VOICE_INTRO_BY_LANG: Record<string, string> = {
+    en: "Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.",
+    vi: "Đứng gần đèn. Khi bắt đầu ghi âm, đọc 3 câu sau với giọng bình thường. Mic của đèn sẽ thu âm bạn — không dùng mic của máy tính.",
+    "zh-CN": "站在台灯附近。开始录音后，用正常语速朗读这 3 句话。台灯的麦克风会录下你的声音 — 不使用电脑麦克风。",
+    "zh-TW": "站在檯燈附近。開始錄音後，用正常語速朗讀這 3 句話。檯燈的麥克風會錄下你的聲音 — 不使用電腦麥克風。",
+  };
+  const VOICE_PHRASES = VOICE_PHRASES_BY_LANG[sttLanguage] ?? VOICE_PHRASES_BY_LANG.en;
+  const VOICE_INTRO = VOICE_INTRO_BY_LANG[sttLanguage] ?? VOICE_INTRO_BY_LANG.en;
   // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web triggers a
   // server-side arecord on the lamp; the user stands near the lamp and reads
   // the prompted sentences. No browser mic permission, no HTTPS needed.
@@ -508,6 +541,7 @@ export default function EditConfig() {
         setSttApiKey(cfg.stt_api_key ?? "");
         setSttBaseUrl(cfg.stt_base_url ?? "");
         setSttProvider(cfg.deepgram_api_key ? "deepgram" : "autonomous");
+        setSttLanguage(cfg.stt_language ?? "");
         setTtsApiKey(cfg.tts_api_key ?? "");
         setTtsBaseUrl(cfg.tts_base_url ?? "");
         setTtsProvider(cfg.tts_provider || "openai");
@@ -570,17 +604,20 @@ export default function EditConfig() {
     getTTSVoices().then(setTtsVoices).catch(() => {});
   }, []);
 
-  // Refetch voices when provider changes — only reset voice if current voice is not in new list
+  // Refetch voices when provider OR stt_language changes — only reset voice
+  // if the currently-saved voice is not in the new (filtered) list.
+  // Passing sttLanguage filters ElevenLabs voices to the active language's
+  // bucket so VN/CN owners only see voices that sound natural for them.
   const providerChangedByUser = useRef(false);
   useEffect(() => {
-    getTTSVoices(ttsProvider).then((voices) => {
+    getTTSVoices(ttsProvider, sttLanguage).then((voices) => {
       setTtsVoices(voices);
       if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
         setTtsVoice(voices[0]);
       }
       providerChangedByUser.current = true;
     }).catch(() => {});
-  }, [ttsProvider]);
+  }, [ttsProvider, sttLanguage]);
 
   // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
   // Once the user types into TTS the sync stops; clearing it re-enables mirroring.
@@ -629,6 +666,7 @@ export default function EditConfig() {
         llm_base_url: llmUrl, llm_api_key: llmApiKey, llm_model: llmModel,
         llm_disable_thinking: llmDisableThinking,
         ...sttFields,
+        stt_language: sttLanguage,
         tts_api_key: ttsApiKey, tts_base_url: ttsBaseUrl, tts_provider: ttsProvider, tts_voice: ttsVoice, device_id: deviceId,
         mqtt_endpoint: mqttEndpoint, mqtt_username: mqttUsername,
         mqtt_password: mqttPassword,
@@ -643,7 +681,7 @@ export default function EditConfig() {
   }, [
     channel, teleToken, teleUserId, slackBotToken, slackAppToken, slackUserId,
     discordBotToken, discordGuildId, discordUserId, ssid, password, llmUrl,
-    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, sttApiKey, sttBaseUrl, sttProvider,
+    llmApiKey, llmModel, llmDisableThinking, deepgramApiKey, sttApiKey, sttBaseUrl, sttProvider, sttLanguage,
     ttsApiKey, ttsBaseUrl, ttsProvider, ttsVoice, deviceId,
     mqttEndpoint, mqttUsername, mqttPassword, mqttPort, faChannel, fdChannel,
   ]);
@@ -815,9 +853,9 @@ export default function EditConfig() {
                   </label>
                 </SectionCard>
 
-                <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
+                <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
                   <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                    Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
+                    {VOICE_INTRO}
                   </div>
                   <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
                   <div style={{
@@ -1070,7 +1108,7 @@ export default function EditConfig() {
                   })()}
                 </SectionCard>
 
-                <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
                   <LockedPasswordField lockedInitially={ttsLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
                   <LockedField lockedInitially={ttsLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
                   <div style={{ marginBottom: 12 }}>
@@ -1115,6 +1153,7 @@ export default function EditConfig() {
                     <button
                       type="button"
                       onClick={() => testTTSVoice(ttsVoice, {
+                        lang: sttLanguage,
                         provider: ttsProvider,
                         ttsApiKey, ttsBaseUrl,
                         llmApiKey, llmBaseUrl: llmUrl,
@@ -1130,15 +1169,15 @@ export default function EditConfig() {
                   </div>
                 </SectionCard>
 
-                <SectionCard id="stt" title="STT (Speech-to-Text)" active={activeSection === "stt"}>
+                <SectionCard id="stt" title="Language" active={activeSection === "stt"}>
                   <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                      Provider
+                    <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                      Language (what the lamp listens for)
                     </label>
                     <select
-                      id="stt_provider"
-                      value={sttProvider}
-                      onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
+                      id="stt_language"
+                      value={sttLanguage}
+                      onChange={(e) => setSttLanguage(e.target.value)}
                       style={{
                         width: "100%", boxSizing: "border-box",
                         background: C.surface, border: `1px solid ${C.border}`,
@@ -1146,18 +1185,46 @@ export default function EditConfig() {
                         fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
                       }}
                     >
-                      <option value="autonomous">Autonomous (reuse AI brain)</option>
-                      <option value="deepgram">Deepgram</option>
+                      <option value="">Auto (default)</option>
+                      <option value="en">English</option>
+                      <option value="vi">Vietnamese</option>
+                      <option value="zh-CN">Chinese (Simplified)</option>
+                      <option value="zh-TW">Chinese (Traditional)</option>
                     </select>
                   </div>
-                  {sttProvider === "deepgram" ? (
-                    <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
-                  ) : (
-                    <>
-                      <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
-                      <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
-                    </>
-                  )}
+
+                  <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                      Advanced
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Provider
+                      </label>
+                      <select
+                        id="stt_provider"
+                        value={sttProvider}
+                        onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="autonomous">Autonomous (reuse AI brain)</option>
+                        <option value="deepgram">Deepgram</option>
+                      </select>
+                    </div>
+                    {sttProvider === "deepgram" ? (
+                      <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
+                    ) : (
+                      <>
+                        <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
+                        <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
+                      </>
+                    )}
+                  </div>
                 </SectionCard>
 
                 <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>

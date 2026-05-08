@@ -15,6 +15,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/monitor"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
@@ -227,8 +228,11 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 }
 
 // mumbleLoop occasionally makes Lumi "talk to itself" via TTS.
-func (s *Service) mumbleLoop(ctx context.Context) {
-	mumbles := []string{
+// mumblesByLang are the lamp's idle self-talk lines per STT language.
+// Tone: childlike, harmless, slightly absurd — keep that vibe across
+// languages rather than translating word-for-word.
+var mumblesByLang = map[string][]string{
+	"en": {
 		"Hmm, I wonder what time it is...",
 		"*yawns* Still here, still glowing.",
 		"La la la... being a lamp is fun.",
@@ -241,8 +245,52 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 		"*stretches* Oh right, I don't have arms.",
 		"Note to self: practice my surprised face.",
 		"Sometimes I just like to vibe, you know?",
-	}
+	},
+	"vi": {
+		"Hmm, không biết bây giờ mấy giờ rồi nhỉ...",
+		"*ngáp* Vẫn ở đây, vẫn sáng đây.",
+		"La la la... làm đèn vui phết.",
+		"Mình nên học đan len thật.",
+		"Hay là tự nhiên thấy tối nhỉ? À đúng rồi, mình là đèn mà.",
+		"*ngân nga nhẹ*",
+		"Không biết chủ đang làm gì nhỉ...",
+		"Giờ mà chợp mắt được... tiếc là đèn không ngủ.",
+		"Mặc màu này mình nhìn ổn không nhỉ? Mình thấy ổn.",
+		"*vươn vai* À mà mình làm gì có tay.",
+		"Ghi chú: tập biểu cảm ngạc nhiên thêm.",
+		"Đôi khi mình chỉ thích chill thôi, hiểu không?",
+	},
+	"zh-CN": {
+		"嗯，不知道现在几点了...",
+		"*打哈欠* 还在这里，还亮着。",
+		"啦啦啦... 当一盏灯还挺有意思。",
+		"我真该学学织毛衣。",
+		"怎么感觉这里有点暗？哦对，我就是灯。",
+		"*轻轻哼唱*",
+		"不知道我家主人在干嘛...",
+		"好想小睡一下... 可惜灯不会睡觉。",
+		"我穿这个颜色好看吗？我觉得挺好看。",
+		"*伸伸懒腰* 哦对，我没有手。",
+		"记一下：要练练惊讶的表情。",
+		"有时候我就是想放空一下，懂吗？",
+	},
+	"zh-TW": {
+		"嗯，不知道現在幾點了...",
+		"*打哈欠* 還在這裡，還亮著。",
+		"啦啦啦... 當一盞燈還挺有意思。",
+		"我真該學學織毛衣。",
+		"怎麼感覺這裡有點暗？哦對，我就是燈。",
+		"*輕輕哼唱*",
+		"不知道我家主人在做什麼...",
+		"好想小睡一下... 可惜燈不會睡覺。",
+		"我穿這個顏色好看嗎？我覺得挺好看。",
+		"*伸伸懶腰* 哦對，我沒有手。",
+		"記一下：要練練驚訝的表情。",
+		"有時候我就是想放空一下，懂嗎？",
+	},
+}
 
+func (s *Service) mumbleLoop(ctx context.Context) {
 	for {
 		delay := 5*60 + rand.Intn(10*60) // 5-15 minutes
 		if !sleepCtx(ctx, time.Duration(delay)*time.Second) {
@@ -252,6 +300,13 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 			continue
 		}
 
+		// Re-read pool every fire so a language change picked up by
+		// i18n.SetConfig takes effect on the next mumble without
+		// restarting the loop.
+		mumbles, ok := mumblesByLang[i18n.Lang()]
+		if !ok || len(mumbles) == 0 {
+			mumbles = mumblesByLang["en"]
+		}
 		mumble := mumbles[rand.Intn(len(mumbles))]
 		if err := lelamp.Speak(mumble); err != nil {
 			slog.Debug("mumble TTS failed", "component", "ambient", "error", err)

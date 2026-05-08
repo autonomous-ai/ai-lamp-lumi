@@ -30,6 +30,7 @@ import (
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/internal/statusled"
 	devicebutton "go-lamp.autonomous.ai/lib/devicebutton"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/logger"
 	"go-lamp.autonomous.ai/lib/mqtt"
 	"go-lamp.autonomous.ai/lib/safego"
@@ -250,6 +251,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
+	device.GET("setup/status", s.deviceHandler.SetupStatus)
 	device.POST("channel", s.deviceHandler.ChangeChannel)
 	device.GET("config", s.deviceHandler.GetConfig)
 	device.PUT("config", s.deviceHandler.UpdateConfig)
@@ -424,8 +426,16 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 					slog.Warn("init volume failed", "component", "server", "error", err)
 				}
 
-				// Greet user now that agent + voice pipeline are ready
-			if _, err := s.agentGateway.SendSystemChatMessage("You just woke up. Greet the user briefly."); err != nil {
+				// Wire i18n early so wakeGreetingPrompt() and every other
+				// localized TTS site reads the right language from
+				// lib/i18n at fire time.
+			i18n.SetConfig(s.config)
+
+				// Greet user now that agent + voice pipeline are ready.
+				// Prompt is localized by STTLanguage so the very first turn
+				// lands in the owner's language without relying on the agent
+				// to translate the priming message.
+			if _, err := s.agentGateway.SendSystemChatMessage(wakeGreetingPrompt()); err != nil {
 				slog.Warn("startup greeting failed", "component", "server", "error", err)
 			}
 

@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, testTTSVoice } from "@/lib/api";
+import { QRCodeSVG } from "qrcode.react";
+import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, getSetupStatus, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Globe, Check, Pencil, X, Eye, EyeOff } from "lucide-react";
+
+// SetupMode controls which sections render. Initial = AP/offline (hide
+// online-only enrollments + tests), Continue = LAN/online (lamp can hit
+// APIs, so Voice/Face enroll + TTS preview become available).
+export type SetupMode = "initial" | "continue";
+
+interface SetupProps {
+  mode?: SetupMode;
+}
 
 // ── CSS vars ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +33,7 @@ const C = {
   green:     "var(--lm-green)",
 };
 
-type SectionId = "wifi" | "device" | "llm" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
+type SectionId = "wifi" | "device" | "llm" | "language" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -267,7 +277,8 @@ function SkeletonBlock() {
 
 // ── main page ─────────────────────────────────────────────────────────────────
 
-export default function Setup() {
+export default function Setup({ mode = "initial" }: SetupProps = {}) {
+  const isContinue = mode === "continue";
   const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
   useDocumentTitle("Setup");
@@ -312,10 +323,15 @@ export default function Setup() {
     { id: "device", label: "Device", icon: <Lamp size={15} /> },
     { id: "wifi",   label: "Wi-Fi",  icon: <Wifi size={15} /> },
     { id: "llm",    label: "AI Brain", icon: <Brain size={15} /> },
-    { id: "voice",  label: "Voice",  icon: <Mic size={15} /> },
-    { id: "face",   label: "Face",   icon: <UserCircle size={15} /> },
+    { id: "language", label: "Language", icon: <Globe size={15} /> },
     { id: "channel", label: "Channels", icon: <MessageSquare size={15} /> },
-    { id: "tts",    label: "TTS",    icon: <Volume2 size={15} /> },
+    { id: "tts",    label: "Lumi's Voice", icon: <Volume2 size={15} /> },
+    // Voice / Face appear in continue mode only — they need the lamp's
+    // hardware + backend, both unavailable while we're still on the AP.
+    ...(isContinue ? [
+      { id: "voice" as SectionId, label: "My Voice", icon: <Mic size={15} /> },
+      { id: "face"  as SectionId, label: "Face",     icon: <UserCircle size={15} /> },
+    ] : []),
   ];
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
@@ -325,7 +341,11 @@ export default function Setup() {
   const [loadingList, setLoadingList] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [setupWorking, setSetupWorking] = useState(false);
-  const [countdown, setCountdown] = useState(5);
+  // Setup phase mirrors the backend SetupStatus enum: connecting → connected
+  // (success path) or failed. Drives the post-submit screen UI.
+  const [setupPhase, setSetupPhase] = useState<"connecting" | "connected" | "failed">("connecting");
+  const [setupLanIP, setSetupLanIP] = useState<string>("");
+  const [setupErrorMsg, setSetupErrorMsg] = useState<string>("");
   const [activeSection, setActiveSection] = useState<SectionId>("device");
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -349,6 +369,16 @@ export default function Setup() {
   // the device's voice pipeline has fallback values mirroring the LLM endpoint.
   const [sttApiKey, setSttApiKey] = useState("");
   const [sttBaseUrl, setSttBaseUrl] = useState("");
+  // Pre-fill STT language from browser locale so VN/CN buyers don't have to
+  // touch this field; users can still override before submitting.
+  const [sttLanguage, setSttLanguage] = useState<string>(() => {
+    const loc = (navigator.language || "").toLowerCase();
+    if (loc.startsWith("vi")) return "vi";
+    if (loc.startsWith("zh-tw") || loc.startsWith("zh-hant") || loc.startsWith("zh-hk")) return "zh-TW";
+    if (loc.startsWith("zh")) return "zh-CN";
+    if (loc.startsWith("en")) return "en";
+    return "";
+  });
   const [ttsProvider, setTtsProvider] = useState("openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState("alloy");
@@ -378,7 +408,7 @@ export default function Setup() {
   const [fdChannel, setFdChannel] = useState("");
 
   // Face enroll — same flow as EditConfig.Face. Uses /hw/face endpoints
-  // directly so user can enroll without finishing the rest of setup.
+  // directly; only relevant in continue mode (lamp online).
   const [faceName, setFaceName] = useState("");
   const [faceFiles, setFaceFiles] = useState<File[]>([]);
   const [faceUploading, setFaceUploading] = useState(false);
@@ -390,10 +420,8 @@ export default function Setup() {
     try {
       const r = await fetch("/hw/face/owners").then((x) => x.json());
       if (Array.isArray(r?.persons)) setFaceOwners(r.persons);
-    } catch { /* hardware may not be reachable during setup; silent */ }
+    } catch { /* hardware unreachable in initial mode; silent */ }
   }, []);
-
-  useEffect(() => { loadFaceOwners(); }, [loadFaceOwners]);
 
   const removeFaceOwner = async (label: string) => {
     if (!confirm(`Remove enrolled face "${label}"?`)) return;
@@ -407,20 +435,12 @@ export default function Setup() {
     } catch { /* ignore */ }
   };
 
-  // Voice enroll — browser records 3 sentences via MediaRecorder, posts the
-  // webm blob to Lumi /api/voice/enroll which converts to WAV and forwards
-  // to lelamp /speaker/enroll. Uses same `label` as face so both biometrics
-  // land in the same per-user folder (speaker_recognizer convention).
+  // Voice enroll — three sentences read aloud; lamp's own mic captures.
   const VOICE_PHRASES = [
     "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
     "The quick brown fox jumps over the lazy dog near the bright morning window.",
     "Today is a great day to start something new, and I'm looking forward to it.",
   ];
-  // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web is just a
-  // remote trigger: countdown → POST /hw/speaker/record-enroll → lelamp
-  // releases ALSA, runs arecord locally, enrolls. No HTTPS needed (we
-  // never call getUserMedia), no permission prompt, and the embedding sees
-  // the same mic as runtime so recognition matches.
   const VOICE_DURATION_SEC = 15;
   const [voiceLabel, setVoiceLabel] = useState("");
   const [voicePhase, setVoicePhase] = useState<"idle" | "countdown" | "recording" | "processing">("idle");
@@ -458,7 +478,6 @@ export default function Setup() {
         setVoiceCountdown(pre);
         return;
       }
-      // Pre-countdown done — actually fire the recording on the lamp.
       if (voiceTickRef.current) clearInterval(voiceTickRef.current);
       setVoicePhase("recording");
       let remaining = VOICE_DURATION_SEC;
@@ -473,8 +492,6 @@ export default function Setup() {
           setVoiceCountdown(remaining);
         }
       }, 1000);
-      // POST starts at the same instant the lamp begins recording, so the
-      // client countdown stays in sync with what the lamp is actually doing.
       fetch("/hw/speaker/record-enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -537,6 +554,26 @@ export default function Setup() {
     setFaceUploading(false);
   };
 
+  // Per-section "done" detection drives the ✓ checkmark in the sidebar and
+  // the auto-scroll-to-next-pending behavior in continue mode. We treat a
+  // section as done when its config has the value the user came here to set.
+  const sectionDone: Record<SectionId, boolean> = {
+    device: !!deviceId,
+    wifi: !!ssid,
+    llm: !!llmApiKey,
+    language: true, // Auto/empty is a valid choice — never block on this.
+    channel: channel === "telegram"
+      ? !!teleToken
+      : channel === "slack"
+        ? !!slackBotToken
+        : !!discordBotToken,
+    tts: !!ttsVoice,
+    voice: faceOwners.some((p) => (p.voice_samples?.length ?? 0) > 0),
+    face: faceOwners.some((p) => p.photo_count > 0),
+    deepgram: true,
+    mqtt: true,
+  };
+
   useEffect(() => {
     setMqttEndpoint((prev) => prev || urlParams.mqttEndpoint);
     setMqttPort((prev) => prev || urlParams.mqttPort);
@@ -545,6 +582,24 @@ export default function Setup() {
     setFaChannel((prev) => prev || urlParams.faChannel);
     setFdChannel((prev) => prev || urlParams.fdChannel);
   }, [urlParams]);
+
+  // Continue mode: refresh enrolled face/voice owners (lamp is online now).
+  useEffect(() => {
+    if (isContinue) loadFaceOwners();
+  }, [isContinue, loadFaceOwners]);
+
+  // Continue mode: scroll the user to the first section that still needs
+  // attention so they can see what's left to do without hunting through
+  // the sidebar.
+  const autoScrolledRef = useRef(false);
+  useEffect(() => {
+    if (!isContinue || autoScrolledRef.current) return;
+    if (!llmApiKey) return; // wait until config has loaded
+    const order: SectionId[] = ["device", "wifi", "llm", "language", "channel", "tts", "voice", "face"];
+    const next = order.find((id) => !sectionDone[id]) ?? "tts";
+    setActiveSection(next);
+    autoScrolledRef.current = true;
+  }, [isContinue, llmApiKey, sectionDone]);
 
   useEffect(() => {
     const maxAttempts = 4;
@@ -613,32 +668,72 @@ export default function Setup() {
       setMqttPassword((prev) => prev || cfg.mqtt_password || "");
       setFaChannel((prev) => prev || cfg.fa_channel || "");
       setFdChannel((prev) => prev || cfg.fd_channel || "");
+      // Saved language always wins over the browser-locale default — the
+      // browser guess only matters for a never-configured device.
+      if (cfg.stt_language) setSttLanguage(cfg.stt_language);
     }).catch(() => {});
   }, []);
 
+  // Poll backend for setup phase + LAN IP after submission. Stops once the
+  // device reports phase=connected (Wi-Fi associated) or phase=failed. Runs
+  // against the AP IP so it works while the user is still on the AP SSID;
+  // once the AP shuts down the polls will fail and we keep the last value.
   useEffect(() => {
     if (!setupWorking) return;
-    const closeAt = Date.now() + 5000;
-    const id = setInterval(() => {
-      const left = Math.max(0, Math.ceil((closeAt - Date.now()) / 1000));
-      setCountdown(left);
-      if (left <= 0) window.close();
-    }, 500);
-    return () => clearInterval(id);
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await getSetupStatus();
+        if (cancelled) return;
+        if (s.phase === "connected") {
+          setSetupPhase("connected");
+          if (s.lan_ip) setSetupLanIP(s.lan_ip);
+        } else if (s.phase === "failed") {
+          setSetupPhase("failed");
+          setSetupErrorMsg(s.error || "Wi-Fi setup failed.");
+        }
+      } catch {
+        /* AP likely shutting down — keep last known phase */
+      }
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [setupWorking]);
 
+  // Best-effort auto-redirect: once we know the LAN IP, probe it from the
+  // browser. When reachable (= user has rejoined home Wi-Fi) navigate there.
+  useEffect(() => {
+    if (setupPhase !== "connected" || !setupLanIP) return;
+    let cancelled = false;
+    const newURL = `http://${setupLanIP}/`;
+    const probe = async () => {
+      try {
+        await fetch(`${newURL}api/health`, { mode: "no-cors", cache: "no-store" });
+        if (!cancelled) window.location.href = newURL;
+      } catch {
+        /* not reachable yet — user still on AP SSID */
+      }
+    };
+    probe();
+    const id = setInterval(probe, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [setupPhase, setupLanIP]);
 
-  // Refetch voices when provider changes — only reset voice if user changed provider
+
+  // Refetch voices when provider OR sttLanguage changes — only reset voice
+  // if the currently-selected one is not in the new (filtered) list. Passing
+  // sttLanguage filters ElevenLabs voices to the active language bucket.
   const providerChangedByUser = useRef(false);
   useEffect(() => {
-    getTTSVoices(ttsProvider).then((voices) => {
+    getTTSVoices(ttsProvider, sttLanguage).then((voices) => {
       setTtsVoices(voices);
       if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
         setTtsVoice(voices[0]);
       }
       providerChangedByUser.current = true;
     }).catch(() => {});
-  }, [ttsProvider]);
+  }, [ttsProvider, sttLanguage]);
 
   // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
   // Once the user types into TTS the sync stops; clearing it re-enables mirroring.
@@ -702,6 +797,7 @@ export default function Setup() {
         deepgram_api_key: urlParams.deepgramApiKey || undefined,
         stt_api_key: sttApiKey || undefined,
         stt_base_url: sttBaseUrl || undefined,
+        stt_language: sttLanguage || undefined,
         tts_api_key: ttsApiKey || undefined,
         tts_base_url: ttsBaseUrl || undefined,
         tts_provider: ttsProvider || undefined,
@@ -722,7 +818,7 @@ export default function Setup() {
       }
       const result = await setupDevice(body);
       setSetupWorking(result);
-      setCountdown(5);
+      setSetupPhase("connecting");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Setup failed.");
     }
@@ -758,18 +854,20 @@ export default function Setup() {
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {SECTIONS.map((s) => {
             const active = activeSection === s.id;
+            const done = isContinue && sectionDone[s.id];
             return (
               <button key={s.id} onClick={() => scrollTo(s.id)} style={{
                 display: "flex", alignItems: "center", gap: 9,
                 padding: "8px 14px", borderRadius: 8, margin: "2px 8px",
                 fontSize: 12.5, fontWeight: active ? 600 : 400,
-                color: active ? C.amber : "var(--lm-text-dim)",
+                color: active ? C.amber : (done ? C.textMuted : "var(--lm-text-dim)"),
                 background: active ? C.amberDim : "transparent",
                 cursor: "pointer", transition: "all 0.15s",
                 border: "none", width: "calc(100% - 16px)", textAlign: "left",
               }}>
                 {s.icon}
-                {s.label}
+                <span style={{ flex: 1 }}>{s.label}</span>
+                {done && <Check size={13} style={{ color: C.green }} />}
               </button>
             );
           })}
@@ -858,19 +956,90 @@ export default function Setup() {
         }}>
           <div style={{ maxWidth: 560, margin: "0 auto" }}>
 
-            {/* Success state */}
+            {/* Post-submit screen: shows progress while the lamp joins
+                Wi-Fi, then a QR + IP for the user to continue setup on the
+                home network once the AP shuts down. */}
             {setupWorking ? (
               <div style={{
                 background: C.card, border: `1px solid ${C.border}`,
                 borderRadius: 12, padding: "32px 24px", textAlign: "center",
               }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>✦</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: C.amber, marginBottom: 8 }}>
-                  Connected!
-                </div>
-                <div style={{ fontSize: 12, color: C.textDim }}>
-                  Window closes in {countdown}s…
-                </div>
+                {setupPhase === "connecting" && (
+                  <>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.amber, marginBottom: 8 }}>
+                      Lumi is joining your Wi-Fi…
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textDim }}>
+                      This usually takes 10-30 seconds. Stay on this network.
+                    </div>
+                  </>
+                )}
+
+                {setupPhase === "connected" && (
+                  <>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>✦</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.amber, marginBottom: 16 }}>
+                      Lumi is online!
+                    </div>
+
+                    {setupLanIP ? (
+                      <>
+                        <div style={{
+                          display: "inline-block", padding: 12, background: "#fff",
+                          borderRadius: 8, marginBottom: 14,
+                        }}>
+                          <QRCodeSVG value={`http://${setupLanIP}/`} size={172} level="M" />
+                        </div>
+                        <div style={{ fontSize: 13, color: C.text, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+                          http://{setupLanIP}/
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textDim, marginBottom: 18, lineHeight: 1.5 }}>
+                          Reconnect your phone to home Wi-Fi, then scan the QR
+                          (or type the address). Lumi will redirect you here
+                          automatically once it can see you.
+                        </div>
+                        <a
+                          href={`http://${setupLanIP}/`}
+                          style={{
+                            display: "inline-block", padding: "9px 18px",
+                            background: C.amber, color: "#fff",
+                            borderRadius: 7, fontSize: 12.5, fontWeight: 600,
+                            textDecoration: "none",
+                          }}
+                        >
+                          Continue setup →
+                        </a>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, color: C.textDim }}>
+                        Lamp connected but didn't report an IP. Check your router for "Lumi" / Pi 5 to find the address.
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {setupPhase === "failed" && (
+                  <>
+                    <div style={{ fontSize: 32, marginBottom: 12, color: C.red }}>✕</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.red, marginBottom: 8 }}>
+                      Wi-Fi setup failed
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>
+                      {setupErrorMsg || "Couldn't connect to the network you chose. Double-check the password and try again."}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSetupWorking(false); setSetupPhase("connecting"); }}
+                      style={{
+                        padding: "8px 16px", background: C.amber, color: "#fff",
+                        border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
+                      }}
+                    >
+                      Back to setup
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <>
@@ -947,234 +1116,37 @@ export default function Setup() {
                     </label>
                   </SectionCard>
 
-                  {/* Voice enrollment — user stands near the lamp and reads
-                      3 sentences while the LAMP'S OWN MIC records. Web is
-                      just a remote trigger — no browser mic permission, no
-                      HTTPS required. */}
-                  <SectionCard id="voice" title="Voice Enroll (optional)" active={activeSection === "voice"}>
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                      Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
+                  {/* Language — picks STT language; backend auto-derives the
+                      Deepgram model behind the scenes. Default is read from
+                      navigator.language so VN/CN locales land pre-selected. */}
+                  <SectionCard id="language" title="Language" active={activeSection === "language"}>
+                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>
+                      Pick the language the lamp listens for. You can change this anytime from the Edit page.
                     </div>
-                    <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
-                    <div style={{
-                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7,
-                      padding: "12px 14px", marginBottom: 12, fontSize: 13, lineHeight: 1.55, color: C.text,
-                    }}>
-                      {VOICE_PHRASES.map((p, i) => (
-                        <div key={i} style={{ marginBottom: i < VOICE_PHRASES.length - 1 ? 6 : 0 }}>
-                          <span style={{ color: C.textMuted, marginRight: 6 }}>{i + 1}.</span>
-                          {p}
-                        </div>
-                      ))}
-                    </div>
-                    {voiceMsg && (
-                      <div style={{
-                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                        background: voiceMsg.startsWith("Error") ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                        color: voiceMsg.startsWith("Error") ? C.red : "rgb(52,211,153)",
-                      }}>{voiceMsg}</div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={startVoiceEnroll}
-                      disabled={!voiceLabel.trim() || voicePhase !== "idle"}
-                      style={{
-                        width: "100%", padding: "11px 0", borderRadius: 7, fontSize: 13, fontWeight: 600,
-                        cursor: voicePhase === "idle" && voiceLabel.trim() ? "pointer" : "not-allowed",
-                        background: voicePhase === "recording" ? "rgba(248,113,113,0.18)"
-                          : voicePhase === "countdown" ? "rgba(245,158,11,0.18)"
-                          : voicePhase === "processing" ? C.surface
-                          : !voiceLabel.trim() ? C.surface : "rgba(52,211,153,0.12)",
-                        border: `1px solid ${voicePhase === "recording" ? "rgba(248,113,113,0.4)"
-                          : voicePhase === "countdown" ? "rgba(245,158,11,0.4)"
-                          : !voiceLabel.trim() ? C.border : "rgba(52,211,153,0.35)"}`,
-                        color: voicePhase === "recording" ? C.red
-                          : voicePhase === "countdown" ? C.amber
-                          : voicePhase === "processing" ? C.textDim
-                          : !voiceLabel.trim() ? C.textMuted : "rgb(52,211,153)",
-                      }}
-                    >
-                      {voicePhase === "idle" && `Start Recording (${VOICE_DURATION_SEC}s on lamp)`}
-                      {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
-                      {voicePhase === "recording" && `● Recording on lamp — read aloud (${voiceCountdown}s)`}
-                      {voicePhase === "processing" && "Processing..."}
-                    </button>
-                    {(() => {
-                      const withVoice = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
-                      if (withVoice.length === 0) return null;
-                      return (
-                        <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                            Voice Files
-                          </div>
-                          {withVoice.map((p) => {
-                            const expanded = !!voiceExpanded[p.label];
-                            return (
-                            <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 8 : 0 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleVoiceExpanded(p.label)}
-                                  style={{
-                                    flex: 1, display: "flex", alignItems: "center", gap: 8,
-                                    background: "none", border: "none", cursor: "pointer", padding: 0,
-                                    textAlign: "left", color: C.text,
-                                  }}
-                                >
-                                  <span style={{ fontSize: 11, color: C.textMuted, transition: "transform 0.15s", transform: expanded ? "rotate(90deg)" : "none" }}>▶</span>
-                                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
-                                  <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}>({p.voice_samples!.length} file{p.voice_samples!.length !== 1 ? "s" : ""})</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!confirm(`Remove ALL voice files for "${p.label}"? Face data is preserved.`)) return;
-                                    try {
-                                      await fetch("/hw/speaker/remove", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ name: p.label }),
-                                      });
-                                      loadFaceOwners();
-                                    } catch { /* ignore */ }
-                                  }}
-                                  style={{
-                                    background: "none", border: `1px solid ${C.border}`, borderRadius: 5,
-                                    cursor: "pointer", fontSize: 10, color: C.red, padding: "3px 8px",
-                                  }}
-                                >
-                                  Remove all
-                                </button>
-                              </div>
-                              {expanded && (<>
-
-                              {p.voice_samples!.map((file) => {
-                                const ext = file.toLowerCase().split(".").pop() || "";
-                                const url = `/hw/face/file/${p.label}/voice/${encodeURIComponent(file)}`;
-                                const isAudio = ["wav", "ogg", "mp3", "webm", "m4a"].includes(ext);
-                                const viewLabel = ["json", "jsonl", "txt"].includes(ext) ? "view" : "open";
-                                return (
-                                  <div key={file} title={file} style={{
-                                    display: "flex", alignItems: "center", gap: 6, padding: "3px 0",
-                                    fontSize: 11, color: C.textDim,
-                                  }}>
-                                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
-                                      {file}
-                                    </span>
-                                    {isAudio ? (
-                                      <>
-                                        <audio controls src={url} style={{ width: 180, height: 24 }} />
-                                        <button type="button" onClick={() => removeVoiceFile(p.label, file)}
-                                          style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, lineHeight: 1, padding: "0 4px" }} title="Delete">
-                                          ×
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <a href={url} target="_blank" rel="noreferrer"
-                                        style={{ fontSize: 10, color: C.amber, textDecoration: "none", padding: "2px 6px", border: `1px solid ${C.border}`, borderRadius: 4 }}>
-                                        {viewLabel}
-                                      </a>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              </>)}
-                            </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </SectionCard>
-
-                  {/* Face enrollment — optional during setup; user can enroll
-                      themselves so the lamp recognizes them on first boot. */}
-                  <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                      Upload photos so the lamp can recognize you.
-                    </div>
-                    <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Photos ({faceFiles.length} selected)
+                    <div style={{ marginBottom: 4 }}>
+                      <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
+                        Language
                       </label>
-                      <input
-                        ref={faceInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
-                        style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
-                      />
+                      <select
+                        id="stt_language"
+                        value={sttLanguage}
+                        onChange={(e) => setSttLanguage(e.target.value)}
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 7, padding: "8px 11px",
+                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="">Auto (default)</option>
+                        <option value="en">English</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="zh-TW">Chinese (Traditional)</option>
+                      </select>
                     </div>
-                    {faceMsg && (
-                      <div style={{
-                        fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                        background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                        color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                          ? C.red : "rgb(52,211,153)",
-                      }}>{faceMsg}</div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleFaceEnroll}
-                      disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
-                      style={{
-                        width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
-                        fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
-                        background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
-                        border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
-                        color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
-                      }}
-                    >
-                      {faceUploading ? "Uploading…" : "Enroll Face"}
-                    </button>
-                    {faceOwners.filter((p) => p.photo_count > 0).length > 0 && (
-                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                          Enrolled ({faceOwners.filter((p) => p.photo_count > 0).length})
-                        </div>
-                        {faceOwners.filter((p) => p.photo_count > 0).map((p) => (
-                          <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: p.photos.length > 1 ? 8 : 0 }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.label}</div>
-                                <div style={{ fontSize: 10, color: C.textMuted }}>{p.photo_count} photo{p.photo_count !== 1 ? "s" : ""}</div>
-                              </div>
-                              {p.label !== "unknown" && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeFaceOwner(p.label)}
-                                  style={{
-                                    background: "none", border: "none", cursor: "pointer",
-                                    fontSize: 11, color: C.red, padding: "4px 8px",
-                                  }}
-                                >
-                                  Remove
-                                </button>
-                              )}
-                            </div>
-                            {p.photos.length > 0 && (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {p.photos.map((photo) => (
-                                  <img
-                                    key={photo}
-                                    src={`/hw/face/photo/${p.label}/${photo}`}
-                                    onClick={() => window.open(`/hw/face/photo/${p.label}/${photo}`, "_blank")}
-                                    style={{
-                                      width: 48, height: 48, borderRadius: 8, objectFit: "cover",
-                                      border: `1px solid ${C.border}`, cursor: "pointer",
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </SectionCard>
+
 
                   {/* Channel */}
                   <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
@@ -1220,7 +1192,7 @@ export default function Setup() {
                   </SectionCard>
 
                   {/* TTS */}
-                  <SectionCard id="tts" title="TTS Voice" active={activeSection === "tts"}>
+                  <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
                     {/* tts_api_key + tts_base_url are not exposed in Setup —
                         they're auto-mirrored from AI Brain via useEffect and
                         submitted silently. */}
@@ -1263,23 +1235,153 @@ export default function Setup() {
                           <option key={v} value={v}>{v}</option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => testTTSVoice(ttsVoice, {
-                          provider: ttsProvider,
-                          ttsApiKey, ttsBaseUrl,
-                          llmApiKey, llmBaseUrl: llmUrl,
-                        })}
-                        style={{
-                          marginTop: 8, width: "100%", padding: "8px 0",
-                          background: C.amber, color: "#fff", border: "none",
-                          borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
-                        }}
-                      >
-                        Test Voice
-                      </button>
+                      {isContinue ? (
+                        <button
+                          type="button"
+                          onClick={() => testTTSVoice(ttsVoice, {
+                            lang: sttLanguage,
+                            provider: ttsProvider,
+                            ttsApiKey, ttsBaseUrl,
+                            llmApiKey, llmBaseUrl: llmUrl,
+                          })}
+                          style={{
+                            marginTop: 8, width: "100%", padding: "8px 0",
+                            background: C.amber, color: "#fff", border: "none",
+                            borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
+                          }}
+                        >
+                          Test Voice
+                        </button>
+                      ) : (
+                        <div style={{ marginTop: 8, fontSize: 11, color: C.textDim }}>
+                          You can preview voices after Lumi is online (next step).
+                        </div>
+                      )}
                     </div>
                   </SectionCard>
+
+                  {isContinue && (
+                    <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
+                      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                        Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
+                      </div>
+                      <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
+                      <div style={{
+                        background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 7, padding: "10px 12px", marginBottom: 10, fontSize: 12, lineHeight: 1.5,
+                      }}>
+                        {VOICE_PHRASES.map((p, i) => (
+                          <div key={i} style={{ marginBottom: i < VOICE_PHRASES.length - 1 ? 6 : 0 }}>
+                            <span style={{ color: C.textMuted, marginRight: 6 }}>{i + 1}.</span>
+                            <span style={{ color: C.text }}>{p}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                        <button
+                          type="button" disabled={voicePhase !== "idle"}
+                          onClick={startVoiceEnroll}
+                          style={{
+                            flex: 1, padding: "8px 0",
+                            background: voicePhase === "idle" ? C.amber : C.surface,
+                            color: voicePhase === "idle" ? "#fff" : C.textDim,
+                            border: "none", borderRadius: 7, fontSize: 12,
+                            cursor: voicePhase === "idle" ? "pointer" : "default", fontWeight: 600,
+                          }}
+                        >
+                          {voicePhase === "idle" && "Start recording"}
+                          {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
+                          {voicePhase === "recording" && `Recording... ${voiceCountdown}s`}
+                          {voicePhase === "processing" && "Processing..."}
+                        </button>
+                      </div>
+                      {voiceMsg && (
+                        <div style={{ fontSize: 11, color: voiceMsg.startsWith("Error") ? C.red : C.green, marginTop: 4 }}>
+                          {voiceMsg}
+                        </div>
+                      )}
+                      {(() => {
+                        const enrolled = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
+                        if (enrolled.length === 0) return null;
+                        return (
+                          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>Enrolled:</div>
+                            {enrolled.map((p) => (
+                              <div key={p.label} style={{ marginBottom: 6 }}>
+                                <button type="button" onClick={() => toggleVoiceExpanded(p.label)} style={{
+                                  background: "none", border: "none", color: C.text, fontSize: 12,
+                                  cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6,
+                                }}>
+                                  <span>{voiceExpanded[p.label] ? "▾" : "▸"}</span>
+                                  {p.label} <span style={{ color: C.textMuted }}>({p.voice_samples?.length ?? 0})</span>
+                                </button>
+                                {voiceExpanded[p.label] && (p.voice_samples?.length ?? 0) > 0 && (
+                                  <div style={{ marginLeft: 18, marginTop: 4 }}>
+                                    {p.voice_samples!.map((file) => (
+                                      <div key={file} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: C.textDim, padding: "3px 0" }}>
+                                        <span>{file}</span>
+                                        <button type="button" onClick={() => removeVoiceFile(p.label, file)} style={{
+                                          background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11,
+                                        }}>remove</button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </SectionCard>
+                  )}
+
+                  {isContinue && (
+                    <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
+                      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                        Upload photos so the lamp can recognize you.
+                      </div>
+                      <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
+                      <div style={{ marginBottom: 12 }}>
+                        <input
+                          ref={faceInputRef} type="file" accept="image/*" multiple
+                          onChange={(e) => setFaceFiles(Array.from(e.target.files ?? []))}
+                          style={{ fontSize: 12, color: C.text }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={faceUploading || !faceName.trim() || faceFiles.length === 0}
+                        onClick={handleFaceEnroll}
+                        style={{
+                          width: "100%", padding: "8px 0",
+                          background: !faceUploading && faceName.trim() && faceFiles.length > 0 ? C.amber : C.surface,
+                          color: !faceUploading && faceName.trim() && faceFiles.length > 0 ? "#fff" : C.textDim,
+                          border: "none", borderRadius: 7, fontSize: 12,
+                          cursor: faceUploading ? "default" : "pointer", fontWeight: 600,
+                        }}
+                      >
+                        {faceUploading ? "Uploading..." : "Upload"}
+                      </button>
+                      {faceMsg && (
+                        <div style={{ fontSize: 11, color: faceMsg.startsWith("Error") ? C.red : C.green, marginTop: 8 }}>
+                          {faceMsg}
+                        </div>
+                      )}
+                      {faceOwners.length > 0 && (
+                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>Enrolled:</div>
+                          {faceOwners.map((p) => (
+                            <div key={p.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 12 }}>
+                              <span>{p.label} <span style={{ color: C.textMuted }}>({p.photo_count} photos)</span></span>
+                              <button type="button" onClick={() => removeFaceOwner(p.label)} style={{
+                                background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11,
+                              }}>remove</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </SectionCard>
+                  )}
 
                 </form>
               </>

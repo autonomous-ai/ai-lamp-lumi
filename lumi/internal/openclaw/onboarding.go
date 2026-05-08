@@ -93,10 +93,18 @@ func (s *Service) EnsureOnboarding() error {
 
 	needRestart := false
 
-	// Seed SOUL.md from embedded binary
-	if changed := seedFile(soulFS, "resources/SOUL.md", filepath.Join(workspace, "SOUL.md")); changed {
+	// Inject SOUL.md core block (owner-editable content stays below the block)
+	if modified, err := s.ensureSoulMDBlock(); err != nil {
+		slog.Error("ensure SOUL.md block failed", "component", "onboarding", "error", err)
+	} else if modified {
 		needRestart = true
 	}
+
+	// OLD (kept for rollback): full-file overwrite of SOUL.md from embedded binary.
+	// Replaced by ensureSoulMDBlock above so owner edits below the marker survive.
+	// if changed := seedFile(soulFS, "resources/SOUL.md", filepath.Join(workspace, "SOUL.md")); changed {
+	// 	needRestart = true
+	// }
 
 	// Download skills from CDN
 	skillsDir := filepath.Join(workspace, "skills")
@@ -310,6 +318,59 @@ func (s *Service) ensureAgentsMDBlock() (bool, error) {
 	}
 
 	slog.Info("injected mandatory block into AGENTS.md", "component", "onboarding", "path", agentsFile)
+	return true, nil
+}
+
+// ensureSoulMDBlock wraps the embedded SOUL.md as a marker-delimited core block
+// at the top of workspace/SOUL.md. Anything the owner writes below the closing
+// `---` is preserved on subsequent onboarding runs, mirroring the AGENTS.md /
+// HEARTBEAT.md pattern. Returns true if the file was modified.
+func (s *Service) ensureSoulMDBlock() (bool, error) {
+	soulFile := filepath.Join(s.config.OpenclawConfigDir, "workspace", "SOUL.md")
+
+	coreContent, err := soulFS.ReadFile("resources/SOUL.md")
+	if err != nil {
+		return false, fmt.Errorf("read embedded SOUL.md: %w", err)
+	}
+	soulMDBlock := lumiMandatoryMarker + "\n" + strings.TrimSpace(string(coreContent)) + "\n---"
+
+	content, err := os.ReadFile(soulFile)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read SOUL.md: %w", err)
+	}
+	text := string(content)
+
+	if strings.Contains(text, soulMDBlock) {
+		slog.Debug("SOUL.md already has current core block, skipping", "component", "onboarding")
+		return false, nil
+	}
+
+	// Legacy migration: before the marker block existed, onboarding overwrote
+	// SOUL.md with the embedded core verbatim every run, so unmodified devices
+	// have a file == coreContent. Detect that exact shape and drop it so we
+	// don't duplicate the core when prepending the new marker block.
+	if strings.TrimSpace(text) == strings.TrimSpace(string(coreContent)) {
+		text = ""
+	}
+
+	// Strip any prior marker block before injecting the current one.
+	if strings.Contains(text, lumiMandatoryMarker) {
+		text = stripMarkedBlock(text)
+	}
+
+	var output string
+	if strings.TrimSpace(text) == "" {
+		// First install or clean migration → seed an owner-editable Personal section.
+		output = soulMDBlock + "\n\n## Personal\n\n_Owner-editable. Add notes about yourself, family, routines, or personality tweaks for Lumi here. The block above is managed by Lumi and will be refreshed on each update — keep your edits in this section._\n"
+	} else {
+		output = soulMDBlock + "\n\n" + text
+	}
+
+	if err := os.WriteFile(soulFile, []byte(output), 0644); err != nil {
+		return false, fmt.Errorf("write SOUL.md: %w", err)
+	}
+
+	slog.Info("injected core block into SOUL.md", "component", "onboarding", "path", soulFile)
 	return true, nil
 }
 

@@ -58,6 +58,19 @@ export async function setupDevice(body: SetupRequest): Promise<boolean> {
   });
 }
 
+export interface SetupStatus {
+  phase: "idle" | "connecting" | "connected" | "failed";
+  lan_ip: string;
+  error: string;
+}
+
+/** Polled by Setup.tsx during the AP→STA transition. Returns the device's
+ *  current setup phase plus the LAN IP once Wi-Fi is associated, so the web
+ *  client can redirect the user to the new URL. */
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return apiRequest<SetupStatus>(`${API_BASE}/api/device/setup/status`);
+}
+
 export async function checkInternet(): Promise<boolean> {
   return apiRequest<boolean>(`${API_BASE}/api/network/check-internet`);
 }
@@ -86,6 +99,8 @@ export interface DeviceConfig {
   tts_api_key: string;
   stt_base_url: string;
   tts_base_url: string;
+  stt_language: string;
+  stt_model: string;
   tts_provider: string;
   tts_voice: string;
   device_id: string;
@@ -99,8 +114,11 @@ export interface DeviceConfig {
   fd_channel: string;
 }
 
-export async function getTTSVoices(provider?: string): Promise<string[]> {
-  const params = provider ? `?provider=${provider}` : "";
+export async function getTTSVoices(provider?: string, lang?: string): Promise<string[]> {
+  const qs = new URLSearchParams();
+  if (provider) qs.set("provider", provider);
+  if (lang) qs.set("lang", lang);
+  const params = qs.toString() ? `?${qs.toString()}` : "";
   return apiRequest<string[]>(`${API_BASE}/api/device/voices${params}`);
 }
 
@@ -110,11 +128,25 @@ export async function getTTSProviders(): Promise<string[]> {
 
 export interface TestTTSOptions {
   text?: string;
+  /** BCP-47 stt_language code; picks a friendly demo phrase in that language. */
+  lang?: string;
   provider?: string;
   ttsApiKey?: string;
   ttsBaseUrl?: string;
   llmApiKey?: string;
   llmBaseUrl?: string;
+}
+
+const TTS_DEMO_PHRASES: Record<string, string> = {
+  en: "[laugh] Hey! How are you doing today?",
+  vi: "[laugh] Chào bạn, hôm nay bạn thế nào?",
+  "zh-CN": "[laugh] 嗨，你今天怎么样？",
+  "zh-TW": "[laugh] 嗨，你今天怎麼樣？",
+};
+
+function demoPhraseFor(lang?: string): string {
+  if (!lang) return TTS_DEMO_PHRASES.en;
+  return TTS_DEMO_PHRASES[lang] || TTS_DEMO_PHRASES.en;
 }
 
 export async function testTTSVoice(voice: string, opts: TestTTSOptions = {}): Promise<void> {
@@ -124,7 +156,7 @@ export async function testTTSVoice(voice: string, opts: TestTTSOptions = {}): Pr
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: opts.text || "[laugh] Hey! How are you doing today?",
+      text: opts.text || demoPhraseFor(opts.lang),
       voice,
       provider: opts.provider || undefined,
       tts_api_key: apiKey || undefined,

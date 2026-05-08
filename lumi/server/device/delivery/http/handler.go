@@ -79,6 +79,24 @@ func (h *DeviceHandler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(cfg))
 }
 
+// SetupStatus godoc
+//
+//	@Summary	current setup phase + LAN IP
+//	@Description	web polls this during the AP→STA transition to learn the
+//	@Description	device's new LAN IP and redirect the user. Phase progresses
+//	@Description	idle → connecting → connected (or failed).
+//	@Tags			device
+//	@Success		200	{object}	serializers.ResponseSuccess
+//	@Router			/device/setup/status [get]
+func (h *DeviceHandler) SetupStatus(c *gin.Context) {
+	phase, lanIP, errMsg := h.service.SetupStatus()
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(gin.H{
+		"phase":  phase,
+		"lan_ip": lanIP,
+		"error":  errMsg,
+	}))
+}
+
 // UpdateConfig godoc
 //
 //	@Summary	update device config
@@ -103,15 +121,19 @@ func (h *DeviceHandler) UpdateConfig(c *gin.Context) {
 }
 
 // GetVoices returns the list of available TTS voices for the requested provider.
-// Tries LeLamp /voice/voices?provider= first (source of truth), falls back to static list.
+// Tries LeLamp /voice/voices?provider=&lang= first (source of truth), falls
+// back to a static list. `lang` (BCP-47 stt_language code) lets the web UI
+// filter voices to those that sound natural in the active language; empty
+// lang returns the full flat list.
 func (h *DeviceHandler) GetVoices(c *gin.Context) {
 	provider := c.DefaultQuery("provider", domain.TTSProviderOpenAI)
+	lang := c.Query("lang")
 
-	if voices, err := lelamp.ListVoices(provider); err == nil && len(voices) > 0 {
+	if voices, err := lelamp.ListVoices(provider, lang); err == nil && len(voices) > 0 {
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(voices))
 		return
 	}
-	// Fallback to static list
+	// Fallback to static list (no language filtering — static list is EN-only)
 	voices, ok := domain.TTSVoicesByProvider[provider]
 	if !ok {
 		voices = domain.TTSVoices
