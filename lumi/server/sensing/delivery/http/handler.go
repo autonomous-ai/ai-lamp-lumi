@@ -36,12 +36,14 @@ import (
 
 // brainRestartingByLang is the cooldown-throttled TTS spoken when a voice
 // command lands while the OpenClaw gateway is disconnected. Lets the user
-// know silence is intentional rather than dead.
+// know silence is intentional rather than dead. Phrasing avoids tech
+// jargon ("restarting", "重启") per SOUL.md — Lumi is a small living being
+// whose head briefly lost focus, not a device rebooting.
 var brainRestartingByLang = map[string]string{
-	"en":    "Hold on, brain is restarting.",
-	"vi":    "Đợi chút nhé, đầu mình đang khởi động lại.",
-	"zh-CN": "稍等一下，我的大脑在重启。",
-	"zh-TW": "稍等一下，我的大腦在重啟。",
+	"en":    "[sigh] Hold on, my head's clearing.",
+	"vi":    "[sigh] Đợi chút nhé, đầu mình đang tỉnh lại.",
+	"zh-CN": "[sigh] 稍等一下，我脑子还在回过神。",
+	"zh-TW": "[sigh] 稍等一下，我腦子還在回過神。",
 }
 
 func brainRestartingNotice() string {
