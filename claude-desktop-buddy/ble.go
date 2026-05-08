@@ -118,18 +118,19 @@ func (s *BLEServer) Start() error {
 		s.evtCh <- connected
 	})
 
-	// Per the Hardware Buddy spec (github.com/anthropics/claude-desktop-buddy
-	// REFERENCE.md): NUS characteristics must be encrypted-only and require
-	// LE Secure Connections bonding. The "secure-*" flags are added to our
-	// patched tinygo-bluetooth fork in third_party/bluetooth.
+	// Hardware Buddy spec recommends LE Secure Connections bonding, but
+	// Claude Desktop's current Mac client connects without auto-triggering
+	// SMP, leaving encrypted-only chrs inaccessible ("No response" in the
+	// panel). For now drop the secure-* flags so the chrs are reachable
+	// over the unencrypted link; bonding can be re-introduced once we
+	// figure out how to make Claude Desktop initiate the pairing handshake.
 	err := adapter.AddService(&bluetooth.Service{
 		UUID: nusServiceUUID,
 		Characteristics: []bluetooth.CharacteristicConfig{
 			{
 				UUID: nusRXUUID, // Desktop writes here (Desktop → Device)
 				Flags: bluetooth.CharacteristicWritePermission |
-					bluetooth.CharacteristicWriteWithoutResponsePermission |
-					bluetooth.CharacteristicSecureWritePermission,
+					bluetooth.CharacteristicWriteWithoutResponsePermission,
 				WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
 					s.handleRX(value)
 				},
@@ -138,7 +139,7 @@ func (s *BLEServer) Start() error {
 				Handle: &s.txChar,
 				UUID:   nusTXUUID, // Device writes here (Device → Desktop)
 				Flags: bluetooth.CharacteristicNotifyPermission |
-					bluetooth.CharacteristicSecureReadPermission,
+					bluetooth.CharacteristicReadPermission,
 			},
 		},
 	})
