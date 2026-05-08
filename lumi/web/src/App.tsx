@@ -7,8 +7,9 @@ import EditConfig from "@/pages/EditConfig";
 import GwConfig from "@/pages/GwConfig";
 import { checkInternet } from "@/lib/api";
 
-// Setup gate: if WiFi is provisioned (device has internet) → /monitor; else show Setup.
-// `#force` in the URL hash (e.g. /setup#force) bypasses the redirect for testing.
+// Setup gate: provisioned (online) → continue mode (Voice/Face enroll, TTS
+// preview), else initial mode (offline form for AP setup). `#force` in the
+// URL hash (e.g. /setup#force) forces initial mode for testing.
 function SetupGate() {
   const force = typeof window !== "undefined" && window.location.hash === "#force";
   const [provisioned, setProvisioned] = useState<boolean | null>(force ? false : null);
@@ -19,8 +20,7 @@ function SetupGate() {
       .catch(() => setProvisioned(false));
   }, [force]);
   if (provisioned === null) return null;
-  if (provisioned) return <Navigate to="/monitor" replace />;
-  return <Setup />;
+  return <Setup mode={provisioned ? "continue" : "initial"} />;
 }
 
 function App() {
