@@ -668,6 +668,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
       setMqttPassword((prev) => prev || cfg.mqtt_password || "");
       setFaChannel((prev) => prev || cfg.fa_channel || "");
       setFdChannel((prev) => prev || cfg.fd_channel || "");
+      // Saved language always wins over the browser-locale default — the
+      // browser guess only matters for a never-configured device.
+      if (cfg.stt_language) setSttLanguage(cfg.stt_language);
     }).catch(() => {});
   }, []);
 
