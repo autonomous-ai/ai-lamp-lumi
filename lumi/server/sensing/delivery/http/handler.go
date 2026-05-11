@@ -375,7 +375,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
 			msg += skillcontext.BuildUserContext(currentUser)
-			msg += "\n[Tool calls without data dependencies must fire concurrently. Batch reads in one bash with `& ... wait`, decide locally, batch writes the same way. Do not sequence them across multiple tool turns.]"
 			// Pre-fetch the reads that the emotion.detected pipeline (mood
 			// signal/decision + router gating in user-emotion-detection +
 			// music-suggestion genre lookup) would otherwise issue. SKILL.md

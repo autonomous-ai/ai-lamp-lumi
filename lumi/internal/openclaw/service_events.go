@@ -227,7 +227,6 @@ func (s *Service) drainPendingEvents() {
 			case "emotion.detected":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += skillcontext.BuildUserContext(ev.currentUser)
-				msg += "\n[Tool calls without data dependencies must fire concurrently. Batch reads in one bash with `& ... wait`, decide locally, batch writes the same way. Do not sequence them across multiple tool turns.]"
 				// See sensing handler: pre-fetch emotion pipeline reads.
 				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
 			}
