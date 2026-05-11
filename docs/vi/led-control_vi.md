@@ -17,6 +17,11 @@
 | POST | `/led/off` | Tắt tất cả LED |
 | POST | `/led/effect` | Bật effect |
 | POST | `/led/effect/stop` | Dừng effect đang chạy |
+| POST | `/led/restore` | Repaint LED state mà user đã set (hoặc tắt strip nếu không có) |
+
+### Transient writes
+
+`/led/solid`, `/led/effect`, `/led/off` chấp nhận flag tùy chọn `"transient": true`. Khi bật, call sẽ paint strip nhưng **không** ghi đè user LED state. State đã lưu sẽ được restore khi caller (vd Claude Desktop Buddy) xong việc — qua emotion restore timer tự nhiên, hoặc qua `POST /led/restore`. Pulse effect chạy với `transient: true` cũng overlay trên màu user thay vì nền đen.
 
 ## Solid Color
 
