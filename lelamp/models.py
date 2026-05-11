@@ -59,6 +59,10 @@ class ServoStateResponse(BaseModel):
 
 class LEDSolidRequest(BaseModel):
     color: Union[list[int], int]
+    transient: bool = Field(
+        False,
+        description="If true, don't overwrite user LED state (used by Buddy/transient overlays).",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -68,6 +72,10 @@ class LEDSolidRequest(BaseModel):
             ]
         }
     }
+
+
+class LEDOffRequest(BaseModel):
+    transient: bool = False
 
 
 class LEDPaintRequest(BaseModel):
@@ -110,6 +118,10 @@ class LEDEffectRequest(BaseModel):
     )
     duration_ms: Optional[int] = Field(
         None, ge=100, le=60000, description="Auto-stop after duration (null=indefinite)"
+    )
+    transient: bool = Field(
+        False,
+        description="If true, don't overwrite user LED state (used by Buddy/transient overlays).",
     )
 
     model_config = {

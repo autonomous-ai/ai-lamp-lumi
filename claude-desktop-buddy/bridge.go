@@ -38,7 +38,13 @@ func (b *Bridge) OnStateChange(old, next BuddyState, hb *Heartbeat) {
 		b.displayEyes("sleepy")
 
 	case StateIdle:
-		// Don't set LED — let ambient service handle it
+		// Released the strip — hand it back to the user's saved LED state.
+		// Skip when coming from Busy: main.go fires an emotion right
+		// after, and that emotion has its own restore. Avoids a
+		// user-color flash between Busy's effect and the emotion.
+		if old != StateBusy {
+			b.ledRestore()
+		}
 		b.displayEyesMode()
 
 	case StateBusy:
@@ -73,27 +79,40 @@ func (b *Bridge) OnStateChange(old, next BuddyState, hb *Heartbeat) {
 }
 
 // --- LeLamp calls (port 5001) ---
+//
+// All LED writes from Buddy are marked transient: they paint the strip
+// but don't overwrite the user's saved LED state (e.g. "đèn xanh lá").
+// When Buddy returns to Idle, ledRestore() asks LeLamp to repaint
+// whatever the user had set before Buddy took the strip.
 
 func (b *Bridge) ledOff() {
-	b.post(b.lelampURL+"/led/off", nil)
+	b.post(b.lelampURL+"/led/off", map[string]interface{}{
+		"transient": true,
+	})
 }
 
 func (b *Bridge) ledSolid(color [3]int) {
 	b.post(b.lelampURL+"/led/solid", map[string]interface{}{
-		"color": color,
+		"color":     color,
+		"transient": true,
 	})
 }
 
 func (b *Bridge) ledEffect(effect string, color [3]int, speed float64, durationMs int) {
 	payload := map[string]interface{}{
-		"effect": effect,
-		"color":  color,
-		"speed":  speed,
+		"effect":    effect,
+		"color":     color,
+		"speed":     speed,
+		"transient": true,
 	}
 	if durationMs > 0 {
 		payload["duration_ms"] = durationMs
 	}
 	b.post(b.lelampURL+"/led/effect", payload)
+}
+
+func (b *Bridge) ledRestore() {
+	b.post(b.lelampURL+"/led/restore", nil)
 }
 
 func (b *Bridge) displayInfo(text, subtitle string) {

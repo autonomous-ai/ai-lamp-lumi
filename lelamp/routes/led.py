@@ -1,14 +1,16 @@
 """LED route handlers -- all /led/* endpoints."""
 
 import threading
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 import lelamp.app_state as state
 from lelamp.models import (
     LEDColorResponse,
     LEDEffectRequest,
     LEDEffectResponse,
+    LEDOffRequest,
     LEDPaintRequest,
     LEDSolidRequest,
     LEDStateResponse,
@@ -72,11 +74,15 @@ def set_led_solid(req: LEDSolidRequest):
     if not state.rgb_service:
         raise HTTPException(503, "LED not available")
     color = tuple(req.color) if isinstance(req.color, list) else req.color
+    state._stop_current_effect()
     state.rgb_service.dispatch(RGB_CMD_SOLID, color)
     state._active_scene = None
     if state.sensing_service and isinstance(color, tuple):
         state.sensing_service.presence.set_last_color(color)
-    state._save_user_led_state({"type": LST_SOLID, "color": list(color)})
+    if req.transient:
+        state._cancel_pending_restore()
+    else:
+        state._save_user_led_state({"type": LST_SOLID, "color": list(color)})
     return {"status": "ok"}
 
 
@@ -91,16 +97,20 @@ def set_led_paint(req: LEDPaintRequest):
 
 
 @router.post("/led/off", response_model=StatusResponse)
-def turn_off_leds():
+def turn_off_leds(req: Optional[LEDOffRequest] = Body(default=None)):
     """Turn off all LEDs."""
     if not state.rgb_service:
         raise HTTPException(503, "LED not available")
+    transient = req.transient if req else False
     state._stop_current_effect()
     state.rgb_service.clear()
     state._active_scene = None
     if state.sensing_service:
         state.sensing_service.presence.set_last_color((0, 0, 0))
-    state._save_user_led_state({"type": LST_OFF})
+    if transient:
+        state._cancel_pending_restore()
+    else:
+        state._save_user_led_state({"type": LST_OFF})
     return {"status": "ok"}
 
 
@@ -141,22 +151,49 @@ def start_led_effect(req: LEDEffectRequest):
     )
     state._effect_thread.start()
     state.logger.info(
-        "LED effect started: %s (speed=%.1f, duration=%s)",
+        "LED effect started: %s (speed=%.1f, duration=%s, transient=%s)",
         req.effect,
         req.speed,
         req.duration_ms,
+        req.transient,
     )
 
-    state._save_user_led_state(
-        {
-            "type": LST_EFFECT,
-            "effect": req.effect,
-            "color": list(base_color),
-            "speed": req.speed,
-        }
-    )
+    if req.transient:
+        state._cancel_pending_restore()
+    else:
+        state._save_user_led_state(
+            {
+                "type": LST_EFFECT,
+                "effect": req.effect,
+                "color": list(base_color),
+                "speed": req.speed,
+            }
+        )
 
     return {"status": "ok", "effect": req.effect, "speed": req.speed}
+
+
+@router.post("/led/restore", response_model=StatusResponse)
+def restore_led():
+    """Restore the strip to the user's saved LED state.
+
+    Used by Buddy (and other transient drivers) after they release the
+    strip. If no user state exists, the strip is cleared to off so the
+    transient color/effect doesn't linger.
+    """
+    if not state.rgb_service:
+        raise HTTPException(503, "LED not available")
+    if state._tts_speaking:
+        state.logger.info("LED restore skipped -- TTS speaking_wave active")
+        return {"status": "ok"}
+    user_state = state._user_led_state
+    if user_state is None or user_state.get("type") == LST_OFF:
+        state._stop_current_effect()
+        state.rgb_service.dispatch(RGB_CMD_SOLID, (0, 0, 0))
+        state.logger.info("LED restore: no user state -- strip cleared")
+        return {"status": "ok"}
+    state._restore_user_led()
+    return {"status": "ok"}
 
 
 @router.post("/led/effect/stop", response_model=StatusResponse)

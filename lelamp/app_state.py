@@ -111,14 +111,20 @@ def _stop_current_effect():
     _effect_base_color = None
 
 
-def _save_user_led_state(state: dict):
-    """Save the user-set LED state and cancel any pending emotion restore."""
-    global _user_led_state, _restore_timer
-    logger.info("User LED state saved: %s", state)
-    _user_led_state = state
+def _cancel_pending_restore():
+    """Cancel any pending emotion restore timer."""
+    global _restore_timer
     if _restore_timer is not None and _restore_timer.is_alive():
         _restore_timer.cancel()
         _restore_timer = None
+
+
+def _save_user_led_state(state: dict):
+    """Save the user-set LED state and cancel any pending emotion restore."""
+    global _user_led_state
+    logger.info("User LED state saved: %s", state)
+    _user_led_state = state
+    _cancel_pending_restore()
 
 
 def _get_recording_duration(recording_name: str) -> float:
