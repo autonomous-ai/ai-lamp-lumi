@@ -1,4 +1,4 @@
-.PHONY: install install-cpu install-gpu install-dev start start-runpod test test-api test-local test-action test-action-api test-action-local test-emotion test-emotion-api test-emotion-local lint
+.PHONY: install install-cpu install-gpu install-dev start start-runpod start-jupyter test test-api test-local test-action test-action-api test-action-local test-emotion test-emotion-api test-emotion-local lint
 
 NGINX_CONF ?= /workspace/ai-lamp-openclaw/dlbackend/nginx.conf
 
@@ -27,8 +27,10 @@ install-dev:
 start: install
 	python src/server.py --host $(HOST) --port $(PORT)
 
-# RunPod: install nginx if missing, start nginx proxy, then start uvicorn
-start-runpod: install
+JUPYTER_PORT ?= 8890
+
+# RunPod: install nginx if missing, start nginx proxy + jupyter-lab, then start uvicorn
+start-runpod: install start-jupyter
 	@if ! command -v nginx > /dev/null 2>&1; then \
 		apt-get update && apt-get install -y nginx; \
 	fi
@@ -36,6 +38,27 @@ start-runpod: install
 	pkill nginx 2>/dev/null || true
 	nginx -c $(NGINX_CONF)
 	python src/server.py --host 127.0.0.1 --port $(PORT)
+
+# Start jupyter-lab in background, nginx proxies /jupyter/ → port 8890
+start-jupyter:
+	@if ! command -v jupyter-lab > /dev/null 2>&1; then \
+		pip install jupyterlab; \
+	fi
+	@pkill -f "jupyter-lab" 2>/dev/null || true
+	nohup jupyter-lab \
+		--ip=127.0.0.1 \
+		--port=$(JUPYTER_PORT) \
+		--no-browser \
+		--allow-root \
+		--notebook-dir=/workspace \
+		> /var/log/jupyter.log 2>&1 &
+	@sleep 2
+	@TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
+	if [ -n "$$TOKEN" ]; then \
+		echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
+	else \
+		echo "Jupyter Lab started — check /var/log/jupyter.log for URL + token"; \
+	fi
 
 test:
 	python -m pytest tests/ -v
