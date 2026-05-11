@@ -205,13 +205,12 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // Continue mode: scroll the user to the first section that still needs
   // attention so they can see what's left to do without hunting through
   // the sidebar. If every required section is already done on first load,
-  // bounce straight to /monitor — Setup has nothing left to ask for, and
-  // Voice/Face are optional so we don't block on them.
+  // bounce straight to /monitor — Setup has nothing left to ask for.
   const autoScrolledRef = useRef(false);
   useEffect(() => {
     if (!isContinue || autoScrolledRef.current) return;
     if (!llmApiKey) return; // wait until config has loaded
-    const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts"];
+    const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts", "voice", "face"];
     if (required.every((id) => sectionDone[id])) {
       autoScrolledRef.current = true;
       navigate("/monitor", { replace: true });
