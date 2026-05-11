@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { getNetworks, setupDevice, testTTSVoice } from "@/lib/api";
+import { getNetworks, setupDevice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useSetupUrlParams } from "@/hooks/setup/useSetupUrlParams";
@@ -10,8 +10,17 @@ import { useConfigPrefill } from "@/hooks/setup/useConfigPrefill";
 import { useSetupStatusPolling } from "@/hooks/setup/useSetupStatusPolling";
 import { useFaceEnroll } from "@/hooks/setup/useFaceEnroll";
 import type { SectionId, LlmLoadedState, ChannelLoadedState } from "@/hooks/setup/types";
+import { C } from "@/components/setup/shared";
+import { DeviceSection } from "@/components/setup/DeviceSection";
+import { WifiSection } from "@/components/setup/WifiSection";
+import { LLMSection } from "@/components/setup/LLMSection";
+import { ChannelSection } from "@/components/setup/ChannelSection";
+import { LanguageSection } from "@/components/setup/LanguageSection";
+import { TTSSection } from "@/components/setup/TTSSection";
+import { VoiceSection } from "@/components/setup/VoiceSection";
+import { FaceSection } from "@/components/setup/FaceSection";
 import type { ChannelType, NetworkItem } from "@/types";
-import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Globe, Check, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Globe, Check } from "lucide-react";
 
 // SetupMode controls which sections render. Initial = AP/offline (hide
 // online-only enrollments + tests), Continue = LAN/online (lamp can hit
@@ -20,263 +29,6 @@ export type SetupMode = "initial" | "continue";
 
 interface SetupProps {
   mode?: SetupMode;
-}
-
-// ── CSS vars ──────────────────────────────────────────────────────────────────
-
-const C = {
-  bg:        "var(--lm-bg)",
-  sidebar:   "var(--lm-sidebar)",
-  card:      "var(--lm-card)",
-  surface:   "var(--lm-surface)",
-  border:    "var(--lm-border)",
-  amber:     "var(--lm-amber)",
-  amberDim:  "var(--lm-amber-dim)",
-  text:      "var(--lm-text)",
-  textDim:   "var(--lm-text-dim)",
-  textMuted: "var(--lm-text-muted)",
-  red:       "var(--lm-red)",
-  green:     "var(--lm-green)",
-};
-
-// ── small components ──────────────────────────────────────────────────────────
-
-function Field({
-  label, id, value, onChange, placeholder, type = "text", readOnly = false, required = false,
-}: {
-  label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean; required?: boolean;
-}) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <input
-        id={id} type={type} value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} autoComplete="off"
-        readOnly={readOnly} required={required}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={{
-          width: "100%", boxSizing: "border-box",
-          background: readOnly ? C.bg : C.surface,
-          border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
-          borderRadius: 7, padding: "8px 11px",
-          fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-          cursor: readOnly ? "default" : "text",
-          transition: "border-color 0.15s",
-        }}
-      />
-    </div>
-  );
-}
-
-function PasswordField({ label, id, value, onChange, placeholder, readOnly = false }: {
-  label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; readOnly?: boolean;
-}) {
-  const [show, setShow] = useState(false);
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={show ? "text" : "password"} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
-          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
-            borderRadius: 7, padding: "8px 38px 8px 11px",
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-            transition: "border-color 0.15s",
-          }}
-        />
-        <button type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
-          style={{
-            position: "absolute", right: 0, top: 0, height: "100%",
-            padding: "0 11px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer",
-            display: "flex", alignItems: "center",
-          }}
-        >
-          {show ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// useLockToggle — shared lock/unlock + cancel-restore logic for LockedField and
-// LockedPasswordField. Captures the value when a field first becomes locked so
-// "Cancel" can revert any in-progress edits.
-function useLockToggle(lockedInitially: boolean, value: string, onChange: (v: string) => void) {
-  const [unlocked, setUnlocked] = useState(false);
-  const originalRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (lockedInitially && originalRef.current === null) {
-      originalRef.current = value;
-    }
-  }, [lockedInitially, value]);
-  const readOnly = lockedInitially && !unlocked;
-  const handleCancel = () => {
-    if (originalRef.current !== null) onChange(originalRef.current);
-    setUnlocked(false);
-  };
-  return { readOnly, showToggle: lockedInitially, unlock: () => setUnlocked(true), handleCancel };
-}
-
-function LockedField({
-  lockedInitially, label, id, value, onChange, placeholder, type = "text", required = false,
-}: {
-  lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean;
-}) {
-  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={type} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly} required={required}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 7, padding: showToggle ? "8px 36px 8px 11px" : "8px 11px",
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-          }}
-        />
-        {showToggle && (
-          <button
-            type="button"
-            onClick={readOnly ? unlock : handleCancel}
-            tabIndex={-1}
-            aria-label={readOnly ? "Edit" : "Cancel edit"}
-            title={readOnly ? "Edit" : "Cancel edit"}
-            style={{
-              position: "absolute", right: 0, top: 0, height: "100%",
-              padding: "0 10px", background: "none", border: "none",
-              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
-              display: "flex", alignItems: "center",
-            }}
-          >
-            {readOnly ? <Pencil size={13} /> : <X size={14} />}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LockedPasswordField({
-  lockedInitially, label, id, value, onChange, placeholder, required = false,
-}: {
-  lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; required?: boolean;
-}) {
-  const [show, setShow] = useState(false);
-  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
-  // Right side stack: [show/hide][lock toggle]. show/hide is always available so
-  // the user can verify a saved password without unlocking it for edit first.
-  const rightPad = showToggle ? 64 : 38;
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={show ? "text" : "password"} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly} required={required}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 7, padding: `8px ${rightPad}px 8px 11px`,
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-          }}
-        />
-        <button
-          type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
-          style={{
-            position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
-            padding: "0 10px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer",
-            display: "flex", alignItems: "center",
-          }}
-        >
-          {show ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-        {showToggle && (
-          <button
-            type="button"
-            onClick={readOnly ? unlock : handleCancel}
-            tabIndex={-1}
-            aria-label={readOnly ? "Edit" : "Cancel edit"}
-            title={readOnly ? "Edit" : "Cancel edit"}
-            style={{
-              position: "absolute", right: 0, top: 0, height: "100%",
-              padding: "0 10px", background: "none", border: "none",
-              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
-              display: "flex", alignItems: "center",
-            }}
-          >
-            {readOnly ? <Pencil size={13} /> : <X size={14} />}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SectionCard({ id, title, active, children }: { id: SectionId; title: string; active: boolean; children: React.ReactNode }) {
-  if (!active) return null;
-  return (
-    <div
-      id={`section-${id}`}
-      style={{
-        background: C.card, border: `1px solid ${C.border}`,
-        borderRadius: 12, padding: "18px 20px", marginBottom: 16,
-      }}
-    >
-      <div style={{
-        fontSize: 10, fontWeight: 700, color: C.textDim,
-        textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 16,
-      }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SkeletonBlock() {
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 16 }}>
-      <div style={{ width: 80, height: 8, borderRadius: 6, background: C.surface, marginBottom: 14 }} />
-      <div style={{ width: "100%", height: 32, borderRadius: 6, background: C.surface, marginBottom: 10 }} />
-    </div>
-  );
 }
 
 // ── main page ─────────────────────────────────────────────────────────────────
@@ -412,88 +164,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     handleFaceEnroll,
   } = useFaceEnroll();
 
-  // Voice enroll — three sentences read aloud; lamp's own mic captures.
-  const VOICE_PHRASES = [
-    "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
-    "The quick brown fox jumps over the lazy dog near the bright morning window.",
-    "Today is a great day to start something new, and I'm looking forward to it.",
-  ];
-  const VOICE_DURATION_SEC = 15;
-  const [voiceLabel, setVoiceLabel] = useState("");
-  const [voicePhase, setVoicePhase] = useState<"idle" | "countdown" | "recording" | "processing">("idle");
-  const [voiceCountdown, setVoiceCountdown] = useState(0);
-  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
-  const voiceTickRef = useRef<number | null>(null);
-  const [voiceExpanded, setVoiceExpanded] = useState<Record<string, boolean>>({});
-  const toggleVoiceExpanded = (label: string) =>
-    setVoiceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
-
-  const removeVoiceFile = async (name: string, file: string) => {
-    if (!confirm(`Delete voice sample "${file}" for "${name}"?`)) return;
-    try {
-      await fetch("/api/voice/file/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, file }),
-      });
-      loadFaceOwners();
-    } catch { /* ignore */ }
-  };
-
-  const startVoiceEnroll = () => {
-    if (!voiceLabel.trim()) {
-      setVoiceMsg("Enter a name first");
-      return;
-    }
-    setVoiceMsg(null);
-    setVoicePhase("countdown");
-    let pre = 3;
-    setVoiceCountdown(pre);
-    voiceTickRef.current = window.setInterval(() => {
-      pre -= 1;
-      if (pre > 0) {
-        setVoiceCountdown(pre);
-        return;
-      }
-      if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-      setVoicePhase("recording");
-      let remaining = VOICE_DURATION_SEC;
-      setVoiceCountdown(remaining);
-      voiceTickRef.current = window.setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("processing");
-          setVoiceCountdown(0);
-        } else {
-          setVoiceCountdown(remaining);
-        }
-      }, 1000);
-      fetch("/hw/speaker/record-enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
-      })
-        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("idle");
-          setVoiceCountdown(0);
-          if (ok && data.status === "ok") {
-            setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
-            loadFaceOwners();
-          } else {
-            setVoiceMsg(`Error: ${data.detail ?? data.message ?? "enroll failed"}`);
-          }
-        })
-        .catch((e) => {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("idle");
-          setVoiceCountdown(0);
-          setVoiceMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
-        });
-    }, 1000);
-  };
+  // Voice enroll state + handlers live inside VoiceSection (continue mode
+  // only) — nothing outside reads them. After each enroll the section calls
+  // loadFaceOwners so new samples surface in the enrolled list.
 
   // Per-section "done" detection drives the ✓ checkmark in the sidebar and
   // the auto-scroll-to-next-pending behavior in continue mode. We treat a
@@ -903,332 +576,80 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
                 <form id="setup-form" onSubmit={handleSubmit}>
 
-                  {/* Device */}
-                  <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                    <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" readOnly />
-                  </SectionCard>
+                  <DeviceSection
+                    active={activeSection === "device"}
+                    deviceId={deviceId} setDeviceId={setDeviceId}
+                  />
 
-                  {/* Wi-Fi */}
-                  <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
-                    <div style={{ marginBottom: 12 }}>
-                      <label htmlFor="ssid" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Wi-Fi network
-                      </label>
-                      {loadingList ? (
-                        <SkeletonBlock />
-                      ) : uniqueNetworks.length > 0 ? (
-                        <select
-                          id="ssid"
-                          value={ssid}
-                          onChange={(e) => setSsid(e.target.value)}
-                          style={{
-                            width: "100%", boxSizing: "border-box",
-                            background: C.surface, border: `1px solid ${C.border}`,
-                            borderRadius: 7, padding: "8px 11px",
-                            fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                          }}
-                        >
-                          <option value="">Select network</option>
-                          {uniqueNetworks.map((n) => (
-                            <option key={n.bssid} value={n.ssid}>{n.ssid}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          id="ssid" type="text" value={ssid}
-                          onChange={(e) => setSsid(e.target.value)}
-                          placeholder="Enter Wi-Fi name" autoComplete="off"
-                          style={{
-                            width: "100%", boxSizing: "border-box",
-                            background: C.surface, border: `1px solid ${C.border}`,
-                            borderRadius: 7, padding: "8px 11px",
-                            fontSize: 12.5, color: C.text, outline: "none",
-                          }}
-                        />
-                      )}
-                    </div>
-                    <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
-                  </SectionCard>
+                  <WifiSection
+                    active={activeSection === "wifi"}
+                    ssid={ssid} setSsid={setSsid}
+                    password={password} setPassword={setPassword}
+                    loadingList={loadingList}
+                    uniqueNetworks={uniqueNetworks}
+                  />
 
-                  {/* LLM */}
-                  <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
-                    <LockedPasswordField lockedInitially={llmLoaded.apiKey} label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                    <LockedField lockedInitially={llmLoaded.baseUrl} label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                    <LockedField lockedInitially={llmLoaded.model} label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
-                      <input
-                        type="checkbox" checked={llmDisableThinking}
-                        onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                        style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
-                      />
-                      <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
-                    </label>
-                  </SectionCard>
+                  <LLMSection
+                    active={activeSection === "llm"}
+                    llmLoaded={llmLoaded}
+                    llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
+                    llmUrl={llmUrl} setLlmUrl={setLlmUrl}
+                    llmModel={llmModel} setLlmModel={setLlmModel}
+                    llmDisableThinking={llmDisableThinking}
+                    setLlmDisableThinking={setLlmDisableThinking}
+                  />
 
-                  {/* Channel */}
-                  <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
+                  <ChannelSection
+                    active={activeSection === "channel"}
+                    channel={channel} setChannel={setChannel}
+                    channelLoaded={channelLoaded}
+                    teleToken={teleToken} setTeleToken={setTeleToken}
+                    teleUserId={teleUserId} setTeleUserId={setTeleUserId}
+                    slackBotToken={slackBotToken} setSlackBotToken={setSlackBotToken}
+                    slackAppToken={slackAppToken} setSlackAppToken={setSlackAppToken}
+                    slackUserId={slackUserId} setSlackUserId={setSlackUserId}
+                    discordBotToken={discordBotToken} setDiscordBotToken={setDiscordBotToken}
+                    discordGuildId={discordGuildId} setDiscordGuildId={setDiscordGuildId}
+                    discordUserId={discordUserId} setDiscordUserId={setDiscordUserId}
+                  />
 
-                    <div style={{ marginBottom: 12 }}>
-                      <label htmlFor="channel" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel *</label>
-                      <select
-                        id="channel"
-                        value={channel}
-                        onChange={(e) => setChannel(e.target.value as ChannelType)}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        <option value="telegram">Telegram</option>
-                        <option value="slack">Slack</option>
-                        <option value="discord">Discord</option>
-                      </select>
-                    </div>
-                    {channel === "telegram" && (
-                      <>
-                        <LockedPasswordField required lockedInitially={channelLoaded.teleToken} label="Bot Token *" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                        <LockedField required lockedInitially={channelLoaded.teleUserId} label="User ID *" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
-                      </>
-                    )}
-                    {channel === "slack" && (
-                      <>
-                        <LockedPasswordField required lockedInitially={channelLoaded.slackBotToken} label="Bot Token *" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                        <LockedPasswordField required lockedInitially={channelLoaded.slackAppToken} label="App Token *" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                        <LockedField required lockedInitially={channelLoaded.slackUserId} label="User ID *" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
-                      </>
-                    )}
-                    {channel === "discord" && (
-                      <>
-                        <LockedPasswordField required lockedInitially={channelLoaded.discordBotToken} label="Bot Token *" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                        <LockedField required lockedInitially={channelLoaded.discordGuildId} label="Guild ID *" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                        <LockedField required lockedInitially={channelLoaded.discordUserId} label="User ID *" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
-                      </>
-                    )}
-                  </SectionCard>
+                  <LanguageSection
+                    active={activeSection === "language"}
+                    sttLanguage={sttLanguage} setSttLanguage={setSttLanguage}
+                  />
 
-                  {/* Language — picks STT language; backend auto-derives the
-                      Deepgram model behind the scenes. Default is read from
-                      navigator.language so VN/CN locales land pre-selected. */}
-                  <SectionCard id="language" title="Language" active={activeSection === "language"}>
-                    <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>
-                      Pick the language the lamp listens for. You can change this anytime from the Edit page.
-                    </div>
-                    <div style={{ marginBottom: 4 }}>
-                      <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Language
-                      </label>
-                      <select
-                        id="stt_language"
-                        value={sttLanguage}
-                        onChange={(e) => setSttLanguage(e.target.value)}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        <option value="">Auto (default)</option>
-                        <option value="en">English</option>
-                        <option value="vi">Vietnamese</option>
-                        <option value="zh-CN">Chinese (Simplified)</option>
-                        <option value="zh-TW">Chinese (Traditional)</option>
-                      </select>
-                    </div>
-                  </SectionCard>
-
-                  {/* TTS */}
-                  <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
-                    {/* tts_api_key + tts_base_url are not exposed in Setup —
-                        they're auto-mirrored from AI Brain via useEffect and
-                        submitted silently. */}
-                    <div style={{ marginBottom: 12 }}>
-                      <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Provider
-                      </label>
-                      <select
-                        id="tts_provider"
-                        value={ttsProvider}
-                        onChange={(e) => setTtsProvider(e.target.value)}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        {(ttsProviders.length > 0 ? ttsProviders : ["openai"]).map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Voice
-                      </label>
-                      <select
-                        id="tts_voice"
-                        value={ttsVoice}
-                        onChange={(e) => setTtsVoice(e.target.value)}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        {(ttsVoices.length > 0 ? ttsVoices : ["alloy"]).map((v) => (
-                          <option key={v} value={v}>{v}</option>
-                        ))}
-                      </select>
-                      {isContinue ? (
-                        <button
-                          type="button"
-                          onClick={() => testTTSVoice(ttsVoice, {
-                            lang: sttLanguage,
-                            provider: ttsProvider,
-                            ttsApiKey, ttsBaseUrl,
-                            llmApiKey, llmBaseUrl: llmUrl,
-                          })}
-                          style={{
-                            marginTop: 8, width: "100%", padding: "8px 0",
-                            background: C.amber, color: "#fff", border: "none",
-                            borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
-                          }}
-                        >
-                          Test Voice
-                        </button>
-                      ) : (
-                        <div style={{ marginTop: 8, fontSize: 11, color: C.textDim }}>
-                          You can preview voices after Lumi is online (next step).
-                        </div>
-                      )}
-                    </div>
-                  </SectionCard>
+                  <TTSSection
+                    active={activeSection === "tts"}
+                    isContinue={isContinue}
+                    ttsProvider={ttsProvider} setTtsProvider={setTtsProvider}
+                    ttsProviders={ttsProviders}
+                    ttsVoice={ttsVoice} setTtsVoice={setTtsVoice}
+                    ttsVoices={ttsVoices}
+                    sttLanguage={sttLanguage}
+                    ttsApiKey={ttsApiKey} ttsBaseUrl={ttsBaseUrl}
+                    llmApiKey={llmApiKey} llmUrl={llmUrl}
+                  />
 
                   {isContinue && (
-                    <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
-                      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                        Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.
-                      </div>
-                      <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
-                      <div style={{
-                        background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 7, padding: "10px 12px", marginBottom: 10, fontSize: 12, lineHeight: 1.5,
-                      }}>
-                        {VOICE_PHRASES.map((p, i) => (
-                          <div key={i} style={{ marginBottom: i < VOICE_PHRASES.length - 1 ? 6 : 0 }}>
-                            <span style={{ color: C.textMuted, marginRight: 6 }}>{i + 1}.</span>
-                            <span style={{ color: C.text }}>{p}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                        <button
-                          type="button" disabled={voicePhase !== "idle"}
-                          onClick={startVoiceEnroll}
-                          style={{
-                            flex: 1, padding: "8px 0",
-                            background: voicePhase === "idle" ? C.amber : C.surface,
-                            color: voicePhase === "idle" ? "#fff" : C.textDim,
-                            border: "none", borderRadius: 7, fontSize: 12,
-                            cursor: voicePhase === "idle" ? "pointer" : "default", fontWeight: 600,
-                          }}
-                        >
-                          {voicePhase === "idle" && "Start recording"}
-                          {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
-                          {voicePhase === "recording" && `Recording... ${voiceCountdown}s`}
-                          {voicePhase === "processing" && "Processing..."}
-                        </button>
-                      </div>
-                      {voiceMsg && (
-                        <div style={{ fontSize: 11, color: voiceMsg.startsWith("Error") ? C.red : C.green, marginTop: 4 }}>
-                          {voiceMsg}
-                        </div>
-                      )}
-                      {(() => {
-                        const enrolled = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
-                        if (enrolled.length === 0) return null;
-                        return (
-                          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>Enrolled:</div>
-                            {enrolled.map((p) => (
-                              <div key={p.label} style={{ marginBottom: 6 }}>
-                                <button type="button" onClick={() => toggleVoiceExpanded(p.label)} style={{
-                                  background: "none", border: "none", color: C.text, fontSize: 12,
-                                  cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6,
-                                }}>
-                                  <span>{voiceExpanded[p.label] ? "▾" : "▸"}</span>
-                                  {p.label} <span style={{ color: C.textMuted }}>({p.voice_samples?.length ?? 0})</span>
-                                </button>
-                                {voiceExpanded[p.label] && (p.voice_samples?.length ?? 0) > 0 && (
-                                  <div style={{ marginLeft: 18, marginTop: 4 }}>
-                                    {p.voice_samples!.map((file) => (
-                                      <div key={file} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: C.textDim, padding: "3px 0" }}>
-                                        <span>{file}</span>
-                                        <button type="button" onClick={() => removeVoiceFile(p.label, file)} style={{
-                                          background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11,
-                                        }}>remove</button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </SectionCard>
+                    <VoiceSection
+                      active={activeSection === "voice"}
+                      faceOwners={faceOwners}
+                      loadFaceOwners={loadFaceOwners}
+                    />
                   )}
 
                   {isContinue && (
-                    <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
-                      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                        Upload photos so the lamp can recognize you.
-                      </div>
-                      <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
-                      <div style={{ marginBottom: 12 }}>
-                        <input
-                          ref={faceInputRef} type="file" accept="image/*" multiple
-                          onChange={(e) => setFaceFiles(Array.from(e.target.files ?? []))}
-                          style={{ fontSize: 12, color: C.text }}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        disabled={faceUploading || !faceName.trim() || faceFiles.length === 0}
-                        onClick={handleFaceEnroll}
-                        style={{
-                          width: "100%", padding: "8px 0",
-                          background: !faceUploading && faceName.trim() && faceFiles.length > 0 ? C.amber : C.surface,
-                          color: !faceUploading && faceName.trim() && faceFiles.length > 0 ? "#fff" : C.textDim,
-                          border: "none", borderRadius: 7, fontSize: 12,
-                          cursor: faceUploading ? "default" : "pointer", fontWeight: 600,
-                        }}
-                      >
-                        {faceUploading ? "Uploading..." : "Upload"}
-                      </button>
-                      {faceMsg && (
-                        <div style={{ fontSize: 11, color: faceMsg.startsWith("Error") ? C.red : C.green, marginTop: 8 }}>
-                          {faceMsg}
-                        </div>
-                      )}
-                      {faceOwners.length > 0 && (
-                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>Enrolled:</div>
-                          {faceOwners.map((p) => (
-                            <div key={p.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 12 }}>
-                              <span>{p.label} <span style={{ color: C.textMuted }}>({p.photo_count} photos)</span></span>
-                              <button type="button" onClick={() => removeFaceOwner(p.label)} style={{
-                                background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11,
-                              }}>remove</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </SectionCard>
+                    <FaceSection
+                      active={activeSection === "face"}
+                      faceName={faceName} setFaceName={setFaceName}
+                      faceFiles={faceFiles} setFaceFiles={setFaceFiles}
+                      faceUploading={faceUploading}
+                      faceMsg={faceMsg}
+                      faceInputRef={faceInputRef}
+                      faceOwners={faceOwners}
+                      removeFaceOwner={removeFaceOwner}
+                      handleFaceEnroll={handleFaceEnroll}
+                    />
                   )}
 
                 </form>
