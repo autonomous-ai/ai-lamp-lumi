@@ -33,6 +33,7 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 | UC-5 | **Nhận character pack** | xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
 | UC-6 | **Presence feedback** | tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
 | UC-7 | **OpenClaw biết transcript** | tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
+| UC-8 | **Đọc reply Claude qua TTS** | tiếp theo | Lumi subscribe `buddy_event`, filter `role=assistant` + text block, strip markdown, đẩy text qua LeLamp TTS để user nghe thay vì nhìn màn Mac. Respect presence (skip khi user vắng), busy state của voice pipeline, ưu tiên agent emotion. |
 
 ---
 
