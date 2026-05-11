@@ -132,6 +132,10 @@ def start_led_effect(req: LEDEffectRequest):
     state._active_scene = None
 
     base_color = tuple(req.color) if req.color else (255, 180, 100)
+    # Transient effects (e.g. Buddy's Busy pulse) overlay on the user's
+    # saved LED color so "đèn xanh lá" stays visible underneath the wave.
+    # Non-transient effects replace the strip outright.
+    overlay_base = state._get_user_base_color() if req.transient else (0, 0, 0)
 
     state._effect_stop.clear()
     state._effect_name = req.effect
@@ -146,6 +150,7 @@ def start_led_effect(req: LEDEffectRequest):
             state._effect_stop,
             state.rgb_service,
         ),
+        kwargs={"base_color": overlay_base},
         daemon=True,
         name=f"led-effect-{req.effect}",
     )

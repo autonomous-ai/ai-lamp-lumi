@@ -17,6 +17,11 @@
 | POST | `/led/off` | Turn off all LEDs |
 | POST | `/led/effect` | Start an effect |
 | POST | `/led/effect/stop` | Stop running effect |
+| POST | `/led/restore` | Repaint user's saved LED state (or clear if none) |
+
+### Transient writes
+
+`/led/solid`, `/led/effect`, and `/led/off` accept an optional `"transient": true` flag. When set, the call paints the strip but does **not** overwrite the saved user LED state. The saved state is restored when the caller (e.g. Claude Desktop Buddy) is done — either via the natural emotion restore timer, or by an explicit `POST /led/restore`. Pulse effects launched with `transient: true` also overlay on the user's saved color instead of black.
 
 ## Solid Color
 
