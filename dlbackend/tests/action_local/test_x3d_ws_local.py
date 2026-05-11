@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from protocols.utils.state import get_action_model, set_action_model
 from core.action.x3d import X3DModel
 
 TEST_API_KEY = "test-secret-key"
@@ -38,7 +39,7 @@ def client(model):
     import server
 
     config.settings.dl_api_key = TEST_API_KEY
-    server.action_model = model
+    set_action_model(model)
 
     return TestClient(server.app)
 
@@ -69,13 +70,12 @@ class TestHealthEndpoint:
         assert body["action_model"] is True
 
     def test_health_not_loaded(self, client):
-        import server
 
-        saved = server.action_model
-        server.action_model = None
+        saved = get_action_model()
+        set_action_model(None)
         resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
         assert resp.json()["action_model"] is False
-        server.action_model = saved
+        set_action_model(saved)
 
 
 class TestActionAnalysisWebSocket:
@@ -156,15 +156,14 @@ class TestActionAnalysisWebSocket:
             assert "error" in resp
 
     def test_recognizer_not_loaded_closes_ws(self, client):
-        import server
 
-        saved = server.action_model
-        server.action_model = None
+        saved = get_action_model()
+        set_action_model(None)
         with pytest.raises(Exception):
             with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
                 ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": "abc"}))
                 ws.receive_json()
-        server.action_model = saved
+        set_action_model(saved)
 
     def test_heartbeat_returns_ok(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
