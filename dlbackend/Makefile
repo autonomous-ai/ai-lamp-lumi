@@ -44,9 +44,8 @@ start-runpod: install
 # Logs via multilog with rotation (1MB per file, 3 files kept).
 start-jupyter:
 	@if ! command -v jupyter-lab > /dev/null 2>&1; then \
-		pip install jupyterlab; \
+		python -m pip install jupyter; \
 	fi
-	@pkill -f "jupyter-lab" 2>/dev/null || true
 	@mkdir -p /workspace/logs/jupyter
 	@(sleep 3 && TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /workspace/logs/jupyter/current 2>/dev/null | tail -1); \
 	if [ -n "$$TOKEN" ]; then \
