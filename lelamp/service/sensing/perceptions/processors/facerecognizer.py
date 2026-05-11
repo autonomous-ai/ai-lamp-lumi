@@ -701,6 +701,14 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 ):
                     if face_data.kind == PersonKind.FRIEND:
                         new_owners.add(person_id)
+                        # Per-friend enter row: Lumi's wellbeing_context uses
+                        # "enter" as one of the reset anchors for hydration/break
+                        # deltas; without it, deltas stay -1 all day and
+                        # nudge_hydration never fires for a user who hasn't been
+                        # caught drinking by the camera yet.
+                        self._post_wellbeing(
+                            self.normalize_label(person_id), "enter"
+                        )
                     elif face_data.kind == PersonKind.STRANGER:
                         new_strangers.add(person_id)
 
