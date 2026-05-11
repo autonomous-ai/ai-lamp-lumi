@@ -1,0 +1,81 @@
+"""Action analysis WebSocket endpoint."""
+
+import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import TypeAdapter, ValidationError
+
+from core.models import (
+    ActionConfigRequest,
+    ActionFrameRequest,
+    ActionHeartBeatRequest,
+    ActionRequest,
+)
+from protocols.utils.state import get_action_model
+from protocols.utils.common import decode_image, verify_ws_api_key
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+_request_adapter = TypeAdapter(ActionRequest)
+
+
+@router.websocket("/action-analysis/ws")
+async def action_analysis_ws(websocket: WebSocket):
+    """WebSocket endpoint for streaming action recognition.
+
+    Accepts JSON messages with a "type" field:
+    - {"type": "frame", "frame_b64": "<base64>"} — feed a frame
+    - {"type": "config", "whitelist": ["action1", ...]} — update whitelist
+    - {"type": "config", "whitelist": null} — reset to default whitelist
+
+    API key is validated from the X-API-Key header on connect.
+    """
+    if not await verify_ws_api_key(websocket):
+        return
+
+    await websocket.accept()
+
+    action_model = get_action_model()
+    if action_model is None or not action_model.is_ready():
+        await websocket.close(code=1011, reason="Action model not loaded")
+        return
+
+    try:
+        action_recognizer = action_model.create_session()
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                req = _request_adapter.validate_json(raw)
+            except ValidationError as e:
+                await websocket.send_json({"error": e.errors()})
+                continue
+
+            try:
+                match req:
+                    case ActionFrameRequest():
+                        frame = decode_image(req.frame_b64)
+                        result = action_recognizer.update(frame)
+                        if result is not None:
+                            await websocket.send_json(result.model_dump())
+
+                    case ActionConfigRequest():
+                        action_recognizer.set_config(
+                            req.whitelist,
+                            req.threshold,
+                            req.person_detection_enabled,
+                            req.person_min_area_ratio,
+                        )
+                        await websocket.send_json({"status": "config_updated"})
+
+                    case ActionHeartBeatRequest():
+                        await websocket.send_json({"status": "ok"})
+
+                    case _:
+                        logger.warning("Unknown action WS message type: %s", raw[:200])
+            except Exception as e:
+                logger.exception("Error processing action WS message")
+                await websocket.send_json({"error": str(e)})
+
+    except WebSocketDisconnect:
+        logger.info("Action analysis WebSocket disconnected")

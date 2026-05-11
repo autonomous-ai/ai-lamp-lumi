@@ -12,7 +12,7 @@ description: React to passive sensing events from the lamp — presence, sound, 
 | Event | Handled by |
 |---|---|
 | `[activity]` (Activity detected: ...) | `wellbeing/SKILL.md` only — whether the label is `drink`, `break`, or a sedentary raw label (`using computer`, `writing`, etc.). Activity events never route to music-suggestion. |
-| `[emotion]` (Emotion detected: ...) | Both `user-emotion-detection/SKILL.md` and `music-suggestion/SKILL.md` run together this turn. Backend pre-injects `[emotion_context: ...]` (no read tool calls needed) and the agent emits writes as inline `[HW:/mood/log:...]` / `[HW:/music-suggestion/log:...]` markers (no write tool calls either). Backend also injects `[REQUIRED — run both skills this turn]`. |
+| `[emotion]` (Emotion detected: ...) | `user-emotion-detection/SKILL.md` is the router; it logs the mood signal and picks ONE response route (`music` → `music-suggestion/SKILL.md`, `checkin` / `action` → emitted inline by router, `silent` → NO_REPLY). Backend pre-injects `[emotion_context: ...]` (no read tool calls needed); agent emits writes as inline `[HW:/mood/log:...]` / `[HW:/music-suggestion/log:...]` markers (no write tool calls either). |
 | Any sensing event while guard mode is on | `guard/SKILL.md` — dramatic reactions, Telegram broadcast |
 
 If one of those arrives, stop and switch — don't improvise here.

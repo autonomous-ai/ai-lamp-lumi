@@ -152,11 +152,13 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 
 ## Music suggestion handoff
 
-When the decision mood is suggestion-worthy (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), the same turn must run `music-suggestion/SKILL.md`. The decision POST and the music-suggestion POST share a single write batch — do not split them across tool turns.
+On `emotion.detected` turns, `user-emotion-detection/SKILL.md` is the router — it picks one of `music / checkin / action / silent` and gates whether `music-suggestion/SKILL.md` fires this turn.
 
-Other moods (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) skip music suggestion.
+When the router picks `music` (decision mood is suggestion-worthy — `sad`, `stressed`, `tired`, `excited`, `happy`, `bored` — and audio is idle, cooldown clear, decision fresh), the decision POST and the music-suggestion POST share a single write batch — do not split them across tool turns.
 
-For `unknown` users — still suggest (speak only, no DM). See `music-suggestion/SKILL.md` for details.
+Other moods (`frustrated`, `energetic`, `affectionate`, `unwell`, `normal`) take a non-music route (`checkin` / `action` / `silent` per the router table) and skip the music POST.
+
+For `unknown` users — still suggest (speak only, no DM) on the `music` route. See `music-suggestion/SKILL.md` for details.
 
 ---
 

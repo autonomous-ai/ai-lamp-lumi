@@ -227,6 +227,15 @@ class RemoteMotionChecker:
     def ready(self):
         return self._ws_session is not None
 
+    def close(self) -> None:
+        """Close the WebSocket connection."""
+        if self._ws_session is not None:
+            try:
+                self._ws_session.close()
+            except Exception:
+                pass
+            self._ws_session = None
+
     @property
     def last_action(self) -> str | None:
         return self._last_action
@@ -497,6 +506,10 @@ class MotionPerception(Perception[cv2.typing.MatLike]):
                     )
             except requests.RequestException as e:
                 logger.debug("[motion] wellbeing log %s failed: %s", label, e)
+
+    @override
+    def cleanup(self) -> None:
+        self._checker.close()
 
     def reset_dedup(self, new_user: str = "") -> None:
         """Clear the outbound dedup state only if the visible user actually

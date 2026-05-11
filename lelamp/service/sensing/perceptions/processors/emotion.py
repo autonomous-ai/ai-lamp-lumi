@@ -229,6 +229,10 @@ class EmotionPerception(Perception[FaceDetectionData]):
         )
 
     @override
+    def cleanup(self) -> None:
+        pass
+
+    @override
     def _check_impl(self, data: FaceDetectionData) -> None:
         """Only used for periodic flush — actual detection is callback-driven."""
         if data.frame is not None:

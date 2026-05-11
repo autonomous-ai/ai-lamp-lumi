@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from protocols.utils.state import get_emotion_model, set_emotion_model
 from core.emotion.emotion import EmotionModel
 from core.emotion.recognizer.emonet import EMOTIONS_8 as EMONET_EMOTIONS
 
@@ -66,7 +67,7 @@ def client(model):
     import server
 
     config.settings.dl_api_key = TEST_API_KEY
-    server.emotion_model = model
+    set_emotion_model(model)
 
     return TestClient(server.app)
 
@@ -83,13 +84,12 @@ class TestHealthEndpoint:
         assert body["emotion_model"] is True
 
     def test_health_emotion_not_loaded(self, client):
-        import server
 
-        saved = server.emotion_model
-        server.emotion_model = None
+        saved = get_emotion_model()
+        set_emotion_model(None)
         resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
         assert resp.json()["emotion_model"] is False
-        server.emotion_model = saved
+        set_emotion_model(saved)
 
 
 class TestEmotionAnalysisWebSocket:
@@ -176,17 +176,16 @@ class TestEmotionAnalysisWebSocket:
             assert "error" in resp
 
     def test_model_not_loaded_closes_ws(self, client):
-        import server
 
-        saved = server.emotion_model
-        server.emotion_model = None
+        saved = get_emotion_model()
+        set_emotion_model(None)
         with pytest.raises(Exception):
             with client.websocket_connect(
                 "/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS
             ) as ws:
                 ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": "abc"}))
                 ws.receive_json()
-        server.emotion_model = saved
+        set_emotion_model(saved)
 
     def test_heartbeat_returns_ok(self, client):
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:

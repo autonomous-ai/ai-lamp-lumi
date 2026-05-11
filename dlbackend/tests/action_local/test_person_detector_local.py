@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from protocols.utils.state import get_action_model, set_action_model
 from core.action.x3d import X3DModel
 from core.persondetector import YOLOPersonDetector
 
@@ -75,7 +76,7 @@ def client_with_detector(model_with_detector):
     import server
 
     config.settings.dl_api_key = TEST_API_KEY
-    server.action_model = model_with_detector
+    set_action_model(model_with_detector)
     return TestClient(server.app)
 
 
@@ -85,7 +86,7 @@ def client_without_detector(model_without_detector):
     import server
 
     config.settings.dl_api_key = TEST_API_KEY
-    server.action_model = model_without_detector
+    set_action_model(model_without_detector)
     return TestClient(server.app)
 
 

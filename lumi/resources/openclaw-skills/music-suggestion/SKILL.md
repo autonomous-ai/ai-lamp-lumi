@@ -1,6 +1,6 @@
 ---
 name: music-suggestion
-description: Proactive music suggestion. Runs together with user-emotion-detection + mood on every emotion.detected event — reads, decision, and writes share the same parallel batch in a single turn (the backend injects [REQUIRED — run both skills this turn]). Triggered when the synthesized mood is suggestion-worthy (sad/stressed/tired/excited/happy/bored). Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
+description: Proactive music suggestion. Routed in by user-emotion-detection/SKILL.md (the router) on emotion.detected events when the synthesized mood is suggestion-worthy (sad/stressed/tired/excited/happy/bored) AND audio is idle AND cooldown is clear. Reads, decision, and writes share the same parallel batch in a single turn. Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
 ---
 
 # Music Suggestion (Proactive)
@@ -42,16 +42,18 @@ cat /root/local/users/{name}/habit/patterns.json 2>/dev/null &
 wait
 ```
 
-## Skip rules (apply silently in `thinking`)
+## Routing precedence
 
-Read these straight from `[emotion_context: ...]`:
+`user-emotion-detection/SKILL.md` is the router for emotion responses. It picks **one** of `music / checkin / action / silent` per turn from the same `[emotion_context: ...]` block.
 
-- `audio_playing == true` → skip.
-- `last_suggestion_age_min` ∈ [0, 7) → skip cooldown still active. *(production: change to 30 min before ship)*
-- `is_decision_stale == true` AND this turn did not synthesize a fresh decision → skip.
-- `suggestion_worthy == false` → skip (mapped_mood is in `frustrated/energetic/affectionate/unwell/normal`).
+This skill produces output **only when the router picks `music`** — i.e. all of:
 
-If any rule says skip → reply `NO_REPLY`. Do not narrate why. Use `audio_recent` to personalize genre when not skipping.
+- `suggestion_worthy == true` (mapped_mood ∈ `sad/stressed/tired/excited/happy/bored`)
+- `audio_playing == false`
+- `last_suggestion_age_min ∉ [0, 7)` (cooldown not active — shared with checkin) *(production: change to 30 min before ship)*
+- `is_decision_stale == false` OR a fresh mood decision was synthesized this turn
+
+If any condition fails → router took another path (action / checkin / silent). **Skip silently** — do NOT emit a music-suggestion marker, do NOT speak. The router (or downstream skill) handles the output. Use `audio_recent` to personalize genre when proceeding.
 
 ## Pick genre
 
@@ -76,7 +78,7 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - NEVER auto-play — only suggest. Play after user confirms.
 - ONE sentence, conversational: *"How about some Norah Jones?"*
 - Suggest 1 song at a time.
-- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. `telegram_id` is in the injected `[user_info: ...]` block — never fetch.
 - **Unknown users** — speak only (no DM): `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text`. Log with `user:"unknown"`.
 
 ## What to write (HW marker — fires async, no tool turn)
