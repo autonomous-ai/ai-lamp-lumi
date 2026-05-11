@@ -34,6 +34,7 @@ context back.
 | UC-5 | **Character pack receive** | shipped | Desktop can drag a GIF folder onto its panel → streams over BLE → saved to `/opt/claude-desktop-buddy/chars/<name>/`. |
 | UC-6 | **Presence feedback** | future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
 | UC-7 | **Transcript-aware OpenClaw** | future | OpenClaw reads buffered chat history when user asks via voice. |
+| UC-8 | **Voice readout of Claude reply** | next | Lumi subscribes to `buddy_event`, filters `role=assistant` + text blocks, strips markdown, and pipes the text to LeLamp TTS so the user can listen instead of looking at the Mac. Respects presence (skip when user is away), voice-pipeline busy state, and agent emotion priority. |
 
 ---
 
