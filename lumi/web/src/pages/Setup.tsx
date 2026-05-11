@@ -186,6 +186,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     face: faceOwners.some((p) => p.photo_count > 0),
     deepgram: true,
     mqtt: true,
+    stt: true, // EditConfig's alias for language; not rendered in Setup.
   };
 
   useEffect(() => {

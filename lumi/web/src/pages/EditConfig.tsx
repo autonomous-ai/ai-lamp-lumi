@@ -5,26 +5,14 @@ import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType } from "@/types";
-import { Wifi, UserCircle, Lamp, Brain, Volume2, MicVocal, MessageSquare, Globe, Link, Pencil, X, Eye, EyeOff } from "lucide-react";
+import type { SectionId as SharedSectionId } from "@/hooks/setup/types";
+import { C, Field, LockedField, LockedPasswordField, SectionCard } from "@/components/setup/shared";
+import { VOICE_PHRASES_BY_LANG, VOICE_INTRO_BY_LANG } from "@/components/setup/voice-phrases";
+import { Wifi, UserCircle, Lamp, Brain, Volume2, MicVocal, MessageSquare, Globe, Link } from "lucide-react";
 
-// ── CSS vars / helpers ────────────────────────────────────────────────────────
-
-const C = {
-  bg:        "var(--lm-bg)",
-  sidebar:   "var(--lm-sidebar)",
-  card:      "var(--lm-card)",
-  surface:   "var(--lm-surface)",
-  border:    "var(--lm-border)",
-  amber:     "var(--lm-amber)",
-  amberDim:  "var(--lm-amber-dim)",
-  text:      "var(--lm-text)",
-  textDim:   "var(--lm-text-dim)",
-  textMuted: "var(--lm-text-muted)",
-  red:       "var(--lm-red)",
-  green:     "var(--lm-green)",
-};
-
-type SectionId = "device" | "wifi" | "llm" | "voice" | "face" | "tts" | "stt" | "channel" | "mqtt";
+// Local subset of the shared SectionId — EditConfig uses `stt` (Language is
+// rendered under id="stt"), not `language` / `deepgram` like Setup.
+type SectionId = Extract<SharedSectionId, "device" | "wifi" | "llm" | "voice" | "face" | "tts" | "stt" | "channel" | "mqtt">;
 const ICON_SIZE = 15;
 const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "device",   label: "Device",   icon: <Lamp size={ICON_SIZE} /> },
@@ -40,199 +28,9 @@ const SECTIONS: { id: SectionId; label: string; icon: React.ReactNode }[] = [
   { id: "mqtt",     label: "MQTT",     icon: <Link size={ICON_SIZE} /> },
 ];
 
-// ── small components ──────────────────────────────────────────────────────────
-
-function Field({
-  label, id, value, onChange, placeholder, type = "text", readOnly = false,
-}: {
-  label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string; readOnly?: boolean;
-}) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <input
-        id={id} type={type} value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} autoComplete="off"
-        readOnly={readOnly}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={{
-          width: "100%", boxSizing: "border-box",
-          background: readOnly ? C.bg : C.surface,
-          border: `1px solid ${focused && !readOnly ? C.amber : C.border}`,
-          borderRadius: 7, padding: "8px 11px",
-          fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-          cursor: readOnly ? "default" : "text",
-          transition: "border-color 0.15s",
-        }}
-      />
-    </div>
-  );
-}
-
-// Plain PasswordField removed — all password inputs use LockedPasswordField now.
-
-// useLockToggle — shared lock/unlock + cancel-restore logic for LockedField and
-// LockedPasswordField. Captures the value when a field first becomes locked so
-// "Cancel" can revert any in-progress edits.
-function useLockToggle(lockedInitially: boolean, value: string, onChange: (v: string) => void) {
-  const [unlocked, setUnlocked] = useState(false);
-  const originalRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (lockedInitially && originalRef.current === null) {
-      originalRef.current = value;
-    }
-  }, [lockedInitially, value]);
-  const readOnly = lockedInitially && !unlocked;
-  const handleCancel = () => {
-    if (originalRef.current !== null) onChange(originalRef.current);
-    setUnlocked(false);
-  };
-  return { readOnly, showToggle: lockedInitially, unlock: () => setUnlocked(true), handleCancel };
-}
-
-// LockedField — Field that starts read-only when initially populated (e.g. loaded
-// from saved config) and exposes an "Edit"/cancel button to unlock or revert.
-function LockedField({
-  lockedInitially, label, id, value, onChange, placeholder, type = "text",
-}: {
-  lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string; type?: string;
-}) {
-  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={type} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 7, padding: showToggle ? "8px 36px 8px 11px" : "8px 11px",
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-          }}
-        />
-        {showToggle && (
-          <button
-            type="button"
-            onClick={readOnly ? unlock : handleCancel}
-            tabIndex={-1}
-            aria-label={readOnly ? "Edit" : "Cancel edit"}
-            title={readOnly ? "Edit" : "Cancel edit"}
-            style={{
-              position: "absolute", right: 0, top: 0, height: "100%",
-              padding: "0 10px", background: "none", border: "none",
-              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
-              display: "flex", alignItems: "center",
-            }}
-          >
-            {readOnly ? <Pencil size={13} /> : <X size={14} />}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// LockedPasswordField — same lock semantics as LockedField, plus a show/hide
-// toggle while editing. When locked the value stays masked behind dots.
-function LockedPasswordField({
-  lockedInitially, label, id, value, onChange, placeholder,
-}: {
-  lockedInitially: boolean; label: string; id: string; value: string;
-  onChange: (v: string) => void; placeholder?: string;
-}) {
-  const [show, setShow] = useState(false);
-  const { readOnly, showToggle, unlock, handleCancel } = useLockToggle(lockedInitially, value, onChange);
-  // Right side stack: [show/hide][lock toggle]. show/hide is always available so
-  // the user can verify a saved password without unlocking it for edit first.
-  const rightPad = showToggle ? 64 : 38;
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label htmlFor={id} style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-        {label}
-      </label>
-      <div style={{ position: "relative" }}>
-        <input
-          id={id} type={show ? "text" : "password"} value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} autoComplete="off"
-          readOnly={readOnly}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            background: readOnly ? C.bg : C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 7, padding: `8px ${rightPad}px 8px 11px`,
-            fontSize: 12.5, color: readOnly ? C.textDim : C.text, outline: "none",
-            cursor: readOnly ? "default" : "text",
-          }}
-        />
-        <button
-          type="button" onClick={() => setShow((v) => !v)} tabIndex={-1}
-          style={{
-            position: "absolute", right: showToggle ? 28 : 0, top: 0, height: "100%",
-            padding: "0 10px", background: "none", border: "none",
-            color: C.textMuted, cursor: "pointer",
-            display: "flex", alignItems: "center",
-          }}
-        >
-          {show ? <EyeOff size={14} /> : <Eye size={14} />}
-        </button>
-        {showToggle && (
-          <button
-            type="button"
-            onClick={readOnly ? unlock : handleCancel}
-            tabIndex={-1}
-            aria-label={readOnly ? "Edit" : "Cancel edit"}
-            title={readOnly ? "Edit" : "Cancel edit"}
-            style={{
-              position: "absolute", right: 0, top: 0, height: "100%",
-              padding: "0 10px", background: "none", border: "none",
-              color: readOnly ? C.amber : C.textMuted, cursor: "pointer",
-              display: "flex", alignItems: "center",
-            }}
-          >
-            {readOnly ? <Pencil size={13} /> : <X size={14} />}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SectionCard({ id, title, active, children }: { id: SectionId; title: string; active: boolean; children: React.ReactNode }) {
-  if (!active) return null;
-  return (
-    <div
-      id={`section-${id}`}
-      style={{
-        background: C.card, border: `1px solid ${C.border}`,
-        borderRadius: 12, padding: "18px 20px", marginBottom: 16,
-      }}
-    >
-      <div style={{
-        fontSize: 10, fontWeight: 700, color: C.textDim,
-        textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 16,
-      }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
+// Field / LockedField / LockedPasswordField / SectionCard moved to
+// @/components/setup/shared. SkeletonBlock stays inline because EditConfig's
+// version renders 4 stacked cards whereas Setup's renders just one.
 
 function SkeletonBlock() {
   const bar = (w: string | number, h = 10) => (
@@ -369,38 +167,7 @@ export default function EditConfig() {
   // Voice enroll — remote-trigger lelamp's /speaker/record-enroll. Lamp
   // captures via its own mic; web only does countdown UI. Sharing label
   // with face enroll keeps both biometrics in one per-user folder.
-  //
-  // Phrases + intro are picked by stt_language so VN/CN owners read prompts
-  // in their own language; embedding quality drops if the owner stumbles
-  // through English they don't speak natively. Unknown lang → English.
-  const VOICE_PHRASES_BY_LANG: Record<string, string[]> = {
-    en: [
-      "Hi Lumi, I'm enrolling my voice so you can recognize me when we talk.",
-      "The quick brown fox jumps over the lazy dog near the bright morning window.",
-      "Today is a great day to start something new, and I'm looking forward to it.",
-    ],
-    vi: [
-      "Chào Lumi, mình đang đăng ký giọng nói để bạn nhận ra mình khi nói chuyện.",
-      "Hôm nay là một ngày tuyệt vời, mình rất mong chờ những điều mới mẻ phía trước.",
-      "Một cốc cà phê nóng vào buổi sáng giúp mình tỉnh táo và bắt đầu công việc tốt hơn.",
-    ],
-    "zh-CN": [
-      "你好 Lumi，我正在录入我的声音，这样你听到我说话就能认出我。",
-      "今天天气不错，是开始新事情的好日子，我期待接下来的一切。",
-      "早晨喝一杯热咖啡能让我精神焕发，更好地开始一天的工作。",
-    ],
-    "zh-TW": [
-      "你好 Lumi，我正在錄入我的聲音，這樣你聽到我說話就能認出我。",
-      "今天天氣不錯，是開始新事情的好日子，我期待接下來的一切。",
-      "早晨喝一杯熱咖啡能讓我精神煥發，更好地開始一天的工作。",
-    ],
-  };
-  const VOICE_INTRO_BY_LANG: Record<string, string> = {
-    en: "Stand near the lamp. When recording starts, read the 3 sentences in a normal voice. The lamp's mic captures you — your laptop mic is not used.",
-    vi: "Đứng gần đèn. Khi bắt đầu ghi âm, đọc 3 câu sau với giọng bình thường. Mic của đèn sẽ thu âm bạn — không dùng mic của máy tính.",
-    "zh-CN": "站在台灯附近。开始录音后，用正常语速朗读这 3 句话。台灯的麦克风会录下你的声音 — 不使用电脑麦克风。",
-    "zh-TW": "站在檯燈附近。開始錄音後，用正常語速朗讀這 3 句話。檯燈的麥克風會錄下你的聲音 — 不使用電腦麥克風。",
-  };
+  // Phrases/intro come from @/components/setup/voice-phrases (shared with Setup).
   const VOICE_PHRASES = VOICE_PHRASES_BY_LANG[sttLanguage] ?? VOICE_PHRASES_BY_LANG.en;
   const VOICE_INTRO = VOICE_INTRO_BY_LANG[sttLanguage] ?? VOICE_INTRO_BY_LANG.en;
   // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web triggers a

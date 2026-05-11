@@ -1,7 +1,9 @@
 // Shared types between Setup.tsx and its custom hooks.
 
+// `language` is Setup's id for the STT-language section; EditConfig uses `stt`
+// for the same thing. Both kept here so SectionCard accepts either page's ids.
 export type SectionId =
-  | "wifi" | "device" | "llm" | "language" | "deepgram"
+  | "wifi" | "device" | "llm" | "language" | "stt" | "deepgram"
   | "tts" | "channel" | "mqtt" | "voice" | "face";
 
 export interface LlmLoadedState {
