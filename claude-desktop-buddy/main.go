@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"io"
@@ -12,6 +13,24 @@ import (
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+// compactPreview returns the first max bytes of data, replacing control
+// characters and the trailing newline with spaces so the snippet renders
+// cleanly inside a journal log line.
+func compactPreview(data []byte, max int) string {
+	if len(data) > max {
+		data = data[:max]
+	}
+	out := make([]byte, len(data))
+	for i, b := range data {
+		if b < 0x20 || b == 0x7f {
+			out[i] = ' '
+		} else {
+			out[i] = b
+		}
+	}
+	return string(out)
+}
 
 // Config is loaded from buddy.json.
 type Config struct {
@@ -116,16 +135,23 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 	msg, lost, err := ParseOrSalvage(data)
 	if err != nil {
 		// BLE write-without-response has no ACK, so BlueZ silently drops
-		// packets under load. When that happens we receive the tail of a
-		// line with no recognizable JSON opener — the original payload is
-		// gone, salvage can't recover. Suppress the noisy data dump for
-		// these unrecoverable tail fragments; only log when the line
-		// starts as JSON (looks like a real parse problem worth knowing).
-		if len(data) > 0 && data[0] == '{' {
-			log.Printf("[ble] parse error: %v (data: %s)", err, string(data))
-		} else {
-			log.Printf("[ble] dropped %d bytes of corrupted BLE fragment", len(data))
+		// packets under load. Two failure modes show up here:
+		//   - tail fragment: the line doesn't start with '{', so the
+		//     original payload's prefix is gone. Nothing to recover.
+		//   - mid-line truncation: starts as JSON, but a chunk in the
+		//     middle of `entries` / `content` was lost, leaving broken
+		//     brackets. Salvage can't help because the opener is at byte 0.
+		// Both are unrecoverable — log compactly so the journal stays
+		// readable, and abort any in-progress char transfer.
+		preview := compactPreview(data, 80)
+		switch {
+		case len(data) == 0 || data[0] != '{':
+			log.Printf("[ble] dropped %d bytes of corrupted BLE fragment (%q)", len(data), preview)
 			xfer.Abort()
+		case !bytes.HasSuffix(bytes.TrimRight(data, "\n"), []byte("}")):
+			log.Printf("[ble] dropped %d-byte truncated message (%q...)", len(data), preview)
+		default:
+			log.Printf("[ble] parse error: %v (%q)", err, preview)
 		}
 		return
 	}
