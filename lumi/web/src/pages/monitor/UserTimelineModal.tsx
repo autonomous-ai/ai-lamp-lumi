@@ -27,6 +27,9 @@ const WELLBEING_ICONS: Record<string, { icon: string; title: string }> = {
   leave: { icon: "👋", title: "Left" },
   nudge_hydration: { icon: "🔔", title: "Nudged: drink" },
   nudge_break: { icon: "🔔", title: "Nudged: break" },
+  morning_greeting: { icon: "🌅", title: "Morning greeting" },
+  sleep_winddown: { icon: "🌙", title: "Sleep wind-down" },
+  meal_reminder: { icon: "🍽", title: "Meal reminder" },
 };
 
 // Per raw Kinetics label icons. When notes carries a raw label (sedentary /
@@ -175,7 +178,9 @@ export function UserTimelineModal({ user, onClose }: Props) {
         const notes = String(r.notes || "");
         const bucketMeta = WELLBEING_ICONS[action];
         const rawIcon = RAW_LABEL_ICON[action.toLowerCase()];
-        const color = action.startsWith("nudge_") ? "rgb(251,146,60)" : "rgb(96,165,250)";
+        const AGENT_WRITTEN_NUDGES = new Set(["morning_greeting", "sleep_winddown", "meal_reminder"]);
+        const isAgentNudge = action.startsWith("nudge_") || AGENT_WRITTEN_NUDGES.has(action);
+        const color = isAgentNudge ? "rgb(251,146,60)" : "rgb(96,165,250)";
 
         // Three cases, in priority order:
         //  1. New hybrid — action is a raw Kinetics sedentary label emitted directly
