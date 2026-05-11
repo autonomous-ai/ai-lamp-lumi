@@ -35,7 +35,7 @@ BREAK_THRESHOLD_MIN     = 7     # production: 30
 
 1. **Only** call `http://127.0.0.1:5000/api/openclaw/wellbeing-history` to read history. **Never** read `/root/local/users/*/wellbeing/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
 2. **Only** POST to `http://127.0.0.1:5000/api/wellbeing/log`. **Never** substitute `5001`, `8080`, or any other port. **Never** omit `http://` or hardcode `localhost`.
-3. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`. Never invent new actions.
+3. **Only** write these action values: `drink`, `break`, `nudge_hydration`, `nudge_break`, `morning_greeting`, `sleep_winddown`, `meal_reminder`. Never invent new actions.
 4. On a non-2xx response from a POST → you used the wrong port or path. Fix the URL and retry **once**. Do not give up silently — the nudge row must land, or the skill will spam reminders forever.
 5. **Never** infer `user` from memory, `KNOWLEDGE.md`, chat history, or `senderLabel`. Only the `[context: current_user=X]` tag counts.
 6. **Trust the log, not memory.** If the history response contains no `nudge_hydration` entry, no nudge has happened — ignore any self-memory claim otherwise.
@@ -53,6 +53,12 @@ Schema (every field is pre-computed in Lumi Go — agent only applies thresholds
   "latest_activity": "using computer",  // most recent action label (sedentary or reset); "" if no events
   "count_today": {"drink": 3, "break": 1},  // tally of reset actions today; missing key = 0; whole field omitted if all zero
   "time_of_day": "afternoon",      // morning|noon|afternoon|evening|night — coarse bucket for reaction flavor
+  "current_hour": 14,              // exact hour 0-23 — used by activity router for hour-based routes
+  "first_activity_today": false,   // true when no prior REAL user activity events today (presence enter/leave and agent-written nudges/reminders are NOT counted)
+  "meal_window": "",               // "lunch" (11:30-13:30) | "dinner" (18:30-20:30) | "" — set by current_hour
+  "meal_reminder_done_this_window": false,  // true when a meal_reminder was already logged in the current window today
+  "morning_greeting_done_today": false,     // true when a morning_greeting action exists today
+  "sleep_winddown_done_today": false,       // true when a sleep_winddown action exists today
   "patterns": {                    // wellbeing patterns from patterns.json (mtime < 6h, strength >= moderate); omitted if none
     "drink": {"typical_hour": 9, "typical_minute": 15, "strength": "moderate"}
   },
@@ -87,18 +93,26 @@ If the message has no `[wellbeing_context: ...]` block (pre-fetch failed), fall 
 
 In the fallback path, compute deltas yourself by scanning `history` for the latest reset action.
 
-## Decision rules
+## Decision rules (activity router)
 
-Read the `[activity] Activity detected: <labels>.` message + the `[wellbeing_context: ...]` block, then pick **exactly one** path. Reaction outranks nudging — the user just acted; nudging on top would feel tone-deaf.
+Read the `[activity] Activity detected: <labels>.` message + the `[wellbeing_context: ...]` block, then pick **exactly one** route. Apply top-to-bottom, first match wins. Reaction outranks everything — the user just acted; routing past it would feel tone-deaf.
 
-1. **Reaction** — labels list contains `drink` or `break` → speak a 1–3 sentence acknowledgment per the **Reaction** section. **No HW marker** (LeLamp already logged the row upstream).
-2. **Hydration nudge** — else if `hydration_delta_min` ≥ `HYDRATION_THRESHOLD_MIN` → speak a hydration nudge per the **Phrasing** section + post `nudge_hydration` HW marker.
-3. **Break nudge** — else if `break_delta_min` ≥ `BREAK_THRESHOLD_MIN` → speak a break nudge + post `nudge_break` HW marker.
-4. Otherwise (sedentary under threshold, or any delta == `-1` → no reset today yet) → `NO_REPLY`.
+| # | Condition | Route | Output |
+|---|---|---|---|
+| 1 | labels list contains `drink` or `break` | **reaction** | 1–3 sentence acknowledgment per the **Reaction** section. **No HW marker** (LeLamp already logged the row upstream). |
+| 2 | `first_activity_today == true` AND `current_hour ∈ [5, 11)` AND `morning_greeting_done_today == false` | **morning-greeting** | See `reference/morning-greeting.md`. Logs `morning_greeting` action to gate next firings today. |
+| 3 | `current_hour >= 21` AND labels are sedentary (no `drink`/`break`) AND `sleep_winddown_done_today == false` | **sleep-winddown** | See `reference/sleep-winddown.md`. Logs `sleep_winddown` action. Replaces break nudge in late evening. |
+| 4 | `meal_window` is non-empty AND `meal_reminder_done_this_window == false` | **meal-reminder** | See `reference/meal-reminder.md`. Logs `meal_reminder` action with trigger `lunch` / `dinner`. |
+| 5 | `hydration_delta_min >= HYDRATION_THRESHOLD_MIN` | **hydration-nudge** | Speak a hydration nudge per the **Phrasing** section + post `nudge_hydration` HW marker. |
+| 6 | `break_delta_min >= BREAK_THRESHOLD_MIN` | **break-nudge** | Speak a break nudge + post `nudge_break` HW marker. |
+| 7 | anything else (sedentary under threshold, or any delta == `-1` → no reset today yet) | **silent** | `NO_REPLY`. |
 
-At most ONE response per turn.
+**Rules:**
 
-The `nudge_*` row you POST acts as the next reset point, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
+- **One route per turn.** Pick the first matching row, then stop.
+- **Reference files own the phrasing** for routes #2–#4 (morning-greeting / sleep-winddown / meal-reminder). The corresponding HW marker logs `action=<route name>` so the next event in the same window/day sees `*_done_today` / `*_done_this_window` true and skips re-firing.
+- The `nudge_*` row you POST in routes #5/#6 acts as the next reset point, so once you nudge, the delta drops to 0 and the next reminder of that kind only fires after another full threshold window. No separate cooldown logic.
+- Never narrate the routing decision in the spoken reply.
 
 ## Reaction (when the user just did the thing)
 
@@ -207,5 +221,8 @@ Backend writes the `enter` / `leave` rows. You do nothing for these events — s
 | `using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller` | LeLamp (on `motion.activity`) | Sedentary — logged for timeline + phrasing. **Not a reset point.** |
 | `enter`, `leave` | Backend (on `presence.*` events) | Session boundary; deduped against last presence row, so stranger-ID churn collapses. **Reset point.** |
 | `nudge_hydration`, `nudge_break` | **You**, after speaking a nudge | Timeline + reset for next window. |
+| `morning_greeting` | **You**, on the morning-greeting route | Once-per-day gate; suppresses re-firing today. |
+| `sleep_winddown` | **You**, on the sleep-winddown route | Once-per-day gate; suppresses re-firing tonight. |
+| `meal_reminder` | **You**, on the meal-reminder route | Once-per-window gate (lunch / dinner separately). |
 
 Emotional labels (`laughing`, `crying`, `yawning`, `singing`) are filtered upstream and never reach this skill via `motion.activity` — they'll arrive on a separate `motion.emotional` event in a future version.

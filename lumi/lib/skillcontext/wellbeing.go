@@ -36,16 +36,50 @@ const (
 // excluded — counting them would explode the map and isn't useful phrasing.
 var reactionCountActions = []string{"drink", "break"}
 
+// nonActivityActions are wellbeing-log rows that don't represent a user
+// motion.activity event: presence boundaries written by the backend, and
+// agent-written nudge/reminder logs. Used to decide first_activity_today —
+// the morning-greeting route fires on the first REAL motion event of the
+// day, not on a presence.enter row that landed at wake-up.
+var nonActivityActions = map[string]bool{
+	"enter":            true,
+	"leave":            true,
+	"nudge_hydration":  true,
+	"nudge_break":      true,
+	"morning_greeting": true,
+	"sleep_winddown":   true,
+	"meal_reminder":    true,
+}
+
+// Lunch / dinner meal-reminder windows. Used by activity-router routes:
+// when the current hour falls inside a window AND no meal_reminder has been
+// logged in that window today, the agent fires the reminder once.
+const (
+	lunchWindowStartHour  = 11 // 11:30 — start offset applied in inMealWindow
+	lunchWindowEndHour    = 13 // 13:30
+	dinnerWindowStartHour = 18 // 18:30
+	dinnerWindowEndHour   = 20 // 20:30
+	morningEndHour        = 11 // morning greeting fires on first activity 5-11h
+	morningStartHour      = 5
+	sleepWinddownHour     = 21 // sedentary at >=21h routes to sleep wind-down
+)
+
 // wellbeingContext is the digest the agent reads. Deltas are pre-computed so
 // the skill only applies thresholds; raw history is dropped from the prompt.
 type wellbeingContext struct {
-	HydrationDeltaMin int                      `json:"hydration_delta_min"` // minutes since last drink/enter/nudge_hydration; -1 if no reset today
-	BreakDeltaMin     int                      `json:"break_delta_min"`     // minutes since last break/enter/nudge_break;     -1 if no reset today
-	LatestActivity    string                   `json:"latest_activity"`     // most recent action label (sedentary or reset); "" if no events today
-	CountToday        map[string]int           `json:"count_today,omitempty"` // count of reset actions today (drink, break); zeros omitted
-	TimeOfDay         string                   `json:"time_of_day"`         // morning|noon|afternoon|evening|night — flavors reaction phrasing
-	Patterns          map[string]patternDigest `json:"patterns,omitempty"`  // wellbeing_patterns from patterns.json, keyed by action ("drink"/"break")
-	BootstrapNeeded   bool                     `json:"bootstrap_needed"`    // patterns missing/stale AND days >= 3 → invoke habit Flow A only when nudging
+	HydrationDeltaMin           int                      `json:"hydration_delta_min"` // minutes since last drink/enter/nudge_hydration; -1 if no reset today
+	BreakDeltaMin               int                      `json:"break_delta_min"`     // minutes since last break/enter/nudge_break;     -1 if no reset today
+	LatestActivity              string                   `json:"latest_activity"`     // most recent action label (sedentary or reset); "" if no events today
+	CountToday                  map[string]int           `json:"count_today,omitempty"` // count of reset actions today (drink, break); zeros omitted
+	TimeOfDay                   string                   `json:"time_of_day"`         // morning|noon|afternoon|evening|night — flavors reaction phrasing
+	CurrentHour                 int                      `json:"current_hour"`        // exact hour (0-23) for routing — finer than time_of_day
+	FirstActivityToday          bool                     `json:"first_activity_today"` // true when no wellbeing events logged yet today (this event is the first)
+	MealWindow                  string                   `json:"meal_window,omitempty"` // "lunch" | "dinner" | "" — set when current_hour is inside a meal window
+	MealReminderDoneThisWindow  bool                     `json:"meal_reminder_done_this_window"` // true when a meal_reminder was already logged in the current window today
+	MorningGreetingDoneToday    bool                     `json:"morning_greeting_done_today"`    // true when a morning_greeting action exists today
+	SleepWinddownDoneToday      bool                     `json:"sleep_winddown_done_today"`      // true when a sleep_winddown action exists today
+	Patterns                    map[string]patternDigest `json:"patterns,omitempty"`  // wellbeing_patterns from patterns.json, keyed by action ("drink"/"break")
+	BootstrapNeeded             bool                     `json:"bootstrap_needed"`    // patterns missing/stale AND days >= 3 → invoke habit Flow A only when nudging
 }
 
 type patternDigest struct {
@@ -74,19 +108,31 @@ func BuildWellbeingContext(user string) string {
 	latestActivity := latestAction(events)
 	countToday := countTodayActions(events, reactionCountActions)
 	timeOfDay := timeOfDayLabel(now)
+	currentHour := now.Hour()
+	firstActivityToday := isFirstActivityToday(events)
+	mealWindow := mealWindowFor(now)
+	mealReminderDoneThisWindow := hasMealReminderInWindow(events, mealWindow, now)
+	morningGreetingDone := hasActionToday(events, "morning_greeting")
+	sleepWinddownDone := hasActionToday(events, "sleep_winddown")
 
 	patterns, patternsFresh := readWellbeingPatterns(user)
 	days := countWellbeingDays(user)
 	bootstrapNeeded := !patternsFresh && days >= bootstrapMinDays
 
 	ctx := wellbeingContext{
-		HydrationDeltaMin: hydrationDelta,
-		BreakDeltaMin:     breakDelta,
-		LatestActivity:    latestActivity,
-		CountToday:        countToday,
-		TimeOfDay:         timeOfDay,
-		Patterns:          patterns,
-		BootstrapNeeded:   bootstrapNeeded,
+		HydrationDeltaMin:          hydrationDelta,
+		BreakDeltaMin:              breakDelta,
+		LatestActivity:             latestActivity,
+		CountToday:                 countToday,
+		TimeOfDay:                  timeOfDay,
+		CurrentHour:                currentHour,
+		FirstActivityToday:         firstActivityToday,
+		MealWindow:                 mealWindow,
+		MealReminderDoneThisWindow: mealReminderDoneThisWindow,
+		MorningGreetingDoneToday:   morningGreetingDone,
+		SleepWinddownDoneToday:     sleepWinddownDone,
+		Patterns:                   patterns,
+		BootstrapNeeded:            bootstrapNeeded,
 	}
 
 	body, err := json.Marshal(ctx)
@@ -165,6 +211,63 @@ func timeOfDayLabel(now time.Time) string {
 	default:
 		return "night"
 	}
+}
+
+// mealWindowFor returns "lunch" or "dinner" when now falls inside the
+// respective meal-reminder window, or "" otherwise. Windows are
+// minute-precise (lunch 11:30-13:30, dinner 18:30-20:30).
+func mealWindowFor(now time.Time) string {
+	mins := now.Hour()*60 + now.Minute()
+	switch {
+	case mins >= lunchWindowStartHour*60+30 && mins < (lunchWindowEndHour+0)*60+30:
+		return "lunch"
+	case mins >= dinnerWindowStartHour*60+30 && mins < (dinnerWindowEndHour+0)*60+30:
+		return "dinner"
+	default:
+		return ""
+	}
+}
+
+// hasMealReminderInWindow returns true when a meal_reminder action was
+// already logged today inside the same named window. Used to suppress
+// re-firing the same meal reminder.
+func hasMealReminderInWindow(events []wellbeing.Event, window string, now time.Time) bool {
+	if window == "" {
+		return false
+	}
+	for _, e := range events {
+		if e.Action != "meal_reminder" {
+			continue
+		}
+		ts := time.Unix(int64(e.TS), 0).In(now.Location())
+		if mealWindowFor(ts) == window {
+			return true
+		}
+	}
+	return false
+}
+
+// hasActionToday returns true when any event in today's events has the given
+// action label. Used by morning_greeting and sleep_winddown one-per-day gates.
+func hasActionToday(events []wellbeing.Event, action string) bool {
+	for _, e := range events {
+		if e.Action == action {
+			return true
+		}
+	}
+	return false
+}
+
+// isFirstActivityToday returns true when no prior REAL user activity event
+// has been logged today. Presence boundaries (enter/leave) and agent-written
+// nudge/reminder rows don't count — they're not motion.activity events.
+func isFirstActivityToday(events []wellbeing.Event) bool {
+	for _, e := range events {
+		if !nonActivityActions[e.Action] {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(haystack []string, needle string) bool {

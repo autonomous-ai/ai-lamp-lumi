@@ -40,7 +40,7 @@ This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on eve
    | `sleep` | Sleep timing (from conversation intent) |
    | `exercise` | Exercise timing (from conversation intent) |
 
-   Skip: `nudge_hydration`, `nudge_break`, `emotional`.
+   Skip: `nudge_hydration`, `nudge_break`, `morning_greeting`, `sleep_winddown`, `meal_reminder`, `emotional` — these are agent-written nudges/reminders, not user activities, and would pollute pattern detection.
 
 3. **Group by (action, hour)**. For each pair, collect the list of dates it appeared:
    ```
