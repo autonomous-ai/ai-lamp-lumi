@@ -40,6 +40,11 @@ type Config struct {
 	LeLampURL          string `json:"lelamp_url"`
 	LumiURL            string `json:"lumi_url"`
 	ApprovalTimeoutSec int    `json:"approval_timeout_sec"`
+	// NarrationLang picks the language used by the Narrator (UC-9
+	// activity status announcements). Supported values live in
+	// narrationStrings (i18n.go); unsupported values fall back to
+	// English at runtime via supportedLang().
+	NarrationLang string `json:"narration_lang"`
 }
 
 func main() {
@@ -77,14 +82,33 @@ func main() {
 	bridge := NewBridge(cfg.LeLampURL, cfg.LumiURL)
 	startTime := time.Now()
 
-	// State machine with bridge callback
-	sm := NewStateMachine(bridge.OnStateChange)
+	// Narrator (UC-9): short TTS announcements on state changes and
+	// per-tool-use blocks. Shares the LeLamp TTS endpoint with the rest
+	// of the voice pipeline so LeLamp's own mute / music-busy logic
+	// applies.
+	narrator := NewNarrator(cfg.NarrationLang, bridge.speakTTS)
+
+	// State machine with bridge callback. We wrap bridge.OnStateChange
+	// so narration triggers fire alongside LED/display reactions
+	// without making bridge.go aware of the narrator.
+	sm := NewStateMachine(func(old, next BuddyState, hb *Heartbeat) {
+		bridge.OnStateChange(old, next, hb)
+		switch {
+		case old != StateBusy && next == StateBusy:
+			// Fresh activity window — reset per-turn dedupe so tool /
+			// thinking narrations can fire again, then announce.
+			narrator.StartTurn()
+			narrator.Say(NarrateBusyStart)
+		case old == StateBusy && next == StateIdle:
+			narrator.Say(NarrateDone)
+		}
+	})
 
 	// BLE server — assign to package-level `ble` so the onMessage closure
 	// captures the same variable the closure body dereferences. Using `:=`
 	// here would shadow the package var and leave the closure seeing nil.
 	ble = NewBLEServer(cfg.DeviceName, func(data []byte) {
-		handleBLEMessage(data, sm, ble, bridge, cfg.DeviceName, startTime)
+		handleBLEMessage(data, sm, ble, bridge, narrator, cfg.DeviceName, startTime)
 	}, func(connected bool) {
 		sm.SetConnected(connected)
 		if !connected {
@@ -131,7 +155,7 @@ var ble *BLEServer
 // xfer holds the single active folder-push transfer from Claude Desktop.
 var xfer Transfer
 
-func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *Bridge, deviceName string, startTime time.Time) {
+func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *Bridge, narrator *Narrator, deviceName string, startTime time.Time) {
 	msg, lost, err := ParseOrSalvage(data)
 	if err != nil {
 		// BLE write-without-response has no ACK, so BlueZ silently drops
@@ -198,6 +222,24 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *
 		log.Printf("[ble] event evt=%q role=%q content=%q", m.Evt, m.Role, m.TurnText())
 		// Fan out to Lumi so use cases (TTS, display, etc.) can subscribe.
 		bridge.OnEvent(m)
+		// UC-9 narration: a new user turn resets per-turn throttle;
+		// assistant turns are inspected block-by-block so tool_use and
+		// thinking blocks become short TTS announcements.
+		if m.Evt == "turn" {
+			switch m.Role {
+			case "user":
+				narrator.StartTurn()
+			case "assistant":
+				for _, b := range m.Blocks() {
+					switch b.Type {
+					case "thinking":
+						narrator.Say(NarrateThinking)
+					case "tool_use":
+						narrator.SayTool(b.Name)
+					}
+				}
+			}
+		}
 		// No ack required (no cmd field).
 
 	case *Command:
@@ -290,6 +332,7 @@ func loadConfig(path string) Config {
 		LeLampURL:          "http://127.0.0.1:5001",
 		LumiURL:            "http://127.0.0.1:5000",
 		ApprovalTimeoutSec: 30,
+		NarrationLang:      "vi",
 	}
 
 	data, err := os.ReadFile(path)

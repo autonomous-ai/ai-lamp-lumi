@@ -17,7 +17,7 @@ Developer Mode that lets a hardware companion connect over Nordic UART
 Service. The Anthropic reference is an ESP32 desk pet — small LCD, two
 buttons, no brain. Lumi implements the same wire protocol but as a
 **smart buddy**: full lamp with camera, mic, speaker, LED ring, servo,
-display, and the OpenClaw agentic brain.
+and the OpenClaw agentic brain. (No LCD/display peripheral today.)
 
 Lumi can reflect Claude's state visually, voice-approve tool calls
 hands-free, stream chat turns to its display/TTS, and feed presence
