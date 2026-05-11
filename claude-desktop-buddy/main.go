@@ -87,6 +87,14 @@ func main() {
 	// of the voice pipeline so LeLamp's own mute / music-busy logic
 	// applies.
 	narrator := NewNarrator(cfg.NarrationLang, bridge.speakTTS)
+	// Warm the TTS cache once LeLamp has had a chance to come up.
+	// Fire-and-forget; prerender requests are queued by LeLamp and any
+	// 503 / 409 responses are ignored so we don't block startup.
+	go func() {
+		time.Sleep(8 * time.Second)
+		narrator.Warmup(bridge.prerenderTTS)
+		log.Println("[narrator] prerender warmup dispatched")
+	}()
 
 	// State machine with bridge callback. We wrap bridge.OnStateChange
 	// so narration triggers fire alongside LED/display reactions
