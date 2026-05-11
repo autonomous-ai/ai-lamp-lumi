@@ -277,43 +277,23 @@ func (s *Service) CompactSession(sessionKey string) error {
 	return nil
 }
 
-// NewSession sends a sessions.new RPC to start a fresh conversation
-// session for the given key. Unlike CompactSession this does not run
-// an LLM summarize step — the agent runtime drops in-session history
-// and starts clean immediately.
+// NewSession resets the agent's in-session conversation history by
+// sending the OpenClaw `/new` text command (alias of `/reset`) via the
+// normal chat.send path. Unlike CompactSession this does not run an
+// LLM summarize step — the runtime drops history and starts clean.
+//
+// History: an earlier version used a dedicated `sessions.new` RPC, but
+// OpenClaw 5.7+ removed that method (returns INVALID_REQUEST
+// `unknown method: sessions.new`). The `/new` command is the supported
+// surface for this operation and is handled by OpenClaw's command
+// dispatcher before any LLM call, so it does not consume a turn.
+// `sessionKey` is accepted for call-site compatibility but is implicit
+// in the chat.send routing — the command applies to the session keyed
+// by the WS connection's active sessionKey.
 func (s *Service) NewSession(sessionKey string) error {
-	s.wsMu.Lock()
-	conn := s.wsConn
-	s.wsMu.Unlock()
-	if conn == nil {
-		return fmt.Errorf("ws not connected")
+	if _, err := s.sendChat("/new", "", "", "", "system"); err != nil {
+		return fmt.Errorf("send /new: %w", err)
 	}
-
-	reqID := fmt.Sprintf("new-session-%d", s.reqCounter.Add(1))
-	req := map[string]interface{}{
-		"type":   "req",
-		"id":     reqID,
-		"method": "sessions.new",
-		"params": map[string]interface{}{
-			"key": sessionKey,
-		},
-	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal new-session request: %w", err)
-	}
-
-	s.wsMu.Lock()
-	conn = s.wsConn
-	s.wsMu.Unlock()
-	if conn == nil {
-		return fmt.Errorf("ws not connected")
-	}
-
-	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
-		return fmt.Errorf("write new-session request: %w", err)
-	}
-
-	slog.Info("sessions.new sent", "component", "openclaw", "sessionKey", sessionKey)
+	slog.Info("/new sent", "component", "openclaw", "sessionKey", sessionKey)
 	return nil
 }
