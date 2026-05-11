@@ -61,12 +61,7 @@ EMA_ALPHA = 0.45
 # large offsets. At 15fps × 2° = 30°/s max angular speed.
 GIMBAL_MAX_STEP = 2.0
 
-# Edge trigger zone — outer fraction of frame that nudges servo.
-# Object in center (1 - 2*EDGE) → servo silent.
-# Object in edge zone → proportional nudge away from edge.
-# 0.22 → outer 22% each side, center 56% is dead.
-EDGE_ZONE_H = 0.42   # left/right edges
-EDGE_ZONE_V = 0.33   # top/bottom edges
+# Simple proportional follow — object moves → servo moves, no dead zone.
 
 # FOV mapping for correction magnitude.
 CAMERA_FOV_DEG = 60.0
@@ -93,9 +88,6 @@ MAX_TRACK_DURATION_S = 300
 MOMENTUM_DURATION_S  = 1.5   # how long to keep moving after lost
 MOMENTUM_DECAY       = 0.80  # velocity multiplied per frame (natural deceleration)
 MOMENTUM_MIN_SPEED   = 30.0  # px/s minimum to trigger momentum at all
-
-# Predictive tracking — servo runs ahead to intercept moving object
-LOOKAHEAD_S = 0.4   # seconds to predict ahead (tune up if still lagging)
 
 
 @dataclass
@@ -458,84 +450,44 @@ class TrackerService:
                 if cx_obj is not None and cy_obj is not None:
                     _pos_history.append((cx_obj, cy_obj, time.perf_counter()))
 
-                # --- Edge trigger servo ---
+                t_csrt = time.perf_counter()
+
+                # --- Simple proportional servo: object moves → servo moves ---
                 if cx_obj is not None and cy_obj is not None:
                     x1, y1 = w_fr / 2.0, h_fr / 2.0
-                    x2, y2 = cx_obj, cy_obj              # CSRT box — UI display only
-                    x3, y3 = last_yolo_cx, last_yolo_cy  # YOLO ground truth — servo input
+                    x2, y2 = cx_obj, cy_obj
+                    x3, y3 = last_yolo_cx, last_yolo_cy
 
-                    # If CSRT has drifted far from YOLO, use x3 for servo trigger.
-                    # CSRT can silently lock onto wrong object — x3 is ground truth.
-                    if x3 is not None and y3 is not None:
-                        drift = ((x2 - x3) ** 2 + (y2 - y3) ** 2) ** 0.5
-                        if drift > 200:
-                            x2, y2 = x3, y3
+                    raw_dx = x2 - x1
+                    raw_dy = y2 - y1
+
+                    # EMA smoothing to absorb CSRT jitter
+                    if ema_dx is None or ema_dy is None:
+                        ema_dx, ema_dy = raw_dx, raw_dy
+                    else:
+                        ema_dx = EMA_ALPHA * raw_dx + (1.0 - EMA_ALPHA) * ema_dx
+                        ema_dy = EMA_ALPHA * raw_dy + (1.0 - EMA_ALPHA) * ema_dy
+
+                    dx, dy = float(ema_dx), float(ema_dy)
+                    deg_per_px = (CAMERA_FOV_DEG / w_fr) * GIMBAL_GAIN
+                    yaw_step   = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dx * deg_per_px))
+                    pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, dy * deg_per_px))
 
                     logger.info(
-                        "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s err=(%.0f,%.0f) csrt=%.2f",
+                        "scope| x1=(%.0f,%.0f) x2=(%.0f,%.0f) x3=%s"
+                        " err=(%.0f,%.0f) step=(%.2f°,%.2f°) csrt=%.2f",
                         x1, y1, x2, y2,
                         "(%.0f,%.0f)" % (x3, y3) if x3 is not None else "none",
-                        x2 - x1, y2 - y1, csrt_score,
+                        dx, dy, yaw_step, pitch_step, csrt_score,
                     )
 
-                    ex1 = w_fr * EDGE_ZONE_H
-                    ex2 = w_fr * (1.0 - EDGE_ZONE_H)
-                    ey1 = h_fr * EDGE_ZONE_V
-                    ey2 = h_fr * (1.0 - EDGE_ZONE_V)
-
-                    # --- Predictive tracking: estimate velocity → predict future pos ---
-                    if len(_pos_history) >= 3:
-                        dt_h = _pos_history[-1][2] - _pos_history[-3][2]
-                        if dt_h > 0:
-                            vx = (_pos_history[-1][0] - _pos_history[-3][0]) / dt_h
-                            vy = (_pos_history[-1][1] - _pos_history[-3][1]) / dt_h
-                            px = x2 + vx * LOOKAHEAD_S
-                            py = y2 + vy * LOOKAHEAD_S
-                        else:
-                            px, py = x2, y2
-                    else:
-                        px, py = x2, y2
-
-                    # --- Edge trigger on predicted position (px,py) ---
-                    # Servo runs ahead to intercept — no more chasing after the fact.
-                    _min = GIMBAL_MAX_STEP * 0.2
-
-                    if px < ex1:
-                        raw = ((ex1 - px) / ex1) * GIMBAL_MAX_STEP
-                        yaw_step = -max(_min, raw)
-                    elif px > ex2:
-                        raw = ((px - ex2) / (w_fr - ex2)) * GIMBAL_MAX_STEP
-                        yaw_step = max(_min, raw)
-                    else:
-                        yaw_step = 0.0
-
-                    if py < ey1:
-                        raw = ((ey1 - py) / ey1) * GIMBAL_MAX_STEP
-                        pitch_step = -max(_min, raw)
-                    elif py > ey2:
-                        raw = ((py - ey2) / (h_fr - ey2)) * GIMBAL_MAX_STEP
-                        pitch_step = max(_min, raw)
-                    else:
-                        pitch_step = 0.0
-
-                    # Clamp step
-                    yaw_step   = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, yaw_step))
-                    pitch_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, pitch_step))
-
                     if yaw_step != 0.0 or pitch_step != 0.0:
-                        new_yaw = max(YAW_MIN, min(YAW_MAX, yaw + yaw_step))
-
+                        new_yaw   = max(YAW_MIN,         min(YAW_MAX,         yaw   + yaw_step))
                         new_pitch = max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  pitch + pitch_step * PITCH_WEIGHT_BASE))
                         new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, elbow + pitch_step * PITCH_WEIGHT_ELBOW))
                         new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, wrist + pitch_step * PITCH_WEIGHT_WRIST))
 
-                        logger.info(
-                            "servo| step=(%.2f°,%.2f°) yaw=%.1f→%.1f pitch=%.1f→%.1f"
-                            " cpu=%.1f°C load=%s ram=%s %s",
-                            yaw_step, pitch_step, yaw, new_yaw, pitch, new_pitch,
-                            _hw["cpu"], _hw["load"], _hw["ram"], _hw["throttled"],
-                        )
-
+                        t_servo_start = time.perf_counter()
                         try:
                             with animation_service.bus_lock:
                                 animation_service.robot.send_action({
@@ -548,6 +500,17 @@ class TrackerService:
                             time.sleep(SERVO_SETTLE_S)
                         except Exception as e:
                             logger.warning("Gimbal: servo command failed: %s", e)
+
+                        t_servo_end = time.perf_counter()
+                        logger.info(
+                            "timing| grab=%.0fms csrt=%.0fms servo=%.0fms total=%.0fms"
+                            " cpu=%.1f°C %s",
+                            (t_csrt - t0) * 1000,
+                            (t_servo_start - t_csrt) * 1000,
+                            (t_servo_end - t_servo_start) * 1000,
+                            (t_servo_end - t0) * 1000,
+                            _hw["cpu"], _hw["throttled"],
+                        )
 
                 # Sysmon every 48 frames (~2s at 24fps)
                 _frame_count += 1
