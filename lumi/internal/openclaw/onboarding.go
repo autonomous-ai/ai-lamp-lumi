@@ -347,22 +347,34 @@ func (s *Service) ensureSoulMDBlock() (bool, error) {
 	}
 	text := string(content)
 
-	if strings.Contains(text, soulMDBlock) {
-		slog.Debug("SOUL.md already has current core block, skipping", "component", "onboarding")
-		return false, nil
+	// Strip any prior marker block first so the legacy-seed heuristic below
+	// only sees whatever was below the closing `---`.
+	if strings.Contains(text, lumiMandatoryMarker) {
+		text = stripMarkedBlock(text)
 	}
 
 	// Legacy migration: before the marker block existed, onboarding overwrote
-	// SOUL.md with the embedded core verbatim every run, so unmodified devices
-	// have a file == coreContent. Detect that exact shape and drop it so we
-	// don't duplicate the core when prepending the new marker block.
-	if strings.TrimSpace(text) == strings.TrimSpace(string(coreContent)) {
-		text = ""
-	}
-
-	// Strip any prior marker block before injecting the current one.
-	if strings.Contains(text, lumiMandatoryMarker) {
-		text = stripMarkedBlock(text)
+	// SOUL.md with the embedded core verbatim every run via seedFile, so
+	// unmodified devices have content shaped like the embedded core. The
+	// previous strict-equality check (file == current coreContent) silently
+	// failed whenever the embedded core had drifted since the device's last
+	// seed (e.g. soft-door / language-mirror / no-JSONL-duplicate updates),
+	// which preserved the stale core as fake "owner edits" and duplicated
+	// it on top of the new marker block. The same shape — current marker
+	// block followed by another `# Soul` block — also persists on devices
+	// that already ran the broken migration; stripping the marker first
+	// lets this branch self-heal them on the next onboarding run.
+	//
+	// Detect any legacy-seed shape by the `# Soul` heading at the start of
+	// the remaining text. If the owner has added their own `## Personal`
+	// section below it, keep only that section; otherwise discard entirely.
+	trimmed := strings.TrimLeft(text, " \t\r\n")
+	if strings.HasPrefix(trimmed, "# Soul") {
+		if idx := strings.Index(text, "## Personal"); idx >= 0 {
+			text = text[idx:]
+		} else {
+			text = ""
+		}
 	}
 
 	var output string
@@ -371,6 +383,11 @@ func (s *Service) ensureSoulMDBlock() (bool, error) {
 		output = soulMDBlock + "\n\n## Personal\n\n_Owner-editable. Add notes about yourself, family, routines, or personality tweaks for Lumi here. The block above is managed by Lumi and will be refreshed on each update — keep your edits in this section._\n"
 	} else {
 		output = soulMDBlock + "\n\n" + text
+	}
+
+	if output == string(content) {
+		slog.Debug("SOUL.md already in canonical shape, skipping", "component", "onboarding")
+		return false, nil
 	}
 
 	if err := os.WriteFile(soulFile, []byte(output), 0644); err != nil {
