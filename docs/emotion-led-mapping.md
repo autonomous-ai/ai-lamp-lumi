@@ -32,13 +32,10 @@ Source: `lelamp/presets.py` — `EMOTION_PRESETS`
 - **`shock`** → restore sau 2.0s (notification_flash tự tắt sau ~1.5s)
 - **`idle`** → không schedule restore (là ambient resting state)
 
-## Pulse Overlay
+## Pulse Behavior
 
-Khi emotion bật pulse trong lúc user đã set màu (vd `đèn xanh lá`):
+Emotion-driven pulse (thinking / listening / scan) chạy trên **nền đen**: wavefront tím/xanh nổi rõ trên strip đen, agent biểu cảm dễ thấy bất kể user đang set màu gì.
 
-- Pixel ngoài wavefront giữ **màu user**, không reset đen
-- Pixel ở wavefront alpha-blend từ màu user → màu emotion theo falloff
-- Kill mid-frame để lại nền user + ripple đang fade, không bị frame partial-dark
-- Áp dụng cho mọi emotion dùng `pulse` (thinking / listening / scan) và cho effect transient từ Buddy
+Transient pulse (Buddy busy, các driver overlay khác qua `/led/effect` với `transient: true`) thì **overlay trên màu user**: pixel ngoài wavefront giữ màu user, pixel wavefront alpha-blend từ user → emotion. Mục đích: giữ liên tục màu nền user trong khi overlay nhanh.
 
-Source: `lelamp/service/rgb/effects.py:pulse()`, base color do `lelamp/app_state.py:_get_user_base_color()` cung cấp.
+Source: `lelamp/service/rgb/effects.py:pulse()`; emotion path ở `lelamp/app_state.py:_apply_emotion_led_display()` (base đen mặc định), transient path ở `lelamp/routes/led.py:start_led_effect()` (base = `_get_user_base_color()` khi `transient=true`).

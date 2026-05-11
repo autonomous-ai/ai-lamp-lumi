@@ -349,7 +349,11 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
         scaled = [int(c * intensity) for c in preset["color"]]
         try:
             if preset.get("effect"):
-                base_color = _get_user_base_color()
+                # Emotion-driven effects run on a black base, not the user's
+                # ambient color: the agent is expressing a feeling and the
+                # user should see it clearly. Overlay-on-user is reserved
+                # for transient driver effects (e.g. Buddy busy pulse) via
+                # the /led/effect transient=true path.
                 _stop_current_effect()
                 global _effect_thread, _effect_name, _effect_base_color
                 _effect_stop.clear()
@@ -365,7 +369,6 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
                         _effect_stop,
                         rgb_service,
                     ),
-                    kwargs={"base_color": base_color},
                     daemon=True,
                     name=f"led-emotion-{emotion}",
                 )
