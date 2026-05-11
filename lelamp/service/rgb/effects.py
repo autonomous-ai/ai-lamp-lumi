@@ -58,6 +58,7 @@ def run_effect(
     duration_ms: Optional[int],
     stop_event: threading.Event,
     svc,
+    base_color: Optional[tuple] = None,
 ):
     """Dispatch to the appropriate effect loop. Runs in a background thread."""
     deadline = None
@@ -74,7 +75,7 @@ def run_effect(
         elif effect == FX_NOTIFICATION_FLASH:
             notification_flash(color, speed, stop_event, svc)
         elif effect == FX_PULSE:
-            pulse(color, speed, deadline, stop_event, svc)
+            pulse(color, speed, deadline, stop_event, svc, base_color or (0, 0, 0))
         elif effect == FX_BLINK:
             blink(color, speed, deadline, stop_event, svc)
         elif effect == FX_SPEAKING_WAVE:
@@ -192,8 +193,15 @@ def pulse(
     deadline: Optional[float],
     stop_event: threading.Event,
     svc,
+    base_color: tuple = (0, 0, 0),
 ):
-    """Single color pulse outward from center."""
+    """Ripple pulse overlaid on a base color.
+
+    Pixels outside the wavefront stay at base_color; pixels at the wavefront
+    blend toward `color` by a falloff factor. Killing the effect mid-frame
+    leaves the strip showing base_color + a fading ripple instead of a
+    half-painted dark frame.
+    """
     step_delay = 0.04 / speed
     led_count = getattr(svc, "led_count", 64)
     center = led_count // 2
@@ -202,15 +210,18 @@ def pulse(
         for radius in range(max_radius + 1):
             if is_done(deadline, stop_event):
                 return
-            pixels = [(0, 0, 0)] * led_count
+            pixels = [base_color] * led_count
             for i in range(led_count):
                 dist = abs(i - center)
                 if dist <= radius:
-                    # Brightness falls off with distance from the wavefront
                     falloff = max(
                         0.0, 1.0 - abs(dist - radius) / max(max_radius * 0.3, 1)
                     )
-                    pixels[i] = tuple(int(c * falloff) for c in color)
+                    if falloff > 0:
+                        pixels[i] = tuple(
+                            int(base_color[c] + (color[c] - base_color[c]) * falloff)
+                            for c in range(3)
+                        )
             svc.dispatch(RGB_CMD_PAINT, pixels)
             time.sleep(step_delay)
 

@@ -161,6 +161,27 @@ def _get_current_led_color() -> tuple:
     return (255, 180, 100)
 
 
+def _get_user_base_color() -> tuple:
+    """Return the user's current LED base color for overlay effects.
+
+    Falls back to (0, 0, 0) when the strip has no active user state — pulse
+    then behaves like the original wavefront-on-black animation.
+    """
+    if not _user_led_state:
+        return (0, 0, 0)
+    stype = _user_led_state.get("type")
+    if stype == LST_OFF:
+        return (0, 0, 0)
+    if stype in (LST_SOLID, LST_EFFECT):
+        color = _user_led_state.get("color")
+        return tuple(color) if color else (0, 0, 0)
+    if stype == LST_SCENE:
+        preset = SCENE_PRESETS.get(_user_led_state.get("scene", ""))
+        if preset:
+            return tuple(int(c * preset["brightness"]) for c in preset["color"])
+    return (0, 0, 0)
+
+
 def _restore_user_led():
     """Restore LED to user state after emotion animation completes."""
     global _restore_timer
@@ -322,6 +343,7 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
         scaled = [int(c * intensity) for c in preset["color"]]
         try:
             if preset.get("effect"):
+                base_color = _get_user_base_color()
                 _stop_current_effect()
                 global _effect_thread, _effect_name, _effect_base_color
                 _effect_stop.clear()
@@ -337,6 +359,7 @@ def _apply_emotion_led_display(emotion: str, intensity: float = 1.0) -> Optional
                         _effect_stop,
                         rgb_service,
                     ),
+                    kwargs={"base_color": base_color},
                     daemon=True,
                     name=f"led-emotion-{emotion}",
                 )
