@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+// claudeBrand is the Claude app icon color (#D97757) used for all
+// buddy state LED cues so the lamp visibly speaks "Claude".
+var claudeBrand = [3]int{217, 119, 87}
+
 // Bridge maps buddy state changes to LeLamp and Lumi HTTP calls.
 type Bridge struct {
 	lelampURL string
@@ -38,7 +42,7 @@ func (b *Bridge) OnStateChange(old, next BuddyState, hb *Heartbeat) {
 		b.displayEyesMode()
 
 	case StateBusy:
-		b.ledEffect("pulse", [3]int{0, 100, 255}, 0.8, 0)
+		b.ledEffect("pulse", claudeBrand, 0.8, 0)
 		if hb != nil {
 			b.displayInfo(
 				fmt.Sprintf("%s tokens", formatTokens(hb.TokensToday)),
@@ -47,7 +51,7 @@ func (b *Bridge) OnStateChange(old, next BuddyState, hb *Heartbeat) {
 		}
 
 	case StateAttention:
-		b.ledEffect("blink", [3]int{255, 80, 0}, 1.5, 0)
+		b.ledEffect("blink", claudeBrand, 1.5, 0)
 		if hb != nil && hb.Prompt != nil {
 			b.displayInfo(
 				fmt.Sprintf("Approve %s?", hb.Prompt.Tool),
@@ -57,11 +61,11 @@ func (b *Bridge) OnStateChange(old, next BuddyState, hb *Heartbeat) {
 		}
 
 	case StateHeart:
-		b.ledSolid([3]int{255, 200, 100})
+		b.ledSolid(claudeBrand)
 		b.displayEyes("happy")
 
 	case StateCelebrate:
-		b.ledEffect("rainbow", [3]int{255, 255, 255}, 2.0, 3000)
+		b.ledEffect("rainbow", claudeBrand, 2.0, 3000)
 		b.displayEyes("excited")
 	}
 
