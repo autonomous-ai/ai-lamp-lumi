@@ -49,11 +49,11 @@ start-jupyter:
 	@mkdir -p /workspace/logs/jupyter
 	@(sleep 3 && TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /workspace/logs/jupyter/current 2>/dev/null | tail -1); \
 	if [ -n "$$TOKEN" ]; then \
-		echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
+		echo "Jupyter Lab: https://<host>:8888/jupyter/lab?token=$$TOKEN"; \
 	else \
 		echo "Jupyter Lab started — grep token from /workspace/logs/jupyter/current"; \
 	fi) &
-	jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --notebook-dir=/workspace 2>&1 | multilog t s1048576 n3 /workspace/logs/jupyter
+	jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --ServerApp.allow_remote_access=true --notebook-dir=/workspace 2>&1 | multilog t s1048576 n3 /workspace/logs/jupyter
 
 test:
 	python -m pytest tests/ -v
