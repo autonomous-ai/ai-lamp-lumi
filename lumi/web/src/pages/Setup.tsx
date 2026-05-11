@@ -375,8 +375,14 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const [sttBaseUrl, setSttBaseUrl] = useState("");
   // Pre-fill STT language from URL param, else browser locale so VN/CN buyers
   // don't have to touch this field; users can still override before submitting.
+  // URL value is validated against the dropdown allow-list — server stores
+  // anything we send (no validation upstream), so we gate at the FE boundary.
   const [sttLanguage, setSttLanguage] = useState<string>(() => {
-    if (urlParams.sttLanguage) return urlParams.sttLanguage;
+    const VALID = ["en", "vi", "zh-CN", "zh-TW"];
+    if (urlParams.sttLanguage) {
+      if (VALID.includes(urlParams.sttLanguage)) return urlParams.sttLanguage;
+      console.warn(`[setup] URL stt_language="${urlParams.sttLanguage}" not in ${VALID.join(",")}, ignoring`);
+    }
     const loc = (navigator.language || "").toLowerCase();
     if (loc.startsWith("vi")) return "vi";
     if (loc.startsWith("zh-tw") || loc.startsWith("zh-hant") || loc.startsWith("zh-hk")) return "zh-TW";
@@ -624,7 +630,15 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
         .catch(() => { if (attempt < maxAttempts) return fetchNetworks(); setNetworks([]); });
     }
     fetchNetworks().finally(() => setLoadingList(false));
-    getTTSProviders().then(setTtsProviders).catch(() => {});
+    getTTSProviders().then((providers) => {
+      setTtsProviders(providers);
+      // Validate URL-supplied provider against server allow-list. Server stores
+      // whatever we send; this gate prevents ?tts_provider=foo from breaking TTS.
+      if (urlParams.ttsProvider && providers.length > 0 && !providers.includes(urlParams.ttsProvider)) {
+        console.warn(`[setup] URL tts_provider="${urlParams.ttsProvider}" not in ${providers.join(",")}, using ${providers[0]}`);
+        setTtsProvider(providers[0]);
+      }
+    }).catch(() => {});
     getTTSVoices().then(setTtsVoices).catch(() => {});
     // Pre-populate the form from any existing config so re-running setup
     // doesn't blank out fields the operator already filled. URL params and
@@ -740,12 +754,23 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // if the currently-selected one is not in the new (filtered) list. Passing
   // sttLanguage filters ElevenLabs voices to the active language bucket.
   const providerChangedByUser = useRef(false);
+  const urlVoiceValidated = useRef(false);
   useEffect(() => {
     getTTSVoices(ttsProvider, sttLanguage).then((voices) => {
       setTtsVoices(voices);
-      if (providerChangedByUser.current && voices.length > 0 && !voices.includes(ttsVoice)) {
-        setTtsVoice(voices[0]);
+      if (voices.length > 0 && !voices.includes(ttsVoice)) {
+        // Reset cases: (a) user switched provider/lang, voice no longer valid;
+        // (b) first load and URL prefilled an invalid voice. Skip otherwise to
+        // avoid clobbering a saved-cfg voice that's still loading in parallel.
+        const urlVoiceInvalid = !urlVoiceValidated.current && !!urlParams.ttsVoice;
+        if (providerChangedByUser.current || urlVoiceInvalid) {
+          if (urlVoiceInvalid) {
+            console.warn(`[setup] URL tts_voice="${urlParams.ttsVoice}" not in voice list for provider=${ttsProvider} lang=${sttLanguage || "auto"}, using ${voices[0]}`);
+          }
+          setTtsVoice(voices[0]);
+        }
       }
+      urlVoiceValidated.current = true;
       providerChangedByUser.current = true;
     }).catch(() => {});
   }, [ttsProvider, sttLanguage]);
