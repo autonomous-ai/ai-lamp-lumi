@@ -76,11 +76,19 @@ func (s *Service) Set(state State) {
 	slog.Info("status LED set", "component", "statusled", "state", state)
 }
 
-// Clear deactivates a status LED state.
+// Clear deactivates a status LED state. No-op if state wasn't active.
 func (s *Service) Clear(state State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, was := s.active[state]; !was {
+		// State already inactive — don't fire another RestoreLED.
+		// Without this guard, callers that Clear unconditionally on every
+		// tick (e.g. healthwatch poll) would trigger /led/restore each
+		// tick, repainting the strip to off or to the user color
+		// indefinitely.
+		return
+	}
 	delete(s.active, state)
 
 	if len(s.active) == 0 {
