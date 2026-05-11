@@ -30,13 +30,16 @@ logger = logging.getLogger(__name__)
 
 _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 
-# --- YOLOWorld API ---
+# --- Detection model API ---
 
-_YOLO_ENDPOINT = "/detect/yoloworld"
+# Available models on the autonomous backend:
+#   "owlv2"
+#   "yoloe"
+#   "grounding-dino"
+#   "yoloworld"
+_DETECT_MODEL = "yoloworld"
+_YOLO_ENDPOINT = f"/detect/{_DETECT_MODEL}"
 _YOLO_TIMEOUT = 10.0
-
-# "owlv2"
-# "yoloe"
 
 # --- Tuning knobs ---
 
