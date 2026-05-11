@@ -99,6 +99,10 @@ func main() {
 	// State machine with bridge callback. We wrap bridge.OnStateChange
 	// so narration triggers fire alongside LED/display reactions
 	// without making bridge.go aware of the narrator.
+	// Restore lifetime approval / denial counters so /status reports
+	// the right numbers right after a restart.
+	persisted := LoadStats()
+
 	sm := NewStateMachine(func(old, next BuddyState, hb *Heartbeat) {
 		bridge.OnStateChange(old, next, hb)
 		switch {
@@ -116,8 +120,13 @@ func main() {
 			narrator.Say(NarrateBusyStart)
 		case old == StateBusy && next == StateIdle:
 			narrator.Say(NarrateDone)
+			// Done = quick celebratory emotion. LeLamp coordinates the
+			// servo + LED together via /emotion so the lamp visibly
+			// "exhales" between turns.
+			bridge.expressEmotion("happy", 0.7)
 		}
 	})
+	sm.SeedStats(persisted.Approved, persisted.Denied)
 
 	// BLE server — assign to package-level `ble` so the onMessage closure
 	// captures the same variable the closure body dereferences. Using `:=`
