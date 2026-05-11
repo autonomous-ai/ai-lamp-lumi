@@ -23,7 +23,7 @@ func withUsersDir(t *testing.T, setup func(dir string)) func() {
 
 func TestResolve(t *testing.T) {
 	cleanup := withUsersDir(t, func(dir string) {
-		for _, name := range []string{"gray", "darren", "leo"} {
+		for _, name := range []string{"gray", "alex", "leo"} {
 			_ = os.MkdirAll(filepath.Join(dir, name), 0o755)
 		}
 		_ = os.WriteFile(
