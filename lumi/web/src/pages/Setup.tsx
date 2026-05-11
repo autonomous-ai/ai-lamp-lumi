@@ -632,6 +632,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                   {isContinue && (
                     <VoiceSection
                       active={activeSection === "voice"}
+                      sttLanguage={sttLanguage}
                       faceOwners={faceOwners}
                       loadFaceOwners={loadFaceOwners}
                     />
