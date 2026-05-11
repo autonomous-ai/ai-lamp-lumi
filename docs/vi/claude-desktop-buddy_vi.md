@@ -31,7 +31,7 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 | UC-3 | **Thống kê hoạt động qua HTTP** | [x] xong | Buddy track token count, sessions chạy, approval stats; expose qua `GET /status` cho consumer local. (Chưa có display trên lamp.) |
 | UC-4 | **Fan-out chat turn** | [x] xong | Mọi `evt:"turn"` (user/assistant/tool blocks) được forward lên Lumi monitor bus dạng `buddy_event` — sẵn cho TTS, transcript memory, dashboard. |
 | UC-5 | **Nhận character pack** | [x] xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
-| UC-9 | **TTS narration trạng thái** | [x] xong | Thông báo ngắn ("Claude đang sửa file", "Claude xong rồi") khi state đổi và cho mỗi block `tool_use` / `thinking`. Multi-lang (`vi` / `en` / `zh`) trong `i18n.go`, throttle 1 lần/category/turn, gọi LeLamp `/voice/speak` với `cached: true` để phrase set bounded hit TTS cache on-disk sau lần đầu. Tool lạ fallback sang câu generic không kèm tên — tên tool Claude Code (CamelCase, `mcp__*`) đọc qua TTS không thành tiếng. |
+| UC-9 | **TTS narration trạng thái** | [x] xong | Thông báo ngắn khi state đổi ("Claude đã kết nối" / "Claude bắt đầu" / "Claude xong rồi" / "Claude đã ngắt kết nối") và cho mỗi block `tool_use` / `thinking` ("Claude đang sửa file", "Claude đang tìm web", …). Multi-lang (`vi` / `en` / `zh`) trong `i18n.go`, throttle 1 lần/category/turn. Gọi LeLamp `/voice/speak` với `cached: true` để phrase set bounded hit TTS cache on-disk; `Narrator.Warmup` chạy mọi phrase với `prerender: true` 8s sau khởi động nên lần đầu cũng phát từ cache. Transition busy→idle gọi thêm `/emotion {happy,0.7}` để LeLamp phối hợp LED + servo "thở ra" giữa các turn. Tool lạ fallback sang câu generic không kèm tên — tên tool Claude Code (CamelCase, `mcp__*`) đọc qua TTS không thành tiếng. |
 | UC-8 | **Đọc reply Claude qua TTS** | [ ] tiếp theo | Lumi subscribe `buddy_event`, filter `role=assistant` + text block, strip markdown, đẩy text qua LeLamp TTS để user nghe thay vì nhìn màn Mac. Respect presence (skip khi user vắng), busy state của voice pipeline, ưu tiên agent emotion. |
 | UC-6 | **Presence feedback** | [ ] tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
 | UC-7 | **OpenClaw biết transcript** | [ ] tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
@@ -678,6 +678,7 @@ WantedBy=multi-user.target
 | `/opt/claude-desktop-buddy/VERSION_BUDDY` | Version stamp match OTA metadata |
 | `/opt/claude-desktop-buddy/chars/<name>/` | Character pack nhận về từ folder push |
 | `/root/config/buddy.json` | Runtime config (giữ qua OTA) |
+| `/var/lib/lumi-buddy/stats.json` | Counter approve/deny lifetime (giữ qua OTA + reset config) |
 | `/var/log/lumi-buddy.log` | Log rotate (2 MB × 10 backup) |
 
 ### Lệnh update
@@ -713,7 +714,8 @@ WantedBy=multi-user.target
 - [x] OpenClaw giảm proactive behavior khi Desktop busy
 - [x] Chat turn (user / assistant / tool blocks) stream vào Lumi monitor bus
 - [x] Folder push character pack lưu vào `chars/<name>/`
-- [x] UC-9 TTS narration trạng thái (vi/en/zh) qua cache LeLamp
+- [x] UC-9 TTS narration trạng thái (vi/en/zh) qua cache LeLamp + emotion khi done
+- [x] Counter approve/deny giữ được qua restart (`/var/lib/lumi-buddy/stats.json`)
 - [ ] UC-8 đọc reply assistant qua TTS — kế tiếp
 - [ ] GATT link bonded encrypted (`sec: true`) — defer
 - [ ] Presence feedback Lumi → Desktop — mở rộng protocol tương lai
