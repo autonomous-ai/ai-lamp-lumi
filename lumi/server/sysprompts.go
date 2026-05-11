@@ -16,11 +16,11 @@ import "go-lamp.autonomous.ai/lib/i18n"
 func wakeGreetingPrompt() string {
 	switch i18n.Lang() {
 	case "vi":
-		return "Bạn vừa thức dậy. Chào hỏi chủ nhân ngắn gọn."
+		return "[system] Bạn vừa thức dậy. Chào hỏi chủ nhân ngắn gọn."
 	case "zh-CN":
-		return "你刚刚醒来，请简短地问候一下主人。"
+		return "[system] 你刚刚醒来，请简短地问候一下主人。"
 	case "zh-TW":
-		return "你剛剛醒來，請簡短地問候一下主人。"
+		return "[system] 你剛剛醒來，請簡短地問候一下主人。"
 	}
-	return "You just woke up. Greet the user briefly."
+	return "[system] You just woke up. Greet the user briefly."
 }
