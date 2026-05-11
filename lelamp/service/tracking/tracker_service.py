@@ -445,13 +445,12 @@ class TrackerService:
                             else:
                                 logger.info("[motion] STILL offset=(%.0f,%.0f) → FIRE servo target='%s'",
                                             dx, dy, state.target_label)
-                                # One-shot servo command to centre on settled position.
+                                # One-shot full correction: compute exact degrees to centre object.
+                                # No GIMBAL_GAIN — we want to arrive in one move, not inch toward it.
                                 deg_per_px = CAMERA_FOV_DEG / w_fr
-                                yaw_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
-                                    GIMBAL_GAIN * dx * deg_per_px))
+                                yaw_step = max(-30.0, min(30.0, dx * deg_per_px))
                                 # dy > 0 = object below centre → increase pitch → camera looks down
-                                pitch_total = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
-                                    GIMBAL_GAIN * dy * deg_per_px))
+                                pitch_total = max(-30.0, min(30.0, dy * deg_per_px))
 
                                 new_yaw = max(YAW_MIN, min(YAW_MAX,
                                     self._track_yaw + yaw_step))
