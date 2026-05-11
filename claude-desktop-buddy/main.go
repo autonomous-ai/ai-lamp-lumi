@@ -179,14 +179,11 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 		// Ack not required for time sync (no cmd field)
 
 	case *Event:
-		// Stream of chat turns and other events from Claude Desktop. For
-		// now log a compact summary; downstream consumers (Lumi display,
-		// TTS, etc.) can hook in later.
-		text := m.TurnText()
-		if len(text) > 120 {
-			text = text[:117] + "..."
-		}
-		log.Printf("[ble] event evt=%q role=%q content=%q", m.Evt, m.Role, text)
+		// Stream of chat turns and other events from Claude Desktop.
+		// Log the full content (no truncation) so downstream consumers
+		// reading the journal — and us during integration work — see
+		// everything Claude Desktop sent.
+		log.Printf("[ble] event evt=%q role=%q content=%q", m.Evt, m.Role, m.TurnText())
 		// No ack required (no cmd field).
 
 	case *Command:
