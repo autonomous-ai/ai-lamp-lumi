@@ -84,7 +84,7 @@ func main() {
 	// captures the same variable the closure body dereferences. Using `:=`
 	// here would shadow the package var and leave the closure seeing nil.
 	ble = NewBLEServer(cfg.DeviceName, func(data []byte) {
-		handleBLEMessage(data, sm, ble, cfg.DeviceName, startTime)
+		handleBLEMessage(data, sm, ble, bridge, cfg.DeviceName, startTime)
 	}, func(connected bool) {
 		sm.SetConnected(connected)
 		if !connected {
@@ -131,28 +131,31 @@ var ble *BLEServer
 // xfer holds the single active folder-push transfer from Claude Desktop.
 var xfer Transfer
 
-func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceName string, startTime time.Time) {
+func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *Bridge, deviceName string, startTime time.Time) {
 	msg, lost, err := ParseOrSalvage(data)
 	if err != nil {
 		// BLE write-without-response has no ACK, so BlueZ silently drops
-		// packets under load. Two failure modes show up here:
-		//   - tail fragment: the line doesn't start with '{', so the
-		//     original payload's prefix is gone. Nothing to recover.
-		//   - mid-line truncation: starts as JSON, but a chunk in the
-		//     middle of `entries` / `content` was lost, leaving broken
-		//     brackets. Salvage can't help because the opener is at byte 0.
-		// Both are unrecoverable — log compactly so the journal stays
-		// readable, and abort any in-progress char transfer.
+		// packets under load. Three failure modes show up here, all
+		// unrecoverable, all worth tagging so the journal hints at why:
+		//   - prefix-lost: the line doesn't start with '{', so the original
+		//     payload's head is gone. Salvage already tried known openers
+		//     and failed.
+		//   - truncated: starts with '{' but doesn't end with '}'. Tail of
+		//     the line dropped, brackets never closed.
+		//   - mid-corruption: brackets line up but a chunk inside an
+		//     `entries` / `content` array got dropped, so unmarshal
+		//     trips on a stray character mid-payload.
+		// Abort any in-progress char transfer because we lost framing.
 		preview := compactPreview(data, 80)
+		category := "mid-corruption"
 		switch {
 		case len(data) == 0 || data[0] != '{':
-			log.Printf("[ble] dropped %d bytes of corrupted BLE fragment (%q)", len(data), preview)
+			category = "prefix-lost"
 			xfer.Abort()
 		case !bytes.HasSuffix(bytes.TrimRight(data, "\n"), []byte("}")):
-			log.Printf("[ble] dropped %d-byte truncated message (%q...)", len(data), preview)
-		default:
-			log.Printf("[ble] parse error: %v (%q)", err, preview)
+			category = "truncated"
 		}
+		log.Printf("[ble] dropped %d-byte BLE message (%s): %v — %q", len(data), category, err, preview)
 		return
 	}
 	if lost > 0 {
@@ -172,6 +175,8 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 			sm.SetConnected(true)
 			log.Println("[ble] Claude Desktop connected")
 		}
+		log.Printf("[ble] heartbeat total=%d running=%d waiting=%d tokens=%d today=%d msg=%q entries=%d prompt=%v",
+			m.Total, m.Running, m.Waiting, m.Tokens, m.TokensToday, m.Msg, len(m.Entries), m.Prompt != nil)
 		sm.HandleHeartbeat(m)
 
 	case *TimeSync:
@@ -184,6 +189,8 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 		// reading the journal — and us during integration work — see
 		// everything Claude Desktop sent.
 		log.Printf("[ble] event evt=%q role=%q content=%q", m.Evt, m.Role, m.TurnText())
+		// Fan out to Lumi so use cases (TTS, display, etc.) can subscribe.
+		bridge.OnEvent(m)
 		// No ack required (no cmd field).
 
 	case *Command:

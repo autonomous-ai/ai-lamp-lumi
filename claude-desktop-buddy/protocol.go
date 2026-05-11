@@ -42,10 +42,13 @@ type Event struct {
 	Content json.RawMessage `json:"content,omitempty"`
 }
 
-// TurnText extracts a flat text representation of an Event's content,
-// regardless of whether the original payload was a string or an array of
-// {"type":"text","text":"..."} blocks. Non-text blocks (e.g. tool_use)
-// are skipped.
+// TurnText renders an Event's content as a single log-friendly string.
+// User turns arrive as a bare string; assistant and tool-result turns
+// arrive as an array of typed content blocks (matching the Anthropic
+// API shape). All block types we've observed in the wild are rendered
+// with a compact tag so the journal shows the full picture — text,
+// thinking, tool_use(name+input), tool_result(id+content), and
+// tool_reference. Unknown types fall back to "[<type>]".
 func (e *Event) TurnText() string {
 	if len(e.Content) == 0 {
 		return ""
@@ -55,24 +58,85 @@ func (e *Event) TurnText() string {
 	if err := json.Unmarshal(e.Content, &s); err == nil {
 		return s
 	}
-	// Fall back to block-array form (assistant turns).
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	// Fall back to block-array form (assistant turns + tool results).
+	var blocks []json.RawMessage
 	if err := json.Unmarshal(e.Content, &blocks); err != nil {
 		return ""
 	}
 	var out []string
-	for _, b := range blocks {
-		if b.Type == "text" && b.Text != "" {
-			out = append(out, b.Text)
+	for _, raw := range blocks {
+		if s := formatContentBlock(raw); s != "" {
+			out = append(out, s)
 		}
 	}
-	if len(out) == 0 {
+	return joinNonEmpty(out, "\n")
+}
+
+// formatContentBlock turns one Anthropic content block into a single-line
+// human-readable string for logging. Field names cover the union of
+// shapes seen so a single decode handles every block type.
+func formatContentBlock(raw json.RawMessage) string {
+	var meta struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Name      string          `json:"name"`
+		ID        string          `json:"id"`
+		Input     json.RawMessage `json:"input"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+		ToolName  string          `json:"tool_name"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
 		return ""
 	}
-	return joinNonEmpty(out, "\n")
+	switch meta.Type {
+	case "text":
+		return meta.Text
+	case "thinking":
+		if meta.Thinking == "" {
+			return "[thinking]"
+		}
+		return fmt.Sprintf("[thinking: %s]", meta.Thinking)
+	case "tool_use":
+		return fmt.Sprintf("[tool_use %s(%s)]", meta.Name, string(meta.Input))
+	case "tool_result":
+		return fmt.Sprintf("[tool_result %s: %s]", meta.ToolUseID, summarizeContent(meta.Content))
+	case "tool_reference":
+		return fmt.Sprintf("[tool_ref: %s]", meta.ToolName)
+	case "":
+		// Tool result with nested content where the outer block lacks a
+		// type field (rare but observed). Return the raw JSON so nothing
+		// is silently swallowed.
+		return string(raw)
+	default:
+		return fmt.Sprintf("[%s]", meta.Type)
+	}
+}
+
+// summarizeContent flattens a tool_result's "content" field, which can
+// be either a bare string or an array of content blocks, into a single
+// line. Nested blocks recurse through formatContentBlock so we don't
+// reinvent the per-type rendering.
+func summarizeContent(c json.RawMessage) string {
+	if len(c) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(c, &s); err == nil {
+		return s
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(c, &blocks); err == nil {
+		var out []string
+		for _, raw := range blocks {
+			if s := formatContentBlock(raw); s != "" {
+				out = append(out, s)
+			}
+		}
+		return joinNonEmpty(out, " | ")
+	}
+	return string(c)
 }
 
 func joinNonEmpty(parts []string, sep string) string {
