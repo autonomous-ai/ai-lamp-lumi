@@ -29,38 +29,26 @@ start: install
 
 JUPYTER_PORT ?= 8890
 
-# RunPod: install nginx if missing, start nginx proxy + jupyter-lab, then start uvicorn
-start-runpod: install start-jupyter
+# RunPod: install nginx if missing, start jupyter + nginx proxy, then start uvicorn
+start-runpod: install
 	@if ! command -v nginx > /dev/null 2>&1; then \
 		apt-get update && apt-get install -y nginx; \
+	fi
+	@if command -v jupyter-lab > /dev/null 2>&1; then \
+		pkill -f "jupyter-lab" 2>/dev/null || true; \
+		jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --notebook-dir=/workspace > /var/log/jupyter.log 2>&1 & \
+		sleep 2; \
+		TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
+		if [ -n "$$TOKEN" ]; then \
+			echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
+		else \
+			echo "Jupyter Lab started — check /var/log/jupyter.log for URL + token"; \
+		fi; \
 	fi
 	nginx -s stop 2>/dev/null || true
 	pkill nginx 2>/dev/null || true
 	nginx -c $(NGINX_CONF)
 	python src/server.py --host 127.0.0.1 --port $(PORT)
-
-# Start jupyter-lab in background, nginx proxies /jupyter/ → port 8890
-# Uses setsid to fully detach from Make's process group so Ctrl+C on
-# uvicorn doesn't kill jupyter.
-start-jupyter:
-	@if ! command -v jupyter-lab > /dev/null 2>&1; then \
-		pip install jupyterlab; \
-	fi
-	@pkill -f "jupyter-lab" 2>/dev/null || true
-	@setsid jupyter-lab \
-		--ip=127.0.0.1 \
-		--port=$(JUPYTER_PORT) \
-		--no-browser \
-		--allow-root \
-		--notebook-dir=/workspace \
-		> /var/log/jupyter.log 2>&1 & \
-	sleep 2; \
-	TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
-	if [ -n "$$TOKEN" ]; then \
-		echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
-	else \
-		echo "Jupyter Lab started — check /var/log/jupyter.log for URL + token"; \
-	fi
 
 test:
 	python -m pytest tests/ -v
