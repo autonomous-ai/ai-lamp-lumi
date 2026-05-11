@@ -28,6 +28,10 @@ class LightLevelPerception(Perception[cv2.typing.MatLike]):
         self._last_check: float = 0.0
 
     @override
+    def cleanup(self) -> None:
+        pass
+
+    @override
     def _check_impl(self, data: cv2.typing.MatLike):
         frame = data
 

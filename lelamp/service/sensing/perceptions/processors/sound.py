@@ -127,6 +127,10 @@ class SoundPerception(Perception[Any]):
         return True, current, persistent
 
     @override
+    def cleanup(self) -> None:
+        pass
+
+    @override
     def _check_impl(self, data: Any) -> None:
         if self._input_device is None:
             return

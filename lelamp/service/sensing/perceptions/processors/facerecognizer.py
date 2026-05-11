@@ -368,8 +368,6 @@ class FacePerception(Perception[cv2.typing.MatLike]):
         self._owners_forget_ts: float = owners_forget_ts
         self._strangers_forget_ts: float = strangers_forget_ts
 
-        self._stranger_counter: int = 0
-
         self._faces_n: int = 0
         self._face_present: bool = False
         self._people_data_dict: dict[str, PersonData] = {}
@@ -639,6 +637,10 @@ class FacePerception(Perception[cv2.typing.MatLike]):
                 if child.is_dir():
                     shutil.rmtree(child)
         logger.info("Enrolled embeddings cleared and photos removed")
+
+    @override
+    def cleanup(self) -> None:
+        pass
 
     @override
     def _check_impl(self, data: cv2.typing.MatLike) -> None:

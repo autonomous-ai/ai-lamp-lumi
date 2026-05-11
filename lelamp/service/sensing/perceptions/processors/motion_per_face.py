@@ -161,8 +161,12 @@ class MotionPerFacePerception(Perception[FaceDetectionData]):
             if now - s.last_seen > self._session_ttl_s
         ]
         for fid in stale:
+            session = self._sessions.pop(fid)
             logger.info("[motion_per_face] evicting stale session for '%s'", fid)
-            del self._sessions[fid]
+            try:
+                session.checker.close()
+            except Exception:
+                pass
 
     @staticmethod
     def _expand_face_bbox(
@@ -198,6 +202,16 @@ class MotionPerFacePerception(Perception[FaceDetectionData]):
         new_y2 = min(frame_h, int(new_y2))
 
         return new_x1, new_y1, new_x2, new_y2
+
+    @override
+    def cleanup(self) -> None:
+        with self._lock:
+            for session in self._sessions.values():
+                try:
+                    session.checker.close()
+                except Exception:
+                    pass
+            self._sessions.clear()
 
     @override
     def _check_impl(self, data: FaceDetectionData) -> None:

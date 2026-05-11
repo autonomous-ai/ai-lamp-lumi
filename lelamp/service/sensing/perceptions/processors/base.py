@@ -60,3 +60,7 @@ class Perception[T](ABC):
     @abstractmethod
     def _check_impl(self, data: T) -> None:
         """Run detection on a single frame. Called in the shared thread pool."""
+
+    @abstractmethod
+    def cleanup(self) -> None:
+        """Release external resources (WS connections, files, etc.). Called on shutdown."""

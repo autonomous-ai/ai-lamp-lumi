@@ -176,6 +176,18 @@ class PerceptionOrchestrator:
         if self._main_loop_thread:
             self._main_loop_thread.join(timeout=5)
             self._main_loop_thread = None
+
+        for p in vars(self._processors).values():
+            if p is not None:
+                try:
+                    p.cleanup()
+                except Exception:
+                    self._logger.exception(
+                        "[%s] %s.cleanup() failed",
+                        self.__class__.__name__,
+                        p.__class__.__name__,
+                    )
+
         self._logger.info("SensingService stopped")
 
     def _loop(self):
