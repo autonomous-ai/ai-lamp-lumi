@@ -31,6 +31,61 @@ type TimeSync struct {
 	Time [2]int64 `json:"time"`
 }
 
+// Event streams chat turns and other Claude Desktop events to the device.
+// Currently observed: evt="turn" with role={"user"|"assistant"} and
+// content that is either a plain string (user input) or an array of
+// content blocks (assistant output, matching the API content-block shape).
+// We keep Content as a RawMessage so callers can decode the variant lazily.
+type Event struct {
+	Evt     string          `json:"evt"`
+	Role    string          `json:"role,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
+}
+
+// TurnText extracts a flat text representation of an Event's content,
+// regardless of whether the original payload was a string or an array of
+// {"type":"text","text":"..."} blocks. Non-text blocks (e.g. tool_use)
+// are skipped.
+func (e *Event) TurnText() string {
+	if len(e.Content) == 0 {
+		return ""
+	}
+	// Try string form first (user turns).
+	var s string
+	if err := json.Unmarshal(e.Content, &s); err == nil {
+		return s
+	}
+	// Fall back to block-array form (assistant turns).
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(e.Content, &blocks); err != nil {
+		return ""
+	}
+	var out []string
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			out = append(out, b.Text)
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return joinNonEmpty(out, "\n")
+}
+
+func joinNonEmpty(parts []string, sep string) string {
+	var b bytes.Buffer
+	for i, p := range parts {
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(p)
+	}
+	return b.String()
+}
+
 // Command is sent by Desktop for status/name/owner/unpair and folder-push
 // (char_begin, file, chunk, file_end, char_end).
 type Command struct {
@@ -101,7 +156,7 @@ func ParseOrSalvage(data []byte) (interface{}, int, error) {
 		return msg, 0, nil
 	}
 	// Try each recognizable JSON opener and pick the latest one that parses.
-	openers := [][]byte{[]byte(`{"cmd":"`), []byte(`{"time":`), []byte(`{"total":`)}
+	openers := [][]byte{[]byte(`{"cmd":"`), []byte(`{"time":`), []byte(`{"total":`), []byte(`{"evt":"`)}
 	best := -1
 	var bestMsg interface{}
 	for _, opener := range openers {
@@ -146,6 +201,15 @@ func ParseMessage(data []byte) (interface{}, error) {
 			return nil, fmt.Errorf("parse timesync: %w", err)
 		}
 		return &ts, nil
+	}
+
+	// Event messages have "evt" field (e.g. evt:"turn" streams chat).
+	if _, ok := raw["evt"]; ok {
+		var e Event
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("parse event: %w", err)
+		}
+		return &e, nil
 	}
 
 	// Otherwise treat as heartbeat (has total, running, etc.)

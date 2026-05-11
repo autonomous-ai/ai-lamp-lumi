@@ -115,7 +115,18 @@ var xfer Transfer
 func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceName string, startTime time.Time) {
 	msg, lost, err := ParseOrSalvage(data)
 	if err != nil {
-		log.Printf("[ble] parse error: %v (data: %s)", err, string(data))
+		// BLE write-without-response has no ACK, so BlueZ silently drops
+		// packets under load. When that happens we receive the tail of a
+		// line with no recognizable JSON opener — the original payload is
+		// gone, salvage can't recover. Suppress the noisy data dump for
+		// these unrecoverable tail fragments; only log when the line
+		// starts as JSON (looks like a real parse problem worth knowing).
+		if len(data) > 0 && data[0] == '{' {
+			log.Printf("[ble] parse error: %v (data: %s)", err, string(data))
+		} else {
+			log.Printf("[ble] dropped %d bytes of corrupted BLE fragment", len(data))
+			xfer.Abort()
+		}
 		return
 	}
 	if lost > 0 {
@@ -140,6 +151,17 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, deviceNa
 	case *TimeSync:
 		log.Printf("[ble] time sync: epoch=%d, offset=%d", m.Time[0], m.Time[1])
 		// Ack not required for time sync (no cmd field)
+
+	case *Event:
+		// Stream of chat turns and other events from Claude Desktop. For
+		// now log a compact summary; downstream consumers (Lumi display,
+		// TTS, etc.) can hook in later.
+		text := m.TurnText()
+		if len(text) > 120 {
+			text = text[:117] + "..."
+		}
+		log.Printf("[ble] event evt=%q role=%q content=%q", m.Evt, m.Role, text)
+		// No ack required (no cmd field).
 
 	case *Command:
 		log.Printf("[ble] command: %s", m.Cmd)
