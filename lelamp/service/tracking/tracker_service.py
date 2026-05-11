@@ -208,9 +208,11 @@ class TrackerService:
 
         # Freeze servos so YOLO + tracker init see a sharp, stable frame.
         settle_s = 0.30
+        t_req = time.perf_counter()
         animation_service.freeze()
         try:
             time.sleep(settle_s)
+            t_after_settle = time.perf_counter()
 
             frame = camera_capture.last_frame
             if frame is None:
@@ -220,15 +222,20 @@ class TrackerService:
                 return False
             frame = frame.copy()
 
+            t_yolo_ms = 0.0
             if bbox is None:
                 if not target_label:
                     self.last_error = "need either bbox or target label"
                     logger.error("tracker start: %s", self.last_error)
                     animation_service.unfreeze()
                     return False
+                t_yolo0 = time.perf_counter()
                 bbox = self.detect_object(frame, target_label)
+                t_yolo_ms = (time.perf_counter() - t_yolo0) * 1000
                 if bbox is None:
                     self.last_error = f"'{target_label}' not found in frame"
+                    logger.info("[track-start] settle=%.0fms yolo=%.0fms result=missed target='%s'",
+                                (t_after_settle - t_req) * 1000, t_yolo_ms, target_label)
                     animation_service.unfreeze()
                     return False
         except Exception:
@@ -241,6 +248,7 @@ class TrackerService:
             animation_service.unfreeze()
             return False
 
+        t_init0 = time.perf_counter()
         try:
             ok = tracker.init(frame, bbox)
         except Exception as e:
@@ -251,7 +259,12 @@ class TrackerService:
             logger.error("tracker init failed for bbox %s", bbox)
             animation_service.unfreeze()
             return False
-        logger.info("tracker init OK for bbox %s (frame %dx%d)", bbox, frame.shape[1], frame.shape[0])
+        t_init_ms = (time.perf_counter() - t_init0) * 1000
+        t_total_ms = (time.perf_counter() - t_req) * 1000
+        logger.info(
+            "[track-start] settle=%.0fms yolo=%.0fms init=%.0fms total=%.0fms bbox=%s target='%s'",
+            (t_after_settle - t_req) * 1000, t_yolo_ms, t_init_ms, t_total_ms, bbox, target_label,
+        )
 
         with self._lock:
             self._state = TrackingState(
@@ -331,6 +344,9 @@ class TrackerService:
         ema_dy: Optional[float] = None
         miss_count = 0
         frame_count = 0
+        t_csrt_acc = 0.0   # accumulated CSRT update time
+        t_servo_acc = 0.0  # accumulated servo command time (only frames that fired)
+        servo_count = 0    # frames where servo actually fired
         track_start_t = time.perf_counter()
         last_yolo_t = track_start_t
         fps_t0 = track_start_t
@@ -340,7 +356,11 @@ class TrackerService:
         yolo_running = threading.Event()
 
         def _fire_yolo(frame_snap: npt.NDArray[np.uint8]) -> None:
+            t0_yolo = time.perf_counter()
             result = self.detect_object(frame_snap, state.target_label)
+            t_yolo_ms = (time.perf_counter() - t0_yolo) * 1000
+            logger.info("[yolo-bg] detect=%.0fms result=%s bbox=%s target='%s'",
+                        t_yolo_ms, "found" if result is not None else "missed", result, state.target_label)
             try:
                 yolo_q.put_nowait(result)
             except queue.Full:
@@ -358,7 +378,10 @@ class TrackerService:
                     continue
 
                 h_fr, w_fr = frame.shape[:2]
+                t_csrt0 = time.perf_counter()
                 ok, new_bbox = state.tracker.update(frame)
+                t_csrt_ms = (time.perf_counter() - t_csrt0) * 1000
+                t_csrt_acc += t_csrt_ms
 
                 if not ok:
                     miss_count += 1
@@ -409,6 +432,7 @@ class TrackerService:
                         self._track_base_pitch, new_pitch,
                     )
 
+                    t_servo0 = time.perf_counter()
                     with animation_service.bus_lock:
                         animation_service.robot.send_action({
                             "base_yaw.pos":    new_yaw,
@@ -416,6 +440,8 @@ class TrackerService:
                             "elbow_pitch.pos": new_elbow,
                             "wrist_pitch.pos": new_wrist,
                         })
+                    t_servo_acc += (time.perf_counter() - t_servo0) * 1000
+                    servo_count += 1
 
                     self._track_yaw = new_yaw
                     self._track_base_pitch = new_pitch
@@ -461,11 +487,20 @@ class TrackerService:
                 frame_count += 1
                 fps_elapsed = time.perf_counter() - fps_t0
                 if fps_elapsed >= 2.0:
+                    csrt_avg = t_csrt_acc / frame_count if frame_count else 0.0
+                    servo_avg = t_servo_acc / servo_count if servo_count else 0.0
+                    frame_avg = fps_elapsed * 1000 / frame_count if frame_count else 0.0
                     logger.info(
-                        "Tracker: fps=%.1f bbox=%s offset=(%.0f,%.0f) target='%s'",
-                        frame_count / fps_elapsed, state.bbox, dx, dy, state.target_label,
+                        "[track-loop] fps=%.1f csrt=%.0fms servo=%.0fms(%d) frame=%.0fms"
+                        " offset=(%.0f,%.0f) bbox=%s target='%s'",
+                        frame_count / fps_elapsed,
+                        csrt_avg, servo_avg, servo_count,
+                        frame_avg, dx, dy, state.bbox, state.target_label,
                     )
                     frame_count = 0
+                    t_csrt_acc = 0.0
+                    t_servo_acc = 0.0
+                    servo_count = 0
                     fps_t0 = time.perf_counter()
 
                 if time.perf_counter() - track_start_t > MAX_TRACK_DURATION_S:
