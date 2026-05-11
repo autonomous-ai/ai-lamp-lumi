@@ -26,10 +26,15 @@ func compactNotice() string {
 }
 
 // autoSessionThreshold is the conversation token count above which we
-// trigger an auto-compact or new-session. The reported chat.history
-// TotalTokens undercounts by ~35K (excludes system prompt, tools,
-// workspace bootstrap), so 80K here ≈ 115K actual context.
-const autoSessionThreshold = 80_000
+// trigger an auto-new-session. The reported chat.history TotalTokens
+// undercounts by ~35K (excludes system prompt, tools, workspace
+// bootstrap), so 150K here ≈ 185K actual context — well below the
+// gpt-5.5 272K window and below the ~200K mark where OpenClaw's
+// native overflow auto-compaction kicks in (3-min freeze observed
+// 2026-05-11). Lumi's /new resets in ~3s, so it races and wins under
+// normal usage. Previously 80K (≈115K actual) — bumped because resets
+// felt too aggressive for short conversational sessions.
+const autoSessionThreshold = 150_000
 
 // autoCompactCooldown is the minimum time between two compact triggers.
 // Compact itself can run for 30-60s+ on the agent runtime; this guard
