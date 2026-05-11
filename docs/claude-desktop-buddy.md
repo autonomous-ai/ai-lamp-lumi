@@ -1,524 +1,527 @@
 # Claude Desktop Buddy — Integration Spec
 
-> Turn Lumi into a Hardware Buddy for Claude Desktop, running as a standalone plugin that integrates with the existing LED/voice/sensing coordination system.
+> Turns the Lumi lamp into a Hardware Buddy for Claude Desktop. Runs as a
+> standalone Go plugin on the Pi and bridges Claude's BLE state into the
+> existing LeLamp (LED/display/audio) and Lumi (OpenClaw/sensing) stacks.
 
-**Source**: [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy)
-**Status**: Spec draft
-**Date**: 2026-04-20
+**Source**: [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) (ESP32 reference firmware + protocol REFERENCE.md)
+**Status**: Implementation — Phase 1, 2, 3 shipped (2026-05-11)
+**Hardware target**: Raspberry Pi 4 / Orange Pi 4 Pro (AIC8820 BT chip)
 
 ---
 
 ## 1. What & Why
 
-Claude Desktop (Cowork) exposes a BLE API that lets hardware devices connect as a "buddy". The reference implementation is an ESP32 desk pet — small LCD, one button, no brain.
+Claude Desktop ("Claude for macOS/Windows") exposes a BLE API under
+Developer Mode that lets a hardware companion connect over Nordic UART
+Service. The Anthropic reference is an ESP32 desk pet — small LCD, two
+buttons, no brain. Lumi implements the same wire protocol but as a
+**smart buddy**: full lamp with camera, mic, speaker, LED ring, servo,
+display, and the OpenClaw agentic brain.
 
-Lumi implements the same protocol but as a **smart buddy** — with camera, mic, speaker, LED ring, servo, display, and its own OpenClaw brain. Lumi doesn't just display prompts and approve; it can reason about what to do, speak naturally, and feed presence context back.
+Lumi can reflect Claude's state visually, voice-approve tool calls
+hands-free, stream chat turns to its display/TTS, and feed presence
+context back.
 
 ### Use cases
 
-| # | Use case | Description |
-|---|----------|-------------|
-| UC-1 | **Ambient state** | LED ring reflects Claude Desktop state: idle (breathing), busy (pulse), waiting (blink) |
-| UC-2 | **Voice approval** | Claude Desktop needs tool call approval → Lumi speaks the prompt → user says "approve" / "deny" hands-free |
-| UC-3 | **Token dashboard** | Lumi display shows token count, session count via `/display/info` |
-| UC-4 | **Presence feedback** | Lumi detects user present/away (camera/motion) → sends info back to Desktop (protocol extension) |
-| UC-5 | **Transcript relay** | Lumi receives Desktop transcript → when user asks via voice, OpenClaw has extra context |
-
-**MVP scope: UC-1 + UC-2 + UC-3 only.** UC-4 and UC-5 are future extensions.
+| # | Use case | Status | Description |
+|---|----------|--------|-------------|
+| UC-1 | **Ambient state** | shipped | LED + eyes animation reflect Claude state (sleep/idle/busy/attention/heart/celebrate). |
+| UC-2 | **Voice approval** | shipped | Tool-call prompt → Lumi speaks it via OpenClaw skill → user says approve/deny hands-free. |
+| UC-3 | **Token / activity display** | shipped | LeLamp display shows token count + running sessions via `/display/info`. |
+| UC-4 | **Chat-turn fan-out** | shipped | Every `evt:"turn"` (user / assistant / tool blocks) is forwarded to Lumi monitor bus as `buddy_event` — ready for TTS, transcript memory, dashboard. |
+| UC-5 | **Character pack receive** | shipped | Desktop can drag a GIF folder onto its panel → streams over BLE → saved to `/opt/claude-desktop-buddy/chars/<name>/`. |
+| UC-6 | **Presence feedback** | future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
+| UC-7 | **Transcript-aware OpenClaw** | future | OpenClaw reads buffered chat history when user asks via voice. |
 
 ---
 
 ## 2. Architecture
 
 ```
-┌──────────────────┐        BLE (Nordic UART)        ┌──────────────────────────────┐
-│  Claude Desktop  │ ◄──────────────────────────────► │          Lumi (Pi4)          │
-│  (Mac)           │                                  │                              │
-│                  │  heartbeat: state, prompts,      │  ┌────────────────────────┐  │
-│                  │  transcript, tokens              │  │    buddy-plugin        │  │
-│                  │                                  │  │    (Go, port 5002)     │  │
-│                  │  permission decisions,            │  │    BLE + HTTP server   │  │
-│                  │  status acks                      │  └──────┬───────┬────────┘  │
-│                  │                                  │         │       │            │
-│                  │                                  │    HTTP │       │ HTTP       │
-│                  │                                  │         ▼       ▼            │
-│                  │                                  │  ┌──────────┐ ┌──────────┐  │
-│                  │                                  │  │  Lumi    │ │ LeLamp   │  │
-│                  │                                  │  │  :5000   │ │ :5001    │  │
-│                  │                                  │  │ sensing  │ │ LED/TTS/ │  │
-│                  │                                  │  │ event API│ │ display  │  │
-│                  │                                  │  └──────────┘ └──────────┘  │
-└──────────────────┘                                  └──────────────────────────────┘
+┌──────────────────┐       BLE (Nordic UART)        ┌──────────────────────────────┐
+│  Claude Desktop  │ ◄───────────────────────────►  │          Lumi (Pi)           │
+│  (Mac / Windows) │                                │                              │
+│  Developer →     │   Heartbeat (msg/running/      │  ┌────────────────────────┐  │
+│  Hardware Buddy  │   tokens/prompt), Event        │  │   buddy-plugin         │  │
+│                  │   (turn/content blocks),       │  │   (Go, :5002)          │  │
+│                  │   Command, TimeSync            │  │                        │  │
+│                  │                                │  │   ble.go + agent.go    │  │
+│                  │   Ack, PermissionDecision      │  │   protocol.go          │  │
+│                  │                                │  │   state.go             │  │
+│                  │                                │  │   bridge.go            │  │
+│                  │                                │  │   httpserver.go        │  │
+│                  │                                │  │   transfer.go          │  │
+│                  │                                │  └──┬──────────┬──────────┘  │
+│                  │                                │     │ HTTP     │ HTTP        │
+│                  │                                │     ▼          ▼             │
+│                  │                                │  ┌─────────┐ ┌──────────┐    │
+│                  │                                │  │  Lumi   │ │ LeLamp   │    │
+│                  │                                │  │ :5000   │ │ :5001    │    │
+│                  │                                │  │ OpenClaw│ │ LED+     │    │
+│                  │                                │  │ sensing │ │ display  │    │
+│                  │                                │  │ monitor │ │ TTS      │    │
+│                  │                                │  └─────────┘ └──────────┘    │
+└──────────────────┘                                └──────────────────────────────┘
 ```
 
-### Plugin design
-
-`buddy-plugin` runs as a **standalone process** on Pi4 (port 5002):
-- Separate binary, separate lifecycle — not linked into Lumi server
-- **BLE server**: advertises as `Claude-Lumi`, handles Nordic UART protocol
-- **HTTP server**: exposes `/status` endpoint so OpenClaw skill and Lumi can query buddy state
-- **Calls LeLamp** (localhost:5001) for LED/TTS/display — same as every other service
-- **Calls Lumi** (localhost:5000) to post sensing events for voice approval flow
-- No Wire DI, no Gin — lightweight standalone binary
+### Plugin layout
 
 ```
-ai-lamp-openclaw/
-├── lumi/               # Lumi server (existing, Go, port 5000)
-├── lelamp/             # LeLamp runtime (existing, Python, port 5001)
-├── claude-desktop-buddy/  # ← NEW: Claude Desktop Buddy plugin (Go, port 5002)
-│   ├── main.go         # Entry point
-│   ├── ble.go          # BLE GATT server (Nordic UART)
-│   ├── protocol.go     # Wire protocol parse/serialize
-│   ├── state.go        # State machine (sleep/idle/busy/attention/celebrate)
-│   ├── bridge.go       # Map state → LeLamp + Lumi HTTP calls
-│   ├── approval.go     # Voice approval flow
-│   ├── httpserver.go   # GET /status, POST /approve, /deny
-│   ├── go.mod          # Separate Go module
-│   └── config/
-│       └── buddy.json  # Plugin config
+claude-desktop-buddy/
+├── main.go              Entry, config load, BLE / HTTP wiring, message dispatch
+├── ble.go               BLE peripheral (GATT server, advertising, debugfs interval tune)
+├── agent.go             BlueZ DisplayOnly pairing agent (registered but unused — see §5)
+├── protocol.go          Wire types: Heartbeat, TimeSync, Event, Command, Ack, PermissionDecision
+├── state.go             6-state machine (sleep/idle/busy/attention/heart/celebrate)
+├── bridge.go            HTTP outbound to LeLamp (:5001) + Lumi (:5000)
+├── httpserver.go        HTTP API :5002 — /status /health /approve /deny
+├── transfer.go          Character-pack folder push receiver (saves under chars/)
+├── skill/SKILL.md       OpenClaw skill descriptor for voice approval flow
+├── config/buddy.json    Template config (template only — runtime reads /root/config/buddy.json)
+├── third_party/bluetooth/  Vendored tinygo bluetooth v0.14.0 + secure-* flag patch
+├── go.mod               Separate module with `replace tinygo.org/x/bluetooth => ./third_party/...`
+└── VERSION_BUDDY        Plain-text version stamp injected at build time
 ```
 
-### NEW: OpenClaw Skill
+### Process model
 
-A `SKILL.md` file so the OpenClaw agent knows about buddy and coordinates:
+`buddy-plugin` is a **standalone systemd service** (`lumi-buddy.service`)
+separate from the main Lumi binary. Restarts independently; never linked
+into the Lumi process. Talks to Lumi and LeLamp purely over local HTTP.
 
 ```
-lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md   # skill lives in lumi (deployed via OTA)
+Pi runtime layout:
+  /opt/claude-desktop-buddy/buddy-plugin   — binary
+  /opt/claude-desktop-buddy/VERSION_BUDDY  — version stamp
+  /opt/claude-desktop-buddy/chars/         — received character packs
+  /root/config/buddy.json                  — runtime config (created once)
+  /etc/systemd/system/lumi-buddy.service   — service unit
+  /var/log/lumi-buddy.log                  — rotated log (2MB × 10)
 ```
 
 ---
 
-## 3. Pairing Flow
+## 3. Discovery and pairing — what actually happens today
 
-```
-┌─────────────┐                              ┌──────────────┐
-│ Lumi (Pi4)  │                              │ Claude Desktop│
-│             │   1. BLE advertise           │ (Mac)        │
-│ buddy-plugin├─────────────────────────────►│              │
-│ name:       │   "Claude-Lumi" +            │              │
-│ Claude-Lumi │    Nordic UART UUID          │              │
-│             │                              │              │
-│             │   2. User clicks Connect     │  Developer → │
-│             │◄─────────────────────────────┤  Hardware    │
-│             │   BLE connection request     │  Buddy...    │
-│             │                              │              │
-│             │   3. OS bonding              │              │
-│             │◄────────────────────────────►│  macOS BT    │
-│             │   LE Secure Connections      │  permission  │
-│             │   AES-CCM encryption         │  popup       │
-│             │                              │              │
-│             │   4. Init messages           │              │
-│             │◄─────────────────────────────┤              │
-│             │   time sync + owner name     │              │
-│             │                              │              │
-│             │   5. Heartbeats begin        │              │
-│             │◄─────────────────────────────┤              │
-│             │   every 10s or on state change              │
-└─────────────┘                              └──────────────┘
-```
+The Anthropic spec recommends LE Secure Connections bonding with
+DisplayOnly IO capability. In practice Claude Desktop's current macOS
+client establishes a plain LE connection without auto-triggering SMP,
+so encrypted-only characteristics are inaccessible and the panel
+reports "No response". We therefore **expose the NUS characteristics
+without encryption flags** and the connection runs unbonded. The vendor
+fork that adds BlueZ `secure-read`/`secure-write` flags stays in tree,
+and `agent.go` still registers a DisplayOnly agent, so encryption can be
+flipped back on once the desktop side starts driving SMP.
 
-### Prerequisites (one-time)
+### Discovery filter (Hardware Buddy panel)
 
-1. Pi4 Bluetooth enabled (`bluetoothctl power on`)
-2. Claude Desktop: **Help → Troubleshooting → Enable Developer Mode**
-3. New menu appears: **Developer → Open Hardware Buddy...**
+The Hardware Buddy device picker filters to:
 
-### Pairing steps
+1. Device name starting with **`Claude`**
+2. Advertising the **Nordic UART Service UUID** (`6e400001-…`)
 
-1. Lumi runs buddy-plugin → advertises BLE with name `Claude-Lumi`
-2. Claude Desktop → Developer → Open Hardware Buddy → **Connect**
-3. Scan list shows "Claude-Lumi" → select it
-4. macOS shows Bluetooth permission popup → Allow
-5. OS-level bonding (LE Secure Connections) → link encrypted with AES-CCM
-6. Claude Desktop sends init: time sync + owner name
-7. Heartbeats begin flowing → Lumi receives state
+Anything else is hidden in the picker even if macOS Bluetooth Settings
+can see it.
+
+### Pairing flow (Pi side)
+
+1. BlueZ runtime config (must be in place — `setup-claude-desktop-buddy.sh`
+   sets these; manual fallback: `btmgmt -i 0 power off; bredr on; le on;
+   connectable on; pairable on; discoverable on; power on` + `bluetoothctl
+   discoverable-timeout 0`).
+2. buddy-plugin starts → reads `/root/config/buddy.json` → resolves device
+   name via `resolveDeviceName()`:
+   - Reads `device_name` from config (default `Claude-{deviceid}`).
+   - If it contains `{deviceid}`, fetch `device_id` from Lumi
+     `GET http://127.0.0.1:5000/api/system/info` (retries up to 15 × 2s).
+   - `shortDeviceID()` keeps only the trailing dash-segment, truncated to
+     4 chars (`lumi-004` → `004`) so name + Nordic UART UUID both fit in
+     the 31-byte primary advertisement payload.
+   - Falls back to `Claude-unknown` if the device hasn't been
+     provisioned yet via `/api/device/setup`.
+3. `registerBluezAgent()` exports an `org.bluez.Agent1` with
+   `DisplayOnly` capability on the system D-Bus, then calls
+   `RegisterAgent` + `RequestDefaultAgent` on `org.bluez.AgentManager1`.
+   The agent currently only logs `PAIRING PASSKEY` events when BlueZ
+   asks for them — useful if SMP is ever engaged.
+4. `tuneAdvIntervals()` writes `160` and `320` to
+   `/sys/kernel/debug/bluetooth/hci*/adv_{min,max}_interval` (units of
+   0.625 ms, so 100–200 ms). Without this BlueZ defaults to 1.28 s,
+   which is too sparse for macOS's short scan windows.
+5. tinygo registers the GATT service + advertisement. BlueZ packs the
+   service UUID in the primary advertisement (18 bytes) and the local
+   name in the scan response (~10 bytes). macOS active-scans, merges
+   both, and surfaces the device in the picker.
+
+### Pairing flow (Mac side)
+
+1. User: **Help → Troubleshooting → Enable Developer Mode** (one-time).
+2. **Developer → Open Hardware Buddy…** → click **Connect** → pick
+   `Claude-XXX` from scan results.
+3. Hardware Buddy opens an LE GATT connection. macOS does *not*
+   initiate SMP because our characteristics don't request encryption.
+4. Desktop immediately sends `{"cmd":"owner","name":"…"}`, a TimeSync,
+   and starts polling `{"cmd":"status"}` ~every 2 s.
+5. Once an agentic turn begins, `Heartbeat` snapshots and `Event` chat
+   turns start flowing.
 
 ### Auto-reconnect
 
-After initial pairing, both sides store the bond key (LTK). When Lumi reboots or Mac wakes up → auto-reconnects without re-pairing.
+The Mac caches the device by BD address. Subsequent buddy starts pair
+back automatically without user action. **Renaming the device on the Pi
+does not refresh the Mac-side cached name** — Mac keeps the old label
+until the user explicitly forgets the device in System Settings →
+Bluetooth, or runs `sudo pkill bluetoothd`. On stubborn caches a full
+plist wipe works (`sudo rm /Library/Preferences/com.apple.Bluetooth*.plist`
++ pkill).
 
 ### Unpair
 
-Claude Desktop sends `{"cmd":"unpair"}` → Lumi erases stored bond → returns to advertising for new pairing.
+`{"cmd":"unpair"}` from Desktop → buddy aborts any in-progress folder
+transfer, drops back to advertising. BlueZ-side bond data is not
+cleared because there is no bond.
 
 ---
 
-## 4. BLE Protocol (from REFERENCE.md)
+## 4. BLE wire protocol
 
 ### Transport
 
 | Property | Value |
 |----------|-------|
 | Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
-| RX (Desktop → Device) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
-| TX (Device → Desktop) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
-| Wire format | UTF-8 JSON, one object per line, `\n` terminated |
-| Device name | Must start with `Claude` (e.g. `Claude-Lumi`) |
+| RX (Desktop → Device, write + write-without-response) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
+| TX (Device → Desktop, notify + read) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+| Wire format | UTF-8 JSON, one object per `\n`-terminated line |
+| Device name | Must start with `Claude` |
+| Advertising interval | 100–200 ms (tuned via debugfs) |
+| Encryption | None today; vendor fork ready to re-enable via `secure-*` flags |
 
 ### Messages: Desktop → Device
 
-**Heartbeat snapshot** (every 10s or on state change):
+#### `Heartbeat` — periodic state snapshot
+
+Sent ~every 1 s when active, ~10 s when idle. Parser uses presence of
+the `total` field as the discriminator.
+
 ```json
 {
   "total": 3,
   "running": 1,
-  "waiting": 1,
+  "waiting": 0,
   "msg": "Editing main.go",
   "entries": ["Latest message", "Previous message"],
   "tokens": 52340,
   "tokens_today": 8200,
-  "prompt": {
-    "id": "req_abc123",
-    "tool": "Edit",
-    "hint": "server/server.go lines 10-20"
-  }
+  "prompt": { "id": "req_abc123", "tool": "Edit", "hint": "server.go:10-20" }
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `total` | number | All session count |
-| `running` | number | Actively generating sessions |
-| `waiting` | number | Sessions awaiting permission |
-| `msg` | string | Display summary for small screens |
-| `entries` | string[] | Recent transcript, newest first |
-| `tokens` | number | Cumulative output tokens since app start |
-| `tokens_today` | number | Output tokens since local midnight |
-| `prompt` | object or null | Present only when permission required |
-| `prompt.id` | string | Must echo in response |
-| `prompt.tool` | string | Tool name (e.g. "Edit", "Bash") |
-| `prompt.hint` | string | Short context about the tool call |
+Buddy throttles its log line: `[ble] heartbeat …` is only emitted when
+`running`, `waiting`, `msg`, or `prompt` (presence / id) changes —
+token counts drift on every ping and would otherwise spam the journal.
 
-**Init messages** (on connect):
+#### `TimeSync` — clock + timezone
+
+Sent once on connect (presence of `time` field).
+
 ```json
 { "time": [1713600000, 25200] }
 ```
+
+#### `Event` — chat turn stream
+
+Sent for each conversational turn (user input, assistant reply, tool
+use, tool result). Presence of `evt` field. `content` is either a bare
+string (user turns) or an array of typed content blocks (assistant +
+tool flows).
+
 ```json
-{ "cmd": "owner", "name": "Leo" }
+{
+  "evt": "turn",
+  "role": "user",
+  "content": "thử tìm giá BTC hôm nay đi"
+}
 ```
 
-**Commands**:
 ```json
-{"cmd": "status"}
+{
+  "evt": "turn",
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "thinking": "", "signature": "…base64…"},
+    {"type": "tool_use", "id": "toolu_…", "name": "WebSearch",
+     "input": {"query": "Bitcoin price today"}}
+  ]
+}
 ```
-```json
-{"cmd": "name", "name": "Lumi"}
-```
-```json
-{"cmd": "unpair"}
-```
+
+`formatContentBlock()` renders each block into a single-line log tag:
+`[thinking: …]`, `[tool_use <name>(<input>)]`, `[tool_result <id>: …]`,
+`[tool_ref: <name>]`. Each event is fanned out to Lumi via
+`bridge.OnEvent` as `type=buddy_event` on the monitor bus.
+
+#### `Command` — control + folder push
+
+Presence of `cmd` field. Buddy acks every command.
+
+| `cmd` | Payload | Effect |
+|---|---|---|
+| `status` | `{}` | Buddy replies with `Ack` carrying battery / uptime / approval counts. |
+| `owner` | `{"name": "Leo"}` | Records the Mac user name for logging. |
+| `name` | `{"name": "…"}` | Renames the device (cosmetic). |
+| `unpair` | `{}` | Drops back to advertising. |
+| `char_begin` | `{"name":"bufo","total":1500000}` | Starts a character-pack folder transfer. |
+| `file` | `{"path":"sleep.gif","size":12345}` | Opens a file in the active transfer. |
+| `chunk` | `{"d":"<base64>"}` | Appends decoded bytes to the open file. |
+| `file_end` | `{}` | Closes the current file. |
+| `char_end` | `{}` | Closes the transfer; folder is now under `chars/<name>/`. |
 
 ### Messages: Device → Desktop
 
-**Permission decision**:
+#### `Ack` — response to commands
+
 ```json
-{"cmd": "permission", "id": "req_abc123", "decision": "once"}
-```
-```json
-{"cmd": "permission", "id": "req_abc123", "decision": "deny"}
+{ "ack": "owner", "ok": true, "n": 0 }
 ```
 
-| Decision | Effect |
-|----------|--------|
-| `"once"` | Approves the tool call |
-| `"deny"` | Rejects the tool call |
+Status ack carries a `data` payload:
 
-**Ack** (required for any received `cmd`):
-```json
-{"ack": "owner", "ok": true, "n": 0}
-```
-```json
-{"ack": "status", "ok": true, "data": {...}}
-```
-
-**Status response**:
 ```json
 {
   "ack": "status",
   "ok": true,
   "data": {
-    "name": "Lumi",
-    "sec": true,
+    "name": "Claude-004",
+    "sec": false,
     "bat": { "pct": 100, "mV": 5000, "mA": 0, "usb": true },
-    "sys": { "up": 86400, "heap": 1048576 },
-    "stats": { "appr": 42, "deny": 3, "vel": 2.5, "nap": 0, "lvl": 5 }
+    "sys": { "up": 86400, "heap": 0 },
+    "stats": { "appr": 3, "deny": 0, "vel": 0, "nap": 0, "lvl": 0 }
   }
 }
 ```
 
-**Turn event** (device → desktop, after completed turn, dropped if >4KB):
+`sec` is currently hardcoded `false` (no bonding). Set to `true` once
+encryption is enabled.
+
+#### `PermissionDecision` — approve / deny
+
+Sent in response to a heartbeat `prompt`. `id` echoes back the prompt id.
+
 ```json
-{
-  "evt": "turn",
-  "role": "assistant",
-  "content": [{ "type": "text", "text": "..." }]
-}
+{ "cmd": "permission", "id": "req_abc123", "decision": "once" }
 ```
 
-### Timeouts
+| Decision | Effect |
+|---|---|
+| `"once"` | Approves the pending tool call. |
+| `"deny"` | Rejects it. |
 
-- Heartbeat keepalive: 10s
-- Connection dead: 30s without heartbeat
-- Desktop polls status: ~2s
+### Salvage for write-without-response packet loss
+
+Claude Desktop streams chunks via BLE write-without-response, which has
+no ATT confirmation. When BlueZ silently drops a chunk, the next line we
+extract has corrupted brackets. `ParseOrSalvage` looks for the latest
+known JSON opener (`{"cmd":"`, `{"time":`, `{"total":`, `{"evt":"`) in
+the buffer and retries. If nothing parses, the line is dropped with one
+of three category logs:
+
+- `dropped N-byte BLE message (prefix-lost): …` — head of the line was
+  lost; nothing to salvage.
+- `dropped N-byte BLE message (truncated): …` — line starts JSON but
+  has no closing `}`.
+- `dropped N-byte BLE message (mid-corruption): …` — brackets line up
+  but a chunk inside an `entries` / `content` array vanished.
+
+All three abort any in-progress folder transfer because framing is lost.
 
 ---
 
-## 5. State Machine
+## 5. Encryption status (deferred)
+
+Per the Anthropic spec, NUS characteristics should require LE Secure
+Connections bonding with the device exposing DisplayOnly IO capability,
+and `sec: true` should be reported once bonded. The vendor fork at
+`third_party/bluetooth/` adds the BlueZ `secure-read` and `secure-write`
+flags to `tinygo.org/x/bluetooth`'s six-bit `CharacteristicPermissions`
+enum so we can do this in Go.
+
+The blocker: the current macOS Hardware Buddy client connects without
+issuing an SMP pairing request, so when our characteristics were marked
+secure-only BlueZ rejected every GATT operation and the panel sat on
+"No response". To make the integration work end-to-end today we ship the
+characteristics with plain `write` / `write-without-response` / `notify`
+/ `read` flags and report `sec: false`. The agent + flag plumbing stays
+ready so we can flip back to encrypted-only once Anthropic enables
+auto-pairing on their side, or we find an explicit "Pair" affordance to
+drive.
+
+---
+
+## 6. State machine
 
 ```
                     ┌─────────────┐
-         BLE off    │    sleep    │   BLE disconnected
-         ──────────►│  LED: off   │◄──────────────
+   BLE off ────────►│    sleep    │◄──────── BLE disconnected
+                    │ LED: off    │
                     └──────┬──────┘
-                           │ BLE connected
+                           │ connect
                            ▼
                     ┌─────────────┐
-      running == 0  │    idle     │   no sessions
-      ─────────────►│  LED: soft  │◄──────────────
-                    │  breathing  │
+   running == 0    │    idle     │
+   ───────────────►│ ambient-led │
                     └──────┬──────┘
                            │ running > 0
                            ▼
                     ┌─────────────┐
-      waiting == 0  │    busy     │   sessions active
-      ─────────────►│  LED: pulse │
+   waiting == 0    │    busy     │
+   ───────────────►│ LED: pulse  │
                     └──────┬──────┘
-                           │ prompt != null (waiting > 0)
+                           │ heartbeat.prompt != null
                            ▼
                     ┌─────────────┐
-                    │  attention  │   approval needed
-                    │  LED: blink │
-                    │  + voice    │
+                    │  attention  │
+                    │ LED: blink  │
+                    │ + sensing   │
                     └──────┬──────┘
-                           │ user approves/denies
+                           │ /approve or /deny
                            ▼
                     ┌─────────────┐
-                    │   heart     │   approved quickly (<5s)
-                    │  LED: warm  │   (3s then → busy/idle)
+                    │   heart     │  approved < 5 s
+                    │ LED: warm   │  (3 s, then re-derive)
                     └─────────────┘
 
-        Token milestone (every 50K):
+      tokens crossing 50K boundary:
                     ┌─────────────┐
-                    │  celebrate  │   rainbow burst
-                    │  LED: party │   (3s then → prev state)
+                    │  celebrate  │  rainbow burst
+                    │ LED: rainbow│  (3 s, then re-derive)
                     └─────────────┘
 ```
 
-### State derivation from heartbeat
+### Derivation rules
 
 ```
-if BLE disconnected           → sleep
-if prompt != null             → attention
-if running > 0                → busy
-else                          → idle
+disconnected           → sleep
+heartbeat.prompt != nil → attention
+heartbeat.running > 0  → busy
+otherwise              → idle
 
-// Transient states (overlay, auto-expire):
-if approved in <5s            → heart (3s, then re-derive)
-if tokens crossed 50K boundary → celebrate (3s, then re-derive)
+approve within 5 s of prompt arrival → heart   (3 s overlay)
+tokens / 50_000 increments             → celebrate (3 s overlay)
 ```
+
+Transient overlays (`heart`, `celebrate`) lock state for 3 s; an
+expiry ticker (`CheckTransientExpiry`, 500 ms) re-derives from the last
+heartbeat once the lock elapses.
 
 ---
 
-## 6. LED Priority Integration
+## 7. State → LeLamp + Lumi bridge
 
-The existing system has a 4-level LED hierarchy:
+`Bridge.OnStateChange` is wired as the state machine's transition
+callback. Each transition fires:
+
+| State | LeLamp call | Display | Lumi monitor event |
+|---|---|---|---|
+| `sleep` | `POST /led/off` | `display/eyes {sleepy}` | `buddy_state` |
+| `idle` | (none — ambient owns LED) | `display/eyes-mode` | `buddy_state` |
+| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `display/info {tokensToday, runningSessions}` | `buddy_state` |
+| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `display/info {Approve <tool>?, hint}` | `buddy_state` + **`buddy_approval` sensing event** |
+| `heart` | `/led/solid {[255,200,100]}` | `display/eyes {happy}` | `buddy_state` |
+| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `display/eyes {excited}` | `buddy_state` |
+
+Additionally, every `Event` (chat turn) is forwarded via `Bridge.OnEvent`:
 
 ```
-Level 0: Status LED     (error, OTA, booting, connectivity, processing, listening)
-Level 1: Agent LED      (emotion via [HW:/emotion:...])
-Level 2: Local Intent   (voice commands: "turn on blue light")
-Level 3: Ambient        (idle breathing, lowest priority)
-```
-
-**Buddy fits at Level 1.5** — below Agent emotion, above Local Intent idle:
-
-```
-Level 0: Status LED        ← unchanged (highest priority)
-Level 1: Agent emotion     ← unchanged (OpenClaw responses)
-Level 1.5: Buddy state     ← NEW (Desktop state reflection)
-Level 2: Local Intent      ← unchanged (voice LED commands)
-Level 3: Ambient           ← unchanged (idle breathing)
-```
-
-### Coordination rules
-
-| Scenario | Winner | Behavior |
-|----------|--------|----------|
-| Agent expressing emotion + buddy active | Agent | Buddy pauses LED for emotion duration, resumes after |
-| Buddy attention (approval) + ambient breathing | Buddy | Ambient sees `led_set` from buddy → stops breathing |
-| User says "turn on blue light" + buddy active | User | Local intent overrides, buddy pauses LED |
-| Buddy idle/sleep + nothing else | Ambient | Buddy does not set LED in idle/sleep → ambient resumes |
-| Status LED error + buddy active | Status LED | Status always wins (level 0) |
-
-### Implementation: monitor bus integration
-
-Buddy-plugin posts events to Lumi monitor bus via `POST /api/monitor/event`:
-
-```json
+POST http://127.0.0.1:5000/api/monitor/event
 {
-  "type": "buddy_state",
-  "summary": "buddy: attention (approval pending)",
-  "detail": { "state": "attention", "tool": "Edit", "hint": "server.go" }
+  "type": "buddy_event",
+  "summary": "buddy turn assistant",
+  "detail": { "evt": "turn", "role": "assistant", "content": "<rendered text>" }
 }
 ```
 
-Ambient service listens for `buddy_state` events:
-- `attention`, `busy` → treat as `led_set` (lock ambient breathing)
-- `idle`, `sleep` → treat as `led_off` (unlock ambient breathing)
-- `heart`, `celebrate` → transient, auto-unlock after 3s
+Downstream Lumi consumers can subscribe to `buddy_event` for TTS,
+transcript memory, dashboard, etc. — none of those are wired yet.
+
+### LED priority placement
+
+The system has a four-level LED hierarchy. Buddy fits at level 1.5:
+
+```
+Level 0   Status LED   (error, OTA, booting, connectivity, listening)
+Level 1   Agent emotion (OpenClaw [HW:/emotion:…])
+Level 1.5 Buddy state  ← here
+Level 2   Local intent (voice "bật đèn xanh")
+Level 3   Ambient breathing
+```
+
+Ambient service listens on the monitor bus for `buddy_state`:
+
+| Buddy state | Ambient reaction |
+|---|---|
+| `attention`, `busy` | Treat as `led_set` — pause ambient breathing. |
+| `idle`, `sleep` | Treat as `led_off` — resume ambient. |
+| `heart`, `celebrate` | Transient, auto-unlock after 3 s. |
+
+Agent emotion still wins over buddy; user voice intents win over both.
 
 ---
 
-## 7. State → LeLamp Mapping (MVP)
-
-Buddy-plugin calls LeLamp HTTP API directly for LED/display. Uses existing endpoints:
-
-| Buddy state | LeLamp endpoint | Parameters | Display |
-|-------------|----------------|------------|---------|
-| `sleep` | `/led/off` | — | eyes: `sleepy` |
-| `idle` | (no LED call — let ambient handle) | — | eyes: `neutral` |
-| `busy` | `/led/effect` | `{"effect":"pulse","color":[0,100,255],"speed":0.8}` | info: "{running} sessions, {tokens_today} tokens" |
-| `attention` | `/led/effect` | `{"effect":"blink","color":[255,80,0],"speed":1.5}` | info: "Approve {tool}?" |
-| `heart` | `/led/solid` | `{"color":[255,200,100]}` (3s, then resume) | eyes: `happy` |
-| `celebrate` | `/led/effect` | `{"effect":"rainbow","speed":2.0,"duration_ms":3000}` | eyes: `excited` |
-
-### Display integration
-
-Token dashboard uses LeLamp `/display/info`:
-
-```
-POST http://127.0.0.1:5001/display/info
-{
-  "text": "8.2K tokens",
-  "subtitle": "2 sessions running"
-}
-```
-
-When buddy is in `idle` or `sleep`, release display back to eyes mode:
-
-```
-POST http://127.0.0.1:5001/display/eyes-mode
-```
-
----
-
-## 8. Voice Approval Flow (UC-2)
-
-Approval uses the **existing sensing event pipeline** — buddy-plugin posts a sensing event to Lumi, which routes to OpenClaw. OpenClaw reads the buddy SKILL.md and knows how to handle it.
+## 8. Voice approval flow (UC-2)
 
 ```
 1. Heartbeat arrives with prompt != null
-2. buddy-plugin state → attention
-3. buddy-plugin calls:
-   - LeLamp /led/effect (blink orange)
-   - LeLamp /display/info ("Approve Edit?", "server.go lines 10-20")
-   - Lumi POST /api/sensing/event:
-     {
-       "type": "buddy_approval",
-       "message": "Claude Desktop needs approval: Edit on server.go lines 10-20"
-     }
-
-4. OpenClaw receives sensing event → reads buddy SKILL.md
-5. OpenClaw responds via TTS: "Hey, Claude Desktop wants to edit server.go. Approve?"
-6. User speaks: "yes" / "approve" / "no" / "deny"
-
-7. OpenClaw matches response → calls buddy-plugin HTTP API:
-   POST http://127.0.0.1:5002/approve  {"id": "req_abc123"}
-   POST http://127.0.0.1:5002/deny     {"id": "req_abc123"}
-
-8. buddy-plugin receives → sends BLE permission decision to Desktop
-9. State → heart (if approved <5s) or → busy/idle
+2. state → attention; bridge fires
+     LeLamp: blink orange + display "Approve <tool>?"
+     Lumi:   POST /api/sensing/event { type:"buddy_approval", message:"Claude Desktop needs approval: …" }
+3. OpenClaw routes the sensing event to skill `claude-desktop-buddy`
+4. Skill (SKILL.md in claude-desktop-buddy/skill/) does:
+     - Express emotion: curious 0.8
+     - Speak the prompt naturally over TTS
+     - Wait for verbal "yes/approve/ok" or "no/deny/skip"
+5. Skill curls back:
+     POST http://127.0.0.1:5002/approve  {"id":"req_abc123"}   (or /deny)
+6. buddy-plugin returns BLE PermissionDecision:
+     {"cmd":"permission","id":"req_abc123","decision":"once" | "deny"}
+7. Desktop unblocks. State → heart (if user replied in <5 s) → busy → idle.
 ```
 
-### Why route through OpenClaw?
+Why route through OpenClaw rather than answering in buddy directly:
 
-- OpenClaw handles TTS naturally (strip markdown, speak in character)
-- OpenClaw coordinates with existing voice pipeline (busy state, queue)
-- OpenClaw can decide: if user is away, don't TTS — just blink LED silently
-- OpenClaw logs the event in flow events for monitoring
-- No duplicate voice/intent system needed in buddy-plugin
+- OpenClaw owns TTS (markdown stripping, voice character, queue logic).
+- OpenClaw already coordinates with the busy/listening state of the
+  voice pipeline so the approval question doesn't talk over an
+  in-progress conversation.
+- OpenClaw can choose to *not* speak when the user is away (presence)
+  — leaving just the LED blink.
+- Events land in the existing flow-events log for monitoring.
+
+### Skill location
+
+```
+claude-desktop-buddy/skill/SKILL.md
+```
+
+The skill ships with the buddy binary and is **not** copied into
+`lumi/resources/openclaw-skills/`. OpenClaw picks it up from the buddy
+install dir at runtime (see SKILL.md for the exact discovery rule).
 
 ---
 
-## 9. OpenClaw SKILL.md
+## 9. HTTP API (port 5002)
 
-```markdown
----
-name: claude-desktop-buddy
-description: Coordinate with Claude Desktop Buddy plugin for approval prompts and state awareness
----
+| Method | Path | Description | Body / Response |
+|---|---|---|---|
+| `GET` | `/health` | Liveness | `{status, ble_advertising, uptime_seconds}` |
+| `GET` | `/status` | Current buddy state | See below |
+| `POST` | `/approve` | Approve the pending prompt | Body `{id}`. Returns `{ok}`. |
+| `POST` | `/deny` | Deny the pending prompt | Body `{id}`. Returns `{ok}`. |
 
-# Claude Desktop Buddy
+`/status` response:
 
-Lumi is connected to Claude Desktop on the user's Mac via Bluetooth.
-A buddy-plugin runs on this device and syncs Desktop state to Lumi's LED/display.
-
-## When you receive a `[sensing:buddy_approval]` event
-
-Claude Desktop is waiting for the user to approve or deny a tool call.
-
-**Workflow:**
-1. Express emotion: curious (intensity 0.8)
-2. Read the approval details from the event message
-3. Ask the user naturally: mention the tool name and what it affects
-4. Wait for the user's verbal response
-
-**If user says approve/yes/ok/go ahead:**
-```bash
-curl -s -X POST http://127.0.0.1:5002/approve \
-  -H "Content-Type: application/json" \
-  -d '{"id": "<prompt_id from event>"}'
-```
-
-**If user says deny/no/skip/cancel:**
-```bash
-curl -s -X POST http://127.0.0.1:5002/deny \
-  -H "Content-Type: application/json" \
-  -d '{"id": "<prompt_id from event>"}'
-```
-
-## Buddy state awareness
-
-You can check what Claude Desktop is doing:
-```bash
-curl -s http://127.0.0.1:5002/status
-```
-
-Response:
-```json
-{
-  "state": "busy",
-  "connected": true,
-  "sessions_running": 2,
-  "tokens_today": 8200,
-  "pending_prompt": null
-}
-```
-
-## Rules
-
-- When buddy state is `attention`: do NOT start ambient behaviors or proactive conversations — the user is being prompted for approval
-- When buddy state is `busy`: the user is actively using Claude Desktop — reduce proactive interruptions (no wellbeing reminders, no music suggestions)
-- When buddy state is `idle` or `sleep`: operate normally
-- NEVER mention "buddy-plugin", "BLE", "Bluetooth", or technical internals to the user — just say "Claude Desktop" naturally
-```
-
----
-
-## 10. buddy-plugin HTTP API (port 5002)
-
-Lightweight HTTP server for OpenClaw and Lumi to query/control buddy state:
-
-| Method | Path | Description | Request | Response |
-|--------|------|-------------|---------|----------|
-| GET | `/status` | Current buddy state | — | `{"state":"busy","connected":true,"sessions_running":2,"tokens_today":8200,"pending_prompt":null}` |
-| POST | `/approve` | Approve pending prompt | `{"id":"req_abc123"}` | `{"ok":true}` |
-| POST | `/deny` | Deny pending prompt | `{"id":"req_abc123"}` | `{"ok":true}` |
-| GET | `/health` | Plugin health check | — | `{"status":"ok","ble_advertising":true}` |
-
-### Pending prompt detail in `/status`
-
-When there is a pending approval:
 ```json
 {
   "state": "attention",
@@ -528,132 +531,193 @@ When there is a pending approval:
   "pending_prompt": {
     "id": "req_abc123",
     "tool": "Edit",
-    "hint": "server/server.go lines 10-20",
-    "received_at": "2026-04-20T10:30:00Z"
+    "hint": "server.go lines 10-20",
+    "received_at": ""
   }
 }
 ```
 
----
-
-## 11. Implementation Plan
-
-### Phase 1: BLE + state sync + LED (UC-1)
-
-- [ ] Go BLE GATT server (Nordic UART Service)
-- [ ] Advertise as `Claude-Lumi`
-- [ ] Parse heartbeat JSON → derive state
-- [ ] State machine: sleep/idle/busy/attention/heart/celebrate
-- [ ] Map state → LeLamp LED calls (`/led/effect`, `/led/solid`, `/led/off`)
-- [ ] Map state → LeLamp display (`/display/info`, `/display/eyes`, `/display/eyes-mode`)
-- [ ] Post `buddy_state` events to Lumi monitor bus
-- [ ] HTTP server on port 5002 with `/status` and `/health`
-
-### Phase 2: Voice approval (UC-2)
-
-- [ ] On attention state, post sensing event to Lumi `/api/sensing/event`
-- [ ] Add SKILL.md to `resources/openclaw-skills/claude-desktop-buddy/`
-- [ ] HTTP endpoints `/approve` and `/deny` on port 5002
-- [ ] Send BLE permission decision when called
-- [ ] Track approval stats (count, persist to file)
-
-### Phase 3: Token dashboard (UC-3)
-
-- [ ] Update `/display/info` with token count on each heartbeat
-- [ ] Show: sessions running, tokens today, current state
-- [ ] Release display to eyes-mode when idle/sleep
-
-### Phase 4: Extended features (UC-4, UC-5) — Future
-
-- [ ] Presence signal from Lumi → Desktop (requires protocol extension)
-- [ ] Transcript context injection into OpenClaw
+`/approve` and `/deny` reject with `409 Conflict` if there is no pending
+prompt or the `id` doesn't match the current one — prevents the OpenClaw
+skill from acting on stale prompts.
 
 ---
 
-## 12. BLE Library Choice
+## 10. Lumi-side coordination
 
-| Library | Pros | Cons |
-|---------|------|------|
-| `tinygo.org/x/bluetooth` | Pure Go, cross-platform, GATT server support | Pi4 BlueZ support needs testing |
-| `github.com/muka/go-bluetooth` | Mature, DBus/BlueZ native | Heavier dependency |
-| Python `bleak` + subprocess | Battle-tested BLE on Pi | Not Go, extra process |
+### Config-change watcher (lumi/server/server.go)
 
-Recommendation: start with `tinygo.org/x/bluetooth`. If Pi4 has issues, fall back to `go-bluetooth`.
+When the user provisions the device via `POST /api/device/setup`, Lumi
+saves `device_id` to `config/config.json` and notifies the in-process
+config bus. The Lumi server listens on that bus and, when the
+`device_id` value transitions, runs:
+
+```
+systemctl cat lumi-buddy.service   # skip silently if not installed
+systemctl restart lumi-buddy
+```
+
+That gives buddy a chance to re-resolve `Claude-{deviceid}` to the
+freshly assigned id without manual intervention. Lamps that don't ship
+the buddy plugin are no-op'd by the `systemctl cat` pre-check.
+
+### Lumi system info endpoint
+
+Buddy reads `device_id` over HTTP rather than the config file directly:
+
+```
+GET http://127.0.0.1:5000/api/system/info
+→ { "data": { "deviceId": "lumi-004", … } }
+```
+
+This keeps buddy oblivious to Lumi's config schema.
 
 ---
 
-## 13. Config
+## 11. Config
 
-Plugin reads its own config file: `config/buddy.json`
+`/root/config/buddy.json` (created once by `setup-claude-desktop-buddy.sh`
+or `software-update lumi-buddy`, never overwritten by tooling
+afterwards):
 
 ```json
 {
   "enabled": true,
-  "device_name": "Claude-Lumi",
+  "device_name": "Claude-{deviceid}",
   "http_port": 5002,
   "lelamp_url": "http://127.0.0.1:5001",
   "lumi_url": "http://127.0.0.1:5000",
   "approval_timeout_sec": 30,
   "led_mapping": {
-    "sleep": { "action": "off" },
-    "idle": { "action": "none" },
-    "busy": { "effect": "pulse", "color": [0, 100, 255], "speed": 0.8 },
-    "attention": { "effect": "blink", "color": [255, 80, 0], "speed": 1.5 },
-    "heart": { "action": "solid", "color": [255, 200, 100], "duration_ms": 3000 },
+    "sleep":     { "action": "off" },
+    "idle":      { "action": "none" },
+    "busy":      { "effect": "pulse",   "color": [0, 100, 255],   "speed": 0.8 },
+    "attention": { "effect": "blink",   "color": [255, 80, 0],    "speed": 1.5 },
+    "heart":     { "action": "solid",   "color": [255, 200, 100], "duration_ms": 3000 },
     "celebrate": { "effect": "rainbow", "speed": 2.0, "duration_ms": 3000 }
   }
 }
 ```
 
-Note: `idle` has `action: "none"` — buddy does not set LED in idle state, lets ambient service handle it.
+`led_mapping` is parsed and forwarded to LeLamp untouched; the template
+mirrors what `bridge.OnStateChange` currently does in code. `idle` is
+`none` so the ambient service keeps control of the LED when the lamp
+isn't actively reflecting Claude state.
+
+---
+
+## 12. BLE library: vendored tinygo
+
+We started on upstream `tinygo.org/x/bluetooth v0.14.0`. Two needed
+features were either TODOs (`MinInterval` / `MaxInterval` for
+advertising) or simply missing (BlueZ `secure-read` / `secure-write`
+characteristic flags). We vendored the lib into
+`third_party/bluetooth/` and added them. `go.mod` carries:
+
+```
+replace tinygo.org/x/bluetooth => ./third_party/bluetooth
+```
+
+Patches:
+
+- `gatts.go` — extended `CharacteristicPermissions` from 6 bits to 8
+  with `CharacteristicSecureReadPermission` and
+  `CharacteristicSecureWritePermission`.
+- `gatts_linux.go` — added `"secure-read"` and `"secure-write"` to the
+  BlueZ flag-string array so the new bits map onto the D-Bus
+  representation.
+
+The advertising interval is set via the kernel debugfs route
+(`/sys/kernel/debug/bluetooth/hci*/adv_{min,max}_interval`) rather than
+patching tinygo — see `tuneAdvIntervals()` in `ble.go`. This works on
+any BlueZ regardless of whether the D-Bus `MinInterval`/`MaxInterval`
+properties are honoured.
+
+---
+
+## 13. Chip / kernel notes (Orange Pi 4 Pro, AIC8820)
+
+The Orange Pi 4 Pro ships with an AIC8820 BT chip (Aicsemi, manufacturer
+ID 2875), UART-attached. Quirks we hit:
+
+- **No factory MAC**: `bdaddr` is `10:11:12:13:14:15` out of the box.
+  `btmgmt -i 0 public-addr <new>` returns `0x0c Not Supported`.
+- **No LE Privacy**: `bluetoothd` logs `Failed to set privacy: Rejected
+  (0x0b)` at startup. Cosmetic; LE advertising still works.
+- **Reset hazard**: repeated `bluetoothd` / chip restarts can wedge the
+  controller into a state where it `UP RUNNING PSCAN` (classic only) and
+  refuses LE advertising for a bit. Recovery: `sudo systemctl restart
+  bluetooth && sudo hciconfig hci0 reset && sudo systemctl restart
+  lumi-buddy`.
+
+Raspberry Pi (Broadcom / RP1) does not have these quirks and uses its
+factory MAC, but the rest of the integration is identical.
 
 ---
 
 ## 14. Deployment
 
-```bash
-# Build (from repo root)
-cd claude-desktop-buddy && GOOS=linux GOARCH=arm64 go build -o buddy-plugin .
+### systemd unit (`/etc/systemd/system/lumi-buddy.service`)
 
-# Run as systemd service
-# File: /etc/systemd/system/lumi-buddy.service
+```ini
 [Unit]
 Description=Lumi Claude Desktop Buddy
 After=bluetooth.target lumi.service
 Wants=bluetooth.target
 
 [Service]
-ExecStart=/opt/lumi/buddy-plugin
-WorkingDirectory=/opt/lumi
+ExecStart=/opt/claude-desktop-buddy/buddy-plugin -config /root/config/buddy.json -log /var/log/lumi-buddy.log
 Restart=always
 RestartSec=5
-Environment=BUDDY_CONFIG=/opt/lumi/config/buddy.json
+User=root
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+### Install paths
+
+| Path | Purpose |
+|---|---|
+| `/opt/claude-desktop-buddy/buddy-plugin` | Binary (`linux/arm64`) |
+| `/opt/claude-desktop-buddy/VERSION_BUDDY` | Version stamp matching OTA metadata |
+| `/opt/claude-desktop-buddy/chars/<name>/` | Character packs from folder pushes |
+| `/root/config/buddy.json` | Runtime config (preserved across OTA) |
+| `/var/log/lumi-buddy.log` | Rotated log (2 MB × 10 backups) |
+
+### Update commands
+
+- First install: `setup-claude-desktop-buddy.sh` (downloads from OTA
+  metadata, creates service, leaves config alone if it already exists).
+- Subsequent updates: `software-update lumi-buddy` (binary + version
+  stamp + service restart only; config is never overwritten).
+
 ---
 
-## 15. Risks & Constraints
+## 15. Risks & known gaps
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Pi4 BLE range ~10m | Mac must be in same room as lamp | OK for desk setup |
-| Low BLE bandwidth | Long transcripts truncated (>4KB dropped) | Only receive summary, not full transcript |
-| Claude Desktop BLE API not yet stable | Protocol may change | Follow REFERENCE.md, version pin |
-| LED conflict with agent emotion | Buddy LED overwritten during emotion | Buddy pauses LED during emotion, resumes after (via monitor bus) |
-| Voice conflict with active conversation | Approval TTS interrupts ongoing TTS | Route through OpenClaw sensing → respects busy/queue logic |
-| Ambient breathing vs buddy LED | Both try to control LED | Buddy posts `led_set`/`led_off` events; idle state = no LED call |
+| Risk / gap | Impact | Status |
+|---|---|---|
+| Connection is unencrypted (`sec: false`) | Panel shows "Connection is unencrypted" warning; GATT data in clear | Accepted until Desktop side drives SMP |
+| Mac BT cache by BD address | Renames on Pi don't refresh Mac-visible name | Forget device on Mac after rename |
+| AIC8820 fake MAC | Multiple AIC8820 lamps on the same Mac collide in cache | Out of scope until vendor MAC support lands |
+| BLE write-without-response packet loss | Long heartbeats / events get mid-corrupted | `ParseOrSalvage` recovers when possible; drops with a category log otherwise |
+| LED conflict with agent emotion | Buddy + emotion both touch LED | Buddy sits below emotion via monitor-bus priority |
+| Voice approval collides with active TTS | Approval question talks over conversation | OpenClaw skill routes through TTS queue, respects busy state |
 
 ---
 
-## 16. Success Criteria
+## 16. Success criteria — current state
 
-- [ ] Claude Desktop sees "Claude-Lumi" in Hardware Buddy scan
-- [ ] Pairing succeeds, auto-reconnects after reboot
-- [ ] LED changes reflect Desktop state without conflicting with agent emotion or ambient
-- [ ] Voice approve/deny routes through OpenClaw and completes end-to-end
-- [ ] Token count displays on Lumi round LCD via `/display/info`
-- [ ] Plugin crash does not affect main Lumi server
-- [ ] OpenClaw reduces proactive behavior when Desktop is busy
+- [x] Claude Desktop sees `Claude-XXX` in the Hardware Buddy picker
+- [x] Pairing succeeds, auto-reconnects after Mac wake / Pi reboot
+- [x] LED reflects state without overwriting agent emotion or ambient
+- [x] Voice approve / deny routes through OpenClaw and completes end-to-end
+- [x] Token count + running sessions appear on the LeLamp display
+- [x] Buddy crash does not affect main Lumi server
+- [x] OpenClaw reduces proactive behaviour when Desktop is busy
+- [x] Chat turns (user / assistant / tool blocks) stream into Lumi monitor bus
+- [x] Character pack folder push lands under `chars/<name>/`
+- [ ] Encrypted bonded GATT link (`sec: true`) — deferred
+- [ ] Presence feedback Lumi → Desktop — future protocol extension
+- [ ] Transcript context injection into OpenClaw — future

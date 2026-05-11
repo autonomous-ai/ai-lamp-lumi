@@ -1,515 +1,518 @@
-# Claude Desktop Buddy — Spec Tích Hợp
+# Claude Desktop Buddy — Spec tích hợp
 
-> Biến Lumi thành Hardware Buddy cho Claude Desktop, chạy như plugin độc lập và tích hợp với hệ thống LED/voice/sensing hiện tại.
+> Biến đèn Lumi thành Hardware Buddy của Claude Desktop. Chạy như plugin
+> Go độc lập trên Pi, bridge trạng thái BLE của Claude vào hệ LeLamp
+> (LED/display/audio) và Lumi (OpenClaw/sensing) sẵn có.
 
-**Source**: [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy)
-**Status**: Spec draft
-**Date**: 2026-04-20
+**Nguồn**: [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) (firmware ESP32 reference + protocol REFERENCE.md)
+**Trạng thái**: Implementation — Phase 1, 2, 3 đã ship (2026-05-11)
+**Phần cứng**: Raspberry Pi 4 / Orange Pi 4 Pro (chip BT AIC8820)
 
 ---
 
-## 1. Tổng quan & Lý do
+## 1. Cái gì & Tại sao
 
-Claude Desktop (Cowork) có một BLE API cho phép thiết bị phần cứng kết nối làm "buddy". Reference implementation là ESP32 desk pet — LCD nhỏ, 1 nút bấm, không có brain.
+Claude Desktop ("Claude for macOS/Windows") expose 1 BLE API trong
+Developer Mode để hardware companion kết nối qua Nordic UART Service.
+Reference của Anthropic là ESP32 desk pet — LCD nhỏ, 2 nút, không có
+brain. Lumi implement cùng wire protocol nhưng là **smart buddy**: đèn
+đầy đủ với camera, mic, speaker, LED ring, servo, display, và brain
+agentic OpenClaw.
 
-Lumi implement cùng protocol này nhưng là **smart buddy** — có camera, mic, speaker, LED ring, servo, display, và OpenClaw brain riêng. Lumi không chỉ hiện prompt và approve, mà còn suy nghĩ, nói chuyện tự nhiên, và feed context ngược lại.
+Lumi có thể phản ánh state Claude lên LED, voice-approve tool call rảnh
+tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 
-### Các use case
+### Use case
 
-| # | Use case | Mô tả |
-|---|----------|-------|
-| UC-1 | **Ambient state** | LED ring phản ánh trạng thái Claude Desktop: idle (breathing), busy (pulse), waiting (blink) |
-| UC-2 | **Voice approval** | Claude Desktop cần approve tool call → Lumi đọc prompt → user nói "approve" / "deny" hands-free |
-| UC-3 | **Token dashboard** | Lumi display hiện token count, session count qua `/display/info` |
-| UC-4 | **Presence feedback** | Lumi biết user có mặt hay vắng (camera/motion) → gửi info ngược về Desktop (mở rộng protocol) |
-| UC-5 | **Transcript relay** | Lumi nhận transcript từ Desktop → khi user hỏi voice, OpenClaw có thêm context |
-
-**MVP scope: UC-1 + UC-2 + UC-3.** UC-4, UC-5 mở rộng sau.
+| # | Use case | Trạng thái | Mô tả |
+|---|----------|------------|-------|
+| UC-1 | **Ambient state** | xong | LED + eyes animation phản ánh state Claude (sleep/idle/busy/attention/heart/celebrate). |
+| UC-2 | **Voice approval** | xong | Prompt tool-call → Lumi đọc qua skill OpenClaw → user nói approve/deny rảnh tay. |
+| UC-3 | **Hiển thị token/hoạt động** | xong | LeLamp display hiện token count + sessions chạy qua `/display/info`. |
+| UC-4 | **Fan-out chat turn** | xong | Mọi `evt:"turn"` (user/assistant/tool blocks) được forward lên Lumi monitor bus dạng `buddy_event` — sẵn cho TTS, transcript memory, dashboard. |
+| UC-5 | **Nhận character pack** | xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
+| UC-6 | **Presence feedback** | tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
+| UC-7 | **OpenClaw biết transcript** | tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
 
 ---
 
 ## 2. Kiến trúc
 
 ```
-┌──────────────────┐        BLE (Nordic UART)        ┌──────────────────────────────┐
-│  Claude Desktop  │ ◄──────────────────────────────► │          Lumi (Pi4)          │
-│  (Mac)           │                                  │                              │
-│                  │  heartbeat: state, prompts,      │  ┌────────────────────────┐  │
-│                  │  transcript, tokens              │  │    buddy-plugin        │  │
-│                  │                                  │  │    (Go, port 5002)     │  │
-│                  │  permission decisions,            │  │    BLE + HTTP server   │  │
-│                  │  status acks                      │  └──────┬───────┬────────┘  │
-│                  │                                  │         │       │            │
-│                  │                                  │    HTTP │       │ HTTP       │
-│                  │                                  │         ▼       ▼            │
-│                  │                                  │  ┌──────────┐ ┌──────────┐  │
-│                  │                                  │  │  Lumi    │ │ LeLamp   │  │
-│                  │                                  │  │  :5000   │ │ :5001    │  │
-│                  │                                  │  │ sensing  │ │ LED/TTS/ │  │
-│                  │                                  │  │ event API│ │ display  │  │
-│                  │                                  │  └──────────┘ └──────────┘  │
-└──────────────────┘                                  └──────────────────────────────┘
+┌──────────────────┐       BLE (Nordic UART)        ┌──────────────────────────────┐
+│  Claude Desktop  │ ◄───────────────────────────►  │          Lumi (Pi)           │
+│  (Mac / Windows) │                                │                              │
+│  Developer →     │   Heartbeat (msg/running/      │  ┌────────────────────────┐  │
+│  Hardware Buddy  │   tokens/prompt), Event        │  │   buddy-plugin         │  │
+│                  │   (turn/content blocks),       │  │   (Go, :5002)          │  │
+│                  │   Command, TimeSync            │  │                        │  │
+│                  │                                │  │   ble.go + agent.go    │  │
+│                  │   Ack, PermissionDecision      │  │   protocol.go          │  │
+│                  │                                │  │   state.go             │  │
+│                  │                                │  │   bridge.go            │  │
+│                  │                                │  │   httpserver.go        │  │
+│                  │                                │  │   transfer.go          │  │
+│                  │                                │  └──┬──────────┬──────────┘  │
+│                  │                                │     │ HTTP     │ HTTP        │
+│                  │                                │     ▼          ▼             │
+│                  │                                │  ┌─────────┐ ┌──────────┐    │
+│                  │                                │  │  Lumi   │ │ LeLamp   │    │
+│                  │                                │  │ :5000   │ │ :5001    │    │
+│                  │                                │  │ OpenClaw│ │ LED+     │    │
+│                  │                                │  │ sensing │ │ display  │    │
+│                  │                                │  │ monitor │ │ TTS      │    │
+│                  │                                │  └─────────┘ └──────────┘    │
+└──────────────────┘                                └──────────────────────────────┘
 ```
 
-### Thiết kế plugin
-
-`buddy-plugin` chạy như **process độc lập** trên Pi4 (port 5002):
-- Binary riêng, lifecycle riêng — không link vào Lumi server
-- **BLE server**: advertise tên `Claude-Lumi`, xử lý Nordic UART protocol
-- **HTTP server**: expose `/status` endpoint để OpenClaw skill và Lumi query trạng thái buddy
-- **Gọi LeLamp** (localhost:5001) cho LED/TTS/display — giống mọi service khác
-- **Gọi Lumi** (localhost:5000) để post sensing events cho voice approval flow
-- Không cần Wire DI, không cần Gin — binary nhẹ, độc lập
+### Layout plugin
 
 ```
-ai-lamp-openclaw/
-├── lumi/                      # Lumi server (có sẵn, Go, port 5000)
-├── lelamp/                    # LeLamp runtime (có sẵn, Python, port 5001)
-├── claude-desktop-buddy/      # ← MỚI: Claude Desktop Buddy plugin (Go, port 5002)
-│   ├── main.go                # Entry point
-│   ├── ble.go                 # BLE GATT server (Nordic UART)
-│   ├── protocol.go            # Wire protocol parse/serialize
-│   ├── state.go               # State machine (sleep/idle/busy/attention/celebrate)
-│   ├── bridge.go              # Map state → LeLamp + Lumi HTTP calls
-│   ├── approval.go            # Voice approval flow
-│   ├── httpserver.go          # GET /status, POST /approve, /deny
-│   ├── go.mod                 # Go module riêng
-│   └── config/
-│       └── buddy.json         # Config plugin
+claude-desktop-buddy/
+├── main.go              Entry, load config, wire BLE/HTTP, dispatch message
+├── ble.go               BLE peripheral (GATT server, advertising, tune interval qua debugfs)
+├── agent.go             BlueZ DisplayOnly pairing agent (đã register nhưng chưa dùng — §5)
+├── protocol.go          Wire types: Heartbeat, TimeSync, Event, Command, Ack, PermissionDecision
+├── state.go             6-state machine (sleep/idle/busy/attention/heart/celebrate)
+├── bridge.go            HTTP outbound tới LeLamp (:5001) + Lumi (:5000)
+├── httpserver.go        HTTP API :5002 — /status /health /approve /deny
+├── transfer.go          Nhận folder character-pack push (lưu vào chars/)
+├── skill/SKILL.md       Skill OpenClaw cho voice approval flow
+├── config/buddy.json    Template config (chỉ template — runtime đọc /root/config/buddy.json)
+├── third_party/bluetooth/  Vendor tinygo bluetooth v0.14.0 + patch secure-* flag
+├── go.mod               Go module riêng với `replace tinygo.org/x/bluetooth => ./third_party/...`
+└── VERSION_BUDDY        Version stamp text, inject lúc build
 ```
 
-### MỚI: OpenClaw Skill
+### Process model
 
-File `SKILL.md` để OpenClaw agent biết về buddy và phối hợp:
+`buddy-plugin` là **systemd service độc lập** (`lumi-buddy.service`),
+tách khỏi binary Lumi chính. Restart độc lập; không link vào process
+Lumi. Gọi Lumi và LeLamp qua HTTP local.
 
 ```
-lumi/resources/openclaw-skills/claude-desktop-buddy/SKILL.md   # skill nằm trong lumi (deploy qua OTA)
+Layout runtime trên Pi:
+  /opt/claude-desktop-buddy/buddy-plugin   — binary
+  /opt/claude-desktop-buddy/VERSION_BUDDY  — version stamp
+  /opt/claude-desktop-buddy/chars/         — character pack nhận về
+  /root/config/buddy.json                  — config runtime (tạo 1 lần)
+  /etc/systemd/system/lumi-buddy.service   — service unit
+  /var/log/lumi-buddy.log                  — log rotate (2MB × 10)
 ```
 
 ---
 
-## 3. Quy trình Pairing
+## 3. Discovery + pairing — thực tế đang chạy
 
-```
-┌─────────────┐                              ┌──────────────┐
-│ Lumi (Pi4)  │                              │ Claude Desktop│
-│             │   1. BLE advertise           │ (Mac)        │
-│ buddy-plugin├─────────────────────────────►│              │
-│ name:       │   "Claude-Lumi" +            │              │
-│ Claude-Lumi │    Nordic UART UUID          │              │
-│             │                              │              │
-│             │   2. User bấm Connect       │  Developer → │
-│             │◄─────────────────────────────┤  Hardware    │
-│             │   BLE connection request     │  Buddy...    │
-│             │                              │              │
-│             │   3. OS bonding              │              │
-│             │◄────────────────────────────►│  macOS BT    │
-│             │   LE Secure Connections      │  permission  │
-│             │   AES-CCM encryption         │  popup       │
-│             │                              │              │
-│             │   4. Init messages           │              │
-│             │◄─────────────────────────────┤              │
-│             │   time sync + owner name     │              │
-│             │                              │              │
-│             │   5. Heartbeats bắt đầu     │              │
-│             │◄─────────────────────────────┤              │
-│             │   mỗi 10s hoặc khi state đổi               │
-└─────────────┘                              └──────────────┘
-```
+Spec Anthropic đề xuất LE Secure Connections bonding với DisplayOnly IO
+capability. Thực tế client macOS hiện tại của Claude Desktop establish
+LE connection plain mà không auto-trigger SMP — nên characteristics
+encrypted-only không truy cập được và panel hiện "No response". Vì vậy
+mình **expose characteristics NUS không cần encryption flag** và
+connection chạy unbonded. Vendor fork thêm `secure-read`/`secure-write`
+flags vẫn giữ trong tree, `agent.go` vẫn register DisplayOnly agent —
+sẵn để bật lại khi nào Desktop side drive SMP.
 
-### Điều kiện tiên quyết (1 lần duy nhất)
+### Filter discovery (Hardware Buddy panel)
 
-1. Pi4 bật Bluetooth (`bluetoothctl power on`)
-2. Claude Desktop: **Help → Troubleshooting → Enable Developer Mode**
-3. Menu mới xuất hiện: **Developer → Open Hardware Buddy...**
+Picker filter theo:
 
-### Các bước pairing
+1. Device name bắt đầu bằng **`Claude`**
+2. Advertise **Nordic UART Service UUID** (`6e400001-…`)
 
-1. Lumi chạy buddy-plugin → advertise BLE với tên `Claude-Lumi`
-2. Claude Desktop → Developer → Open Hardware Buddy → **Connect**
-3. Scan list hiện "Claude-Lumi" → chọn
-4. macOS hiện Bluetooth permission popup → Allow
-5. OS-level bonding (LE Secure Connections) → link encrypted bằng AES-CCM
-6. Claude Desktop gửi init: time sync + owner name
-7. Heartbeat bắt đầu chảy → Lumi nhận state
+Mọi thiết bị khác bị ẩn trong picker, kể cả khi macOS Bluetooth Settings
+thấy được.
 
-### Tự động kết nối lại
+### Pairing flow (phía Pi)
 
-Sau khi pair lần đầu, cả 2 bên lưu bond key (LTK). Khi Lumi reboot hoặc Mac wake up → tự reconnect mà không cần pair lại.
+1. Config runtime BlueZ (phải có sẵn — `setup-claude-desktop-buddy.sh`
+   set; fallback thủ công: `btmgmt -i 0 power off; bredr on; le on;
+   connectable on; pairable on; discoverable on; power on` +
+   `bluetoothctl discoverable-timeout 0`).
+2. buddy-plugin start → đọc `/root/config/buddy.json` → resolve device
+   name qua `resolveDeviceName()`:
+   - Đọc `device_name` từ config (default `Claude-{deviceid}`).
+   - Nếu có `{deviceid}`, fetch `device_id` từ Lumi
+     `GET http://127.0.0.1:5000/api/system/info` (retry 15 × 2s).
+   - `shortDeviceID()` giữ segment cuối sau dash, trim 4 ký tự
+     (`lumi-004` → `004`) — để name + Nordic UART UUID cùng fit trong
+     31-byte primary advertisement.
+   - Fallback `Claude-unknown` nếu lamp chưa setup qua
+     `/api/device/setup`.
+3. `registerBluezAgent()` export `org.bluez.Agent1` với capability
+   `DisplayOnly` lên system D-Bus, rồi gọi `RegisterAgent` +
+   `RequestDefaultAgent` trên `org.bluez.AgentManager1`. Agent hiện chỉ
+   log event `PAIRING PASSKEY` khi BlueZ hỏi — sẵn dùng nếu SMP được
+   engage sau này.
+4. `tuneAdvIntervals()` ghi `160` và `320` vào
+   `/sys/kernel/debug/bluetooth/hci*/adv_{min,max}_interval` (đơn vị
+   0.625 ms, tức 100–200 ms). Không có bước này thì BlueZ default
+   1.28 s — quá thưa cho scan window ngắn của macOS.
+5. tinygo register GATT service + advertisement. BlueZ đóng gói service
+   UUID vào primary advertisement (18 byte) và local name vào scan
+   response (~10 byte). macOS active scan, merge cả 2, hiện device
+   trong picker.
 
-### Hủy pairing
+### Pairing flow (phía Mac)
 
-Claude Desktop gửi `{"cmd":"unpair"}` → Lumi xóa stored bond → quay lại advertise chờ pair mới.
+1. User: **Help → Troubleshooting → Enable Developer Mode** (1 lần).
+2. **Developer → Open Hardware Buddy…** → bấm **Connect** → chọn
+   `Claude-XXX` trong scan results.
+3. Hardware Buddy mở LE GATT connection. macOS **không** initiate SMP
+   vì characteristics mình không yêu cầu encryption.
+4. Desktop gửi ngay `{"cmd":"owner","name":"…"}`, 1 TimeSync, rồi poll
+   `{"cmd":"status"}` ~mỗi 2 giây.
+5. Khi agentic turn bắt đầu, `Heartbeat` snapshot và `Event` chat turn
+   bắt đầu chảy.
+
+### Auto-reconnect
+
+Mac cache device theo BD address. Lần buddy start tiếp theo tự reconnect
+không cần user action. **Đổi tên device trên Pi không refresh tên cache
+phía Mac** — Mac giữ tên cũ cho đến khi user explicit forget device
+trong System Settings → Bluetooth, hoặc chạy `sudo pkill bluetoothd`.
+Cache cứng đầu thì nuke plist (`sudo rm
+/Library/Preferences/com.apple.Bluetooth*.plist` + pkill).
+
+### Unpair
+
+`{"cmd":"unpair"}` từ Desktop → buddy abort folder transfer đang chạy,
+quay về advertising. Bond data phía BlueZ không cần xóa vì không có bond.
 
 ---
 
-## 4. BLE Protocol (theo REFERENCE.md)
+## 4. BLE wire protocol
 
 ### Transport
 
 | Thuộc tính | Giá trị |
 |------------|---------|
 | Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
-| RX (Desktop → Device) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
-| TX (Device → Desktop) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
-| Wire format | UTF-8 JSON, mỗi object 1 dòng, kết thúc bằng `\n` |
-| Tên thiết bị | Phải bắt đầu bằng `Claude` (ví dụ: `Claude-Lumi`) |
+| RX (Desktop → Device, write + write-without-response) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
+| TX (Device → Desktop, notify + read) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+| Wire format | UTF-8 JSON, mỗi object 1 dòng kết thúc `\n` |
+| Tên device | Phải bắt đầu bằng `Claude` |
+| Advertising interval | 100–200 ms (tune qua debugfs) |
+| Encryption | Hiện không có; vendor fork sẵn sàng bật lại qua `secure-*` flags |
 
 ### Message: Desktop → Device
 
-**Heartbeat snapshot** (mỗi 10s hoặc khi state đổi):
+#### `Heartbeat` — snapshot state định kỳ
+
+Gửi ~mỗi 1 s khi active, ~10 s khi idle. Parser dùng presence của
+field `total` để discriminate.
+
 ```json
 {
   "total": 3,
   "running": 1,
-  "waiting": 1,
+  "waiting": 0,
   "msg": "Editing main.go",
   "entries": ["Latest message", "Previous message"],
   "tokens": 52340,
   "tokens_today": 8200,
-  "prompt": {
-    "id": "req_abc123",
-    "tool": "Edit",
-    "hint": "server/server.go lines 10-20"
-  }
+  "prompt": { "id": "req_abc123", "tool": "Edit", "hint": "server.go:10-20" }
 }
 ```
 
-| Field | Type | Mô tả |
-|-------|------|-------|
-| `total` | number | Tổng số session |
-| `running` | number | Session đang generate |
-| `waiting` | number | Session đang chờ permission |
-| `msg` | string | Tóm tắt cho màn hình nhỏ |
-| `entries` | string[] | Transcript gần nhất, mới nhất trước |
-| `tokens` | number | Tổng output tokens từ lúc app khởi động |
-| `tokens_today` | number | Output tokens từ nửa đêm |
-| `prompt` | object hoặc null | Chỉ có khi cần permission |
-| `prompt.id` | string | Phải echo lại trong response |
-| `prompt.tool` | string | Tên tool (vd: "Edit", "Bash") |
-| `prompt.hint` | string | Context ngắn về tool call |
+Buddy throttle log: dòng `[ble] heartbeat …` chỉ emit khi `running`,
+`waiting`, `msg`, hoặc `prompt` (presence/id) đổi — token đếm drift mỗi
+ping, log đầy đủ sẽ spam journal.
 
-**Init messages** (khi kết nối):
+#### `TimeSync` — clock + timezone
+
+Gửi 1 lần khi connect (presence field `time`).
+
 ```json
 { "time": [1713600000, 25200] }
 ```
+
+#### `Event` — stream chat turn
+
+Gửi cho từng turn hội thoại (user input, assistant reply, tool use,
+tool result). Presence field `evt`. `content` hoặc là string thuần
+(user turn) hoặc array các typed content block (assistant + tool flow).
+
 ```json
-{ "cmd": "owner", "name": "Leo" }
+{
+  "evt": "turn",
+  "role": "user",
+  "content": "thử tìm giá BTC hôm nay đi"
+}
 ```
 
-**Commands**:
 ```json
-{"cmd": "status"}
+{
+  "evt": "turn",
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "thinking": "", "signature": "…base64…"},
+    {"type": "tool_use", "id": "toolu_…", "name": "WebSearch",
+     "input": {"query": "Bitcoin price today"}}
+  ]
+}
 ```
-```json
-{"cmd": "name", "name": "Lumi"}
-```
-```json
-{"cmd": "unpair"}
-```
+
+`formatContentBlock()` render mỗi block thành 1 dòng log tag:
+`[thinking: …]`, `[tool_use <name>(<input>)]`, `[tool_result <id>: …]`,
+`[tool_ref: <name>]`. Mỗi event fan-out lên Lumi qua
+`bridge.OnEvent` với `type=buddy_event` trên monitor bus.
+
+#### `Command` — control + folder push
+
+Presence field `cmd`. Buddy ack mọi command.
+
+| `cmd` | Payload | Hiệu lực |
+|---|---|---|
+| `status` | `{}` | Buddy trả `Ack` kèm battery/uptime/approval counts. |
+| `owner` | `{"name": "Leo"}` | Ghi tên user Mac (cho log). |
+| `name` | `{"name": "…"}` | Đổi tên device (cosmetic). |
+| `unpair` | `{}` | Quay về advertising. |
+| `char_begin` | `{"name":"bufo","total":1500000}` | Start folder transfer character pack. |
+| `file` | `{"path":"sleep.gif","size":12345}` | Mở file mới trong transfer hiện hành. |
+| `chunk` | `{"d":"<base64>"}` | Append byte đã decode vào file đang mở. |
+| `file_end` | `{}` | Đóng file hiện hành. |
+| `char_end` | `{}` | Kết thúc transfer; folder lưu tại `chars/<name>/`. |
 
 ### Message: Device → Desktop
 
-**Permission decision**:
+#### `Ack` — response cho command
+
 ```json
-{"cmd": "permission", "id": "req_abc123", "decision": "once"}
-```
-```json
-{"cmd": "permission", "id": "req_abc123", "decision": "deny"}
+{ "ack": "owner", "ok": true, "n": 0 }
 ```
 
-| Decision | Hiệu lực |
-|----------|----------|
-| `"once"` | Approve tool call |
-| `"deny"` | Reject tool call |
+Status ack có payload `data`:
 
-**Ack** (bắt buộc cho mọi `cmd` nhận được):
-```json
-{"ack": "owner", "ok": true, "n": 0}
-```
-```json
-{"ack": "status", "ok": true, "data": {...}}
-```
-
-**Status response**:
 ```json
 {
   "ack": "status",
   "ok": true,
   "data": {
-    "name": "Lumi",
-    "sec": true,
+    "name": "Claude-004",
+    "sec": false,
     "bat": { "pct": 100, "mV": 5000, "mA": 0, "usb": true },
-    "sys": { "up": 86400, "heap": 1048576 },
-    "stats": { "appr": 42, "deny": 3, "vel": 2.5, "nap": 0, "lvl": 5 }
+    "sys": { "up": 86400, "heap": 0 },
+    "stats": { "appr": 3, "deny": 0, "vel": 0, "nap": 0, "lvl": 0 }
   }
 }
 ```
 
-**Turn event** (device → desktop, sau mỗi completed turn, drop nếu >4KB):
+`sec` hiện hardcode `false` (chưa bond). Sẽ set `true` khi bật
+encryption.
+
+#### `PermissionDecision` — approve/deny
+
+Gửi để phản hồi `prompt` trong heartbeat. `id` echo lại prompt id.
+
 ```json
-{
-  "evt": "turn",
-  "role": "assistant",
-  "content": [{ "type": "text", "text": "..." }]
-}
+{ "cmd": "permission", "id": "req_abc123", "decision": "once" }
 ```
 
-### Timeouts
+| Decision | Hiệu lực |
+|---|---|
+| `"once"` | Approve tool call đang pending. |
+| `"deny"` | Reject. |
 
-- Heartbeat keepalive: 10s
-- Coi kết nối chết: 30s không nhận heartbeat
-- Desktop poll status: ~2s
+### Salvage khi packet loss write-without-response
+
+Claude Desktop stream chunk qua BLE write-without-response — không có
+ATT confirmation. Khi BlueZ drop chunk im lặng, dòng kế tiếp mình
+extract sẽ corrupted brackets. `ParseOrSalvage` tìm opener JSON gần
+nhất (`{"cmd":"`, `{"time":`, `{"total":`, `{"evt":"`) trong buffer rồi
+thử lại. Nếu vẫn không parse được, drop dòng kèm 1 trong 3 category log:
+
+- `dropped N-byte BLE message (prefix-lost): …` — đầu dòng mất; không
+  cứu được.
+- `dropped N-byte BLE message (truncated): …` — bắt đầu JSON nhưng
+  không có `}` đóng.
+- `dropped N-byte BLE message (mid-corruption): …` — brackets khớp
+  nhưng chunk giữa `entries`/`content` biến mất.
+
+Cả 3 đều abort folder transfer đang chạy vì framing mất.
 
 ---
 
-## 5. State Machine
+## 5. Trạng thái encryption (deferred)
+
+Theo spec Anthropic, characteristics NUS nên yêu cầu LE Secure
+Connections bonding với device expose IO capability DisplayOnly, và
+report `sec: true` khi đã bond. Vendor fork tại `third_party/bluetooth/`
+thêm BlueZ flags `secure-read` và `secure-write` vào enum
+`CharacteristicPermissions` 6-bit của `tinygo.org/x/bluetooth` để mình
+làm được điều này bằng Go.
+
+Blocker: client macOS Hardware Buddy hiện tại connect mà không gửi
+request pairing SMP, nên khi characteristics mình mark secure-only
+BlueZ từ chối mọi GATT operation và panel mãi hiện "No response". Để
+integration end-to-end hoạt động hôm nay mình ship characteristics với
+flags plain `write` / `write-without-response` / `notify` / `read` và
+report `sec: false`. Plumbing agent + flag vẫn ready để flip lại
+encrypted-only khi Anthropic bật auto-pairing hoặc khi tìm ra cơ chế
+"Pair" explicit để drive.
+
+---
+
+## 6. State machine
 
 ```
                     ┌─────────────┐
-         BLE tắt    │    sleep    │   BLE ngắt kết nối
-         ──────────►│  LED: tắt   │◄──────────────
+   BLE off ────────►│    sleep    │◄──────── BLE disconnect
+                    │ LED: off    │
                     └──────┬──────┘
-                           │ BLE kết nối
+                           │ connect
                            ▼
                     ┌─────────────┐
-      running == 0  │    idle     │   không có session
-      ─────────────►│  LED: để   │◄──────────────
-                    │  ambient   │
+   running == 0    │    idle     │
+   ───────────────►│ ambient-led │
                     └──────┬──────┘
                            │ running > 0
                            ▼
                     ┌─────────────┐
-      waiting == 0  │    busy     │   session đang chạy
-      ─────────────►│  LED: pulse │
+   waiting == 0    │    busy     │
+   ───────────────►│ LED: pulse  │
                     └──────┬──────┘
-                           │ prompt != null (waiting > 0)
+                           │ heartbeat.prompt != null
                            ▼
                     ┌─────────────┐
-                    │  attention  │   cần approval
-                    │  LED: nhấp  │
-                    │  nháy+voice │
+                    │  attention  │
+                    │ LED: blink  │
+                    │ + sensing   │
                     └──────┬──────┘
-                           │ user approve/deny
+                           │ /approve hoặc /deny
                            ▼
                     ┌─────────────┐
-                    │   heart     │   approve nhanh (<5s)
-                    │  LED: ấm   │   (3s rồi → busy/idle)
+                    │   heart     │  approve <5s
+                    │ LED: warm   │  (3s, rồi suy lại)
                     └─────────────┘
 
-        Token milestone (mỗi 50K):
+      Tokens vượt mốc 50K:
                     ┌─────────────┐
-                    │  celebrate  │   rainbow burst
-                    │  LED: party │   (3s rồi → state trước)
+                    │  celebrate  │  rainbow burst
+                    │ LED: rainbow│  (3s, rồi suy lại)
                     └─────────────┘
 ```
 
-### Suy ra state từ heartbeat
+### Quy tắc suy state
 
 ```
-if BLE disconnected           → sleep
-if prompt != null             → attention
-if running > 0                → busy
-else                          → idle
+disconnect              → sleep
+heartbeat.prompt != nil → attention
+heartbeat.running > 0   → busy
+khác                    → idle
 
-// Transient states (overlay, tự hết):
-if approved trong <5s         → heart (3s, rồi suy ra lại)
-if tokens vượt mốc 50K       → celebrate (3s, rồi suy ra lại)
+approve trong vòng 5s từ khi prompt đến → heart   (overlay 3s)
+tokens / 50_000 tăng                    → celebrate (overlay 3s)
 ```
+
+Overlay transient (`heart`, `celebrate`) khóa state 3 s; ticker expiry
+(`CheckTransientExpiry`, 500 ms) tự suy lại từ heartbeat cuối khi hết.
 
 ---
 
-## 6. Tích hợp LED Priority
+## 7. State → bridge LeLamp + Lumi
 
-Hệ thống hiện tại có 4 cấp LED:
+`Bridge.OnStateChange` được wire làm callback transition của state
+machine. Mỗi transition fire:
+
+| State | LeLamp call | Display | Lumi monitor event |
+|---|---|---|---|
+| `sleep` | `POST /led/off` | `display/eyes {sleepy}` | `buddy_state` |
+| `idle` | (không gọi — ambient quản LED) | `display/eyes-mode` | `buddy_state` |
+| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `display/info {tokensToday, runningSessions}` | `buddy_state` |
+| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `display/info {Approve <tool>?, hint}` | `buddy_state` + **`buddy_approval` sensing event** |
+| `heart` | `/led/solid {[255,200,100]}` | `display/eyes {happy}` | `buddy_state` |
+| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `display/eyes {excited}` | `buddy_state` |
+
+Thêm vào đó, mọi `Event` (chat turn) forward qua `Bridge.OnEvent`:
 
 ```
-Level 0: Status LED     (error, OTA, booting, connectivity, processing, listening)
-Level 1: Agent LED      (emotion qua [HW:/emotion:...])
-Level 1.5: Buddy state  ← MỚI (phản ánh trạng thái Desktop)
-Level 2: Local Intent   (voice commands: "bật đèn xanh")
-Level 3: Ambient        (idle breathing, thấp nhất)
-```
-
-### Quy tắc phối hợp
-
-| Tình huống | Ai thắng | Hành vi |
-|------------|---------|---------|
-| Agent đang express emotion + buddy active | Agent | Buddy tạm dừng LED trong thời gian emotion, tiếp tục sau |
-| Buddy attention (approval) + ambient breathing | Buddy | Ambient nhận `led_set` từ buddy → dừng breathing |
-| User nói "bật đèn xanh" + buddy active | User | Local intent override, buddy tạm dừng LED |
-| Buddy idle/sleep + không có gì khác | Ambient | Buddy không set LED khi idle/sleep → ambient chạy bình thường |
-| Status LED error + buddy active | Status LED | Status luôn thắng (level 0) |
-
-### Triển khai: tích hợp monitor bus
-
-Buddy-plugin post event lên Lumi monitor bus qua `POST /api/monitor/event`:
-
-```json
+POST http://127.0.0.1:5000/api/monitor/event
 {
-  "type": "buddy_state",
-  "summary": "buddy: attention (approval pending)",
-  "detail": { "state": "attention", "tool": "Edit", "hint": "server.go" }
+  "type": "buddy_event",
+  "summary": "buddy turn assistant",
+  "detail": { "evt": "turn", "role": "assistant", "content": "<rendered text>" }
 }
 ```
 
-Ambient service lắng nghe `buddy_state` events:
-- `attention`, `busy` → coi như `led_set` (khóa ambient breathing)
-- `idle`, `sleep` → coi như `led_off` (mở khóa ambient breathing)
-- `heart`, `celebrate` → tạm thời, tự mở khóa sau 3s
+Consumer phía Lumi có thể subscribe `buddy_event` cho TTS, transcript
+memory, dashboard… — chưa wire cái nào.
+
+### Vị trí trong LED priority
+
+Hệ thống có 4-level LED hierarchy. Buddy ở level 1.5:
+
+```
+Level 0   Status LED   (error, OTA, boot, connectivity, listening)
+Level 1   Agent emotion (OpenClaw [HW:/emotion:…])
+Level 1.5 Buddy state  ← ở đây
+Level 2   Local intent (voice "bật đèn xanh")
+Level 3   Ambient breathing
+```
+
+Ambient service nghe monitor bus cho `buddy_state`:
+
+| State buddy | Phản ứng ambient |
+|---|---|
+| `attention`, `busy` | Coi như `led_set` — pause ambient breathing. |
+| `idle`, `sleep` | Coi như `led_off` — resume ambient. |
+| `heart`, `celebrate` | Transient, tự unlock sau 3 s. |
+
+Agent emotion vẫn thắng buddy; voice intent của user thắng cả 2.
 
 ---
 
-## 7. State → LeLamp Mapping (MVP)
-
-Buddy-plugin gọi LeLamp HTTP API trực tiếp cho LED/display. Dùng endpoints có sẵn:
-
-| Buddy state | LeLamp endpoint | Parameters | Display |
-|-------------|----------------|------------|---------|
-| `sleep` | `/led/off` | — | eyes: `sleepy` |
-| `idle` | (không gọi LED — để ambient xử lý) | — | eyes: `neutral` |
-| `busy` | `/led/effect` | `{"effect":"pulse","color":[0,100,255],"speed":0.8}` | info: "{running} sessions, {tokens_today} tokens" |
-| `attention` | `/led/effect` | `{"effect":"blink","color":[255,80,0],"speed":1.5}` | info: "Approve {tool}?" |
-| `heart` | `/led/solid` | `{"color":[255,200,100]}` (3s, rồi resume) | eyes: `happy` |
-| `celebrate` | `/led/effect` | `{"effect":"rainbow","speed":2.0,"duration_ms":3000}` | eyes: `excited` |
-
-### Tích hợp display
-
-Token dashboard dùng LeLamp `/display/info`:
-
-```
-POST http://127.0.0.1:5001/display/info
-{
-  "text": "8.2K tokens",
-  "subtitle": "2 sessions running"
-}
-```
-
-Khi buddy ở `idle` hoặc `sleep`, trả display về chế độ eyes:
-
-```
-POST http://127.0.0.1:5001/display/eyes-mode
-```
-
----
-
-## 8. Voice Approval Flow (UC-2)
-
-Approval dùng **pipeline sensing event có sẵn** — buddy-plugin post sensing event lên Lumi, Lumi chuyển cho OpenClaw. OpenClaw đọc buddy SKILL.md và biết cách xử lý.
+## 8. Voice approval flow (UC-2)
 
 ```
 1. Heartbeat đến với prompt != null
-2. buddy-plugin state → attention
-3. buddy-plugin gọi:
-   - LeLamp /led/effect (blink cam)
-   - LeLamp /display/info ("Approve Edit?", "server.go lines 10-20")
-   - Lumi POST /api/sensing/event:
-     {
-       "type": "buddy_approval",
-       "message": "Claude Desktop needs approval: Edit on server.go lines 10-20"
-     }
-
-4. OpenClaw nhận sensing event → đọc buddy SKILL.md
-5. OpenClaw trả lời qua TTS: "Này, Claude Desktop muốn edit server.go. Approve không?"
-6. User nói: "yes" / "approve" / "no" / "deny"
-
-7. OpenClaw match response → gọi buddy-plugin HTTP API:
-   POST http://127.0.0.1:5002/approve  {"id": "req_abc123"}
-   POST http://127.0.0.1:5002/deny     {"id": "req_abc123"}
-
-8. buddy-plugin nhận → gửi BLE permission decision về Desktop
-9. State → heart (nếu approve <5s) hoặc → busy/idle
+2. state → attention; bridge fire:
+     LeLamp: blink cam + display "Approve <tool>?"
+     Lumi:   POST /api/sensing/event { type:"buddy_approval", message:"Claude Desktop needs approval: …" }
+3. OpenClaw route sensing event tới skill `claude-desktop-buddy`
+4. Skill (SKILL.md tại claude-desktop-buddy/skill/):
+     - Express emotion: curious 0.8
+     - Đọc prompt qua TTS một cách tự nhiên
+     - Đợi user nói "yes/approve/ok" hoặc "no/deny/skip"
+5. Skill curl ngược lại:
+     POST http://127.0.0.1:5002/approve  {"id":"req_abc123"}   (hoặc /deny)
+6. buddy-plugin trả BLE PermissionDecision:
+     {"cmd":"permission","id":"req_abc123","decision":"once" | "deny"}
+7. Desktop unblock. State → heart (nếu user trả lời <5s) → busy → idle.
 ```
 
-### Tại sao route qua OpenClaw?
+Tại sao route qua OpenClaw thay vì trả lời thẳng trong buddy:
 
-- OpenClaw xử lý TTS tự nhiên (strip markdown, nói đúng tính cách)
-- OpenClaw phối hợp với voice pipeline hiện tại (busy state, queue)
-- OpenClaw có thể quyết định: nếu user vắng mặt, không TTS — chỉ nhấp nháy LED im lặng
-- OpenClaw ghi log event vào flow events để monitoring
-- Không cần hệ thống voice/intent trùng lặp trong buddy-plugin
+- OpenClaw own TTS (strip markdown, voice character, queue logic).
+- OpenClaw đã coordinate với state busy/listening của voice pipeline,
+  nên câu hỏi approval không cắt ngang hội thoại đang chạy.
+- OpenClaw có thể chọn *không* nói khi user vắng mặt (presence) — chỉ
+  blink LED im lặng.
+- Event vào flow-events log có sẵn để monitor.
 
----
+### Vị trí skill
 
-## 9. OpenClaw SKILL.md
-
-```markdown
----
-name: claude-desktop-buddy
-description: Coordinate with Claude Desktop Buddy plugin for approval prompts and state awareness
----
-
-# Claude Desktop Buddy
-
-Lumi is connected to Claude Desktop on the user's Mac via Bluetooth.
-A buddy-plugin runs on this device and syncs Desktop state to Lumi's LED/display.
-
-## When you receive a `[sensing:buddy_approval]` event
-
-Claude Desktop is waiting for the user to approve or deny a tool call.
-
-**Workflow:**
-1. Express emotion: curious (intensity 0.8)
-2. Read the approval details from the event message
-3. Ask the user naturally: mention the tool name and what it affects
-4. Wait for the user's verbal response
-
-**If user says approve/yes/ok/go ahead:**
-\`\`\`bash
-curl -s -X POST http://127.0.0.1:5002/approve \
-  -H "Content-Type: application/json" \
-  -d '{"id": "<prompt_id from event>"}'
-\`\`\`
-
-**If user says deny/no/skip/cancel:**
-\`\`\`bash
-curl -s -X POST http://127.0.0.1:5002/deny \
-  -H "Content-Type: application/json" \
-  -d '{"id": "<prompt_id from event>"}'
-\`\`\`
-
-## Buddy state awareness
-
-You can check what Claude Desktop is doing:
-\`\`\`bash
-curl -s http://127.0.0.1:5002/status
-\`\`\`
-
-Response:
-\`\`\`json
-{
-  "state": "busy",
-  "connected": true,
-  "sessions_running": 2,
-  "tokens_today": 8200,
-  "pending_prompt": null
-}
-\`\`\`
-
-## Rules
-
-- When buddy state is `attention`: do NOT start ambient behaviors or proactive conversations — the user is being prompted for approval
-- When buddy state is `busy`: the user is actively using Claude Desktop — reduce proactive interruptions (no wellbeing reminders, no music suggestions)
-- When buddy state is `idle` or `sleep`: operate normally
-- NEVER mention "buddy-plugin", "BLE", "Bluetooth", or technical internals to the user — just say "Claude Desktop" naturally
+```
+claude-desktop-buddy/skill/SKILL.md
 ```
 
+Skill ship cùng buddy binary và **không** copy vào
+`lumi/resources/openclaw-skills/`. OpenClaw đọc từ install dir của
+buddy tại runtime (xem SKILL.md cho rule discovery chính xác).
+
 ---
 
-## 10. buddy-plugin HTTP API (port 5002)
+## 9. HTTP API (port 5002)
 
-HTTP server nhẹ để OpenClaw và Lumi query/control trạng thái buddy:
+| Method | Path | Mô tả | Body / Response |
+|---|---|---|---|
+| `GET` | `/health` | Liveness | `{status, ble_advertising, uptime_seconds}` |
+| `GET` | `/status` | State buddy hiện tại | Xem bên dưới |
+| `POST` | `/approve` | Approve prompt đang pending | Body `{id}`. Trả `{ok}`. |
+| `POST` | `/deny` | Deny prompt đang pending | Body `{id}`. Trả `{ok}`. |
 
-| Method | Path | Mô tả | Request | Response |
-|--------|------|-------|---------|----------|
-| GET | `/status` | Trạng thái buddy hiện tại | — | `{"state":"busy","connected":true,"sessions_running":2,"tokens_today":8200,"pending_prompt":null}` |
-| POST | `/approve` | Approve prompt đang chờ | `{"id":"req_abc123"}` | `{"ok":true}` |
-| POST | `/deny` | Deny prompt đang chờ | `{"id":"req_abc123"}` | `{"ok":true}` |
-| GET | `/health` | Health check plugin | — | `{"status":"ok","ble_advertising":true}` |
+Response `/status`:
 
-### Chi tiết pending prompt trong `/status`
-
-Khi có approval đang chờ:
 ```json
 {
   "state": "attention",
@@ -519,132 +522,190 @@ Khi có approval đang chờ:
   "pending_prompt": {
     "id": "req_abc123",
     "tool": "Edit",
-    "hint": "server/server.go lines 10-20",
-    "received_at": "2026-04-20T10:30:00Z"
+    "hint": "server.go lines 10-20",
+    "received_at": ""
   }
 }
 ```
 
----
-
-## 11. Kế hoạch triển khai
-
-### Phase 1: BLE + state sync + LED (UC-1)
-
-- [ ] Go BLE GATT server (Nordic UART Service)
-- [ ] Advertise tên `Claude-Lumi`
-- [ ] Parse heartbeat JSON → suy ra state
-- [ ] State machine: sleep/idle/busy/attention/heart/celebrate
-- [ ] Map state → LeLamp LED (`/led/effect`, `/led/solid`, `/led/off`)
-- [ ] Map state → LeLamp display (`/display/info`, `/display/eyes`, `/display/eyes-mode`)
-- [ ] Post `buddy_state` events lên Lumi monitor bus
-- [ ] HTTP server port 5002 với `/status` và `/health`
-
-### Phase 2: Voice approval (UC-2)
-
-- [ ] Khi vào state attention, post sensing event lên Lumi `/api/sensing/event`
-- [ ] Thêm SKILL.md vào `resources/openclaw-skills/claude-desktop-buddy/`
-- [ ] HTTP endpoints `/approve` và `/deny` trên port 5002
-- [ ] Gửi BLE permission decision khi được gọi
-- [ ] Theo dõi thống kê approval (đếm, lưu file)
-
-### Phase 3: Token dashboard (UC-3)
-
-- [ ] Cập nhật `/display/info` với token count mỗi heartbeat
-- [ ] Hiện: sessions đang chạy, tokens hôm nay, state hiện tại
-- [ ] Trả display về eyes-mode khi idle/sleep
-
-### Phase 4: Tính năng mở rộng (UC-4, UC-5) — Tương lai
-
-- [ ] Presence signal từ Lumi → Desktop (cần mở rộng protocol)
-- [ ] Inject transcript context vào OpenClaw
+`/approve` và `/deny` reject `409 Conflict` nếu không có prompt pending
+hoặc `id` không match prompt hiện tại — chặn skill OpenClaw act trên
+prompt cũ.
 
 ---
 
-## 12. Chọn BLE Library
+## 10. Phối hợp phía Lumi
 
-| Library | Ưu điểm | Nhược điểm |
-|---------|---------|------------|
-| `tinygo.org/x/bluetooth` | Pure Go, cross-platform, hỗ trợ GATT server | Hỗ trợ Pi4 BlueZ cần test |
-| `github.com/muka/go-bluetooth` | Mature, native DBus/BlueZ | Dependency nặng hơn |
-| Python `bleak` + subprocess | BLE trên Pi đã được chứng minh | Không phải Go, thêm process |
+### Watcher đổi config (lumi/server/server.go)
 
-Khuyến nghị: bắt đầu với `tinygo.org/x/bluetooth`. Nếu Pi4 có vấn đề thì fallback sang `go-bluetooth`.
+Khi user setup device qua `POST /api/device/setup`, Lumi save
+`device_id` vào `config/config.json` và notify config bus in-process.
+Lumi server nghe bus đó, khi `device_id` transition thì chạy:
+
+```
+systemctl cat lumi-buddy.service   # skip im lặng nếu chưa cài
+systemctl restart lumi-buddy
+```
+
+Buddy có dịp re-resolve `Claude-{deviceid}` về id mới được assign mà
+không cần can thiệp thủ công. Lamp chưa cài buddy plugin thì pre-check
+`systemctl cat` no-op.
+
+### Endpoint system info Lumi
+
+Buddy đọc `device_id` qua HTTP thay vì đọc file config trực tiếp:
+
+```
+GET http://127.0.0.1:5000/api/system/info
+→ { "data": { "deviceId": "lumi-004", … } }
+```
+
+Cách này giữ buddy không biết schema config của Lumi.
 
 ---
 
-## 13. Config
+## 11. Config
 
-Plugin đọc file config riêng: `config/buddy.json`
+`/root/config/buddy.json` (tạo 1 lần bởi `setup-claude-desktop-buddy.sh`
+hoặc `software-update lumi-buddy`, tooling không bao giờ overwrite sau):
 
 ```json
 {
   "enabled": true,
-  "device_name": "Claude-Lumi",
+  "device_name": "Claude-{deviceid}",
   "http_port": 5002,
   "lelamp_url": "http://127.0.0.1:5001",
   "lumi_url": "http://127.0.0.1:5000",
   "approval_timeout_sec": 30,
   "led_mapping": {
-    "sleep": { "action": "off" },
-    "idle": { "action": "none" },
-    "busy": { "effect": "pulse", "color": [0, 100, 255], "speed": 0.8 },
-    "attention": { "effect": "blink", "color": [255, 80, 0], "speed": 1.5 },
-    "heart": { "action": "solid", "color": [255, 200, 100], "duration_ms": 3000 },
+    "sleep":     { "action": "off" },
+    "idle":      { "action": "none" },
+    "busy":      { "effect": "pulse",   "color": [0, 100, 255],   "speed": 0.8 },
+    "attention": { "effect": "blink",   "color": [255, 80, 0],    "speed": 1.5 },
+    "heart":     { "action": "solid",   "color": [255, 200, 100], "duration_ms": 3000 },
     "celebrate": { "effect": "rainbow", "speed": 2.0, "duration_ms": 3000 }
   }
 }
 ```
 
-Lưu ý: `idle` có `action: "none"` — buddy không set LED khi idle, để ambient service xử lý.
+`led_mapping` được parse và forward thẳng tới LeLamp; template mirror
+đúng những gì `bridge.OnStateChange` đang làm trong code. `idle` là
+`none` để ambient service giữ quyền điều khiển LED khi lamp không
+actively phản ánh state Claude.
+
+---
+
+## 12. BLE library: tinygo vendored
+
+Mình start với `tinygo.org/x/bluetooth v0.14.0` upstream. 2 feature cần
+hoặc là TODO (`MinInterval` / `MaxInterval` advertising) hoặc thiếu hẳn
+(flags BlueZ `secure-read` / `secure-write` characteristic). Mình
+vendor lib vào `third_party/bluetooth/` và thêm vào. `go.mod` có:
+
+```
+replace tinygo.org/x/bluetooth => ./third_party/bluetooth
+```
+
+Patch:
+
+- `gatts.go` — mở rộng `CharacteristicPermissions` từ 6 bit lên 8 với
+  `CharacteristicSecureReadPermission` và
+  `CharacteristicSecureWritePermission`.
+- `gatts_linux.go` — thêm `"secure-read"` và `"secure-write"` vào
+  array flag-string của BlueZ để 2 bit mới map lên representation
+  D-Bus.
+
+Advertising interval set qua route debugfs kernel
+(`/sys/kernel/debug/bluetooth/hci*/adv_{min,max}_interval`) thay vì
+patch tinygo — xem `tuneAdvIntervals()` trong `ble.go`. Cách này chạy
+trên mọi BlueZ bất kể property D-Bus `MinInterval`/`MaxInterval` có
+được honor hay không.
+
+---
+
+## 13. Chip / kernel notes (Orange Pi 4 Pro, AIC8820)
+
+Orange Pi 4 Pro ship với chip BT AIC8820 (Aicsemi, manufacturer ID
+2875), UART-attached. Quirks gặp phải:
+
+- **Không có MAC factory**: `bdaddr` mặc định `10:11:12:13:14:15`.
+  `btmgmt -i 0 public-addr <new>` trả `0x0c Not Supported`.
+- **Không support LE Privacy**: `bluetoothd` log `Failed to set
+  privacy: Rejected (0x0b)` lúc start. Cosmetic; LE advertising vẫn
+  chạy.
+- **Reset hazard**: restart `bluetoothd` / chip nhiều lần có thể đẩy
+  controller vào state `UP RUNNING PSCAN` (chỉ classic) và từ chối LE
+  advertising 1 lúc. Recovery: `sudo systemctl restart bluetooth &&
+  sudo hciconfig hci0 reset && sudo systemctl restart lumi-buddy`.
+
+Raspberry Pi (Broadcom / RP1) không có quirks này và dùng MAC factory,
+nhưng phần còn lại của integration giống hệt.
 
 ---
 
 ## 14. Triển khai
 
-```bash
-# Build
-cd claude-desktop-buddy && GOOS=linux GOARCH=arm64 go build -o buddy-plugin .
+### systemd unit (`/etc/systemd/system/lumi-buddy.service`)
 
-# Chạy như systemd service
-# File: /etc/systemd/system/lumi-buddy.service
+```ini
 [Unit]
 Description=Lumi Claude Desktop Buddy
 After=bluetooth.target lumi.service
 Wants=bluetooth.target
 
 [Service]
-ExecStart=/opt/lumi/buddy-plugin
-WorkingDirectory=/opt/lumi
+ExecStart=/opt/claude-desktop-buddy/buddy-plugin -config /root/config/buddy.json -log /var/log/lumi-buddy.log
 Restart=always
 RestartSec=5
-Environment=BUDDY_CONFIG=/opt/lumi/config/buddy.json
+User=root
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+### Đường dẫn install
+
+| Path | Mục đích |
+|---|---|
+| `/opt/claude-desktop-buddy/buddy-plugin` | Binary (`linux/arm64`) |
+| `/opt/claude-desktop-buddy/VERSION_BUDDY` | Version stamp match OTA metadata |
+| `/opt/claude-desktop-buddy/chars/<name>/` | Character pack nhận về từ folder push |
+| `/root/config/buddy.json` | Runtime config (giữ qua OTA) |
+| `/var/log/lumi-buddy.log` | Log rotate (2 MB × 10 backup) |
+
+### Lệnh update
+
+- Cài lần đầu: `setup-claude-desktop-buddy.sh` (download từ OTA
+  metadata, tạo service, không động config nếu đã tồn tại).
+- Update sau: `software-update lumi-buddy` (chỉ binary + version stamp
+  + restart service; config không bao giờ bị overwrite).
+
 ---
 
-## 15. Rủi ro & Ràng buộc
+## 15. Rủi ro & gap đã biết
 
-| Rủi ro | Ảnh hưởng | Giảm thiểu |
-|--------|-----------|------------|
-| Pi4 BLE tầm phủ ~10m | Mac phải ở cùng phòng với lamp | OK cho setup bàn làm việc |
-| BLE bandwidth thấp | Transcript dài bị cắt (>4KB bị drop) | Chỉ nhận summary, không full transcript |
-| Claude Desktop BLE API chưa stable | Protocol có thể đổi | Theo REFERENCE.md, pin version |
-| Xung đột LED với agent emotion | Buddy LED bị ghi đè khi emotion | Buddy tạm dừng LED khi emotion, tiếp tục sau (qua monitor bus) |
-| Xung đột voice với cuộc hội thoại | Approval TTS cắt ngang TTS đang chạy | Route qua OpenClaw sensing → dùng logic busy/queue có sẵn |
-| Ambient breathing vs buddy LED | Cả hai cùng điều khiển LED | Buddy post `led_set`/`led_off` events; idle = không gọi LED |
+| Rủi ro / gap | Ảnh hưởng | Trạng thái |
+|---|---|---|
+| Connection unencrypted (`sec: false`) | Panel hiện cảnh báo "Connection is unencrypted"; data GATT đi không mã hóa | Chấp nhận cho đến khi Desktop side drive SMP |
+| Mac BT cache theo BD address | Đổi tên trên Pi không refresh tên Mac thấy | Forget device trên Mac sau khi rename |
+| AIC8820 MAC giả | Nhiều lamp AIC8820 trên cùng Mac sẽ đụng cache | Out of scope tới khi vendor support đổi MAC |
+| BLE write-without-response packet loss | Heartbeat / event dài bị mid-corruption | `ParseOrSalvage` cứu nếu được; drop kèm category log nếu không |
+| LED conflict với agent emotion | Buddy + emotion cùng touch LED | Buddy ở dưới emotion qua priority monitor bus |
+| Voice approval đụng TTS đang chạy | Câu hỏi approval cắt ngang hội thoại | Skill OpenClaw route qua TTS queue, respect busy state |
 
 ---
 
-## 16. Tiêu chí thành công
+## 16. Tiêu chí thành công — trạng thái hiện tại
 
-- [ ] Claude Desktop thấy "Claude-Lumi" trong Hardware Buddy scan
-- [ ] Pair thành công, tự reconnect sau reboot
-- [ ] LED thay đổi theo Desktop state mà không xung đột với agent emotion hay ambient
-- [ ] Voice approve/deny route qua OpenClaw và hoàn thành end-to-end
-- [ ] Token count hiển thị trên LCD tròn qua `/display/info`
-- [ ] Plugin crash không ảnh hưởng Lumi server chính
-- [ ] OpenClaw giảm hành vi proactive khi Desktop đang busy
+- [x] Claude Desktop thấy `Claude-XXX` trong Hardware Buddy picker
+- [x] Pair thành công, tự reconnect sau khi Mac wake / Pi reboot
+- [x] LED phản ánh state mà không đè agent emotion hoặc ambient
+- [x] Voice approve / deny route qua OpenClaw, end-to-end
+- [x] Token count + sessions chạy hiện trên LeLamp display
+- [x] Buddy crash không ảnh hưởng Lumi server chính
+- [x] OpenClaw giảm proactive behavior khi Desktop busy
+- [x] Chat turn (user / assistant / tool blocks) stream vào Lumi monitor bus
+- [x] Folder push character pack lưu vào `chars/<name>/`
+- [ ] GATT link bonded encrypted (`sec: true`) — defer
+- [ ] Presence feedback Lumi → Desktop — mở rộng protocol tương lai
+- [ ] Inject transcript context vào OpenClaw — tương lai
