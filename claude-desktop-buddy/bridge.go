@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// claudeBrand is the Claude app icon color (#D97757) used for all
+// claudeBrand is the Claude app icon color (#C15F3C) used for all
 // buddy state LED cues so the lamp visibly speaks "Claude".
-var claudeBrand = [3]int{217, 119, 87}
+var claudeBrand = [3]int{193, 95, 60}
 
 // Bridge maps buddy state changes to LeLamp and Lumi HTTP calls.
 type Bridge struct {
