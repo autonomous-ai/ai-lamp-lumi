@@ -9,6 +9,8 @@ import "fmt"
 type NarrationCategory string
 
 const (
+	NarrateConnected     NarrationCategory = "connected"
+	NarrateDisconnected  NarrationCategory = "disconnected"
 	NarrateBusyStart     NarrationCategory = "busy_start"
 	NarrateDone          NarrationCategory = "done"
 	NarrateThinking      NarrationCategory = "thinking"
@@ -38,6 +40,8 @@ const fallbackLang = "en"
 // reading code on the Mac.
 var narrationStrings = map[string]map[NarrationCategory]string{
 	"vi": {
+		NarrateConnected:     "Claude đã kết nối",
+		NarrateDisconnected:  "Claude đã ngắt kết nối",
 		NarrateBusyStart:     "Claude bắt đầu",
 		NarrateDone:          "Claude xong rồi",
 		NarrateThinking:      "Claude đang suy nghĩ",
@@ -54,6 +58,8 @@ var narrationStrings = map[string]map[NarrationCategory]string{
 		NarrateToolGeneric:   "Claude đang dùng công cụ",
 	},
 	"en": {
+		NarrateConnected:     "Claude connected",
+		NarrateDisconnected:  "Claude disconnected",
 		NarrateBusyStart:     "Claude is starting",
 		NarrateDone:          "Claude is done",
 		NarrateThinking:      "Claude is thinking",
@@ -70,6 +76,8 @@ var narrationStrings = map[string]map[NarrationCategory]string{
 		NarrateToolGeneric:   "Claude is running a tool",
 	},
 	"zh": {
+		NarrateConnected:     "Claude 已连接",
+		NarrateDisconnected:  "Claude 已断开",
 		NarrateBusyStart:     "Claude 开始了",
 		NarrateDone:          "Claude 完成了",
 		NarrateThinking:      "Claude 正在思考",
