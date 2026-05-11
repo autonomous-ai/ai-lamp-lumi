@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { getNetworks, setupDevice, getTTSVoices, getTTSProviders, getDeviceConfig, getSetupStatus, testTTSVoice } from "@/lib/api";
+import { getNetworks, setupDevice, testTTSVoice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useSetupUrlParams } from "@/hooks/setup/useSetupUrlParams";
+import { useTTSCatalog } from "@/hooks/setup/useTTSCatalog";
+import { useConfigPrefill } from "@/hooks/setup/useConfigPrefill";
+import { useSetupStatusPolling } from "@/hooks/setup/useSetupStatusPolling";
+import { useFaceEnroll } from "@/hooks/setup/useFaceEnroll";
+import type { SectionId, LlmLoadedState, ChannelLoadedState } from "@/hooks/setup/types";
 import type { ChannelType, NetworkItem } from "@/types";
 import { Wifi, Lamp, Brain, Volume2, MessageSquare, UserCircle, Mic, Globe, Check, Pencil, X, Eye, EyeOff } from "lucide-react";
 
@@ -32,8 +38,6 @@ const C = {
   red:       "var(--lm-red)",
   green:     "var(--lm-green)",
 };
-
-type SectionId = "wifi" | "device" | "llm" | "language" | "deepgram" | "tts" | "channel" | "mqtt" | "voice" | "face";
 
 // ── small components ──────────────────────────────────────────────────────────
 
@@ -289,35 +293,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     channelParam === "slack" || channelParam === "discord" ? (channelParam as ChannelType) : "telegram";
   const [channel, setChannel] = useState<ChannelType>(initialChannel);
 
-  const urlParams = useMemo(
-    () => ({
-      teleToken: searchParams.get("tele_token") ?? "",
-      teleUserId: searchParams.get("tele_user_id") ?? "",
-      slackBotToken: searchParams.get("slack_bot_token") ?? "",
-      slackAppToken: searchParams.get("slack_app_token") ?? "",
-      slackUserId: searchParams.get("slack_user_id") ?? "",
-      discordBotToken: searchParams.get("discord_bot_token") ?? "",
-      discordGuildId: searchParams.get("discord_guild_id") ?? "",
-      discordUserId: searchParams.get("discord_user_id") ?? "",
-      llmApiKey: searchParams.get("llm_api_key") ?? "",
-      llmUrl: searchParams.get("llm_url") ?? "",
-      llmModel: searchParams.get("llm_model") ?? "",
-      deepgramApiKey: searchParams.get("deepgram_api_key") ?? "",
-      ttsApiKey: searchParams.get("tts_api_key") ?? "",
-      ttsBaseUrl: searchParams.get("tts_base_url") ?? "",
-      deviceId: searchParams.get("device_id") ?? "",
-      mqttEndpoint: searchParams.get("mqtt_endpoint") ?? "",
-      mqttPort: searchParams.get("mqtt_port") ?? "",
-      mqttUsername: searchParams.get("mqtt_username") ?? "",
-      mqttPassword: searchParams.get("mqtt_password") ?? "",
-      faChannel: searchParams.get("fa_channel") ?? "",
-      fdChannel: searchParams.get("fd_channel") ?? "",
-      sttLanguage: searchParams.get("stt_language") ?? "",
-      ttsProvider: searchParams.get("tts_provider") ?? "",
-      ttsVoice: searchParams.get("tts_voice") ?? "",
-    }),
-    [searchParams],
-  );
+  const urlParams = useSetupUrlParams(searchParams);
 
   // Fixed order. STT (Deepgram) / MQTT are intentionally hidden — their
   // state is still wired up and submitted with empty or URL-prefilled
@@ -360,7 +336,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // Snapshot of AI Brain fields populated when entering setup (URL or saved
   // config). Populated values render with the Edit pencil so re-running setup
   // doesn't accidentally overwrite credentials.
-  const [llmLoaded, setLlmLoaded] = useState({
+  const [llmLoaded, setLlmLoaded] = useState<LlmLoadedState>({
     apiKey: !!urlParams.llmApiKey,
     baseUrl: !!urlParams.llmUrl,
     model: !!urlParams.llmModel,
@@ -391,9 +367,13 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     return "";
   });
   const [ttsProvider, setTtsProvider] = useState(urlParams.ttsProvider || "openai");
-  const [ttsProviders, setTtsProviders] = useState<string[]>([]);
   const [ttsVoice, setTtsVoice] = useState(urlParams.ttsVoice || "alloy");
-  const [ttsVoices, setTtsVoices] = useState<string[]>([]);
+  const { ttsProviders, ttsVoices } = useTTSCatalog({
+    ttsProvider, sttLanguage, ttsVoice,
+    urlProvider: urlParams.ttsProvider,
+    urlVoice: urlParams.ttsVoice,
+    setTtsProvider, setTtsVoice,
+  });
   const [teleToken, setTeleToken] = useState(urlParams.teleToken || "");
   const [teleUserId, setTeleUserId] = useState(urlParams.teleUserId || "");
   const [slackBotToken, setSlackBotToken] = useState(urlParams.slackBotToken || "");
@@ -404,7 +384,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const [discordUserId, setDiscordUserId] = useState(urlParams.discordUserId || "");
   // Snapshot of channel credentials populated when entering Setup. Filled
   // values render with the Edit pencil to prevent accidental overwrites.
-  const [channelLoaded, setChannelLoaded] = useState({
+  const [channelLoaded, setChannelLoaded] = useState<ChannelLoadedState>({
     teleToken: !!urlParams.teleToken, teleUserId: !!urlParams.teleUserId,
     slackBotToken: !!urlParams.slackBotToken, slackAppToken: !!urlParams.slackAppToken,
     slackUserId: !!urlParams.slackUserId,
@@ -420,31 +400,17 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   // Face enroll — same flow as EditConfig.Face. Uses /hw/face endpoints
   // directly; only relevant in continue mode (lamp online).
-  const [faceName, setFaceName] = useState("");
-  const [faceFiles, setFaceFiles] = useState<File[]>([]);
-  const [faceUploading, setFaceUploading] = useState(false);
-  const [faceMsg, setFaceMsg] = useState<string | null>(null);
-  const faceInputRef = useRef<HTMLInputElement>(null);
-  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[]; voice_samples?: string[] }[]>([]);
-
-  const loadFaceOwners = useCallback(async () => {
-    try {
-      const r = await fetch("/hw/face/owners").then((x) => x.json());
-      if (Array.isArray(r?.persons)) setFaceOwners(r.persons);
-    } catch { /* hardware unreachable in initial mode; silent */ }
-  }, []);
-
-  const removeFaceOwner = async (label: string) => {
-    if (!confirm(`Remove enrolled face "${label}"?`)) return;
-    try {
-      await fetch("/hw/face/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label }),
-      });
-      loadFaceOwners();
-    } catch { /* ignore */ }
-  };
+  const {
+    faceName, setFaceName,
+    faceFiles, setFaceFiles,
+    faceUploading,
+    faceMsg, setFaceMsg,
+    faceInputRef,
+    faceOwners,
+    loadFaceOwners,
+    removeFaceOwner,
+    handleFaceEnroll,
+  } = useFaceEnroll();
 
   // Voice enroll — three sentences read aloud; lamp's own mic captures.
   const VOICE_PHRASES = [
@@ -529,42 +495,6 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     }, 1000);
   };
 
-  const handleFaceEnroll = async () => {
-    if (!faceName.trim() || faceFiles.length === 0) return;
-    setFaceUploading(true);
-    setFaceMsg(null);
-    const label = faceName.trim().toLowerCase();
-    let ok = 0;
-    let lastErr = "";
-    for (const file of faceFiles) {
-      try {
-        const buf = await file.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        const resp = await fetch("/hw/face/enroll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, image_base64: b64 }),
-        });
-        const data = await resp.json();
-        if (resp.ok) ok++;
-        else lastErr = data.detail || data.message || `Failed: ${file.name}`;
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
-      }
-    }
-    if (ok > 0) {
-      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
-        + (lastErr ? ` (${lastErr})` : ""));
-      setFaceName("");
-      setFaceFiles([]);
-      if (faceInputRef.current) faceInputRef.current.value = "";
-      loadFaceOwners();
-    } else {
-      setFaceMsg(`Error: ${lastErr}`);
-    }
-    setFaceUploading(false);
-  };
-
   // Per-section "done" detection drives the ✓ checkmark in the sidebar and
   // the auto-scroll-to-next-pending behavior in continue mode. We treat a
   // section as done when its config has the value the user came here to set.
@@ -620,6 +550,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     autoScrolledRef.current = true;
   }, [isContinue, llmApiKey, sectionDone, navigate]);
 
+  // Wi-Fi scan with retry — kept inline since it's specific to this page.
   useEffect(() => {
     const maxAttempts = 4;
     let attempt = 0;
@@ -630,150 +561,28 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
         .catch(() => { if (attempt < maxAttempts) return fetchNetworks(); setNetworks([]); });
     }
     fetchNetworks().finally(() => setLoadingList(false));
-    getTTSProviders().then((providers) => {
-      setTtsProviders(providers);
-      // Validate URL-supplied provider against server allow-list. Server stores
-      // whatever we send; this gate prevents ?tts_provider=foo from breaking TTS.
-      if (urlParams.ttsProvider && providers.length > 0 && !providers.includes(urlParams.ttsProvider)) {
-        console.warn(`[setup] URL tts_provider="${urlParams.ttsProvider}" not in ${providers.join(",")}, using ${providers[0]}`);
-        setTtsProvider(providers[0]);
-      }
-    }).catch(() => {});
-    getTTSVoices().then(setTtsVoices).catch(() => {});
-    // Pre-populate the form from any existing config so re-running setup
-    // doesn't blank out fields the operator already filled. URL params and
-    // anything the user has typed take precedence — we only fill empty
-    // state slots (prev || cfg.x).
-    getDeviceConfig().then((cfg) => {
-      // URL params win over saved config (matches the prev-||-cfg pattern used
-      // elsewhere). Without this guard, cfg would clobber ?tts_provider=... etc.
-      if (cfg.tts_provider && !urlParams.ttsProvider) setTtsProvider(cfg.tts_provider);
-      if (cfg.tts_voice && !urlParams.ttsVoice) setTtsVoice(cfg.tts_voice);
-      setSsid((prev) => prev || cfg.network_ssid || "");
-      setPassword((prev) => prev || cfg.network_password || "");
-      setDeviceId((prev) => prev || cfg.device_id || "");
-      // If Device ID is already provisioned (hardware-derived or saved), the
-      // operator has nothing to fill there — jump straight to Wi-Fi. Don't
-      // override an explicit user selection in progress.
-      if (cfg.device_id) {
-        setActiveSection((prev) => (prev === "device" ? "wifi" : prev));
-      }
-      setLlmApiKey((prev) => prev || cfg.llm_api_key || "");
-      setLlmUrl((prev) => prev || cfg.llm_base_url || "");
-      setLlmModel((prev) => prev || cfg.llm_model || "");
-      setLlmLoaded((prev) => ({
-        apiKey: prev.apiKey || !!cfg.llm_api_key,
-        baseUrl: prev.baseUrl || !!cfg.llm_base_url,
-        model: prev.model || !!cfg.llm_model,
-      }));
-      if (cfg.llm_disable_thinking != null) setLlmDisableThinking((prev) => prev || cfg.llm_disable_thinking);
-      setTtsApiKey((prev) => prev || cfg.tts_api_key || "");
-      setTtsBaseUrl((prev) => prev || cfg.tts_base_url || "");
-      setChannelLoaded((prev) => ({
-        teleToken: prev.teleToken || !!cfg.telegram_bot_token,
-        teleUserId: prev.teleUserId || !!cfg.telegram_user_id,
-        slackBotToken: prev.slackBotToken || !!cfg.slack_bot_token,
-        slackAppToken: prev.slackAppToken || !!cfg.slack_app_token,
-        slackUserId: prev.slackUserId || !!cfg.slack_user_id,
-        discordBotToken: prev.discordBotToken || !!cfg.discord_bot_token,
-        discordGuildId: prev.discordGuildId || !!cfg.discord_guild_id,
-        discordUserId: prev.discordUserId || !!cfg.discord_user_id,
-      }));
-      setTeleToken((prev) => prev || cfg.telegram_bot_token || "");
-      setTeleUserId((prev) => prev || cfg.telegram_user_id || "");
-      setSlackBotToken((prev) => prev || cfg.slack_bot_token || "");
-      setSlackAppToken((prev) => prev || cfg.slack_app_token || "");
-      setSlackUserId((prev) => prev || cfg.slack_user_id || "");
-      setDiscordBotToken((prev) => prev || cfg.discord_bot_token || "");
-      setDiscordGuildId((prev) => prev || cfg.discord_guild_id || "");
-      setDiscordUserId((prev) => prev || cfg.discord_user_id || "");
-      // Adopt saved channel only when the user hasn't already picked one via URL.
-      if (!channelParam && (cfg.channel === "telegram" || cfg.channel === "slack" || cfg.channel === "discord")) {
-        setChannel(cfg.channel as ChannelType);
-      }
-      setMqttEndpoint((prev) => prev || cfg.mqtt_endpoint || "");
-      setMqttPort((prev) => prev || (cfg.mqtt_port ? String(cfg.mqtt_port) : ""));
-      setMqttUsername((prev) => prev || cfg.mqtt_username || "");
-      setMqttPassword((prev) => prev || cfg.mqtt_password || "");
-      setFaChannel((prev) => prev || cfg.fa_channel || "");
-      setFdChannel((prev) => prev || cfg.fd_channel || "");
-      // Saved language wins over the browser-locale default — the browser
-      // guess only matters for a never-configured device. URL param trumps both.
-      if (cfg.stt_language && !urlParams.sttLanguage) setSttLanguage(cfg.stt_language);
-    }).catch(() => {});
   }, []);
 
-  // Poll backend for setup phase + LAN IP after submission. Stops once the
-  // device reports phase=connected (Wi-Fi associated) or phase=failed. Runs
-  // against the AP IP so it works while the user is still on the AP SSID;
-  // once the AP shuts down the polls will fail and we keep the last value.
-  useEffect(() => {
-    if (!setupWorking) return;
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getSetupStatus();
-        if (cancelled) return;
-        if (s.phase === "connected") {
-          setSetupPhase("connected");
-          if (s.lan_ip) setSetupLanIP(s.lan_ip);
-        } else if (s.phase === "failed") {
-          setSetupPhase("failed");
-          setSetupErrorMsg(s.error || "Wi-Fi setup failed.");
-        }
-      } catch {
-        /* AP likely shutting down — keep last known phase */
-      }
-    };
-    tick();
-    const id = setInterval(tick, 2000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [setupWorking]);
+  useConfigPrefill({
+    urlParams, channelParam,
+    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setActiveSection,
+    setLlmApiKey, setLlmUrl, setLlmModel, setLlmLoaded, setLlmDisableThinking,
+    setTtsApiKey, setTtsBaseUrl,
+    setChannelLoaded,
+    setTeleToken, setTeleUserId,
+    setSlackBotToken, setSlackAppToken, setSlackUserId,
+    setDiscordBotToken, setDiscordGuildId, setDiscordUserId,
+    setChannel,
+    setMqttEndpoint, setMqttPort, setMqttUsername, setMqttPassword,
+    setFaChannel, setFdChannel,
+    setSttLanguage,
+  });
 
-  // Best-effort auto-redirect: once we know the LAN IP, probe it from the
-  // browser. When reachable (= user has rejoined home Wi-Fi) navigate there.
-  useEffect(() => {
-    if (setupPhase !== "connected" || !setupLanIP) return;
-    let cancelled = false;
-    const newURL = `http://${setupLanIP}/`;
-    const probe = async () => {
-      try {
-        await fetch(`${newURL}api/health`, { mode: "no-cors", cache: "no-store" });
-        if (!cancelled) window.location.href = newURL;
-      } catch {
-        /* not reachable yet — user still on AP SSID */
-      }
-    };
-    probe();
-    const id = setInterval(probe, 3000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [setupPhase, setupLanIP]);
+  useSetupStatusPolling({
+    setupWorking, setupPhase, setupLanIP,
+    setSetupPhase, setSetupLanIP, setSetupErrorMsg,
+  });
 
-
-  // Refetch voices when provider OR sttLanguage changes — only reset voice
-  // if the currently-selected one is not in the new (filtered) list. Passing
-  // sttLanguage filters ElevenLabs voices to the active language bucket.
-  const providerChangedByUser = useRef(false);
-  const urlVoiceValidated = useRef(false);
-  useEffect(() => {
-    getTTSVoices(ttsProvider, sttLanguage).then((voices) => {
-      setTtsVoices(voices);
-      if (voices.length > 0 && !voices.includes(ttsVoice)) {
-        // Reset cases: (a) user switched provider/lang, voice no longer valid;
-        // (b) first load and URL prefilled an invalid voice. Skip otherwise to
-        // avoid clobbering a saved-cfg voice that's still loading in parallel.
-        const urlVoiceInvalid = !urlVoiceValidated.current && !!urlParams.ttsVoice;
-        if (providerChangedByUser.current || urlVoiceInvalid) {
-          if (urlVoiceInvalid) {
-            console.warn(`[setup] URL tts_voice="${urlParams.ttsVoice}" not in voice list for provider=${ttsProvider} lang=${sttLanguage || "auto"}, using ${voices[0]}`);
-          }
-          setTtsVoice(voices[0]);
-        }
-      }
-      urlVoiceValidated.current = true;
-      providerChangedByUser.current = true;
-    }).catch(() => {});
-  }, [ttsProvider, sttLanguage]);
 
   // Auto-mirror AI Brain key/URL into TTS while TTS field is empty.
   // Once the user types into TTS the sync stops; clearing it re-enables mirroring.
