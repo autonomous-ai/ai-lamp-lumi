@@ -65,13 +65,13 @@ The backend injects this turn with an `[emotion_context: {...JSON...}]` block th
 
 Pre-fetched fields (use directly):
 - `mapped_mood` — already maps this turn's `<EmotionName>` per the table above. This is the value to log as the signal mood. **You no longer need to look it up yourself.**
-- `recent_signals`, `prior_decision`, `is_decision_stale` — feed `mood/SKILL.md`'s decision rules.
-- `audio_playing`, `last_suggestion_age_min`, `audio_recent`, `music_pattern_for_hour`, `suggestion_worthy` — feed `music-suggestion/SKILL.md`'s skip rules and genre pick.
+- `recent_signals`, `prior_decision`, `is_decision_stale` — feed `mood/SKILL.md`'s decision rules and this skill's routing table.
+- `audio_playing`, `last_suggestion_age_min`, `audio_recent`, `music_pattern_for_hour`, `suggestion_worthy` — feed this skill's routing table (see **Response routing** below) and `music-suggestion/SKILL.md`'s genre pick.
 
 Single combined plan, not three sequential workflows:
 
-- **Decide locally** — apply mood decision rules from `mood/SKILL.md`; evaluate music skip + genre from `music-suggestion/SKILL.md`.
-- **Writes (batch in one bash with `&` + `wait`)** — POST mood signal (this skill), POST mood decision (mood), POST music-suggestion log if suggesting (music-suggestion).
+- **Decide locally** — apply mood decision rules from `mood/SKILL.md`; pick a route from the routing table below; if the route is `music`, evaluate genre from `music-suggestion/SKILL.md`.
+- **Writes (batch in one bash with `&` + `wait`)** — POST mood signal (this skill), POST mood decision (mood), and on `music` or `checkin` route, POST the music-suggestion log (the shared cooldown channel).
 
 ### Fallback (only if `[emotion_context: ...]` is missing)
 
