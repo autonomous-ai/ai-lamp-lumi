@@ -2,7 +2,7 @@
 
 > Turns the Lumi lamp into a Hardware Buddy for Claude Desktop. Runs as a
 > standalone Go plugin on the Pi and bridges Claude's BLE state into the
-> existing LeLamp (LED/display/audio) and Lumi (OpenClaw/sensing) stacks.
+> existing LeLamp (LED/audio) and Lumi (OpenClaw/sensing) stacks.
 
 **Source**: [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) (ESP32 reference firmware + protocol REFERENCE.md)
 **Status**: Implementation — Phase 1, 2, 3 shipped (2026-05-11)
@@ -27,9 +27,9 @@ context back.
 
 | # | Use case | Status | Description |
 |---|----------|--------|-------------|
-| UC-1 | **Ambient state** | shipped | LED + eyes animation reflect Claude state (sleep/idle/busy/attention/heart/celebrate). |
+| UC-1 | **Ambient state** | shipped | LED ring reflects Claude state (sleep/idle/busy/attention/heart/celebrate). The current Lumi lamp has no LCD/display, so only the LED is driven. |
 | UC-2 | **Voice approval** | shipped | Tool-call prompt → Lumi speaks it via OpenClaw skill → user says approve/deny hands-free. |
-| UC-3 | **Token / activity display** | shipped | LeLamp display shows token count + running sessions via `/display/info`. |
+| UC-3 | **Activity stats over HTTP** | shipped | Buddy tracks token count, sessions running, and approval stats; exposed via `GET /status` for any local consumer. (No on-lamp display today.) |
 | UC-4 | **Chat-turn fan-out** | shipped | Every `evt:"turn"` (user / assistant / tool blocks) is forwarded to Lumi monitor bus as `buddy_event` — ready for TTS, transcript memory, dashboard. |
 | UC-5 | **Character pack receive** | shipped | Desktop can drag a GIF folder onto its panel → streams over BLE → saved to `/opt/claude-desktop-buddy/chars/<name>/`. |
 | UC-6 | **Presence feedback** | future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
@@ -60,9 +60,9 @@ context back.
 │                  │                                │  ┌─────────┐ ┌──────────┐    │
 │                  │                                │  │  Lumi   │ │ LeLamp   │    │
 │                  │                                │  │ :5000   │ │ :5001    │    │
-│                  │                                │  │ OpenClaw│ │ LED+     │    │
-│                  │                                │  │ sensing │ │ display  │    │
-│                  │                                │  │ monitor │ │ TTS      │    │
+│                  │                                │  │ OpenClaw│ │ LED ring │    │
+│                  │                                │  │ sensing │ │ + TTS    │    │
+│                  │                                │  │ monitor │ │ (no LCD) │    │
 │                  │                                │  └─────────┘ └──────────┘    │
 └──────────────────┘                                └──────────────────────────────┘
 ```
@@ -424,14 +424,20 @@ heartbeat once the lock elapses.
 `Bridge.OnStateChange` is wired as the state machine's transition
 callback. Each transition fires:
 
-| State | LeLamp call | Display | Lumi monitor event |
-|---|---|---|---|
-| `sleep` | `POST /led/off` | `display/eyes {sleepy}` | `buddy_state` |
-| `idle` | (none — ambient owns LED) | `display/eyes-mode` | `buddy_state` |
-| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `display/info {tokensToday, runningSessions}` | `buddy_state` |
-| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `display/info {Approve <tool>?, hint}` | `buddy_state` + **`buddy_approval` sensing event** |
-| `heart` | `/led/solid {[255,200,100]}` | `display/eyes {happy}` | `buddy_state` |
-| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `display/eyes {excited}` | `buddy_state` |
+| State | LeLamp LED call | Lumi monitor event |
+|---|---|---|
+| `sleep` | `POST /led/off` | `buddy_state` |
+| `idle` | (none — ambient owns LED) | `buddy_state` |
+| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `buddy_state` |
+| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `buddy_state` + **`buddy_approval` sensing event** |
+| `heart` | `/led/solid {[255,200,100]}` | `buddy_state` |
+| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `buddy_state` |
+
+> The current Lumi lamp has no LCD/eye display; the `bridge.go` code
+> still attempts `/display/info`, `/display/eyes`, and `/display/eyes-mode`
+> calls on LeLamp, but they're no-ops on hardware without a screen.
+> Either remove those branches when the no-display constraint is
+> permanent, or keep them and add the display peripheral.
 
 Additionally, every `Event` (chat turn) is forwarded via `Bridge.OnEvent`:
 
@@ -714,7 +720,7 @@ WantedBy=multi-user.target
 - [x] Pairing succeeds, auto-reconnects after Mac wake / Pi reboot
 - [x] LED reflects state without overwriting agent emotion or ambient
 - [x] Voice approve / deny routes through OpenClaw and completes end-to-end
-- [x] Token count + running sessions appear on the LeLamp display
+- [x] Token count + running sessions tracked + exposed via `/status` (no on-lamp display yet)
 - [x] Buddy crash does not affect main Lumi server
 - [x] OpenClaw reduces proactive behaviour when Desktop is busy
 - [x] Chat turns (user / assistant / tool blocks) stream into Lumi monitor bus
