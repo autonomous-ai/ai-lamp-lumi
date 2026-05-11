@@ -61,7 +61,7 @@ A single `kind=signal` row in the mood log, emitted as an HW marker at the start
 
 ## Combined with mood + music-suggestion
 
-The backend injects this turn with `[REQUIRED — run both skills this turn]` PLUS an `[emotion_context: {...JSON...}]` block that pre-computes everything the three skills need. **Do NOT fire any read tool calls** — the data is already in the message.
+The backend injects this turn with an `[emotion_context: {...JSON...}]` block that pre-computes everything the three skills need (this skill is the router, mood logs the decision, music-suggestion fires only when this router picks the `music` route). **Do NOT fire any read tool calls** — the data is already in the message.
 
 Pre-fetched fields (use directly):
 - `mapped_mood` — already maps this turn's `<EmotionName>` per the table above. This is the value to log as the signal mood. **You no longer need to look it up yourself.**
@@ -77,4 +77,23 @@ Single combined plan, not three sequential workflows:
 
 If the message has no context block (pre-fetch failed), fall back to the read batch from `mood/SKILL.md` and `music-suggestion/SKILL.md` (concurrent GETs in one bash via `& ... wait`).
 
-Reply: follow the normal sensing reply rules — if there's nothing caring to say, `NO_REPLY`. Never narrate the mapping or logging in the reply.
+Reply: routing decides the spoken reply (see next section). Never narrate the mapping, logging, or routing decision.
+
+## Response routing (this skill is the router)
+
+After logging the mood signal, pick **exactly one** response route. Read straight from `[emotion_context: ...]` — no extra tool calls. Apply top-to-bottom, first match wins:
+
+| # | Condition | Route | What happens |
+|---|---|---|---|
+| 1 | `audio_playing == true` | **action** | LED-only ambient ack, no spoken reply. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.4}]` + `NO_REPLY`. Music is already covering — don't talk over it. |
+| 2 | `last_suggestion_age_min ∈ [0, 7)` (any recent proactive outreach — music OR checkin) | **action** | Same as #1: LED ack, `NO_REPLY`. Cooldown protects the user from nag. |
+| 3 | `suggestion_worthy == true` AND (`is_decision_stale == false` OR fresh decision synthesized this turn) | **music** | See `music-suggestion/SKILL.md` for genre + phrasing + log marker. |
+| 4 | `mapped_mood == "frustrated"` (Angry / Disgust) | **checkin** | See `reference/checkin.md` for phrasing + log marker. Music doesn't fit this mood. |
+| 5 | anything else (mood=normal, stale decision with no fresh synthesis, etc.) | **silent** | `NO_REPLY`. Don't nag on neutral or partial signals. |
+
+Rules:
+
+- **One route per turn.** Don't double-fire (e.g. music + checkin both). Pick the first matching row.
+- **Output ownership:** `music` → produced by `music-suggestion/SKILL.md`. `checkin` → produced by `reference/checkin.md` (this skill). `action` → emitted inline by this router (the `[HW:/emotion:...]` marker in rows #1–#2). `silent` → `NO_REPLY`.
+- **Cooldown is shared** between music and checkin: both log via `music-suggestion/log` so `last_suggestion_age_min` reflects either channel. Row #2 catches both.
+- Never narrate the routing decision in the spoken reply.

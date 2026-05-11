@@ -395,7 +395,6 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				currentUser = "unknown"
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += "\n[REQUIRED — run both skills this turn: user-emotion-detection + music-suggestion]"
 			msg += "\n[Tool calls without data dependencies must fire concurrently. Batch reads in one bash with `& ... wait`, decide locally, batch writes the same way. Do not sequence them across multiple tool turns.]"
 			// Pre-fetch the reads that the emotion.detected pipeline (mood
 			// signal/decision + music-suggestion skip rules + genre lookup)
