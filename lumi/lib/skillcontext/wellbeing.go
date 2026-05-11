@@ -51,6 +51,24 @@ var nonActivityActions = map[string]bool{
 	"meal_reminder":    true,
 }
 
+// eatLabels are the raw Kinetics labels LeLamp emits for the `eat` bucket
+// (kept raw in motion.activity, not collapsed to a single "eat" string —
+// same pattern as sedentary). They count as meal signals for the meal-
+// reminder gate and as user activity for first_activity_today.
+var eatLabels = map[string]bool{
+	"tasting food":     true,
+	"dining":           true,
+	"eating burger":    true,
+	"eating cake":      true,
+	"eating carrots":   true,
+	"eating chips":     true,
+	"eating doughnuts": true,
+	"eating hotdog":    true,
+	"eating ice cream": true,
+	"eating spaghetti": true,
+	"eating watermelon": true,
+}
+
 // Lunch / dinner meal-reminder windows. Used by activity-router routes:
 // when the current hour falls inside a window AND no meal_reminder has been
 // logged in that window today, the agent fires the reminder once.
@@ -75,7 +93,7 @@ type wellbeingContext struct {
 	CurrentHour                 int                      `json:"current_hour"`        // exact hour (0-23) for routing — finer than time_of_day
 	FirstActivityToday          bool                     `json:"first_activity_today"` // true when no wellbeing events logged yet today (this event is the first)
 	MealWindow                  string                   `json:"meal_window,omitempty"` // "lunch" | "dinner" | "" — set when current_hour is inside a meal window
-	MealReminderDoneThisWindow  bool                     `json:"meal_reminder_done_this_window"` // true when a meal_reminder was already logged in the current window today
+	MealSignalInWindow          bool                     `json:"meal_signal_in_window"` // true when a meal signal (meal_reminder log OR any raw eat label) was already logged in the current window today — gates meal-reminder so Lumi doesn't ask "ăn chưa?" after a real meal
 	MorningGreetingDoneToday    bool                     `json:"morning_greeting_done_today"`    // true when a morning_greeting action exists today
 	SleepWinddownDoneToday      bool                     `json:"sleep_winddown_done_today"`      // true when a sleep_winddown action exists today
 	Patterns                    map[string]patternDigest `json:"patterns,omitempty"`  // wellbeing_patterns from patterns.json, keyed by action ("drink"/"break")
@@ -109,9 +127,9 @@ func BuildWellbeingContext(user string) string {
 	countToday := countTodayActions(events, reactionCountActions)
 	timeOfDay := timeOfDayLabel(now)
 	currentHour := now.Hour()
-	firstActivityToday := isFirstActivityToday(events)
+	firstActivityToday := isFirstActivityToday(events, now)
 	mealWindow := mealWindowFor(now)
-	mealReminderDoneThisWindow := hasMealReminderInWindow(events, mealWindow, now)
+	mealSignalInWindow := hasMealSignalInWindow(events, mealWindow, now)
 	morningGreetingDone := hasActionToday(events, "morning_greeting")
 	sleepWinddownDone := hasActionToday(events, "sleep_winddown")
 
@@ -128,7 +146,7 @@ func BuildWellbeingContext(user string) string {
 		CurrentHour:                currentHour,
 		FirstActivityToday:         firstActivityToday,
 		MealWindow:                 mealWindow,
-		MealReminderDoneThisWindow: mealReminderDoneThisWindow,
+		MealSignalInWindow:         mealSignalInWindow,
 		MorningGreetingDoneToday:   morningGreetingDone,
 		SleepWinddownDoneToday:     sleepWinddownDone,
 		Patterns:                   patterns,
@@ -228,15 +246,17 @@ func mealWindowFor(now time.Time) string {
 	}
 }
 
-// hasMealReminderInWindow returns true when a meal_reminder action was
-// already logged today inside the same named window. Used to suppress
-// re-firing the same meal reminder.
-func hasMealReminderInWindow(events []wellbeing.Event, window string, now time.Time) bool {
+// hasMealSignalInWindow returns true when a meal signal already happened
+// today inside the same named window. A meal signal is EITHER a
+// meal_reminder Lumi already fired OR a raw eat label LeLamp logged when
+// the user actually ate (eating burger / dining / …). Used to suppress
+// the meal-reminder route so Lumi doesn't ask "ăn chưa?" after a real meal.
+func hasMealSignalInWindow(events []wellbeing.Event, window string, now time.Time) bool {
 	if window == "" {
 		return false
 	}
 	for _, e := range events {
-		if e.Action != "meal_reminder" {
+		if e.Action != "meal_reminder" && !eatLabels[e.Action] {
 			continue
 		}
 		ts := time.Unix(int64(e.TS), 0).In(now.Location())
@@ -261,9 +281,21 @@ func hasActionToday(events []wellbeing.Event, action string) bool {
 // isFirstActivityToday returns true when no prior REAL user activity event
 // has been logged today. Presence boundaries (enter/leave) and agent-written
 // nudge/reminder rows don't count — they're not motion.activity events.
-func isFirstActivityToday(events []wellbeing.Event) bool {
+//
+// IMPORTANT: LeLamp logs activity rows to wellbeing JSONL BEFORE firing the
+// motion.activity event (deliberate, prevents read-before-write race when
+// the agent queries history). So by the time BuildWellbeingContext runs,
+// the JSONL already contains the row for the event being routed. We
+// therefore exclude events within the last 5s — those are this current
+// event itself. Only rows older than 5s count as "prior" real activity.
+func isFirstActivityToday(events []wellbeing.Event, now time.Time) bool {
+	cutoff := now.Add(-5 * time.Second)
 	for _, e := range events {
-		if !nonActivityActions[e.Action] {
+		if nonActivityActions[e.Action] {
+			continue
+		}
+		ts := time.Unix(int64(e.TS), 0)
+		if ts.Before(cutoff) {
 			return false
 		}
 	}

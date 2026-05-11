@@ -38,20 +38,9 @@ ACTIVITY_GROUP: dict[str, str] = {
     "tasting beer": "drink",
     "opening bottle": "drink",
     "making tea": "drink",
-    # break — reset break timer (eating, stretching, movement)
-    "tasting food": "break",
+    # break — reset break timer (stretching, movement, social)
     "stretching arm": "break",
     "stretching leg": "break",
-    "dining": "break",
-    "eating burger": "break",
-    "eating cake": "break",
-    "eating carrots": "break",
-    "eating chips": "break",
-    "eating doughnuts": "break",
-    "eating hotdog": "break",
-    "eating ice cream": "break",
-    "eating spaghetti": "break",
-    "eating watermelon": "break",
     "applauding": "break",
     "clapping": "break",
     "celebrating": "break",
@@ -61,6 +50,18 @@ ACTIVITY_GROUP: dict[str, str] = {
     "kissing": "break",
     "headbanging": "break",
     "sticking tongue out": "break",
+    # eat — meal signal (raw labels kept for phrasing + per-food UI icons)
+    "tasting food": "eat",
+    "dining": "eat",
+    "eating burger": "eat",
+    "eating cake": "eat",
+    "eating carrots": "eat",
+    "eating chips": "eat",
+    "eating doughnuts": "eat",
+    "eating hotdog": "eat",
+    "eating ice cream": "eat",
+    "eating spaghetti": "eat",
+    "eating watermelon": "eat",
     # sedentary — create wellbeing/music crons if missing
     "using computer": "sedentary",
     "writing": "sedentary",
@@ -279,13 +280,14 @@ class MotionPerception(Perception[cv2.typing.MatLike]):
         # Dedup state for outbound motion.activity events.
         # Key = (current_user, frozenset(labels)) where `labels` matches what
         # actually goes into the message: bucket names for drink/break, raw
-        # Kinetics labels for sedentary. So `eating burger → eating cake` is
-        # the same key (both collapse to "break") and is dropped; `writing →
-        # drawing` flips the key (sedentary stays raw) and passes through so
-        # the agent sees the new activity. Same key within MOTION_DEDUP_WINDOW_S
-        # = drop (saves Lumi tokens). User change flips the key immediately;
-        # different strangers collapse to "unknown" so they don't break dedup
-        # on their own.
+        # Kinetics labels for sedentary + eat. So `writing → drawing` flips
+        # the key (sedentary stays raw) and passes through so the agent sees
+        # the new activity; same logic now applies to `eating burger →
+        # eating cake` (eat stays raw, distinct keys), trading a bit of
+        # extra noise for richer reaction phrasing. Same key within
+        # MOTION_DEDUP_WINDOW_S = drop (saves Lumi tokens). User change flips
+        # the key immediately; different strangers collapse to "unknown" so
+        # they don't break dedup on their own.
         self._last_sent_key: tuple[str, frozenset[str]] | None = None
         self._last_sent_ts: float = 0.0
         self._dedup_window_s: float = 300.0  # 5 min
@@ -407,12 +409,15 @@ class MotionPerception(Perception[cv2.typing.MatLike]):
         if actions:
             logger.info("[motion] raw actions in window: %s", actions)
 
-        # Hybrid output: drink/break collapse to bucket name, sedentary keeps
-        # the raw Kinetics label. Bucket names are enough for hydration/break
-        # timer resets — the agent doesn't need the specific food or drink.
-        # Sedentary keeps the raw label so the agent can ground nudge phrasing
-        # and music-genre choice in the concrete activity (writing / reading
-        # book / playing controller / …).
+        # Hybrid output: drink/break collapse to bucket name, sedentary + eat
+        # keep the raw Kinetics label. Bucket names are enough for hydration
+        # and break timer resets — the agent doesn't need the specific drink
+        # or movement type. Sedentary keeps the raw label so the agent can
+        # ground nudge phrasing and music-genre choice in the concrete
+        # activity (writing / reading book / playing controller / …). Eat
+        # keeps the raw label so reaction phrasing can reference the actual
+        # food (burger / dining / spaghetti / …) and the per-food UI icons
+        # render.
         labels: set[str] = set()
 
         for a in reversed(actions):
@@ -427,7 +432,7 @@ class MotionPerception(Perception[cv2.typing.MatLike]):
                 # until then emotional detections are silently ignored
                 # here so motion.activity stays purely about physical actions.
                 continue
-            if group == "sedentary":
+            if group in ("sedentary", "eat"):
                 labels.add(a)
             else:
                 labels.add(group)

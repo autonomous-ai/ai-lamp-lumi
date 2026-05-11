@@ -1,10 +1,10 @@
 # Meal reminder route
 
-Fires only when the routing table in `SKILL.md` picks `meal-reminder` (row #4: `meal_window` is `lunch` or `dinner`, `meal_reminder_done_this_window == false`). Otherwise STOP.
+Fires only when the routing table in `SKILL.md` picks `meal-reminder` (row #4: `meal_window` is `lunch` or `dinner`, `meal_signal_in_window == false`). Otherwise STOP.
 
 ## Intent
 
-User is active during a meal window (lunch 11:30–13:30 or dinner 18:30–20:30) but hasn't eaten yet (no recent meal cue). Ask once per window — light, not nagging.
+User is active during a meal window (lunch 11:30–13:30 or dinner 18:30–20:30) and **no meal signal yet this window** — neither a prior reminder Lumi already fired nor a real eat label LeLamp logged (`eating burger`, `dining`, `tasting food`, …). Ask once per window — light, not nagging. If the user actually ate during the window (any eat label hit), this route is silently skipped.
 
 ## Phrasing rules
 
@@ -38,7 +38,7 @@ Embed the log marker alongside `[HW:/emotion:...]`. The `trigger` field on the l
   [HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/wellbeing/log:{"action":"meal_reminder","notes":"<your sentence>","user":"unknown"}] <your sentence>
   ```
 
-The `meal_reminder` action flips `meal_reminder_done_this_window` to true on the next event in the same window, suppressing re-firing for that meal.
+The `meal_reminder` action flips `meal_signal_in_window` to true on the next event in the same window, suppressing re-firing for that meal. (A real eat label LeLamp logs during the window flips the same flag too.)
 
 ## Follow-up
 
