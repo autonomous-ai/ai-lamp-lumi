@@ -78,7 +78,7 @@ If audio history shows a clear preference (e.g. K-pop, classical) → override b
 - NEVER auto-play — only suggest. Play after user confirms.
 - ONE sentence, conversational: *"How about some Norah Jones?"*
 - Suggest 1 song at a time.
-- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. Get `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+- **Known users** — speak + DM via Telegram: `[HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}] Your suggestion text`. `telegram_id` is in the injected `[user_info: ...]` block — never fetch.
 - **Unknown users** — speak only (no DM): `[HW:/emotion:{"emotion":"caring","intensity":0.5}] Your suggestion text`. Log with `user:"unknown"`.
 
 ## What to write (HW marker — fires async, no tool turn)

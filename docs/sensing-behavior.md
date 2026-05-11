@@ -279,6 +279,8 @@ External callers (web UI, skills) can query the same value via `GET http://127.0
 
 The Wellbeing, Mood, and Music skills are all required to use this exact value for the `user` field in their API calls — never inferring from memory, KNOWLEDGE.md, chat history, or `senderLabel`.
 
+Alongside `[context: current_user=X]`, the handler also injects `[user_info: {"name","is_friend","telegram_id","telegram_username"}]` (built by `lumi/lib/skillcontext/BuildUserContext`, fetched from lelamp `/user/info`). Skills must read `telegram_id` from this block — never `curl /user/info`. Block is omitted on hard fetch failure or when `current_user` is `unknown`; SKILL.md fallback path stays.
+
 ### Presence markers written by LeLamp
 
 LeLamp's `FaceRecognizer._post_wellbeing` writes `enter` / `leave` rows directly to Lumi's `POST /api/wellbeing/log` — the agent is not involved, and Lumi's sensing handler no longer writes them either.

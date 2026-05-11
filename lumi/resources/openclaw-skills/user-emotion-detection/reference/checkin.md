@@ -27,7 +27,7 @@ Embed the log marker alongside `[HW:/emotion:...]` (and `[HW:/dm:...]` for known
   ```
   [HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/dm:{"telegram_id":"<id>"}][HW:/music-suggestion/log:{"user":"{name}","trigger":"checkin:frustrated","message":"<one-liner>"}] <one-liner>
   ```
-  `telegram_id` from `GET http://127.0.0.1:5001/user/info?name={name}`.
+  `telegram_id` is in the injected `[user_info: ...]` block — never fetch.
 - **Unknown user** (speak only):
   ```
   [HW:/emotion:{"emotion":"caring","intensity":0.5}][HW:/music-suggestion/log:{"user":"unknown","trigger":"checkin:frustrated","message":"<one-liner>"}] <one-liner>

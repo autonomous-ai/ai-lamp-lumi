@@ -279,6 +279,8 @@ Caller ngoài (web UI, skill) có thể query cùng giá trị qua `GET http://1
 
 Các skill Wellbeing, Mood, Music đều bắt buộc dùng đúng giá trị này cho field `user` trong API call — **cấm** suy luận từ memory, KNOWLEDGE.md, chat history, hay `senderLabel`.
 
+Cùng với `[context: current_user=X]`, handler còn inject thêm `[user_info: {"name","is_friend","telegram_id","telegram_username"}]` (build bởi `lumi/lib/skillcontext/BuildUserContext`, fetch từ lelamp `/user/info`). Skill phải đọc `telegram_id` từ block này — **cấm** `curl /user/info`. Block bị bỏ khi fetch fail hoặc `current_user` là `unknown`; SKILL.md vẫn giữ fallback path.
+
 ### Marker presence do LeLamp tự ghi
 
 `FaceRecognizer._post_wellbeing` của LeLamp ghi thẳng row `enter` / `leave` qua `POST /api/wellbeing/log` — agent không tham gia, sensing handler của Lumi cũng không ghi nữa.
