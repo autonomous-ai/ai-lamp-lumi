@@ -352,10 +352,11 @@ def audio_play(req: MusicPlayRequest):
             503, "Music service not available -- missing sounddevice or numpy"
         )
 
-    # Pre-play backchannel — fires async; music's _play_sync waits for TTS
-    # to finish before grabbing ALSA, so the cue plays in series ahead of
-    # ffmpeg with no extra serialization here.
-    _fire_music_backchannel()
+    # [2026-05-11] DISABLED — random short cue ("On it!") was duplicating /
+    # replacing the agent's main TTS reply now that Go no longer suppresses
+    # TTS on /audio/play. Music service's wait_for_tts() will serialize the
+    # agent's full reply ahead of ffmpeg. Rollback: uncomment to restore cue.
+    # _fire_music_backchannel()
 
     from lelamp.service.voice.music_service import canonicalize_person
 

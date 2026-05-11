@@ -645,16 +645,20 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// Fire HW calls with full tracking (flow.Log + lastEmotion + monitorBus).
 				h.fireHWCalls(hwCalls, flowRunID)
 
-				// Suppress TTS when HW markers include /audio/play to avoid
-				// voice and music racing on the speaker (matches tool-path behavior at line 626).
-				if suppressReason == "" {
-					for _, c := range hwCalls {
-						if strings.Contains(c.path, "/audio/play") {
-							suppressReason = "music_playing"
-							break
-						}
-					}
-				}
+				// [2026-05-11] DISABLED — TTS suppress on /audio/play was killing the
+				// agent's main reply (e.g. "Mình chọn River Flows in You…") and
+				// leaving only the random short backchannel cue. Python music_service
+				// already waits for TTS via wait_for_tts() before grabbing ALSA, so
+				// this Go-side suppress is redundant. Rollback: uncomment to restore
+				// hard-suppress behavior.
+				// if suppressReason == "" {
+				// 	for _, c := range hwCalls {
+				// 		if strings.Contains(c.path, "/audio/play") {
+				// 			suppressReason = "music_playing"
+				// 			break
+				// 		}
+				// 	}
+				// }
 
 				// Consume broadcast marker early to prevent map leak on NO_REPLY/empty/suppressed paths.
 				isBroadcastRun := h.agentGateway.ConsumeBroadcastRun(flowRunID)
