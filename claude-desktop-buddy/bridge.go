@@ -136,6 +136,20 @@ func (b *Bridge) postSensingEvent(prompt *Prompt) {
 	})
 }
 
+// speakTTS posts a short narration string to LeLamp's TTS endpoint
+// (POST /voice/speak). Fire-and-forget: LeLamp rejects with 409 when
+// music is playing or 503 when TTS isn't initialized; both responses
+// are ignored at the bridge layer so callers (mostly the Narrator)
+// don't have to coordinate with the voice pipeline.
+func (b *Bridge) speakTTS(text string) {
+	if text == "" {
+		return
+	}
+	b.post(b.lelampURL+"/voice/speak", map[string]interface{}{
+		"text": text,
+	})
+}
+
 // OnEvent forwards a parsed Event (chat turn etc.) to Lumi so use cases
 // like "speak Claude's reply" or "show recent message on display" can
 // subscribe to /api/monitor/event with type=buddy_event. The bridge is

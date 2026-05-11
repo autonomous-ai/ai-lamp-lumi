@@ -42,6 +42,35 @@ type Event struct {
 	Content json.RawMessage `json:"content,omitempty"`
 }
 
+// ContentBlock is one parsed Anthropic content block. Different block
+// types fill different fields; unused fields stay zero. The narrator
+// uses this to react per-block-type without parsing JSON itself.
+type ContentBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	Thinking  string          `json:"thinking,omitempty"`
+	Name      string          `json:"name,omitempty"`       // tool_use.name
+	ID        string          `json:"id,omitempty"`         // tool_use.id
+	Input     json.RawMessage `json:"input,omitempty"`      // tool_use.input
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   json.RawMessage `json:"content,omitempty"`    // tool_result.content
+	ToolName  string          `json:"tool_name,omitempty"`  // tool_reference.tool_name
+}
+
+// Blocks decodes the Event's content as an array of typed content
+// blocks. Returns nil for string-form content (user turns), which is
+// what callers want — there are no per-block reactions on user input.
+func (e *Event) Blocks() []ContentBlock {
+	if len(e.Content) == 0 {
+		return nil
+	}
+	var blocks []ContentBlock
+	if err := json.Unmarshal(e.Content, &blocks); err != nil {
+		return nil
+	}
+	return blocks
+}
+
 // TurnText renders an Event's content as a single log-friendly string.
 // User turns arrive as a bare string; assistant and tool-result turns
 // arrive as an array of typed content blocks (matching the Anthropic
