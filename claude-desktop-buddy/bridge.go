@@ -136,6 +136,26 @@ func (b *Bridge) postSensingEvent(prompt *Prompt) {
 	})
 }
 
+// OnEvent forwards a parsed Event (chat turn etc.) to Lumi so use cases
+// like "speak Claude's reply" or "show recent message on display" can
+// subscribe to /api/monitor/event with type=buddy_event. The bridge is
+// purely fire-and-forget; downstream consumers decide whether to do
+// anything with the payload.
+func (b *Bridge) OnEvent(evt *Event) {
+	if evt == nil {
+		return
+	}
+	b.post(b.lumiURL+"/api/monitor/event", map[string]interface{}{
+		"type":    "buddy_event",
+		"summary": fmt.Sprintf("buddy %s %s", evt.Evt, evt.Role),
+		"detail": map[string]interface{}{
+			"evt":     evt.Evt,
+			"role":    evt.Role,
+			"content": evt.TurnText(),
+		},
+	})
+}
+
 // --- Helpers ---
 
 func (b *Bridge) post(url string, payload interface{}) {
