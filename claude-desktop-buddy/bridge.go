@@ -141,12 +141,19 @@ func (b *Bridge) postSensingEvent(prompt *Prompt) {
 // music is playing or 503 when TTS isn't initialized; both responses
 // are ignored at the bridge layer so callers (mostly the Narrator)
 // don't have to coordinate with the voice pipeline.
+//
+// `cached: true` tells LeLamp to look the text up in its on-disk TTS
+// cache before calling the provider. Narration phrases are a small,
+// repetitive set ("Đang sửa file", "Xong", …) so after each phrase
+// has been spoken once the rest of the day hits the cache — zero
+// extra TTS API cost and near-instant playback.
 func (b *Bridge) speakTTS(text string) {
 	if text == "" {
 		return
 	}
 	b.post(b.lelampURL+"/voice/speak", map[string]interface{}{
-		"text": text,
+		"text":   text,
+		"cached": true,
 	})
 }
 
