@@ -39,11 +39,11 @@ FAST_LOOP_FPS = 15
 CAMERA_FOV_DEG = 60.0
 
 # Gimbal gain: fraction of offset to correct each step (0-1).
-# 0.25 = 25% correction per frame — smooth without overshoot.
+# 0.25 = 25% correction per fire — converges in ~4-5 cooldown cycles.
 GIMBAL_GAIN = 0.25
 
-# Maximum servo step per frame (degrees).
-GIMBAL_MAX_STEP = 2.0
+# Maximum servo step per fire (degrees). 5° balances convergence speed vs camera shake.
+GIMBAL_MAX_STEP = 5.0
 
 # Dead zone in pixels — no servo command if offset is within this radius.
 DEAD_ZONE_PX = 8
@@ -63,12 +63,16 @@ YOLO_REDETECT_S = 2.0
 YOLO_MAX_MISS = 4
 
 # Motion detection: EMA-offset delta between consecutive frames to count as "moving".
-# Tuned for ~4fps CSRT (250ms/frame) — stationary CSRT jitter ≈ 5-15px EMA delta.
+# Tuned for ~10fps CSRT (100ms/frame) — stationary CSRT jitter ≈ 5-15px EMA delta.
 MOTION_THRESHOLD_PX = 20
 
 # Consecutive stable frames needed to declare object "settled".
-# At 4fps: 3 frames ≈ 750ms of stillness before servo fires.
+# At 10fps: 3 frames ≈ 300ms of stillness before servo fires.
 MOTION_SETTLE_FRAMES = 3
+
+# Cooldown after servo fire (seconds) — ignore motion detection while camera
+# stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
+SERVO_COOLDOWN_S = 0.5
 
 # Pitch distribution across 3 joints.
 PITCH_WEIGHT_BASE = 0.55
@@ -354,6 +358,7 @@ class TrackerService:
         prev_dy: Optional[float] = None
         motion_state = "INIT"             # INIT → STILL or MOVING
         stable_count = 0                  # consecutive stable frames counter
+        last_servo_t: float = 0.0         # timestamp of last servo fire (for cooldown)
         miss_count = 0
         frame_count = 0
         t_csrt_acc = 0.0   # accumulated CSRT update time
@@ -423,10 +428,12 @@ class TrackerService:
                 dx, dy = float(ema_dx), float(ema_dy)
 
                 # --- Motion state machine ---
-                # Compare EMA offset to previous frame to detect still vs. moving.
-                # Only fires servo ONCE when object transitions from MOVING → STILL,
-                # instead of nudging every frame (which causes oscillation from jitter).
-                if prev_dx is not None and prev_dy is not None:
+                # During cooldown after a servo fire, skip motion detection entirely.
+                # Camera needs time to stop vibrating before CSRT offset is trustworthy.
+                if time.perf_counter() - last_servo_t < SERVO_COOLDOWN_S:
+                    prev_dx, prev_dy = dx, dy
+                    stable_count = 0
+                elif prev_dx is not None and prev_dy is not None:
                     delta_px = ((dx - prev_dx) ** 2 + (dy - prev_dy) ** 2) ** 0.5
                     if delta_px > MOTION_THRESHOLD_PX:
                         stable_count = 0
@@ -445,12 +452,14 @@ class TrackerService:
                             else:
                                 logger.info("[motion] STILL offset=(%.0f,%.0f) → FIRE servo target='%s'",
                                             dx, dy, state.target_label)
-                                # One-shot full correction: compute exact degrees to centre object.
-                                # No GIMBAL_GAIN — we want to arrive in one move, not inch toward it.
+                                # Proportional step: GIMBAL_GAIN fraction of offset, capped at
+                                # GIMBAL_MAX_STEP. Converges smoothly over several cooldown cycles.
                                 deg_per_px = CAMERA_FOV_DEG / w_fr
-                                yaw_step = max(-30.0, min(30.0, dx * deg_per_px))
+                                yaw_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
+                                    GIMBAL_GAIN * dx * deg_per_px))
                                 # dy > 0 = object below centre → increase pitch → camera looks down
-                                pitch_total = max(-30.0, min(30.0, dy * deg_per_px))
+                                pitch_total = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
+                                    GIMBAL_GAIN * dy * deg_per_px))
 
                                 new_yaw = max(YAW_MIN, min(YAW_MAX,
                                     self._track_yaw + yaw_step))
@@ -486,10 +495,16 @@ class TrackerService:
                                 self._track_elbow_pitch = new_elbow
                                 self._track_wrist_pitch = new_wrist
                                 time.sleep(SERVO_SETTLE_S)
+                                # Reset state so camera can stabilise before next fire.
+                                last_servo_t = time.perf_counter()
+                                motion_state = "INIT"
+                                stable_count = 0
+                    prev_dx, prev_dy = dx, dy
                 else:
+                    # First frame — no previous offset to compare yet.
                     motion_state = "INIT"
                     stable_count = 0
-                prev_dx, prev_dy = dx, dy
+                    prev_dx, prev_dy = dx, dy
 
                 # Drain YOLO result queue — re-init CSRT if a new bbox arrived.
                 try:
