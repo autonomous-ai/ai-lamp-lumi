@@ -1252,8 +1252,8 @@ class SpeakerRecognizer:
         resolved_name = best_name if is_match else "unknown"
 
         # Full per-speaker breakdown — lets operator see why a near-miss
-        # happened (e.g. Lily scored 0.68 with 5 votes vs Chloe 0.64 with
-        # 4 votes against threshold 0.70 → both lose, tag as unknown).
+        # happened (e.g. speaker_a scored 0.68 with 5 votes vs speaker_b 0.64
+        # with 4 votes against threshold 0.70 → both lose, tag as unknown).
         scores_str = ", ".join(
             f"{n}={c:.3f}(v={v})" for n, c, v in scores[:5]
         )

@@ -32,7 +32,7 @@ See `docs/DEV-MULTI-IDE.md` for full conventions.
 ## Device Access Rules
 
 - **Always ask the user before running any `sshpass` or `ssh` command to the Pi.** Do not SSH automatically.
-- Pi SSH: `sshpass -p "12345" ssh pi@<IP>` (IP may vary per session).
+- Pi SSH: `ssh pi@<IP>` (credentials stored in team password manager; IP varies per session).
 
 ## Project Overview
 

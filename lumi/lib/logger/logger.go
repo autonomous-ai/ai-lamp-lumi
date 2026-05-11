@@ -15,11 +15,12 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// GELF centralized logging
-const (
-	gelfURL      = "https://lumi-logs.autonomousdev.xyz/gelf"
-	gelfUsername = "lumi-client"
-	gelfPassword = "24b4aab7c741156f2a68d3d3980057b3"
+// GELF centralized logging. Configure via env vars; if GELF_URL is empty,
+// GELF handler is not attached.
+var (
+	gelfURL      = os.Getenv("GELF_URL")
+	gelfUsername = os.Getenv("GELF_USERNAME")
+	gelfPassword = os.Getenv("GELF_PASSWORD")
 )
 
 // ANSI color codes
@@ -226,7 +227,9 @@ func (h *gelfHandler) Handle(_ context.Context, r slog.Record) error {
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.SetBasicAuth(gelfUsername, gelfPassword)
+		if gelfUsername != "" {
+			req.SetBasicAuth(gelfUsername, gelfPassword)
+		}
 		resp, err := h.client.Do(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[gelf] send error: %v\n", err)
@@ -293,12 +296,14 @@ func Init(level slog.Level, logFilePath string) func() {
 		level: level,
 	}
 
-	gelf := newGELFHandler(slog.LevelInfo, "lumi")
-	activeGELF = gelf
+	handlers := []slog.Handler{consoleHandler, fileHandler}
+	if gelfURL != "" {
+		gelf := newGELFHandler(slog.LevelInfo, "lumi")
+		activeGELF = gelf
+		handlers = append(handlers, gelf)
+	}
 
-	slog.SetDefault(slog.New(&multiHandler{
-		handlers: []slog.Handler{consoleHandler, fileHandler, gelf},
-	}))
+	slog.SetDefault(slog.New(&multiHandler{handlers: handlers}))
 
 	return func() { rotatingWriter.Close() }
 }

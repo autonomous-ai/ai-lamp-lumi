@@ -1,6 +1,6 @@
 # Lamp stuck in sleeping — motion.activity (và mọi event) bị suppress
 
-Observed 2026-04-22 trên Pi <DEVICE_IP>. Log lelamp lặp hàng phút:
+Observed 2026-04-22 trên Pi (test device). Log lelamp lặp hàng phút:
 
 ```
 [motion] dedup drop: Activity detected: using computer. (same as last send 246.1s ago)

@@ -37,7 +37,7 @@ Activate when ANY of these fire (no exact wording match needed — look for the 
 - **Mic, two-turn:** previous turn was `Unknown Speaker:` with a path but no clear name (or too short) → ask one follow-up requesting "name + 25–30 words" → next turn has the longer recording → enroll combining both paths (or just the longer one if the first was unusable).
 - **Telegram voice note + intro:** message carries `[mediaPaths: .../xxx.ogg|.wav|.m4a|.mp3|.opus]` AND the user is introducing themselves.
 - **User asks about registered voices:** "who do you know?" / "list voices" / "do you remember my voice?".
-- **User asks to forget their voice:** "forget my voice" / "remove Darren".
+- **User asks to forget their voice:** "forget my voice" / "remove Alex".
 - **Telegram voice note + "who is this?"**: user wants identification of an audio.
 
 Do NOT activate when:
@@ -205,6 +205,6 @@ curl -s -X POST http://127.0.0.1:5001/speaker/reset
 - **Telegram remember-voice naming rule** — use the spoken name in transcript first; if absent, use Telegram name.
 - **Don't spam "who are you?"** — ask at most once per cluster, and when you do ask, always include the "speak 25–30 words" guidance in the same message instead of firing multiple short prompts. If still no usable answer, move on and reply naturally.
 - **Never go silent on Unknown Speaker fragments** — even when the speaker hasn't given a name and you've already asked once, ALWAYS emit at least a short acknowledgment ("Mm", "Nghe rồi", "Got it"). NO_REPLY here is forbidden — silence makes the owner think Lumi stopped listening. The "don't spam" rule above bans re-asking, not replying.
-- **Confirm every enroll** AFTER the API returns ok — "Nice to meet you, Darren! I'll remember your voice."
+- **Confirm every enroll** AFTER the API returns ok — "Nice to meet you, Alex! I'll remember your voice."
 - **Don't narrate technical details** — no "base64", "ffmpeg", "POST /speaker/enroll".
 - **Never write files directly** — always use the HTTP API. Do NOT write to `/root/local/users/` by hand.

@@ -46,7 +46,7 @@ func TestResolve(t *testing.T) {
 		{"I am Gray", "gray"},
 		{"i am gray (595103437)", "gray"},
 		{"fake name (123456)", "leo"},
-		{"Darren says hi", "darren"},
+		{"Alex says hi", "alex"},
 		{"unknown user (999)", "unknown_user_999"},
 		{"", "unknown"},
 	}

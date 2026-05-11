@@ -2,7 +2,7 @@
 
 Playbook for reproducing and diagnosing agent compliance bugs on the `motion.activity` pipeline (emotional cues, wellbeing cron creation, mood logging, TTS output).
 
-This guide assumes you have shell access and can run `sshpass` / `curl` / `python3` locally. All `<IP>` below is the Pi's LAN address (e.g. `<DEVICE_IP>`).
+This guide assumes you have shell access and can run `sshpass` / `curl` / `python3` locally. All `<IP>` below is the Pi's LAN address (e.g. `192.168.1.100`).
 
 ---
 

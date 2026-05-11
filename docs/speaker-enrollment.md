@@ -217,13 +217,13 @@ User turn 1: "nice to meet you today. Okay." (5 words)
 → Message: "Unknown Speaker: [voice:voice_5] nice to meet you today. Okay. (audio saved at ..._A.wav. Note: audio is too short for single enrollment. If prior turns tagged the same voice_5, combine their saved paths with this one...)"
 → Agent: asks "Could you tell me your name?"
 
-User turn 2: "I'm Lily." (2 words)
+User turn 2: "I'm Alex." (2 words)
 → LeLamp: voiceprint_hash=voice_5 (same cluster, sim=0.75)
 → WAV moved to /tmp/lumi-unknown-voice/voice_5/incoming_B.wav
-→ Message: "Unknown Speaker: [voice:voice_5] I'm Lily. (audio saved at ..._B.wav...)"
+→ Message: "Unknown Speaker: [voice:voice_5] I'm Alex. (audio saved at ..._B.wav...)"
 → Agent: scans prior turns for same [voice:voice_5] tag → finds path A
-→ Agent: POST /speaker/enroll with wav_paths=[path_A, path_B], name="Lily"
-→ Agent: "Nice to meet you, Lily!"
+→ Agent: POST /speaker/enroll with wav_paths=[path_A, path_B], name="Alex"
+→ Agent: "Nice to meet you, Alex!"
 ```
 
 ### Long utterance (full enroll flow)

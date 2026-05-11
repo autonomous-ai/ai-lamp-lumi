@@ -5,8 +5,8 @@ import os
 import socket
 import threading
 
-_URL = "https://lumi-logs.autonomousdev.xyz/gelf"
-_AUTH = ("lumi-client", "24b4aab7c741156f2a68d3d3980057b3")
+_URL = os.getenv("GELF_URL", "")
+_AUTH = (os.getenv("GELF_USERNAME", ""), os.getenv("GELF_PASSWORD", ""))
 _LEVEL_MAP = {
     logging.CRITICAL: 2,
     logging.ERROR: 3,
@@ -36,6 +36,8 @@ class GELFHandler(logging.Handler):
         return self._session
 
     def emit(self, record):
+        if not _URL:
+            return
         try:
             msg = {
                 "version": "1.1",

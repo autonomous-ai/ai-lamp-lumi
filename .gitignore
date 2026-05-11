@@ -2,12 +2,22 @@
 .env
 .env.local
 .env.*.local
+**/.env
+!**/.env.example
 .idea/
 .vscode/
 .cursor/
-.claude/settings.local.json
+.claude/
 *.log
 dlbackend/local
+
+# Runtime config (contains device-specific values and secrets)
+config/config.json
+lumi/config/config.json
+
+# Voice biometric data — never commit (PII)
+**/mock_data/audio/speaker_db*.json
+**/audio_recognition/speaker_db/*.json
 
 # Go build artifacts
 *.exe

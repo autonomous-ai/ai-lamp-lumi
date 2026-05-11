@@ -218,13 +218,13 @@ Turn 1: "nice to meet you today. Okay." (5 từ)
 → Message: "Unknown Speaker: [voice:voice_5] nice to meet you today. Okay. (audio saved at ..._A.wav. Note: audio is too short for single enrollment. If prior turns tagged the same voice_5, combine their saved paths...)"
 → Agent: hỏi "Cho mình biết tên bạn với?"
 
-Turn 2: "I'm Lily." (2 từ)
+Turn 2: "I'm Alex." (2 từ)
 → LeLamp: voiceprint_hash=voice_5 (cùng cluster, sim=0.75)
 → WAV chuyển vào /tmp/lumi-unknown-voice/voice_5/incoming_B.wav
-→ Message: "Unknown Speaker: [voice:voice_5] I'm Lily. (audio saved at ..._B.wav...)"
+→ Message: "Unknown Speaker: [voice:voice_5] I'm Alex. (audio saved at ..._B.wav...)"
 → Agent: quét các turn trước cùng tag [voice:voice_5] → tìm thấy path A
-→ Agent: POST /speaker/enroll với wav_paths=[path_A, path_B], name="Lily"
-→ Agent: "Rất vui được biết bạn, Lily!"
+→ Agent: POST /speaker/enroll với wav_paths=[path_A, path_B], name="Alex"
+→ Agent: "Rất vui được biết bạn, Alex!"
 ```
 
 ### Câu dài (luồng đăng ký đầy đủ)
