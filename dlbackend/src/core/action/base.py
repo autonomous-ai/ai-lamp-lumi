@@ -220,7 +220,7 @@ class HumanActionRecognizerModel(ABC):
     @abstractmethod
     def create_session(
         self,
-        threshold: float,
+        threshold: float = 0.0,
     ) -> "HumanActionRecognizerSession[MODEL_T]":
         pass
 
@@ -258,11 +258,10 @@ class HumanActionRecognizerSession(Generic[MODEL_T]):
             is active but no person is found in the frame.
         """
         cur_ts = time.time()
-        self._logger.info(
-            "[%s] Received new frame (mean=%f, std=%f)", self._session_id, frame.mean(), frame.std()
-        )
         if cur_ts - self._last_ts >= self._frame_interval:
-            frame_buffer = self._model.preprocess(frame, self._frame_buffer, self._person_detection_enabled)
+            frame_buffer = self._model.preprocess(
+                frame, self._frame_buffer, self._person_detection_enabled
+            )
             if frame_buffer is None:
                 return ActionResponse(detected_classes=[])
 

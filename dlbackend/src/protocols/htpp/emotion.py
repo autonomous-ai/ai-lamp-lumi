@@ -13,8 +13,8 @@ from core.models import (
     EmotionRecognizeResponse,
     EmotionRequest,
 )
-from protocols.utils.state import get_emotion_model
 from protocols.utils.common import decode_image, verify_ws_api_key
+from protocols.utils.state import get_emotion_model
 
 logger = logging.getLogger(__name__)
 
