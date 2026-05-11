@@ -136,6 +136,20 @@ func (b *Bridge) postSensingEvent(prompt *Prompt) {
 	})
 }
 
+// expressEmotion triggers a coordinated LED + servo animation on
+// LeLamp. Used by the buddy state listener to celebrate the end of a
+// Claude turn ("Claude is done" → happy emotion). LeLamp owns the
+// LED/servo timeline from there so we don't fight its ambient logic.
+func (b *Bridge) expressEmotion(name string, intensity float64) {
+	if name == "" {
+		return
+	}
+	b.post(b.lelampURL+"/emotion", map[string]interface{}{
+		"emotion":   name,
+		"intensity": intensity,
+	})
+}
+
 // prerenderTTS asks LeLamp to synthesize a phrase and store it in the
 // on-disk TTS cache without playing it. Used at startup to warm the
 // cache for every narration phrase the lamp will need, so the very

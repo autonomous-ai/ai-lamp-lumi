@@ -45,6 +45,16 @@ func NewStateMachine(onChange func(old, new BuddyState, hb *Heartbeat)) *StateMa
 	}
 }
 
+// SeedStats restores approved/denied counters from a previous run.
+// Call before serving traffic so /status reports the right numbers
+// after a restart.
+func (sm *StateMachine) SeedStats(approved, denied int) {
+	sm.mu.Lock()
+	sm.approvedCount = approved
+	sm.deniedCount = denied
+	sm.mu.Unlock()
+}
+
 func (sm *StateMachine) State() BuddyState {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -128,27 +138,30 @@ func (sm *StateMachine) HandleHeartbeat(hb *Heartbeat) {
 // Approved records an approval and triggers heart state if fast enough.
 func (sm *StateMachine) Approved() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	sm.approvedCount++
 	sm.pendingPrompt = nil
-
+	appr, deny := sm.approvedCount, sm.deniedCount
 	if time.Since(sm.promptTime) < 5*time.Second {
 		sm.transientEnd = time.Now().Add(3 * time.Second)
 		sm.transition(StateHeart)
 	} else {
 		sm.transition(StateIdle)
 	}
+	sm.mu.Unlock()
+	// Persist outside the lock — file I/O shouldn't block the BLE
+	// dispatch goroutine and the data is just a counter pair.
+	go SaveStats(PersistedStats{Approved: appr, Denied: deny})
 }
 
 // Denied records a denial.
 func (sm *StateMachine) Denied() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	sm.deniedCount++
 	sm.pendingPrompt = nil
+	appr, deny := sm.approvedCount, sm.deniedCount
 	sm.transition(StateIdle)
+	sm.mu.Unlock()
+	go SaveStats(PersistedStats{Approved: appr, Denied: deny})
 }
 
 func (sm *StateMachine) transition(next BuddyState) {
