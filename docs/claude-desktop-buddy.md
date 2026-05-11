@@ -35,6 +35,7 @@ context back.
 | UC-6 | **Presence feedback** | future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
 | UC-7 | **Transcript-aware OpenClaw** | future | OpenClaw reads buffered chat history when user asks via voice. |
 | UC-8 | **Voice readout of Claude reply** | next | Lumi subscribes to `buddy_event`, filters `role=assistant` + text blocks, strips markdown, and pipes the text to LeLamp TTS so the user can listen instead of looking at the Mac. Respects presence (skip when user is away), voice-pipeline busy state, and agent emotion priority. |
+| UC-9 | **Activity TTS narration** | shipped | Short status announcements ("Claude is editing a file", "Claude is done") on state transitions and per `tool_use` / `thinking` block. Multi-language (`vi` / `en` / `zh`) via `i18n.go`, throttled once-per-turn-per-category, sent to LeLamp `/voice/speak` with `cached: true` so the bounded phrase set hits the on-disk TTS cache after first play. Unknown tool names fall back to a name-less generic phrase — Claude Code's CamelCase / `mcp__*` names don't sound like words through TTS. |
 
 ---
 
@@ -725,6 +726,8 @@ WantedBy=multi-user.target
 - [x] OpenClaw reduces proactive behaviour when Desktop is busy
 - [x] Chat turns (user / assistant / tool blocks) stream into Lumi monitor bus
 - [x] Character pack folder push lands under `chars/<name>/`
+- [x] UC-9 activity TTS narration (vi/en/zh) routes through LeLamp cache
+- [ ] UC-8 voice readout of assistant reply — next
 - [ ] Encrypted bonded GATT link (`sec: true`) — deferred
 - [ ] Presence feedback Lumi → Desktop — future protocol extension
 - [ ] Transcript context injection into OpenClaw — future

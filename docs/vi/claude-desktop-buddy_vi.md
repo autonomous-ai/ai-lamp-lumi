@@ -34,6 +34,7 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 | UC-6 | **Presence feedback** | tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
 | UC-7 | **OpenClaw biết transcript** | tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
 | UC-8 | **Đọc reply Claude qua TTS** | tiếp theo | Lumi subscribe `buddy_event`, filter `role=assistant` + text block, strip markdown, đẩy text qua LeLamp TTS để user nghe thay vì nhìn màn Mac. Respect presence (skip khi user vắng), busy state của voice pipeline, ưu tiên agent emotion. |
+| UC-9 | **TTS narration trạng thái** | xong | Thông báo ngắn ("Claude đang sửa file", "Claude xong rồi") khi state đổi và cho mỗi block `tool_use` / `thinking`. Multi-lang (`vi` / `en` / `zh`) trong `i18n.go`, throttle 1 lần/category/turn, gọi LeLamp `/voice/speak` với `cached: true` để phrase set bounded hit TTS cache on-disk sau lần đầu. Tool lạ fallback sang câu generic không kèm tên — tên tool Claude Code (CamelCase, `mcp__*`) đọc qua TTS không thành tiếng. |
 
 ---
 
@@ -712,6 +713,8 @@ WantedBy=multi-user.target
 - [x] OpenClaw giảm proactive behavior khi Desktop busy
 - [x] Chat turn (user / assistant / tool blocks) stream vào Lumi monitor bus
 - [x] Folder push character pack lưu vào `chars/<name>/`
+- [x] UC-9 TTS narration trạng thái (vi/en/zh) qua cache LeLamp
+- [ ] UC-8 đọc reply assistant qua TTS — kế tiếp
 - [ ] GATT link bonded encrypted (`sec: true`) — defer
 - [ ] Presence feedback Lumi → Desktop — mở rộng protocol tương lai
 - [ ] Inject transcript context vào OpenClaw — tương lai
