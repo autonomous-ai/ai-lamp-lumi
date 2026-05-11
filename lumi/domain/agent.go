@@ -130,22 +130,25 @@ type AgentGateway interface {
 	// ConsumeWebChatRun checks and removes a web-chat-marked runID. One-shot.
 	ConsumeWebChatRun(runID string) bool
 
-	// SetPendingChatTrace appends the idempotencyKey of an outbound chat.send
-	// to a FIFO queue. Paired with ConsumePendingChatTrace on lifecycle_start
-	// so OpenClaw's UUID maps back to the correct device runId even when
-	// multiple chat.sends are in flight on the same session lane.
-	SetPendingChatTrace(runID string)
+	// SetPendingChatTrace records the idempotencyKey and exact message text of
+	// an outbound chat.send so a later UUID lifecycle (drained from OpenClaw's
+	// followup queue, which strips the idempotencyKey) can be mapped back via
+	// MatchPendingByMessage. The message string must match what was sent on
+	// the WS — chat.history returns it verbatim.
+	SetPendingChatTrace(runID string, message string)
 
-	// ConsumePendingChatTrace pops the head of the FIFO queue, dropping stale
-	// entries (>2 min) from the head first. Returns "" if the queue is empty.
-	ConsumePendingChatTrace() string
-
-	// RemovePendingChatTraceByRunID removes the queue entry whose runID matches
+	// RemovePendingChatTraceByRunID removes the entry whose runID matches
 	// target. Used when lifecycle_start arrives with a Lumi-format runId
-	// (OpenClaw 5.4 echo path) so the entry is cleared without consuming an
-	// unrelated FIFO head — preventing orphan accumulation that would shift
-	// every subsequent UUID-runId mapping by one.
+	// (5.4+ echo path) — the runId IS the device trace, no mapping needed,
+	// but the entry must be cleared so MatchPendingByMessage doesn't pick
+	// it up for a later UUID lifecycle with the same message.
 	RemovePendingChatTraceByRunID(target string) bool
+
+	// MatchPendingByMessage finds and removes the pending entry whose stored
+	// message text matches needle. Used when a UUID lifecycle arrives: Lumi
+	// fetches chat.history, extracts the last user message, and calls this to
+	// recover the original idempotencyKey. Returns "" when no entry matches.
+	MatchPendingByMessage(needle string) string
 
 	// --- Channel abstraction (backend-agnostic) ---
 

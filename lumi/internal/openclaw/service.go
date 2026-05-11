@@ -76,14 +76,15 @@ type Service struct {
 	webChatRunsMu sync.Mutex
 	webChatRuns   map[string]bool
 
-	// pendingChatQueue is a FIFO of idempotencyKeys from outbound chat.sends
-	// that have not yet been paired with an OpenClaw lifecycle_start. Using a
-	// queue (not a single slot) prevents later sends from overwriting earlier
-	// ones when chat.send bursts arrive faster than the agent processes them —
-	// otherwise lifecycle_start pops the wrong key and every subsequent turn
-	// response gets attributed to the wrong runId.
-	pendingChatMu    sync.Mutex
-	pendingChatQueue []pendingTrace
+	// pendingChat tracks outbound chat.sends not yet paired with a lifecycle.
+	// Each entry stores the idempotencyKey, the exact message text, and send
+	// time. UUID → idempotencyKey mapping is done by matching the OpenClaw
+	// agent's last user message (fetched via chat.history) against stored text
+	// — see MatchPendingByMessage. No FIFO ordering: the message content is
+	// the strong key, which holds even when OpenClaw drains the followup
+	// queue out of send order or drops a turn entirely.
+	pendingChatMu  sync.Mutex
+	pendingChatBuf []pendingTrace
 
 	// recentOutboundTexts is a small ring buffer of message texts Lumi sent
 	// via chat.send (wake greeting, ambient guard, sensing events). Used by
@@ -102,11 +103,14 @@ type recentOutbound struct {
 const recentOutboundWindowMs int64 = 30_000
 const recentOutboundMaxEntries = 32
 
-// pendingTrace pairs a chat.send idempotencyKey with its send time.
-// Entries live in SetPendingChatTrace / ConsumePendingChatTrace in FIFO order.
+// pendingTrace pairs a chat.send idempotencyKey with the message text and
+// send time. Matching is by message text (via MatchPendingByMessage) so the
+// OpenClaw UUID lifecycle drained from the followup queue resolves back to
+// the correct device runId without relying on send-order FIFO.
 type pendingTrace struct {
-	runID  string
-	sentAt time.Time
+	runID   string
+	message string
+	sentAt  time.Time
 }
 
 // ProvideService constructs the openclaw service.

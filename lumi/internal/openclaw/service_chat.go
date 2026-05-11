@@ -215,9 +215,12 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 
 	slog.Info("[chat.send] <<< sent OK", "component", "openclaw",
 		"reqId", reqID, "runId", idempotencyKey, "hasImage", hasImage)
-	// Store pending trace so SSE handler can map OpenClaw UUID → device trace
-	// without relying on the race-prone global flow.GetTrace().
-	s.SetPendingChatTrace(idempotencyKey)
+	// Store pending trace + exact message text so the SSE handler can map a
+	// UUID lifecycle (drained from OpenClaw's followup queue, which strips
+	// the idempotencyKey) back to this device runId via chat.history →
+	// MatchPendingByMessage. Stores `message` (not the raw WS body) because
+	// chat.history returns the user message content, not the wrapper.
+	s.SetPendingChatTrace(idempotencyKey, message)
 	flow.Log("chat_send", map[string]any{
 		"run_id":      idempotencyKey,
 		"type":        sourceType,

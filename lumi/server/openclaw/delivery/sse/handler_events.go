@@ -63,29 +63,47 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// Map OpenClaw UUID → device idempotencyKey on lifecycle_start.
 		// Only map when the lifecycle belongs to Lumi's own direct session — group/channel
 		// sessions have independent runs that must NOT be merged into sensing traces.
-		// Uses dedicated pending chat trace (not global flow.GetTrace) to avoid race conditions
-		// where concurrent channel turns clear the global trace before lifecycle_start arrives.
 		//
 		// Two paths depending on payload.RunID format:
-		//   • Lumi-format (lumi-chat-*): OpenClaw 5.4 echoes idempotencyKey as the
-		//     runId, so it already IS the device trace. Search-and-remove the
-		//     matching queue entry (no map needed). Cleaning the entry is
-		//     critical: if left as orphan, the next UUID lifecycle would FIFO-pop
-		//     this stale chat-N and misattribute its successor by one.
-		//   • UUID (5.2 / occasional 5.4 paths): runId is OpenClaw-generated and
-		//     unknowable from Lumi side — fall back to FIFO pop and map UUID to
-		//     the oldest pending idempotencyKey (best-effort send-order pairing).
+		//   • Lumi-format (lumi-chat-*): OpenClaw 5.4+ echoes the idempotencyKey as
+		//     the runId — already IS the device trace. Just remove from pending.
+		//   • UUID: produced when OpenClaw drains its followup queue (the
+		//     FollowupRun type does not carry idempotencyKey, so
+		//     agent-runner-execution.ts mints a fresh UUID at lifecycle time).
+		//     Resolve by fetching chat.history and matching the agent's last
+		//     user message against the stored pending text. Correct by content
+		//     rather than by send-order — drain reordering, dropped turns,
+		//     /new session clears, and concurrent channel UUIDs no longer
+		//     shift the mapping.
+		//
+		// This runs synchronously: the WS read loop now dispatches handler
+		// events through a worker goroutine (service_ws.go), so chat.history's
+		// pendingRPC wait no longer deadlocks against the read loop. Sync map
+		// before flowRunID is computed below — every subsequent event for this
+		// UUID resolves to the device id from the very first emit, eliminating
+		// the split-turn race the previous async version had.
 		lumiSession := h.agentGateway.GetSessionKey()
 		isLumiSession := lumiSession != "" && payload.SessionKey == lumiSession
 		if payload.Stream == "lifecycle" && payload.Data.Phase == "start" && payload.RunID != "" && isLumiSession {
 			if isLumiOutboundChatRunID(payload.RunID) {
 				h.agentGateway.RemovePendingChatTraceByRunID(payload.RunID)
-			} else if deviceTrace := h.agentGateway.ConsumePendingChatTrace(); deviceTrace != "" && deviceTrace != payload.RunID {
-				h.mapRunID(payload.RunID, deviceTrace)
-				slog.Info("mapped OpenClaw runId to device trace", "component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
-				slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
-					"openclaw_run_id", payload.RunID, "device_run_id", deviceTrace,
-					"note", "JSONL/monitor use device_run_id for this turn")
+			} else {
+				hist, err := h.agentGateway.FetchChatHistory(payload.SessionKey, 5)
+				if err == nil && hist != nil {
+					if userMsg, _ := extractLastUserMessageFromHistory(hist); userMsg != "" {
+						if deviceTrace := h.agentGateway.MatchPendingByMessage(userMsg); deviceTrace != "" {
+							h.mapRunID(payload.RunID, deviceTrace)
+							slog.Info("mapped OpenClaw runId to device trace via chat.history",
+								"component", "agent", "openclawId", payload.RunID, "deviceId", deviceTrace)
+							slog.Info("flow correlation", "op", "openclaw_uuid_map", "section", "openclaw",
+								"openclaw_run_id", payload.RunID, "device_run_id", deviceTrace,
+								"note", "matched via chat.history last user message text")
+						}
+					}
+				} else if err != nil {
+					slog.Warn("chat.history fetch failed at UUID lifecycle_start (skipping map)",
+						"component", "agent", "run_id", payload.RunID, "err", err)
+				}
 			}
 		}
 
@@ -197,42 +215,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						slog.Info("chat.history raw payload", "component", "agent", "run_id", capturedRunID, "payload", string(historyPayload))
 					}
 
-					// Extract last user message from history.
-					var userMsg string
-					var senderLabel string
-					var hist struct {
-						Messages []struct {
-							Role        string          `json:"role"`
-							Content     json.RawMessage `json:"content"`
-							SenderLabel string          `json:"senderLabel"`
-						} `json:"messages"`
-					}
-					if json.Unmarshal(historyPayload, &hist) == nil {
-						for i := len(hist.Messages) - 1; i >= 0; i-- {
-							if hist.Messages[i].Role == "user" {
-								senderLabel = hist.Messages[i].SenderLabel
-								var text string
-								if json.Unmarshal(hist.Messages[i].Content, &text) == nil {
-									userMsg = text
-								} else {
-									var blocks []struct {
-										Type string `json:"type"`
-										Text string `json:"text"`
-									}
-									if json.Unmarshal(hist.Messages[i].Content, &blocks) == nil {
-										var parts []string
-										for _, b := range blocks {
-											if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
-												parts = append(parts, b.Text)
-											}
-										}
-										userMsg = strings.Join(parts, " ")
-									}
-								}
-								break
-							}
-						}
-					}
+					userMsg, senderLabel := extractLastUserMessageFromHistory(historyPayload)
 					// Mark as confirmed channel run if a real sender is present.
 					// Guards against race: Telegram UUID mapped to sensing trace
 					// makes flowRunID = lumi-sensing-* → isChannelRun wrongly false.
@@ -1322,4 +1305,47 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 	}
 
 	return nil
+}
+
+// extractLastUserMessageFromHistory parses a chat.history payload and returns
+// the most recent role:"user" message text plus its senderLabel (empty if
+// absent). Content can be a plain string or an array of {type,text} blocks;
+// both shapes are handled. Returns ("","") if the payload is malformed or has
+// no user messages.
+func extractLastUserMessageFromHistory(payload json.RawMessage) (text string, senderLabel string) {
+	var hist struct {
+		Messages []struct {
+			Role        string          `json:"role"`
+			Content     json.RawMessage `json:"content"`
+			SenderLabel string          `json:"senderLabel"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(payload, &hist) != nil {
+		return "", ""
+	}
+	for i := len(hist.Messages) - 1; i >= 0; i-- {
+		if hist.Messages[i].Role != "user" {
+			continue
+		}
+		senderLabel = hist.Messages[i].SenderLabel
+		var s string
+		if json.Unmarshal(hist.Messages[i].Content, &s) == nil {
+			return s, senderLabel
+		}
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(hist.Messages[i].Content, &blocks) == nil {
+			var parts []string
+			for _, b := range blocks {
+				if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+					parts = append(parts, b.Text)
+				}
+			}
+			return strings.Join(parts, " "), senderLabel
+		}
+		return "", senderLabel
+	}
+	return "", ""
 }
