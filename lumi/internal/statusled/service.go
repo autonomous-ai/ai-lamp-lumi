@@ -1,6 +1,7 @@
 // Package statusled manages LED feedback states so users can see what Lumi is doing.
 // States have priority: connectivity > error > ota > booting > lelamp_down > agent_down > hardware.
-// When a state clears, the LED is turned off — ambient service will resume breathing.
+// All effect writes are transient (don't clobber user's saved LED state).
+// When a state clears, the strip is restored to user state — ambient resumes if no user state.
 package statusled
 
 import (
@@ -83,7 +84,7 @@ func (s *Service) Clear(state State) {
 	delete(s.active, state)
 
 	if len(s.active) == 0 {
-		lelamp.StopEffect()
+		lelamp.RestoreLED()
 		slog.Info("status LED cleared", "component", "statusled", "state", state)
 		return
 	}
@@ -125,7 +126,7 @@ func (s *Service) FlashReady() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if len(s.active) == 0 {
-			lelamp.StopEffect()
+			lelamp.RestoreLED()
 		}
 	}()
 }

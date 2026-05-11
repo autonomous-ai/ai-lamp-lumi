@@ -54,7 +54,9 @@ failure → lelamp.SetEffect("pulse", red)
 
 ## Integration with Ambient
 
-The ambient service (`internal/ambient`) pauses on interaction events (`chat_send`, `chat_response`, etc.). During agent processing, ambient is already paused because the voice/chat interaction triggers a pause. When statusled clears the processing state, it calls `lelamp.StopEffect()`. After 60s of silence, ambient resumes its breathing LED.
+The ambient service (`internal/ambient`) pauses on interaction events (`chat_send`, `chat_response`, etc.). During agent processing, ambient is already paused because the voice/chat interaction triggers a pause. When statusled clears the last state, it calls `lelamp.RestoreLED()` which hands the strip back to whatever color/effect the user (or agent) last set via `/led/solid`, `/led/effect`, or `/scene`. If no user state exists, the strip clears to off and ambient resumes its breathing LED after 60s of silence.
+
+All statusled effect writes use `transient=true` so they don't clobber the user's saved LED state — emotion's restore-after-animation reads back the user's color, not the status color.
 
 ## Shared LeLamp Client
 
@@ -62,8 +64,9 @@ The ambient service (`internal/ambient`) pauses on interaction events (`chat_sen
 
 | Function | Endpoint | Purpose |
 |----------|----------|---------|
-| `SetEffect(effect, r, g, b, speed)` | `POST /led/effect` | Start a named effect |
+| `SetEffect(effect, r, g, b, speed)` | `POST /led/effect` (transient) | Start a named effect — does not save user LED state |
 | `StopEffect()` | `POST /led/effect/stop` | Stop running effect |
+| `RestoreLED()` | `POST /led/restore` | Hand strip back to user's saved state |
 | `SetSolid(r, g, b)` | `POST /led/solid` | Set solid color |
 | `Off()` | `POST /led/off` | Turn off LEDs |
 

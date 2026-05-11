@@ -54,7 +54,9 @@ thất bại   → lelamp.SetEffect("pulse", đỏ)
 
 ## Tích Hợp Với Ambient
 
-Ambient service (`internal/ambient`) tự pause khi có interaction events. Trong lúc agent processing, ambient đã pause sẵn vì voice/chat trigger pause. Khi statusled clear trạng thái processing, nó gọi `lelamp.StopEffect()`. Sau 60s im lặng, ambient resume breathing LED.
+Ambient service (`internal/ambient`) tự pause khi có interaction events. Trong lúc agent processing, ambient đã pause sẵn vì voice/chat trigger pause. Khi statusled clear state cuối cùng, nó gọi `lelamp.RestoreLED()` — strip trở về màu/effect mà user (hoặc agent) đã set qua `/led/solid`, `/led/effect`, hoặc `/scene`. Nếu chưa từng có user state, strip clear về off và ambient sẽ resume breathing sau 60s im lặng.
+
+Mọi statusled effect đều dùng `transient=true` để không ghi đè user LED state — restore-after-animation của emotion sẽ đọc lại đúng màu user, không phải màu status.
 
 ## Shared LeLamp Client
 
@@ -62,8 +64,9 @@ Ambient service (`internal/ambient`) tự pause khi có interaction events. Tron
 
 | Function | Endpoint | Mô tả |
 |----------|----------|-------|
-| `SetEffect(effect, r, g, b, speed)` | `POST /led/effect` | Bật effect |
+| `SetEffect(effect, r, g, b, speed)` | `POST /led/effect` (transient) | Bật effect — không save user LED state |
 | `StopEffect()` | `POST /led/effect/stop` | Dừng effect |
+| `RestoreLED()` | `POST /led/restore` | Trả strip về user state đã save |
 | `SetSolid(r, g, b)` | `POST /led/solid` | Set màu đơn |
 | `Off()` | `POST /led/off` | Tắt LED |
 

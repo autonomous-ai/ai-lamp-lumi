@@ -19,15 +19,28 @@ var httpClient = &http.Client{Timeout: 5 * time.Second}
 // ─── LED ────────────────────────────────────────────────────────────────────
 
 // SetEffect stops any running effect, then starts a new one.
+//
+// All callers from Lumi (statusled health signals, ambient breathing, bootstrap
+// OTA progress) are system-level overlays — they must not clobber the user's
+// saved LED state, which emotion restore reads back from. The transient flag
+// tells LeLamp to dispatch the effect without writing _user_led_state.
 func SetEffect(effect string, r, g, b int, speed float64) {
 	postSilent("/led/effect/stop", "{}")
-	body := fmt.Sprintf(`{"effect":"%s","color":[%d,%d,%d],"speed":%.2f}`, effect, r, g, b, speed)
+	body := fmt.Sprintf(`{"effect":"%s","color":[%d,%d,%d],"speed":%.2f,"transient":true}`, effect, r, g, b, speed)
 	postSilent("/led/effect", body)
 }
 
 // StopEffect stops any running LED effect.
 func StopEffect() {
 	postSilent("/led/effect/stop", "{}")
+}
+
+// RestoreLED hands the strip back to the user's saved LED state (or clears it
+// when no user state exists). Use after a transient overlay (statusled flash,
+// OTA progress) finishes so the strip doesn't get stuck on the overlay's
+// final frame.
+func RestoreLED() {
+	postSilent("/led/restore", "{}")
 }
 
 // GetColor returns the current LED color as [R, G, B].
