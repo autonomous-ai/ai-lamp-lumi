@@ -46,7 +46,12 @@ var narrationStrings = map[string]map[NarrationCategory]string{
 		NarrateToolWrite:     "Claude đang viết file",
 		NarrateToolEdit:      "Claude đang sửa file",
 		NarrateToolBash:      "Claude đang chạy lệnh",
-		NarrateToolGeneric:   "Claude đang dùng %s",
+		NarrateToolSearch:    "Claude đang tìm trong mã",
+		NarrateToolTask:      "Claude đang giao việc",
+		NarrateToolTodo:      "Claude đang cập nhật danh sách",
+		NarrateToolNotebook:  "Claude đang sửa notebook",
+		NarrateToolMCP:       "Claude đang gọi MCP",
+		NarrateToolGeneric:   "Claude đang dùng công cụ",
 	},
 	"en": {
 		NarrateBusyStart:     "Claude is starting",
@@ -57,7 +62,12 @@ var narrationStrings = map[string]map[NarrationCategory]string{
 		NarrateToolWrite:     "Claude is writing a file",
 		NarrateToolEdit:      "Claude is editing a file",
 		NarrateToolBash:      "Claude is running a shell command",
-		NarrateToolGeneric:   "Claude is running %s",
+		NarrateToolSearch:    "Claude is searching the codebase",
+		NarrateToolTask:      "Claude is delegating a task",
+		NarrateToolTodo:      "Claude is updating the to-do list",
+		NarrateToolNotebook:  "Claude is editing a notebook",
+		NarrateToolMCP:       "Claude is calling an MCP tool",
+		NarrateToolGeneric:   "Claude is running a tool",
 	},
 	"zh": {
 		NarrateBusyStart:     "Claude 开始了",
@@ -68,7 +78,12 @@ var narrationStrings = map[string]map[NarrationCategory]string{
 		NarrateToolWrite:     "Claude 正在写文件",
 		NarrateToolEdit:      "Claude 正在编辑文件",
 		NarrateToolBash:      "Claude 正在执行命令",
-		NarrateToolGeneric:   "Claude 正在使用 %s",
+		NarrateToolSearch:    "Claude 正在搜索代码",
+		NarrateToolTask:      "Claude 正在分派任务",
+		NarrateToolTodo:      "Claude 正在更新待办",
+		NarrateToolNotebook:  "Claude 正在编辑笔记本",
+		NarrateToolMCP:       "Claude 正在调用 MCP",
+		NarrateToolGeneric:   "Claude 正在使用工具",
 	},
 }
 
@@ -107,9 +122,17 @@ func applyArgs(tpl string, args ...any) string {
 // toolToCategory maps an Anthropic tool_use.name to the narration
 // category that best describes the operation. Anything we don't have
 // a dedicated category for falls back to NarrateToolGeneric, which
-// surfaces the original name to the user so they still know what's
-// running.
+// reads as a name-less "Claude is running a tool" — we deliberately
+// avoid speaking the raw tool name because Claude Code's tool names
+// (CamelCase, mcp__server__method, etc.) come out as gibberish
+// through TTS.
 func toolToCategory(name string) NarrationCategory {
+	// MCP tools share a `mcp__<server>__<method>` shape; match the
+	// prefix so any MCP method routes to the same announcement and
+	// gets a single cache entry instead of one per server/method.
+	if len(name) >= 5 && name[:5] == "mcp__" {
+		return NarrateToolMCP
+	}
 	switch name {
 	case "WebSearch", "WebFetch":
 		return NarrateToolWebSearch
@@ -119,8 +142,16 @@ func toolToCategory(name string) NarrationCategory {
 		return NarrateToolWrite
 	case "Edit", "MultiEdit":
 		return NarrateToolEdit
-	case "Bash":
+	case "Bash", "BashOutput", "KillShell":
 		return NarrateToolBash
+	case "Grep", "Glob", "ToolSearch":
+		return NarrateToolSearch
+	case "Task":
+		return NarrateToolTask
+	case "TodoWrite":
+		return NarrateToolTodo
+	case "NotebookEdit":
+		return NarrateToolNotebook
 	default:
 		return NarrateToolGeneric
 	}
