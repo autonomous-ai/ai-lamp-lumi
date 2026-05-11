@@ -312,6 +312,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
       mqttPassword: searchParams.get("mqtt_password") ?? "",
       faChannel: searchParams.get("fa_channel") ?? "",
       fdChannel: searchParams.get("fd_channel") ?? "",
+      sttLanguage: searchParams.get("stt_language") ?? "",
+      ttsProvider: searchParams.get("tts_provider") ?? "",
+      ttsVoice: searchParams.get("tts_voice") ?? "",
     }),
     [searchParams],
   );
@@ -370,9 +373,10 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // the device's voice pipeline has fallback values mirroring the LLM endpoint.
   const [sttApiKey, setSttApiKey] = useState("");
   const [sttBaseUrl, setSttBaseUrl] = useState("");
-  // Pre-fill STT language from browser locale so VN/CN buyers don't have to
-  // touch this field; users can still override before submitting.
+  // Pre-fill STT language from URL param, else browser locale so VN/CN buyers
+  // don't have to touch this field; users can still override before submitting.
   const [sttLanguage, setSttLanguage] = useState<string>(() => {
+    if (urlParams.sttLanguage) return urlParams.sttLanguage;
     const loc = (navigator.language || "").toLowerCase();
     if (loc.startsWith("vi")) return "vi";
     if (loc.startsWith("zh-tw") || loc.startsWith("zh-hant") || loc.startsWith("zh-hk")) return "zh-TW";
@@ -380,9 +384,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     if (loc.startsWith("en")) return "en";
     return "";
   });
-  const [ttsProvider, setTtsProvider] = useState("openai");
+  const [ttsProvider, setTtsProvider] = useState(urlParams.ttsProvider || "openai");
   const [ttsProviders, setTtsProviders] = useState<string[]>([]);
-  const [ttsVoice, setTtsVoice] = useState("alloy");
+  const [ttsVoice, setTtsVoice] = useState(urlParams.ttsVoice || "alloy");
   const [ttsVoices, setTtsVoices] = useState<string[]>([]);
   const [teleToken, setTeleToken] = useState(urlParams.teleToken || "");
   const [teleUserId, setTeleUserId] = useState(urlParams.teleUserId || "");
@@ -627,8 +631,10 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     // anything the user has typed take precedence — we only fill empty
     // state slots (prev || cfg.x).
     getDeviceConfig().then((cfg) => {
-      if (cfg.tts_provider) setTtsProvider(cfg.tts_provider);
-      if (cfg.tts_voice) setTtsVoice(cfg.tts_voice);
+      // URL params win over saved config (matches the prev-||-cfg pattern used
+      // elsewhere). Without this guard, cfg would clobber ?tts_provider=... etc.
+      if (cfg.tts_provider && !urlParams.ttsProvider) setTtsProvider(cfg.tts_provider);
+      if (cfg.tts_voice && !urlParams.ttsVoice) setTtsVoice(cfg.tts_voice);
       setSsid((prev) => prev || cfg.network_ssid || "");
       setPassword((prev) => prev || cfg.network_password || "");
       setDeviceId((prev) => prev || cfg.device_id || "");
@@ -677,9 +683,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
       setMqttPassword((prev) => prev || cfg.mqtt_password || "");
       setFaChannel((prev) => prev || cfg.fa_channel || "");
       setFdChannel((prev) => prev || cfg.fd_channel || "");
-      // Saved language always wins over the browser-locale default — the
-      // browser guess only matters for a never-configured device.
-      if (cfg.stt_language) setSttLanguage(cfg.stt_language);
+      // Saved language wins over the browser-locale default — the browser
+      // guess only matters for a never-configured device. URL param trumps both.
+      if (cfg.stt_language && !urlParams.sttLanguage) setSttLanguage(cfg.stt_language);
     }).catch(() => {});
   }, []);
 
