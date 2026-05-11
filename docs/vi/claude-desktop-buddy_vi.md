@@ -26,15 +26,15 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 
 | # | Use case | Trạng thái | Mô tả |
 |---|----------|------------|-------|
-| UC-1 | **Ambient state** | xong | LED ring phản ánh state Claude (sleep/idle/busy/attention/heart/celebrate). Lumi lamp hiện không có LCD/display, chỉ điều khiển LED. |
-| UC-2 | **Voice approval** | xong | Prompt tool-call → Lumi đọc qua skill OpenClaw → user nói approve/deny rảnh tay. |
-| UC-3 | **Thống kê hoạt động qua HTTP** | xong | Buddy track token count, sessions chạy, approval stats; expose qua `GET /status` cho consumer local. (Chưa có display trên lamp.) |
-| UC-4 | **Fan-out chat turn** | xong | Mọi `evt:"turn"` (user/assistant/tool blocks) được forward lên Lumi monitor bus dạng `buddy_event` — sẵn cho TTS, transcript memory, dashboard. |
-| UC-5 | **Nhận character pack** | xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
-| UC-6 | **Presence feedback** | tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
-| UC-7 | **OpenClaw biết transcript** | tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
-| UC-8 | **Đọc reply Claude qua TTS** | tiếp theo | Lumi subscribe `buddy_event`, filter `role=assistant` + text block, strip markdown, đẩy text qua LeLamp TTS để user nghe thay vì nhìn màn Mac. Respect presence (skip khi user vắng), busy state của voice pipeline, ưu tiên agent emotion. |
-| UC-9 | **TTS narration trạng thái** | xong | Thông báo ngắn ("Claude đang sửa file", "Claude xong rồi") khi state đổi và cho mỗi block `tool_use` / `thinking`. Multi-lang (`vi` / `en` / `zh`) trong `i18n.go`, throttle 1 lần/category/turn, gọi LeLamp `/voice/speak` với `cached: true` để phrase set bounded hit TTS cache on-disk sau lần đầu. Tool lạ fallback sang câu generic không kèm tên — tên tool Claude Code (CamelCase, `mcp__*`) đọc qua TTS không thành tiếng. |
+| UC-1 | **Ambient state** | [x] xong | LED ring phản ánh state Claude (sleep/idle/busy/attention/heart/celebrate). Lumi lamp hiện không có LCD/display, chỉ điều khiển LED. |
+| UC-2 | **Voice approval** | [x] xong | Prompt tool-call → Lumi đọc qua skill OpenClaw → user nói approve/deny rảnh tay. |
+| UC-3 | **Thống kê hoạt động qua HTTP** | [x] xong | Buddy track token count, sessions chạy, approval stats; expose qua `GET /status` cho consumer local. (Chưa có display trên lamp.) |
+| UC-4 | **Fan-out chat turn** | [x] xong | Mọi `evt:"turn"` (user/assistant/tool blocks) được forward lên Lumi monitor bus dạng `buddy_event` — sẵn cho TTS, transcript memory, dashboard. |
+| UC-5 | **Nhận character pack** | [x] xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
+| UC-9 | **TTS narration trạng thái** | [x] xong | Thông báo ngắn ("Claude đang sửa file", "Claude xong rồi") khi state đổi và cho mỗi block `tool_use` / `thinking`. Multi-lang (`vi` / `en` / `zh`) trong `i18n.go`, throttle 1 lần/category/turn, gọi LeLamp `/voice/speak` với `cached: true` để phrase set bounded hit TTS cache on-disk sau lần đầu. Tool lạ fallback sang câu generic không kèm tên — tên tool Claude Code (CamelCase, `mcp__*`) đọc qua TTS không thành tiếng. |
+| UC-8 | **Đọc reply Claude qua TTS** | [ ] tiếp theo | Lumi subscribe `buddy_event`, filter `role=assistant` + text block, strip markdown, đẩy text qua LeLamp TTS để user nghe thay vì nhìn màn Mac. Respect presence (skip khi user vắng), busy state của voice pipeline, ưu tiên agent emotion. |
+| UC-6 | **Presence feedback** | [ ] tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
+| UC-7 | **OpenClaw biết transcript** | [ ] tương lai | OpenClaw đọc history chat khi user hỏi qua voice. |
 
 ---
 

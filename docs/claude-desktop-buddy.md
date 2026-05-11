@@ -27,15 +27,15 @@ context back.
 
 | # | Use case | Status | Description |
 |---|----------|--------|-------------|
-| UC-1 | **Ambient state** | shipped | LED ring reflects Claude state (sleep/idle/busy/attention/heart/celebrate). The current Lumi lamp has no LCD/display, so only the LED is driven. |
-| UC-2 | **Voice approval** | shipped | Tool-call prompt → Lumi speaks it via OpenClaw skill → user says approve/deny hands-free. |
-| UC-3 | **Activity stats over HTTP** | shipped | Buddy tracks token count, sessions running, and approval stats; exposed via `GET /status` for any local consumer. (No on-lamp display today.) |
-| UC-4 | **Chat-turn fan-out** | shipped | Every `evt:"turn"` (user / assistant / tool blocks) is forwarded to Lumi monitor bus as `buddy_event` — ready for TTS, transcript memory, dashboard. |
-| UC-5 | **Character pack receive** | shipped | Desktop can drag a GIF folder onto its panel → streams over BLE → saved to `/opt/claude-desktop-buddy/chars/<name>/`. |
-| UC-6 | **Presence feedback** | future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
-| UC-7 | **Transcript-aware OpenClaw** | future | OpenClaw reads buffered chat history when user asks via voice. |
-| UC-8 | **Voice readout of Claude reply** | next | Lumi subscribes to `buddy_event`, filters `role=assistant` + text blocks, strips markdown, and pipes the text to LeLamp TTS so the user can listen instead of looking at the Mac. Respects presence (skip when user is away), voice-pipeline busy state, and agent emotion priority. |
-| UC-9 | **Activity TTS narration** | shipped | Short status announcements ("Claude is editing a file", "Claude is done") on state transitions and per `tool_use` / `thinking` block. Multi-language (`vi` / `en` / `zh`) via `i18n.go`, throttled once-per-turn-per-category, sent to LeLamp `/voice/speak` with `cached: true` so the bounded phrase set hits the on-disk TTS cache after first play. Unknown tool names fall back to a name-less generic phrase — Claude Code's CamelCase / `mcp__*` names don't sound like words through TTS. |
+| UC-1 | **Ambient state** | [x] shipped | LED ring reflects Claude state (sleep/idle/busy/attention/heart/celebrate). The current Lumi lamp has no LCD/display, so only the LED is driven. |
+| UC-2 | **Voice approval** | [x] shipped | Tool-call prompt → Lumi speaks it via OpenClaw skill → user says approve/deny hands-free. |
+| UC-3 | **Activity stats over HTTP** | [x] shipped | Buddy tracks token count, sessions running, and approval stats; exposed via `GET /status` for any local consumer. (No on-lamp display today.) |
+| UC-4 | **Chat-turn fan-out** | [x] shipped | Every `evt:"turn"` (user / assistant / tool blocks) is forwarded to Lumi monitor bus as `buddy_event` — ready for TTS, transcript memory, dashboard. |
+| UC-5 | **Character pack receive** | [x] shipped | Desktop can drag a GIF folder onto its panel → streams over BLE → saved to `/opt/claude-desktop-buddy/chars/<name>/`. |
+| UC-9 | **Activity TTS narration** | [x] shipped | Short status announcements ("Claude is editing a file", "Claude is done") on state transitions and per `tool_use` / `thinking` block. Multi-language (`vi` / `en` / `zh`) via `i18n.go`, throttled once-per-turn-per-category, sent to LeLamp `/voice/speak` with `cached: true` so the bounded phrase set hits the on-disk TTS cache after first play. Unknown tool names fall back to a name-less generic phrase — Claude Code's CamelCase / `mcp__*` names don't sound like words through TTS. |
+| UC-8 | **Voice readout of Claude reply** | [ ] next | Lumi subscribes to `buddy_event`, filters `role=assistant` + text blocks, strips markdown, and pipes the text to LeLamp TTS so the user can listen instead of looking at the Mac. Respects presence (skip when user is away), voice-pipeline busy state, and agent emotion priority. |
+| UC-6 | **Presence feedback** | [ ] future | Lumi presence (camera/PIR) → Desktop. Requires protocol extension. |
+| UC-7 | **Transcript-aware OpenClaw** | [ ] future | OpenClaw reads buffered chat history when user asks via voice. |
 
 ---
 
