@@ -53,7 +53,7 @@ start-jupyter:
 	else \
 		echo "Jupyter Lab started — grep token from /workspace/logs/jupyter/current"; \
 	fi) &
-	jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --ServerApp.allow_remote_access=true --notebook-dir=/workspace 2>&1 | multilog t s1048576 n3 /workspace/logs/jupyter
+	jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --ServerApp.allow_remote_access=true --ServerApp.base_url=/jupyter/ --notebook-dir=/workspace 2>&1 | multilog t s1048576 n3 /workspace/logs/jupyter
 
 test:
 	python -m pytest tests/ -v
