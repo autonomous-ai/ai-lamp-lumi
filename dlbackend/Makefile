@@ -40,20 +40,22 @@ start-runpod: install start-jupyter
 	python src/server.py --host 127.0.0.1 --port $(PORT)
 
 # Start jupyter-lab in background, nginx proxies /jupyter/ → port 8890
+# Uses setsid to fully detach from Make's process group so Ctrl+C on
+# uvicorn doesn't kill jupyter.
 start-jupyter:
 	@if ! command -v jupyter-lab > /dev/null 2>&1; then \
 		pip install jupyterlab; \
 	fi
 	@pkill -f "jupyter-lab" 2>/dev/null || true
-	nohup jupyter-lab \
+	@setsid jupyter-lab \
 		--ip=127.0.0.1 \
 		--port=$(JUPYTER_PORT) \
 		--no-browser \
 		--allow-root \
 		--notebook-dir=/workspace \
-		> /var/log/jupyter.log 2>&1 &
-	@sleep 2
-	@TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
+		> /var/log/jupyter.log 2>&1 & \
+	sleep 2; \
+	TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
 	if [ -n "$$TOKEN" ]; then \
 		echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
 	else \
