@@ -26,9 +26,9 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 
 | # | Use case | Trạng thái | Mô tả |
 |---|----------|------------|-------|
-| UC-1 | **Ambient state** | xong | LED + eyes animation phản ánh state Claude (sleep/idle/busy/attention/heart/celebrate). |
+| UC-1 | **Ambient state** | xong | LED ring phản ánh state Claude (sleep/idle/busy/attention/heart/celebrate). Lumi lamp hiện không có LCD/display, chỉ điều khiển LED. |
 | UC-2 | **Voice approval** | xong | Prompt tool-call → Lumi đọc qua skill OpenClaw → user nói approve/deny rảnh tay. |
-| UC-3 | **Hiển thị token/hoạt động** | xong | LeLamp display hiện token count + sessions chạy qua `/display/info`. |
+| UC-3 | **Thống kê hoạt động qua HTTP** | xong | Buddy track token count, sessions chạy, approval stats; expose qua `GET /status` cho consumer local. (Chưa có display trên lamp.) |
 | UC-4 | **Fan-out chat turn** | xong | Mọi `evt:"turn"` (user/assistant/tool blocks) được forward lên Lumi monitor bus dạng `buddy_event` — sẵn cho TTS, transcript memory, dashboard. |
 | UC-5 | **Nhận character pack** | xong | Desktop drag GIF folder vào panel → stream qua BLE → lưu vào `/opt/claude-desktop-buddy/chars/<name>/`. |
 | UC-6 | **Presence feedback** | tương lai | Presence Lumi (camera/PIR) → Desktop. Cần mở rộng protocol. |
@@ -59,9 +59,9 @@ tay, stream chat turns ra display/TTS, và feed context presence ngược lại.
 │                  │                                │  ┌─────────┐ ┌──────────┐    │
 │                  │                                │  │  Lumi   │ │ LeLamp   │    │
 │                  │                                │  │ :5000   │ │ :5001    │    │
-│                  │                                │  │ OpenClaw│ │ LED+     │    │
-│                  │                                │  │ sensing │ │ display  │    │
-│                  │                                │  │ monitor │ │ TTS      │    │
+│                  │                                │  │ OpenClaw│ │ LED ring │    │
+│                  │                                │  │ sensing │ │ + TTS    │    │
+│                  │                                │  │ monitor │ │ (no LCD) │    │
 │                  │                                │  └─────────┘ └──────────┘    │
 └──────────────────┘                                └──────────────────────────────┘
 ```
@@ -416,14 +416,19 @@ Overlay transient (`heart`, `celebrate`) khóa state 3 s; ticker expiry
 `Bridge.OnStateChange` được wire làm callback transition của state
 machine. Mỗi transition fire:
 
-| State | LeLamp call | Display | Lumi monitor event |
-|---|---|---|---|
-| `sleep` | `POST /led/off` | `display/eyes {sleepy}` | `buddy_state` |
-| `idle` | (không gọi — ambient quản LED) | `display/eyes-mode` | `buddy_state` |
-| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `display/info {tokensToday, runningSessions}` | `buddy_state` |
-| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `display/info {Approve <tool>?, hint}` | `buddy_state` + **`buddy_approval` sensing event** |
-| `heart` | `/led/solid {[255,200,100]}` | `display/eyes {happy}` | `buddy_state` |
-| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `display/eyes {excited}` | `buddy_state` |
+| State | LeLamp LED call | Lumi monitor event |
+|---|---|---|
+| `sleep` | `POST /led/off` | `buddy_state` |
+| `idle` | (không gọi — ambient quản LED) | `buddy_state` |
+| `busy` | `/led/effect {pulse,[0,100,255],0.8}` | `buddy_state` |
+| `attention` | `/led/effect {blink,[255,80,0],1.5}` | `buddy_state` + **`buddy_approval` sensing event** |
+| `heart` | `/led/solid {[255,200,100]}` | `buddy_state` |
+| `celebrate` | `/led/effect {rainbow,*,2.0,3000ms}` | `buddy_state` |
+
+> Lumi lamp hiện không có LCD/eye display; code `bridge.go` vẫn cố gọi
+> `/display/info`, `/display/eyes`, `/display/eyes-mode` qua LeLamp,
+> nhưng đây là no-op trên hardware không màn. Hoặc xóa các nhánh này
+> khi không-display là permanent, hoặc bổ sung display peripheral.
 
 Thêm vào đó, mọi `Event` (chat turn) forward qua `Bridge.OnEvent`:
 
@@ -702,7 +707,7 @@ WantedBy=multi-user.target
 - [x] Pair thành công, tự reconnect sau khi Mac wake / Pi reboot
 - [x] LED phản ánh state mà không đè agent emotion hoặc ambient
 - [x] Voice approve / deny route qua OpenClaw, end-to-end
-- [x] Token count + sessions chạy hiện trên LeLamp display
+- [x] Token count + sessions chạy track + expose qua `/status` (chưa có display trên lamp)
 - [x] Buddy crash không ảnh hưởng Lumi server chính
 - [x] OpenClaw giảm proactive behavior khi Desktop busy
 - [x] Chat turn (user / assistant / tool blocks) stream vào Lumi monitor bus
