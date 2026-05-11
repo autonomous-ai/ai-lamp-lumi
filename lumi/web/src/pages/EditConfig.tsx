@@ -463,8 +463,6 @@ export default function EditConfig() {
                   llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
                   llmUrl={llmUrl} setLlmUrl={setLlmUrl}
                   llmModel={llmModel} setLlmModel={setLlmModel}
-                  llmDisableThinking={llmDisableThinking}
-                  setLlmDisableThinking={setLlmDisableThinking}
                 />
 
                 <EditVoiceSection

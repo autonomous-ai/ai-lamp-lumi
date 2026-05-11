@@ -595,8 +595,6 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                     llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
                     llmUrl={llmUrl} setLlmUrl={setLlmUrl}
                     llmModel={llmModel} setLlmModel={setLlmModel}
-                    llmDisableThinking={llmDisableThinking}
-                    setLlmDisableThinking={setLlmDisableThinking}
                   />
 
                   <ChannelSection
