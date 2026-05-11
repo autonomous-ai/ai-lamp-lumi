@@ -27,6 +27,11 @@ from core.emotion.emotion import EmotionModel
 from core.persondetector import YOLOPersonDetector
 from enums import PersonDetectorEnum
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
+from protocols.htpp.action import router as action_ws_router
+from protocols.htpp.audio_recognizer import router as audio_recognizer_router
+from protocols.htpp.emotion import http_router as emotion_http_router
+from protocols.htpp.emotion import ws_router as emotion_ws_router
+from protocols.htpp.health import router as health_router
 from protocols.utils.state import (
     get_action_model,
     get_emotion_model,
@@ -132,17 +137,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DL Backend", lifespan=lifespan)
 
-from protocols.htpp.action import router as action_ws_router
-from protocols.htpp.audio_recognizer import router as audio_recognizer_router
-from protocols.htpp.emotion import http_router as emotion_http_router
-from protocols.htpp.emotion import ws_router as emotion_ws_router
-from protocols.htpp.health import router as health_router
 
 app.include_router(action_ws_router, prefix="/api/dl")
 app.include_router(emotion_ws_router, prefix="/api/dl")
 app.include_router(emotion_http_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
 app.include_router(health_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
-app.include_router(audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
+app.include_router(
+    audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)]
+)
 
 
 # --- CLI ---
