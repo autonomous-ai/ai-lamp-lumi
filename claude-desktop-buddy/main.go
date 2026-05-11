@@ -94,6 +94,13 @@ func main() {
 	sm := NewStateMachine(func(old, next BuddyState, hb *Heartbeat) {
 		bridge.OnStateChange(old, next, hb)
 		switch {
+		case old == StateSleep && next != StateSleep:
+			// Fresh BLE session — announce connect and reset turn dedupe
+			// so the first activity gets full narration.
+			narrator.StartTurn()
+			narrator.Say(NarrateConnected)
+		case old != StateSleep && next == StateSleep:
+			narrator.Say(NarrateDisconnected)
 		case old != StateBusy && next == StateBusy:
 			// Fresh activity window — reset per-turn dedupe so tool /
 			// thinking narrations can fire again, then announce.
