@@ -62,6 +62,14 @@ YOLO_REDETECT_S = 2.0
 # How many consecutive CSRT miss frames before stopping (YOLO may recover first).
 YOLO_MAX_MISS = 4
 
+# Motion detection: EMA-offset delta between consecutive frames to count as "moving".
+# Tuned for ~4fps CSRT (250ms/frame) — stationary CSRT jitter ≈ 5-15px EMA delta.
+MOTION_THRESHOLD_PX = 20
+
+# Consecutive stable frames needed to declare object "settled".
+# At 4fps: 3 frames ≈ 750ms of stillness before servo fires.
+MOTION_SETTLE_FRAMES = 3
+
 # Pitch distribution across 3 joints.
 PITCH_WEIGHT_BASE = 0.55
 PITCH_WEIGHT_ELBOW = 0.30
@@ -342,6 +350,10 @@ class TrackerService:
 
         ema_dx: Optional[float] = None
         ema_dy: Optional[float] = None
+        prev_dx: Optional[float] = None   # EMA offset from previous frame (motion detection)
+        prev_dy: Optional[float] = None
+        motion_state = "INIT"             # INIT → STILL or MOVING
+        stable_count = 0                  # consecutive stable frames counter
         miss_count = 0
         frame_count = 0
         t_csrt_acc = 0.0   # accumulated CSRT update time
@@ -410,44 +422,75 @@ class TrackerService:
                     ema_dy = EMA_ALPHA * raw_dy + (1.0 - EMA_ALPHA) * ema_dy
                 dx, dy = float(ema_dx), float(ema_dy)
 
-                # Servo nudge — skip if within dead zone.
-                if abs(dx) > DEAD_ZONE_PX or abs(dy) > DEAD_ZONE_PX:
-                    deg_per_px = CAMERA_FOV_DEG / w_fr
-                    yaw_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, GIMBAL_GAIN * dx * deg_per_px))
-                    # dy > 0 = object below center → increase pitch → camera looks down
-                    pitch_total = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP, GIMBAL_GAIN * dy * deg_per_px))
+                # --- Motion state machine ---
+                # Compare EMA offset to previous frame to detect still vs. moving.
+                # Only fires servo ONCE when object transitions from MOVING → STILL,
+                # instead of nudging every frame (which causes oscillation from jitter).
+                if prev_dx is not None and prev_dy is not None:
+                    delta_px = ((dx - prev_dx) ** 2 + (dy - prev_dy) ** 2) ** 0.5
+                    if delta_px > MOTION_THRESHOLD_PX:
+                        stable_count = 0
+                        if motion_state != "MOVING":
+                            motion_state = "MOVING"
+                            logger.info("[motion] MOVE  offset=(%.0f,%.0f) delta=%.0fpx target='%s'",
+                                        dx, dy, delta_px, state.target_label)
+                    else:
+                        stable_count += 1
+                        if stable_count >= MOTION_SETTLE_FRAMES and motion_state != "STILL":
+                            motion_state = "STILL"
+                            in_zone = abs(dx) <= DEAD_ZONE_PX and abs(dy) <= DEAD_ZONE_PX
+                            if in_zone:
+                                logger.info("[motion] STILL offset=(%.0f,%.0f) → hold (dead-zone) target='%s'",
+                                            dx, dy, state.target_label)
+                            else:
+                                logger.info("[motion] STILL offset=(%.0f,%.0f) → FIRE servo target='%s'",
+                                            dx, dy, state.target_label)
+                                # One-shot servo command to centre on settled position.
+                                deg_per_px = CAMERA_FOV_DEG / w_fr
+                                yaw_step = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
+                                    GIMBAL_GAIN * dx * deg_per_px))
+                                # dy > 0 = object below centre → increase pitch → camera looks down
+                                pitch_total = max(-GIMBAL_MAX_STEP, min(GIMBAL_MAX_STEP,
+                                    GIMBAL_GAIN * dy * deg_per_px))
 
-                    new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_step))
-                    new_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
-                        self._track_base_pitch + pitch_total * PITCH_WEIGHT_BASE))
-                    new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
-                        self._track_elbow_pitch + pitch_total * PITCH_WEIGHT_ELBOW))
-                    new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX,
-                        self._track_wrist_pitch + pitch_total * PITCH_WEIGHT_WRIST))
+                                new_yaw = max(YAW_MIN, min(YAW_MAX,
+                                    self._track_yaw + yaw_step))
+                                new_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
+                                    self._track_base_pitch + pitch_total * PITCH_WEIGHT_BASE))
+                                new_elbow = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
+                                    self._track_elbow_pitch + pitch_total * PITCH_WEIGHT_ELBOW))
+                                new_wrist = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX,
+                                    self._track_wrist_pitch + pitch_total * PITCH_WEIGHT_WRIST))
 
-                    logger.debug(
-                        "Gimbal: px=(%.0f,%.0f) step=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f→%.1f",
-                        dx, dy, yaw_step, pitch_total,
-                        self._track_yaw, new_yaw,
-                        self._track_base_pitch, new_pitch,
-                    )
+                                t_servo0 = time.perf_counter()
+                                with animation_service.bus_lock:
+                                    animation_service.robot.send_action({
+                                        "base_yaw.pos":    new_yaw,
+                                        "base_pitch.pos":  new_pitch,
+                                        "elbow_pitch.pos": new_elbow,
+                                        "wrist_pitch.pos": new_wrist,
+                                    })
+                                t_servo_ms = (time.perf_counter() - t_servo0) * 1000
+                                t_servo_acc += t_servo_ms
+                                servo_count += 1
 
-                    t_servo0 = time.perf_counter()
-                    with animation_service.bus_lock:
-                        animation_service.robot.send_action({
-                            "base_yaw.pos":    new_yaw,
-                            "base_pitch.pos":  new_pitch,
-                            "elbow_pitch.pos": new_elbow,
-                            "wrist_pitch.pos": new_wrist,
-                        })
-                    t_servo_acc += (time.perf_counter() - t_servo0) * 1000
-                    servo_count += 1
+                                logger.info(
+                                    "[servo] FIRE yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f cmd=%.0fms",
+                                    self._track_yaw, new_yaw,
+                                    self._track_base_pitch, new_pitch,
+                                    self._track_elbow_pitch, new_elbow,
+                                    t_servo_ms,
+                                )
 
-                    self._track_yaw = new_yaw
-                    self._track_base_pitch = new_pitch
-                    self._track_elbow_pitch = new_elbow
-                    self._track_wrist_pitch = new_wrist
-                    time.sleep(SERVO_SETTLE_S)
+                                self._track_yaw = new_yaw
+                                self._track_base_pitch = new_pitch
+                                self._track_elbow_pitch = new_elbow
+                                self._track_wrist_pitch = new_wrist
+                                time.sleep(SERVO_SETTLE_S)
+                else:
+                    motion_state = "INIT"
+                    stable_count = 0
+                prev_dx, prev_dy = dx, dy
 
                 # Drain YOLO result queue — re-init CSRT if a new bbox arrived.
                 try:
