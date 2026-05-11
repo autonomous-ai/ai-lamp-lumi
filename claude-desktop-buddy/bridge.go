@@ -136,6 +136,21 @@ func (b *Bridge) postSensingEvent(prompt *Prompt) {
 	})
 }
 
+// prerenderTTS asks LeLamp to synthesize a phrase and store it in the
+// on-disk TTS cache without playing it. Used at startup to warm the
+// cache for every narration phrase the lamp will need, so the very
+// first announcement of each one plays instantly instead of waiting
+// on a provider round-trip.
+func (b *Bridge) prerenderTTS(text string) {
+	if text == "" {
+		return
+	}
+	b.post(b.lelampURL+"/voice/speak", map[string]interface{}{
+		"text":      text,
+		"prerender": true,
+	})
+}
+
 // speakTTS posts a short narration string to LeLamp's TTS endpoint
 // (POST /voice/speak). Fire-and-forget: LeLamp rejects with 409 when
 // music is playing or 503 when TTS isn't initialized; both responses

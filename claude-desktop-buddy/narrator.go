@@ -67,6 +67,25 @@ func (n *Narrator) Say(cat NarrationCategory, args ...any) {
 	n.speak(text)
 }
 
+// Warmup runs every narration phrase through a prerender callback so
+// the TTS cache is populated before the first real announcement.
+// `prerender` should call LeLamp /voice/speak with `prerender: true`,
+// which synthesizes + caches without playing. With the cache warm,
+// the very first time we say "Claude is searching the web" plays from
+// disk instead of waiting on the TTS provider.
+func (n *Narrator) Warmup(prerender func(text string)) {
+	if prerender == nil {
+		return
+	}
+	for cat := range narrationStrings[n.lang] {
+		text := narrationText(n.lang, cat)
+		if text == "" {
+			continue
+		}
+		prerender(text)
+	}
+}
+
 // SayTool narrates a tool invocation. The tool name is mapped to a
 // dedicated category when we have a localized phrase for it, otherwise
 // it falls back to NarrateToolGeneric ("Claude is running a tool"),
