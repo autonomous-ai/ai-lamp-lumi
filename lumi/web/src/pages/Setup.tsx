@@ -156,7 +156,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     faceName, setFaceName,
     faceFiles, setFaceFiles,
     faceUploading,
-    faceMsg, setFaceMsg,
+    faceMsg,
     faceInputRef,
     faceOwners,
     loadFaceOwners,
