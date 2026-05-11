@@ -29,26 +29,32 @@ start: install
 
 JUPYTER_PORT ?= 8890
 
-# RunPod: install nginx if missing, start jupyter + nginx proxy, then start uvicorn
+# RunPod: install nginx if missing, start nginx proxy, then start uvicorn
 start-runpod: install
 	@if ! command -v nginx > /dev/null 2>&1; then \
 		apt-get update && apt-get install -y nginx; \
 	fi
-	@if command -v jupyter-lab > /dev/null 2>&1; then \
-		pkill -f "jupyter-lab" 2>/dev/null || true; \
-		jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --notebook-dir=/workspace > /var/log/jupyter.log 2>&1 & \
-		sleep 2; \
-		TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /var/log/jupyter.log 2>/dev/null | tail -1); \
-		if [ -n "$$TOKEN" ]; then \
-			echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
-		else \
-			echo "Jupyter Lab started — check /var/log/jupyter.log for URL + token"; \
-		fi; \
-	fi
 	nginx -s stop 2>/dev/null || true
 	pkill nginx 2>/dev/null || true
 	nginx -c $(NGINX_CONF)
-	python src/server.py --host 127.0.0.1 --port $(PORT)
+	@mkdir -p /workspace/logs/dlbackend
+	python src/server.py --host 127.0.0.1 --port $(PORT) 2>&1 | multilog t s1048576 n3 /workspace/logs/dlbackend
+
+# Start jupyter-lab on port 8890, nginx proxies /jupyter/ to it.
+# Logs via multilog with rotation (1MB per file, 3 files kept).
+start-jupyter:
+	@if ! command -v jupyter-lab > /dev/null 2>&1; then \
+		pip install jupyterlab; \
+	fi
+	@pkill -f "jupyter-lab" 2>/dev/null || true
+	@mkdir -p /workspace/logs/jupyter
+	@(sleep 3 && TOKEN=$$(grep -oP 'token=\K[a-f0-9]+' /workspace/logs/jupyter/current 2>/dev/null | tail -1); \
+	if [ -n "$$TOKEN" ]; then \
+		echo "Jupyter Lab: https://<host>:8888/jupyter/?token=$$TOKEN"; \
+	else \
+		echo "Jupyter Lab started — grep token from /workspace/logs/jupyter/current"; \
+	fi) &
+	jupyter-lab --ip=127.0.0.1 --port=$(JUPYTER_PORT) --no-browser --allow-root --notebook-dir=/workspace 2>&1 | multilog t s1048576 n3 /workspace/logs/jupyter
 
 test:
 	python -m pytest tests/ -v
