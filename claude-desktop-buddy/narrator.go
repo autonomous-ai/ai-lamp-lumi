@@ -68,14 +68,10 @@ func (n *Narrator) Say(cat NarrationCategory, args ...any) {
 }
 
 // SayTool narrates a tool invocation. The tool name is mapped to a
-// dedicated category when we have a localized phrase for it, and falls
-// back to the generic "Running %s" template so unrecognized tools
-// still surface their name to the user.
+// dedicated category when we have a localized phrase for it, otherwise
+// it falls back to NarrateToolGeneric ("Claude is running a tool"),
+// which intentionally drops the raw name — Claude Code tool names
+// don't sound like words through TTS.
 func (n *Narrator) SayTool(name string) {
-	cat := toolToCategory(name)
-	if cat == NarrateToolGeneric {
-		n.Say(cat, name)
-		return
-	}
-	n.Say(cat)
+	n.Say(toolToCategory(name))
 }
