@@ -175,8 +175,15 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *
 			sm.SetConnected(true)
 			log.Println("[ble] Claude Desktop connected")
 		}
-		log.Printf("[ble] heartbeat total=%d running=%d waiting=%d tokens=%d today=%d msg=%q entries=%d prompt=%v",
-			m.Total, m.Running, m.Waiting, m.Tokens, m.TokensToday, m.Msg, len(m.Entries), m.Prompt != nil)
+		// Claude Desktop pings ~every second while a task runs; logging
+		// each one floods the journal. Only emit when something the
+		// operator actually cares about changed (running count, msg
+		// text, waiting count, or prompt arrival/clear). Token counts
+		// drift on every ping and are intentionally excluded.
+		if prev := sm.LastHeartbeat(); heartbeatChanged(prev, m) {
+			log.Printf("[ble] heartbeat total=%d running=%d waiting=%d tokens=%d today=%d msg=%q entries=%d prompt=%v",
+				m.Total, m.Running, m.Waiting, m.Tokens, m.TokensToday, m.Msg, len(m.Entries), m.Prompt != nil)
+		}
 		sm.HandleHeartbeat(m)
 
 	case *TimeSync:
@@ -410,4 +417,25 @@ func tryFetchDeviceID(client *http.Client, url string) (string, bool, string) {
 		return "", false, "decode: " + err.Error()
 	}
 	return wrap.Data.DeviceID, true, ""
+}
+
+// heartbeatChanged reports whether enough fields differ between the
+// previous and current Heartbeat to warrant a new journal entry. We
+// deliberately ignore Tokens / TokensToday because they tick on every
+// ping; the operator cares about running count, status text, waiting
+// queue, and whether a permission prompt arrived or cleared.
+func heartbeatChanged(prev, curr *Heartbeat) bool {
+	if prev == nil {
+		return true
+	}
+	if prev.Running != curr.Running ||
+		prev.Waiting != curr.Waiting ||
+		prev.Msg != curr.Msg ||
+		(prev.Prompt == nil) != (curr.Prompt == nil) {
+		return true
+	}
+	if prev.Prompt != nil && curr.Prompt != nil && prev.Prompt.ID != curr.Prompt.ID {
+		return true
+	}
+	return false
 }
