@@ -4,6 +4,21 @@ import type { FlowStage, ActiveFlowStage } from "./types";
 import { FLOW_NODES } from "./types";
 import { extractNodeInfo, aggregateEvents } from "./helpers";
 
+// Hidden-textarea clipboard fallback for non-secure origins (http://Pi.local).
+// navigator.clipboard.writeText only works in secure contexts; without this,
+// the pipeline copy button silently no-ops when the monitor is opened over
+// plain HTTP from the device.
+function fallbackCopy(text: string): void {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); } catch { /* nothing to do */ }
+  document.body.removeChild(ta);
+}
+
 export function FlowDiagram({
   activeStage,
   visitedStages,
@@ -23,6 +38,7 @@ export function FlowDiagram({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [pipelineGuideOpen, setPipelineGuideOpen] = useState(false);
+  const [pipelineCopied, setPipelineCopied] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -399,6 +415,11 @@ export function FlowDiagram({
           const fmtDur = (ms: number) => ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m`
             : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
           const fmtChars = (n: number) => n >= 1000 ? `~${(n / 1000).toFixed(1)}k chars` : `${n} chars`;
+          const fmtClockMs = (ms: number): string => {
+            const d = new Date(ms);
+            const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+            return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+          };
           // Header summary: openclaw init / llm work / tool exec / writing tail.
           // Pulled from turnEvents (chat_send, lifecycle_*) + pipelineRows
           // (tool durations).
@@ -450,7 +471,9 @@ export function FlowDiagram({
             if (headerSummary) lines.push(`⏱ ${headerSummary}`);
             for (let i = 0; i < pipelineRows.length; i++) {
               const r = pipelineRows[i];
-              let line = r.label;
+              // Real wall-clock stamp of the first event in this row, so the
+              // copied text can be correlated against device logs.
+              let line = `${fmtClockMs(r.startMs)}  ${r.label}`;
               if (r.kind === "thinking" || r.kind === "assistant") {
                 line += `  ${fmtDur(r.durationMs)} · ${r.chunks} chunks · ${fmtChars(r.chars)}`;
               } else if (r.kind === "tool") {
@@ -470,11 +493,22 @@ export function FlowDiagram({
           };
           const handleCopyPipeline = () => {
             const text = buildPipelineText();
-            try {
-              navigator.clipboard?.writeText(text);
-            } catch {
-              // best-effort; ignore failures (e.g. http origin without clipboard API)
+            const done = () => {
+              setPipelineCopied(true);
+              window.setTimeout(() => setPipelineCopied(false), 1200);
+            };
+            // navigator.clipboard is undefined on non-secure origins (http://Pi).
+            // Fall back to a hidden textarea + execCommand so the button still
+            // works when the monitor is served over plain HTTP from the device.
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(text).then(done).catch(() => {
+                fallbackCopy(text);
+                done();
+              });
+              return;
             }
+            fallbackCopy(text);
+            done();
           };
           const guideEntries: { stream: string; desc: string; common: boolean }[] = [
             { stream: "lifecycle:start", desc: "Turn begins. OpenClaw acked chat.send and is about to call the LLM.", common: true },
@@ -518,7 +552,7 @@ export function FlowDiagram({
                   fontSize={5.5} fontWeight={700} fontFamily="monospace"
                   fill={pipelineColor}
                   style={{ pointerEvents: "none" }}>
-                  ⎘
+                  {pipelineCopied ? "✓" : "⎘"}
                 </text>
               </g>
               {/* Guide button: top-right corner. Click toggles a popup
