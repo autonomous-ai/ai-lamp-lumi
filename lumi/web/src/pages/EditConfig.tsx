@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders, testTTSVoice } from "@/lib/api";
+import { getDeviceConfig, updateDeviceConfig, getTTSVoices, getTTSProviders } from "@/lib/api";
 import type { DeviceConfig } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { ChannelType } from "@/types";
 import type { SectionId as SharedSectionId } from "@/hooks/setup/types";
-import { C, Field, LockedField, LockedPasswordField, SectionCard } from "@/components/setup/shared";
-import { VOICE_PHRASES_BY_LANG, VOICE_INTRO_BY_LANG } from "@/components/setup/voice-phrases";
+import type { FaceOwner } from "@/hooks/setup/useFaceEnroll";
+import { C } from "@/components/setup/shared";
+import { DeviceSection } from "@/components/setup/DeviceSection";
+import { LLMSection } from "@/components/setup/LLMSection";
+import { WifiSection } from "@/components/edit/WifiSection";
+import { VoiceSection as EditVoiceSection } from "@/components/edit/VoiceSection";
+import { FaceSection as EditFaceSection } from "@/components/edit/FaceSection";
+import { TTSSection } from "@/components/edit/TTSSection";
+import { STTSection, type SttProvider } from "@/components/edit/STTSection";
+import { ChannelSection } from "@/components/edit/ChannelSection";
+import { MqttSection } from "@/components/edit/MqttSection";
 import { Wifi, UserCircle, Lamp, Brain, Volume2, MicVocal, MessageSquare, Globe, Link } from "lucide-react";
 
 // Local subset of the shared SectionId — EditConfig uses `stt` (Language is
@@ -77,7 +86,7 @@ export default function EditConfig() {
   const [sttBaseUrl, setSttBaseUrl] = useState("");
   // STT provider: derived from saved config (deepgram if key present, else autonomous).
   // Default for fresh devices is "autonomous" — uses LLM endpoint as fallback.
-  const [sttProvider, setSttProvider] = useState<"autonomous" | "deepgram">("autonomous");
+  const [sttProvider, setSttProvider] = useState<SttProvider>("autonomous");
   // STT language drives model selection on the server (operators don't pick model directly).
   const [sttLanguage, setSttLanguage] = useState("");
   const [ttsApiKey, setTtsApiKey] = useState("");
@@ -119,13 +128,10 @@ export default function EditConfig() {
   const [ttsLoaded, setTtsLoaded] = useState({ apiKey: false, baseUrl: false });
   const [sttLoaded, setSttLoaded] = useState({ deepgram: false, apiKey: false, baseUrl: false });
 
-  // Face enroll state
-  const [faceName, setFaceName] = useState("");
-  const [faceFiles, setFaceFiles] = useState<File[]>([]);
-  const [faceUploading, setFaceUploading] = useState(false);
-  const [faceMsg, setFaceMsg] = useState<string | null>(null);
-  const faceInputRef = useRef<HTMLInputElement>(null);
-  const [faceOwners, setFaceOwners] = useState<{ label: string; photo_count: number; photos: string[]; voice_samples?: string[] }[]>([]);
+  // Face owners — top-level state because both Voice and Face sections read
+  // it. Section-local state (faceName, voiceLabel, etc.) lives in the section
+  // components themselves.
+  const [faceOwners, setFaceOwners] = useState<FaceOwner[]>([]);
 
   const loadFaceOwners = useCallback(async () => {
     try {
@@ -135,164 +141,6 @@ export default function EditConfig() {
   }, []);
 
   useEffect(() => { loadFaceOwners(); }, [loadFaceOwners]);
-
-  const removeFacePhoto = async (label: string, filename: string) => {
-    if (!confirm(`Delete photo "${filename}" for "${label}"?`)) return;
-    try {
-      await fetch("/hw/face/photo/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label, filename }),
-      });
-      loadFaceOwners();
-    } catch { /* ignore */ }
-  };
-
-  const [faceExpanded, setFaceExpanded] = useState<Record<string, boolean>>({});
-  const toggleFaceExpanded = (label: string) =>
-    setFaceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
-
-  const removeFaceOwner = async (label: string) => {
-    if (!confirm(`Remove "${label}"?`)) return;
-    try {
-      await fetch("/hw/face/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label }),
-      });
-      loadFaceOwners();
-    } catch {}
-  };
-
-  // Voice enroll — remote-trigger lelamp's /speaker/record-enroll. Lamp
-  // captures via its own mic; web only does countdown UI. Sharing label
-  // with face enroll keeps both biometrics in one per-user folder.
-  // Phrases/intro come from @/components/setup/voice-phrases (shared with Setup).
-  const VOICE_PHRASES = VOICE_PHRASES_BY_LANG[sttLanguage] ?? VOICE_PHRASES_BY_LANG.en;
-  const VOICE_INTRO = VOICE_INTRO_BY_LANG[sttLanguage] ?? VOICE_INTRO_BY_LANG.en;
-  // Voice enroll uses the LAMP'S OWN MIC, not the browser. Web triggers a
-  // server-side arecord on the lamp; the user stands near the lamp and reads
-  // the prompted sentences. No browser mic permission, no HTTPS needed.
-  const VOICE_DURATION_SEC = 15;
-  const [voiceLabel, setVoiceLabel] = useState("");
-  const [voicePhase, setVoicePhase] = useState<"idle" | "countdown" | "recording" | "processing">("idle");
-  const [voiceCountdown, setVoiceCountdown] = useState(0);
-  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
-  const voiceTickRef = useRef<number | null>(null);
-
-  // Voice samples per person come from /hw/face/owners (voice_samples
-  // field). Files served via /hw/face/file/<label>/voice/<filename>.
-  // Single-file delete uses Lumi /api/voice/file/remove which also
-  // re-enrolls from remaining samples to refresh the embedding.
-  const [voiceExpanded, setVoiceExpanded] = useState<Record<string, boolean>>({});
-  const toggleVoiceExpanded = (label: string) =>
-    setVoiceExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
-
-  const removeVoiceFile = async (name: string, file: string) => {
-    if (!confirm(`Delete voice sample "${file}" for "${name}"?`)) return;
-    try {
-      await fetch("/api/voice/file/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, file }),
-      });
-      loadFaceOwners();
-    } catch { /* ignore */ }
-  };
-
-  const startVoiceEnroll = () => {
-    if (!voiceLabel.trim()) {
-      setVoiceMsg("Enter a name first");
-      return;
-    }
-    setVoiceMsg(null);
-    setVoicePhase("countdown");
-    let pre = 3;
-    setVoiceCountdown(pre);
-    voiceTickRef.current = window.setInterval(() => {
-      pre -= 1;
-      if (pre > 0) {
-        setVoiceCountdown(pre);
-        return;
-      }
-      if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-      setVoicePhase("recording");
-      let remaining = VOICE_DURATION_SEC;
-      setVoiceCountdown(remaining);
-      voiceTickRef.current = window.setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("processing");
-          setVoiceCountdown(0);
-        } else {
-          setVoiceCountdown(remaining);
-        }
-      }, 1000);
-      fetch("/hw/speaker/record-enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: voiceLabel.trim().toLowerCase(), duration_sec: VOICE_DURATION_SEC }),
-      })
-        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("idle");
-          setVoiceCountdown(0);
-          if (ok && data.status === "ok") {
-            setVoiceMsg(`Enrolled "${voiceLabel.trim().toLowerCase()}"`);
-            loadFaceOwners();
-          } else {
-            setVoiceMsg(`Error: ${data.detail ?? data.message ?? "enroll failed"}`);
-          }
-        })
-        .catch((e) => {
-          if (voiceTickRef.current) clearInterval(voiceTickRef.current);
-          setVoicePhase("idle");
-          setVoiceCountdown(0);
-          setVoiceMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
-        });
-    }, 1000);
-  };
-
-  const handleFaceEnroll = async () => {
-    if (!faceName.trim() || faceFiles.length === 0) return;
-    setFaceUploading(true);
-    setFaceMsg(null);
-    const label = faceName.trim().toLowerCase();
-    let ok = 0;
-    let lastErr = "";
-    for (const file of faceFiles) {
-      try {
-        const buf = await file.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        const resp = await fetch("/hw/face/enroll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, image_base64: b64 }),
-        });
-        const data = await resp.json();
-        if (resp.ok) {
-          ok++;
-        } else {
-          lastErr = data.detail || data.message || `Failed: ${file.name}`;
-        }
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
-      }
-    }
-    if (ok > 0) {
-      setFaceMsg(`Enrolled "${label}" — ${ok}/${faceFiles.length} photos`
-        + (lastErr ? ` (${lastErr})` : ""));
-      setFaceName("");
-      setFaceFiles([]);
-      if (faceInputRef.current) faceInputRef.current.value = "";
-      loadFaceOwners();
-    } else {
-      setFaceMsg(`Error: ${lastErr}`);
-    }
-    setFaceUploading(false);
-  };
 
   useEffect(() => {
     getDeviceConfig()
@@ -597,451 +445,90 @@ export default function EditConfig() {
             {loadingCfg ? <SkeletonBlock /> : (
               <form id="edit-form" onSubmit={handleSubmit}>
 
-                <SectionCard id="device" title="Device" active={activeSection === "device"}>
-                  <Field label="Device ID" id="device_id" value={deviceId} onChange={setDeviceId} placeholder="lumi-001" readOnly />
-                </SectionCard>
+                <DeviceSection
+                  active={activeSection === "device"}
+                  deviceId={deviceId} setDeviceId={setDeviceId}
+                />
 
-                <SectionCard id="wifi" title="Wi-Fi" active={activeSection === "wifi"}>
-                  <LockedField lockedInitially={wifiLoaded.ssid} label="Wi-Fi network" id="ssid" value={ssid} onChange={setSsid} placeholder="Network name" />
-                  <LockedPasswordField lockedInitially={wifiLoaded.password} label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
-                </SectionCard>
+                <WifiSection
+                  active={activeSection === "wifi"}
+                  wifiLoaded={wifiLoaded}
+                  ssid={ssid} setSsid={setSsid}
+                  password={password} setPassword={setPassword}
+                />
 
-                <SectionCard id="llm" title="AI Brain" active={activeSection === "llm"}>
-                  <LockedPasswordField lockedInitially={llmLoaded.apiKey} label="API Key" id="llm_api_key" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
-                  <LockedField lockedInitially={llmLoaded.baseUrl} label="Base URL" id="llm_url" value={llmUrl} onChange={setLlmUrl} placeholder="https://api.openai.com/v1" />
-                  <LockedField lockedInitially={llmLoaded.model} label="Model" id="llm_model" value={llmModel} onChange={setLlmModel} placeholder="gpt-4o-mini" />
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 4 }}>
-                    <input
-                      type="checkbox" checked={llmDisableThinking}
-                      onChange={(e) => setLlmDisableThinking(e.target.checked)}
-                      style={{ accentColor: C.amber, width: 14, height: 14, cursor: "pointer" }}
-                    />
-                    <span style={{ fontSize: 12, color: C.textDim }}>Disable extended thinking (faster responses)</span>
-                  </label>
-                </SectionCard>
+                <LLMSection
+                  active={activeSection === "llm"}
+                  llmLoaded={llmLoaded}
+                  llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
+                  llmUrl={llmUrl} setLlmUrl={setLlmUrl}
+                  llmModel={llmModel} setLlmModel={setLlmModel}
+                  llmDisableThinking={llmDisableThinking}
+                  setLlmDisableThinking={setLlmDisableThinking}
+                />
 
-                <SectionCard id="voice" title="My Voice (optional)" active={activeSection === "voice"}>
-                  <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                    {VOICE_INTRO}
-                  </div>
-                  <Field label="Name" id="voice_label" value={voiceLabel} onChange={setVoiceLabel} placeholder="e.g. Leo" />
-                  <div style={{
-                    background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7,
-                    padding: "12px 14px", marginBottom: 12, fontSize: 13, lineHeight: 1.55, color: C.text,
-                  }}>
-                    {VOICE_PHRASES.map((p, i) => (
-                      <div key={i} style={{ marginBottom: i < VOICE_PHRASES.length - 1 ? 6 : 0 }}>
-                        <span style={{ color: C.textMuted, marginRight: 6 }}>{i + 1}.</span>
-                        {p}
-                      </div>
-                    ))}
-                  </div>
-                  {voiceMsg && (
-                    <div style={{
-                      fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                      background: voiceMsg.startsWith("Error") ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                      color: voiceMsg.startsWith("Error") ? C.red : "rgb(52,211,153)",
-                    }}>{voiceMsg}</div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={startVoiceEnroll}
-                    disabled={!voiceLabel.trim() || voicePhase !== "idle"}
-                    style={{
-                      width: "100%", padding: "11px 0", borderRadius: 7, fontSize: 13, fontWeight: 600,
-                      cursor: voicePhase === "idle" && voiceLabel.trim() ? "pointer" : "not-allowed",
-                      background: voicePhase === "recording" ? "rgba(248,113,113,0.18)"
-                        : voicePhase === "countdown" ? "rgba(245,158,11,0.18)"
-                        : voicePhase === "processing" ? C.surface
-                        : !voiceLabel.trim() ? C.surface : "rgba(52,211,153,0.12)",
-                      border: `1px solid ${voicePhase === "recording" ? "rgba(248,113,113,0.4)"
-                        : voicePhase === "countdown" ? "rgba(245,158,11,0.4)"
-                        : !voiceLabel.trim() ? C.border : "rgba(52,211,153,0.35)"}`,
-                      color: voicePhase === "recording" ? C.red
-                        : voicePhase === "countdown" ? C.amber
-                        : voicePhase === "processing" ? C.textDim
-                        : !voiceLabel.trim() ? C.textMuted : "rgb(52,211,153)",
-                    }}
-                  >
-                    {voicePhase === "idle" && `Start Recording (${VOICE_DURATION_SEC}s on lamp)`}
-                    {voicePhase === "countdown" && `Get ready... ${voiceCountdown}`}
-                    {voicePhase === "recording" && `● Recording on lamp — read aloud (${voiceCountdown}s)`}
-                    {voicePhase === "processing" && "Processing..."}
-                  </button>
-                  {(() => {
-                    const withVoice = faceOwners.filter((p) => (p.voice_samples?.length ?? 0) > 0);
-                    if (withVoice.length === 0) return null;
-                    return (
-                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                          Voice Files
-                        </div>
-                        {withVoice.map((p) => {
-                          const expanded = !!voiceExpanded[p.label];
-                          return (
-                          <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 8 : 0 }}>
-                              <button
-                                type="button"
-                                onClick={() => toggleVoiceExpanded(p.label)}
-                                style={{
-                                  flex: 1, display: "flex", alignItems: "center", gap: 8,
-                                  background: "none", border: "none", cursor: "pointer", padding: 0,
-                                  textAlign: "left", color: C.text,
-                                }}
-                              >
-                                <span style={{ fontSize: 11, color: C.textMuted, transition: "transform 0.15s", transform: expanded ? "rotate(90deg)" : "none" }}>▶</span>
-                                <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
-                                <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}>({p.voice_samples!.length} file{p.voice_samples!.length !== 1 ? "s" : ""})</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!confirm(`Remove ALL voice files for "${p.label}"? Face data is preserved.`)) return;
-                                  try {
-                                    await fetch("/hw/speaker/remove", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ name: p.label }),
-                                    });
-                                    loadFaceOwners();
-                                  } catch { /* ignore */ }
-                                }}
-                                style={{
-                                  background: "none", border: `1px solid ${C.border}`, borderRadius: 5,
-                                  cursor: "pointer", fontSize: 10, color: C.red, padding: "3px 8px",
-                                }}
-                              >
-                                Remove all
-                              </button>
-                            </div>
-                            {expanded && (<>
+                <EditVoiceSection
+                  active={activeSection === "voice"}
+                  sttLanguage={sttLanguage}
+                  faceOwners={faceOwners}
+                  loadFaceOwners={loadFaceOwners}
+                />
 
-                            {p.voice_samples!.map((file) => {
-                              const ext = file.toLowerCase().split(".").pop() || "";
-                              const url = `/hw/face/file/${p.label}/voice/${encodeURIComponent(file)}`;
-                              const isAudio = ["wav", "ogg", "mp3", "webm", "m4a"].includes(ext);
-                              const viewLabel = ["json", "jsonl", "txt"].includes(ext) ? "view" : "open";
-                              return (
-                                <div key={file} title={file} style={{
-                                  display: "flex", alignItems: "center", gap: 6, padding: "3px 0",
-                                  fontSize: 11, color: C.textDim,
-                                }}>
-                                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
-                                    {file}
-                                  </span>
-                                  {isAudio ? (
-                                    <>
-                                      <audio controls src={url} style={{ width: 180, height: 24 }} />
-                                      <button type="button" onClick={() => removeVoiceFile(p.label, file)}
-                                        style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, lineHeight: 1, padding: "0 4px" }} title="Delete">
-                                        ×
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <a href={url} target="_blank" rel="noreferrer"
-                                      style={{ fontSize: 10, color: C.amber, textDecoration: "none", padding: "2px 6px", border: `1px solid ${C.border}`, borderRadius: 4 }}>
-                                      {viewLabel}
-                                    </a>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            </>)}
-                          </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </SectionCard>
+                <EditFaceSection
+                  active={activeSection === "face"}
+                  faceOwners={faceOwners}
+                  loadFaceOwners={loadFaceOwners}
+                />
 
-                <SectionCard id="face" title="Face Enroll (optional)" active={activeSection === "face"}>
-                  <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-                    Upload photos of the owner so the lamp can recognize them.
-                  </div>
-                  <Field label="Name" id="face_name" value={faceName} onChange={setFaceName} placeholder="e.g. Leo" />
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Photos ({faceFiles.length} selected)</label>
-                    <input
-                      ref={faceInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => setFaceFiles(e.target.files ? Array.from(e.target.files) : [])}
-                      style={{ fontSize: 12, color: C.text, width: "100%", boxSizing: "border-box" }}
-                    />
-                  </div>
-                  {faceMsg && (
-                    <div style={{
-                      fontSize: 11, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
-                      background: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                        ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                      color: faceMsg.startsWith("Error") || faceMsg.includes("failed")
-                        ? C.red : "rgb(52,211,153)",
-                    }}>{faceMsg}</div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleFaceEnroll}
-                    disabled={!faceName.trim() || faceFiles.length === 0 || faceUploading}
-                    style={{
-                      width: "100%", padding: "9px 0", borderRadius: 7, fontSize: 12.5,
-                      fontWeight: 600, cursor: faceUploading ? "wait" : "pointer",
-                      background: !faceName.trim() || faceFiles.length === 0 ? C.surface : "rgba(52,211,153,0.12)",
-                      border: `1px solid ${!faceName.trim() || faceFiles.length === 0 ? C.border : "rgba(52,211,153,0.35)"}`,
-                      color: !faceName.trim() || faceFiles.length === 0 ? C.textMuted : "rgb(52,211,153)",
-                    }}
-                  >
-                    {faceUploading ? "Uploading…" : "Enroll Face"}
-                  </button>
-                  {(() => {
-                    const enrolled = faceOwners.filter((p) => p.photo_count > 0);
-                    if (enrolled.length === 0) return null;
-                    return (
-                      <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 10 }}>
-                          Face Photos
-                        </div>
-                        {enrolled.map((p) => {
-                          const expanded = !!faceExpanded[p.label];
-                          return (
-                            <div key={p.label} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 8 : 0 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleFaceExpanded(p.label)}
-                                  style={{
-                                    flex: 1, display: "flex", alignItems: "center", gap: 8,
-                                    background: "none", border: "none", cursor: "pointer", padding: 0,
-                                    textAlign: "left", color: C.text,
-                                  }}
-                                >
-                                  <span style={{ fontSize: 11, color: C.textMuted, transition: "transform 0.15s", transform: expanded ? "rotate(90deg)" : "none" }}>▶</span>
-                                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
-                                  <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}>({p.photo_count} photo{p.photo_count !== 1 ? "s" : ""})</span>
-                                </button>
-                                {p.label !== "unknown" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeFaceOwner(p.label)}
-                                    style={{
-                                      background: "none", border: `1px solid ${C.border}`, borderRadius: 5,
-                                      cursor: "pointer", fontSize: 10, color: C.red, padding: "3px 8px",
-                                    }}
-                                  >
-                                    Remove all
-                                  </button>
-                                )}
-                              </div>
-                              {expanded && p.photos.length > 0 && (
-                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                  {p.photos.map((photo) => (
-                                    <div key={photo} style={{ position: "relative", width: 56, height: 56 }}>
-                                      <img
-                                        src={`/hw/face/photo/${p.label}/${photo}`}
-                                        title={photo}
-                                        onClick={() => window.open(`/hw/face/photo/${p.label}/${photo}`, "_blank")}
-                                        style={{
-                                          width: 56, height: 56, borderRadius: 8, objectFit: "cover",
-                                          border: `1px solid ${C.border}`, cursor: "pointer", display: "block",
-                                        }}
-                                      />
-                                      {p.label !== "unknown" && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => { e.stopPropagation(); removeFacePhoto(p.label, photo); }}
-                                          title={`Delete ${photo}`}
-                                          style={{
-                                            position: "absolute", top: -6, right: -6,
-                                            width: 18, height: 18, borderRadius: "50%",
-                                            background: C.bg, border: `1px solid ${C.border}`,
-                                            cursor: "pointer", fontSize: 11, lineHeight: "16px",
-                                            color: C.red, padding: 0, textAlign: "center",
-                                          }}
-                                        >
-                                          ×
-                                        </button>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </SectionCard>
+                <TTSSection
+                  active={activeSection === "tts"}
+                  ttsLoaded={ttsLoaded}
+                  llmLoaded={llmLoaded}
+                  ttsApiKey={ttsApiKey} setTtsApiKey={setTtsApiKey}
+                  ttsBaseUrl={ttsBaseUrl} setTtsBaseUrl={setTtsBaseUrl}
+                  ttsProvider={ttsProvider} setTtsProvider={setTtsProvider}
+                  ttsProviders={ttsProviders}
+                  ttsVoice={ttsVoice} setTtsVoice={setTtsVoice}
+                  ttsVoices={ttsVoices}
+                  sttLanguage={sttLanguage}
+                  llmApiKey={llmApiKey} llmUrl={llmUrl}
+                />
 
-                <SectionCard id="tts" title="Lumi's Voice" active={activeSection === "tts"}>
-                  <LockedPasswordField lockedInitially={ttsLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="tts_api_key" value={ttsApiKey} onChange={setTtsApiKey} placeholder="sk-..." />
-                  <LockedField lockedInitially={ttsLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="tts_base_url" value={ttsBaseUrl} onChange={setTtsBaseUrl} placeholder="https://api.openai.com/v1" />
-                  <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="tts_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                      Provider
-                    </label>
-                    <select
-                      id="tts_provider"
-                      value={ttsProvider}
-                      onChange={(e) => setTtsProvider(e.target.value)}
-                      style={{
-                        width: "100%", boxSizing: "border-box",
-                        background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 7, padding: "8px 11px",
-                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                      }}
-                    >
-                      {(ttsProviders.length > 0 ? ttsProviders : ["openai"]).map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="tts_voice" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                      Voice
-                    </label>
-                    <select
-                      id="tts_voice"
-                      value={ttsVoice}
-                      onChange={(e) => setTtsVoice(e.target.value)}
-                      style={{
-                        width: "100%", boxSizing: "border-box",
-                        background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 7, padding: "8px 11px",
-                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                      }}
-                    >
-                      {(ttsVoices.length > 0 ? ttsVoices : ["alloy"]).map((v) => (
-                        <option key={v} value={v}>{v}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => testTTSVoice(ttsVoice, {
-                        lang: sttLanguage,
-                        provider: ttsProvider,
-                        ttsApiKey, ttsBaseUrl,
-                        llmApiKey, llmBaseUrl: llmUrl,
-                      })}
-                      style={{
-                        marginTop: 8, width: "100%", padding: "8px 0",
-                        background: C.amber, color: "#fff", border: "none",
-                        borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
-                      }}
-                    >
-                      Test Voice
-                    </button>
-                  </div>
-                </SectionCard>
+                <STTSection
+                  active={activeSection === "stt"}
+                  sttLanguage={sttLanguage} setSttLanguage={setSttLanguage}
+                  sttProvider={sttProvider} setSttProvider={setSttProvider}
+                  sttLoaded={sttLoaded}
+                  llmLoaded={llmLoaded}
+                  deepgramApiKey={deepgramApiKey} setDeepgramApiKey={setDeepgramApiKey}
+                  sttApiKey={sttApiKey} setSttApiKey={setSttApiKey}
+                  sttBaseUrl={sttBaseUrl} setSttBaseUrl={setSttBaseUrl}
+                />
 
-                <SectionCard id="stt" title="Language" active={activeSection === "stt"}>
-                  <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="stt_language" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                      Language (what the lamp listens for)
-                    </label>
-                    <select
-                      id="stt_language"
-                      value={sttLanguage}
-                      onChange={(e) => setSttLanguage(e.target.value)}
-                      style={{
-                        width: "100%", boxSizing: "border-box",
-                        background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 7, padding: "8px 11px",
-                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                      }}
-                    >
-                      <option value="">Auto (default)</option>
-                      <option value="en">English</option>
-                      <option value="vi">Vietnamese</option>
-                      <option value="zh-CN">Chinese (Simplified)</option>
-                      <option value="zh-TW">Chinese (Traditional)</option>
-                    </select>
-                  </div>
+                <ChannelSection
+                  active={activeSection === "channel"}
+                  channel={channel} setChannel={setChannel}
+                  channelLoaded={channelLoaded}
+                  teleToken={teleToken} setTeleToken={setTeleToken}
+                  teleUserId={teleUserId} setTeleUserId={setTeleUserId}
+                  slackBotToken={slackBotToken} setSlackBotToken={setSlackBotToken}
+                  slackAppToken={slackAppToken} setSlackAppToken={setSlackAppToken}
+                  slackUserId={slackUserId} setSlackUserId={setSlackUserId}
+                  discordBotToken={discordBotToken} setDiscordBotToken={setDiscordBotToken}
+                  discordGuildId={discordGuildId} setDiscordGuildId={setDiscordGuildId}
+                  discordUserId={discordUserId} setDiscordUserId={setDiscordUserId}
+                />
 
-                  <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-                      Advanced
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label htmlFor="stt_provider" style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>
-                        Provider
-                      </label>
-                      <select
-                        id="stt_provider"
-                        value={sttProvider}
-                        onChange={(e) => setSttProvider(e.target.value as "autonomous" | "deepgram")}
-                        style={{
-                          width: "100%", boxSizing: "border-box",
-                          background: C.surface, border: `1px solid ${C.border}`,
-                          borderRadius: 7, padding: "8px 11px",
-                          fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                        }}
-                      >
-                        <option value="autonomous">Autonomous (reuse AI brain)</option>
-                        <option value="deepgram">Deepgram</option>
-                      </select>
-                    </div>
-                    {sttProvider === "deepgram" ? (
-                      <LockedPasswordField lockedInitially={sttLoaded.deepgram} label="Deepgram API Key" id="deepgram_api_key" value={deepgramApiKey} onChange={setDeepgramApiKey} placeholder="Deepgram key" />
-                    ) : (
-                      <>
-                        <LockedPasswordField lockedInitially={sttLoaded.apiKey || llmLoaded.apiKey} label="API Key (optional — leave blank to reuse AI brain key)" id="stt_api_key" value={sttApiKey} onChange={setSttApiKey} placeholder="sk-..." />
-                        <LockedField lockedInitially={sttLoaded.baseUrl || llmLoaded.baseUrl} label="Base URL (optional — leave blank to reuse AI brain base URL)" id="stt_base_url" value={sttBaseUrl} onChange={setSttBaseUrl} placeholder="https://api.openai.com/v1" />
-                      </>
-                    )}
-                  </div>
-                </SectionCard>
-
-                <SectionCard id="channel" title="Messaging Channels" active={activeSection === "channel"}>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 11, color: C.textDim, marginBottom: 5 }}>Channel</label>
-                    <select
-                      value={channel}
-                      onChange={(e) => setChannel(e.target.value as ChannelType)}
-                      style={{
-                        width: "100%", boxSizing: "border-box" as const,
-                        background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 7, padding: "8px 11px",
-                        fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
-                      }}
-                    >
-                      <option value="telegram">Telegram</option>
-                      <option value="slack">Slack</option>
-                      <option value="discord">Discord</option>
-                    </select>
-                  </div>
-                  {channel === "telegram" && (
-                    <>
-                      <LockedField lockedInitially={channelLoaded.teleToken} label="Bot Token" id="tele_token" value={teleToken} onChange={setTeleToken} placeholder="123456:ABC-DEF..." />
-                      <LockedField lockedInitially={channelLoaded.teleUserId} label="User ID" id="tele_user_id" value={teleUserId} onChange={setTeleUserId} placeholder="123456789" />
-                    </>
-                  )}
-                  {channel === "slack" && (
-                    <>
-                      <LockedField lockedInitially={channelLoaded.slackBotToken} label="Bot Token" id="slack_bot_token" value={slackBotToken} onChange={setSlackBotToken} placeholder="xoxb-..." />
-                      <LockedField lockedInitially={channelLoaded.slackAppToken} label="App Token" id="slack_app_token" value={slackAppToken} onChange={setSlackAppToken} placeholder="xapp-..." />
-                      <LockedField lockedInitially={channelLoaded.slackUserId} label="User ID" id="slack_user_id" value={slackUserId} onChange={setSlackUserId} placeholder="U0123456789" />
-                    </>
-                  )}
-                  {channel === "discord" && (
-                    <>
-                      <LockedField lockedInitially={channelLoaded.discordBotToken} label="Bot Token" id="discord_bot_token" value={discordBotToken} onChange={setDiscordBotToken} placeholder="Bot token" />
-                      <LockedField lockedInitially={channelLoaded.discordGuildId} label="Guild ID" id="discord_guild_id" value={discordGuildId} onChange={setDiscordGuildId} placeholder="123456789" />
-                      <LockedField lockedInitially={channelLoaded.discordUserId} label="User ID" id="discord_user_id" value={discordUserId} onChange={setDiscordUserId} placeholder="123456789" />
-                    </>
-                  )}
-                </SectionCard>
-
-                <SectionCard id="mqtt" title="MQTT (optional)" active={activeSection === "mqtt"}>
-                  <LockedField lockedInitially={mqttLoaded.endpoint} label="Endpoint" id="mqtt_endpoint" value={mqttEndpoint} onChange={setMqttEndpoint} placeholder="mqtt.example.com" />
-                  <LockedField lockedInitially={mqttLoaded.port} label="Port" id="mqtt_port" value={mqttPort} onChange={setMqttPort} placeholder="1883" type="number" />
-                  <LockedField lockedInitially={mqttLoaded.username} label="Username" id="mqtt_username" value={mqttUsername} onChange={setMqttUsername} placeholder="Optional" />
-                  <LockedPasswordField lockedInitially={mqttLoaded.password} label="Password" id="mqtt_password" value={mqttPassword} onChange={setMqttPassword} placeholder="Optional" />
-                  <LockedField lockedInitially={mqttLoaded.faChannel} label="FA Channel" id="fa_channel" value={faChannel} onChange={setFaChannel} placeholder="Lumi/f_a/device_id" />
-                  <LockedField lockedInitially={mqttLoaded.fdChannel} label="FD Channel" id="fd_channel" value={fdChannel} onChange={setFdChannel} placeholder="Lumi/f_d/device_id" />
-                </SectionCard>
+                <MqttSection
+                  active={activeSection === "mqtt"}
+                  mqttLoaded={mqttLoaded}
+                  mqttEndpoint={mqttEndpoint} setMqttEndpoint={setMqttEndpoint}
+                  mqttPort={mqttPort} setMqttPort={setMqttPort}
+                  mqttUsername={mqttUsername} setMqttUsername={setMqttUsername}
+                  mqttPassword={mqttPassword} setMqttPassword={setMqttPassword}
+                  faChannel={faChannel} setFaChannel={setFaChannel}
+                  fdChannel={fdChannel} setFdChannel={setFdChannel}
+                />
 
               </form>
             )}
