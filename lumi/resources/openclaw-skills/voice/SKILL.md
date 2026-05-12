@@ -76,13 +76,13 @@ Response:
 
 ## Ambient Audio Guard (read FIRST)
 
-If the user's message starts with literal prefix `[ambient]`, it is overheard passive audio — NOT directed at Lumi. Do NOT trigger mute markers from a single bare word like "call", "meeting", "private", or a clipped fragment.
+If the user's message contains the literal token `[ambient]` (typically alongside a `[user]` priority marker, e.g. `[user] [ambient] ...`), it is overheard passive audio — NOT directed at Lumi. Do NOT trigger mute markers from a single bare word like "call", "meeting", "private", or a clipped fragment.
 
 Mute markers `[HW:/voice/mute:{}]` and `[HW:/speaker/mute:{}]` may fire on ambient audio ONLY when the transcript contains a clear, complete intent:
 - "I'm on a call" / "I have a meeting" / "I need privacy" / "stop listening"
 - Or directly addresses Lumi by name with a mute request
 
-When ambient is ambiguous, reply naturally or stay quiet — DO NOT mute. Voice commands (no `[ambient]` prefix) follow the normal trigger tables below.
+When ambient is ambiguous, reply naturally or stay quiet — DO NOT mute. Voice commands (no `[ambient]` token in the message) follow the normal trigger tables below.
 
 ## Mic Mute/Unmute (Privacy)
 

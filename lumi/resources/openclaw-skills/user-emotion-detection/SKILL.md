@@ -88,12 +88,13 @@ After logging the mood signal, pick **exactly one** response route. Read straigh
 | 1 | `audio_playing == true` | **action** | LED-only ambient ack, no spoken reply. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.4}]` + `NO_REPLY`. Music is already covering — don't talk over it. |
 | 2 | `last_suggestion_age_min ∈ [0, 7)` (any recent proactive outreach — music OR checkin) | **action** | Same as #1: LED ack, `NO_REPLY`. Cooldown protects the user from nag. |
 | 3 | `suggestion_worthy == true` AND (`is_decision_stale == false` OR fresh decision synthesized this turn) | **music** | See `music-suggestion/SKILL.md` for genre + phrasing + log marker. |
-| 4 | `mapped_mood == "frustrated"` (Angry / Disgust) | **checkin** | See `reference/checkin.md` for phrasing + log marker. Music doesn't fit this mood. |
-| 5 | anything else (mood=normal, stale decision with no fresh synthesis, etc.) | **silent** | `NO_REPLY`. Don't nag on neutral or partial signals. |
+| 4 | anything else (mood=normal/frustrated, stale decision with no fresh synthesis, etc.) | **checkin** | See `reference/checkin.md` for phrasing + log marker. One soft open-ended line. |
 
 Rules:
 
 - **One route per turn.** Don't double-fire (e.g. music + checkin both). Pick the first matching row.
-- **Output ownership:** `music` → produced by `music-suggestion/SKILL.md`. `checkin` → produced by `reference/checkin.md` (this skill). `action` → emitted inline by this router (the `[HW:/emotion:...]` marker in rows #1–#2). `silent` → `NO_REPLY`.
+- **No silent route on emotion events.** Every non-gated emotion produces either a music suggestion or a checkin; rows #1–#2 (audio playing / cooldown) are the only paths to `NO_REPLY`.
+- **Output ownership:** `music` → produced by `music-suggestion/SKILL.md`. `checkin` → produced by `reference/checkin.md` (this skill). `action` → emitted inline by this router (the `[HW:/emotion:...]` marker in rows #1–#2).
 - **Cooldown is shared** between music and checkin: both log via `music-suggestion/log` so `last_suggestion_age_min` reflects either channel. Row #2 catches both.
 - Never narrate the routing decision in the spoken reply.
+- `Neutral` is filtered upstream at lelamp and never reaches this skill in practice; no special case needed here.

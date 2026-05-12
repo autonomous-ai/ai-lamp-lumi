@@ -329,7 +329,7 @@ The agent uses the camera snapshot to make a judgment call — it does NOT alway
 
 Music suggestions are **fully AI-driven** — no cron jobs, no backend triggers. The agent decides when to suggest based on two triggers:
 
-- **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), the agent follows the Music skill to suggest music matching that mood.
+- **Mood trigger:** After logging a suggestion-worthy mood (`sad`, `stressed`, `tired`, `excited`, `happy`, `bored`), the agent follows the Music skill to suggest music matching that mood — this includes the music branch of the emotion router (see "Agent behavior" below), as well as moods logged from conversation, wellbeing, or explicit asks.
 - **Sedentary trigger:** When `motion.activity` carries a sedentary raw label (`using computer`, `writing`, `texting`, `reading book`, `reading newspaper`, `drawing`, `playing controller`), the agent suggests background music (lo-fi, ambient, instrumental).
 - **Data-driven decisions:** Before suggesting, the agent queries:
   - `GET /audio/status` — is music already playing?
@@ -538,12 +538,16 @@ The sensing handler (`handler.go`) routes `emotion.detected` events to the agent
 
 The `user-emotion-detection/SKILL.md` handles `emotion.detected` events:
 
-1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed)
-2. Logs a `signal` row via `POST /api/mood/log`
-3. **Silent by default** — no spoken reply unless warranted by normal sensing reply rules
-4. **Never greet on an emotion event.** `emotion.detected` is not a presence/arrival event — `sensing/SKILL.md` and `music-suggestion/SKILL.md` forbid openers like `hello`, `welcome back`, anything containing `again`. Greetings belong only to `presence.enter`.
+1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed) and logs a `signal` row via `POST /api/mood/log`
+2. Picks one response route from a 4-row table (first match wins):
+   - **#1 `audio_playing == true`** → LED-only ack + `NO_REPLY` (don't talk over music)
+   - **#2 `last_suggestion_age_min ∈ [0, 7)`** → LED-only ack + `NO_REPLY` (shared 7-min cooldown across music + checkin)
+   - **#3 `suggestion_worthy == true` AND decision fresh** → **music** — gentle one-liner with genre pick via `music-suggestion/SKILL.md`
+   - **#4 anything else** → **checkin** — one soft open-ended line. See `user-emotion-detection/reference/checkin.md` for per-mood phrasing.
+3. **No silent route on emotion events.** Every emotion event ends in music, checkin, or an LED-only ack (rows #1–#2). The old "silent fallback" is gone — when music doesn't fit, the agent asks instead of staying quiet.
+4. **Never greet on an emotion event.** `emotion.detected` is not a presence/arrival event — `sensing/SKILL.md` forbids openers like `hello`, `welcome back`, anything containing `again`. Greetings belong only to `presence.enter`.
 
-Step 2 of the handler is `music-suggestion/SKILL.md`. Its tone must match the mood: Fear→stressed and Sad→sad decisions use the `caring` emotion marker and a gentle one-liner — never cheerful or playful. If no tone-appropriate one-liner fits, output `<say></say>` and stay silent.
+Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` with `trigger:"<genre>:<mood>"`; checkin logs the same endpoint with `trigger:"checkin:<mood>"`. `last_suggestion_age_min` reflects either channel, so back-to-back emotion events don't double-fire. Checkin tone must match the mood: `sad / stressed / frustrated` get the softest tone; `happy / excited` stay gentle-curious (no over-celebration); `tired / bored` stay light. Always prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` on checkin output.
 
 ### Mood pipeline
 
