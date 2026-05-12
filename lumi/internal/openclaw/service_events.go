@@ -194,15 +194,21 @@ func (s *Service) drainPendingEvents() {
 
 		var msg string
 		if ev.eventType == "voice" || ev.eventType == "voice_command" {
-			prefix := ""
+			// Mirror the direct sensing handler path: `[user]` for both wake-
+			// word voice and ambient voice (so AGENTS.md batched-turn user
+			// priority rule fires either way). Ambient voice keeps a
+			// secondary `[ambient]` token so voice/SKILL.md's overheard-audio
+			// mute guard still applies. See handler.go for the full rationale.
+			prefix := "[user] "
 			if ev.eventType == "voice" {
-				prefix = "[ambient] "
+				prefix = "[user] [ambient] "
 			}
 			msg = domain.AppendEnrollNudge(prefix + ev.msg)
 		} else if ev.eventType == "web_chat" {
 			// Raw text from the monitor — no enroll nudge, no [sensing:*] prefix.
 			// TTS is suppressed via MarkWebChatRun (already called at queue time).
-			msg = ev.msg
+			// `[user]` mirrors voice_command — direct human input, top priority.
+			msg = "[user] " + ev.msg
 		} else {
 			// motion.activity / emotion.detected use domain-specific prefixes
 			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
