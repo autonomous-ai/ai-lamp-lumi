@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_action_model, set_action_model
-from core.action.x3d import X3DModel
+from core.perception.action.action import ActionAnalysis
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -27,7 +27,9 @@ def _make_frame_b64(width: int = 320, height: int = 240) -> str:
 def model():
     """Load the real X3DActionRecognizer once for the entire test session."""
 
-    model = X3DModel()
+    from core.enums import HumanActionRecognizerEnum
+
+    model = ActionAnalysis(model_name=HumanActionRecognizerEnum.X3D)
     model.start()
     return model
 

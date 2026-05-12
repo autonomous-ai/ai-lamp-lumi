@@ -11,8 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_emotion_model, set_emotion_model
-from core.emotion.emotion import EmotionModel
-from core.emotion.recognizer.emonet import EMOTIONS_8 as EMONET_EMOTIONS
+from core.perception.emotion.emotion import EmotionAnalysis
+from core.perception.emotion.recognizer.emonet import EMOTIONS_8 as EMONET_EMOTIONS
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -54,8 +54,10 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    """Load the real EmotionModel once for the entire test session."""
-    m = EmotionModel(emotion_model_path=EMONET_MODEL_PATH)
+    """Load the real EmotionAnalysis once for the entire test session."""
+    from core.enums import EmotionRecognizerEnum
+
+    m = EmotionAnalysis(model_name=EmotionRecognizerEnum.EMONET_8, emotion_model_path=EMONET_MODEL_PATH)
     m.start()
     return m
 

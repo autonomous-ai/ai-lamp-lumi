@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 import cv2
 
-from core.models import PersonDetection
+from core.models.person import PersonDetection
 
 logger = logging.getLogger(__name__)
 

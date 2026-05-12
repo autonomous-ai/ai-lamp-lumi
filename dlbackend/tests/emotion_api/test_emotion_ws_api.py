@@ -16,8 +16,8 @@ import pytest_asyncio
 import websockets
 from dotenv import load_dotenv
 
-from core.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
-from core.emotion.recognizer.emonet import EMOTIONS_8, EMOTIONS_5
+from core.perception.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
+from core.perception.emotion.recognizer.emonet import EMOTIONS_8, EMOTIONS_5
 
 _ = load_dotenv()
 

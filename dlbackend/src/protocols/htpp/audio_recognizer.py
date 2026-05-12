@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, model_validator
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from core.audio_recognition.audio_recognizer import (
+from core.perception.audio_recognition.audio_recognizer import (
     BaseAudioRecognizer,
     create_audio_recognizer,
 )
