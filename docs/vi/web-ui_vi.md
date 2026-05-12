@@ -102,7 +102,7 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 | Endpoint | Dữ liệu |
 |----------|---------|
 | `GET /api/system/info` | CPU load, RAM (KB), nhiệt độ, uptime, goroutines, version, deviceId |
-| `GET /api/system/network` | SSID, IP, signal (dBm), internet (bool) |
+| `GET /api/system/network` | SSID, IP, public IP, Tailscale IP, signal (dBm), internet (bool) |
 | `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool) |
 | `GET /api/openclaw/recent` | Các flow event mới nhất từ JSONL của ngày hiện tại (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | API flow theo file dùng cho seed/history của Flow |
@@ -141,7 +141,12 @@ Gồm các card:
 **Network**
 - SSID + Signal bars (4 mức dựa trên dBm)
 - IP address
+- Tailscale IP (chỉ hiện khi interface `tailscale0` có IPv4)
 - Internet status
+
+> Setup gate (`App.tsx`) tự redirect từ AP/host khác sang LAN IP của thiết bị,
+> nhưng bỏ qua redirect khi hostname nằm trong dải Tailscale CGNAT
+> `100.64.0.0/10` — truy cập qua Tailscale được coi là remote access có chủ ý.
 
 **Presence**
 - State (active/idle)

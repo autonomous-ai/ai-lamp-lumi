@@ -157,6 +157,12 @@ export function OverviewSection({
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>IP</span>
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-teal)" }}>{net.ip}</span>
               </div>
+              {net.tailscaleIp && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Tailscale</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-teal)" }}>{net.tailscaleIp}</span>
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Internet</span>
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: net.internet ? "var(--lm-green)" : "var(--lm-red)" }}>

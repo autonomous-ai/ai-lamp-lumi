@@ -1,6 +1,7 @@
 package http
 
 import (
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,24 +126,48 @@ func getPublicIP() string {
 	return ip
 }
 
+// getTailscaleIP reads the IPv4 address bound to the tailscale0 interface, or
+// empty string if Tailscale isn't running on the device.
+func getTailscaleIP() string {
+	iface, err := net.InterfaceByName("tailscale0")
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok {
+			if v4 := ipn.IP.To4(); v4 != nil {
+				return v4.String()
+			}
+		}
+	}
+	return ""
+}
+
 // NetworkInfo returns combined network status: SSID, IP, public IP, signal, internet.
 func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 	info := map[string]any{
-		"ssid":     "",
-		"ip":       "",
-		"publicIp": "",
-		"signal":   0,
-		"internet": false,
+		"ssid":        "",
+		"ip":          "",
+		"publicIp":    "",
+		"tailscaleIp": "",
+		"signal":      0,
+		"internet":    false,
 	}
 
-	if net, err := h.networkService.CurrentNetwork(); err == nil && net != nil {
-		info["ssid"] = net.SSID
-		info["signal"] = net.Signal
+	if netw, err := h.networkService.CurrentNetwork(); err == nil && netw != nil {
+		info["ssid"] = netw.SSID
+		info["signal"] = netw.Signal
 	}
 
 	if ip, err := h.networkService.GetCurrentIP(); err == nil {
 		info["ip"] = ip
 	}
+
+	info["tailscaleIp"] = getTailscaleIP()
 
 	// Quick internet check (non-blocking, use cached result if possible)
 	if ok, _ := h.networkService.CheckInternet(); ok {

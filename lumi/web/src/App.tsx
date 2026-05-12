@@ -7,6 +7,15 @@ import EditConfig from "@/pages/EditConfig";
 import GwConfig from "@/pages/GwConfig";
 import { checkInternet, getSetupStatus } from "@/lib/api";
 
+// Tailscale CGNAT range: 100.64.0.0/10 (100.64.0.0 – 100.127.255.255).
+function isTailscaleHost(host: string): boolean {
+  const m = host.match(/^(\d+)\.(\d+)\./);
+  if (!m) return false;
+  const a = parseInt(m[1], 10);
+  const b = parseInt(m[2], 10);
+  return a === 100 && b >= 64 && b <= 127;
+}
+
 // Setup gate: provisioned (online) → continue mode (Voice/Face enroll, TTS
 // preview), else initial mode (offline form for AP setup). When the user
 // lands on the AP IP (192.168.4.1) but the lamp already has a real LAN IP
@@ -24,11 +33,14 @@ function SetupGate() {
       if (cancelled) return;
       if (!ok) { setProvisioned(false); return; }
       // Online: see if we should redirect to the actual LAN IP first.
+      // Skip redirect when the user is already reaching the lamp via its
+      // Tailscale IP (CGNAT 100.64.0.0/10) — that's a deliberate remote-access
+      // path, not the AP-IP-after-setup case we're trying to fix.
       try {
         const s = await getSetupStatus();
         if (cancelled) return;
         const here = window.location.hostname;
-        if (s.lan_ip && s.lan_ip !== here) {
+        if (s.lan_ip && s.lan_ip !== here && !isTailscaleHost(here)) {
           window.location.replace(`http://${s.lan_ip}${window.location.pathname}${window.location.search}`);
           return;
         }
