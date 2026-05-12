@@ -27,7 +27,7 @@ const (
 	lumiMandatoryMarker = "<!-- LUMI DO NOT REMOVE -->"
 
 	agentsMDBlock = `<!-- LUMI DO NOT REMOVE -->
-**MANDATORY (hooks):** Before ANY reply, scan all hook directories under ` + "`hooks/`" + ` in your workspace — read each HOOK.md and follow its instructions.
+**Hooks** under ` + "`hooks/`" + ` are runtime triggers (handler.ts) that fire automatically on ` + "`message:preprocessed`" + ` before your turn begins. Their HOOK.md files are docstrings describing already-executed handlers — do NOT read them. Skipping HOOK.md reads removes one round-trip per turn with zero behavior change (turn-gate sets busy state, emotion-acknowledge fires the thinking emotion — both server-side, both unconditional).
 
 **MANDATORY (skills):** Before ANY reply, determine the skill scope:
   - If the message contains ` + "`[skills: a, b, c]`" + `, treat it as an authoritative whitelist — read ONLY those ` + "`skills/<name>/SKILL.md`" + ` files. Do NOT scan other skill directories "just in case".
