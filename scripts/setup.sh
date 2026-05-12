@@ -28,6 +28,25 @@ ensure_root() {
   fi
 }
 
+# Wrapper so a single stage failure doesn't abort the whole script — critical
+# for AP/recovery: stage_ap must always be reached so the device can re-provision
+# via WiFi even if app stages (lelamp/buddy/openclaw) fail.
+# Inside `if "$name"` bash suspends `set -e` for the function call, so failures
+# inside a stage propagate up as the function's exit code without aborting.
+FAILED_STAGES=""
+run_stage() {
+  local name=$1
+  echo ""
+  echo "[main] ==== $name ===="
+  if "$name"; then
+    echo "[main] ==== $name OK ===="
+  else
+    local rc=$?
+    echo "[main] !!!! $name FAILED (exit $rc) — continuing so AP/recovery can still be set up"
+    FAILED_STAGES="$FAILED_STAGES $name"
+  fi
+}
+
 # Optional: AP band and channel. Pi 5 Bookworm: firmware config is /boot/firmware/config.txt;
 # ensure dtoverlay=disable-wifi is not set or WiFi will stay off.
 AP_BAND="${AP_BAND:-2.4}"       # 2.4 or 5 (5 GHz for better throughput)
@@ -1101,17 +1120,17 @@ ensure_root
 systemctl stop lumi.service 2>/dev/null || true
 systemctl disable lumi.service 2>/dev/null || true
 
-stage_locale
-stage_prerequisites
-stage_rpi5_wifi_stability
-stage_enable_spi
-stage_ota_metadata
-stage_backend
-stage_lelamp
-stage_buddy
-stage_openclaw
-stage_nginx
-stage_ap
+run_stage stage_locale
+run_stage stage_prerequisites
+run_stage stage_rpi5_wifi_stability
+run_stage stage_enable_spi
+run_stage stage_ota_metadata
+run_stage stage_backend
+run_stage stage_lelamp
+run_stage stage_buddy
+run_stage stage_openclaw
+run_stage stage_nginx
+run_stage stage_ap
 
 # Disable global wpa_supplicant; only wpa_supplicant@wlan0 is used in STA mode
 systemctl stop wpa_supplicant.service 2>/dev/null || true
@@ -1121,10 +1140,15 @@ systemctl mask wpa_supplicant.service 2>/dev/null || true
 echo ""
 echo "======================================"
 echo "Setup complete!"
-echo "AP SSID: Lumi-XXXX (actual: $AP_SSID)"
+echo "AP SSID: Lumi-XXXX (actual: ${AP_SSID:-unknown — stage_ap may have failed})"
 echo "Setup page: http://192.168.100.1"
 echo "Backends: systemctl status bootstrap lumi lumi-lelamp lumi-buddy"
 echo "Updates:  software-update <bootstrap|lumi|openclaw|lelamp|lumi-buddy|web>"
+if [ -n "$FAILED_STAGES" ]; then
+  echo ""
+  echo "WARNING: the following stages FAILED:$FAILED_STAGES"
+  echo "Re-run setup.sh after fixing, or run individual stages manually."
+fi
 echo "======================================"
 
 echo ""
