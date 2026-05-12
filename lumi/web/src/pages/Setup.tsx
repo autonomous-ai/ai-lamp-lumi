@@ -57,6 +57,14 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   const urlParams = useSetupUrlParams(searchParams);
 
+  // When Lumi (golang) pushes provisioning credentials via query params, the
+  // operator only needs to pick a Wi-Fi — every other field is already filled.
+  // Treat presence of llm_api_key as the signal Lumi handed us a full config:
+  // hide the AI Brain / Channels / Language / TTS menu entries and keep those
+  // sections mounted (display:none) so their state still submits with the form.
+  // Gated to initial (AP) mode so editing on the LAN IP keeps the full menu.
+  const lumiPushedConfig = mode === "initial" && !!urlParams.llmApiKey;
+
   // Fixed order. STT (Deepgram) / MQTT are intentionally hidden — their
   // state is still wired up and submitted with empty or URL-prefilled
   // defaults, so re-adding a SectionCard + a SECTIONS entry brings them
@@ -76,6 +84,14 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     ] : []),
   ];
 
+  // When Lumi pushed config, the operator only needs Device + Wi-Fi visible —
+  // the rest are filled from URL and submitted silently. Sections remain in
+  // the DOM (see `lumiPushedConfig` display:none wrappers below) so values
+  // still flow through the form; we just hide the menu entries.
+  const visibleSections = lumiPushedConfig
+    ? SECTIONS.filter((s) => s.id === "device" || s.id === "wifi")
+    : SECTIONS;
+
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
@@ -88,7 +104,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const [setupPhase, setSetupPhase] = useState<"connecting" | "connected" | "failed">("connecting");
   const [setupLanIP, setSetupLanIP] = useState<string>("");
   const [setupErrorMsg, setSetupErrorMsg] = useState<string>("");
-  const [activeSection, setActiveSection] = useState<SectionId>("device");
+  const [activeSection, setActiveSection] = useState<SectionId>(lumiPushedConfig ? "wifi" : "device");
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
@@ -399,7 +415,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
       }}>
 
         <nav style={{ padding: "10px 0", flex: 1 }}>
-          {SECTIONS.map((s) => {
+          {visibleSections.map((s) => {
             const active = activeSection === s.id;
             // Show checks whenever a section's value is filled — including in
             // #force (initial) mode if the lamp already has saved config to
@@ -452,7 +468,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
           display: "none", overflowX: "auto", gap: 4, padding: "8px 12px",
           borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: "center",
         }}>
-          {SECTIONS.map((s) => {
+          {visibleSections.map((s) => {
             const active = activeSection === s.id;
             return (
               <button key={s.id} onClick={() => scrollTo(s.id)} style={{
@@ -619,44 +635,49 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                     uniqueNetworks={uniqueNetworks}
                   />
 
-                  <LLMSection
-                    active={activeSection === "llm"}
-                    llmLoaded={llmLoaded}
-                    llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
-                    llmUrl={llmUrl} setLlmUrl={setLlmUrl}
-                    llmModel={llmModel} setLlmModel={setLlmModel}
-                  />
+                  {/* When lumiPushedConfig is on, the four sections below are
+                      kept mounted but visually hidden — their state autofills
+                      from URL params and still flows through the form submit. */}
+                  <div style={lumiPushedConfig ? { display: "none" } : undefined}>
+                    <LLMSection
+                      active={lumiPushedConfig || activeSection === "llm"}
+                      llmLoaded={llmLoaded}
+                      llmApiKey={llmApiKey} setLlmApiKey={setLlmApiKey}
+                      llmUrl={llmUrl} setLlmUrl={setLlmUrl}
+                      llmModel={llmModel} setLlmModel={setLlmModel}
+                    />
 
-                  <ChannelSection
-                    active={activeSection === "channel"}
-                    channel={channel} setChannel={setChannel}
-                    channelLoaded={channelLoaded}
-                    teleToken={teleToken} setTeleToken={setTeleToken}
-                    teleUserId={teleUserId} setTeleUserId={setTeleUserId}
-                    slackBotToken={slackBotToken} setSlackBotToken={setSlackBotToken}
-                    slackAppToken={slackAppToken} setSlackAppToken={setSlackAppToken}
-                    slackUserId={slackUserId} setSlackUserId={setSlackUserId}
-                    discordBotToken={discordBotToken} setDiscordBotToken={setDiscordBotToken}
-                    discordGuildId={discordGuildId} setDiscordGuildId={setDiscordGuildId}
-                    discordUserId={discordUserId} setDiscordUserId={setDiscordUserId}
-                  />
+                    <ChannelSection
+                      active={lumiPushedConfig || activeSection === "channel"}
+                      channel={channel} setChannel={setChannel}
+                      channelLoaded={channelLoaded}
+                      teleToken={teleToken} setTeleToken={setTeleToken}
+                      teleUserId={teleUserId} setTeleUserId={setTeleUserId}
+                      slackBotToken={slackBotToken} setSlackBotToken={setSlackBotToken}
+                      slackAppToken={slackAppToken} setSlackAppToken={setSlackAppToken}
+                      slackUserId={slackUserId} setSlackUserId={setSlackUserId}
+                      discordBotToken={discordBotToken} setDiscordBotToken={setDiscordBotToken}
+                      discordGuildId={discordGuildId} setDiscordGuildId={setDiscordGuildId}
+                      discordUserId={discordUserId} setDiscordUserId={setDiscordUserId}
+                    />
 
-                  <LanguageSection
-                    active={activeSection === "language"}
-                    sttLanguage={sttLanguage} setSttLanguage={setSttLanguage}
-                  />
+                    <LanguageSection
+                      active={lumiPushedConfig || activeSection === "language"}
+                      sttLanguage={sttLanguage} setSttLanguage={setSttLanguage}
+                    />
 
-                  <TTSSection
-                    active={activeSection === "tts"}
-                    isContinue={isContinue}
-                    ttsProvider={ttsProvider} setTtsProvider={setTtsProvider}
-                    ttsProviders={ttsProviders}
-                    ttsVoice={ttsVoice} setTtsVoice={setTtsVoice}
-                    ttsVoices={ttsVoices}
-                    sttLanguage={sttLanguage}
-                    ttsApiKey={ttsApiKey} ttsBaseUrl={ttsBaseUrl}
-                    llmApiKey={llmApiKey} llmUrl={llmUrl}
-                  />
+                    <TTSSection
+                      active={lumiPushedConfig || activeSection === "tts"}
+                      isContinue={isContinue}
+                      ttsProvider={ttsProvider} setTtsProvider={setTtsProvider}
+                      ttsProviders={ttsProviders}
+                      ttsVoice={ttsVoice} setTtsVoice={setTtsVoice}
+                      ttsVoices={ttsVoices}
+                      sttLanguage={sttLanguage}
+                      ttsApiKey={ttsApiKey} ttsBaseUrl={ttsBaseUrl}
+                      llmApiKey={llmApiKey} llmUrl={llmUrl}
+                    />
+                  </div>
 
                   {isContinue && (
                     <VoiceSection
