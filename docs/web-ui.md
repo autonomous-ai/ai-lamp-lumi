@@ -141,7 +141,8 @@ Cards included:
 **Network**
 - SSID + Signal bars (4 levels based on dBm)
 - IP address
-- Tailscale IP (only shown when `tailscale0` interface has an IPv4 address)
+- Tailscale IP (only shown when `tailscale ip -4` returns an address — works
+  in both kernel and userspace-networking modes)
 - Internet status
 
 > The Setup gate (`App.tsx`) auto-redirects from AP/non-LAN hostnames to the

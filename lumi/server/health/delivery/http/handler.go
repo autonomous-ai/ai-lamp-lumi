@@ -1,7 +1,7 @@
 package http
 
 import (
-	"net"
+	"context"
 	"net/http"
 	"os"
 	"os/exec"
@@ -126,22 +126,20 @@ func getPublicIP() string {
 	return ip
 }
 
-// getTailscaleIP reads the IPv4 address bound to the tailscale0 interface, or
-// empty string if Tailscale isn't running on the device.
+// getTailscaleIP returns the device's Tailscale IPv4 address, or empty string
+// if Tailscale isn't installed/running. Shells out to `tailscale ip -4` —
+// the canonical source whether tailscaled is in kernel or userspace mode.
 func getTailscaleIP() string {
-	iface, err := net.InterfaceByName("tailscale0")
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tailscale", "ip", "-4").Output()
 	if err != nil {
 		return ""
 	}
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return ""
-	}
-	for _, a := range addrs {
-		if ipn, ok := a.(*net.IPNet); ok {
-			if v4 := ipn.IP.To4(); v4 != nil {
-				return v4.String()
-			}
+	// `tailscale ip -4` prints one IPv4 per line; take the first non-empty.
+	for _, line := range strings.Split(string(out), "\n") {
+		if ip := strings.TrimSpace(line); ip != "" {
+			return ip
 		}
 	}
 	return ""

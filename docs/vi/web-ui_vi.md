@@ -141,7 +141,8 @@ Gồm các card:
 **Network**
 - SSID + Signal bars (4 mức dựa trên dBm)
 - IP address
-- Tailscale IP (chỉ hiện khi interface `tailscale0` có IPv4)
+- Tailscale IP (chỉ hiện khi `tailscale ip -4` trả về địa chỉ — hoạt động
+  cả ở kernel mode lẫn userspace-networking mode)
 - Internet status
 
 > Setup gate (`App.tsx`) tự redirect từ AP/host khác sang LAN IP của thiết bị,
