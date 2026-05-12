@@ -371,6 +371,40 @@ func pickFiller(fired int, lastSpoken, lastToolName string) string {
 	return pickFrom(fallback, lastSpoken)
 }
 
+// classifyFillerPool reports which pool the given filler text came from,
+// purely for debug logging on the fire path. Looks up the text in the
+// tool pool, opening, and continuation lists (in that order) and returns
+// the first hit. Returned values: "tool:<name>", "opening", "continuation",
+// or "unknown" when the filler doesn't appear in any pool (shouldn't happen
+// unless pools were edited at runtime between pick and classify).
+func classifyFillerPool(filler, toolName string, fired int, lang string) string {
+	if filler == "" {
+		return "none"
+	}
+	if pool := toolPoolForLang(lang, toolName); poolContains(pool, filler) {
+		return "tool:" + toolName
+	}
+	opening, continuation := poolsForLang(lang)
+	if poolContains(opening, filler) {
+		return "opening"
+	}
+	if poolContains(continuation, filler) {
+		return "continuation"
+	}
+	return "unknown"
+}
+
+// poolContains is a tiny linear-scan helper; pools are at most ~12 entries
+// so a map lookup isn't worth the allocation churn.
+func poolContains(pool []string, s string) bool {
+	for _, p := range pool {
+		if p == s {
+			return true
+		}
+	}
+	return false
+}
+
 // pickFrom returns a random entry from pool. When the pool has more than
 // one entry it avoids returning lastSpoken so the same line doesn't fire
 // twice in a row within a turn.
@@ -580,12 +614,15 @@ func (fm *FillerManager) OnToolStart(runID, toolArgs, toolName string) {
 	defer fm.mu.Unlock()
 	run, ok := fm.runs[runID]
 	if !ok || run.ended {
+		slog.Debug("filler OnToolStart skipped — no active run", "component", "sensing", "run_id", runID, "tool", toolName)
 		return
 	}
 	if toolName != "" {
 		run.lastToolName = toolName
 	}
-	if !isHWReactionTool(toolArgs) {
+	hw := isHWReactionTool(toolArgs)
+	slog.Info("filler OnToolStart", "component", "sensing", "run_id", runID, "tool", toolName, "hw", hw, "fired", run.fired, "playing", run.playing, "timer_armed", run.timer != nil)
+	if !hw {
 		return
 	}
 	fm.softCancelLocked(run)
@@ -606,10 +643,12 @@ func (fm *FillerManager) OnToolEnd(runID string) {
 	defer fm.mu.Unlock()
 	run, ok := fm.runs[runID]
 	if !ok || run.ended {
+		slog.Debug("filler OnToolEnd skipped — no active run", "component", "sensing", "run_id", runID)
 		return
 	}
 	if run.playing {
 		run.rearmPending = true
+		slog.Info("filler OnToolEnd deferred (playing) — rearm after speak", "component", "sensing", "run_id", runID, "tool", run.lastToolName, "fired", run.fired)
 		return
 	}
 	delay := FillerDelay
@@ -621,6 +660,7 @@ func (fm *FillerManager) OnToolEnd(runID string) {
 			delay = (FillerCooldown - elapsed) + FillerDelay
 		}
 	}
+	slog.Info("filler OnToolEnd arming", "component", "sensing", "run_id", runID, "tool", run.lastToolName, "fired", run.fired, "delay_ms", delay.Milliseconds())
 	fm.armLocked(runID, run, delay)
 }
 
@@ -660,7 +700,20 @@ func (fm *FillerManager) Cancel(runID string) {
 // armLocked schedules a filler timer for run after delay. Caller holds fm.mu.
 // No-op when the run has ended, the cap is reached, or a timer/filler is already active.
 func (fm *FillerManager) armLocked(runID string, run *fillerRun, delay time.Duration) {
-	if run.ended || run.fired >= MaxFillersPerTurn || run.timer != nil || run.playing {
+	if run.ended {
+		slog.Debug("filler arm blocked — ended", "component", "sensing", "run_id", runID)
+		return
+	}
+	if run.fired >= MaxFillersPerTurn {
+		slog.Info("filler arm blocked — cap reached", "component", "sensing", "run_id", runID, "fired", run.fired, "cap", MaxFillersPerTurn)
+		return
+	}
+	if run.timer != nil {
+		slog.Debug("filler arm blocked — timer already pending", "component", "sensing", "run_id", runID)
+		return
+	}
+	if run.playing {
+		slog.Debug("filler arm blocked — currently playing", "component", "sensing", "run_id", runID)
 		return
 	}
 	run.timer = time.AfterFunc(delay, func() { fm.fire(runID) })
@@ -702,13 +755,22 @@ func (fm *FillerManager) fire(runID string) {
 		// Both pools empty after live edit. Bail without playing.
 		run.timer = nil
 		fm.mu.Unlock()
+		slog.Warn("filler fire bail — both pools empty", "component", "sensing", "run_id", runID, "tool", run.lastToolName)
 		return
 	}
 	run.timer = nil
 	run.playing = true
+	toolName := run.lastToolName
+	fired := run.fired
 	fm.mu.Unlock()
 
-	slog.Info("dead air filler firing", "component", "sensing", "run_id", runID, "filler", filler)
+	// Show whether the picked filler came from a tool-specific pool (matches
+	// what the agent is doing right now) or fell back to the generic
+	// Continuation pool (tool name unmapped). Speeds up "I didn't hear a
+	// filler for web_search" debugging — grep run_id, see pool=tool vs
+	// pool=continuation vs pool=opening at fire time.
+	pool := classifyFillerPool(filler, toolName, fired, i18n.Lang())
+	slog.Info("dead air filler firing", "component", "sensing", "run_id", runID, "filler", filler, "tool", toolName, "fired", fired, "pool", pool)
 	if err := lelamp.SpeakCachedInterruptible(filler); err != nil {
 		slog.Warn("dead air filler failed", "component", "sensing", "run_id", runID, "error", err)
 	}
