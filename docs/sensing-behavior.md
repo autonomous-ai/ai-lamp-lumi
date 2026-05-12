@@ -539,15 +539,14 @@ The sensing handler (`handler.go`) routes `emotion.detected` events to the agent
 The `user-emotion-detection/SKILL.md` handles `emotion.detected` events:
 
 1. Maps facial emotion → mood signal (e.g. Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed) and logs a `signal` row via `POST /api/mood/log`
-2. Picks one response route from a 4-row table (first match wins):
+2. Picks one response route from a 3-row table (first match wins):
    - **#1 `audio_playing == true`** → LED-only ack + `NO_REPLY` (don't talk over music)
-   - **#2 `last_suggestion_age_min ∈ [0, 7)`** → LED-only ack + `NO_REPLY` (shared 7-min cooldown across music + checkin)
-   - **#3 `suggestion_worthy == true` AND decision fresh** → **music** — gentle one-liner with genre pick via `music-suggestion/SKILL.md`
-   - **#4 anything else** → **checkin** — one soft open-ended line. See `user-emotion-detection/reference/checkin.md` for per-mood phrasing.
-3. **No silent route on emotion events.** Every emotion event ends in music, checkin, or an LED-only ack (rows #1–#2). The old "silent fallback" is gone — when music doesn't fit, the agent asks instead of staying quiet.
+   - **#2 `suggestion_worthy == true` AND decision fresh AND `last_suggestion_age_min ∉ [0, 7)`** → **music** — gentle one-liner with genre pick via `music-suggestion/SKILL.md`
+   - **#3 anything else** → **checkin** — one soft open-ended line. See `user-emotion-detection/reference/checkin.md` for per-mood phrasing.
+3. **Cooldown only gates music, never checkin.** When the 7-min cooldown is active, row #2 fails its third clause and the event falls through to checkin (row #3). The agent still asks "what's up?" — it just doesn't suggest music two times in a row. `NO_REPLY` only fires on row #1 (active audio playback).
 4. **Never greet on an emotion event.** `emotion.detected` is not a presence/arrival event — `sensing/SKILL.md` forbids openers like `hello`, `welcome back`, anything containing `again`. Greetings belong only to `presence.enter`.
 
-Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` with `trigger:"<genre>:<mood>"`; checkin logs the same endpoint with `trigger:"checkin:<mood>"`. `last_suggestion_age_min` reflects either channel, so back-to-back emotion events don't double-fire. Checkin tone must match the mood: `sad / stressed / frustrated` get the softest tone; `happy / excited` stay gentle-curious (no over-celebration); `tired / bored` stay light. Always prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` on checkin output.
+Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` with `trigger:"<genre>:<mood>"`; checkin logs the same endpoint with `trigger:"checkin:<mood>"`. `last_suggestion_age_min` reflects either channel, so a fresh music suggestion silences the music branch for 7 min but doesn't silence checkin. Checkin tone must match the mood: `sad / stressed / frustrated` get the softest tone; `happy / excited` stay gentle-curious (no over-celebration); `tired / bored` stay light. Always prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` on checkin output.
 
 ### Mood pipeline
 
