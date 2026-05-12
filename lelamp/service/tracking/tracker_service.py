@@ -63,7 +63,7 @@ DEAD_ZONE_PX = 12
 # Raised from 22 to 40: TrackerVit bbox naturally jitters ±30-50px between
 # frames, and a too-small wake zone caused a wake/settle/wake cycle every
 # 100ms. 40px is wider than natural jitter, so only real motion wakes it.
-WAKE_ZONE_PX = 40
+WAKE_ZONE_PX = 20
 
 # Maximum nudge per step (degrees) — prevents wild swings while allowing
 # catch-up on fast-moving objects. Tuned for TRACK_FPS=20.
@@ -121,7 +121,7 @@ DETECT_MIN_CONFIDENCE = 0.5     # reject detections under 0.5 (noise floor)
 CONFIDENCE_THRESHOLD = 0.3
 
 # How many consecutive low-confidence frames before stopping
-MAX_LOW_CONFIDENCE_FRAMES = 5
+MAX_LOW_CONFIDENCE_FRAMES = 10
 
 # Bbox jump threshold — if center moves more than this many pixels in one
 # frame, treat it as partial glitch: fall back to EMA-smoothed center so we
@@ -130,6 +130,12 @@ BBOX_JUMP_PX = 120
 
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU
 MAX_TRACK_DURATION_S = 300  # 5 minutes
+
+# 2-stage gimbal threshold — below this offset_mag, switch from arm to wrist.
+# Stage 1 (coarse): base_yaw + base_pitch + elbow correct, wrist holds.
+# Stage 2 (fine):   wrist_pitch corrects dy only, arm holds on pitch.
+WRIST_FINE_THRESHOLD_PX = 60
+WRIST_FINE_GAIN = 3.0  # wrist pitch gain — tune if over/undershoots
 
 # Servo position limits (degrees) — prevent runaway
 YAW_MIN, YAW_MAX = -135.0, 135.0
@@ -449,11 +455,13 @@ class TrackerService:
             self._track_base_pitch = init_pos.get("base_pitch.pos", 0.0)
             self._track_elbow_pitch = init_pos.get("elbow_pitch.pos", 0.0)
             self._track_wrist_pitch = init_pos.get("wrist_pitch.pos", 0.0)
+            self._track_wrist_roll = init_pos.get("wrist_roll.pos", 0.0)
         except Exception:
             self._track_yaw = 0.0
             self._track_base_pitch = 0.0
             self._track_elbow_pitch = 0.0
             self._track_wrist_pitch = 0.0
+            self._track_wrist_roll = 0.0
 
         prev_cx, prev_cy = None, None
         # EMA-smoothed center — reset on start, seeded with first raw center
@@ -499,11 +507,11 @@ class TrackerService:
                 # Detect bbox bloat — tracker drifting to full frame
                 bbox_area = bw * bh
                 frame_area = frame.shape[0] * frame.shape[1]
-                if init_area > 0 and bbox_area > init_area * 3:
+                if init_area > 0 and bbox_area > init_area * 10:
                     logger.warning("Bbox bloated to %.0fx initial (area=%d vs init=%d), stopping",
                                    bbox_area / init_area, bbox_area, init_area)
                     break
-                if bbox_area > frame_area * 0.5:
+                if bbox_area > frame_area * 0.8:
                     logger.warning("Bbox covers >50%% of frame (%d/%d), stopping",
                                    bbox_area, frame_area)
                     break
@@ -658,86 +666,105 @@ class TrackerService:
         cy_obj: float,
         animation_service,
     ) -> bool:
-        """Nudge servo toward EMA-smoothed object center.
+        """Route to arm or wrist nudge depending on how far object is from center.
 
-        Returns True if a servo command was actually dispatched, False if
-        the call was a no-op (settled / dead zone / clipped to zero / send
-        failed). The loop uses this to decide whether to sleep for servo
-        settle time before the next frame read.
+        - Far (offset_mag > WRIST_FINE_THRESHOLD_PX): arm corrects coarsely.
+        - Close (offset_mag ≤ WRIST_FINE_THRESHOLD_PX): wrist fine-centers.
+        Never fires both simultaneously — prevents overshoot/spin.
         """
         h, w = frame.shape[:2]
-        cx_frame = w / 2
-        cy_frame = h / 2
+        dx = cx_obj - w / 2
+        dy = cy_obj - h / 2
 
-        dx = cx_obj - cx_frame
-        dy = cy_obj - cy_frame
-
-        # Hysteresis: once settled, only wake when object moves far enough
         if self._settled:
             if abs(dx) < WAKE_ZONE_PX and abs(dy) < WAKE_ZONE_PX:
                 return False
             self._settled = False
-            logger.info("Tracking wake: object moved to offset (%.0f, %.0f)", dx, dy)
+            logger.info("Tracking wake: offset=(%.0f,%.0f)", dx, dy)
 
         if abs(dx) < DEAD_ZONE_PX and abs(dy) < DEAD_ZONE_PX:
             if not self._settled:
                 self._settled = True
-                logger.info("Tracking settled: object near center (%.0f, %.0f)", dx, dy)
+                logger.info("Tracking settled: offset=(%.0f,%.0f)", dx, dy)
             return False
 
-        # Adaptive gain: boost when object is far so we catch up quickly,
-        # fall back to base gain near center for smoothness.
+        offset_mag = (dx ** 2 + dy ** 2) ** 0.5
+        if offset_mag > WRIST_FINE_THRESHOLD_PX:
+            return self._nudge_arm(dx, dy, animation_service)
+        else:
+            return self._nudge_wrist(dx, dy, animation_service)
+
+    def _nudge_arm(self, dx: float, dy: float, animation_service) -> bool:
+        """Coarse correction: base_yaw + base_pitch + elbow. Wrist holds."""
         offset_max = max(abs(dx), abs(dy))
         gain_mult = ADAPTIVE_GAIN_MULT if offset_max > ADAPTIVE_GAIN_PX else 1.0
 
-        yaw_deg = dx * DEG_PER_PX_YAW * gain_mult
-        pitch_deg = dy * DEG_PER_PX_PITCH * gain_mult
-
-        yaw_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, yaw_deg))
-        pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, pitch_deg))
-
-        if abs(dx) < DEAD_ZONE_PX:
-            yaw_deg = 0
-        if abs(dy) < DEAD_ZONE_PX:
-            pitch_deg = 0
-
+        yaw_deg   = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, dx * DEG_PER_PX_YAW   * gain_mult))
+        pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, dy * DEG_PER_PX_PITCH * gain_mult))
+        if abs(dx) < DEAD_ZONE_PX: yaw_deg = 0
+        if abs(dy) < DEAD_ZONE_PX: pitch_deg = 0
         if yaw_deg == 0 and pitch_deg == 0:
             return False
 
         try:
-            new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + yaw_deg))
-
-            # Weighted pitch split — base leads the motion, elbow follows,
-            # wrist finishes. Avoids the 3-joint twitch of equal thirds.
-            new_base_pitch = max(BASE_PITCH_MIN, min(BASE_PITCH_MAX,
-                self._track_base_pitch + pitch_deg * PITCH_WEIGHT_BASE))
-            new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX,
-                self._track_elbow_pitch + pitch_deg * PITCH_WEIGHT_ELBOW))
-            new_wrist_pitch = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX,
-                self._track_wrist_pitch + pitch_deg * PITCH_WEIGHT_WRIST))
-
-            target = {
-                "base_yaw.pos": new_yaw,
-                "base_pitch.pos": new_base_pitch,
-                "elbow_pitch.pos": new_elbow_pitch,
-                "wrist_pitch.pos": new_wrist_pitch,
-            }
-
-            logger.debug(
-                "Nudge: px=(%.0f,%.0f) gain=%.1f deg=(%.2f,%.2f) yaw=%.1f→%.1f pitch=%.1f/%.1f/%.1f",
-                dx, dy, gain_mult, yaw_deg, pitch_deg,
-                self._track_yaw, new_yaw,
-                new_base_pitch, new_elbow_pitch, new_wrist_pitch,
-            )
+            new_yaw         = max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_deg))
+            new_base_pitch  = max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  + pitch_deg * PITCH_WEIGHT_BASE))
+            new_elbow_pitch = max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_deg * PITCH_WEIGHT_ELBOW))
 
             with animation_service.bus_lock:
-                animation_service.robot.send_action(target)
+                animation_service.robot.send_action({
+                    "base_yaw.pos":    new_yaw,
+                    "base_pitch.pos":  new_base_pitch,
+                    "elbow_pitch.pos": new_elbow_pitch,
+                })
 
+            logger.info(
+                "[arm] px=(%.0f,%.0f) gain=%.1f yaw=%.1f→%.1f base=%.1f→%.1f elbow=%.1f→%.1f",
+                dx, dy, gain_mult,
+                self._track_yaw, new_yaw,
+                self._track_base_pitch, new_base_pitch,
+                self._track_elbow_pitch, new_elbow_pitch,
+            )
             self._track_yaw = new_yaw
             self._track_base_pitch = new_base_pitch
             self._track_elbow_pitch = new_elbow_pitch
+            return True
+        except Exception as e:
+            logger.warning("Arm nudge failed: %s", e)
+            return False
+
+    def _nudge_wrist(self, dx: float, dy: float, animation_service) -> bool:
+        """Fine correction: wrist_pitch centers dy. Arm holds.
+
+        wrist_pitch+ = camera UP, so negate dy correction.
+        base_yaw still tracks dx (yaw is always needed).
+        """
+        yaw_deg   = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, dx * DEG_PER_PX_YAW))
+        pitch_deg = max(-MAX_NUDGE_DEG, min(MAX_NUDGE_DEG, dy * DEG_PER_PX_PITCH))
+        if abs(dx) < DEAD_ZONE_PX: yaw_deg = 0
+        if abs(dy) < DEAD_ZONE_PX: pitch_deg = 0
+        if yaw_deg == 0 and pitch_deg == 0:
+            return False
+
+        try:
+            new_yaw         = max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_deg))
+            new_wrist_pitch = max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_deg * WRIST_FINE_GAIN))
+
+            with animation_service.bus_lock:
+                animation_service.robot.send_action({
+                    "base_yaw.pos":    new_yaw,
+                    "wrist_pitch.pos": new_wrist_pitch,
+                })
+
+            logger.info(
+                "[wrist] px=(%.0f,%.0f) yaw=%.1f→%.1f wrist=%.1f→%.1f",
+                dx, dy,
+                self._track_yaw, new_yaw,
+                self._track_wrist_pitch, new_wrist_pitch,
+            )
+            self._track_yaw = new_yaw
             self._track_wrist_pitch = new_wrist_pitch
             return True
         except Exception as e:
-            logger.warning("Tracker nudge failed: %s", e)
+            logger.warning("Wrist nudge failed: %s", e)
             return False
