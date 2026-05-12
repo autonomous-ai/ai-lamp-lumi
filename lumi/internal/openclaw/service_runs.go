@@ -2,6 +2,7 @@ package openclaw
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"go-lamp.autonomous.ai/lib/flow"
@@ -85,7 +86,7 @@ func (s *Service) ConsumeWebChatRun(runID string) bool {
 	return ok
 }
 
-// pendingChatTTL bounds how long an unclaimed pending trace stays in the queue.
+// pendingChatTTL bounds how long an unclaimed pending trace stays around.
 // Longer than any realistic chat.send → lifecycle_start gap; short enough to
 // recover automatically if OpenClaw drops a lifecycle event.
 const pendingChatTTL = 2 * time.Minute
@@ -97,18 +98,31 @@ const pendingChatTTL = 2 * time.Minute
 // indefinitely; in practice lifecycle_start arrives in 1-3s.
 const pendingSendBusyWindow = 30 * time.Second
 
+// pruneStalePendingChatLocked drops entries older than pendingChatTTL.
+// Caller must hold pendingChatMu.
+func (s *Service) pruneStalePendingChatLocked() {
+	if len(s.pendingChatBuf) == 0 {
+		return
+	}
+	cutoff := time.Now().Add(-pendingChatTTL)
+	kept := s.pendingChatBuf[:0]
+	for _, p := range s.pendingChatBuf {
+		if p.sentAt.After(cutoff) {
+			kept = append(kept, p)
+		}
+	}
+	s.pendingChatBuf = kept
+}
+
 // HasFreshPendingChatSend returns true if any chat.send was issued within
 // pendingSendBusyWindow but has not yet been paired with lifecycle_start.
 // Used by IsBusy() to close the window between WS write and the agent
-// acknowledging the turn — without this, sensing events that arrive in that
-// gap slip past the gatekeeper, hit OpenClaw direct, and stack up in
-// OpenClaw's per-session queue (each pending turn waits 15-20s, producing
-// the 80-100s "openclaw init" delays seen in flow monitor).
+// acknowledging the turn.
 func (s *Service) HasFreshPendingChatSend() bool {
 	s.pendingChatMu.Lock()
 	defer s.pendingChatMu.Unlock()
 	cutoff := time.Now().Add(-pendingSendBusyWindow)
-	for _, p := range s.pendingChatQueue {
+	for _, p := range s.pendingChatBuf {
 		if p.sentAt.After(cutoff) {
 			return true
 		}
@@ -116,58 +130,91 @@ func (s *Service) HasFreshPendingChatSend() bool {
 	return false
 }
 
-// SetPendingChatTrace appends an idempotencyKey to the FIFO queue after a
-// successful chat.send. Paired one-to-one with lifecycle_start via
-// ConsumePendingChatTrace so OpenClaw's UUID maps back to the correct
-// device runId even under burst sends on the same session lane.
-func (s *Service) SetPendingChatTrace(runID string) {
+// SetPendingChatTrace records an outbound chat.send so that a later UUID
+// lifecycle can be mapped back via MatchPendingByMessage. The message text
+// must be exactly what was passed in the chat.send WS payload — chat.history
+// returns it verbatim and is matched against this field.
+func (s *Service) SetPendingChatTrace(runID string, message string) {
 	s.pendingChatMu.Lock()
-	s.pendingChatQueue = append(s.pendingChatQueue, pendingTrace{
-		runID:  runID,
-		sentAt: time.Now(),
+	s.pruneStalePendingChatLocked()
+	s.pendingChatBuf = append(s.pendingChatBuf, pendingTrace{
+		runID:   runID,
+		message: message,
+		sentAt:  time.Now(),
 	})
 	s.pendingChatMu.Unlock()
 }
 
-// ConsumePendingChatTrace pops the head of the pending queue, dropping any
-// stale entries (> pendingChatTTL) from the head first. Returns "" when the
-// queue is empty.
-func (s *Service) ConsumePendingChatTrace() string {
-	s.pendingChatMu.Lock()
-	defer s.pendingChatMu.Unlock()
-	for len(s.pendingChatQueue) > 0 && time.Since(s.pendingChatQueue[0].sentAt) > pendingChatTTL {
-		s.pendingChatQueue = s.pendingChatQueue[1:]
-	}
-	if len(s.pendingChatQueue) == 0 {
-		return ""
-	}
-	head := s.pendingChatQueue[0]
-	s.pendingChatQueue = s.pendingChatQueue[1:]
-	return head.runID
-}
-
 // RemovePendingChatTraceByRunID removes the entry whose runID matches target.
 // Used on lifecycle_start when payload.RunID is already a Lumi-format
-// idempotencyKey (OpenClaw 5.4 echo path) — the runId IS the device trace,
-// no mapping is needed, but the entry must be cleared from the queue so the
-// next UUID lifecycle pop targets the correct successor instead of an
-// orphan that would shift every subsequent mapping by one.
-// Returns true if found+removed, false otherwise. Stale entries (> TTL) are
-// pruned from the head opportunistically while scanning.
+// idempotencyKey (5.4+ echo path) — the runId IS the device trace, no
+// mapping needed, but the entry must be cleared so MatchPendingByMessage
+// doesn't pick it up for a later UUID lifecycle with the same message.
+// Returns true if found+removed.
 func (s *Service) RemovePendingChatTraceByRunID(target string) bool {
 	if target == "" {
 		return false
 	}
 	s.pendingChatMu.Lock()
 	defer s.pendingChatMu.Unlock()
-	for len(s.pendingChatQueue) > 0 && time.Since(s.pendingChatQueue[0].sentAt) > pendingChatTTL {
-		s.pendingChatQueue = s.pendingChatQueue[1:]
-	}
-	for i, p := range s.pendingChatQueue {
+	s.pruneStalePendingChatLocked()
+	for i, p := range s.pendingChatBuf {
 		if p.runID == target {
-			s.pendingChatQueue = append(s.pendingChatQueue[:i], s.pendingChatQueue[i+1:]...)
+			s.pendingChatBuf = append(s.pendingChatBuf[:i], s.pendingChatBuf[i+1:]...)
 			return true
 		}
 	}
 	return false
+}
+
+// MatchPendingByMessage finds and removes the pending entry whose message
+// matches needle (after trim). Used when a UUID lifecycle arrives: Lumi
+// fetches chat.history, extracts the last user message text, and calls this
+// to recover the original idempotencyKey — replacing the brittle FIFO
+// send-order mapping. Returns "" if no match.
+//
+// Matching strategy:
+//  1. Exact trimmed equality (covers the common case).
+//  2. Prefix match on the first 256 chars (in case OpenClaw normalizes
+//     trailing whitespace or appends metadata).
+//
+// When multiple entries share the same message body (e.g. user typed "Hello"
+// twice), the OLDEST matching entry is returned — that's the one most likely
+// to have been drained first by OpenClaw's queue. This is the only place FIFO
+// ordering still influences mapping, and only within a same-text subset.
+func (s *Service) MatchPendingByMessage(needle string) string {
+	needle = strings.TrimSpace(needle)
+	if needle == "" {
+		return ""
+	}
+	s.pendingChatMu.Lock()
+	defer s.pendingChatMu.Unlock()
+	s.pruneStalePendingChatLocked()
+	if len(s.pendingChatBuf) == 0 {
+		return ""
+	}
+	prefixLen := len(needle)
+	if prefixLen > 256 {
+		prefixLen = 256
+	}
+	needlePrefix := needle[:prefixLen]
+
+	bestIdx := -1
+	for i, p := range s.pendingChatBuf {
+		stored := strings.TrimSpace(p.message)
+		if stored == needle {
+			bestIdx = i
+			break
+		}
+		if bestIdx < 0 && len(stored) >= prefixLen && stored[:prefixLen] == needlePrefix {
+			bestIdx = i
+			// keep scanning for an exact match
+		}
+	}
+	if bestIdx < 0 {
+		return ""
+	}
+	matched := s.pendingChatBuf[bestIdx].runID
+	s.pendingChatBuf = append(s.pendingChatBuf[:bestIdx], s.pendingChatBuf[bestIdx+1:]...)
+	return matched
 }

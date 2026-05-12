@@ -298,6 +298,46 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		slog.Info("sessions.subscribe sent", "component", "openclaw")
 	}
 
+	// Event handler runs in a worker goroutine so it does not block the read
+	// loop. This matters because the handler may call FetchChatHistory (a WS
+	// RPC) — if the read loop is stuck inside the handler waiting for the RPC
+	// response, the response frame never gets read, and the call deadlocks.
+	// With the worker model, the read loop keeps consuming frames and routes
+	// the response to dispatchRPCResponse independently, unblocking the
+	// pending RPC inside the handler.
+	//
+	// The channel is buffered to absorb short bursts; if the handler stalls
+	// past the buffer, the read loop blocks on send (back-pressure) instead
+	// of dropping events — order is preserved end-to-end.
+	const eventChanBuf = 64
+	eventCh := make(chan domain.WSEvent, eventChanBuf)
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("ws handler panic — worker exiting", "component", "openclaw", "panic", r)
+			}
+		}()
+		for evt := range eventCh {
+			if handler == nil {
+				continue
+			}
+			if err := handler(ctx, evt); err != nil {
+				slog.Error("ws handler error", "component", "openclaw", "event", evt.Event, "error", err)
+				// Do not exit on handler error — keep processing subsequent
+				// events. Read loop exit is driven by socket error or ctx.
+			}
+		}
+	}()
+	// Stop the worker when this read loop returns (socket error, ctx done,
+	// or reconnect path). Drain ensures the next iteration of startWS gets a
+	// fresh worker.
+	defer func() {
+		close(eventCh)
+		<-handlerDone
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -338,17 +378,23 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			}
 		}
 
-		// Dispatch RPC responses to pending callers before event handling.
+		// Dispatch RPC responses to pending callers immediately in the read
+		// loop. This must happen before pushing to eventCh: chat.history and
+		// other RPCs called from inside the handler block on pendingRPC
+		// channels, which can only be delivered here.
 		s.dispatchRPCResponse(msg)
 
 		var evt domain.WSEvent
 		if err := json.Unmarshal(msg, &evt); err != nil {
 			continue
 		}
-		if handler != nil {
-			if err := handler(ctx, evt); err != nil {
-				return err
-			}
+		// Push to worker. Blocks only if buffer is full (handler is far
+		// behind) — back-pressure is preferable to dropping events because
+		// it preserves order and surfaces handler slowdowns as latency.
+		select {
+		case eventCh <- evt:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }
