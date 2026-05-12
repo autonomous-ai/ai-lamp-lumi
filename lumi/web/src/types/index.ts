@@ -35,6 +35,8 @@ export interface SetupRequest {
   tts_provider?: string;
   tts_voice?: string;
   device_id?: string;
+  /** Hardware-derived ID (Lumi-XXXX from Pi serial / eth MAC). Read-only — set by lumi at runtime. */
+  mac?: string;
   /** MQTT (optional): empty endpoint means MQTT disabled, auto-fetched via ping */
   mqtt_endpoint?: string;
   mqtt_port?: number;

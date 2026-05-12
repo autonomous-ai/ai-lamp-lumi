@@ -82,6 +82,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
+  const [mac, setMac] = useState("");
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
@@ -209,14 +210,21 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // bounce straight to /monitor — Setup has nothing left to ask for.
   const autoScrolledRef = useRef(false);
   useEffect(() => {
-    if (!isContinue || autoScrolledRef.current) return;
+    if (!isContinue) return;
     if (!llmApiKey) return; // wait until config has loaded
     const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts", "voice", "face"];
+    // Redirect any time all required sections become done — including later
+    // ticks when async data (e.g. faceOwners) arrives after first paint. This
+    // path is NOT gated by autoScrolledRef on purpose; otherwise the first
+    // effect run (before faceOwners loaded) sets the ref and the redirect
+    // never fires once enrollment counts come back.
     if (required.every((id) => sectionDone[id])) {
-      autoScrolledRef.current = true;
       navigate("/monitor", { replace: true });
       return;
     }
+    // Scroll-to-first-pending should fire only once per mount so we don't
+    // yank the user back when they navigate ahead manually.
+    if (autoScrolledRef.current) return;
     const order: SectionId[] = ["device", "wifi", "llm", "channel", "language", "tts", "voice", "face"];
     const next = order.find((id) => !sectionDone[id]) ?? "tts";
     setActiveSection(next);
@@ -238,7 +246,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   useConfigPrefill({
     urlParams, channelParam,
-    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setActiveSection,
+    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setMac, setActiveSection,
     setLlmApiKey, setLlmUrl, setLlmModel, setLlmLoaded, setLlmDisableThinking,
     setTtsApiKey, setTtsBaseUrl,
     setChannelLoaded,
@@ -579,6 +587,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                   <DeviceSection
                     active={activeSection === "device"}
                     deviceId={deviceId} setDeviceId={setDeviceId}
+                    mac={mac}
                   />
 
                   <WifiSection

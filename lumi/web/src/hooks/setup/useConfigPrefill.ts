@@ -18,6 +18,7 @@ export function useConfigPrefill(args: {
   setSsid: Dispatch<SetStateAction<string>>;
   setPassword: Dispatch<SetStateAction<string>>;
   setDeviceId: Dispatch<SetStateAction<string>>;
+  setMac: Dispatch<SetStateAction<string>>;
   setActiveSection: Dispatch<SetStateAction<SectionId>>;
   setLlmApiKey: Dispatch<SetStateAction<string>>;
   setLlmUrl: Dispatch<SetStateAction<string>>;
@@ -46,7 +47,7 @@ export function useConfigPrefill(args: {
 }) {
   const {
     urlParams, channelParam,
-    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setActiveSection,
+    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setMac, setActiveSection,
     setLlmApiKey, setLlmUrl, setLlmModel, setLlmLoaded, setLlmDisableThinking,
     setTtsApiKey, setTtsBaseUrl,
     setChannelLoaded,
@@ -68,6 +69,8 @@ export function useConfigPrefill(args: {
       setSsid((prev) => prev || cfg.network_ssid || "");
       setPassword((prev) => prev || cfg.network_password || "");
       setDeviceId((prev) => prev || cfg.device_id || "");
+      // Mac is hardware-derived and read-only; just mirror it from the backend.
+      setMac(cfg.mac || "");
       // If Device ID is already provisioned (hardware-derived or saved), the
       // operator has nothing to fill there — jump straight to Wi-Fi. Don't
       // override an explicit user selection in progress.

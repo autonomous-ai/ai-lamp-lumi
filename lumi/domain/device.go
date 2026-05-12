@@ -303,6 +303,7 @@ type ConfigResponse struct {
 	TTSProvider        string `json:"tts_provider"`
 	TTSVoice           string `json:"tts_voice"`
 	DeviceID           string `json:"device_id"`
+	Mac                string `json:"mac"`
 	NetworkSSID        string `json:"network_ssid"`
 	NetworkPassword    string `json:"network_password"`
 	MQTTEndpoint       string `json:"mqtt_endpoint"`
