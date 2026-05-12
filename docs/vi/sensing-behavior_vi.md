@@ -507,11 +507,11 @@ Sensing handler (`handler.go`) route `emotion.detected` events tới agent. Khi 
 2. Chọn 1 response route từ bảng 3 row (first match wins):
    - **#1 `audio_playing == true`** → LED ack + `NO_REPLY` (đang có nhạc, không nói chồng lên)
    - **#2 `suggestion_worthy == true` AND decision fresh AND `last_suggestion_age_min ∉ [0, 7)`** → **music** — 1 câu nhẹ kèm genre, xem `music-suggestion/SKILL.md`
-   - **#3 còn lại** → **checkin** — 1 câu mở nhẹ. Xem `user-emotion-detection/reference/checkin.md` cho phrasing theo mood.
+   - **#3 còn lại** → **checkin** — 1 phản ứng người ngắn. Xem `user-emotion-detection/reference/checkin.md` cho example theo raw FER label (Sad/Fear/Angry/Disgust/Happy/Surprise), mỗi label có 3 style: Ask/Comfort/Invite. Examples chỉ là gợi ý — agent tự improvise mỗi turn.
 3. **Cooldown chỉ chặn music, không chặn checkin.** Khi cooldown 7 phút còn hiệu lực, row #2 fail vế thứ ba và event rơi xuống checkin (row #3). Agent vẫn hỏi "có chuyện gì" — chỉ không suggest nhạc 2 lần liên tiếp. `NO_REPLY` chỉ xảy ra ở row #1 (đang phát nhạc).
 4. **Không bao giờ chào trên emotion event.** `emotion.detected` không phải presence/arrival event — `sensing/SKILL.md` cấm openers như `hello`, `welcome back`, mọi câu chứa `again`. Greeting chỉ dành cho `presence.enter`.
 
-Cả 2 route share chung 1 cooldown: music log qua `POST /api/music-suggestion/log` với `trigger:"<genre>:<mood>"`; checkin log cùng endpoint với `trigger:"checkin:<mood>"`. `last_suggestion_age_min` phản ánh cả 2 kênh nên music suggestion mới sẽ im lặng nhánh music trong 7 phút, nhưng checkin vẫn fire. Tone checkin phải khớp mood: `sad / stressed / frustrated` dùng tone mềm nhất; `happy / excited` giữ tò mò nhẹ (không over-celebration); `tired / bored` giữ nhẹ. Output checkin luôn prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`.
+Cả 2 route share chung 1 cooldown: music log qua `POST /api/music-suggestion/log` với `trigger:"<genre>:<mood>"` (mood bucket); checkin log cùng endpoint với `trigger:"checkin:<emotion>"` (raw FER label). `last_suggestion_age_min` phản ánh cả 2 kênh nên music suggestion mới sẽ im lặng nhánh music trong 7 phút, nhưng checkin vẫn fire. Checkin phrasing keyed theo raw emotion (không phải mood) — mỗi FER label có 3 style: Ask / Comfort / Invite. Xem `reference/checkin.md`. Output checkin luôn prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`.
 
 ### Mood pipeline
 
