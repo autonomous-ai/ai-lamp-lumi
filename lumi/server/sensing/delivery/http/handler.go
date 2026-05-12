@@ -359,6 +359,18 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		}
 		// Reply-hygiene rules live inside the respective SKILL.md files.
 		switch req.Type {
+		case "presence.enter":
+			// Pre-fetch how long since the user was last seen so sensing/SKILL.md
+			// can swap to a "return after long absence" greeting without a tool
+			// turn. BuildPresenceContext skips strangers (unknown) — the
+			// existing curious/scanning greeting still applies to them.
+			currentUser := req.CurrentUser
+			if currentUser == "" {
+				currentUser = mood.CurrentUser()
+			}
+			if currentUser != "" {
+				msg += skillcontext.BuildPresenceContext(currentUser)
+			}
 		case "presence.leave", "presence.away":
 			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
 		case "motion.activity":
