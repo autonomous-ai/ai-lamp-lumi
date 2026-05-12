@@ -43,6 +43,11 @@ func (c *Client) Ping(token string, payload PingPayload) (*PingResponse, error) 
 	if base == "" || token == "" {
 		return nil, nil
 	}
+	// LLMBaseURL is configured with a trailing /v1 for OpenAI-compat LLM calls
+	// (e.g. {base}/chat/completions). The autonomous /ping endpoint lives one
+	// level above that — POST /api/v1/ai/ping (per docs/mqtt_specs_autonomous.md).
+	// Strip a single trailing /v1 so we hit the correct route.
+	base = strings.TrimSuffix(base, "/v1")
 	pingURL := base + "/ping"
 	if strings.TrimSpace(c.config.MQTTEndpoint) == "" {
 		pingURL += "?mqtt=true"
