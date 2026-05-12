@@ -12,6 +12,7 @@ Workflow:
 
 import base64
 import logging
+import math
 import os
 import queue
 import threading
@@ -58,7 +59,7 @@ ADAPTIVE_GAIN_PX = 60
 ADAPTIVE_GAIN_MULT = 2.0
 
 # Dead zone in pixels — no servo command if offset is within this radius.
-DEAD_ZONE_PX = 10
+DEAD_ZONE_PX = 7
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
@@ -84,12 +85,23 @@ MOTION_SETTLE_FRAMES = 2
 
 # Cooldown after servo fire (seconds) — ignore motion detection while camera
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
-SERVO_COOLDOWN_S = 0.25
+SERVO_COOLDOWN_S = 0.10
+
+# Smooth sub-stepping: split large servo moves into chunks ≤ SERVO_SUBSTEP_DEG.
+# Each chunk fires then waits SERVO_SUBSTEP_SLEEP — ramps smoothly, no camera shake.
+SERVO_SUBSTEP_DEG   = 10.0   # max degrees per sub-step
+SERVO_SUBSTEP_SLEEP = 0.02   # seconds between sub-steps
 
 # Pitch distribution across 3 joints.
-PITCH_WEIGHT_BASE = 0.55
-PITCH_WEIGHT_ELBOW = 0.30
-PITCH_WEIGHT_WRIST = 0.15
+# base_pitch: ~30° range, primary. elbow: ~11° range, limited. wrist: ~90°+ range, sign negated.
+PITCH_WEIGHT_BASE  = 0.10
+PITCH_WEIGHT_ELBOW = 0.35
+PITCH_WEIGHT_WRIST = 0.55
+
+# Edge proximity boost — when object nears frame edge, multiply correction
+# to pull it back toward center before it exits the frame.
+EDGE_BOOST_THRESHOLD = 0.30   # fraction of frame (30%)
+EDGE_BOOST_MULT      = 1.5
 
 # Maximum tracking duration (seconds) — auto-stop to save motor/CPU.
 MAX_TRACK_DURATION_S = 300  # 5 minutes
@@ -102,7 +114,7 @@ WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
 
 # YOLOWorld detection quality filters.
 DETECT_MIN_AREA_RATIO = 0.003
-DETECT_MAX_AREA_RATIO = 0.40
+DETECT_MAX_AREA_RATIO = 0.80
 DETECT_MIN_CONFIDENCE = 0.45
 
 
@@ -148,6 +160,8 @@ class TrackerService:
             return None
 
         url = DL_BACKEND_URL.rstrip("/") + "/" + _YOLO_ENDPOINT.strip("/")
+        logger.info("[tracking_yolo_request] target='%s' url=%s", target, url)
+        t_req = time.perf_counter()
         try:
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
             img_b64 = base64.b64encode(buf.tobytes()).decode()
@@ -202,7 +216,10 @@ class TrackerService:
             x = int(cx - w / 2)
             y = int(cy - h / 2)
             bbox = (x, y, int(w), int(h))
+            latency_ms = (time.perf_counter() - t_req) * 1000
             logger.info("YOLOWorld: '%s' found at bbox=%s conf=%.3f", target, bbox, best["confidence"])
+            logger.info("[tracking_yolo_response] target='%s' found=True bbox=%s conf=%.3f latency=%.0fms",
+                        target, bbox, best["confidence"], latency_ms)
             return bbox
         except Exception as e:
             logger.error("YOLOWorld detect failed: %s", e)
@@ -322,19 +339,20 @@ class TrackerService:
 
         logger.info("Tracking stopped: '%s'", self._state.target_label)
 
-    def _fire_gimbal(self, dx: float, dy: float, frame_width: int, animation_service) -> float:
+    def _fire_gimbal(self, dx: float, dy: float, frame_width: int, frame_height: int, animation_service) -> float:
         """Send one proportional gimbal correction toward the target offset.
 
         Args:
             dx: horizontal pixel offset from frame center (+ = right).
             dy: vertical pixel offset from frame center (+ = below center).
-            frame_width: frame width in pixels (used for deg/px conversion).
+            frame_width: frame width in pixels.
+            frame_height: frame height in pixels (used for edge boost).
             animation_service: provides bus_lock and robot.send_action().
 
         Returns:
             Servo command round-trip time in milliseconds.
         """
-        target = self._compute_gimbal_target(dx, dy, frame_width)
+        target = self._compute_gimbal_target(dx, dy, frame_width, frame_height)
         logger.info(
             "[servo-pending] yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f offset=(%.0f,%.0f)",
             self._track_yaw, target["base_yaw.pos"],
@@ -344,32 +362,53 @@ class TrackerService:
         )
         return self._send_gimbal_target(target, animation_service)
 
-    def _compute_gimbal_target(self, dx: float, dy: float, frame_width: int) -> dict:
+    def _compute_gimbal_target(self, dx: float, dy: float, frame_width: int, _frame_height: int = 480) -> dict:
         """Compute target servo positions from pixel offset — no API call."""
         offset_mag = (dx ** 2 + dy ** 2) ** 0.5
         step_cap = GIMBAL_MAX_STEP * (ADAPTIVE_GAIN_MULT if offset_mag > ADAPTIVE_GAIN_PX else 1.0)
         deg_per_px = CAMERA_FOV_DEG / frame_width
+
         yaw_step    = max(-step_cap, min(step_cap, GIMBAL_GAIN * dx * deg_per_px))
         pitch_total = max(-step_cap, min(step_cap, GIMBAL_GAIN * dy * deg_per_px))
         return {
             "base_yaw.pos":    max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_step)),
             "base_pitch.pos":  max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  + pitch_total * PITCH_WEIGHT_BASE)),
             "elbow_pitch.pos": max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_total * PITCH_WEIGHT_ELBOW)),
-            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch + pitch_total * PITCH_WEIGHT_WRIST)),
+            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_total * PITCH_WEIGHT_WRIST)),
         }
 
     def _send_gimbal_target(self, target: dict, animation_service) -> float:
-        """Call servo API with pre-computed target. Returns command time in ms."""
+        """Send servo to target via smooth sub-steps ≤ SERVO_SUBSTEP_DEG each.
+
+        Splits the move into N equal chunks and fires each with a short pause —
+        prevents camera shake from abrupt jumps. Returns total command time in ms.
+        """
+        start = {
+            "base_yaw.pos":    self._track_yaw,
+            "base_pitch.pos":  self._track_base_pitch,
+            "elbow_pitch.pos": self._track_elbow_pitch,
+            "wrist_pitch.pos": self._track_wrist_pitch,
+        }
+        deltas = {k: target[k] - start[k] for k in start}
+        max_delta = max(abs(v) for v in deltas.values())
+        n_steps = max(1, math.ceil(max_delta / SERVO_SUBSTEP_DEG))
+
         t0 = time.perf_counter()
-        with animation_service.bus_lock:
-            animation_service.robot.send_action(target)
+        for i in range(1, n_steps + 1):
+            alpha = i / n_steps
+            step = {k: start[k] + deltas[k] * alpha for k in start}
+            with animation_service.bus_lock:
+                animation_service.robot.send_action(step)
+            if i < n_steps:
+                time.sleep(SERVO_SUBSTEP_SLEEP)
         t_ms = (time.perf_counter() - t0) * 1000
+
         logger.info(
-            "[servo-actual] FIRE yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f cmd=%.0fms",
-            self._track_yaw, target["base_yaw.pos"],
-            self._track_base_pitch, target["base_pitch.pos"],
-            self._track_elbow_pitch, target["elbow_pitch.pos"],
-            t_ms,
+            "[servo-actual] FIRE yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f steps=%d cmd=%.0fms",
+            start["base_yaw.pos"], target["base_yaw.pos"],
+            start["base_pitch.pos"], target["base_pitch.pos"],
+            start["elbow_pitch.pos"], target["elbow_pitch.pos"],
+            n_steps, t_ms,
         )
         self._track_yaw         = target["base_yaw.pos"]
         self._track_base_pitch  = target["base_pitch.pos"]
@@ -456,6 +495,8 @@ class TrackerService:
             t_yolo_ms = (time.perf_counter() - t0_yolo) * 1000
             logger.info("[yolo-bg] detect=%.0fms result=%s bbox=%s target='%s'",
                         t_yolo_ms, "found" if result is not None else "missed", result, state.target_label)
+            if result is None:
+                logger.info("[tracking_yolo_response] target='%s' found=False latency=%.0fms", state.target_label, t_yolo_ms)
             try:
                 yolo_q.put_nowait(result)
             except queue.Full:
@@ -527,6 +568,27 @@ class TrackerService:
                     ema_dy = EMA_ALPHA * raw_dy + (1.0 - EMA_ALPHA) * ema_dy
                 dx, dy = float(ema_dx), float(ema_dy)
 
+                # --- tracking_object log: position, motion, direction ---
+                offset_mag = (dx ** 2 + dy ** 2) ** 0.5
+                screen_x_pct = (cx_obj / w_fr) * 100
+                screen_y_pct = (cy_obj / h_fr) * 100
+                quadrant = ("TOP" if dy < 0 else "BOT") + "_" + ("LEFT" if dx < 0 else "RIGHT")
+                if prev_dx is not None and prev_dy is not None:
+                    ddx, ddy = dx - prev_dx, dy - prev_dy
+                    if (ddx ** 2 + ddy ** 2) ** 0.5 > 2:
+                        angle = ["→", "↗", "↑", "↖", "←", "↙", "↓", "↘"]
+                        import math as _math
+                        sector = int((_math.degrees(_math.atan2(-ddy, ddx)) + 180 + 22.5) / 45) % 8
+                        direction = angle[sector]
+                    else:
+                        direction = "·"
+                    moving_str = motion_state
+                else:
+                    direction, moving_str = "·", "INIT"
+                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%%",
+                            state.target_label, screen_x_pct, screen_y_pct, quadrant,
+                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
+
                 # --- Motion state machine ---
                 # During cooldown: accumulate stable_count but suppress firing.
                 # This way when cooldown expires and object is already settled,
@@ -558,7 +620,7 @@ class TrackerService:
                             else:
                                 logger.info("[motion] STILL offset=(%.0f,%.0f) → FIRE servo target='%s'",
                                             dx, dy, state.target_label)
-                                t_servo_ms = self._fire_gimbal(dx, dy, w_fr, animation_service)
+                                t_servo_ms = self._fire_gimbal(dx, dy, w_fr, h_fr, animation_service)
                                 t_servo_acc += t_servo_ms
                                 servo_count += 1
                                 last_servo_t = time.perf_counter()
@@ -636,6 +698,19 @@ class TrackerService:
                         csrt_avg, servo_avg, servo_count,
                         frame_avg, dx, dy, state.bbox, state.target_label,
                     )
+                    # System metrics snapshot
+                    try:
+                        import subprocess as _sp
+                        cpu = float(open("/proc/loadavg").read().split()[0])
+                        mem_info = open("/proc/meminfo").read()
+                        mem_total = int(next(l.split()[1] for l in mem_info.splitlines() if "MemTotal" in l))
+                        mem_avail = int(next(l.split()[1] for l in mem_info.splitlines() if "MemAvailable" in l))
+                        mem_used_pct = (mem_total - mem_avail) / mem_total * 100
+                        volt = _sp.check_output(["vcgencmd", "measure_volts", "core"],
+                                                stderr=_sp.DEVNULL, text=True).strip()
+                        logger.info("[tracking_system] cpu_load1=%.2f ram_used=%.0f%% voltage=%s", cpu, mem_used_pct, volt)
+                    except Exception:
+                        pass
                     frame_count = 0
                     t_csrt_acc = 0.0
                     t_servo_acc = 0.0
