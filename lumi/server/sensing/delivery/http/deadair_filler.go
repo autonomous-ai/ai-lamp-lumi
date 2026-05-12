@@ -471,7 +471,38 @@ func PrewarmFillers() {
 	opening, continuation := poolsForLang(lang)
 	all := append([]string{}, opening...)
 	all = append(all, continuation...)
+	// Also prerender tool-specific filler phrases. Without this, the first
+	// fire of a tool-aware filler (e.g. "Đang tra mạng" when web_search
+	// runs) hits ElevenLabs live (~1-2s render) and the resulting late
+	// audio races against the assistant TTS that follows — user perceives
+	// it as the filler getting cut off / TTS being suppressed.
+	var toolPools map[string][]string
+	switch lang {
+	case "vi":
+		toolPools = ToolFillersVI
+	case "zh-CN":
+		toolPools = ToolFillersZhCN
+	case "zh-TW":
+		toolPools = ToolFillersZhTW
+	default:
+		toolPools = ToolFillersEN
+	}
+	for _, phrases := range toolPools {
+		all = append(all, phrases...)
+	}
 	all = append(all, intent.CacheableReplies...)
+	// Dedup so overlapping phrases (e.g. between a tool pool and the
+	// generic Continuation pool) only prerender once per language.
+	seen := make(map[string]struct{}, len(all))
+	unique := make([]string, 0, len(all))
+	for _, p := range all {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		unique = append(unique, p)
+	}
+	all = unique
 	rendered := 0
 	for _, phrase := range all {
 		var lastErr error
