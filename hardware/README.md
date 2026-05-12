@@ -13,3 +13,9 @@ This folder is owned by the hardware team. Upload here:
 
 Keep large binaries (>10 MB) out of git — link them from an external store and
 reference the link in a markdown file here.
+
+---
+
+![Core: OrangePi 4 Pro, Waveshare bus servo adapter, STS3215 servo](images/core.jpg)
+
+![Head: WS2812 LED ring, USB camera, 4× TTP223 touch sensors around the rim](images/head.jpg)
