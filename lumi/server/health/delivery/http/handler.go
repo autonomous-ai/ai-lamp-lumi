@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"go-lamp.autonomous.ai/domain"
+	"go-lamp.autonomous.ai/internal/device"
 	"go-lamp.autonomous.ai/internal/network"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -154,6 +155,7 @@ func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 		"tailscaleIp": "",
 		"signal":      0,
 		"internet":    false,
+		"mac":         device.GetDeviceMac(),
 	}
 
 	if netw, err := h.networkService.CurrentNetwork(); err == nil && netw != nil {

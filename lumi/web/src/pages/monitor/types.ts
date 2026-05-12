@@ -28,6 +28,7 @@ export interface NetworkInfo {
   tailscaleIp: string;
   signal: number;
   internet: boolean;
+  mac: string;
 }
 export interface HWHealth {
   status: string;

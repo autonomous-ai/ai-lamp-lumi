@@ -173,6 +173,10 @@ export function OverviewSection({
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Signal</span>
                 <span style={{ fontSize: 11, color: "var(--lm-text)" }}>{net.signal} dBm</span>
               </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>MAC</span>
+                <span style={{ fontSize: 11, fontFamily: "monospace", color: "var(--lm-text)" }}>{net.mac || "—"}</span>
+              </div>
             </div>
           ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>

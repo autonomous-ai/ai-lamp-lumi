@@ -52,7 +52,8 @@ func (c *Client) Ping(token string, payload PingPayload) (*PingResponse, error) 
 	if strings.TrimSpace(c.config.MQTTEndpoint) == "" {
 		pingURL += "?mqtt=true"
 	}
-	slog.Debug("pinging backend", "component", "beclient", "url", pingURL)
+	body, _ := json.Marshal(payload)
+	slog.Debug("pinging backend", "component", "beclient", "url", pingURL, "body", string(body))
 	return c.postWithAuth(pingURL, token, payload)
 }
 
