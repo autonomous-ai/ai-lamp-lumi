@@ -178,14 +178,30 @@ func flowEventToMonitor(fe flow.Event, channelName string) domain.MonitorEvent {
 		source, _ := fe.Data["source"].(string)
 		msg, _ := fe.Data["message"].(string)
 		if source == "channel" {
-			label := channelName
-			if sender, _ := fe.Data["sender"].(string); sender != "" {
-				label = label + ":" + sender
-			}
-			if msg != "" {
-				summary = fmt.Sprintf("[%s] %s", label, msg)
-			} else {
-				summary = "[" + label + "]"
+			// Label routing mirrors handler_events.go goroutine:
+			//  1. sender filled → "[telegram:Gray]" (real channel user)
+			//  2. message is Lumi-internal prefix → "[voice]" / "[emotion]"
+			//     / ... (sensing or voice event Lumi posted via chat.send
+			//     that OpenClaw merged into a UUID host turn via steer)
+			//  3. otherwise fall back to channelName (or "[…]" when no msg
+			//     yet — first emit before chat.history goroutine returns)
+			sender, _ := fe.Data["sender"].(string)
+			switch {
+			case sender != "":
+				label := channelName + ":" + sender
+				if msg != "" {
+					summary = fmt.Sprintf("[%s] %s", label, msg)
+				} else {
+					summary = "[" + label + "]"
+				}
+			case msg != "":
+				if internal := labelForLumiInternal(msg); internal != "" {
+					summary = internal + " " + msg
+				} else {
+					summary = fmt.Sprintf("[%s] %s", channelName, msg)
+				}
+			default:
+				summary = "[chat]"
 			}
 		} else {
 			// system/user: caller already encodes its label inside message
