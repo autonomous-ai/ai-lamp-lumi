@@ -1,8 +1,8 @@
 # AI Lamp — Lumi
 
-Lumi is an AI-powered desk lamp built on a Raspberry Pi. It listens, sees, moves, and talks. The brain is a pluggable agentic gateway (OpenClaw, Hermes, or any other LLM + skills + memory runtime); the hands are LeLamp (servo, LED, mic, speaker, camera, display); Lumi Server (Go) glues them together with networking, sensing, OTA, and a web UI.
+Lumi is an AI-powered desk lamp built on a Raspberry Pi or OrangePi. It listens, sees, moves, and talks. The brain is a pluggable agentic gateway (OpenClaw, Hermes, or any other LLM + skills + memory runtime); the hands are LeLamp (servo, LED, mic, speaker, camera, display); Lumi Server (Go) glues them together with networking, sensing, OTA, and a web UI.
 
-Target hardware: Raspberry Pi 4/5, Linux ARM64.
+Target hardware: Raspberry Pi 4/5 or OrangePi (any Linux ARM64 SBC with comparable I/O).
 
 ## Gallery
 
