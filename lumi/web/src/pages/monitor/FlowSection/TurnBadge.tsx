@@ -25,6 +25,7 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : "var(--lm-text-muted)";
   const statusColor = turn.status === "done" ? "var(--lm-green)"
     : turn.status === "error" ? "var(--lm-red)"
+    : turn.status === "steered" ? "var(--lm-blue)"
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output, hwOutput, snapshotUrls } = turnIO(turn);
@@ -38,7 +39,9 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     ? "DONE"
     : turn.status === "error"
       ? "ERROR"
-      : "ACTIVE";
+      : turn.status === "steered"
+        ? "↪ STEERED"
+        : "ACTIVE";
   const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path === "dropped" ? "dropped" : turn.path === "queued" ? "queued" : turn.path;
 
   return (
@@ -207,6 +210,13 @@ export function TurnBadge({ turn }: { turn: Turn }) {
           wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
         }}>
           ⏸ queued — agent busy, will replay when idle
+        </div>
+      ) : turn.status === "steered" ? (
+        <div style={{
+          fontSize: 10, color: "var(--lm-blue)", marginBottom: 2,
+          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
+        }}>
+          ↪ steered — message merged into a concurrent turn (no own reply)
         </div>
       ) : turn.status === "done" ? (
         <div style={{

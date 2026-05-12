@@ -562,6 +562,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
+    // turn_steered: OpenClaw merged this Lumi chat.send into a concurrent turn via
+    // steer queue mode (agent-runner.ts in 5.7) — no own lifecycle ever fires.
+    // Close the turn with a distinct "steered" status so the UI shows it
+    // accurately instead of leaving it stuck "active".
+    if (ev.type === "flow_event" && ev.detail?.node === "turn_steered") {
+      current.status = "steered";
+      current.endTime = ev.time;
+    }
     if (current.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
       current.status = "done";
       current.endTime = ev.time;

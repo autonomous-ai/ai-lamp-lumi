@@ -945,8 +945,48 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			})
 		}
 
-		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input)
-		if payload.Role != "user" && payload.State != "error" {
+		// Detect steered turns: OpenClaw's "steer" queue mode (agent-runner.ts
+		// in 5.7) injects an incoming chat.send into a currently-streaming
+		// Pi-embedded turn rather than spawning a new lifecycle. The steered
+		// run never receives lifecycle_start/end of its own — only a single
+		// chat-stream `state:"final"` with empty content as the steer signal.
+		//
+		// Discriminator (state-based, not time-based):
+		//   • payload.State == "final" with empty Message
+		//   • Lumi-format runId (steer only happens for Lumi outbound chats)
+		//   • RemovePendingChatTraceByRunID returns true — i.e. the pending
+		//     entry was still there, meaning no lifecycle_start ever fired
+		//     (lifecycle_start removes the entry; see ~line 84). If lifecycle
+		//     had run, the entry would already be gone and this branch
+		//     wouldn't trigger.
+		//
+		// Emits a real flow event `turn_steered` so the JSONL/Monitor can
+		// close the turn with an explicit "steered" status instead of
+		// leaving it stuck "active" indefinitely. NOT a synthetic NO_REPLY —
+		// the turn really had no reply of its own; its content lives inside
+		// the host turn.
+		isSteeredEnd := payload.State == "final" &&
+			strings.TrimSpace(payload.Message) == "" &&
+			isLumiOutboundChatRunID(flowRunID) &&
+			h.agentGateway.RemovePendingChatTraceByRunID(flowRunID)
+		if isSteeredEnd {
+			slog.Info("turn steered into concurrent run (no lifecycle)",
+				"component", "agent", "run_id", flowRunID)
+			flow.Log("turn_steered", map[string]any{
+				"run_id": flowRunID,
+				"reason": "OpenClaw steer mode merged message into a concurrent turn (no own lifecycle)",
+			}, flowRunID)
+			h.monitorBus.Push(domain.MonitorEvent{
+				Type:    "turn_steered",
+				Summary: "↪️ steered into concurrent turn",
+				RunID:   flowRunID,
+				State:   "steered",
+			})
+		}
+
+		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input).
+		// Skip the empty final emit for steered runs — turn_steered above is the canonical close event.
+		if payload.Role != "user" && payload.State != "error" && !isSteeredEnd {
 			summary := payload.Message
 			if len(summary) > 120 {
 				summary = summary[:120] + "..."
