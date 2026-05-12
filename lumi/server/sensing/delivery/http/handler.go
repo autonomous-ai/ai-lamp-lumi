@@ -312,7 +312,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	var msg string
 	if req.Type == "voice_command" {
 		// Wake word confirmed — agent always responds conversationally.
-		msg = domain.AppendEnrollNudge(req.Message)
+		// `[user]` prefix marks this as direct human input so SOUL/AGENTS.md
+		// prioritises answering it when steer mode batches a voice turn with
+		// concurrent passive sensing (motion/emotion/ambient).
+		msg = domain.AppendEnrollNudge("[user] " + req.Message)
 	} else if req.Type == "voice" {
 		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
 		msg = domain.AppendEnrollNudge("[ambient] " + req.Message)
@@ -320,7 +323,9 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// Web monitor chat — typed text, forwarded raw. No enroll nudge (no
 		// camera/face context), no [sensing:*] prefix (not a sensor signal),
 		// no ambient/guard tagging (TTS suppressed via MarkWebChatRun above).
-		msg = req.Message
+		// `[user]` prefix mirrors voice_command — direct human input, top
+		// priority in batched turns.
+		msg = "[user] " + req.Message
 	} else if guardActive {
 		// Guard mode: tag so the system broadcasts the response via Telegram.
 		// Include custom instruction if the owner provided one when enabling guard mode.
