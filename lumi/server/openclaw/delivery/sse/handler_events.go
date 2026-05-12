@@ -539,11 +539,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						h.suppressTTS(payload.RunID, "already_spoken")
 					}
 				}
-			} else if payload.Data.Phase == "end" {
+			} else if payload.Data.Phase == "end" || payload.Data.Phase == "result" {
 				// Tool finished — re-arm the filler timer if the turn is
 				// still active. Long multi-tool turns get a filler at each
 				// dead-air pocket, capped by MaxFillersPerTurn and gated
 				// by FillerCooldown.
+				//
+				// OpenClaw emits phase="result" for native tools (read,
+				// web_search, web_fetch, exec, …) and phase="end" for
+				// some legacy paths; both signal the same boundary. Until
+				// 2026-05-12 this branch only matched "end", which meant
+				// every native tool silently skipped the filler re-arm
+				// and only the very first Continuation ever fired —
+				// observable as "no filler during web_search" UX.
 				sensinghttp.DefaultFillerManager.OnToolEnd(flowRunID)
 				result := payload.ResultText()
 				if len(result) > 100 {
