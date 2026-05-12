@@ -47,13 +47,13 @@ Design principles:
 | `dlbackend/` | — | Supporting backend service |
 | `claude-desktop-buddy/` | Go | Companion BLE pairing app for Claude Desktop |
 | `hardware/` | — | Schematics, BOM, mechanical and electrical notes |
-| `imager/` | — | Tooling to build flashable Pi images |
+| `imager/` | — | Tooling to build flashable SBC images (Pi / OrangePi) |
 | `docs/` | Markdown | Architecture, flows, use cases (bilingual: `docs/` EN + `docs/vi/` VI) |
 | `scripts/` | Bash | Deploy, OTA upload, and test scripts |
 
 ## Quick Start
 
-### Build the Go backend (cross-compiled for the Pi)
+### Build the Go backend (cross-compiled to linux/arm64 — Pi or OrangePi)
 
 ```bash
 make lumi-build            # builds lumi/lumi-server (linux/arm64)
@@ -73,7 +73,7 @@ make web-dev               # Vite dev server
 make web-build             # production bundle to lumi/web/dist
 ```
 
-### LeLamp (runs on the Pi)
+### LeLamp (runs on the Pi or OrangePi)
 
 ```bash
 cd lelamp && uv sync       # install Python deps
