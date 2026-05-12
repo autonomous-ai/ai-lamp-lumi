@@ -41,6 +41,10 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // mode flag below since it should not auto-bounce during force testing.
   const forceHash = typeof window !== "undefined" && window.location.hash === "#force";
   const isContinue = mode === "continue" || forceHash;
+  // Dev hosts (localhost / 127.0.0.1) are local Vite servers pointed at a
+  // remote lamp — auto-bouncing to /monitor while debugging Setup is annoying.
+  const isLocalDev = typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
   const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
