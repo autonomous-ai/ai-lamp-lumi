@@ -82,6 +82,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
+  const [mac, setMac] = useState("");
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
@@ -238,7 +239,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   useConfigPrefill({
     urlParams, channelParam,
-    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setActiveSection,
+    setTtsProvider, setTtsVoice, setSsid, setPassword, setDeviceId, setMac, setActiveSection,
     setLlmApiKey, setLlmUrl, setLlmModel, setLlmLoaded, setLlmDisableThinking,
     setTtsApiKey, setTtsBaseUrl,
     setChannelLoaded,
@@ -579,6 +580,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                   <DeviceSection
                     active={activeSection === "device"}
                     deviceId={deviceId} setDeviceId={setDeviceId}
+                    mac={mac}
                   />
 
                   <WifiSection

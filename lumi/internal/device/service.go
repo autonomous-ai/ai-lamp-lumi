@@ -290,6 +290,7 @@ func (s *Service) GetConfig() domain.ConfigResponse {
 		TTSProvider:        s.config.TTSProvider,
 		TTSVoice:           s.config.TTSVoice,
 		DeviceID:           deviceID,
+		Mac:                GetDeviceMac(),
 		NetworkSSID:        s.config.NetworkSSID,
 		NetworkPassword:    s.config.NetworkPassword,
 		MQTTEndpoint:       s.config.MQTTEndpoint,
