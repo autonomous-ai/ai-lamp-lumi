@@ -84,6 +84,8 @@ type Server struct {
 	lastSetupCompleted *bool
 	// lastDeviceID is the last DeviceID value we acted on. When this changes (typically empty → assigned at first /device/setup), we restart lumi-buddy so its BLE name picks up the new device_id.
 	lastDeviceID *string
+	// lastMQTTEndpoint is the last MQTTEndpoint value we acted on. When this changes (typically empty → assigned via status-reporter ping response), we restart the MQTT client so it picks up the new broker config without requiring a full lumi restart.
+	lastMQTTEndpoint *string
 }
 
 // Engine ...
@@ -376,6 +378,7 @@ func (s *Server) runConfigChangeListener(ctx context.Context) {
 		case <-ch:
 			s.handleSetUpCompleteChange(s.config.SetUpCompleted)
 			s.handleDeviceIDChange(s.config.DeviceID)
+			s.handleMQTTEndpointChange(s.config.MQTTEndpoint)
 		}
 	}
 }
@@ -420,6 +423,28 @@ func (s *Server) handleDeviceIDChange(deviceID string) {
 		}
 		slog.Info("lumi-buddy restarted", "component", "config")
 	})
+}
+
+// handleMQTTEndpointChange restarts the MQTT client when MQTTEndpoint changes,
+// so a backend-pushed broker config (delivered via status-reporter ping response)
+// is picked up without requiring a full lumi restart.
+//
+// On the first call (startup bootstrap) we just record the current value
+// without restarting — handleSetUpCompleteChange already brings MQTT up on
+// the initial setup-completed flip, so we only need to act on later changes.
+func (s *Server) handleMQTTEndpointChange(endpoint string) {
+	if s.lastMQTTEndpoint == nil {
+		s.lastMQTTEndpoint = &endpoint
+		return
+	}
+	if *s.lastMQTTEndpoint == endpoint {
+		return
+	}
+	prev := *s.lastMQTTEndpoint
+	s.lastMQTTEndpoint = &endpoint
+
+	slog.Info("mqtt endpoint changed, restarting mqtt client", "component", "config", "old", prev, "new", endpoint)
+	s.restartMQTT()
 }
 
 // handleSetUpCompleteChange starts or stops the network monitor and status reporter based on SetUpCompleted.
