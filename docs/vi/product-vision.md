@@ -625,6 +625,135 @@ Body: {"x": 3, "y": 2, "r": 255, "g": 0, "b": 0}
 
 ---
 
+### Tính Năng Đề Xuất Từ Marketing (UC-M Series)
+
+> Được đề xuất bởi đội marketing. UC-M series bổ sung cho UC-01..UC-16 ở trên. Trạng thái cập nhật 21-04-2026 dựa trên codebase hiện tại.
+
+#### UC-M1: Nhận Diện Cảm Xúc & Phát Hiện Sức Khỏe Từ Khuôn Mặt [DONE]
+
+**Trạng thái: Đã triển khai** (2026-04)
+
+**Actor**: Hệ thống (tự động, camera)
+**Mô tả**: Camera phân tích biểu cảm khuôn mặt để phát hiện trạng thái cảm xúc — Lumi phản ứng chủ động hỗ trợ sức khỏe người dùng.
+
+**Ví dụ**:
+- User có vẻ căng thẳng → Lumi giảm sáng, đổi sang màu ấm, nhẹ nhàng đề nghị nghỉ
+- User có vẻ buồn ngủ/mệt → Lumi tăng sáng, phát chime, gợi ý đi dạo ngắn
+- User tập trung và bình tĩnh → Lumi giữ nguyên environment, suppress mọi interruption
+
+**Triển khai**:
+- Emotion classifier chạy qua **dlbackend WebSocket** (remote inference server), không phải on-device ONNX. LeLamp gửi camera frames, nhận emotion predictions.
+- `lelamp/service/sensing/perceptions/emotion.py` — `RemoteEmotionChecker` kết nối dlbackend, fire event `emotion.detected` với cảm xúc phát hiện được (Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral).
+- Lumi `user-emotion-detection/SKILL.md` map cảm xúc khuôn mặt → mood signal qua `POST /api/mood/log`.
+- Lumi `mood/SKILL.md` fusion signals (camera emotion, conversation, voice tone) thành mood decisions.
+- Mood decisions trigger downstream: `music-suggestion` (nhạc chủ động), `wellbeing` (nhắc uống nước/nghỉ), `emotion` (biểu cảm đèn).
+- Configurable confidence threshold qua `EMOTION_CONFIDENCE_THRESHOLD` trong LeLamp config.
+
+**Câu hỏi đã giải quyết**:
+- [x] Model nào? → Remote dlbackend (không ONNX on-device). Offload inference, không ảnh hưởng Pi 4 RAM/CPU.
+- [x] Ngưỡng accuracy → Configurable `EMOTION_CONFIDENCE_THRESHOLD` (default trong LeLamp config).
+- [x] Privacy → Frames chỉ gửi tới self-hosted dlbackend, không qua cloud bên thứ ba.
+- [x] Kết hợp voice-tone → Cả hai feed vào Mood skill fusion logic; camera emotion = signal, mood decision = output đã fusion.
+
+#### UC-M2: Nhắc Nhở Sức Khỏe Chủ Động [DONE]
+
+**Trạng thái: Đã triển khai** (2026-04)
+
+**Actor**: Hệ thống (tự động, sensing-driven)
+**Mô tả**: Lumi tự theo dõi hoạt động sedentary và chủ động nhắc đứng dậy, uống nước, hoặc nghỉ ngơi — không cần user yêu cầu.
+
+**Ví dụ**:
+- User đã ngồi bàn 45 phút → Lumi nhẹ nhàng "Bạn đã ngồi một lúc rồi — nên đứng dậy stretch nhỉ?"
+- User đã ngồi bàn 2 tiếng không có nước → "Đừng quên uống nước nhé"
+
+**Triển khai**:
+- **Event-driven, không dùng timer cố định.** `wellbeing/SKILL.md` trigger mỗi event `motion.activity` (từ action recognition).
+- Action recognition qua dlbackend phân loại hoạt động: `using computer`, `writing`, `reading book`, `texting`, `drawing`, `playing controller` (sedentary) vs `drink`, `break` (reset activities).
+- Mỗi activity logged vào per-user JSONL timeline qua `POST /api/openclaw/wellbeing/log`.
+- Mỗi event, skill đọc history gần nhất, tính thời gian từ lần hydration/break reset cuối, nhắc nếu vượt threshold.
+- Per-user tracking: `current_user` từ sensing context tag, stranger dùng chung timeline `"unknown"`.
+- `lumi/resources/openclaw-skills/wellbeing/SKILL.md` — full workflow với threshold logic, dedup rules, và cooldowns.
+
+**Câu hỏi đã giải quyết**:
+- [x] Khoảng thời gian nhắc → AI-driven thresholds tính từ activity log (không phải timer cố định).
+- [x] "Đang ngồi làm việc" vs "vừa xuất hiện" → Action recognition phân biệt sedentary labels khỏi transient presence.
+- [x] Nhắc uống nước → Theo thời gian từ lần `drink` activity cuối trong wellbeing log.
+- [x] DND mode → Agent personality tự điều chỉnh theo ngữ cảnh (nhẹ hơn ban đêm, theo mood).
+
+#### UC-M3: Gợi Ý Nhạc Chủ Động Theo Tâm Trạng [DONE]
+
+**Trạng thái: Đã triển khai** (2026-04)
+
+**Actor**: Hệ thống (tự động, mood + sensing-driven)
+**Mô tả**: Lumi chủ động gợi ý nhạc dựa trên tâm trạng phát hiện được, hoạt động sedentary, và lịch sử nghe — không cần user yêu cầu.
+
+**Ví dụ**:
+- User detected stressed (facial emotion + conversation) → Lumi gợi ý piano calm
+- User làm việc sedentary lâu → Lumi đề nghị lo-fi/study beats
+- User detected happy/excited → Lumi gợi ý nhạc upbeat
+
+**Triển khai**:
+- `lumi/resources/openclaw-skills/music-suggestion/SKILL.md` — skill chủ động riêng (tách khỏi reactive `music/SKILL.md`).
+- **Hai triggers**:
+  1. **Mood-driven**: Sau khi `mood/SKILL.md` log mood decision (sad, stressed, tired, excited, happy, bored) → music-suggestion fire.
+  2. **Sedentary-driven**: `motion.activity` với sedentary labels (using computer, writing, etc.) → trigger gợi ý trực tiếp.
+- Checks trước khi gợi ý: audio đang chạy? cooldown gợi ý gần đây (7 min)? mood decision cũ (>30 min)?
+- Query `GET /audio/history?person={name}` để lấy genre preference cá nhân.
+- Genre mapping: stressed → soft jazz/classical, tired → calm piano, happy → upbeat pop, sedentary → lo-fi/ambient.
+- Luôn gợi ý qua TTS trước, play sau khi user xác nhận.
+- Marker `[HW:/speak]` ép TTS ra speaker đèn ngay cả với session origin từ channel.
+
+**Câu hỏi đã giải quyết**:
+- [x] Sở thích nhạc → Query `hw_audio` flow log + `/audio/history` lấy lịch sử nghe.
+- [x] Hỏi trước vs auto-play → Luôn gợi ý trước, play sau khi xác nhận.
+- [x] Sensing-triggered → Done: mood decisions + sedentary activity đều trigger gợi ý.
+- [ ] Phone call / video meeting detection → Chưa (cần UC-12 hoặc screen awareness).
+
+#### UC-M4: Nhận Thức Thời Gian Nhìn Màn Hình & Hỗ Trợ Cử Chỉ [CHƯA LÀM]
+
+**Trạng thái: Chưa triển khai** — cần models mới chưa có trong codebase.
+
+**Sub-feature A — Theo Dõi Thời Gian Nhìn Màn Hình / Eye-Care**:
+- Cần gaze estimation model — chưa implement trong LeLamp sensing pipeline.
+- Pi 4 feasibility chưa rõ, cần benchmark.
+
+**Sub-feature B — Contextual Gesture Support**:
+- Cần gesture/pose model (MediaPipe Hand Lite hoặc tương tự) — chưa implement.
+- Phức tạp cao, ~300-500MB RAM. Có thể cần Pi 5 hoặc USB accelerator.
+
+**Câu hỏi mở**:
+- [ ] Gaze direction detection accuracy không có dedicated eye-tracking hardware?
+- [ ] MediaPipe trên Pi 4 — cần benchmark
+- [ ] Tương tác với UC-10 (gesture điều khiển đèn)?
+- [ ] Tách Sub-feature A và B thành UC riêng?
+
+#### Bonus: Nhận Diện Giọng Nói [DONE]
+
+**Trạng thái: Đã triển khai** (2026-04) — không nằm trong đề xuất marketing gốc nhưng là tính năng quan trọng.
+
+**Mô tả**: Lumi nhận diện ai đang nói bằng voice embedding. Mic transcripts có prefix tên (`Leo:`) hoặc `Unknown:`. User có thể tự enroll giọng bằng cách giới thiệu bản thân.
+
+**Triển khai**:
+- `lelamp/speaker_recognizer.py` + `lelamp/service/voice/speaker_recognizer/speaker_recognizer.py` — voice embedding model, profile storage, real-time matching.
+- `lumi/resources/openclaw-skills/speaker-recognizer/SKILL.md` — self-enrollment skill (mic intro, Telegram voice note, two-turn enrollment).
+- Voice profiles lưu per-user cùng face data tại `/root/local/users/{name}/`.
+- Telegram identity linked khi voice enrollment để DM targeting.
+
+#### Tóm Tắt Marketing UC
+
+| UC | Tính Năng | Trạng Thái | Triển Khai |
+|---|---|---|---|
+| UC-M1 | Nhận diện cảm xúc khuôn mặt | **DONE** | dlbackend emotion WS + `user-emotion-detection` + `mood` skills |
+| UC-M2 | Nhắc nhở sức khỏe chủ động | **DONE** | `wellbeing` skill, event-driven từ `motion.activity` |
+| UC-M3 | Gợi ý nhạc chủ động | **DONE** | `music-suggestion` skill, mood + sedentary triggers |
+| UC-M4a | Thời gian nhìn màn hình / Eye-care | **CHƯA LÀM** | Cần gaze estimation model |
+| UC-M4b | Cử chỉ sức khỏe | **CHƯA LÀM** | Cần gesture model (MediaPipe) |
+| Bonus | Nhận diện giọng nói | **DONE** | LeLamp voice embeddings + Lumi enrollment skill |
+
+*Marketing UC-M series đề xuất bởi đội marketing 06-04-2026. Trạng thái cập nhật 21-04-2026.*
+
+---
+
 ## 7. Đối Tượng Người Dùng
 
 ### Phân khúc theo thứ tự ưu tiên
