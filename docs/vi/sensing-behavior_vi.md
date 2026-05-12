@@ -504,15 +504,14 @@ Sensing handler (`handler.go`) route `emotion.detected` events tới agent. Khi 
 `user-emotion-detection/SKILL.md` xử lý `emotion.detected` events:
 
 1. Map facial emotion → mood signal (vd: Happy → happy, Sad → sad, Angry → frustrated, Fear → stressed) và log `signal` row qua `POST /api/mood/log`
-2. Chọn 1 response route từ bảng 4 row (first match wins):
+2. Chọn 1 response route từ bảng 3 row (first match wins):
    - **#1 `audio_playing == true`** → LED ack + `NO_REPLY` (đang có nhạc, không nói chồng lên)
-   - **#2 `last_suggestion_age_min ∈ [0, 7)`** → LED ack + `NO_REPLY` (cooldown 7 phút chung cho cả music + checkin)
-   - **#3 `suggestion_worthy == true` AND decision fresh** → **music** — 1 câu nhẹ kèm genre, xem `music-suggestion/SKILL.md`
-   - **#4 còn lại** → **checkin** — 1 câu mở nhẹ. Xem `user-emotion-detection/reference/checkin.md` cho phrasing theo mood.
-3. **Không có silent route cho emotion event.** Mỗi emotion event kết thúc bằng music, checkin, hoặc LED-only ack (row #1–#2). Silent fallback cũ đã bỏ — khi music không phù hợp, agent hỏi thay vì im lặng.
+   - **#2 `suggestion_worthy == true` AND decision fresh AND `last_suggestion_age_min ∉ [0, 7)`** → **music** — 1 câu nhẹ kèm genre, xem `music-suggestion/SKILL.md`
+   - **#3 còn lại** → **checkin** — 1 câu mở nhẹ. Xem `user-emotion-detection/reference/checkin.md` cho phrasing theo mood.
+3. **Cooldown chỉ chặn music, không chặn checkin.** Khi cooldown 7 phút còn hiệu lực, row #2 fail vế thứ ba và event rơi xuống checkin (row #3). Agent vẫn hỏi "có chuyện gì" — chỉ không suggest nhạc 2 lần liên tiếp. `NO_REPLY` chỉ xảy ra ở row #1 (đang phát nhạc).
 4. **Không bao giờ chào trên emotion event.** `emotion.detected` không phải presence/arrival event — `sensing/SKILL.md` cấm openers như `hello`, `welcome back`, mọi câu chứa `again`. Greeting chỉ dành cho `presence.enter`.
 
-Cả 2 route share chung 1 cooldown: music log qua `POST /api/music-suggestion/log` với `trigger:"<genre>:<mood>"`; checkin log cùng endpoint với `trigger:"checkin:<mood>"`. `last_suggestion_age_min` phản ánh cả 2 kênh nên emotion event liên tiếp không double-fire. Tone checkin phải khớp mood: `sad / stressed / frustrated` dùng tone mềm nhất; `happy / excited` giữ tò mò nhẹ (không over-celebration); `tired / bored` giữ nhẹ. Output checkin luôn prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`.
+Cả 2 route share chung 1 cooldown: music log qua `POST /api/music-suggestion/log` với `trigger:"<genre>:<mood>"`; checkin log cùng endpoint với `trigger:"checkin:<mood>"`. `last_suggestion_age_min` phản ánh cả 2 kênh nên music suggestion mới sẽ im lặng nhánh music trong 7 phút, nhưng checkin vẫn fire. Tone checkin phải khớp mood: `sad / stressed / frustrated` dùng tone mềm nhất; `happy / excited` giữ tò mò nhẹ (không over-celebration); `tired / bored` giữ nhẹ. Output checkin luôn prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]`.
 
 ### Mood pipeline
 
