@@ -1,6 +1,6 @@
 # Checkin route — phrasing
 
-Fires whenever the routing table in `SKILL.md` picks `checkin` (row #4 — the "anything else" catch-all: mood not suggestion-worthy, decision stale with no fresh synthesis, mapped_mood like `frustrated` or `normal`, etc.). Otherwise STOP — music or LED-ack routes own their own output.
+Fires whenever the routing table in `SKILL.md` picks `checkin` (row #3 — the "anything else" catch-all: cooldown active so music is blocked, mood not suggestion-worthy, decision stale with no fresh synthesis, mapped_mood like `frustrated` or `normal`, etc.). Otherwise STOP — the music or LED-ack route owns its own output.
 
 ## Phrasing rules
 

@@ -86,15 +86,14 @@ After logging the mood signal, pick **exactly one** response route. Read straigh
 | # | Condition | Route | What happens |
 |---|---|---|---|
 | 1 | `audio_playing == true` | **action** | LED-only ambient ack, no spoken reply. Emit `[HW:/emotion:{"emotion":"caring","intensity":0.4}]` + `NO_REPLY`. Music is already covering — don't talk over it. |
-| 2 | `last_suggestion_age_min ∈ [0, 7)` (any recent proactive outreach — music OR checkin) | **action** | Same as #1: LED ack, `NO_REPLY`. Cooldown protects the user from nag. |
-| 3 | `suggestion_worthy == true` AND (`is_decision_stale == false` OR fresh decision synthesized this turn) | **music** | See `music-suggestion/SKILL.md` for genre + phrasing + log marker. |
-| 4 | anything else (mood=normal/frustrated, stale decision with no fresh synthesis, etc.) | **checkin** | See `reference/checkin.md` for phrasing + log marker. One soft open-ended line. |
+| 2 | `suggestion_worthy == true` AND (`is_decision_stale == false` OR fresh decision synthesized this turn) AND `last_suggestion_age_min ∉ [0, 7)` | **music** | See `music-suggestion/SKILL.md` for genre + phrasing + log marker. |
+| 3 | anything else (cooldown active, mood not worthy, stale decision with no fresh synthesis, mapped_mood normal/frustrated, etc.) | **checkin** | See `reference/checkin.md` for phrasing + log marker. One soft open-ended line. |
 
 Rules:
 
 - **One route per turn.** Don't double-fire (e.g. music + checkin both). Pick the first matching row.
-- **No silent route on emotion events.** Every non-gated emotion produces either a music suggestion or a checkin; rows #1–#2 (audio playing / cooldown) are the only paths to `NO_REPLY`.
-- **Output ownership:** `music` → produced by `music-suggestion/SKILL.md`. `checkin` → produced by `reference/checkin.md` (this skill). `action` → emitted inline by this router (the `[HW:/emotion:...]` marker in rows #1–#2).
-- **Cooldown is shared** between music and checkin: both log via `music-suggestion/log` so `last_suggestion_age_min` reflects either channel. Row #2 catches both.
+- **Cooldown only gates music, not checkin.** When `last_suggestion_age_min ∈ [0, 7)` the music branch is blocked (row #2 fails its third clause) and the event falls through to checkin (row #3). The agent still asks — it just doesn't suggest music back-to-back. The only `NO_REPLY` path is row #1 (active audio).
+- **Output ownership:** `music` → produced by `music-suggestion/SKILL.md`. `checkin` → produced by `reference/checkin.md` (this skill). `action` → emitted inline by this router (the `[HW:/emotion:...]` marker in row #1).
+- **Cooldown is shared** between music and checkin: both log via `music-suggestion/log` so `last_suggestion_age_min` reflects either channel.
 - Never narrate the routing decision in the spoken reply.
 - `Neutral` is filtered upstream at lelamp and never reaches this skill in practice; no special case needed here.
