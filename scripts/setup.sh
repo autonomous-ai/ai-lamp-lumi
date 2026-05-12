@@ -474,8 +474,11 @@ stage_openclaw() {
   retry "npm install -g openclaw@${OPENCLAW_VERSION}" 5
   openclaw --version || true
 
-  # OpenClaw state root for root-run service (under root's home)
-  OPENCLAW_HOME="${OPENCLAW_HOME:-/root/openclaw}"
+  # OpenClaw state root for root-run service (under root's home).
+  # Must match the dot-prefixed path used everywhere else (lumi config default,
+  # migrate-openclaw-path.sh, stage_backend migration). Mismatch causes
+  # OpenClaw WS to close 1008 / token_mismatch.
+  OPENCLAW_HOME="${OPENCLAW_HOME:-/root/.openclaw}"
   mkdir -p \
     "$OPENCLAW_HOME" \
     "$OPENCLAW_HOME/workspace" \
