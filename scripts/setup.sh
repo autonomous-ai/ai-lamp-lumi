@@ -452,7 +452,7 @@ EOF
 # ----------------------------------------------------------
 stage_openclaw() {
   echo "[stage] Install OpenClaw"
-  OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.04.09}"
+  OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.05.7}"
   retry "npm install -g openclaw@${OPENCLAW_VERSION}" 5
   openclaw --version || true
 

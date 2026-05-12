@@ -2,7 +2,7 @@
 
 Playbook for the bug where Lumi's `chat.send` idempotency key (e.g. `lumi-chat-201-1776763410829`) ends up wrapping an agent turn that actually processed a *different* input — a message Lumi sent earlier (`chat-200`, `chat-198`, …) or a Telegram inbound that slipped in on the same session lane.
 
-First detected: 2026-04-21 on OpenClaw gateway `2026.4.9`, session `agent:main:main`.
+First detected: 2026-04-21 on OpenClaw gateway `2026.5.7`, session `agent:main:main`.
 
 Fixed in Lumi: see §5. Keep this doc as reference when new `runId` drift shows up.
 
