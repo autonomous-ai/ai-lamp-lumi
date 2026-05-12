@@ -38,9 +38,11 @@ var OpeningFillers = []string{
 }
 
 // ContinuationFillers play on re-arm after a tool finishes. Tone: neutral
-// "still working" — never claim "almost done" because filler #2 of 3 in a
+// "still working" — never claim "almost done" because filler #2 of 6 in a
 // long multi-tool turn may still be far from finished, and a wrong promise
 // damages trust more than dead air.
+// Pool size kept ≥ 12 so MaxFillersPerTurn=6 turns don't repeat heavily
+// (pickFrom dedups only against the immediately previous line).
 // English pool — also the fallback when STTLanguage is empty/unknown.
 var ContinuationFillers = []string{
 	"Still on it",
@@ -51,6 +53,10 @@ var ContinuationFillers = []string{
 	"Bear with me",
 	"Still here",
 	"One moment",
+	"Working on it",
+	"Just a sec",
+	"Hmm, working",
+	"Still digging",
 }
 
 // Vietnamese pools (STTLanguage="vi"). Tone matches EN: short acknowledgements
@@ -76,6 +82,10 @@ var ContinuationFillersVI = []string{
 	"Vẫn đây mà",
 	"Mình đang làm tiếp",
 	"Còn đang nghĩ",
+	"Đang làm đây",
+	"Chờ chút nha",
+	"Để xem tí nữa",
+	"Còn xử lý nhé",
 }
 
 // Chinese Simplified pools (STTLanguage="zh-CN").
@@ -100,6 +110,10 @@ var ContinuationFillersZhCN = []string{
 	"我还在",
 	"再等等",
 	"还在弄",
+	"我在搜",
+	"再稍候",
+	"继续找",
+	"搜索中",
 }
 
 // Chinese Traditional pools (STTLanguage="zh-TW").
@@ -124,6 +138,10 @@ var ContinuationFillersZhTW = []string{
 	"我還在",
 	"再等等",
 	"還在弄",
+	"我在搜",
+	"再稍候",
+	"繼續找",
+	"搜尋中",
 }
 
 // poolsForLang returns the (opening, continuation) pools for a BCP-47 STT
@@ -153,12 +171,20 @@ const (
 	// the same turn — covers both filler-spoken and hardware-reaction
 	// events. Keeps the lamp from chattering "one sec... still working"
 	// on top of "/emotion thinking" within a fraction of a second.
-	FillerCooldown = 4 * time.Second
+	// Tuned 2026-05-12 from 4s → 2.5s so short ~3s tool gaps still get a
+	// filler instead of going silent — cached audio plays in ~1s so a
+	// 2.5s cooldown leaves ~1.5s of dead air between fillers, enough to
+	// not feel chattery while still covering more gaps.
+	FillerCooldown = 2500 * time.Millisecond
 
 	// MaxFillersPerTurn caps actual spoken fillers in a single turn.
 	// Hardware reactions don't count against this — only TTS plays.
-	// Three is enough to cover a long multi-tool turn without overdoing it.
-	MaxFillersPerTurn = 3
+	// Bumped 2026-05-12 from 3 → 6 to cover multi-tool turns (4+ tool
+	// boundaries observed on web_search + web_fetch chains) where every
+	// gap should get a filler for best perceived progress UX. With pool
+	// sizes ≥ 12 (post-2026-05-12), 5 Continuations + 1 synthetic Opening
+	// stays varied enough to avoid feeling robotic.
+	MaxFillersPerTurn = 6
 )
 
 // fillerCancelToolMarkers are URL fragments for tool calls that themselves
@@ -187,6 +213,7 @@ type fillerRun struct {
 	lastActivityAt time.Time // last time something audible/visible happened (filler or HW tool)
 	ended          bool      // turn finalized (assistant delta or lifecycle.end) — no more arms
 	lastSpoken     string    // text of the most recent filler — used to dedup back-to-back picks
+	rearmPending   bool      // tool.end arrived while playing=true; fire() re-arms after speak (otherwise the event would be silently dropped by armLocked's playing guard)
 }
 
 // fillersDisabled reports whether both English pools are empty — the kill
@@ -426,8 +453,11 @@ func (fm *FillerManager) OnToolStart(runID, toolArgs string) {
 
 // OnToolEnd attempts to re-arm a filler timer after a tool finishes —
 // the turn may still have minutes of thinking ahead. No-op when the run
-// has ended, the per-turn cap is reached, or a filler is already pending
-// or playing.
+// has ended or the per-turn cap is reached. When a filler is currently
+// speaking, the arm is deferred via run.rearmPending so fire() can
+// schedule the next timer once speech completes — without this defer
+// the tool.end is silently dropped (armLocked refuses while playing)
+// and the next dead-air gap goes unfilled.
 func (fm *FillerManager) OnToolEnd(runID string) {
 	if runID == "" || fillersDisabled() {
 		return
@@ -436,6 +466,10 @@ func (fm *FillerManager) OnToolEnd(runID string) {
 	defer fm.mu.Unlock()
 	run, ok := fm.runs[runID]
 	if !ok || run.ended {
+		return
+	}
+	if run.playing {
+		run.rearmPending = true
 		return
 	}
 	delay := FillerDelay
@@ -547,6 +581,15 @@ func (fm *FillerManager) fire(runID string) {
 		run.fired++
 		run.lastActivityAt = time.Now()
 		run.lastSpoken = filler
+		// Pick up tool.end events that landed during speech (run.playing
+		// was true so OnToolEnd deferred them via rearmPending). Use the
+		// plain FillerDelay — cooldown is implicit since speech already
+		// took ~1s of wall-clock, so total gap to next fire is ~speak +
+		// FillerDelay ≈ FillerCooldown.
+		if run.rearmPending {
+			run.rearmPending = false
+			fm.armLocked(runID, run, FillerDelay)
+		}
 	}
 	fm.mu.Unlock()
 }
