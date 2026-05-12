@@ -104,6 +104,7 @@ export interface DeviceConfig {
   tts_provider: string;
   tts_voice: string;
   device_id: string;
+  mac: string;
   network_ssid: string;
   network_password: string;
   mqtt_endpoint: string;
