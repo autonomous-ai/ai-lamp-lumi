@@ -22,7 +22,7 @@ from typing import Any
 
 from typing_extensions import override
 
-from core.emotion.recognizer.base import EmotionRecognizer
+from core.perception.emotion.recognizer.base import EmotionRecognizer
 
 logger = logging.getLogger(__name__)
 

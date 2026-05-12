@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models import (
+from core.models.emotion import (
     EmotionConfigRequest,
     EmotionFrameRequest,
     EmotionHeartBeatRequest,

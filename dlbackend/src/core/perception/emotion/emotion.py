@@ -1,9 +1,9 @@
 """Face emotion recognition using YuNet face detection + configurable classifier.
 
 Supports EmoNet (8-class + valence/arousal) and POSTER V2 (7-class RAF-DB).
-Selection via EMOTION_RECOGNITION_MODEL env var.
+Selection via EMOTION__MODEL env var.
 
-Loads YuNet + classifier once via EmotionModel, and each WebSocket connection
+Loads YuNet + classifier once via EmotionAnalysis, and each WebSocket connection
 creates a lightweight EmotionSession that shares the models but maintains
 its own timing state and detection cache.
 """
@@ -16,19 +16,24 @@ import numpy as np
 import numpy.typing as npt
 
 from config import settings
-from core.emotion.recognizer.base import EmotionRecognizer
-from core.emotion.utils import create_classifier
-from core.faces import YuNetDetector
-from core.models import EmotionDetection, EmotionResponse
+from core.enums import EmotionRecognizerEnum
+from core.models.emotion import EmotionDetection, EmotionResponse
+from core.perception.emotion.constants import EMOTION_DEFAULTS
+from core.perception.emotion.recognizer.base import EmotionRecognizer
+from core.perception.emotion.utils import create_classifier
+from core.perception.faces import YuNetDetector
 
 logger = logging.getLogger(__name__)
 
+_D = EMOTION_DEFAULTS
 
-class EmotionModel:
+
+class EmotionAnalysis:
     """Combined YuNet + emotion classifier. Loaded once, used by all WS sessions."""
 
     def __init__(
         self,
+        model_name: EmotionRecognizerEnum,
         yunet_path: Path | None = None,
         emotion_model_path: Path | None = None,
         score_threshold: float = 0.7,
@@ -41,25 +46,26 @@ class EmotionModel:
             nms_threshold=nms_threshold,
             top_k=top_k,
         )
-        self._fer: EmotionRecognizer = create_classifier(emotion_model_path)
+        self._fer: EmotionRecognizer = create_classifier(model_name, emotion_model_path)
+        self._model_name = model_name
         self._running: bool = False
 
     def start(self):
         if self._running:
-            logger.info("[EmotionModel] already running")
+            logger.info("[EmotionAnalysis] already running")
             return
 
         self._face_detector.start()
         self._fer.start()
 
         self._running = True
-        logger.info("[EmotionModel] ready (%s)", settings.emotion_recognition_model)
+        logger.info("[EmotionAnalysis] ready (%s)", self._model_name)
 
     def stop(self):
         self._fer.stop()
         self._face_detector.stop()
         self._running = False
-        logger.info("[EmotionModel] stopped")
+        logger.info("[EmotionAnalysis] stopped")
 
     def is_ready(self) -> bool:
         return self._running and self._face_detector.is_ready() and self._fer.is_ready()
@@ -117,9 +123,14 @@ class EmotionModel:
 
     def create_session(
         self,
-        threshold: float = settings.emotion.confidence_threshold,
-        frame_interval: float = settings.emotion.frame_interval,
+        threshold: float | None = None,
+        frame_interval: float | None = None,
     ) -> "EmotionSession":
+        s = settings.emotion
+        if threshold is None:
+            threshold = s.confidence_threshold if s.confidence_threshold is not None else _D["confidence_threshold"]
+        if frame_interval is None:
+            frame_interval = s.frame_interval if s.frame_interval is not None else _D["frame_interval"]
         return EmotionSession(
             model=self,
             threshold=threshold,
@@ -132,11 +143,11 @@ class EmotionSession:
 
     def __init__(
         self,
-        model: EmotionModel,
+        model: EmotionAnalysis,
         threshold: float,
         frame_interval: float,
     ):
-        self._model: EmotionModel = model
+        self._model: EmotionAnalysis = model
         self._threshold: float = threshold
         self._frame_interval: float = frame_interval
         self._last_ts: float = 0

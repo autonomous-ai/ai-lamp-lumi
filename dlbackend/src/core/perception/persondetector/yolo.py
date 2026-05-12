@@ -11,8 +11,8 @@ from typing_extensions import override
 from ultralytics.models.yolo import YOLO
 
 from config import settings
-from core.models import PersonDetection
-from core.persondetector.base import PersonDetector
+from core.models.person import PersonDetection
+from core.perception.persondetector.base import PersonDetector
 
 logger = logging.getLogger(__name__)
 

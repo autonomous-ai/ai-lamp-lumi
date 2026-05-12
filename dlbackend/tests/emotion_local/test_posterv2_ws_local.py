@@ -11,8 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_emotion_model, set_emotion_model
-from core.emotion.emotion import EmotionModel
-from core.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
+from core.perception.emotion.emotion import EmotionAnalysis
+from core.perception.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -47,7 +47,9 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    m = EmotionModel(emotion_model_path=POSTERV2_MODEL_PATH)
+    from core.enums import EmotionRecognizerEnum
+
+    m = EmotionAnalysis(model_name=EmotionRecognizerEnum.POSTERV2, emotion_model_path=POSTERV2_MODEL_PATH)
     m.start()
     return m
 

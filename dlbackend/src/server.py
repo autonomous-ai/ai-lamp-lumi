@@ -19,13 +19,10 @@ from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from config import settings
-from core.action.enums import HumanActionRecognizerEnum
-from core.action.uniformerv2 import UniformerV2Model
-from core.action.videomae import VideoMAEModel
-from core.action.x3d import X3DModel
-from core.emotion.emotion import EmotionModel
-from core.persondetector import YOLOPersonDetector
-from enums import PersonDetectorEnum
+from core.enums import PoseEstimator2DEnum
+from core.perception.action.action import ActionAnalysis
+from core.perception.emotion.emotion import EmotionAnalysis
+from core.perception.pose.pose2d.rtmpose import RTMPose2D
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp import speech_emotion_recognizer as ser_protocol
 from protocols.htpp.action import router as action_ws_router
@@ -66,56 +63,38 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load models at startup, release on shutdown."""
-    logger.info("Loading action model...")
-    try:
-        if settings.action_recognition_ckpt_path is not None:
-            action_ckpt_path = Path(settings.action_recognition_ckpt_path)
-        else:
-            action_ckpt_path = None
 
-        person_detector = None
-        if settings.person_detector.enabled:
-            if settings.person_detector.model == PersonDetectorEnum.YOLO:
-                person_detector = YOLOPersonDetector()
-            else:
-                raise ValueError(f"Unknown person detector: {settings.person_detector.model}")
-            person_detector.start()
-            logger.info(
-                "Person detector ready (%s: %s)",
-                settings.person_detector.model,
-                settings.person_detector.model_name,
+    # -- Action model --
+    if settings.action.enabled:
+        logger.info("Loading action model...")
+        try:
+            action_ckpt = Path(settings.action.ckpt_path) if settings.action.ckpt_path else None
+            action_model = ActionAnalysis(
+                model_name=settings.action.model,
+                model_path=action_ckpt,
             )
-
-        if settings.action_recognition_model == HumanActionRecognizerEnum.VIDEOMAE:
-            set_action_model(VideoMAEModel(action_ckpt_path, person_detector=person_detector))
-        elif settings.action_recognition_model == HumanActionRecognizerEnum.UNIFORMERV2:
-            set_action_model(UniformerV2Model(action_ckpt_path, person_detector=person_detector))
-        elif settings.action_recognition_model == HumanActionRecognizerEnum.X3D:
-            set_action_model(X3DModel(action_ckpt_path, person_detector=person_detector))
-
-        action_model = get_action_model()
-        if action_model is not None:
             action_model.start()
-            logger.info("[%s] action model ready", settings.action_recognition_model)
-    except Exception as e:
-        logger.warning(
-            "Failed to load %s action model due to %s", settings.action_recognition_model, e
-        )
+            set_action_model(action_model)
+            logger.info("Action model ready")
+        except Exception as e:
+            logger.warning("Failed to load action model: %s", e)
 
-    logger.info("Loading emotion model...")
-    try:
-        if settings.emotion_recognition_ckpt_path is not None:
-            emotion_ckpt_path = Path(settings.emotion_recognition_ckpt_path)
-        else:
-            emotion_ckpt_path = None
+    # -- Emotion model --
+    if settings.emotion.enabled:
+        logger.info("Loading emotion model...")
+        try:
+            emotion_ckpt = Path(settings.emotion.ckpt_path) if settings.emotion.ckpt_path else None
+            emotion_model = EmotionAnalysis(
+                model_name=settings.emotion.model,
+                emotion_model_path=emotion_ckpt,
+            )
+            emotion_model.start()
+            set_emotion_model(emotion_model)
+            logger.info("Emotion model ready")
+        except Exception as e:
+            logger.warning("Failed to load emotion model: %s", e)
 
-        emotion_model = EmotionModel(emotion_model_path=emotion_ckpt_path)
-        emotion_model.start()
-        set_emotion_model(emotion_model)
-        logger.info("Emotion model ready")
-    except Exception as e:
-        logger.warning("Failed to load emotion model: %s", e)
-
+    # -- Audio recognizer --
     logger.info("Loading audio recognizer...")
     try:
         audio_recognizer_protocol._get_audio_recognizer()
@@ -129,6 +108,20 @@ async def lifespan(app: FastAPI):
         logger.info("Speech emotion recognizer ready")
     except Exception as e:
         logger.warning("Failed to load speech emotion recognizer: %s", e)
+
+    # -- Pose estimator --
+    if settings.pose.enabled:
+        logger.info("Loading pose estimator...")
+        try:
+            pose_ckpt = Path(settings.pose.ckpt_path) if settings.pose.ckpt_path else None
+            if settings.pose.model == PoseEstimator2DEnum.RTMPOSE:
+                pose_model = RTMPose2D(model_path=pose_ckpt)
+            else:
+                raise ValueError(f"Unknown pose model: {settings.pose.model}")
+            pose_model.start()
+            logger.info("[%s] pose estimator ready", settings.pose.model)
+        except Exception as e:
+            logger.warning("Failed to load pose estimator: %s", e)
 
     yield
 
@@ -145,7 +138,6 @@ async def lifespan(app: FastAPI):
 # --- App + Routers ---
 
 app = FastAPI(title="DL Backend", lifespan=lifespan)
-
 
 app.include_router(action_ws_router, prefix="/api/dl")
 app.include_router(emotion_ws_router, prefix="/api/dl")
