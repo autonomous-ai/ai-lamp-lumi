@@ -229,6 +229,11 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     if (!isContinue) return;
     if (!llmApiKey) return; // wait until config has loaded
     const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts", "voice", "face"];
+    // Redirect any time all required sections become done — including later
+    // ticks when async data (e.g. faceOwners) arrives after first paint. This
+    // path is NOT gated by autoScrolledRef on purpose; otherwise the first
+    // effect run (before faceOwners loaded) sets the ref and the redirect
+    // never fires once enrollment counts come back.
     if (required.every((id) => sectionDone[id])) {
       // Skip auto-bounce when user is on #force testing the UI on a
       // provisioned device, or when running on a local dev host pointed at a
