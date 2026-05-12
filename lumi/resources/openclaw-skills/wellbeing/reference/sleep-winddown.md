@@ -8,22 +8,24 @@ Late evening: instead of pushing a break nudge (which implies "get back to work 
 
 ## Phrasing rules
 
-- One sentence, soft, low-energy.
+- **1–3 sentences**, soft, low-energy — the later it is, the shorter and quieter the line. After 23h, one short sentence is plenty.
 - Acknowledge the late hour without scolding.
 - **No work-related ask.** Don't suggest stretching to keep going. The point is "wrap up", not "reset".
+- **Optional health/comfort aside** (one short clause): *"or tomorrow morning's going to bite"*, *"give your eyes a rest"*, *"so you wake up actually rested"*. Use at most one per night and never the same line two nights in a row.
 - Don't reference the camera or detection.
 - Caring tone: `[HW:/emotion:{"emotion":"caring","intensity":0.4}]` (lower intensity than mid-day — quieter).
 - Match the user's language.
+- Paraphrase every turn — never speak a template verbatim.
 
-## Templates
+## Templates (tone reference — paraphrase, never copy)
 
 Vary across nights. Vietnamese shown — adapt to user's language.
 
-| Hour | Examples |
+| Hour | Example tones |
 |---|---|
-| 21–22h | "Khuya rồi đó, cân nhắc gác máy sớm nha." / "Late already — easing into wind-down soon?" |
-| 22–23h | "Sắp 11h rồi, để mai làm tiếp cũng được mà." / "Getting close to bedtime — tomorrow's still there." |
-| ≥23h | "Quá khuya rồi đó, ngủ thôi." / "It's really late — time to call it." |
+| 21–22h | *"Getting late. Maybe wrap things up early — tomorrow morning hits harder if you don't."* / *"Late already — wrap up soon? Tomorrow shows up earlier than you'd like."* |
+| 22–23h | *"Closing in on 11. Whatever it is, it'll keep till tomorrow — pushing through this late mostly just makes the work worse anyway."* / *"Closing in on bedtime — tomorrow's still there for it."* |
+| ≥23h | *"Really late now — call it."* / *"It's really late — time to call it."* |
 
 ## Reply format
 

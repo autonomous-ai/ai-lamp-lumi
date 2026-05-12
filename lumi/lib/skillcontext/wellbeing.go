@@ -46,6 +46,7 @@ var nonActivityActions = map[string]bool{
 	"leave":            true,
 	"nudge_hydration":  true,
 	"nudge_break":      true,
+	"nudge_toilet":     true,
 	"morning_greeting": true,
 	"sleep_winddown":   true,
 	"meal_reminder":    true,
@@ -96,6 +97,7 @@ type wellbeingContext struct {
 	MealSignalInWindow          bool                     `json:"meal_signal_in_window"` // true when a meal signal (meal_reminder log OR any raw eat label) was already logged in the current window today — gates meal-reminder so Lumi doesn't ask "ăn chưa?" after a real meal
 	MorningGreetingDoneToday    bool                     `json:"morning_greeting_done_today"`    // true when a morning_greeting action exists today
 	SleepWinddownDoneToday      bool                     `json:"sleep_winddown_done_today"`      // true when a sleep_winddown action exists today
+	DrinksSinceToiletNudge      int                      `json:"drinks_since_toilet_nudge"`      // count of `drink` rows logged after the most recent `nudge_toilet` today (or all today's drinks if none); resets via nudge_toilet POST
 	Patterns                    map[string]patternDigest `json:"patterns,omitempty"`  // wellbeing_patterns from patterns.json, keyed by action ("drink"/"break")
 	BootstrapNeeded             bool                     `json:"bootstrap_needed"`    // patterns missing/stale AND days >= 3 → invoke habit Flow A only when nudging
 }
@@ -132,6 +134,7 @@ func BuildWellbeingContext(user string) string {
 	mealSignalInWindow := hasMealSignalInWindow(events, mealWindow, now)
 	morningGreetingDone := hasActionToday(events, "morning_greeting")
 	sleepWinddownDone := hasActionToday(events, "sleep_winddown")
+	drinksSinceToiletNudge := countDrinksSinceToiletNudge(events)
 
 	patterns, patternsFresh := readWellbeingPatterns(user)
 	days := countWellbeingDays(user)
@@ -149,6 +152,7 @@ func BuildWellbeingContext(user string) string {
 		MealSignalInWindow:         mealSignalInWindow,
 		MorningGreetingDoneToday:   morningGreetingDone,
 		SleepWinddownDoneToday:     sleepWinddownDone,
+		DrinksSinceToiletNudge:     drinksSinceToiletNudge,
 		Patterns:                   patterns,
 		BootstrapNeeded:            bootstrapNeeded,
 	}
@@ -276,6 +280,27 @@ func hasActionToday(events []wellbeing.Event, action string) bool {
 		}
 	}
 	return false
+}
+
+// countDrinksSinceToiletNudge returns how many `drink` rows are logged today
+// after the most recent `nudge_toilet` row. If no toilet nudge has fired yet
+// today, it returns the total drink count for the day. The toilet-nudge route
+// fires when this hits the count threshold, and the new nudge_toilet row then
+// resets the counter to 0 — no separate cooldown timer needed.
+func countDrinksSinceToiletNudge(events []wellbeing.Event) int {
+	var lastToiletTS float64
+	for _, e := range events {
+		if e.Action == "nudge_toilet" && e.TS > lastToiletTS {
+			lastToiletTS = e.TS
+		}
+	}
+	count := 0
+	for _, e := range events {
+		if e.Action == "drink" && e.TS > lastToiletTS {
+			count++
+		}
+	}
+	return count
 }
 
 // isFirstActivityToday returns true when no prior REAL user activity event
