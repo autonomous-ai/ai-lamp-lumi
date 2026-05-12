@@ -43,11 +43,10 @@ func (c *Client) Ping(token string, payload PingPayload) (*PingResponse, error) 
 	if base == "" || token == "" {
 		return nil, nil
 	}
-	// Skip ping entirely when no MQTT info in config — nothing useful to report/fetch
-	if strings.TrimSpace(c.config.MQTTEndpoint) == "" && strings.TrimSpace(c.config.FAChannel) == "" {
-		return nil, nil
-	}
 	pingURL := base + "/ping"
+	if strings.TrimSpace(c.config.MQTTEndpoint) == "" {
+		pingURL += "?mqtt=true"
+	}
 	slog.Debug("pinging backend", "component", "beclient", "url", pingURL)
 	return c.postWithAuth(pingURL, token, payload)
 }
