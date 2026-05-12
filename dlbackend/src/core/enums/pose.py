@@ -8,3 +8,7 @@ class GraphEnum(StrEnum):
 
 class PoseEstimator2DEnum(StrEnum):
     RTMPOSE = "rtmpose"
+
+
+class PoseLifter3DEnum(StrEnum):
+    TCPFORMER = "tcpformer"

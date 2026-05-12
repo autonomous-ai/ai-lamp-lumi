@@ -16,9 +16,9 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 
-from core.perception.action.constants import RESOURCES_DIR
-
 logger = logging.getLogger(__name__)
+
+RESOURCES_DIR = Path(__file__).parents[1] / "resources"
 
 
 class HumanActionRecognizerModel(ABC):
@@ -27,6 +27,10 @@ class HumanActionRecognizerModel(ABC):
     DEFAULT_MODEL: Path | None = None
     DEFAULT_CLASSES_PATH: Path = RESOURCES_DIR / "kinect_classes.txt"
     DEFAULT_WHITELIST_PATH: Path | None = None
+    DEFAULT_MAX_FRAMES: int = 8
+    DEFAULT_FRAME_SIZE: tuple[int, int] = (224, 224)
+    DEFAULT_FRAME_INTERVAL: float = 1.0
+    DEFAULT_CONFIDENCE_THRESHOLD: float = 0.3
 
     MEAN: npt.NDArray[np.float32] = np.array([0, 0, 0], dtype=np.float32)
     STD: npt.NDArray[np.float32] = np.array([0, 0, 0], dtype=np.float32)

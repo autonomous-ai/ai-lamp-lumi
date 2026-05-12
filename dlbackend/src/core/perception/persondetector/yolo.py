@@ -12,9 +12,6 @@ from ultralytics.models.yolo import YOLO
 
 from core.models.person import PersonDetection
 from core.perception.persondetector.base import PersonDetector
-from core.perception.persondetector.constants import YOLO_DEFAULTS
-
-_D = YOLO_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +33,17 @@ class YOLOPersonDetector(PersonDetector):
         crop = detector.detect_largest_crop(frame)   # ndarray or None
     """
 
+    DEFAULT_MODEL_NAME: str = "yolo12x.pt"
+    DEFAULT_CONFIDENCE_THRESHOLD: float = 0.4
+    DEFAULT_BBOX_EXPAND_SCALE: float = 2.0
+    DEFAULT_MIN_AREA_RATIO: float = 0.25
+
     def __init__(
         self,
-        model_name: str = _D["model_name"],
-        threshold: float = _D["confidence_threshold"],
-        bbox_expand_scale: float = _D["bbox_expand_scale"],
-        min_area_ratio: float = _D["min_area_ratio"],
+        model_name: str = DEFAULT_MODEL_NAME,
+        threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        bbox_expand_scale: float = DEFAULT_BBOX_EXPAND_SCALE,
+        min_area_ratio: float = DEFAULT_MIN_AREA_RATIO,
     ):
         super().__init__(min_area_ratio=min_area_ratio)
         self._model_name: str = model_name
