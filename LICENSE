@@ -1,0 +1,93 @@
+Proprietary License — AI Lamp / Lumi
+Copyright (c) 2026 Autonomous AI. All rights reserved.
+
+This repository contains the source code, designs, documentation, and assets
+for the Lumi AI Lamp product (the "Software"). The Software is the proprietary
+and confidential property of Autonomous AI.
+
+================================================================================
+1. SCOPE
+================================================================================
+
+This LICENSE governs all files in this repository EXCEPT for the contents of
+the `lelamp/` directory, which is a derivative work of an upstream project
+released under the GNU General Public License, version 3 (GPLv3). The
+`lelamp/` directory is governed exclusively by its own LICENSE file and the
+terms of the GPLv3. See `lelamp/LICENSE` and `lelamp/UPSTREAM.md`.
+
+The Lumi components (Go services in `lumi/`, the web UI in `lumi/web/`, the
+`dlbackend/`, `claude-desktop-buddy/`, `hardware/`, `imager/`, `docs/`,
+`scripts/`, and any other files outside `lelamp/`) are NOT licensed under
+GPLv3 and are NOT open source. They are released under the proprietary terms
+below.
+
+The Lumi services communicate with the LeLamp runtime over a network HTTP
+boundary as separate processes. The Lumi components are independent works and
+are not derivative works of LeLamp.
+
+================================================================================
+2. GRANT (no rights are granted by default)
+================================================================================
+
+No license, express or implied, is granted by Autonomous AI to any person or
+entity to use, copy, modify, merge, publish, distribute, sublicense, sell,
+reverse engineer, or create derivative works of the Software, in whole or in
+part, except as explicitly authorized in a separate written agreement signed
+by an authorized representative of Autonomous AI.
+
+The Software is provided to authorized users only in conjunction with Lumi
+hardware sold by Autonomous AI, and solely for the purpose of operating that
+hardware.
+
+================================================================================
+3. RESTRICTIONS
+================================================================================
+
+Without limiting the foregoing, you may NOT:
+
+  (a) redistribute the Software or any portion of it in source or binary form;
+  (b) use the Software to build, manufacture, or sell competing products;
+  (c) remove, alter, or obscure any copyright, trademark, or proprietary
+      notices in the Software;
+  (d) extract, reuse, or republish hardware designs, schematics, BOMs,
+      renders, or photographs contained in `hardware/`;
+  (e) use the Lumi name, logo, or trade dress without prior written consent.
+
+================================================================================
+4. THIRD-PARTY COMPONENTS
+================================================================================
+
+The Software depends on, and is distributed alongside, third-party components
+that are licensed under their own terms (e.g., GPL, Apache 2.0, MIT, BSD).
+Those components remain subject to their respective licenses, including the
+LeLamp runtime in `lelamp/` (GPLv3). Nothing in this LICENSE is intended to
+override the rights granted by those upstream licenses with respect to those
+components.
+
+================================================================================
+5. CONTRIBUTIONS
+================================================================================
+
+By submitting any code, documentation, design, or other material to this
+repository, you assign to Autonomous AI all right, title, and interest in
+that material, or grant Autonomous AI an irrevocable, worldwide, royalty-free
+license to use it under the terms of this LICENSE, at Autonomous AI's
+discretion. Contributions to files inside `lelamp/` remain governed by GPLv3.
+
+================================================================================
+6. NO WARRANTY
+================================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+AUTONOMOUS AI BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING
+FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+================================================================================
+7. CONTACT
+================================================================================
+
+For licensing inquiries, commercial use, OEM, or partnership requests, contact
+Autonomous AI at the address on file.
