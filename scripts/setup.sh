@@ -84,14 +84,18 @@ stage_prerequisites() {
   systemctl stop hostapd dnsmasq nginx 2>/dev/null || true
   systemctl unmask hostapd dnsmasq 2>/dev/null || true
   # Some base images (Armbian / older RPi OS images that once ran NetworkManager
-  # or systemd-resolved) ship /etc/resolv.conf as a regular file. dhcpcd writes
-  # DNS to /run/resolvconf/resolv.conf instead, so we symlink and aggregate.
-  if [ ! -L /etc/resolv.conf ] || [ "$(readlink /etc/resolv.conf)" != "/run/resolvconf/resolv.conf" ]; then
+  # or systemd-resolved) ship /etc/resolv.conf as a regular file with no
+  # nameserver lines, so dhcpcd's lease never reaches the glibc resolver. Only
+  # repair when actually broken: if a nameserver is already present (symlink to
+  # /run/resolvconf/resolv.conf or /run/systemd/resolve/*, or a working static
+  # file), leave it alone so we don't disrupt RPi OS / systemd-resolved setups.
+  if ! grep -qE '^[[:space:]]*nameserver[[:space:]]+' /etc/resolv.conf 2>/dev/null; then
+    echo "[stage] /etc/resolv.conf has no nameserver — repairing via resolvconf"
     rm -f /etc/resolv.conf
     mkdir -p /run/resolvconf
     ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
+    resolvconf -u 2>/dev/null || true
   fi
-  resolvconf -u 2>/dev/null || true
   # Node.js 22 for OpenClaw CLI
   if ! command -v node &>/dev/null || ! node -v 2>/dev/null | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
     echo "[stage] Install Node.js 22 (NodeSource)"
