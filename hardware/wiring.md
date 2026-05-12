@@ -67,20 +67,28 @@ Feetech STS3215 servos on a TTL daisy chain, driven by a USB-to-TTL servo contro
 
 ## Speaker amplifier (PAM8610 v2) + 2× 3 W speakers
 
-Stereo class-D amp. Inputs from SBC audio output (3.5 mm or codec line-out).
+Stereo class-D amp driven by a **USB audio board (DAC)** plugged into the SBC. The onboard codec → PAM8610 path was hissing / picking up static, so we moved the audio source off the SBC's onboard codec entirely. The onboard codec stays in use for **mic capture** only.
 
-| | Raspberry Pi 5 + Seeed WM8960 HAT | OrangePi 4 Pro (onboard ES8389) |
+Signal chain:
+
+```
+SBC → USB → USB audio board (DAC) → 3.5 mm line-out → PAM8610 L/R in → speakers
+```
+
+| | Raspberry Pi 5 | OrangePi 4 Pro |
 |---|---|---|
-| Codec | WM8960 (Seeed 2-mic Voice HAT, I²S over header) | ES8389 (onboard, ALSA card `sndi2s4`) |
-| Audio out path | WM8960 line-out → PAM8610 L/R in | ES8389 line-out → PAM8610 L/R in |
-| ALSA alias | `plug:lamp_speaker` (see `/etc/asound.conf`) | `plug:lamp_speaker` |
+| Audio source | USB audio board (line-out) | USB audio board (line-out) |
+| Connection | USB-A | USB-A |
+| ALSA alias | `plug:lamp_speaker` (mapped to USB DAC card) | `plug:lamp_speaker` (mapped to USB DAC card) |
+| DAC out → amp | 3.5 mm TRS → PAM8610 L/R inputs (twisted pair, short run) | same |
 | Speaker A | PAM8610 L+ / L− → speaker A | same |
 | Speaker B | PAM8610 R+ / R− → speaker B | same |
 | Amp Vcc | 12 V (do not feed 5 V — under-driven) | 12 V |
 | Amp GND | star-ground at buck output | same |
-| Code | `lelamp/routes/speaker.py:367` (aplay), `lelamp/routes/audio.py:55` (amixer) | same |
 
-> Static-noise tuning on OPi: `ADC2DAC Mixer = 0`, `ADCL/R PGA ≈ 30 dB`, `DACL/R ≈ 70%`. Captured in `project_orangepi_lelamp_dac_cap.md`.
+> The onboard codec (WM8960 on Pi via Seeed HAT, ES8389 on OPi) is still wired in for mic capture (Mic 2 / sensing). Its line-out is no longer connected to the amp.
+
+> Keep the DAC → amp lead short and twisted. Run it away from the 12 V power harness — the prior hiss was partly induced from the SBC's switching supply.
 
 ---
 
