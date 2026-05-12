@@ -93,7 +93,6 @@ SERVO_SUBSTEP_DEG   = 10.0   # max degrees per sub-step
 SERVO_SUBSTEP_SLEEP = 0.02   # seconds between sub-steps
 
 # Pitch distribution across 3 joints.
-# base_pitch: ~30° range, primary. elbow: ~11° range, limited. wrist: ~90°+ range, sign negated.
 PITCH_WEIGHT_BASE  = 0.10
 PITCH_WEIGHT_ELBOW = 0.35
 PITCH_WEIGHT_WRIST = 0.55
@@ -323,7 +322,8 @@ class TrackerService:
             self._state.thread.start()
 
         animation_service.unfreeze()
-        logger.info("Tracking started: '%s' bbox=%s", target_label, bbox)
+        animation_service.dispatch("play", "tracking")
+        logger.info("Tracking started: '%s' bbox=%s — playing tracking animation", target_label, bbox)
         return True
 
     def stop(self):
@@ -468,6 +468,7 @@ class TrackerService:
             self._track_elbow_pitch = 0.0
             self._track_wrist_pitch = 0.0
 
+
         ema_dx: Optional[float] = None
         ema_dy: Optional[float] = None
         prev_dx: Optional[float] = None   # EMA offset from previous frame (motion detection)
@@ -477,6 +478,8 @@ class TrackerService:
         last_servo_t: float = 0.0         # timestamp of last servo fire (for cooldown)
         miss_count = 0
         yolo_miss_count = 0   # consecutive YOLO misses — ghost tracking detection
+        retry_count = 0
+        MAX_TRACKING_RETRIES = 4
         frame_count = 0
         t_csrt_acc = 0.0   # accumulated CSRT update time
         t_servo_acc = 0.0  # accumulated servo command time (only frames that fired)
@@ -488,6 +491,47 @@ class TrackerService:
         # Queue for background YOLO results (maxsize=1 → latest result only).
         yolo_q: queue.Queue = queue.Queue(maxsize=1)
         yolo_running = threading.Event()
+
+        def _do_retry() -> bool:
+            """Play search animation, try YOLO, reinit tracker. Returns True to continue."""
+            nonlocal retry_count, miss_count, yolo_miss_count, ema_dx, ema_dy
+            nonlocal prev_dx, prev_dy, motion_state, stable_count, last_yolo_t
+            retry_count += 1
+            if retry_count > MAX_TRACKING_RETRIES:
+                logger.warning("[retry] exhausted %d retries, stopping", MAX_TRACKING_RETRIES)
+                return False
+            anim = "tracking"
+            logger.info("[retry] attempt %d/%d → %s", retry_count, MAX_TRACKING_RETRIES, anim)
+            animation_service._tracking_active = False
+            animation_service.dispatch("play", anim)
+            time.sleep(4.0)
+            animation_service._tracking_active = True
+            # Try YOLO detect on fresh frame
+            _f = camera_capture.last_frame
+            if _f is not None:
+                _bbox = self.detect_object(_f, state.target_label)
+                if _bbox is not None:
+                    _t = self._create_tracker()
+                    if _t is not None:
+                        try:
+                            if _t.init(_f, _bbox) is not False:
+                                state.tracker = _t
+                                state.bbox = _bbox
+                                logger.info("[retry] tracker reinit OK bbox=%s", _bbox)
+                        except Exception as _e:
+                            logger.warning("[retry] tracker init failed: %s", _e)
+            # Reset per-attempt state
+            miss_count = 0
+            yolo_miss_count = 0
+            ema_dx = ema_dy = None
+            prev_dx = prev_dy = None
+            motion_state = "INIT"
+            stable_count = 0
+            last_yolo_t = 0  # force YOLO on next frame
+            while True:  # drain stale YOLO queue
+                try: yolo_q.get_nowait()
+                except queue.Empty: break
+            return True
 
         def _fire_yolo(frame_snap: npt.NDArray[np.uint8]) -> None:
             t0_yolo = time.perf_counter()
@@ -521,10 +565,19 @@ class TrackerService:
 
                 if not ok:
                     miss_count += 1
-                    logger.info("CSRT miss %d/%d target='%s'", miss_count, YOLO_MAX_MISS, state.target_label)
+                    logger.info("[search] CSRT miss %d/%d target='%s'", miss_count, YOLO_MAX_MISS, state.target_label)
+                    if miss_count == 1:
+                        # First miss: force YOLO immediately instead of waiting for interval
+                        last_yolo_t = 0
+                    # Sweep base_yaw to search for object — alternates direction every 8 frames
+                    _sweep_dir = 1 if ((miss_count - 1) // 8) % 2 == 0 else -1
+                    _new_yaw = max(YAW_MIN, min(YAW_MAX, self._track_yaw + 2.0 * _sweep_dir))
+                    with animation_service.bus_lock:
+                        animation_service.robot.send_action({"base_yaw.pos": _new_yaw})
+                    self._track_yaw = _new_yaw
                     if miss_count >= YOLO_MAX_MISS:
-                        logger.warning("Tracker lost target '%s' after %d misses, stopping",
-                                       state.target_label, YOLO_MAX_MISS)
+                        if _do_retry():
+                            continue
                         break
                     time.sleep(1.0 / FAST_LOOP_FPS)
                     continue
@@ -535,7 +588,6 @@ class TrackerService:
 
                 frame_area = float(h_fr * w_fr)
                 bbox_ratio = (bw * bh) / frame_area
-
                 # Object too close — bbox takes up too much frame, stop tracking.
                 if bbox_ratio > 0.45:
                     logger.warning("[bbox] object too close (%.1f%% of frame), stopping", bbox_ratio * 100)
@@ -659,7 +711,9 @@ class TrackerService:
                         yolo_miss_count += 1
                         logger.debug("YOLO scan: target not found (%d consecutive)", yolo_miss_count)
                         if yolo_miss_count >= 5:
-                            logger.warning("YOLO missed %d times in a row — ghost tracking, stopping", yolo_miss_count)
+                            logger.warning("YOLO missed %d times in a row — ghost tracking", yolo_miss_count)
+                            if _do_retry():
+                                continue
                             break
                 except queue.Empty:
                     pass
