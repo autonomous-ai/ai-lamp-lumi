@@ -1,7 +1,6 @@
 """Face emotion recognition using YuNet face detection + configurable classifier.
 
 Supports EmoNet (8-class + valence/arousal) and POSTER V2 (7-class RAF-DB).
-Selection via EMOTION__MODEL env var.
 
 Loads YuNet + classifier once via EmotionAnalysis, and each WebSocket connection
 creates a lightweight EmotionSession that shares the models but maintains
@@ -15,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from config import settings
 from core.enums import EmotionRecognizerEnum
 from core.models.emotion import EmotionDetection, EmotionResponse
 from core.perception.emotion.constants import EMOTION_DEFAULTS
@@ -39,6 +37,8 @@ class EmotionAnalysis:
         score_threshold: float = 0.7,
         nms_threshold: float = 0.3,
         top_k: int = 5000,
+        confidence_threshold: float | None = None,
+        frame_interval: float | None = None,
     ):
         self._face_detector: YuNetDetector = YuNetDetector(
             model_path=yunet_path,
@@ -48,6 +48,8 @@ class EmotionAnalysis:
         )
         self._fer: EmotionRecognizer = create_classifier(model_name, emotion_model_path)
         self._model_name = model_name
+        self._confidence_threshold = confidence_threshold
+        self._frame_interval = frame_interval
         self._running: bool = False
 
     def start(self):
@@ -126,11 +128,10 @@ class EmotionAnalysis:
         threshold: float | None = None,
         frame_interval: float | None = None,
     ) -> "EmotionSession":
-        s = settings.emotion
         if threshold is None:
-            threshold = s.confidence_threshold if s.confidence_threshold is not None else _D["confidence_threshold"]
+            threshold = self._confidence_threshold if self._confidence_threshold is not None else _D["confidence_threshold"]
         if frame_interval is None:
-            frame_interval = s.frame_interval if s.frame_interval is not None else _D["frame_interval"]
+            frame_interval = self._frame_interval if self._frame_interval is not None else _D["frame_interval"]
         return EmotionSession(
             model=self,
             threshold=threshold,

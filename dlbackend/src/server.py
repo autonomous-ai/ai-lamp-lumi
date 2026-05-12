@@ -19,9 +19,10 @@ from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from config import settings
-from core.enums import PoseEstimator2DEnum
+from core.enums import PersonDetectorEnum, PoseEstimator2DEnum
 from core.perception.action.action import ActionAnalysis
 from core.perception.emotion.emotion import EmotionAnalysis
+from core.perception.persondetector import YOLOPersonDetector
 from core.perception.pose.pose2d.rtmpose import RTMPose2D
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp import speech_emotion_recognizer as ser_protocol
@@ -57,6 +58,65 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+# --- Model builders ---
+
+
+def _build_person_detector():
+    """Create and start the person detector from config, or return None."""
+    if not settings.person_detector.enabled:
+        return None
+
+    if settings.person_detector.model == PersonDetectorEnum.YOLO:
+        detector = YOLOPersonDetector(
+            model_name=settings.person_detector.model_name,
+            threshold=settings.person_detector.confidence_threshold,
+            bbox_expand_scale=settings.person_detector.bbox_expand_scale,
+            min_area_ratio=settings.person_detector.min_area_ratio,
+        )
+    else:
+        raise ValueError(f"Unknown person detector: {settings.person_detector.model}")
+
+    detector.start()
+    logger.info(
+        "Person detector ready (%s: %s)",
+        settings.person_detector.model,
+        settings.person_detector.model_name,
+    )
+    return detector
+
+
+def _build_action_analysis() -> ActionAnalysis:
+    """Create the ActionAnalysis from config settings."""
+    action_ckpt = Path(settings.action.ckpt_path) if settings.action.ckpt_path else None
+    person_detector = _build_person_detector()
+
+    action_frame_size = None
+    if settings.action.w is not None and settings.action.h is not None:
+        action_frame_size = (settings.action.h, settings.action.w)
+
+    return ActionAnalysis(
+        model_name=settings.action.model,
+        model_path=action_ckpt,
+        person_detector=person_detector,
+        max_frames=settings.action.max_frames,
+        frame_size=action_frame_size,
+        confidence_threshold=settings.action.confidence_threshold,
+        frame_interval=settings.action.frame_interval,
+    )
+
+
+def _build_emotion_analysis() -> EmotionAnalysis:
+    """Create the EmotionAnalysis from config settings."""
+    emotion_ckpt = Path(settings.emotion.ckpt_path) if settings.emotion.ckpt_path else None
+
+    return EmotionAnalysis(
+        model_name=settings.emotion.model,
+        emotion_model_path=emotion_ckpt,
+        confidence_threshold=settings.emotion.confidence_threshold,
+        frame_interval=settings.emotion.frame_interval,
+    )
+
+
 # --- Lifespan ---
 
 
@@ -68,11 +128,7 @@ async def lifespan(app: FastAPI):
     if settings.action.enabled:
         logger.info("Loading action model...")
         try:
-            action_ckpt = Path(settings.action.ckpt_path) if settings.action.ckpt_path else None
-            action_model = ActionAnalysis(
-                model_name=settings.action.model,
-                model_path=action_ckpt,
-            )
+            action_model = _build_action_analysis()
             action_model.start()
             set_action_model(action_model)
             logger.info("Action model ready")
@@ -83,11 +139,7 @@ async def lifespan(app: FastAPI):
     if settings.emotion.enabled:
         logger.info("Loading emotion model...")
         try:
-            emotion_ckpt = Path(settings.emotion.ckpt_path) if settings.emotion.ckpt_path else None
-            emotion_model = EmotionAnalysis(
-                model_name=settings.emotion.model,
-                emotion_model_path=emotion_ckpt,
-            )
+            emotion_model = _build_emotion_analysis()
             emotion_model.start()
             set_emotion_model(emotion_model)
             logger.info("Emotion model ready")
