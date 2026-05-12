@@ -10,9 +10,11 @@ import cv2
 from typing_extensions import override
 from ultralytics.models.yolo import YOLO
 
-from config import settings
 from core.models.person import PersonDetection
 from core.perception.persondetector.base import PersonDetector
+from core.perception.persondetector.constants import YOLO_DEFAULTS
+
+_D = YOLO_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -24,31 +26,23 @@ class YOLOPersonDetector(PersonDetector):
     """YOLO-based person detector.
 
     Loads an ultralytics YOLO model once and runs inference to locate people
-    in BGR frames.  Rate-limiting is handled by the caller
-    (``HumanActionRecognizerSession.update``), so this class runs on every
-    frame it receives.
+    in BGR frames.  Rate-limiting is handled by the caller, so this class
+    runs on every frame it receives.
 
     Usage::
 
-        detector = YOLOPersonDetector()
+        detector = YOLOPersonDetector(model_name="yolo12x.pt")
         detector.start()
         crop = detector.detect_largest_crop(frame)   # ndarray or None
     """
 
     def __init__(
         self,
-        model_name: str = settings.person_detector.model_name,
-        threshold: float = settings.person_detector.confidence_threshold,
-        bbox_expand_scale: float = settings.person_detector.bbox_expand_scale,
-        min_area_ratio: float = settings.person_detector.min_area_ratio,
+        model_name: str = _D["model_name"],
+        threshold: float = _D["confidence_threshold"],
+        bbox_expand_scale: float = _D["bbox_expand_scale"],
+        min_area_ratio: float = _D["min_area_ratio"],
     ):
-        """
-        Args:
-            model_name: Ultralytics model identifier, e.g. ``"yolo12x.pt"``.
-            threshold:  Minimum detection confidence to keep.
-            bbox_expand_scale: Scale factor to expand detected bbox around center.
-            min_area_ratio: Skip persons covering less than this fraction of frame area.
-        """
         super().__init__(min_area_ratio=min_area_ratio)
         self._model_name: str = model_name
         self._threshold: float = threshold

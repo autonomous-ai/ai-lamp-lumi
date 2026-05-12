@@ -21,9 +21,6 @@ from core.perception.persondetector import YOLOPersonDetector
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
-os.environ["PERSON_DETECTOR__ENABLED"] = "true"
-os.environ["PERSON_DETECTOR__MODEL_NAME"] = "yolo11n.pt"
-os.environ["ACTION__FRAME_INTERVAL"] = "0.0"
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 PERSON_DRINKING_IMG = FIXTURES_DIR / "person_drinking.jpg"
@@ -60,10 +57,14 @@ def person_detector():
 
 
 @pytest.fixture(scope="session")
-def model_with_detector():
+def model_with_detector(person_detector):
     from core.enums import HumanActionRecognizerEnum
 
-    m = ActionAnalysis(model_name=HumanActionRecognizerEnum.X3D)
+    m = ActionAnalysis(
+        model_name=HumanActionRecognizerEnum.X3D,
+        person_detector=person_detector,
+        frame_interval=0.0,
+    )
     m.start()
     return m
 
@@ -72,20 +73,11 @@ def model_with_detector():
 def model_without_detector():
     from core.enums import HumanActionRecognizerEnum
 
-    # Temporarily disable person detector for this model
-    saved = os.environ.pop("PERSON_DETECTOR__ENABLED", None)
-    os.environ["PERSON_DETECTOR__ENABLED"] = "false"
-    import importlib
-    import config as config_mod
-    importlib.reload(config_mod)
-
-    m = ActionAnalysis(model_name=HumanActionRecognizerEnum.X3D)
+    m = ActionAnalysis(
+        model_name=HumanActionRecognizerEnum.X3D,
+        frame_interval=0.0,
+    )
     m.start()
-
-    # Restore
-    if saved is not None:
-        os.environ["PERSON_DETECTOR__ENABLED"] = saved
-    importlib.reload(config_mod)
     return m
 
 

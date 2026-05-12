@@ -13,8 +13,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from config import settings
-from core.enums import HumanActionRecognizerEnum, PersonDetectorEnum
+from core.enums import HumanActionRecognizerEnum
 from core.models.action import ActionDetection, ActionResponse
 from core.perception.action.constants import (
     UNIFORMERV2_DEFAULTS,
@@ -22,7 +21,7 @@ from core.perception.action.constants import (
     X3D_DEFAULTS,
 )
 from core.perception.action.recognizer.base import HumanActionRecognizerModel
-from core.perception.persondetector import PersonDetector, YOLOPersonDetector
+from core.perception.persondetector import PersonDetector
 
 logger = logging.getLogger(__name__)
 
@@ -37,48 +36,29 @@ _MODEL_DEFAULTS: dict[HumanActionRecognizerEnum, dict] = {
 def _create_recognizer(
     model_name: HumanActionRecognizerEnum,
     model_path: Path | None,
+    max_frames: int | None = None,
+    frame_size: tuple[int, int] | None = None,
 ) -> HumanActionRecognizerModel:
-    """Instantiate the correct recognizer model, applying config overrides."""
-    s = settings.action
+    """Instantiate the correct recognizer model."""
     defaults = _MODEL_DEFAULTS[model_name]
-
-    max_frames = s.max_frames if s.max_frames is not None else defaults["max_frames"]
-    if s.w is not None and s.h is not None:
-        frame_size = (s.h, s.w)
-    else:
-        frame_size = defaults["frame_size"]
+    mf = max_frames if max_frames is not None else defaults["max_frames"]
+    fs = frame_size if frame_size is not None else defaults["frame_size"]
 
     if model_name == HumanActionRecognizerEnum.VIDEOMAE:
         from core.perception.action.recognizer.videomae import VideoMAEModel
 
-        return VideoMAEModel(model_path, max_frames=max_frames, frame_size=frame_size)
+        return VideoMAEModel(model_path, max_frames=mf, frame_size=fs)
     elif model_name == HumanActionRecognizerEnum.UNIFORMERV2:
         from core.perception.action.recognizer.uniformerv2 import UniformerV2Model
 
-        return UniformerV2Model(model_path, max_frames=max_frames, frame_size=frame_size)
+        return UniformerV2Model(model_path, max_frames=mf, frame_size=fs)
     elif model_name == HumanActionRecognizerEnum.X3D:
         from core.perception.action.recognizer.x3d import X3DModel
 
-        return X3DModel(model_path, max_frames=max_frames, frame_size=frame_size)
+        return X3DModel(model_path, max_frames=mf, frame_size=fs)
     else:
         msg = f"Unknown action recognition model: {model_name}"
         raise ValueError(msg)
-
-
-def _create_person_detector() -> PersonDetector | None:
-    """Create and start the person detector if enabled in config."""
-    pd_cfg = settings.person_detector
-    if not pd_cfg.enabled:
-        return None
-
-    if pd_cfg.model == PersonDetectorEnum.YOLO:
-        detector = YOLOPersonDetector()
-    else:
-        raise ValueError(f"Unknown person detector: {pd_cfg.model}")
-
-    detector.start()
-    logger.info("Person detector ready (%s: %s)", pd_cfg.model, pd_cfg.model_name)
-    return detector
 
 
 class ActionAnalysis:
@@ -88,10 +68,19 @@ class ActionAnalysis:
         self,
         model_name: HumanActionRecognizerEnum,
         model_path: Path | None = None,
+        person_detector: PersonDetector | None = None,
+        max_frames: int | None = None,
+        frame_size: tuple[int, int] | None = None,
+        confidence_threshold: float | None = None,
+        frame_interval: float | None = None,
     ):
         self._model_name = model_name
-        self._recognizer: HumanActionRecognizerModel = _create_recognizer(model_name, model_path)
-        self._person_detector: PersonDetector | None = _create_person_detector()
+        self._recognizer: HumanActionRecognizerModel = _create_recognizer(
+            model_name, model_path, max_frames=max_frames, frame_size=frame_size,
+        )
+        self._person_detector = person_detector
+        self._confidence_threshold = confidence_threshold
+        self._frame_interval = frame_interval
         self._running: bool = False
 
     def start(self) -> None:
@@ -119,11 +108,10 @@ class ActionAnalysis:
         frame_interval: float | None = None,
     ) -> "ActionSession":
         defaults = _MODEL_DEFAULTS[self._model_name]
-        s = settings.action
         if threshold is None:
-            threshold = s.confidence_threshold if s.confidence_threshold is not None else defaults["confidence_threshold"]
+            threshold = self._confidence_threshold if self._confidence_threshold is not None else defaults["confidence_threshold"]
         if frame_interval is None:
-            frame_interval = s.frame_interval if s.frame_interval is not None else defaults["frame_interval"]
+            frame_interval = self._frame_interval if self._frame_interval is not None else defaults["frame_interval"]
         return ActionSession(
             recognizer=self._recognizer,
             person_detector=self._person_detector,
