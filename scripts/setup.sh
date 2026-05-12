@@ -601,6 +601,11 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Prefix /hw;
+    # Hardware endpoints can be long-running (record-enroll records up to
+    # duration_sec seconds then calls the embedding API). Default 60s would
+    # 504 even on a 15s enroll if the embedding round-trip is slow.
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
   }
 
   # Exact /gw match for WebSocket (WS doesn't follow 301 redirect to /gw/).
