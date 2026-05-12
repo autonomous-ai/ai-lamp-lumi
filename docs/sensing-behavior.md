@@ -542,11 +542,11 @@ The `user-emotion-detection/SKILL.md` handles `emotion.detected` events:
 2. Picks one response route from a 3-row table (first match wins):
    - **#1 `audio_playing == true`** → LED-only ack + `NO_REPLY` (don't talk over music)
    - **#2 `suggestion_worthy == true` AND decision fresh AND `last_suggestion_age_min ∉ [0, 7)`** → **music** — gentle one-liner with genre pick via `music-suggestion/SKILL.md`
-   - **#3 anything else** → **checkin** — one soft open-ended line. See `user-emotion-detection/reference/checkin.md` for per-mood phrasing.
+   - **#3 anything else** → **checkin** — a short human reaction. See `user-emotion-detection/reference/checkin.md` for per-emotion examples (templates are keyed by raw FER label — Sad/Fear/Angry/Disgust/Happy/Surprise — with three style options: Ask, Comfort, Invite). Examples are inspiration only; agent improvises per turn.
 3. **Cooldown only gates music, never checkin.** When the 7-min cooldown is active, row #2 fails its third clause and the event falls through to checkin (row #3). The agent still asks "what's up?" — it just doesn't suggest music two times in a row. `NO_REPLY` only fires on row #1 (active audio playback).
 4. **Never greet on an emotion event.** `emotion.detected` is not a presence/arrival event — `sensing/SKILL.md` forbids openers like `hello`, `welcome back`, anything containing `again`. Greetings belong only to `presence.enter`.
 
-Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` with `trigger:"<genre>:<mood>"`; checkin logs the same endpoint with `trigger:"checkin:<mood>"`. `last_suggestion_age_min` reflects either channel, so a fresh music suggestion silences the music branch for 7 min but doesn't silence checkin. Checkin tone must match the mood: `sad / stressed / frustrated` get the softest tone; `happy / excited` stay gentle-curious (no over-celebration); `tired / bored` stay light. Always prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` on checkin output.
+Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` with `trigger:"<genre>:<mood>"` (mood bucket); checkin logs the same endpoint with `trigger:"checkin:<emotion>"` (raw FER label). `last_suggestion_age_min` reflects either channel, so a fresh music suggestion silences the music branch for 7 min but doesn't silence checkin. Checkin phrasing is keyed by raw emotion (not mood) so each FER label has its own ask/comfort/invite style options — see `reference/checkin.md`. Always prefix `[HW:/emotion:{"emotion":"caring","intensity":0.5}]` on checkin output.
 
 ### Mood pipeline
 
