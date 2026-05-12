@@ -106,15 +106,20 @@ This means during focus, sensing events (face emotion, motion) still reach OpenC
 
 See details: [status-led.md](status-led.md)
 
-LED feedback for system states:
+LED feedback for system states (all `breathing` at speed 3.0 unless noted):
 
-| State | Color | Effect |
-|-------|-------|--------|
-| Processing | Blue `(80, 140, 255)` | `pulse` |
-| OTA | Orange `(255, 140, 0)` | `breathing` |
-| Error | Red `(255, 30, 30)` | `pulse` |
+| State | Color | RGB |
+|-------|-------|-----|
+| Connectivity (no internet) | Orange | `(255, 80, 0)` |
+| Booting | Blue | `(0, 80, 255)` |
+| LeLamp Down | Purple | `(180, 0, 255)` |
+| Agent Down | Cyan | `(0, 200, 200)` |
+| Hardware Failure | Yellow | `(255, 255, 0)` |
+| OTA in progress (bootstrap) | Orange | `(255, 140, 0)` |
+| OTA success (bootstrap) | Green flash | `(0, 255, 80)` |
+| OTA failure (bootstrap) | Red pulse | `(255, 30, 30)` |
 
-Managed by `internal/statusled/Service` (lumi) and `lib/lelamp` (bootstrap).
+Managed by `internal/statusled/Service` (lumi) and `lib/lelamp` directly (bootstrap).
 
 ## Ambient Idle Behaviors
 
