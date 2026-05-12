@@ -81,6 +81,18 @@ Always triggers a full reaction — no exceptions. The agent **must** do all thr
 
 The system handles cooldowns on the LeLamp side. If the event reached the agent, enough time has passed — react fully.
 
+#### Return after long absence (friend only)
+
+On every friend `presence.enter` event, the sensing handler injects a `[presence_context: {"last_leave_age_min": N, "current_hour": H}]` block before forwarding to the agent. `last_leave_age_min` is computed from the most recent `leave` row in the user's wellbeing log, scanning up to 3 days back (`wellbeing.LastActionTS`); `-1` means no leave was found in that window.
+
+`sensing/SKILL.md` reads this block and swaps to a **return-after-long-absence** greeting when ALL three conditions hold:
+
+1. `last_leave_age_min >= 240` (≥4h) — shorter gaps stay on the regular friend greeting.
+2. `current_hour` is outside `[5, 11)` — the morning window is owned by `wellbeing/SKILL.md`'s `morning_greeting` route (fired on the first `motion.activity` of the day), so a long-absence overlay there would double up.
+3. `last_leave_age_min != -1` — without a real prior leave row, "welcome back" framing makes no sense.
+
+The HW markers (greeting emotion + servo aim+track) stay the same; only the spoken line changes — it acknowledges the gap without quantifying it ("Hey, been a while" rather than "you were gone 5h 17m"). Strangers don't carry the relational identity needed for this overlay, so `BuildPresenceContext` skips the `unknown` user and the existing cautious-greeting path applies unchanged.
+
 ### Leave (`presence.leave`)
 
 Agent calls `/emotion idle` (0.4), fires `/servo/track/stop` to release any active follow from a prior `presence.enter`, and replies **NO_REPLY** (silent — no TTS). This avoids noisy loops when people come and go frequently. The agent still processes the event internally to cancel wellbeing crons and update daily logs.

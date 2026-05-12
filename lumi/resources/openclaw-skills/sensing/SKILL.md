@@ -31,7 +31,7 @@ Type them at the very start of your reply. They are NOT tool calls. The system r
 
 | Event | Image? | HW markers | Voice |
 |---|---|---|---|
-| `presence.enter` (friend) | Yes | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["person"]}]` | YES — warm personal greeting by name |
+| `presence.enter` (friend) | Yes | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["person"]}]` | YES — warm personal greeting by name. **If the injected `[presence_context: ...]` block flags a long absence, swap to the return-after-long-absence phrasing — see section below.** |
 | `presence.enter` (stranger) | Yes | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — cautious acknowledgment |
 | `presence.leave` | No | `[HW:/emotion:{"emotion":"idle","intensity":0.4}][HW:/servo/track/stop:{}]` | NO (`NO_REPLY`) — always silent |
 | `presence.away` | No | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}][HW:/servo/track/stop:{}]` | YES — brief "going to sleep" line |
@@ -53,6 +53,33 @@ Every event emits at least one `[HW:/emotion:...]` marker, even on `NO_REPLY`. N
 - **Trust cooldowns** — system throttles already (60s sound, 10s presence, 30s light).
 - **Never call any API to receive events** — they arrive automatically.
 - **Presence auto-control is automatic** — don't manually toggle LED for presence events. Override only if the user asks (see Presence auto-control below).
+
+## Return after long absence (friend `presence.enter`)
+
+On every friend `presence.enter`, the backend injects a `[presence_context: {...}]` block:
+
+```json
+{ "last_leave_age_min": 312, "current_hour": 14 }
+```
+
+- `last_leave_age_min` — minutes since this friend's most recent `leave` row (looks back up to 3 days). **`-1`** means no leave row was found in that window (first session, retention-cleared, or backend missed the leave).
+- `current_hour` — exact hour 0-23.
+
+**Switch to a return-after-long-absence greeting when ALL of:**
+
+1. `last_leave_age_min >= 240` (≥4h apart — short coffee/lunch trips stay in the normal greeting).
+2. `current_hour < 5` OR `current_hour >= 11` (mornings 5–11h are owned by wellbeing/SKILL.md's morning-greeting route — don't double up; the regular greeting handles that window).
+3. `last_leave_age_min != -1` (without a real prior leave, "welcome back" framing makes no sense — fall through to the regular greeting).
+
+When the swap fires, keep the same HW markers (`greeting` emotion, servo aim+track) but change the spoken line:
+
+- Acknowledge the gap without quantifying it. *"Hey, been a while — how's the day going?"* / *"There you are. Where'd you wander off to?"* / *"Welcome back — long afternoon?"*
+- One open-ended question is fine; don't grill. No yes/no questions like "did you have fun?".
+- Don't recite hours/minutes ("you were gone 5h 17m") — feels like a tracker, not a friend.
+- Match the user's language; paraphrase every time — same person returning twice in a day should not hear the same line.
+- After ~22:00 the line should be shorter and quieter (*"Back. Long day?"*).
+
+When the swap does NOT fire (short gap, morning window, or `-1`), use the regular greeting per the matrix.
 
 ## Proactive care
 

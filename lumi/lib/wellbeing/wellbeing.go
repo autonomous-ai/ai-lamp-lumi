@@ -197,6 +197,49 @@ func readLastPresenceAction(user, day string) string {
 	return ""
 }
 
+// LastActionTS returns the Unix timestamp of the most recent event with the
+// given action across the last `lookbackDays` daily files (1 = today only,
+// 2 = today + yesterday, …). Returns 0 when no matching event is found.
+//
+// Scans today first, then walks back one day at a time, stopping at the first
+// hit. Each file is read once and scanned bottom-up (events are appended in
+// order, so the most recent match within a file is near the end).
+//
+// Used by skillcontext to compute `last_leave_age_min` for the return-welcome
+// presence.enter route — we may need to reach into yesterday's file when the
+// user was gone overnight, but bounded by lookbackDays so file scans stay
+// cheap.
+func LastActionTS(user, action string, lookbackDays int) float64 {
+	user = NormalizeUser(user)
+	if lookbackDays <= 0 {
+		lookbackDays = 1
+	}
+	now := time.Now()
+	for i := 0; i < lookbackDays; i++ {
+		day := now.AddDate(0, 0, -i).Format("2006-01-02")
+		path := filePath(user, day)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		s := strings.TrimRight(string(data), "\n")
+		if s == "" {
+			continue
+		}
+		lines := strings.Split(s, "\n")
+		for j := len(lines) - 1; j >= 0; j-- {
+			var evt Event
+			if err := json.Unmarshal([]byte(lines[j]), &evt); err != nil {
+				continue
+			}
+			if evt.Action == action {
+				return evt.TS
+			}
+		}
+	}
+	return 0
+}
+
 // Query reads wellbeing events for a given user and day (YYYY-MM-DD).
 // Returns up to last n events. If n <= 0, returns all.
 func Query(user, day string, n int) []Event {
