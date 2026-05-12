@@ -7,8 +7,11 @@ import EditConfig from "@/pages/EditConfig";
 import GwConfig from "@/pages/GwConfig";
 import { checkInternet, getSetupStatus } from "@/lib/api";
 
-// Tailscale CGNAT range: 100.64.0.0/10 (100.64.0.0 – 100.127.255.255).
+// Detect Tailscale access by either:
+//  - CGNAT IPv4 in 100.64.0.0/10 (100.64.0.0 – 100.127.255.255), or
+//  - MagicDNS hostname (anything ending in `.ts.net`).
 function isTailscaleHost(host: string): boolean {
+  if (host.endsWith(".ts.net")) return true;
   const m = host.match(/^(\d+)\.(\d+)\./);
   if (!m) return false;
   const a = parseInt(m[1], 10);
