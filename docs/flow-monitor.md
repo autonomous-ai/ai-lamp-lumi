@@ -70,8 +70,9 @@ Implementation details:
 
 - **Async goroutine**: The fetch runs in a separate goroutine because calling it synchronously inside the WS read loop handler would deadlock (the read loop blocks waiting for the handler to return, but the RPC response can only arrive after the handler returns).
 - **Pending RPC tracking**: `pendingRPC map[string]chan json.RawMessage` in `internal/openclaw/service.go` matches `type:"res"` frames to waiting callers by request ID. `dispatchRPCResponse()` hooks into the read loop before event handling.
-- **Two-phase emit**: First `chat_input` fires immediately (no message). After the goroutine gets the history, a second `chat_input` fires with the message text and `senderLabel` — the UI picks up the one with content.
-- **Best-effort**: 3-second timeout. If the fetch fails, the turn still shows `[telegram]` without message text.
+- **Two-phase emit**: First `chat_input` fires immediately with a neutral `[chat]` placeholder (no message yet). After the goroutine gets the history, a second `chat_input` fires with the actual message text and a label chosen by `senderLabel` / message-prefix inspection — the UI picks up the one with content.
+- **Label routing (second emit)**: (1) `senderLabel` non-empty → `[telegram:Gray]` (real channel user). (2) `senderLabel` empty + message matches a Lumi-internal prefix → `[voice]` / `[emotion]` / `[activity]` / `[wellbeing]` / `[music]` / `[sensing]` / `[system]` (sensing or voice event Lumi posted via chat.send that OpenClaw merged into this UUID host turn via steer mode). (3) Otherwise → generic `[chat]`. Previously every UUID channel-turn was unconditionally labelled with the configured channel (`[telegram]`), mis-attributing steer-merged self-fire turns to Telegram.
+- **Best-effort**: 3-second timeout. If the fetch fails, the turn stays at the generic `[chat]` placeholder — better than mis-attributing to a specific channel.
 - **Heartbeat noise**: OpenClaw heartbeat cron (every 30m) also triggers `lifecycle_start`. The last `role:"user"` message in those turns will be the heartbeat system prompt (starts with `"System:"`), not a real user message.
 - **Token usage**: `chat.history` is also called on `lifecycle_end` to fetch token usage. OpenClaw `lifecycle_end` events do not include `usage` data. The last `role:"assistant"` message in the history response contains `usage: {input, output, totalTokens, cacheRead, cacheWrite}` for the completed turn. This is emitted as a `token_usage` flow event with `source: "chat_history"`.
 
@@ -247,7 +248,7 @@ Node info extracted from turn events:
   lumi_gate) anchor at the pipeline's right edge.
 - `lifecycle_end` → Response node + final row in the Event Pipeline.
 - `tts_send` → TTS Speak + Output nodes (text from `detail.data.text`)
-- `tts_suppressed` → 🔇 marker in Lumi gate column. `data.reason` discriminates: `channel_run` (cron/Telegram-origin turn, speaker gated by default), `music_playing` (audio shares the speaker), `already_spoken` (built-in tts tool already routed). Emitted *instead of* `tts_send` when the actual `SendToLeLampTTS` call is skipped — prevents the UI from misleadingly claiming TTS happened.
+- `tts_suppressed` → 🔇 marker in Lumi gate column. `data.reason` discriminates: `channel_run` (real Telegram user turn — detected by `tg-` runID prefix synthesised in the `session.message` handler, or `channelRuns` map mark from chat.history fallback; reply fans out via OpenClaw session instead of the lamp speaker), `music_playing` (audio shares the speaker), `already_spoken` (built-in tts tool already routed), `web_chat` (Flow Monitor chat — reply shown in web UI only). Emitted *instead of* `tts_send` when the actual `SendToLeLampTTS` call is skipped — prevents the UI from misleadingly claiming TTS happened. Classifier uses positive evidence only: UUID runs from OpenClaw steer-mode self-fire, cron fires, and heartbeats are NOT `channel_run` and DO speak on the lamp.
 - `token_usage` → Response node (token counts).
 
 ### NO_REPLY suppression

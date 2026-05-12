@@ -94,6 +94,58 @@ func isLumiOutboundChatRunID(runID string) bool {
 	return strings.HasPrefix(runID, "lumi-chat-") || strings.HasPrefix(runID, "lumi-sensing-")
 }
 
+// labelForLumiInternal returns the UI label that best describes a Lumi-
+// internal message (sensing/voice/wellbeing/system events Lumi posts via
+// chat.send). Used by the Flow Monitor channel-turn handler to avoid
+// mis-labelling steer-merged self-fire turns as `[telegram]` when they
+// are actually sensing or voice events Lumi originated.
+//
+// Returns "" when the text doesn't match any known internal prefix —
+// caller should fall back to the configured-channel label in that case.
+func labelForLumiInternal(text string) string {
+	switch {
+	case strings.HasPrefix(text, "[user] [ambient]"),
+		strings.HasPrefix(text, "[ambient]"),
+		strings.HasPrefix(text, "[user]"):
+		return "[voice]"
+	case strings.HasPrefix(text, "[emotion]"):
+		return "[emotion]"
+	case strings.HasPrefix(text, "[activity]"):
+		return "[activity]"
+	case strings.HasPrefix(text, "[wellbeing]"):
+		return "[wellbeing]"
+	case strings.HasPrefix(text, "[music-proactive]"):
+		return "[music]"
+	case strings.HasPrefix(text, "[system]"):
+		return "[system]"
+	case strings.HasPrefix(text, "[sensing:"):
+		return "[sensing]"
+	}
+	return ""
+}
+
+// isChannelOriginatedRun returns true only when any of the given runIDs was
+// synthesised by Lumi from a real external channel user message — currently
+// "tg-<msgID>" created in the session.message handler when OpenClaw forwards
+// a Telegram user turn (see handler_events.go ~line 1157).
+//
+// This is the positive-evidence signal for "real channel user", replacing the
+// older "anything NOT lumi-chat-*" default which mis-classified UUID runs
+// from OpenClaw steer-mode self-fire / cron / heartbeat as Telegram and
+// suppressed their TTS even when no real user was on the other end.
+//
+// The channelRuns map override (chat.history fallback) remains the safety net
+// for any future case where a real channel user shows up under a non-tg-
+// runID before this helper recognises it.
+func isChannelOriginatedRun(runIDs ...string) bool {
+	for _, r := range runIDs {
+		if strings.HasPrefix(r, "tg-") {
+			return true
+		}
+	}
+	return false
+}
+
 // extractMessageContentText collects text from a session.message `content`
 // field. OpenClaw emits content as either a plain string or an array of typed
 // blocks ({"type":"text","text":"..."} / {"type":"toolCall",...}). Only

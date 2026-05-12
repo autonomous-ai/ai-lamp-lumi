@@ -98,8 +98,9 @@ OpenClaw chat stream **không bao giờ broadcast `role:"user"`** — chỉ emit
 Chi tiết:
 - **Async goroutine**: Fetch chạy trong goroutine riêng (gọi đồng bộ trong read loop sẽ deadlock).
 - **Pending RPC tracking**: `pendingRPC` map match response về đúng caller qua request ID.
-- **Hai phase emit**: `chat_input` đầu tiên fire ngay (chưa có text). Goroutine lấy xong → fire `chat_input` thứ 2 với message + `senderLabel` → UI pick event có content.
-- **Best-effort**: timeout 3 giây, fail thì vẫn hiện `[telegram]` không có text.
+- **Hai phase emit**: `chat_input` đầu tiên fire ngay với placeholder trung tính `[chat]` (chưa có text). Goroutine lấy xong → fire `chat_input` thứ 2 với message + label chọn theo `senderLabel` / prefix message → UI pick event có content.
+- **Label routing (emit thứ 2)**: (1) `senderLabel` có → `[telegram:Gray]` (real channel user). (2) `senderLabel` rỗng + message khớp prefix Lumi-internal → `[voice]` / `[emotion]` / `[activity]` / `[wellbeing]` / `[music]` / `[sensing]` / `[system]` (sensing/voice event Lumi đã post qua chat.send, OpenClaw merge vào UUID host turn này qua steer mode). (3) Còn lại → generic `[chat]`. Trước đây mọi UUID channel-turn đều bị gán nhãn theo configured channel (`[telegram]`), nhận nhầm steer-merged self-fire là Telegram.
+- **Best-effort**: timeout 3 giây, fail thì giữ nguyên placeholder generic `[chat]` — tốt hơn là gán nhầm vào channel cụ thể.
 - **Heartbeat**: Cron 30 phút cũng trigger `lifecycle_start` — last user message sẽ là system prompt, không phải user thật.
 - **Token usage**: `chat.history` cũng được gọi lúc `lifecycle_end` để lấy token usage. OpenClaw `lifecycle_end` không có field `usage`. Token nằm trong last `role:"assistant"` message của history response: `usage: {input, output, totalTokens, cacheRead, cacheWrite}`. Emit thành `token_usage` flow event với `source: "chat_history"`.
 
@@ -109,7 +110,7 @@ OpenClaw agent trả `NO_REPLY` (hoặc dạng cắt ngắn `NO`, `NO_RE`, `NO_.
 
 ### TTS suppress event
 
-Khi `SendToLeLampTTS` thật sự bị skip (loa không phát), Lumi emit `tts_suppressed` thay vì `tts_send`. Field `data.reason` discriminate: `channel_run` (cron/Telegram-origin turn — speaker mặc định bị gate), `music_playing` (audio đang chiếm loa), `already_spoken` (built-in tts tool đã route trước). UI hiển thị 🔇 ở Lumi Gate column thay vì 🔊 — tránh case trước đây log nói "TTS" nhưng loa im.
+Khi `SendToLeLampTTS` thật sự bị skip (loa không phát), Lumi emit `tts_suppressed` thay vì `tts_send`. Field `data.reason` discriminate: `channel_run` (real Telegram user turn — detect qua runID có prefix `tg-` Lumi tự sinh trong `session.message` handler, hoặc `channelRuns` map mark từ chat.history fallback; reply đi qua OpenClaw session fan-out thay vì loa lamp), `music_playing` (audio đang chiếm loa), `already_spoken` (built-in tts tool đã route trước), `web_chat` (Flow Monitor chat — reply chỉ hiện trên web UI). UI hiển thị 🔇 ở Lumi Gate column thay vì 🔊 — tránh case trước đây log nói "TTS" nhưng loa im. Classifier chỉ dùng positive evidence: UUID runs từ OpenClaw steer-mode self-fire, cron fire, heartbeat KHÔNG bị coi là `channel_run` và VẪN phát loa.
 
 ### Cron-fire auto-force TTS
 
