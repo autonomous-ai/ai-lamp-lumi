@@ -144,6 +144,103 @@ var ContinuationFillersZhTW = []string{
 	"搜尋中",
 }
 
+// Tool-specific filler pools. When run.lastToolName matches a key, fire()
+// prefers these action-oriented phrases over the generic Continuation pool
+// so the spoken filler matches what the agent is actually doing ("Đang tra
+// mạng" while web_search runs, "Đang đọc tài liệu" while read runs, etc.).
+// Unmapped tool names fall through to ContinuationFillers.
+//
+// Tool name list sourced from OpenClaw runtime (openclaw-tools, bash-tools,
+// pi-tools, memory-core, x-search). Only the high-frequency / user-visible
+// tools have entries — others (cron, gateway, sessions_send, …) fall back.
+var ToolFillersEN = map[string][]string{
+	"web_search":     {"Searching", "Looking it up", "Checking online", "Hunting for info"},
+	"x_search":       {"Searching X", "Checking X posts", "Looking on X"},
+	"web_fetch":      {"Opening the page", "Fetching content", "Loading the page", "Reading the page"},
+	"read":           {"Reading", "Checking the file", "Looking at the doc", "Reading content"},
+	"memory_search":  {"Searching memory", "Checking history", "Looking up notes"},
+	"memory_get":     {"Reading memory", "Checking notes"},
+	"exec":           {"Running it", "Executing", "Processing", "Working through it"},
+	"process":        {"Running it", "Processing in background"},
+	"image_generate": {"Creating image", "Generating art", "Making something visual"},
+	"video_generate": {"Generating video", "Rendering frames", "Making the video"},
+	"music_generate": {"Composing music", "Generating audio", "Making the track"},
+	"update_plan":    {"Updating the plan", "Adjusting the plan", "Reordering todos"},
+	"session_status": {"Checking session", "Looking at status"},
+	"apply_patch":    {"Editing the file", "Applying changes"},
+	"pdf":            {"Reading PDF", "Scanning the document"},
+	"canvas":         {"Drawing", "Sketching it out"},
+	"nodes":          {"Calling a skill", "Triggering action"},
+	"subagents":      {"Asking a sub-agent", "Delegating"},
+	"image":          {"Looking at the image", "Inspecting picture"},
+}
+
+var ToolFillersVI = map[string][]string{
+	"web_search":     {"Đang tra mạng", "Tra cứu chút", "Lên mạng tìm", "Tìm thông tin"},
+	"x_search":       {"Tra trên X", "Xem X chút", "Lục X"},
+	"web_fetch":      {"Đang mở trang", "Xem trang web", "Tải trang nhé", "Đọc trang"},
+	"read":           {"Đang đọc tài liệu", "Mở file xem", "Đọc nội dung", "Kiểm tra tài liệu"},
+	"memory_search":  {"Tra trí nhớ", "Tìm trong ghi chú", "Lục lại ghi nhớ"},
+	"memory_get":     {"Đang đọc trí nhớ", "Lấy ghi chú ra"},
+	"exec":           {"Đang chạy lệnh", "Xử lý lệnh", "Chạy lệnh nhé", "Thực thi"},
+	"process":        {"Đang chạy", "Xử lý ngầm"},
+	"image_generate": {"Đang vẽ", "Tạo hình ảnh", "Sáng tác hình"},
+	"video_generate": {"Đang dựng video", "Tạo video"},
+	"music_generate": {"Đang sáng tác nhạc", "Soạn nhạc"},
+	"update_plan":    {"Đang lên kế hoạch", "Cập nhật plan", "Sắp xếp lại"},
+	"session_status": {"Kiểm tra trạng thái", "Xem session"},
+	"apply_patch":    {"Đang sửa file", "Áp dụng thay đổi"},
+	"pdf":            {"Đang đọc PDF", "Xem tài liệu PDF"},
+	"canvas":         {"Đang vẽ", "Phác chút"},
+	"nodes":          {"Đang gọi skill", "Kích hoạt"},
+	"subagents":      {"Gọi sub-agent giúp", "Nhờ phụ tá"},
+	"image":          {"Đang xem ảnh", "Ngắm ảnh chút"},
+}
+
+var ToolFillersZhCN = map[string][]string{
+	"web_search":     {"正在搜索", "查一下", "上网搜", "找信息"},
+	"x_search":       {"在搜X", "查X", "看X上的"},
+	"web_fetch":      {"打开网页", "拿取内容", "加载页面", "查看页面"},
+	"read":           {"在读文件", "查看文档", "读取内容", "看一下文件"},
+	"memory_search":  {"在查记忆", "翻一翻笔记", "查历史"},
+	"memory_get":     {"在读记忆", "取笔记"},
+	"exec":           {"执行中", "运行命令", "在跑命令", "处理中"},
+	"process":        {"在跑", "后台处理"},
+	"image_generate": {"正在画", "生成图片", "做一张图"},
+	"video_generate": {"生成视频", "渲染中"},
+	"music_generate": {"作曲中", "生成音乐"},
+	"update_plan":    {"更新计划", "调整任务", "排一下"},
+	"session_status": {"查会话状态", "看一下状态"},
+	"apply_patch":    {"在改文件", "应用修改"},
+	"pdf":            {"在读PDF", "扫一遍文档"},
+	"canvas":         {"在画", "草图中"},
+	"nodes":          {"调用技能", "触发动作"},
+	"subagents":      {"请副手帮忙", "派一个子代理"},
+	"image":          {"在看图", "观察图片"},
+}
+
+var ToolFillersZhTW = map[string][]string{
+	"web_search":     {"正在搜尋", "查一下", "上網搜", "找資訊"},
+	"x_search":       {"在搜X", "查X", "看X上的"},
+	"web_fetch":      {"打開網頁", "讀取內容", "載入頁面", "查看頁面"},
+	"read":           {"在讀文件", "查看文檔", "讀取內容", "看一下檔案"},
+	"memory_search":  {"在查記憶", "翻一翻筆記", "查歷史"},
+	"memory_get":     {"在讀記憶", "取筆記"},
+	"exec":           {"執行中", "運行命令", "在跑命令", "處理中"},
+	"process":        {"在跑", "背景處理"},
+	"image_generate": {"正在畫", "生成圖片", "做一張圖"},
+	"video_generate": {"生成影片", "渲染中"},
+	"music_generate": {"作曲中", "生成音樂"},
+	"update_plan":    {"更新計畫", "調整任務", "排一下"},
+	"session_status": {"查會話狀態", "看一下狀態"},
+	"apply_patch":    {"在改檔案", "套用修改"},
+	"pdf":            {"在讀PDF", "掃一遍文件"},
+	"canvas":         {"在畫", "草圖中"},
+	"nodes":          {"呼叫技能", "觸發動作"},
+	"subagents":      {"請副手幫忙", "派一個子代理"},
+	"image":          {"在看圖", "觀察圖片"},
+}
+
 // poolsForLang returns the (opening, continuation) pools for a BCP-47 STT
 // language code. Empty / unknown / "en*" → English. Falls through to English
 // when the requested pool is empty so a misconfigured pool stays graceful.
@@ -157,6 +254,27 @@ func poolsForLang(lang string) (opening, continuation []string) {
 		return OpeningFillersZhTW, ContinuationFillersZhTW
 	}
 	return OpeningFillers, ContinuationFillers
+}
+
+// toolPoolForLang returns the tool-specific filler pool for (lang, toolName).
+// Returns nil when there's no pool for that combination — caller falls back
+// to the regular Continuation pool. Unknown lang → English pool.
+func toolPoolForLang(lang, toolName string) []string {
+	if toolName == "" {
+		return nil
+	}
+	var pools map[string][]string
+	switch lang {
+	case "vi":
+		pools = ToolFillersVI
+	case "zh-CN":
+		pools = ToolFillersZhCN
+	case "zh-TW":
+		pools = ToolFillersZhTW
+	default:
+		pools = ToolFillersEN
+	}
+	return pools[toolName]
 }
 
 // Filler tuning. All durations are wall-clock.
@@ -214,6 +332,7 @@ type fillerRun struct {
 	ended          bool      // turn finalized (assistant delta or lifecycle.end) — no more arms
 	lastSpoken     string    // text of the most recent filler — used to dedup back-to-back picks
 	rearmPending   bool      // tool.end arrived while playing=true; fire() re-arms after speak (otherwise the event would be silently dropped by armLocked's playing guard)
+	lastToolName   string    // name of the most recently started tool — drives tool-aware filler pool ("Đang tra mạng" for web_search, "Đang đọc tài liệu" for read, etc.). Empty when no tool has started yet (e.g. first filler before any tool call)
 }
 
 // fillersDisabled reports whether both English pools are empty — the kill
@@ -225,11 +344,23 @@ func fillersDisabled() bool {
 
 // pickFiller returns a phrase appropriate for the current turn position
 // in the active language (read from i18n.Lang()), avoiding lastSpoken when
-// an alternative exists. Fired==0 prefers the Opening pool; subsequent
-// fillers prefer Continuation. Each falls back to the other pool when its
-// own is empty so a single-pool config still works.
-func pickFiller(fired int, lastSpoken string) string {
-	opening, continuation := poolsForLang(i18n.Lang())
+// an alternative exists.
+//
+// Lookup chain (first non-empty wins):
+//  1. Tool-specific pool keyed by lastToolName ("web_search" → "Đang tra mạng")
+//  2. Opening pool when fired==0, else Continuation pool
+//  3. The opposite (Continuation/Opening) pool as fallback
+//
+// fired==0 prefers Opening so the very first filler stays an
+// acknowledgement; once a tool has fired the tool pool drives accuracy.
+func pickFiller(fired int, lastSpoken, lastToolName string) string {
+	lang := i18n.Lang()
+	if pool := toolPoolForLang(lang, lastToolName); len(pool) > 0 {
+		if pick := pickFrom(pool, lastSpoken); pick != "" {
+			return pick
+		}
+	}
+	opening, continuation := poolsForLang(lang)
 	primary, fallback := opening, continuation
 	if fired > 0 {
 		primary, fallback = continuation, opening
@@ -435,17 +566,26 @@ func (fm *FillerManager) OnTurnStart(runID string) {
 	fm.armLocked(runID, run, FillerDelay)
 }
 
-// OnToolStart soft-cancels the pending filler when the agent invokes a
-// hardware reaction tool. Non-hardware tools are ignored; the filler
-// timer keeps ticking and may fire during a long Bash/Read.
-func (fm *FillerManager) OnToolStart(runID, toolArgs string) {
-	if runID == "" || !isHWReactionTool(toolArgs) {
+// OnToolStart records the most recently started tool name so the next
+// filler picks a tool-aware phrase (see ToolFillers*), and soft-cancels
+// the pending filler when the tool is a hardware reaction (the user
+// already perceives the lamp reacting — no filler needed at that moment).
+// Non-hardware tools leave the filler timer ticking so it can still fire
+// during a long Bash/Read/web_search.
+func (fm *FillerManager) OnToolStart(runID, toolArgs, toolName string) {
+	if runID == "" {
 		return
 	}
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 	run, ok := fm.runs[runID]
 	if !ok || run.ended {
+		return
+	}
+	if toolName != "" {
+		run.lastToolName = toolName
+	}
+	if !isHWReactionTool(toolArgs) {
 		return
 	}
 	fm.softCancelLocked(run)
@@ -557,7 +697,7 @@ func (fm *FillerManager) fire(runID string) {
 		fm.mu.Unlock()
 		return
 	}
-	filler := pickFiller(run.fired, run.lastSpoken)
+	filler := pickFiller(run.fired, run.lastSpoken, run.lastToolName)
 	if filler == "" {
 		// Both pools empty after live edit. Bail without playing.
 		run.timer = nil
