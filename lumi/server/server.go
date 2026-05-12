@@ -230,6 +230,7 @@ func (s *Server) Serve(closeFn func()) error {
 
 	s.handleSetUpCompleteChange(s.config.SetUpCompleted)
 	s.handleDeviceIDChange(s.config.DeviceID)
+	s.handleMQTTEndpointChange(s.config.MQTTEndpoint)
 
 	configCtx, cancelConfig := context.WithCancel(context.Background())
 	defer cancelConfig()
