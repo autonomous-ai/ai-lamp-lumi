@@ -649,11 +649,26 @@ EOF
 stage_ap() {
   echo "[stage] Setup WiFi AP"
 
-  # Pi 5: prefer device-tree serial; fallback to cpuinfo
-  SERIAL=$(tr -d '\0' </proc/device-tree/serial-number 2>/dev/null) || SERIAL=$(awk '/Serial/ {print $3}' /proc/cpuinfo)
+  # Pi 5: device-tree serial; Pi 4: cpuinfo Serial.
+  # Non-Pi boards (OrangePi 4 Pro etc.) lack both — fall back to the ethernet
+  # MAC so the AP SSID still gets a stable per-device suffix. Keep Pi paths
+  # first so existing Pi devices keep their current SSID.
+  SERIAL=$(tr -d '\0' </proc/device-tree/serial-number 2>/dev/null || true)
+  if [ -z "$SERIAL" ]; then
+    SERIAL=$(awk '/^Serial/ {print $3}' /proc/cpuinfo 2>/dev/null || true)
+  fi
+  if [ -z "$SERIAL" ]; then
+    for iface in eth0 end0; do
+      mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null | tr -d ':' || true)
+      if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
+        SERIAL=$mac
+        break
+      fi
+    done
+  fi
   SUFFIX=${SERIAL: -4}
   AP_SSID="Lumi-${SUFFIX}"
-  echo "[stage] AP SSID = $AP_SSID"
+  echo "[stage] AP SSID = $AP_SSID (serial=$SERIAL)"
 
   # Ignore Pi Imager WiFi credentials baked into the image.
   if [ -f /etc/wpa_supplicant/wpa_supplicant.conf ]; then
