@@ -4,6 +4,13 @@ Lumi is an AI-powered desk lamp built on a Raspberry Pi. It listens, sees, moves
 
 Target hardware: Raspberry Pi 4/5, Linux ARM64.
 
+## Gallery
+
+|   |   |
+|---|---|
+| ![Lumi on desk](hardware/images/img.jpg) | ![Lumi close-up](hardware/images/img_1.jpg) |
+| ![Lumi side view](hardware/images/img_2.jpg) | ![Lumi detail](hardware/images/img_3.jpg) |
+
 ## Architecture
 
 Three layers, each independently replaceable:
