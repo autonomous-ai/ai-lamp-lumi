@@ -24,6 +24,12 @@ os.environ["DL_API_KEY"] = TEST_API_KEY
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 PERSON_DRINKING_IMG = FIXTURES_DIR / "person_drinking.jpg"
+X3D_MODEL_PATH = Path.cwd() / "local" / "x3d_m_16x5x1_int8.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not X3D_MODEL_PATH.exists(),
+    reason=f"Local X3D model not found at {X3D_MODEL_PATH}",
+)
 
 
 def _img_to_b64(path: Path) -> str:
@@ -59,9 +65,13 @@ def person_detector():
 @pytest.fixture(scope="session")
 def model_with_detector(person_detector):
     from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
 
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
+    )
     m = ActionAnalysis(
-        model_name=HumanActionRecognizerEnum.X3D,
+        recognizer=recognizer,
         person_detector=person_detector,
         frame_interval=0.0,
     )
@@ -72,9 +82,13 @@ def model_with_detector(person_detector):
 @pytest.fixture(scope="session")
 def model_without_detector():
     from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
 
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
+    )
     m = ActionAnalysis(
-        model_name=HumanActionRecognizerEnum.X3D,
+        recognizer=recognizer,
         frame_interval=0.0,
     )
     m.start()

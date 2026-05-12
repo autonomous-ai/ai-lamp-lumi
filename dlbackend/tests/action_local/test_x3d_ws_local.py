@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -15,6 +16,13 @@ from core.perception.action.action import ActionAnalysis
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
+X3D_MODEL_PATH = Path.cwd() / "local" / "x3d_m_16x5x1_int8.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not X3D_MODEL_PATH.exists(),
+    reason=f"Local X3D model not found at {X3D_MODEL_PATH}",
+)
+
 
 def _make_frame_b64(width: int = 320, height: int = 240) -> str:
     """Create a base64-encoded JPEG of a random BGR image."""
@@ -26,10 +34,13 @@ def _make_frame_b64(width: int = 320, height: int = 240) -> str:
 @pytest.fixture(scope="session")
 def model():
     """Load the real X3DActionRecognizer once for the entire test session."""
-
     from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
 
-    model = ActionAnalysis(model_name=HumanActionRecognizerEnum.X3D)
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
+    )
+    model = ActionAnalysis(recognizer=recognizer)
     model.start()
     return model
 

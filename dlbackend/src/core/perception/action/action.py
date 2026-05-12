@@ -8,57 +8,13 @@ import logging
 import secrets
 import time
 from collections import deque
-from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 
-from core.enums import HumanActionRecognizerEnum
 from core.models.action import ActionDetection, ActionResponse
-from core.perception.action.constants import (
-    UNIFORMERV2_DEFAULTS,
-    VIDEOMAE_DEFAULTS,
-    X3D_DEFAULTS,
-)
 from core.perception.action.recognizer.base import HumanActionRecognizerModel
 from core.perception.persondetector import PersonDetector
-
-logger = logging.getLogger(__name__)
-
-# Map model enum → its defaults dict
-_MODEL_DEFAULTS: dict[HumanActionRecognizerEnum, dict] = {
-    HumanActionRecognizerEnum.VIDEOMAE: VIDEOMAE_DEFAULTS,
-    HumanActionRecognizerEnum.UNIFORMERV2: UNIFORMERV2_DEFAULTS,
-    HumanActionRecognizerEnum.X3D: X3D_DEFAULTS,
-}
-
-
-def _create_recognizer(
-    model_name: HumanActionRecognizerEnum,
-    model_path: Path | None,
-    max_frames: int | None = None,
-    frame_size: tuple[int, int] | None = None,
-) -> HumanActionRecognizerModel:
-    """Instantiate the correct recognizer model."""
-    defaults = _MODEL_DEFAULTS[model_name]
-    mf = max_frames if max_frames is not None else defaults["max_frames"]
-    fs = frame_size if frame_size is not None else defaults["frame_size"]
-
-    if model_name == HumanActionRecognizerEnum.VIDEOMAE:
-        from core.perception.action.recognizer.videomae import VideoMAEModel
-
-        return VideoMAEModel(model_path, max_frames=mf, frame_size=fs)
-    elif model_name == HumanActionRecognizerEnum.UNIFORMERV2:
-        from core.perception.action.recognizer.uniformerv2 import UniformerV2Model
-
-        return UniformerV2Model(model_path, max_frames=mf, frame_size=fs)
-    elif model_name == HumanActionRecognizerEnum.X3D:
-        from core.perception.action.recognizer.x3d import X3DModel
-
-        return X3DModel(model_path, max_frames=mf, frame_size=fs)
-    else:
-        msg = f"Unknown action recognition model: {model_name}"
-        raise ValueError(msg)
 
 
 class ActionAnalysis:
@@ -66,38 +22,33 @@ class ActionAnalysis:
 
     def __init__(
         self,
-        model_name: HumanActionRecognizerEnum,
-        model_path: Path | None = None,
+        recognizer: HumanActionRecognizerModel,
         person_detector: PersonDetector | None = None,
-        max_frames: int | None = None,
-        frame_size: tuple[int, int] | None = None,
         confidence_threshold: float | None = None,
         frame_interval: float | None = None,
     ):
-        self._model_name = model_name
-        self._recognizer: HumanActionRecognizerModel = _create_recognizer(
-            model_name, model_path, max_frames=max_frames, frame_size=frame_size,
-        )
-        self._person_detector = person_detector
-        self._confidence_threshold = confidence_threshold
-        self._frame_interval = frame_interval
+        self._recognizer: HumanActionRecognizerModel = recognizer
+        self._person_detector: PersonDetector | None = person_detector
+        self._confidence_threshold: float | None = confidence_threshold
+        self._frame_interval: float | None = frame_interval
         self._running: bool = False
+        self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
     def start(self) -> None:
         if self._running:
-            logger.info("[ActionAnalysis] already running")
+            self._logger.info("[%s] already running", self.__class__.__name__)
             return
 
         self._recognizer.start()
         self._running = True
-        logger.info("[ActionAnalysis] ready (%s)", self._model_name)
+        self._logger.info("[%s] ready", self.__class__.__name__)
 
     def stop(self) -> None:
         self._recognizer.stop()
         if self._person_detector is not None:
             self._person_detector.stop()
         self._running = False
-        logger.info("[ActionAnalysis] stopped")
+        self._logger.info("[%s] stopped", self.__class__.__name__)
 
     def is_ready(self) -> bool:
         return self._running and self._recognizer.is_ready()
@@ -107,11 +58,19 @@ class ActionAnalysis:
         threshold: float | None = None,
         frame_interval: float | None = None,
     ) -> "ActionSession":
-        defaults = _MODEL_DEFAULTS[self._model_name]
+        recognizer_cls: type[HumanActionRecognizerModel] = type(self._recognizer)
         if threshold is None:
-            threshold = self._confidence_threshold if self._confidence_threshold is not None else defaults["confidence_threshold"]
+            threshold = (
+                self._confidence_threshold
+                if self._confidence_threshold is not None
+                else recognizer_cls.DEFAULT_CONFIDENCE_THRESHOLD
+            )
         if frame_interval is None:
-            frame_interval = self._frame_interval if self._frame_interval is not None else defaults["frame_interval"]
+            frame_interval = (
+                self._frame_interval
+                if self._frame_interval is not None
+                else recognizer_cls.DEFAULT_FRAME_INTERVAL
+            )
         return ActionSession(
             recognizer=self._recognizer,
             person_detector=self._person_detector,
@@ -130,16 +89,16 @@ class ActionSession:
         threshold: float,
         frame_interval: float,
     ):
-        self._recognizer = recognizer
-        self._person_detector = person_detector
-        self._threshold = threshold
-        self._frame_interval = frame_interval
+        self._recognizer: HumanActionRecognizerModel = recognizer
+        self._person_detector: PersonDetector | None = person_detector
+        self._threshold: float = threshold
+        self._frame_interval: float = frame_interval
 
         self._class_mask: npt.NDArray[np.bool_] = recognizer.default_mask.copy()
         self._frame_buffer: deque[npt.NDArray[np.uint8]] = deque()
         self._last_ts: float = 0
         self._last_detected: list[tuple[str, float]] = []
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
         self._session_id: str = secrets.token_hex(4)
         self._person_detection_enabled: bool = person_detector is not None
 
@@ -150,9 +109,9 @@ class ActionSession:
         Returns an empty ActionResponse when person detection is active
         but no person is found in the frame.
         """
-        cur_ts = time.time()
+        cur_ts: float = time.time()
         if cur_ts - self._last_ts >= self._frame_interval:
-            input_frame = frame
+            input_frame: npt.NDArray[np.uint8] = frame
             if self._person_detector is not None and self._person_detection_enabled:
                 crop = self._person_detector.detect_largest_crop(frame)
                 if crop is None:
@@ -163,7 +122,7 @@ class ActionSession:
             self._last_detected = self._recognizer.predict(self._frame_buffer, self._class_mask)
             self._last_ts = cur_ts
 
-        detected_classes = [
+        detected_classes: list[ActionDetection] = [
             ActionDetection(class_name=name, conf=conf)
             for name, conf in self._last_detected
             if conf > self._threshold
@@ -189,7 +148,7 @@ class ActionSession:
         if whitelist is None:
             self._class_mask = self._recognizer.default_mask.copy()
         else:
-            allowed = set(whitelist)
+            allowed: set[str] = set(whitelist)
             self._class_mask = np.array(
                 [name in allowed for name in self._recognizer.class_names], dtype=np.bool_
             )

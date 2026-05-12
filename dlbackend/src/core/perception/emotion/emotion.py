@@ -16,18 +16,15 @@ import numpy.typing as npt
 
 from core.enums import EmotionRecognizerEnum
 from core.models.emotion import EmotionDetection, EmotionResponse
-from core.perception.emotion.constants import EMOTION_DEFAULTS
 from core.perception.emotion.recognizer.base import EmotionRecognizer
 from core.perception.emotion.utils import create_classifier
 from core.perception.faces import YuNetDetector
 
-logger = logging.getLogger(__name__)
-
-_D = EMOTION_DEFAULTS
-
-
 class EmotionAnalysis:
     """Combined YuNet + emotion classifier. Loaded once, used by all WS sessions."""
+
+    DEFAULT_CONFIDENCE_THRESHOLD: float = 0.5
+    DEFAULT_FRAME_INTERVAL: float = 1.0
 
     def __init__(
         self,
@@ -51,23 +48,24 @@ class EmotionAnalysis:
         self._confidence_threshold = confidence_threshold
         self._frame_interval = frame_interval
         self._running: bool = False
+        self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
     def start(self):
         if self._running:
-            logger.info("[EmotionAnalysis] already running")
+            self._logger.info("[%s] already running", self.__class__.__name__)
             return
 
         self._face_detector.start()
         self._fer.start()
 
         self._running = True
-        logger.info("[EmotionAnalysis] ready (%s)", self._model_name)
+        self._logger.info("[%s] ready (%s)", self.__class__.__name__, self._model_name)
 
     def stop(self):
         self._fer.stop()
         self._face_detector.stop()
         self._running = False
-        logger.info("[EmotionAnalysis] stopped")
+        self._logger.info("[%s] stopped", self.__class__.__name__)
 
     def is_ready(self) -> bool:
         return self._running and self._face_detector.is_ready() and self._fer.is_ready()
@@ -129,9 +127,9 @@ class EmotionAnalysis:
         frame_interval: float | None = None,
     ) -> "EmotionSession":
         if threshold is None:
-            threshold = self._confidence_threshold if self._confidence_threshold is not None else _D["confidence_threshold"]
+            threshold = self._confidence_threshold if self._confidence_threshold is not None else self.DEFAULT_CONFIDENCE_THRESHOLD
         if frame_interval is None:
-            frame_interval = self._frame_interval if self._frame_interval is not None else _D["frame_interval"]
+            frame_interval = self._frame_interval if self._frame_interval is not None else self.DEFAULT_FRAME_INTERVAL
         return EmotionSession(
             model=self,
             threshold=threshold,

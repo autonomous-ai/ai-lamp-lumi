@@ -19,11 +19,13 @@ from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from config import settings
-from core.enums import PersonDetectorEnum, PoseEstimator2DEnum
+from core.enums import PersonDetectorEnum
 from core.perception.action.action import ActionAnalysis
+from core.perception.action.utils import create_recognizer
 from core.perception.emotion.emotion import EmotionAnalysis
 from core.perception.persondetector import YOLOPersonDetector
-from core.perception.pose.pose2d.rtmpose import RTMPose2D
+from core.perception.pose.pose import PoseAnalysis
+from core.perception.pose.utils import create_estimator_2d, create_lifter_3d
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp import speech_emotion_recognizer as ser_protocol
 from protocols.htpp.action import router as action_ws_router
@@ -31,12 +33,16 @@ from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 from protocols.htpp.emotion import http_router as emotion_http_router
 from protocols.htpp.emotion import ws_router as emotion_ws_router
 from protocols.htpp.health import router as health_router
+from protocols.htpp.pose import http_router as pose_http_router
+from protocols.htpp.pose import ws_router as pose_ws_router
 from protocols.htpp.speech_emotion_recognizer import router as ser_router
 from protocols.utils.state import (
     get_action_model,
     get_emotion_model,
+    get_pose_model,
     set_action_model,
     set_emotion_model,
+    set_pose_model,
 )
 
 logging.basicConfig(
@@ -94,12 +100,15 @@ def _build_action_analysis() -> ActionAnalysis:
     if settings.action.w is not None and settings.action.h is not None:
         action_frame_size = (settings.action.h, settings.action.w)
 
-    return ActionAnalysis(
+    recognizer = create_recognizer(
         model_name=settings.action.model,
         model_path=action_ckpt,
-        person_detector=person_detector,
         max_frames=settings.action.max_frames,
         frame_size=action_frame_size,
+    )
+    return ActionAnalysis(
+        recognizer=recognizer,
+        person_detector=person_detector,
         confidence_threshold=settings.action.confidence_threshold,
         frame_interval=settings.action.frame_interval,
     )
@@ -115,6 +124,30 @@ def _build_emotion_analysis() -> EmotionAnalysis:
         confidence_threshold=settings.emotion.confidence_threshold,
         frame_interval=settings.emotion.frame_interval,
     )
+
+
+def _build_pose_analysis() -> PoseAnalysis:
+    """Create the PoseAnalysis from config settings."""
+    pose_ckpt = Path(settings.pose.ckpt_path) if settings.pose.ckpt_path else None
+    estimator_2d = create_estimator_2d(settings.pose.model, pose_ckpt)
+
+    lifter_3d = None
+    if settings.pose.lifter_3d is not None:
+        lifter_3d_ckpt = (
+            Path(settings.pose.lifter_3d_ckpt_path) if settings.pose.lifter_3d_ckpt_path else None
+        )
+        lifter_3d_frame_size = None
+        if (
+            settings.pose.lifter_3d_frame_w is not None
+            and settings.pose.lifter_3d_frame_h is not None
+        ):
+            lifter_3d_frame_size = (
+                settings.pose.lifter_3d_frame_w,
+                settings.pose.lifter_3d_frame_h,
+            )
+        lifter_3d = create_lifter_3d(settings.pose.lifter_3d, lifter_3d_ckpt, lifter_3d_frame_size)
+
+    return PoseAnalysis(estimator_2d=estimator_2d, lifter_3d=lifter_3d)
 
 
 # --- Lifespan ---
@@ -165,13 +198,10 @@ async def lifespan(app: FastAPI):
     if settings.pose.enabled:
         logger.info("Loading pose estimator...")
         try:
-            pose_ckpt = Path(settings.pose.ckpt_path) if settings.pose.ckpt_path else None
-            if settings.pose.model == PoseEstimator2DEnum.RTMPOSE:
-                pose_model = RTMPose2D(model_path=pose_ckpt)
-            else:
-                raise ValueError(f"Unknown pose model: {settings.pose.model}")
+            pose_model = _build_pose_analysis()
             pose_model.start()
-            logger.info("[%s] pose estimator ready", settings.pose.model)
+            set_pose_model(pose_model)
+            logger.info("Pose estimator ready")
         except Exception as e:
             logger.warning("Failed to load pose estimator: %s", e)
 
@@ -184,6 +214,9 @@ async def lifespan(app: FastAPI):
     emotion_model = get_emotion_model()
     if emotion_model is not None:
         emotion_model.stop()
+    pose_model = get_pose_model()
+    if pose_model is not None:
+        pose_model.stop()
     logger.info("DL backend shutdown complete")
 
 
@@ -199,6 +232,8 @@ app.include_router(
     audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)]
 )
 app.include_router(ser_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
+app.include_router(pose_ws_router, prefix="/api/dl")
+app.include_router(pose_http_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
 
 
 # --- CLI ---

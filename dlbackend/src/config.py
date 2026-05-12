@@ -12,6 +12,7 @@ from core.enums import (
     PoseEstimator2DEnum,
     SpeechEmotionRecognizerEnum,
 )
+from core.enums.pose import PoseLifter3DEnum
 
 
 class PersonDetectorSetting(BaseModel):
@@ -27,7 +28,7 @@ class ActionSetting(BaseModel):
     enabled: bool = True
     model: HumanActionRecognizerEnum = HumanActionRecognizerEnum.X3D
     ckpt_path: str | None = None
-    # Optional overrides — None means use model-specific defaults from constants.py
+    # Optional overrides — None means use model-specific class defaults
     confidence_threshold: float | None = None
     max_frames: int | None = None
     frame_interval: float | None = None
@@ -39,7 +40,7 @@ class EmotionSetting(BaseModel):
     enabled: bool = True
     model: EmotionRecognizerEnum = EmotionRecognizerEnum.POSTERV2
     ckpt_path: str | None = None
-    # Optional overrides — None means use model-specific defaults from constants.py
+    # Optional overrides — None means use model-specific class defaults
     confidence_threshold: float | None = None
     frame_interval: float | None = None
 
@@ -48,6 +49,10 @@ class PoseSetting(BaseModel):
     enabled: bool = False
     model: PoseEstimator2DEnum = PoseEstimator2DEnum.RTMPOSE
     ckpt_path: str | None = None
+    lifter_3d: PoseLifter3DEnum | None = None
+    lifter_3d_ckpt_path: str | None = None
+    lifter_3d_frame_w: int | None = None
+    lifter_3d_frame_h: int | None = None
 
 
 class SpeechEmotionRecognizerSetting(BaseModel):
