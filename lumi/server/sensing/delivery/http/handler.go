@@ -317,8 +317,18 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// concurrent passive sensing (motion/emotion/ambient).
 		msg = domain.AppendEnrollNudge("[user] " + req.Message)
 	} else if req.Type == "voice" {
-		// Ambient speech — no wake word. Agent always reacts (emotion minimum), speaks if relevant.
-		msg = domain.AppendEnrollNudge("[ambient] " + req.Message)
+		// Ambient speech — no wake word. Combined `[user] [ambient]` prefix:
+		//   - `[user]` lifts overheard voice to the same priority as wake-word
+		//     voice in batched turns (chosen 2026-05-12: lamp errs on the side
+		//     of responding instead of letting passive sensing batch-steal the
+		//     turn — user explicitly preferred this even at the cost of
+		//     potentially interrupting person-to-person conversation).
+		//   - `[ambient]` stays as a secondary marker so voice/SKILL.md's
+		//     ambient guard (mute words, fragment guard) still applies and
+		//     Lumi doesn't fire destructive `/voice/mute` actions from
+		//     overheard fragments. voice/SKILL.md checks for the literal
+		//     token `[ambient]` (not startsWith) so the combined prefix works.
+		msg = domain.AppendEnrollNudge("[user] [ambient] " + req.Message)
 	} else if isWebChat {
 		// Web monitor chat — typed text, forwarded raw. No enroll nudge (no
 		// camera/face context), no [sensing:*] prefix (not a sensor signal),

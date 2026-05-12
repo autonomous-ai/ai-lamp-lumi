@@ -194,11 +194,14 @@ func (s *Service) drainPendingEvents() {
 
 		var msg string
 		if ev.eventType == "voice" || ev.eventType == "voice_command" {
-			// Mirror the direct sensing handler path: `[user]` for wake-word-
-			// confirmed voice, `[ambient]` for unconfirmed overheard speech.
+			// Mirror the direct sensing handler path: `[user]` for both wake-
+			// word voice and ambient voice (so AGENTS.md batched-turn user
+			// priority rule fires either way). Ambient voice keeps a
+			// secondary `[ambient]` token so voice/SKILL.md's overheard-audio
+			// mute guard still applies. See handler.go for the full rationale.
 			prefix := "[user] "
 			if ev.eventType == "voice" {
-				prefix = "[ambient] "
+				prefix = "[user] [ambient] "
 			}
 			msg = domain.AppendEnrollNudge(prefix + ev.msg)
 		} else if ev.eventType == "web_chat" {
