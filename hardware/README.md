@@ -2,7 +2,7 @@
 
 Designs, schematics, and specifications for the Lumi lamp hardware.
 
-![Core: OrangePi 4 Pro, Waveshare bus servo adapter, STS3215 servo](images/core.jpg)
+<img src="images/core.jpg" alt="Core: OrangePi 4 Pro, Waveshare bus servo adapter, STS3215 servo" width="50%">
 
 This folder is owned by the hardware team. Upload here:
 
@@ -20,4 +20,4 @@ reference the link in a markdown file here.
 
 
 
-![Head: WS2812 LED ring, USB camera, 4× TTP223 touch sensors around the rim](images/head.jpg)
+<img src="images/head.jpg" alt="Head: WS2812 LED ring, USB camera, 4× TTP223 touch sensors around the rim" width="50%">
