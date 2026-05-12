@@ -231,8 +231,9 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
     const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts", "voice", "face"];
     if (required.every((id) => sectionDone[id])) {
       // Skip auto-bounce when user is on #force testing the UI on a
-      // provisioned device — they want to see the page, not jump away.
-      if (autoScrolledRef.current && !forceHash) navigate("/monitor", { replace: true });
+      // provisioned device, or when running on a local dev host pointed at a
+      // remote lamp — they want to see the page, not jump away.
+      if (autoScrolledRef.current && !forceHash && !isLocalDev) navigate("/monitor", { replace: true });
       return;
     }
     if (autoScrolledRef.current) return;
