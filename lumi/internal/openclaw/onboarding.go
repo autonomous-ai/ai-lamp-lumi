@@ -349,6 +349,14 @@ func (s *Service) ensureSoulMDBlock() (bool, error) {
 	}
 	text := string(content)
 
+	// Fast path: file already contains the current block verbatim. Without
+	// this, the strip/rejoin path below re-introduces an extra blank line
+	// after `---` on every run, so output != content and we keep rewriting
+	// SOUL.md (and restarting OpenClaw) on every Lumi boot.
+	if strings.Contains(text, soulMDBlock) {
+		return false, nil
+	}
+
 	// Strip any prior marker block first so the legacy-seed heuristic below
 	// only sees whatever was below the closing `---`.
 	if strings.Contains(text, lumiMandatoryMarker) {
