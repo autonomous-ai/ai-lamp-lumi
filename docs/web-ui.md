@@ -102,7 +102,7 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 | Endpoint | Data |
 |----------|------|
 | `GET /api/system/info` | CPU load, RAM (KB), temperature, uptime, goroutines, version, deviceId |
-| `GET /api/system/network` | SSID, IP, signal (dBm), internet (bool) |
+| `GET /api/system/network` | SSID, IP, public IP, Tailscale IP, signal (dBm), internet (bool) |
 | `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool) |
 | `GET /api/openclaw/recent` | Latest flow events from today's JSONL file (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | File-backed flow events API used for Flow seed/history |
@@ -141,7 +141,14 @@ Cards included:
 **Network**
 - SSID + Signal bars (4 levels based on dBm)
 - IP address
+- Tailscale IP (only shown when `tailscale ip -4` returns an address — works
+  in both kernel and userspace-networking modes)
 - Internet status
+
+> The Setup gate (`App.tsx`) auto-redirects from AP/non-LAN hostnames to the
+> device's LAN IP, but skips this redirect when the hostname falls in the
+> Tailscale CGNAT range `100.64.0.0/10` — visiting via Tailscale is treated
+> as a deliberate remote-access path.
 
 **Presence**
 - State (active/idle)

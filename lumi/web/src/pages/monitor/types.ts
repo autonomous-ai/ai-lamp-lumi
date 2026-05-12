@@ -25,6 +25,7 @@ export interface NetworkInfo {
   ssid: string;
   ip: string;
   publicIp: string;
+  tailscaleIp: string;
   signal: number;
   internet: boolean;
 }

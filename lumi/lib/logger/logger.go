@@ -15,12 +15,13 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// GELF centralized logging. Configure via env vars; if GELF_URL is empty,
-// GELF handler is not attached.
+// GELF centralized logging. Read inside Init() so callers can load .env
+// (godotenv) before logging is initialized. If GELF_URL is empty, the GELF
+// handler is not attached.
 var (
-	gelfURL      = os.Getenv("GELF_URL")
-	gelfUsername = os.Getenv("GELF_USERNAME")
-	gelfPassword = os.Getenv("GELF_PASSWORD")
+	gelfURL      string
+	gelfUsername string
+	gelfPassword string
 )
 
 // ANSI color codes
@@ -295,6 +296,10 @@ func Init(level slog.Level, logFilePath string) func() {
 		w:     rotatingWriter,
 		level: level,
 	}
+
+	gelfURL = os.Getenv("GELF_URL")
+	gelfUsername = os.Getenv("GELF_USERNAME")
+	gelfPassword = os.Getenv("GELF_PASSWORD")
 
 	handlers := []slog.Handler{consoleHandler, fileHandler}
 	if gelfURL != "" {

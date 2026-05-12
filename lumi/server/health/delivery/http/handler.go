@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,24 +126,46 @@ func getPublicIP() string {
 	return ip
 }
 
+// getTailscaleIP returns the device's Tailscale IPv4 address, or empty string
+// if Tailscale isn't installed/running. Shells out to `tailscale ip -4` —
+// the canonical source whether tailscaled is in kernel or userspace mode.
+func getTailscaleIP() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tailscale", "ip", "-4").Output()
+	if err != nil {
+		return ""
+	}
+	// `tailscale ip -4` prints one IPv4 per line; take the first non-empty.
+	for _, line := range strings.Split(string(out), "\n") {
+		if ip := strings.TrimSpace(line); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
 // NetworkInfo returns combined network status: SSID, IP, public IP, signal, internet.
 func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 	info := map[string]any{
-		"ssid":     "",
-		"ip":       "",
-		"publicIp": "",
-		"signal":   0,
-		"internet": false,
+		"ssid":        "",
+		"ip":          "",
+		"publicIp":    "",
+		"tailscaleIp": "",
+		"signal":      0,
+		"internet":    false,
 	}
 
-	if net, err := h.networkService.CurrentNetwork(); err == nil && net != nil {
-		info["ssid"] = net.SSID
-		info["signal"] = net.Signal
+	if netw, err := h.networkService.CurrentNetwork(); err == nil && netw != nil {
+		info["ssid"] = netw.SSID
+		info["signal"] = netw.Signal
 	}
 
 	if ip, err := h.networkService.GetCurrentIP(); err == nil {
 		info["ip"] = ip
 	}
+
+	info["tailscaleIp"] = getTailscaleIP()
 
 	// Quick internet check (non-blocking, use cached result if possible)
 	if ok, _ := h.networkService.CheckInternet(); ok {

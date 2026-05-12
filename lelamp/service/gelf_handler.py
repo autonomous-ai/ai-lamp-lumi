@@ -5,8 +5,6 @@ import os
 import socket
 import threading
 
-_URL = os.getenv("GELF_URL", "")
-_AUTH = (os.getenv("GELF_USERNAME", ""), os.getenv("GELF_PASSWORD", ""))
 _LEVEL_MAP = {
     logging.CRITICAL: 2,
     logging.ERROR: 3,
@@ -25,18 +23,20 @@ class GELFHandler(logging.Handler):
         self._pid = os.getpid()
         self._service_name = service_name
         self._session = None
+        self._url = os.getenv("GELF_URL", "")
+        self._auth = (os.getenv("GELF_USERNAME", ""), os.getenv("GELF_PASSWORD", ""))
 
     def _get_session(self):
         if self._session is None:
             import requests
 
             self._session = requests.Session()
-            self._session.auth = _AUTH
+            self._session.auth = self._auth
             self._session.headers["Content-Type"] = "application/json"
         return self._session
 
     def emit(self, record):
-        if not _URL:
+        if not self._url:
             return
         try:
             msg = {
@@ -56,7 +56,7 @@ class GELFHandler(logging.Handler):
 
     def _send(self, msg):
         try:
-            self._get_session().post(_URL, json=msg, timeout=3)
+            self._get_session().post(self._url, json=msg, timeout=3)
         except Exception:
             pass
 

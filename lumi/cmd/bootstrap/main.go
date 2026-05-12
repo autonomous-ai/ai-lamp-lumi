@@ -6,6 +6,8 @@ import (
 	"log"
 	"log/slog"
 
+	"github.com/joho/godotenv"
+
 	"go-lamp.autonomous.ai/bootstrap"
 	"go-lamp.autonomous.ai/bootstrap/config"
 	"go-lamp.autonomous.ai/lib/logger"
@@ -20,6 +22,10 @@ func main() {
 		fmt.Println(config.BootstrapVersion)
 		return
 	}
+
+	// Load shared env file before logger init (so GELF_* env vars are visible).
+	// Missing file is non-fatal — env may also be supplied by systemd.
+	_ = godotenv.Load("/opt/lelamp/.env")
 
 	cleanup := logger.Init(slog.LevelDebug, "/var/log/lumi-bootstrap.log")
 	defer cleanup()
