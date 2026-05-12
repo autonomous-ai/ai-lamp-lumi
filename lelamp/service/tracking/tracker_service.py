@@ -37,7 +37,7 @@ _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
 #   "yoloe"
 #   "grounding-dino"
 #   "yoloworld"
-_DETECT_MODEL = "yoloworld"
+_DETECT_MODEL = os.environ.get("DETECT_MODEL", "yoloworld")
 _YOLO_ENDPOINT = f"/detect/{_DETECT_MODEL}"
 _YOLO_TIMEOUT = 10.0
 
