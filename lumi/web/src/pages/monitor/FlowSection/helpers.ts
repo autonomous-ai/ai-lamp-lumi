@@ -601,6 +601,9 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     base.events.push(...turn.events);
     if (base.status !== "error" && turn.status === "error") base.status = "error";
     else if (base.status === "active" && turn.status === "done") base.status = "done";
+    // turn_steered may arrive in a later fragment (events of an interleaving
+    // turn split chat-N's events), so promote "active → steered" here too.
+    else if (base.status === "active" && turn.status === "steered") base.status = "steered";
     if (!base.endTime && turn.endTime) base.endTime = turn.endTime;
     else if (base.endTime && turn.endTime && turn.endTime > base.endTime) base.endTime = turn.endTime;
     if (base.path !== "agent" && turn.path === "agent") base.path = "agent";
