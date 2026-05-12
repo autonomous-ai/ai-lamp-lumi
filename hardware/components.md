@@ -9,8 +9,10 @@ Running list of parts that go into one lamp. Models / links filled in as we lock
 | Camera | USB | https://www.alibaba.com/product-detail/Newlink-1080P-30fps-IMX307-Starvis-Day_1600739999329.html |
 | Speaker 3W x2 | | |
 | Speaker amplifier | PAM8610 v2 | TBD |
+| USB audio board (DAC) | TBD | feeds line-in of PAM8610; onboard codec → PAM path was hissing / static |
 | Pi5 | 4GB RAM | |
-| Servo x5 | STS3215 ST-3215-C018 | USB servo control board |
+| Servo x5 | STS3215 ST-3215-C018 | drives via Waveshare Bus Servo Adapter (USB) |
+| Waveshare Bus Servo Adapter | USB-to-TTL servo bus | shows up as `/dev/ttyACM0`; powers servo bus from external 5 V |
 | RGB LED ring | | |
 | Button | | |
 | Wire, screw, header, USB-C female | | |
