@@ -175,10 +175,33 @@ func flowEventToMonitor(fe flow.Event, channelName string) domain.MonitorEvent {
 		}
 	}
 	if fe.Node == "chat_input" && fe.Data != nil {
-		if msg, ok := fe.Data["message"].(string); ok && msg != "" {
-			summary = fmt.Sprintf("[%s] %s", channelName, msg)
+		source, _ := fe.Data["source"].(string)
+		msg, _ := fe.Data["message"].(string)
+		if source == "channel" {
+			label := channelName
+			if sender, _ := fe.Data["sender"].(string); sender != "" {
+				label = label + ":" + sender
+			}
+			if msg != "" {
+				summary = fmt.Sprintf("[%s] %s", label, msg)
+			} else {
+				summary = "[" + label + "]"
+			}
 		} else {
-			summary = "[" + channelName + "]"
+			// system/user: caller already encodes its label inside message
+			// (e.g. "[system] Bạn vừa thức dậy..."), so don't double-wrap.
+			label := source
+			if label == "" {
+				label = channelName
+			}
+			switch {
+			case msg == "":
+				summary = "[" + label + "]"
+			case strings.HasPrefix(msg, "["):
+				summary = msg
+			default:
+				summary = fmt.Sprintf("[%s] %s", label, msg)
+			}
 		}
 	}
 
