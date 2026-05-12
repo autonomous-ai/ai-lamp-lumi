@@ -34,7 +34,13 @@ interface SetupProps {
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Setup({ mode = "initial" }: SetupProps = {}) {
-  const isContinue = mode === "continue";
+  // #force in App.tsx forces mode="initial" for UI testing, but the lamp's
+  // backend is still reachable in that scenario — so for feature-gating we
+  // treat #force the same as continue (show Voice/Face sections, allow
+  // prefill-driven checks, etc.). The redirect logic still keys off the raw
+  // mode flag below since it should not auto-bounce during force testing.
+  const forceHash = typeof window !== "undefined" && window.location.hash === "#force";
+  const isContinue = mode === "continue" || forceHash;
   const [theme, toggleTheme, themeClass] = useTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -208,22 +214,23 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   // attention so they can see what's left to do without hunting through
   // the sidebar. If every required section is already done on first load,
   // bounce straight to /monitor — Setup has nothing left to ask for.
+  // autoScrolledRef doubles as the "we previously saw at least one incomplete
+  // section" flag. Redirect only fires after we've scrolled the user to a
+  // pending section at least once — i.e. they were actively running setup,
+  // and the last pending field just became done. When the user opens /setup
+  // post-completion to view/edit, the flag stays false, so we stay on the
+  // page with checks visible instead of bouncing them to /monitor.
   const autoScrolledRef = useRef(false);
   useEffect(() => {
     if (!isContinue) return;
     if (!llmApiKey) return; // wait until config has loaded
     const required: SectionId[] = ["device", "wifi", "llm", "channel", "tts", "voice", "face"];
-    // Redirect any time all required sections become done — including later
-    // ticks when async data (e.g. faceOwners) arrives after first paint. This
-    // path is NOT gated by autoScrolledRef on purpose; otherwise the first
-    // effect run (before faceOwners loaded) sets the ref and the redirect
-    // never fires once enrollment counts come back.
     if (required.every((id) => sectionDone[id])) {
-      navigate("/monitor", { replace: true });
+      // Skip auto-bounce when user is on #force testing the UI on a
+      // provisioned device — they want to see the page, not jump away.
+      if (autoScrolledRef.current && !forceHash) navigate("/monitor", { replace: true });
       return;
     }
-    // Scroll-to-first-pending should fire only once per mount so we don't
-    // yank the user back when they navigate ahead manually.
     if (autoScrolledRef.current) return;
     const order: SectionId[] = ["device", "wifi", "llm", "channel", "language", "tts", "voice", "face"];
     const next = order.find((id) => !sectionDone[id]) ?? "tts";
@@ -384,7 +391,11 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
         <nav style={{ padding: "10px 0", flex: 1 }}>
           {SECTIONS.map((s) => {
             const active = activeSection === s.id;
-            const done = isContinue && sectionDone[s.id];
+            // Show checks whenever a section's value is filled — including in
+            // #force (initial) mode if the lamp already has saved config to
+            // prefill from. A truly empty device still shows zero checks
+            // because sectionDone returns false across the board.
+            const done = sectionDone[s.id];
             return (
               <button key={s.id} onClick={() => scrollTo(s.id)} style={{
                 display: "flex", alignItems: "center", gap: 9,

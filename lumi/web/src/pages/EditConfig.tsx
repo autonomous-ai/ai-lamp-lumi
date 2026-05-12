@@ -77,6 +77,7 @@ export default function EditConfig() {
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [deviceId, setDeviceId] = useState("");
+  const [mac, setMac] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmModel, setLlmModel] = useState("");
@@ -148,6 +149,7 @@ export default function EditConfig() {
         setSsid(cfg.network_ssid ?? "");
         setPassword(cfg.network_password ?? "");
         setDeviceId(cfg.device_id ?? "");
+        setMac(cfg.mac ?? "");
         setLlmApiKey(cfg.llm_api_key ?? "");
         setLlmUrl(cfg.llm_base_url ?? "");
         setLlmModel(cfg.llm_model ?? "");
@@ -448,6 +450,7 @@ export default function EditConfig() {
                 <DeviceSection
                   active={activeSection === "device"}
                   deviceId={deviceId} setDeviceId={setDeviceId}
+                  mac={mac}
                 />
 
                 <WifiSection
