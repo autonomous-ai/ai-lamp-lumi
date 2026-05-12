@@ -482,7 +482,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// the user already perceives the lamp reacting. Non-HW
 				// tools leave the timer running so the filler can fire
 				// during a long Bash/curl/Read.
-				sensinghttp.DefaultFillerManager.OnToolStart(flowRunID, toolArgs)
+				sensinghttp.DefaultFillerManager.OnToolStart(flowRunID, toolArgs, toolName)
 				summary = fmt.Sprintf("Tool %s started", toolName)
 				// Detect music playback tool calls so we can suppress TTS on turn end.
 				// The Music skill uses Bash+curl to POST /audio/play.
