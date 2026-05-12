@@ -73,11 +73,25 @@ stage_locale() {
 stage_prerequisites() {
   echo "[stage] Install system packages"
   apt update
+  # openresolv ships the `resolvconf` binary that dhcpcd's 20-resolv.conf hook
+  # needs to push DHCP-supplied nameservers into /etc/resolv.conf. Without it
+  # (observed on OrangePi Armbian images) /etc/resolv.conf stays empty even
+  # though dhcpcd writes the lease into /run/resolvconf/interface/wlan0.dhcp,
+  # so `ping 8.8.8.8` works but every hostname lookup fails.
   apt install -y \
     hostapd dnsmasq nginx unzip curl jq wpasupplicant dhcpcd iproute2 iptables \
-    iw git xvfb xauth chromium chromium-sandbox || true
+    iw git xvfb xauth chromium chromium-sandbox openresolv || true
   systemctl stop hostapd dnsmasq nginx 2>/dev/null || true
   systemctl unmask hostapd dnsmasq 2>/dev/null || true
+  # Some base images (Armbian / older RPi OS images that once ran NetworkManager
+  # or systemd-resolved) ship /etc/resolv.conf as a regular file. dhcpcd writes
+  # DNS to /run/resolvconf/resolv.conf instead, so we symlink and aggregate.
+  if [ ! -L /etc/resolv.conf ] || [ "$(readlink /etc/resolv.conf)" != "/run/resolvconf/resolv.conf" ]; then
+    rm -f /etc/resolv.conf
+    mkdir -p /run/resolvconf
+    ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
+  fi
+  resolvconf -u 2>/dev/null || true
   # Node.js 22 for OpenClaw CLI
   if ! command -v node &>/dev/null || ! node -v 2>/dev/null | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
     echo "[stage] Install Node.js 22 (NodeSource)"
