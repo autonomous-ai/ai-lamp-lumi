@@ -4,6 +4,17 @@ LeLamp presets — emotion, scene, and LED effect constants.
 All pure data, no runtime dependencies. Import from server.py.
 """
 
+# --- Language code constants (Lumi stt_language / TTS language) ---
+# Keep these aligned with the language codes returned by /lumi config and
+# the keys used in TTS phrase dictionaries. DEFAULT_LANG is the fallback
+# when stt_language is empty or unknown.
+LANG_EN = "en"
+LANG_VI = "vi"
+LANG_ZH_CN = "zh-CN"
+LANG_ZH_TW = "zh-TW"
+SUPPORTED_LANGS = [LANG_EN, LANG_VI, LANG_ZH_CN, LANG_ZH_TW]
+DEFAULT_LANG = LANG_EN
+
 # --- LED state types (tracked in _user_led_state["type"]) ---
 LST_SOLID = "solid"
 LST_PAINT = "paint"
