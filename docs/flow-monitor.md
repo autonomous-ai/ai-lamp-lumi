@@ -118,8 +118,9 @@ Structured `slog.Info` lines for end-to-end ID alignment (device idempotency key
 1. **Turn start detection**: `sensing_input`, `chat_input`, `ambient_action`, `schedule_trigger`
 2. **Run ID grouping**: events with same `runId` stay in same turn
 3. **Fragment merging**: turns sharing same `runId` get merged (handles split events)
-4. **Stitching**: orphaned output-only turns merge with nearby input-only turns (handles server restart splits)
-5. **Session breaks**: >60s gap between turns marks a session boundary
+4. **Placeholder type upgrade**: channel `chat_input` fires twice (see "Two-phase emit" above). The first emit pins `turn.type = "chat"` from the `[chat]` placeholder. When the second emit lands with the real message, `isTurnStart` re-derives a specific type (`emotion.detected`, `voice`, `telegram`, …) from the message prefix; `groupIntoTurns` upgrades `turn.type` only if it was still the `"chat"` (or `"unknown"`) placeholder — preserving any already-specific classification.
+5. **Stitching**: orphaned output-only turns merge with nearby input-only turns (handles server restart splits)
+6. **Session breaks**: >60s gap between turns marks a session boundary
 
 ### Stitching Rules
 
