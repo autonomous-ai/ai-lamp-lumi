@@ -757,7 +757,21 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 	// `fastMode=true` maps to provider-specific priority routing — `service_tier=priority`
 	// on OpenAI/Codex; no-op on providers that don't expose a priority tier.
 	modelsMap := ensureMap(defaultsMap, "models")
-	knownModels := []string{"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-6", "openai-codex/gpt-5.5"}
+	// Autonomous-backed list comes from the live API (single source of truth);
+	// non-autonomous entries (e.g. openai-codex) are appended manually because
+	// they are not driven by ModelsAPIURL. Fail-soft on API failure: skip the
+	// autonomous portion this boot, preserve existing on-disk tuning, retry
+	// next boot.
+	var knownModels []string
+	if resp, err := FetchModelsFromAPI(); err != nil {
+		slog.Warn("ensureAgentDefaults: fetch autonomous models failed, skipping",
+			"component", "onboarding", "err", err)
+	} else {
+		for _, m := range resp.Models {
+			knownModels = append(knownModels, agentModelKey(m))
+		}
+	}
+	knownModels = append(knownModels, "openai-codex/gpt-5.5")
 	for _, modelKey := range knownModels {
 		m, ok := modelsMap[modelKey].(map[string]interface{})
 		if !ok {
@@ -766,7 +780,8 @@ func (s *Service) ensureAgentDefaults() (bool, error) {
 			changed = true
 		}
 		params := ensureMap(m, "params")
-		if strings.HasPrefix(modelKey, "claude-") {
+		// Contains (not HasPrefix) so "{provider}/claude-..." also matches.
+		if strings.Contains(modelKey, "claude-") {
 			if v, _ := params["cacheRetention"].(string); v != "short" {
 				params["cacheRetention"] = "short"
 				changed = true

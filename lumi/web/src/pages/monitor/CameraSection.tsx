@@ -147,6 +147,8 @@ export function CameraSection({
               alt="camera"
               style={{
                 width: "100%",
+                maxHeight: 240,
+                objectFit: "contain",
                 borderRadius: 8,
                 border: `1px solid ${track.tracking ? "var(--lm-green)" : "var(--lm-border)"}`,
                 display: "block",
@@ -157,7 +159,7 @@ export function CameraSection({
           ) : (
             <div style={{
               width: "100%",
-              aspectRatio: "4 / 3",
+              height: 240,
               borderRadius: 8,
               border: `1px solid var(--lm-border)`,
               background: "var(--lm-surface)",

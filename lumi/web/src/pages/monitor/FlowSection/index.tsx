@@ -237,6 +237,67 @@ export function FlowSection({
     // "newest" = default order from groupIntoTurns (newest first)
     return filtered;
   }, [turns, excludedTypes, fromTime, toTime, searchText, sortBy]);
+  // Detect adjacent turn pairs where one is a Lumi-id turn that closed with
+  // chat_final_empty (OpenClaw closed stream · no message · no lifecycle) and
+  // the adjacent turn is an OpenClaw-assigned UUID with matching input text.
+  // Each pair gets a stable color (hashed from the lumi runId) so distinct
+  // pairs in view are visually distinguishable. Purely visual correlation —
+  // no semantic label.
+  const pairTintMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const PAIR_BGS = [
+      "rgba(167, 139, 250, 0.14)", // purple
+      "rgba(34, 211, 238, 0.14)",  // cyan
+      "rgba(244, 114, 182, 0.14)", // pink
+      "rgba(45, 212, 191, 0.14)",  // teal
+      "rgba(129, 140, 248, 0.14)", // indigo
+      "rgba(248, 113, 113, 0.12)", // soft red
+      "rgba(132, 204, 22, 0.14)",  // lime
+      "rgba(236, 72, 153, 0.12)",  // magenta
+    ];
+    const hashColor = (key: string) => {
+      let h = 0;
+      for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+      return PAIR_BGS[Math.abs(h) % PAIR_BGS.length];
+    };
+    // Inputs of the same logical message may differ between Lumi-side and
+    // OpenClaw-side because:
+    //   • Lumi log truncates chat_input message at 500 chars + "…" (see
+    //     service_chat.go:147) — UUID-side carries the full text.
+    //   • Lumi log keeps `[snapshot: /var/...]` paths in presence events
+    //     while OpenClaw refires with the snapshot stripped.
+    // So check substring containment either way (after stripping the
+    // sender prefix and trailing "…"). Guard with min length ≥32 to
+    // avoid coincidental short-string matches.
+    const normalizeForMatch = (s: string) =>
+      s.replace(/^\[[^\]]+\]\s*/, "").replace(/…\s*$/, "").trim();
+    const isLumi = (id: string) => id.startsWith("lumi-");
+    for (let i = 0; i < filteredTurns.length - 1; i++) {
+      const a = filteredTurns[i];
+      const b = filteredTurns[i + 1];
+      const tryPair = (lumiTurn: typeof a, uuidTurn: typeof b) => {
+        if (!isLumi(lumiTurn.id) || isLumi(uuidTurn.id)) return false;
+        const closedEmpty = lumiTurn.events.some((ev) =>
+          ev.type === "flow_event" && (
+            (ev.detail as Record<string, any>)?.node === "chat_final_empty" ||
+            (ev.detail as Record<string, any>)?.node === "turn_steered"
+          )
+        );
+        if (!closedEmpty) return false;
+        const lumiIn = normalizeForMatch(turnIO(lumiTurn).input);
+        const uuidIn = normalizeForMatch(turnIO(uuidTurn).input);
+        if (!lumiIn || !uuidIn) return false;
+        if (Math.min(lumiIn.length, uuidIn.length) < 32) return false;
+        if (!lumiIn.includes(uuidIn) && !uuidIn.includes(lumiIn)) return false;
+        const color = hashColor(lumiTurn.id);
+        map.set(a.id, color);
+        map.set(b.id, color);
+        return true;
+      };
+      tryPair(a, b) || tryPair(b, a);
+    }
+    return map;
+  }, [filteredTurns]);
   // When user explicitly selected a turn, keep it even if new events arrive.
   // Only auto-select latest turn when nothing is selected.
   const selectedTurn = selectedTurnId
@@ -667,7 +728,7 @@ export function FlowSection({
                       cursor: "pointer",
                     }}
                   >
-                    <TurnBadge turn={turn} />
+                    <TurnBadge turn={turn} pairTint={pairTintMap.get(turn.id)} />
                   </div>
                 </div>
               ))

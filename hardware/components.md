@@ -20,4 +20,5 @@ Running list of parts that go into one lamp. Models / links filled in as we lock
 | Power adaptor | 12V 5A | |
 | DC-DC step-down (12V → 5V for OrangePi) | MP2482 | |
 | Fan 5V | Nidec | |
-| Touch sensor x4 | TTP223 | swipe gesture pads (left↔right) |
+| Touch sensor x4 | TTP223 | swipe gesture pads (left↔right); see `wiring.md` |
+| Resistor pair (Option B only) | 47 Ω + 91 Ω | divider for 5 V → 3.3 V at the head if reusing the existing 5 V rail; not needed if running a 3.3 V wire from the OPi |

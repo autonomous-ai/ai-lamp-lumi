@@ -641,17 +641,10 @@ export function FlowDiagram({
                               </span>
                               {r.detail ? (
                                 <span
-                                  title={r.detail}
                                   style={{
                                     color: "var(--lm-text)", opacity: 0.7, marginLeft: 6,
-                                    // Clamp long tool args to 3 lines so a single
-                                    // tool row never blows up the pipeline layout.
-                                    // Hover tooltip shows the full text.
-                                    display: "-webkit-box",
-                                    WebkitLineClamp: 3,
-                                    WebkitBoxOrient: "vertical" as const,
-                                    overflow: "hidden",
                                     wordBreak: "break-all" as const,
+                                    whiteSpace: "pre-wrap" as const,
                                   }}
                                 >
                                   {r.detail}

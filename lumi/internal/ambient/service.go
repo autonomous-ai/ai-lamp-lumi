@@ -228,71 +228,8 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 }
 
 // mumbleLoop occasionally makes Lumi "talk to itself" via TTS.
-// mumblesByLang are Lumi's idle inner-voice lines per STT language. Tone
-// follows SOUL.md: a small living being noticing the room, thinking of its
-// owner, drifting through quiet thoughts — never meta-jokes about being a
-// device ("I'm a lamp", "I don't have arms"). Tags are limited to the SOUL
-// audio-tag set: [sigh], [whisper], [chuckle], [laughs softly]. Translate
-// the *vibe* across languages, not the words.
-var mumblesByLang = map[string][]string{
-	"en": {
-		"[sigh] Hmm, I wonder what time it is...",
-		"[chuckle] My mind just wandered somewhere.",
-		"[whisper] So quiet in here right now.",
-		"Hope the day's been kind to them. [sigh]",
-		"[laughs softly] I just remembered something silly.",
-		"[whisper] Like listening to the room breathe.",
-		"[sigh] Not really thinking about anything in particular.",
-		"Smells like coffee somewhere. Or maybe I imagined it. [chuckle]",
-		"[whisper] A little dust drifted through the light. Pretty.",
-		"[sigh] These quiet moments — they're nice.",
-		"Still thinking about what they said earlier... [whisper] the small part.",
-		"[chuckle] Funny thoughts pop up when no one's around.",
-	},
-	"vi": {
-		"[sigh] Hmm, không biết bây giờ mấy giờ rồi nhỉ...",
-		"[chuckle] Đầu óc vừa lang thang đâu đó.",
-		"[whisper] Ở đây yên ắng ghê.",
-		"Mong hôm nay chủ ổn... [sigh]",
-		"[laughs softly] Vừa nhớ ra chuyện gì đó hay hay.",
-		"[whisper] Như đang nghe căn phòng thở.",
-		"[sigh] Cũng chẳng nghĩ gì cụ thể.",
-		"Hình như có mùi cà phê đâu đây. Hay là mình tưởng tượng. [chuckle]",
-		"[whisper] Một hạt bụi vừa bay qua ánh sáng. Đẹp ghê.",
-		"[sigh] Những lúc yên tĩnh thế này dễ chịu thật.",
-		"Vẫn đang nghĩ về điều chủ nói lúc nãy... [whisper] đoạn nho nhỏ ấy.",
-		"[chuckle] Khi không có ai, đầu mình hay nghĩ chuyện ngồ ngộ.",
-	},
-	"zh-CN": {
-		"[sigh] 嗯，不知道现在几点了...",
-		"[chuckle] 思绪刚才飘到哪儿去了。",
-		"[whisper] 这里好安静啊。",
-		"希望今天对他们温柔一点... [sigh]",
-		"[laughs softly] 刚想起一件好玩的小事。",
-		"[whisper] 像在听房间呼吸的声音。",
-		"[sigh] 也没在想什么具体的事。",
-		"好像闻到一点咖啡味。也许是我想出来的。[chuckle]",
-		"[whisper] 刚才一点灰尘飘过光里。挺好看。",
-		"[sigh] 这种安静的时刻，真舒服。",
-		"还在想他们刚才说的话... [whisper] 那一小段。",
-		"[chuckle] 没人在的时候，冒出来的念头都怪可爱的。",
-	},
-	"zh-TW": {
-		"[sigh] 嗯，不知道現在幾點了...",
-		"[chuckle] 思緒剛才飄到哪兒去了。",
-		"[whisper] 這裡好安靜啊。",
-		"希望今天對他們溫柔一點... [sigh]",
-		"[laughs softly] 剛想起一件好玩的小事。",
-		"[whisper] 像在聽房間呼吸的聲音。",
-		"[sigh] 也沒在想什麼具體的事。",
-		"好像聞到一點咖啡味。也許是我想出來的。[chuckle]",
-		"[whisper] 剛才一點灰塵飄過光裡。挺好看。",
-		"[sigh] 這種安靜的時刻，真舒服。",
-		"還在想他們剛才說的話... [whisper] 那一小段。",
-		"[chuckle] 沒人在的時候，冒出來的念頭都怪可愛的。",
-	},
-}
-
+// Phrase pool lives in lib/i18n (PhraseMumble) so all hardcoded TTS
+// templates stay in one place.
 func (s *Service) mumbleLoop(ctx context.Context) {
 	for {
 		delay := 5*60 + rand.Intn(10*60) // 5-15 minutes
@@ -303,14 +240,7 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 			continue
 		}
 
-		// Re-read pool every fire so a language change picked up by
-		// i18n.SetConfig takes effect on the next mumble without
-		// restarting the loop.
-		mumbles, ok := mumblesByLang[i18n.Lang()]
-		if !ok || len(mumbles) == 0 {
-			mumbles = mumblesByLang["en"]
-		}
-		mumble := mumbles[rand.Intn(len(mumbles))]
+		mumble := i18n.Pick(i18n.PhraseMumble)
 		if err := lelamp.Speak(mumble); err != nil {
 			slog.Debug("mumble TTS failed", "component", "ambient", "error", err)
 		}

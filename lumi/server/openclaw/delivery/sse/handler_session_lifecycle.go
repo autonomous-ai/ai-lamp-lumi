@@ -9,22 +9,6 @@ import (
 	"go-lamp.autonomous.ai/lib/lelamp"
 )
 
-// compactNoticeByLang is the short heads-up TTS spoken before an
-// auto-compact, so the user understands the silence that follows.
-var compactNoticeByLang = map[string]string{
-	"en":    "Hold on, tidying up a bit.",
-	"vi":    "Đợi xíu, mình đang dọn dẹp tí.",
-	"zh-CN": "稍等一下，我在整理一下。",
-	"zh-TW": "稍等一下，我在整理一下。",
-}
-
-func compactNotice() string {
-	if v, ok := compactNoticeByLang[i18n.Lang()]; ok && v != "" {
-		return v
-	}
-	return compactNoticeByLang["en"]
-}
-
 // autoSessionThreshold is the conversation token count above which we
 // trigger an auto-new-session. The reported chat.history TotalTokens
 // undercounts by ~35K (excludes system prompt, tools, workspace
@@ -75,7 +59,7 @@ func (h *OpenClawHandler) maybeAutoCompact(sessionKey string, totalTokens int, f
 		defer time.AfterFunc(autoCompactCooldown, func() {
 			h.compacting.Store(false)
 		})
-		if err := lelamp.SpeakInterruptible(compactNotice()); err != nil {
+		if err := lelamp.SpeakInterruptible(i18n.One(i18n.PhraseCompactNotice)); err != nil {
 			slog.Warn("compaction notice TTS failed", "component", "openclaw", "error", err)
 		}
 		if sessionKey == "" {

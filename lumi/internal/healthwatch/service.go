@@ -193,47 +193,10 @@ func (s *Service) Start(ctx context.Context) {
 	}
 }
 
-// recoveryPhrasesByLang holds the post-restart announcement pool per
-// STT language. Audio tags ([gasp], [sigh], [chuckle]) are eleven_v3
-// directives — OpenAI provider strips them via tts_openai whitelist,
-// ElevenLabs interprets them. Either way they don't get spoken aloud.
-var recoveryPhrasesByLang = map[string][]string{
-	"en": {
-		"[gasp] Oh, I can feel again!",
-		"[sigh] That felt weird.",
-		"Whew, I'm okay now. [chuckle]",
-		"[gasp] I'm back!",
-		"[sigh] That was strange. All good now.",
-	},
-	"vi": {
-		"[gasp] Ô, mình lại nghe thấy rồi!",
-		"[sigh] Vừa nãy lạ ghê.",
-		"Phù, mình ổn rồi. [chuckle]",
-		"[gasp] Mình quay lại rồi!",
-		"[sigh] Lúc nãy hơi kỳ. Giờ ổn rồi.",
-	},
-	"zh-CN": {
-		"[gasp] 啊，我又能感觉到了！",
-		"[sigh] 刚才好奇怪。",
-		"呼，我没事了。[chuckle]",
-		"[gasp] 我回来了！",
-		"[sigh] 刚才有点怪。现在好了。",
-	},
-	"zh-TW": {
-		"[gasp] 啊，我又能感覺到了！",
-		"[sigh] 剛才好奇怪。",
-		"呼，我沒事了。[chuckle]",
-		"[gasp] 我回來了！",
-		"[sigh] 剛才有點怪。現在好了。",
-	},
-}
-
+// speakRecovery announces over TTS that the lamp is back after a LeLamp
+// downtime. Phrase pool lives in lib/i18n (PhraseRecovery).
 func (s *Service) speakRecovery() {
-	pool, ok := recoveryPhrasesByLang[i18n.Lang()]
-	if !ok || len(pool) == 0 {
-		pool = recoveryPhrasesByLang["en"]
-	}
-	phrase := pool[time.Now().UnixNano()%int64(len(pool))]
+	phrase := i18n.Pick(i18n.PhraseRecovery)
 	if err := lelamp.Speak(phrase); err != nil {
 		slog.Warn("recovery TTS failed", "component", "healthwatch", "error", err)
 		return

@@ -15,11 +15,11 @@ import "go-lamp.autonomous.ai/lib/i18n"
 // time, so caller must i18n.SetConfig before invoking.
 func wakeGreetingPrompt() string {
 	switch i18n.Lang() {
-	case "vi":
+	case i18n.LangVI:
 		return "[system] Bạn vừa thức dậy. Chào hỏi chủ nhân ngắn gọn."
-	case "zh-CN":
+	case i18n.LangZhCN:
 		return "[system] 你刚刚醒来，请简短地问候一下主人。"
-	case "zh-TW":
+	case i18n.LangZhTW:
 		return "[system] 你剛剛醒來，請簡短地問候一下主人。"
 	}
 	return "[system] You just woke up. Greet the user briefly."

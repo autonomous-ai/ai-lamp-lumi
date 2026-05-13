@@ -138,7 +138,6 @@ export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
             const parsed = typeof argsObj === "string" ? JSON.parse(argsObj) : argsObj;
             argsSummary = parsed?.command ?? JSON.stringify(parsed);
           } catch { argsSummary = String(argsObj); }
-          if (argsSummary.length > 80) argsSummary = argsSummary.slice(0, 80) + "…";
         }
         // Deduplicate the agent-stream + session.tool double-emit: if the
         // last row is a `tool · <same name>` start within 1 second, fold
@@ -570,12 +569,11 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       current.status = "done";
       current.endTime = ev.time;
     }
-    // turn_steered: OpenClaw merged this Lumi chat.send into a concurrent turn via
-    // steer queue mode (agent-runner.ts in 5.7) — no own lifecycle ever fires.
-    // Close the turn with a distinct "steered" status so the UI shows it
-    // accurately instead of leaving it stuck "active".
-    if (ev.type === "flow_event" && ev.detail?.node === "turn_steered") {
-      current.status = "steered";
+    // chat_final_empty: OpenClaw sent state:"final" with empty Message for a
+    // Lumi-format runId that never opened a lifecycle. Factual close event —
+    // no interpretation. (Legacy `turn_steered` is back-compat for old JSONL.)
+    if (ev.type === "flow_event" && (ev.detail?.node === "chat_final_empty" || ev.detail?.node === "turn_steered")) {
+      current.status = "done";
       current.endTime = ev.time;
     }
     if (current.type.startsWith("ambient:") && ev.type === "flow_exit" && ev.detail?.node?.startsWith("ambient_")) {
@@ -609,14 +607,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     base.events.push(...turn.events);
     if (base.status !== "error" && turn.status === "error") base.status = "error";
     else if (base.status === "active" && turn.status === "done") base.status = "done";
-    // turn_steered may arrive in a later fragment (events of an interleaving
-    // turn split chat-N's events), so promote "active → steered" here too.
-    // The fragment may not carry status="steered" itself (when it was created
+    // chat_final_empty may arrive in a later fragment (events of an interleaving
+    // turn split chat-N's events), so promote "active → done" here too.
+    // The fragment may not carry status="done" itself (when it was created
     // via the runId-switch branch the status-update block is skipped), so also
-    // scan its raw events for the turn_steered marker.
-    else if (base.status === "active" && (turn.status === "steered" || turn.events.some(
-      (e) => e.type === "flow_event" && e.detail?.node === "turn_steered"))) {
-      base.status = "steered";
+    // scan its raw events for the chat_final_empty (or legacy turn_steered) marker.
+    else if (base.status === "active" && turn.events.some(
+      (e) => e.type === "flow_event" && (e.detail?.node === "chat_final_empty" || e.detail?.node === "turn_steered"))) {
+      base.status = "done";
       if (!base.endTime) base.endTime = turn.endTime || turn.startTime;
     }
     if (!base.endTime && turn.endTime) base.endTime = turn.endTime;

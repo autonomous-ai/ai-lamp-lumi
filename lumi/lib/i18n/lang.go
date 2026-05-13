@@ -1,7 +1,8 @@
-// Package i18n exposes the active STT language (Lumi config) to callers
-// that speak short hardcoded TTS phrases — recovery announcements, ambient
-// mumbles, "brain restarting" notices. Each caller keeps its own phrase
-// pools but uses Lang() to pick the active locale.
+// Package i18n exposes the active STT language (Lumi config) and the
+// consolidated table of short hardcoded TTS phrases — recovery
+// announcements, ambient mumbles, "brain restarting" notices, etc.
+// Phrase content lives in phrases.go; callers go through Pick/One
+// rather than holding their own pools.
 //
 // The module is a singleton because the alternative — plumbing
 // *config.Config through every Service constructor + Wire provider — would
@@ -13,6 +14,21 @@ import (
 	"sync/atomic"
 
 	"go-lamp.autonomous.ai/server/config"
+)
+
+// BCP-47 language codes used across the codebase. Defined as constants so
+// switches and map keys are typo-safe at compile time and IDE jump-to-def
+// surfaces every site that handles a given language. Aliases (LangZh,
+// LangZhHans, LangZhHant) cover STT-config inputs we accept but normalise
+// onto LangZhCN / LangZhTW for content lookups.
+const (
+	LangEN     = "en"
+	LangVI     = "vi"
+	LangZhCN   = "zh-CN"
+	LangZhTW   = "zh-TW"
+	LangZh     = "zh"
+	LangZhHans = "zh-Hans"
+	LangZhHant = "zh-Hant"
 )
 
 // active holds the Config pointer set by SetConfig. atomic.Pointer because
