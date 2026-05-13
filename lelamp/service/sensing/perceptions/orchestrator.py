@@ -15,6 +15,7 @@ from lelamp.service.sensing.perceptions.processors import (
     LightLevelPerception,
     MotionPerception,
     MotionPerFacePerception,
+    PosePerception,
     SoundPerception,
 )
 from lelamp.service.sensing.perceptions.typing import SendEventCallable
@@ -45,6 +46,7 @@ class PerceptionProcessors:
     motion_processor: MotionPerception | None = None
     motion_per_face_processor: MotionPerFacePerception | None = None
     emotion_processor: EmotionPerception | None = None
+    pose_processor: PosePerception | None = None
     light_processor: LightLevelPerception | None = None
     sound_recognizer: SoundPerception | None = None
 
@@ -133,6 +135,16 @@ class PerceptionOrchestrator:
                 )
                 self._perception_state.detected_faces.register(
                     self._processors.emotion_processor.check
+                )
+
+            if self._config.enable_pose:
+                self._processors.pose_processor = PosePerception(
+                    perception_state=self._perception_state,
+                    send_event=self._send_event,
+                    presense_service=self._presense_service,
+                )
+                self._perception_state.frame.register(
+                    self._processors.pose_processor.check
                 )
 
             if self._config.enable_light:
