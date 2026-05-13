@@ -14,15 +14,10 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class SpeechEmotionResult:
-    """One classifier output for one utterance.
-
-    `duration_s` is filled in by the caller (the service knows the audio
-    length; the engine only sees the bytes).
-    """
+    """One classifier output for one utterance."""
 
     label: str
     confidence: float
-    duration_s: float = 0.0
 
 
 class BaseSpeechEmotionRecognizer(abc.ABC):

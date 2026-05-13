@@ -9,9 +9,6 @@ dlbackend `/api/dl/ser/labels`):
 
 from __future__ import annotations
 
-import os
-import tempfile
-
 # --- API contract ---------------------------------------------------------
 
 DEFAULT_DL_SER_ENDPOINT: str = "/lelamp/api/dl/ser/recognize"
@@ -27,11 +24,6 @@ DEFAULT_CONFIDENCE_THRESHOLD: float = 0.5
 DEFAULT_FLUSH_S: float = 10.0
 DEFAULT_DEDUP_WINDOW_S: float = 300.0
 DEFAULT_QUEUE_MAXSIZE: int = 32
-
-# --- Snapshot retention (audio samples for debug) ------------------------
-
-DEFAULT_SNAPSHOT_DIR: str = os.path.join(tempfile.gettempdir(), "lumi-speech-emotion")
-DEFAULT_SNAPSHOT_MAX_COUNT: int = 50
 
 # --- Polarity buckets -----------------------------------------------------
 # Matches face emotion processor's EMOTION_BUCKETS shape so (user, bucket)
