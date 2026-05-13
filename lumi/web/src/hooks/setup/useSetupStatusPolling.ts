@@ -80,15 +80,30 @@ export function useSetupStatusPolling({
   // remain in scope on the new host even though the lamp already persisted
   // them via the form submit. Manual button in Setup.tsx renders unconditionally
   // as the safety net if mDNS is blocked on the network.
+  //
+  // Critical: when the pre-submit redirect already moved us to the .local
+  // URL, `setupPhase === "connected"` lands us with target URL == current URL.
+  // Browsers no-op `location.href = sameURL` — would leave the user stuck on
+  // the "connecting" screen even though wifi is up. Force `reload()` for the
+  // same-host case so SetupGate re-runs, hits the now-reachable
+  // `checkInternet`, and re-mounts Setup in continue mode (full menu).
   useEffect(() => {
     if (setupPhase !== "connected" || !lumiMdnsHost) return;
     let cancelled = false;
-    const base = `http://${lumiMdnsHost}.local`;
+    const targetHost = `${lumiMdnsHost}.local`;
+    const base = `http://${targetHost}`;
     const newURL = `${base}${window.location.pathname}${window.location.search}`;
+    const navigate = () => {
+      if (window.location.hostname === targetHost) {
+        window.location.reload();
+      } else {
+        window.location.href = newURL;
+      }
+    };
     const probe = async () => {
       try {
         await fetch(`${base}/api/health`, { mode: "no-cors", cache: "no-store" });
-        if (!cancelled) window.location.href = newURL;
+        if (!cancelled) navigate();
       } catch {
         /* mDNS not resolvable yet — user still on AP, or network blocks mDNS */
       }
