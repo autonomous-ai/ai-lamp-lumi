@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from protocols.utils.state import get_pose_model, set_pose_model
+from protocols.utils.state import set_pose_model
 from core.perception.pose.pose import PoseAnalysis
 from core.perception.pose.utils import create_estimator_2d, create_lifter_3d
 
@@ -19,6 +19,11 @@ os.environ["DL_API_KEY"] = TEST_API_KEY
 
 RTMPOSE_MODEL_PATH = Path.cwd() / "local" / "rtmpose-m.onnx"
 TCPFORMER_MODEL_PATH = Path.cwd() / "local" / "tcpformer_h36m_243.onnx"
+
+# TCPFormer requires exactly 243 frames (fixed ONNX input).
+# Threshold for 3D output: n_frames // 2 = 121.
+TEST_N_FRAMES = 243
+TEST_MIN_FRAMES = TEST_N_FRAMES // 2  # 121
 
 pytestmark = pytest.mark.skipif(
     not RTMPOSE_MODEL_PATH.exists() or not TCPFORMER_MODEL_PATH.exists(),
@@ -63,38 +68,63 @@ def client(model):
 AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
 
 
+def _send_frames(ws, n: int) -> list[dict]:
+    """Send n frames and collect all responses."""
+    responses: list[dict] = []
+    for _ in range(n):
+        ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+        responses.append(ws.receive_json())
+    return responses
+
+
 class TestPoseWith3DLifting:
-    def test_frame_returns_pose_2d_and_pose_3d(self, client):
-        """With 3D lifter configured, response should include both pose_2d and pose_3d."""
+    def test_not_enough_frames_returns_no_pose_3d(self, client):
+        """With fewer than n_frames//2 frames, pose_3d should not be present."""
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-            resp = ws.receive_json()
-            assert "pose_2d" in resp
-            assert "pose_3d" in resp
+            responses = _send_frames(ws, TEST_MIN_FRAMES - 1)
+            for resp in responses:
+                assert "pose_2d" in resp
+                assert "pose_3d" not in resp
+
+    def test_enough_frames_returns_pose_3d(self, client):
+        """Once n_frames//2 frames are accumulated, pose_3d should appear."""
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            responses = _send_frames(ws, TEST_MIN_FRAMES + 1)
+            # Last response should have pose_3d
+            last_resp = responses[-1]
+            assert "pose_2d" in last_resp
+            assert "pose_3d" in last_resp
 
     def test_pose_3d_has_xyz_joints(self, client):
         """Each 3D joint should have x, y, z coordinates."""
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-            resp = ws.receive_json()
-            assert "pose_3d" in resp
-            for joint in resp["pose_3d"]["joints"]:
+            responses = _send_frames(ws, TEST_MIN_FRAMES + 1)
+            last_resp = responses[-1]
+            assert "pose_3d" in last_resp
+            for joint in last_resp["pose_3d"]["joints"]:
                 assert len(joint) == 3
                 assert all(isinstance(v, float) for v in joint)
 
     def test_pose_3d_graph_type_is_h36m(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-            resp = ws.receive_json()
-            assert resp["pose_3d"]["graph_type"] == "h36m"
+            responses = _send_frames(ws, TEST_MIN_FRAMES + 1)
+            assert responses[-1]["pose_3d"]["graph_type"] == "h36m"
 
     def test_pose_2d_graph_type_is_coco(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-            resp = ws.receive_json()
-            assert resp["pose_2d"]["graph_type"] == "coco"
+            responses = _send_frames(ws, 1)
+            assert responses[0]["pose_2d"]["graph_type"] == "coco"
 
-    def test_http_returns_both_poses(self, client):
+    def test_pose_3d_has_17_joints(self, client):
+        """H36M format should have 17 joints."""
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            responses = _send_frames(ws, TEST_MIN_FRAMES + 1)
+            last_resp = responses[-1]
+            assert len(last_resp["pose_3d"]["joints"]) == 17
+            assert len(last_resp["pose_3d"]["confs"]) == 17
+
+    def test_http_not_enough_frames_no_pose_3d(self, client):
+        """HTTP single-shot sends 1 frame, which is below threshold."""
         resp = client.post(
             "/api/dl/pose-estimate",
             json={"image_b64": _make_frame_b64()},
@@ -103,22 +133,4 @@ class TestPoseWith3DLifting:
         assert resp.status_code == 200
         body = resp.json()
         assert "pose_2d" in body
-        assert "pose_3d" in body
-        assert body["pose_2d"]["graph_type"] == "coco"
-        assert body["pose_3d"]["graph_type"] == "h36m"
-
-    def test_pose_3d_has_17_joints(self, client):
-        """H36M format should have 17 joints."""
-        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-            resp = ws.receive_json()
-            assert len(resp["pose_3d"]["joints"]) == 17
-            assert len(resp["pose_3d"]["confs"]) == 17
-
-    def test_multiple_frames_with_3d(self, client):
-        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            for _ in range(3):
-                ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
-                resp = ws.receive_json()
-                assert "pose_2d" in resp
-                assert "pose_3d" in resp
+        assert body.get("pose_3d") is None
