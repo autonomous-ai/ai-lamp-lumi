@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "device_name": "Claude-{deviceid}",
+  "device_name": "lumi-{MAC}",
   "http_port": 5002,
   "lelamp_url": "http://127.0.0.1:5001",
   "lumi_url": "http://127.0.0.1:5000",
