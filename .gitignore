@@ -48,3 +48,6 @@ __pycache__
 
 imager/output/*.img
 scripts/.skill-hashes
+
+
+dlbackend/src/core/ser/models/emotion2vec_plus_large/emotion2vec.onnx
