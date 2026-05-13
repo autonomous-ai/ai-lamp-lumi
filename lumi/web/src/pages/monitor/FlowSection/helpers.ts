@@ -611,7 +611,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     else if (base.status === "active" && turn.status === "done") base.status = "done";
     // turn_steered may arrive in a later fragment (events of an interleaving
     // turn split chat-N's events), so promote "active → steered" here too.
-    else if (base.status === "active" && turn.status === "steered") base.status = "steered";
+    // The fragment may not carry status="steered" itself (when it was created
+    // via the runId-switch branch the status-update block is skipped), so also
+    // scan its raw events for the turn_steered marker.
+    else if (base.status === "active" && (turn.status === "steered" || turn.events.some(
+      (e) => e.type === "flow_event" && e.detail?.node === "turn_steered"))) {
+      base.status = "steered";
+      if (!base.endTime) base.endTime = turn.endTime || turn.startTime;
+    }
     if (!base.endTime && turn.endTime) base.endTime = turn.endTime;
     else if (base.endTime && turn.endTime && turn.endTime > base.endTime) base.endTime = turn.endTime;
     if (base.path !== "agent" && turn.path === "agent") base.path = "agent";
