@@ -25,16 +25,30 @@ class PoseAnalysis:
     """
 
     DEFAULT_FRAME_INTERVAL: float = 0.0
+    DEFAULT_CONFIDENCE_THRESHOLD_2D: float = 0.3
+    DEFAULT_MIN_VALID_KEYPOINTS: int = 5
 
     def __init__(
         self,
         estimator_2d: PoseEstimator2D,
         lifter_3d: PoseEstimator3DLifting | None = None,
         frame_interval: float | None = None,
+        confidence_threshold_2d: float | None = None,
+        min_valid_keypoints: int | None = None,
     ):
         self._estimator_2d: PoseEstimator2D = estimator_2d
         self._lifter_3d: PoseEstimator3DLifting | None = lifter_3d
         self._frame_interval: float | None = frame_interval
+        self._confidence_threshold_2d: float = (
+            confidence_threshold_2d
+            if confidence_threshold_2d is not None
+            else self.DEFAULT_CONFIDENCE_THRESHOLD_2D
+        )
+        self._min_valid_keypoints: int = (
+            min_valid_keypoints
+            if min_valid_keypoints is not None
+            else self.DEFAULT_MIN_VALID_KEYPOINTS
+        )
         self._running: bool = False
         self._logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
@@ -79,6 +93,8 @@ class PoseAnalysis:
             estimator_2d=self._estimator_2d,
             lifter_3d=self._lifter_3d,
             frame_interval=frame_interval,
+            confidence_threshold_2d=self._confidence_threshold_2d,
+            min_valid_keypoints=self._min_valid_keypoints,
         )
 
 
@@ -90,10 +106,14 @@ class PoseSession:
         estimator_2d: PoseEstimator2D,
         lifter_3d: PoseEstimator3DLifting | None,
         frame_interval: float,
+        confidence_threshold_2d: float,
+        min_valid_keypoints: int,
     ):
         self._estimator_2d: PoseEstimator2D = estimator_2d
         self._lifter_3d: PoseEstimator3DLifting | None = lifter_3d
         self._frame_interval: float = frame_interval
+        self._confidence_threshold_2d: float = confidence_threshold_2d
+        self._min_valid_keypoints: int = min_valid_keypoints
         self._last_ts: float = 0
         self._last_result_cache: dict[str, Any] | None = None
         self._h36m_kps_buffer: list[npt.NDArray[np.float32]] = []
@@ -121,10 +141,11 @@ class PoseSession:
             confs=[float(c) for c in confs],
         )
 
-        result: dict[str, Any] = {"pose_2d": pose_2d}
+        result: dict[str, Any] = {"pose_2d": pose_2d, "pose_3d": None}
 
-        # Optional 3D lifting — accumulate frames in buffer
-        if self._lifter_3d is not None:
+        # Optional 3D lifting — only if enough keypoints are confident
+        num_valid: int = int((confs >= self._confidence_threshold_2d).sum())
+        if self._lifter_3d is not None and num_valid >= self._min_valid_keypoints:
             h36m_kps, h36m_scores = coco_to_h36m(keypoints, scores)
             self._h36m_kps_buffer.append(h36m_kps[0])
             self._h36m_scores_buffer.append(h36m_scores[0])
