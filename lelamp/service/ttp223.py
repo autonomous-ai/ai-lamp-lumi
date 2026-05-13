@@ -39,6 +39,39 @@ TTP223_NAMES = {96: "S1", 97: "S2", 98: "S3", 99: "S4"}
 TTP223_DEBOUNCE_NS = 50_000_000  # 50 ms
 
 
+def _device_tree_model() -> str:
+    """Lower-cased contents of /proc/device-tree/model, or '' if missing."""
+    try:
+        with open("/proc/device-tree/model", "r") as f:
+            return f.read().rstrip("\x00").strip().lower()
+    except OSError:
+        return ""
+
+
+def _is_orangepi_sun60() -> bool:
+    """Allwinner sun60iw2 (OrangePi 4 Pro / A733)."""
+    return "sun60iw2" in _device_tree_model()
+
+
+def _is_raspberry_pi_4() -> bool:
+    return "raspberry pi 4" in _device_tree_model()
+
+
+def _is_raspberry_pi_5() -> bool:
+    return "raspberry pi 5" in _device_tree_model()
+
+
+def _board_label() -> str:
+    """Short label for logs."""
+    if _is_orangepi_sun60():
+        return "orangepi-sun60"
+    if _is_raspberry_pi_5():
+        return "pi5"
+    if _is_raspberry_pi_4():
+        return "pi4"
+    return _device_tree_model() or "unknown"
+
+
 class TTP223Handler:
     def __init__(self):
         self._req = None
@@ -54,6 +87,17 @@ class TTP223Handler:
         self._last_edge_ns: dict[int, int] = {l: 0 for l in TTP223_LINES}
 
     def start(self):
+        board = _board_label()
+        if not _is_orangepi_sun60():
+            # Pi 4 / Pi 5 / unknown boards don't have TTP223 wired —
+            # skip entirely so the same image runs everywhere without
+            # claiming unrelated GPIOs. If TTP223 gets added to Pi
+            # later, branch here on _is_raspberry_pi_4/5() and override
+            # TTP223_CHIP / TTP223_LINES per board (mirror gpio_button's
+            # _resolve_board_config pattern).
+            logger.info("ttp223 disabled: board is %s (only wired on orangepi-sun60)", board)
+            return
+
         settings = gpiod.LineSettings(
             direction=Direction.INPUT,
             bias=Bias.PULL_DOWN,
@@ -65,10 +109,9 @@ class TTP223Handler:
                 TTP223_CHIP, consumer="ttp223-touchpad", config=config
             )
         except (OSError, FileNotFoundError) as e:
-            # Board without TTP223 (Pi, or OrangePi where the chip
-            # isn't wired). Skip silently so the same image runs on
-            # both boards.
-            logger.info("ttp223 disabled: %s", e)
+            # Right board but lines already claimed / kernel error —
+            # log so we can investigate but don't crash the process.
+            logger.warning("ttp223 line claim failed: %s", e)
             return
         self._thread = threading.Thread(
             target=self._run, name="ttp223-touchpad", daemon=True
