@@ -34,7 +34,7 @@ export interface Turn {
   endTime?: string;
   type: string;
   path: "local" | "agent" | "dropped" | "queued" | "unknown";
-  status: "active" | "done" | "error" | "steered";
+  status: "active" | "done" | "error";
   events: DisplayEvent[];
   queuedForMs?: number;
 }
