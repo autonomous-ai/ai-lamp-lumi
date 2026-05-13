@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import { getNetworks, setupDevice } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -109,6 +108,22 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
 
   const [deviceId, setDeviceId] = useState(urlParams.deviceId || "");
   const [mac, setMac] = useState("");
+  // mDNS hostname for the lamp on home Wi-Fi: `lumi-<suffix>.local`. Matches
+  // what stage_ap sets via `hostnamectl set-hostname lumi-${SUFFIX_LC}` — both
+  // sides derive the suffix from the device's hardware ID (Pi device-tree
+  // serial / cpuinfo Serial / eth0 MAC, in that order) via the same logic in
+  // lumi/internal/device/hardware.go.
+  //
+  // The backend returns `cfg.mac` already formatted as "Lumi-XXXX" (see
+  // GetDeviceMac() — it prefixes "Lumi-" before the 4-char hex suffix), so
+  // taking the last 4 chars and validating as hex gives us the canonical
+  // suffix without depending on the prefix string. Empty when the config
+  // hasn't returned yet, or when the device couldn't determine a serial.
+  const lumiMdnsHost = useMemo(() => {
+    const tail = (mac || "").trim().toLowerCase().slice(-4);
+    if (!/^[0-9a-f]{4}$/.test(tail)) return "";
+    return `lumi-${tail}`;
+  }, [mac]);
   const [llmApiKey, setLlmApiKey] = useState(urlParams.llmApiKey || "");
   const [llmUrl, setLlmUrl] = useState(urlParams.llmUrl || "");
   const [llmModel, setLlmModel] = useState(urlParams.llmModel || "");
@@ -293,7 +308,7 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
   });
 
   useSetupStatusPolling({
-    setupWorking, setupPhase, setupLanIP,
+    setupWorking, setupPhase, setupLanIP, lumiMdnsHost,
     setSetupPhase, setSetupLanIP, setSetupErrorMsg,
   });
 
@@ -550,37 +565,52 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                       Lumi is online!
                     </div>
 
-                    {setupLanIP ? (
+                    {/* mDNS path (primary): the lamp publishes
+                        `lumi-<last4mac>.local` via avahi-daemon, so we don't
+                        need to know its new LAN IP to redirect — the browser
+                        resolves it once the user is on home Wi-Fi.
+                        Supported out-of-box: Windows 10 1803+, Windows 11,
+                        macOS, iOS, most desktop Linux. Falls back to a
+                        router-admin hint when the host is unreachable. */}
+                    {lumiMdnsHost ? (
                       <>
-                        <div style={{
-                          display: "inline-block", padding: 12, background: "#fff",
-                          borderRadius: 8, marginBottom: 14,
-                        }}>
-                          <QRCodeSVG value={`http://${setupLanIP}/`} size={172} level="M" />
-                        </div>
                         <div style={{ fontSize: 13, color: C.text, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
-                          http://{setupLanIP}/
+                          http://{lumiMdnsHost}.local/
                         </div>
                         <div style={{ fontSize: 11, color: C.textDim, marginBottom: 18, lineHeight: 1.5 }}>
-                          Reconnect your phone to home Wi-Fi, then scan the QR
-                          (or type the address). Lumi will redirect you here
-                          automatically once it can see you.
+                          Reconnect your computer to your home Wi-Fi, then click
+                          Continue.
                         </div>
                         <a
-                          href={`http://${setupLanIP}/`}
+                          // Carry the current pathname + query params so any
+                          // ?llm_api_key=… etc. from Lumi remain in scope on
+                          // the new host (redundant — lamp already persisted
+                          // them via submit — but cheap and useful when the
+                          // operator re-runs setup with different overrides).
+                          href={`http://${lumiMdnsHost}.local${window.location.pathname}${window.location.search}`}
                           style={{
                             display: "inline-block", padding: "9px 18px",
                             background: C.amber, color: "#fff",
                             borderRadius: 7, fontSize: 12.5, fontWeight: 600,
                             textDecoration: "none",
+                            marginBottom: 14,
                           }}
                         >
                           Continue setup →
                         </a>
+                        <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.5 }}>
+                          Can't reach it?
+                          {setupLanIP && (
+                            <> Try <span style={{ fontFamily: "ui-monospace, monospace" }}>http://{setupLanIP}/</span> or </>
+                          )}
+                          {" "}find Lumi's IP in your router's admin page (look
+                          for "{lumiMdnsHost}").
+                        </div>
                       </>
                     ) : (
                       <div style={{ fontSize: 12, color: C.textDim }}>
-                        Lamp connected but didn't report an IP. Check your router for "Lumi" / Pi 5 to find the address.
+                        Lamp connected. Open your router's admin page to find
+                        the device's IP address (look for "lumi-").
                       </div>
                     )}
                   </>

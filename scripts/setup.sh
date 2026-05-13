@@ -80,7 +80,8 @@ stage_prerequisites() {
   # so `ping 8.8.8.8` works but every hostname lookup fails.
   apt install -y \
     hostapd dnsmasq nginx unzip curl jq wpasupplicant dhcpcd iproute2 iptables \
-    iw git xvfb xauth chromium chromium-sandbox openresolv || true
+    iw git xvfb xauth chromium chromium-sandbox openresolv \
+    avahi-daemon avahi-utils libnss-mdns || true
   systemctl stop hostapd dnsmasq nginx 2>/dev/null || true
   systemctl unmask hostapd dnsmasq 2>/dev/null || true
   # Some base images (Armbian / older RPi OS images that once ran NetworkManager
@@ -96,6 +97,16 @@ stage_prerequisites() {
     ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
     resolvconf -u 2>/dev/null || true
   fi
+  # Static fallback so /etc/resolv.conf is never completely empty — matters in
+  # AP mode (hostapd up, no upstream DHCP lease for wlan0) and during the brief
+  # window between dhcpcd start and the first lease. Appended via openresolv's
+  # name_servers= so it joins, not replaces, the DHCP-supplied nameservers.
+  if [ -f /etc/resolvconf.conf ]; then
+    grep -q '^name_servers=' /etc/resolvconf.conf || echo 'name_servers="1.1.1.1 8.8.8.8"' >> /etc/resolvconf.conf
+  else
+    echo 'name_servers="1.1.1.1 8.8.8.8"' > /etc/resolvconf.conf
+  fi
+  resolvconf -u 2>/dev/null || true
   # Node.js 22 for OpenClaw CLI
   if ! command -v node &>/dev/null || ! node -v 2>/dev/null | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
     echo "[stage] Install Node.js 22 (NodeSource)"
@@ -710,6 +721,39 @@ stage_ap() {
   AP_SSID="Lumi-${SUFFIX}"
   echo "[stage] AP SSID = $AP_SSID (serial=$SERIAL)"
 
+  # mDNS hostname: per-device .local name so the web UI can redirect after
+  # AP→STA without needing to know the LAN IP. Browsers resolve `.local` via
+  # mDNS (built into Win10 1803+, macOS, iOS, most Linux). The lowercase form
+  # matters — avahi publishes the system hostname verbatim, and `.local` is
+  # case-insensitive but URLs in the wild aren't always normalized.
+  SUFFIX_LC=$(echo "$SUFFIX" | tr '[:upper:]' '[:lower:]')
+  LUMI_HOSTNAME="lumi-${SUFFIX_LC}"
+  hostnamectl set-hostname "$LUMI_HOSTNAME" 2>/dev/null || hostname "$LUMI_HOSTNAME"
+  # Replace 127.0.1.1 line if present, otherwise append. /etc/hosts is required
+  # for sudo/getent to resolve the hostname locally.
+  if grep -q '^127\.0\.1\.1' /etc/hosts; then
+    sed -i "s/^127\.0\.1\.1.*/127.0.1.1 $LUMI_HOSTNAME/" /etc/hosts
+  else
+    echo "127.0.1.1 $LUMI_HOSTNAME" >> /etc/hosts
+  fi
+  systemctl enable avahi-daemon 2>/dev/null || true
+  systemctl restart avahi-daemon 2>/dev/null || true
+  echo "[stage] mDNS hostname = $LUMI_HOSTNAME.local"
+  # Sanity check: confirm avahi actually publishes this name locally. A
+  # warning here usually means the daemon failed to start (missing dbus,
+  # masked service) or another device on the bench already claimed the
+  # name (avahi would have renamed ours to ${LUMI_HOSTNAME}-2). Two lamps
+  # with identical last-4 serial chars on the same LAN is rare (1/65536)
+  # but possible — if it happens, the FE's redirect will hit the wrong
+  # device, and we'd need to bump the suffix length here and in
+  # lumi/internal/device/hardware.go.
+  sleep 1
+  if command -v avahi-resolve-host-name >/dev/null 2>&1; then
+    if ! avahi-resolve-host-name -4 "${LUMI_HOSTNAME}.local" >/dev/null 2>&1; then
+      echo "[stage] WARNING: ${LUMI_HOSTNAME}.local not resolvable via mDNS yet (avahi may need a moment, or another device claimed the name)"
+    fi
+  fi
+
   # Ignore Pi Imager WiFi credentials baked into the image.
   if [ -f /etc/wpa_supplicant/wpa_supplicant.conf ]; then
     mv /etc/wpa_supplicant/wpa_supplicant.conf /etc/wpa_supplicant/wpa_supplicant.conf.bak 2>/dev/null || true
@@ -864,6 +908,11 @@ iwconfig wlan0 power off 2>/dev/null || true
 ip addr flush dev wlan0
 ip addr add 192.168.100.1/24 dev wlan0
 
+# Clear stale DHCP nameserver from previous STA session — otherwise
+# /etc/resolv.conf keeps pointing at the home router's DNS even though wlan0
+# can no longer reach it. Best-effort: resolvconf may not be installed.
+command -v resolvconf >/dev/null 2>&1 && resolvconf -d wlan0.dhcp 2>/dev/null || true
+
 # Enable AP services
 systemctl unmask hostapd dnsmasq 2>/dev/null || true
 systemctl enable hostapd dnsmasq
@@ -985,6 +1034,12 @@ else
   echo "  wpa_cli status"
   echo "  journalctl -u wpa_supplicant@wlan0 -n 50 --no-pager"
 fi
+
+# Re-announce mDNS on the new network so http://lumi-XXXX.local/ resolves
+# from the user's computer once they reconnect to home Wi-Fi. Without this,
+# avahi sometimes keeps stale records from the AP network and stays silent
+# on the new subnet until the next service restart or reboot.
+systemctl restart avahi-daemon 2>/dev/null || true
 
 echo "STA MODE ENABLED"
 EOF
@@ -1162,7 +1217,7 @@ echo ""
 echo "======================================"
 echo "Setup complete!"
 echo "AP SSID: Lumi-XXXX (actual: ${AP_SSID:-unknown — stage_ap may have failed})"
-echo "Setup page: http://192.168.100.1"
+echo "Setup page: http://192.168.100.1 (AP) — or http://${LUMI_HOSTNAME:-lumi-xxxx}.local once on home Wi-Fi"
 echo "Backends: systemctl status bootstrap lumi lumi-lelamp lumi-buddy"
 echo "Updates:  software-update <bootstrap|lumi|openclaw|lelamp|lumi-buddy|web>"
 if [ -n "$FAILED_STAGES" ]; then
