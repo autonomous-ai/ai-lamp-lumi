@@ -184,11 +184,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				!isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID) &&
 				!isCronFireTurn
 			if isChannelTurn {
-				// Emit chat_input immediately (no message text yet).
+				// Emit chat_input immediately so UI shows turn-started.
+				// Use a neutral "[chat]" placeholder rather than claiming the
+				// configured channel — the goroutine below will replace this
+				// with the right label ([telegram:Gray] / [voice] / [emotion]
+				// / ...) once chat.history reveals whether it's a real
+				// channel user or a Lumi-internal sensing/voice merge. If
+				// the goroutine fails or times out, this generic label
+				// stays — better than mis-attributing to Telegram.
 				flow.Log("chat_input", map[string]any{"run_id": payload.RunID, "source": "channel"}, payload.RunID)
 				h.monitorBus.Push(domain.MonitorEvent{
 					Type:    "chat_input",
-					Summary: "[" + h.agentGateway.GetConfiguredChannel() + "]",
+					Summary: "[chat]",
 					RunID:   payload.RunID,
 					Detail:  map[string]string{"role": "user"},
 				})
@@ -238,10 +245,28 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 						if len(displayMsg) > 200 {
 							displayMsg = displayMsg[:200] + "…"
 						}
+						// Label selection (priority order):
+						//  1. Real channel user (senderLabel filled by chat.history) →
+						//     `[telegram:Gray]` — keeps existing Telegram UI.
+						//  2. Lumi-internal sensing/voice/wellbeing/system message
+						//     merged into this UUID turn via OpenClaw steer →
+						//     `[voice]` / `[emotion]` / `[activity]` / ... so the
+						//     monitor doesn't mis-label self-fire turns as
+						//     `[telegram]`.
+						//  3. Fallback: generic `[chat]` — UUID with no sender and
+						//     no recognisable internal prefix (rare; was previously
+						//     mis-labelled as the configured channel).
 						chName := h.agentGateway.GetConfiguredChannel()
-						prefix := "[" + chName + "]"
-						if senderLabel != "" {
+						var prefix string
+						switch {
+						case senderLabel != "":
 							prefix = "[" + chName + ":" + senderLabel + "]"
+						default:
+							if lbl := labelForLumiInternal(userMsg); lbl != "" {
+								prefix = lbl
+							} else {
+								prefix = "[chat]"
+							}
 						}
 						flow.Log("chat_input", map[string]any{
 							"run_id":  capturedRunID,
@@ -524,7 +549,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				// The built-in tts generates audio server-side but never reaches the physical speaker.
 				if toolName == "tts" {
 					if ttsText := extractTTSText(toolArgs); ttsText != "" {
-						isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+						isChannelRun := isChannelOriginatedRun(payload.RunID, flowRunID)
 						isWebChat := h.agentGateway.IsWebChatRun(flowRunID)
 						slog.Info("intercepted built-in tts tool, routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)], "channel_run", isChannelRun, "web_chat", isWebChat)
 						flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
@@ -726,7 +751,18 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					slog.Info("assistant turn done, TTS suppressed", "component", "agent", "reason", suppressReason, "text", text[:min(len(text), 100)])
 					flow.Log("tts_suppressed", map[string]any{"run_id": flowRunID, "reason": suppressReason, "text": text}, flowRunID)
 				} else {
-					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+					// Channel detection: positive-evidence only. tg- runIDs are
+					// synthesised by Lumi from session.message events (real Telegram
+					// users); anything else (lumi-chat-*, UUID from steer/cron/
+					// heartbeat) is NOT a channel run unless explicitly marked
+					// via channelRuns below.
+					//
+					// Previously this defaulted to `!isLumiOutboundChatRunID(...)`,
+					// which mis-classified OpenClaw UUID self-fire / cron / heartbeat
+					// runs as Telegram and suppressed their TTS — most visibly,
+					// music-suggestion replies on emotion.detected events when the
+					// sensing turn got steered into a UUID host turn.
+					isChannelRun := isChannelOriginatedRun(payload.RunID, flowRunID)
 					// Cron-fire turns always TTS on the lamp speaker even though their
 					// UUID runIds look like channel runs. Detected from chat.history
 					// systemEvent template at lifecycle_start (see cronFireRuns map).
@@ -856,7 +892,7 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 			// Intercept OpenClaw built-in tts tool (session.tool path).
 			if toolName == "tts" {
 				if ttsText := extractTTSText(toolArgs); ttsText != "" {
-					isChannelRun := !isLumiOutboundChatRunID(payload.RunID) && !isLumiOutboundChatRunID(flowRunID)
+					isChannelRun := isChannelOriginatedRun(payload.RunID, flowRunID)
 					isWebChat := h.agentGateway.IsWebChatRun(flowRunID)
 					slog.Info("intercepted built-in tts tool (session.tool), routing to LeLamp", "component", "agent", "run_id", flowRunID, "text", ttsText[:min(len(ttsText), 80)], "channel_run", isChannelRun, "web_chat", isWebChat)
 					flow.Log("tts_send", map[string]any{"run_id": flowRunID, "text": ttsText, "source": "tts_tool_intercept"}, flowRunID)
