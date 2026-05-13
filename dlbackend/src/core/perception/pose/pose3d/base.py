@@ -98,20 +98,24 @@ class PoseEstimator3DLifting(ABC):
         self,
         keypoints: npt.NDArray[np.float32],
         scores: npt.NDArray[np.float32],
-    ) -> npt.NDArray[np.float32]:
+    ) -> npt.NDArray[np.float32] | None:
         """Lift 2D H36M keypoints to 3D, returning raw (17, 3) array.
 
-        Returns None if the buffer is not yet full (< 243 frames).
+        Returns None if there are fewer than half of n_frames accumulated.
         """
         if self._session is None:
-            raise RuntimeError("TCPFormer3D session not started")
+            raise RuntimeError("Lifter session not started")
+
+        T: int = keypoints.shape[0]
+        if T < self._n_frames // 2:
+            return None
 
         frames = self._normalize_2d(keypoints, scores)
-        inp = frames[np.newaxis].astype(np.float32)  # (1, 243, 17, 3)
+        inp = frames[np.newaxis].astype(np.float32)  # (1, n_frames, 17, 3)
 
         (output,) = self._session.run(["output"], {"input": inp})
         output = cast(npt.NDArray[np.float32], output)
-        # output: (1, 243, 17, 3) -- take the last frame
+        # output: (1, n_frames, 17, 3) -- take the last frame
         return output[0, -1]  # (17, 3)
 
     def _normalize_2d(
@@ -132,10 +136,11 @@ class PoseEstimator3DLifting(ABC):
         norm_kps[..., 0] = norm_kps[..., 0] / self._input_w * 2 - 1
         norm_kps[..., 1] = norm_kps[..., 1] / self._input_w * 2 - self._input_h / self._input_h
         norm = np.concatenate([norm_kps, scores[..., None]], axis=-1).astype(np.float32)
-        norm = np.concatenate(
-            [norm, np.zeros((self._n_frames - norm.shape[0], *norm.shape[1:]), dtype=norm.dtype)],
-            axis=0,
-        )
+        if norm.shape[0] < self._n_frames:
+            norm = np.concatenate(
+                [norm, np.zeros((self._n_frames - norm.shape[0], *norm.shape[1:]), dtype=norm.dtype)],
+                axis=0,
+            )
         return norm
 
     @staticmethod

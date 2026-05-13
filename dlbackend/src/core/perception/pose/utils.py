@@ -24,6 +24,7 @@ def create_lifter_3d(
     model_name: PoseLifter3DEnum,
     model_path: Path | None = None,
     frame_size: tuple[int, int] | None = None,
+    n_frames: int | None = None,
 ) -> PoseEstimator3DLifting:
     """Instantiate the correct 3D pose lifter."""
     if model_name == PoseLifter3DEnum.TCPFORMER:
@@ -34,6 +35,8 @@ def create_lifter_3d(
             kwargs["model_path"] = model_path
         if frame_size is not None:
             kwargs["frame_size"] = frame_size
+        if n_frames is not None:
+            kwargs["n_frames"] = n_frames
         return TCPFormer3D(**kwargs)
     else:
         raise ValueError(f"Unknown 3D pose lifter: {model_name}")
