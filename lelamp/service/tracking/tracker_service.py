@@ -453,6 +453,7 @@ class TrackerService:
 
         animation_service._hold_mode = True
         animation_service._tracking_active = True
+        animation_service._tracking_mode = True
         logger.info("Servo hold mode + tracking lock ON")
 
         # Read initial servo positions — track internally after this.
@@ -478,6 +479,7 @@ class TrackerService:
         motion_state = "INIT"             # INIT → STILL or MOVING
         stable_count = 0                  # consecutive stable frames counter
         last_servo_t: float = 0.0         # timestamp of last servo fire (for cooldown)
+        last_obj_log_t: float = 0.0       # throttle tracking_object log to 1/s
         miss_count = 0
         yolo_miss_count = 0   # consecutive YOLO misses — ghost tracking detection
         retry_count = 0
@@ -505,6 +507,14 @@ class TrackerService:
             anim = "tracking"
             logger.info("[retry] attempt %d/%d → %s", retry_count, MAX_TRACKING_RETRIES, anim)
             animation_service._tracking_active = False
+            # Sync animation _current_state from bus so interpolation starts from actual position
+            try:
+                with animation_service.bus_lock:
+                    _bus = {k: v for k, v in animation_service.robot.get_observation().items() if k.endswith(".pos")}
+                if _bus:
+                    animation_service._current_state = _bus.copy()
+            except Exception as _e:
+                logger.warning("[retry] pre-animation state sync failed: %s", _e)
             animation_service.dispatch("play", anim)
             time.sleep(4.0)
             animation_service._tracking_active = True
@@ -522,6 +532,19 @@ class TrackerService:
                                 logger.info("[retry] tracker reinit OK bbox=%s", _bbox)
                         except Exception as _e:
                             logger.warning("[retry] tracker init failed: %s", _e)
+            # Sync _track_* from bus after animation moved servos
+            try:
+                with animation_service.bus_lock:
+                    _bus = {k: v for k, v in animation_service.robot.get_observation().items() if k.endswith(".pos")}
+                self._track_yaw         = _bus.get("base_yaw.pos",    self._track_yaw)
+                self._track_base_pitch  = _bus.get("base_pitch.pos",  self._track_base_pitch)
+                self._track_elbow_pitch = _bus.get("elbow_pitch.pos", self._track_elbow_pitch)
+                self._track_wrist_pitch = _bus.get("wrist_pitch.pos", self._track_wrist_pitch)
+                logger.info("[retry] servo sync: yaw=%.1f pitch=%.1f elbow=%.1f wrist=%.1f",
+                            self._track_yaw, self._track_base_pitch,
+                            self._track_elbow_pitch, self._track_wrist_pitch)
+            except Exception as _e:
+                logger.warning("[retry] servo sync failed: %s", _e)
             # Reset per-attempt state
             miss_count = 0
             yolo_miss_count = 0
@@ -639,9 +662,12 @@ class TrackerService:
                     moving_str = motion_state
                 else:
                     direction, moving_str = "·", "INIT"
-                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%%",
-                            state.target_label, screen_x_pct, screen_y_pct, quadrant,
-                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
+                _now = time.perf_counter()
+                if _now - last_obj_log_t >= 1.0:
+                    logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%%",
+                                state.target_label, screen_x_pct, screen_y_pct, quadrant,
+                                dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
+                    last_obj_log_t = _now
 
                 # --- Motion state machine ---
                 # During cooldown: accumulate stable_count but suppress firing.
@@ -784,6 +810,7 @@ class TrackerService:
 
         finally:
             animation_service._tracking_active = False
+            animation_service._tracking_mode = False
             animation_service._hold_mode = False
             state.running.clear()
 
@@ -794,4 +821,11 @@ class TrackerService:
                 )
                 animation_service._event_thread.start()
 
-            logger.info("Tracking ended — holding servo at current position")
+            logger.info("Tracking ended — resetting servo to neutral")
+            try:
+                animation_service.move_to({
+                    "base_yaw.pos": 0.0, "base_pitch.pos": 0.0,
+                    "elbow_pitch.pos": 0.0, "wrist_pitch.pos": 0.0, "wrist_roll.pos": 0.0,
+                }, duration=2.0)
+            except Exception as _e:
+                logger.warning("Servo reset to neutral failed: %s", _e)

@@ -92,6 +92,12 @@ class AnimationService:
         # Set only by the tracker service.
         self._tracking_active = False
 
+        # Tracking mode — set for the entire duration of a tracking session
+        # (including retry windows when _tracking_active is briefly False).
+        # Blocks emotion/other services from dispatching servo animations that
+        # would override the search animation during retries.
+        self._tracking_mode = False
+
         # When True, idle recording finished and pose is held — loop sleeps longer to save CPU
         self._idle_settled = False
 
@@ -191,7 +197,11 @@ class AnimationService:
         if not self._running.is_set():
             print(f"Animation service is not running, ignoring event {event_type}")
             return
-        
+        # Block non-tracker servo animations during tracking sessions (including retry windows)
+        if self._tracking_mode and event_type == SERVO_CMD_PLAY and payload != "tracking":
+            logger.debug("dispatch blocked during tracking mode: %s(%s)", event_type, payload)
+            return
+
         with self._event_lock:
             self._event_queue.append((event_type, payload))
     
