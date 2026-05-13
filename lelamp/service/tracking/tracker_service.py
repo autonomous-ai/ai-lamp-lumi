@@ -87,10 +87,9 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-# Smooth sub-stepping: split large servo moves into chunks ≤ SERVO_SUBSTEP_DEG.
-# Each chunk fires then waits SERVO_SUBSTEP_SLEEP — ramps smoothly, no camera shake.
-SERVO_SUBSTEP_DEG   = 10.0   # max degrees per sub-step
-SERVO_SUBSTEP_SLEEP = 0.02   # seconds between sub-steps
+SERVO_MOVE_DURATION = 0.2   # seconds for move_to() yaw interpolation per gimbal fire
+SERVO_SUBSTEP_DEG   = 10.0  # max degrees per sub-step for pitch/elbow/wrist
+SERVO_SUBSTEP_SLEEP = 0.02  # seconds between sub-steps
 
 # Pitch distribution across 3 joints.
 PITCH_WEIGHT_BASE  = 0.10
@@ -380,8 +379,13 @@ class TrackerService:
     def _send_gimbal_target(self, target: dict, animation_service) -> float:
         """Send servo to target via smooth sub-steps ≤ SERVO_SUBSTEP_DEG each.
 
-        Splits the move into N equal chunks and fires each with a short pause —
-        prevents camera shake from abrupt jumps. Returns total command time in ms.
+        All joints (yaw, pitch, elbow, wrist) move together in each step — prevents
+        partial-command issues where the robot resets unspecified joints.
+        Returns total command time in ms.
+
+        NOTE: move_to() for yaw-only caused wrist_pitch to freeze (robot snaps unspecified
+        joints when receiving partial commands). Keep all joints in one sub-step loop.
+        TODO: investigate move_to() partial-command behaviour with hardware team.
         """
         start = {
             "base_yaw.pos":    self._track_yaw,
@@ -404,10 +408,11 @@ class TrackerService:
         t_ms = (time.perf_counter() - t0) * 1000
 
         logger.info(
-            "[servo-actual] FIRE yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f steps=%d cmd=%.0fms",
-            start["base_yaw.pos"], target["base_yaw.pos"],
-            start["base_pitch.pos"], target["base_pitch.pos"],
+            "[servo-actual] FIRE yaw=%.1f→%.1f pitch=%.1f→%.1f elbow=%.1f→%.1f wrist=%.1f→%.1f steps=%d cmd=%.0fms",
+            start["base_yaw.pos"],    target["base_yaw.pos"],
+            start["base_pitch.pos"],  target["base_pitch.pos"],
             start["elbow_pitch.pos"], target["elbow_pitch.pos"],
+            start["wrist_pitch.pos"], target["wrist_pitch.pos"],
             n_steps, t_ms,
         )
         self._track_yaw         = target["base_yaw.pos"]
