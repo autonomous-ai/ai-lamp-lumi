@@ -1,8 +1,9 @@
-"""Factory functions for pose estimators and 3D lifters."""
+"""Factory functions for pose estimators, 3D lifters, and ergonomic assessors."""
 
 from pathlib import Path
 
-from core.enums.pose import PoseEstimator2DEnum, PoseLifter3DEnum
+from core.enums.pose import ErgoAssessorEnum, PoseEstimator2DEnum, PoseLifter3DEnum
+from core.perception.pose.ergo.base import ErgoAssessor
 from core.perception.pose.pose2d.base import PoseEstimator2D
 from core.perception.pose.pose3d.base import PoseEstimator3DLifting
 
@@ -40,3 +41,24 @@ def create_lifter_3d(
         return TCPFormer3D(**kwargs)
     else:
         raise ValueError(f"Unknown 3D pose lifter: {model_name}")
+
+
+def create_ergo_assessor(
+    model_name: ErgoAssessorEnum,
+    confidence_threshold: float | None = None,
+    muscle_use_score: int = 0,
+    force_load_score: int = 0,
+) -> ErgoAssessor:
+    """Instantiate the correct ergonomic assessor."""
+    if model_name == ErgoAssessorEnum.RULA:
+        from core.perception.pose.ergo.rula import RULAAssessor
+
+        kwargs: dict = {
+            "muscle_use_score": muscle_use_score,
+            "force_load_score": force_load_score,
+        }
+        if confidence_threshold is not None:
+            kwargs["confidence_threshold"] = confidence_threshold
+        return RULAAssessor(**kwargs)
+    else:
+        raise ValueError(f"Unknown ergonomic assessor: {model_name}")

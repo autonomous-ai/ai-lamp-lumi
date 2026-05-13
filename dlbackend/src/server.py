@@ -25,7 +25,7 @@ from core.perception.action.utils import create_recognizer
 from core.perception.emotion.emotion import EmotionAnalysis
 from core.perception.persondetector import YOLOPersonDetector
 from core.perception.pose.pose import PoseAnalysis
-from core.perception.pose.utils import create_estimator_2d, create_lifter_3d
+from core.perception.pose.utils import create_ergo_assessor, create_estimator_2d, create_lifter_3d
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp import speech_emotion_recognizer as ser_protocol
 from protocols.htpp.action import router as action_ws_router
@@ -147,9 +147,17 @@ def _build_pose_analysis() -> PoseAnalysis:
             )
         lifter_3d = create_lifter_3d(settings.pose.lifter_3d, lifter_3d_ckpt, lifter_3d_frame_size)
 
+    ergo_assessor = None
+    if settings.pose.ergo_assessor is not None:
+        ergo_assessor = create_ergo_assessor(
+            settings.pose.ergo_assessor,
+            confidence_threshold=settings.pose.ergo_confidence_threshold,
+        )
+
     return PoseAnalysis(
         estimator_2d=estimator_2d,
         lifter_3d=lifter_3d,
+        ergo_assessor=ergo_assessor,
         confidence_threshold_2d=settings.pose.confidence_threshold_2d,
         min_valid_keypoints=settings.pose.min_valid_keypoints,
     )

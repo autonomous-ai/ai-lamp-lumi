@@ -42,6 +42,7 @@ class PoseEstimateResponse(BaseModel):
 
     pose_2d: Pose2D
     pose_3d: Pose3D | None = None
+    ergo: dict | None = None
 
 
 # -- WebSocket messages --

@@ -65,6 +65,8 @@ async def pose_estimation_ws(websocket: WebSocket):
                                 response["pose_2d"] = result["pose_2d"].model_dump()
                             if result.get("pose_3d") is not None:
                                 response["pose_3d"] = result["pose_3d"].model_dump()
+                            if result.get("ergo") is not None:
+                                response["ergo"] = result["ergo"].model_dump()
                             await websocket.send_json(response)
 
                     case PoseConfigRequest():
@@ -104,7 +106,12 @@ async def pose_estimate(req: PoseEstimateRequest):
         "[Pose] Estimated %d joints",
         len(result["pose_2d"].joints) if result.get("pose_2d") else 0,
     )
+    ergo_data = None
+    if result.get("ergo") is not None:
+        ergo_data = result["ergo"].model_dump()
+
     return PoseEstimateResponse(
         pose_2d=result.get("pose_2d"),
         pose_3d=result.get("pose_3d"),
+        ergo=ergo_data,
     )
