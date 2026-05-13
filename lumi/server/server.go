@@ -385,7 +385,7 @@ func (s *Server) runConfigChangeListener(ctx context.Context) {
 }
 
 // handleDeviceIDChange restarts lumi-buddy when device_id changes. Buddy's
-// BLE name is now derived from the hardware MAC suffix (lumi-{MAC}) so the
+// BLE name is now derived from the hardware MAC suffix (Claude-lumi-{MAC}) so the
 // restart isn't needed for name resolution, but a device_id transition is
 // still a useful signal that the device has been re-provisioned — restarting
 // buddy clears any stale BLE pairing state from the previous identity.
