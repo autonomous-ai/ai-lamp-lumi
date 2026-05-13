@@ -30,6 +30,7 @@ so we infer continuous stroking from session frequency.
 
 import logging
 import threading
+import time
 
 from lelamp.service.button_actions import (
     head_pat_action,
@@ -48,14 +49,24 @@ OPI_SUN60_TTP223_LINES = [96, 97, 98, 99]
 SESSION_GAP_S = 0.2
 
 # Decision window: after a session ends, wait this long for more
-# sessions before classifying. Strokes produce sessions ~100-300ms
-# apart (finger sweeping retriggers IC), so 400ms catches the second
-# and third bursts of a pet without making single-tap response feel
-# laggy.
-DECISION_WINDOW_S = 0.4
+# sessions before classifying as a single tap. Observed strokes on
+# this hardware produce sessions ~500-700ms apart (FastMode forces
+# the user into a tap-tap-tap rhythm rather than continuous motion),
+# so 0.7s catches the next stroke beat. Cost: single tap responds
+# 0.7s after release.
+DECISION_WINDOW_S = 0.7
 
-# Number of sessions within DECISION_WINDOW that triggers pet response.
+# Number of sessions to qualify as pet. When count reaches this on a
+# session end, head_pat fires immediately — no need to wait out the
+# decision window — so pet response stays snappy.
 PET_SESSION_THRESHOLD = 3
+
+# After head_pat fires, swallow further sessions for this long so a
+# continuous stroke doesn't produce stuttering "single click" interjections
+# between pet responses. Every session inside the window extends the
+# window — petting is finished only when the user stops touching for
+# PET_COOLDOWN_S consecutively.
+PET_COOLDOWN_S = 1.5
 
 
 def _device_tree_model() -> str:
@@ -110,6 +121,10 @@ class TTP223Handler:
         # ended, resolving how many sessions accumulated → tap vs pet.
         self._decision_timer = None
         self._session_count = 0
+        # monotonic deadline before which incoming sessions are silently
+        # eaten (cooldown after pet to avoid stuttering single_clicks
+        # during a continuous stroke).
+        self._pet_cooldown_until = 0.0
 
     def start(self):
         config = _resolve_board_config()
@@ -170,31 +185,43 @@ class TTP223Handler:
             self._session_end_timer.start()
 
     def _on_session_end(self):
-        # One physical touch ended. Accumulate; let the decision timer
-        # decide tap vs pet when the user stops touching for a while.
+        # One physical touch ended. If we just hit the pet threshold,
+        # fire head_pat immediately (no decision-window wait — pet
+        # should feel responsive). Otherwise schedule the decision
+        # timer to classify what we've accumulated so far.
+        fire_pet = False
         with self._lock:
             self._session_end_timer = None
             self._session_count += 1
             count = self._session_count
-            if self._decision_timer is not None:
-                self._decision_timer.cancel()
-            self._decision_timer = threading.Timer(
-                DECISION_WINDOW_S, self._on_decision
-            )
-            self._decision_timer.daemon = True
-            self._decision_timer.start()
-        logger.debug("TTP223 session ended (count=%d)", count)
+            logger.debug("TTP223 session ended (count=%d)", count)
+            if count >= PET_SESSION_THRESHOLD:
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                    self._decision_timer = None
+                self._session_count = 0
+                fire_pet = True
+            else:
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                self._decision_timer = threading.Timer(
+                    DECISION_WINDOW_S, self._on_decision
+                )
+                self._decision_timer.daemon = True
+                self._decision_timer.start()
+        if fire_pet:
+            head_pat_action(source="TTP223")
 
     def _on_decision(self):
         with self._lock:
             count = self._session_count
             self._session_count = 0
             self._decision_timer = None
-        if count >= PET_SESSION_THRESHOLD:
-            head_pat_action(source="TTP223")
-        elif count >= 1:
-            # 1 or 2 sessions → single tap. 2 is tolerated because
-            # TTP223 cross-talk occasionally splits one physical touch
-            # into two close sessions; treating both as one tap is
-            # friendlier than ignoring.
+        if count >= 1:
+            # 1 or 2 sessions accumulated before the window expired →
+            # single tap. 2 is tolerated because TTP223 cross-talk
+            # occasionally splits one physical touch into two close
+            # sessions; treating both as one tap is friendlier than
+            # ignoring. Threshold-reached pet is fired inline by
+            # _on_session_end and never reaches this branch.
             single_click_action(source="TTP223")
