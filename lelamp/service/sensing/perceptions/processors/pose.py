@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any, override
 
 import cv2
+import numpy as np
+import numpy.typing as npt
 from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import ClientConnection, connect
 
@@ -27,6 +29,82 @@ from .base import Perception
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+# ---------------------------------------------------------------------------
+# COCO 17-joint skeleton for visualization
+# ---------------------------------------------------------------------------
+
+_COCO_SKELETON: list[tuple[int, int]] = [
+    (15, 13), (13, 11), (16, 14), (14, 12),
+    (11, 12), (5, 11), (6, 12), (5, 6),
+    (5, 7), (6, 8), (7, 9), (8, 10),
+    (1, 2), (0, 1), (0, 2), (1, 3), (2, 4), (3, 5), (4, 6),
+]
+
+# Bone colors: left side = cyan, right side = orange, center = green
+_BONE_COLORS: list[tuple[int, int, int]] = [
+    (255, 200, 0), (255, 200, 0),           # left leg
+    (0, 100, 255), (0, 100, 255),           # right leg
+    (0, 220, 0),                             # hip bridge
+    (255, 200, 0), (0, 100, 255),           # hip to shoulder
+    (0, 220, 0),                             # shoulder bridge
+    (255, 200, 0), (0, 100, 255),           # shoulders to elbows
+    (255, 200, 0), (0, 100, 255),           # elbows to wrists
+    (0, 220, 0), (0, 220, 0), (0, 220, 0), # nose to eyes
+    (255, 200, 0), (0, 100, 255),           # eyes to ears
+    (255, 200, 0), (0, 100, 255),           # ears to shoulders
+]
+
+_RISK_COLORS: dict[int, tuple[int, int, int]] = {
+    1: (0, 200, 0),     # negligible — green
+    2: (0, 200, 200),   # low — yellow
+    3: (0, 140, 255),   # medium — orange
+    4: (0, 0, 255),     # high — red
+}
+
+_CONF_THRESHOLD: float = 0.3
+
+
+def _draw_pose_2d(
+    frame: cv2.typing.MatLike,
+    pose_2d: dict[str, Any],
+    ergo: dict[str, Any] | None = None,
+) -> cv2.typing.MatLike:
+    """Draw 2D skeleton and optional ergo score on frame. Returns a copy."""
+    vis: npt.NDArray[np.uint8] = frame.copy()
+    joints: list[list[float]] = pose_2d.get("joints", [])
+    confs: list[float] = pose_2d.get("confs", [])
+
+    if not joints:
+        return vis
+
+    kps: npt.NDArray[np.int32] = np.array(joints, dtype=np.int32)
+
+    # Draw bones
+    for idx, (u, v) in enumerate(_COCO_SKELETON):
+        if max(u, v) >= len(kps):
+            continue
+        if confs[u] < _CONF_THRESHOLD or confs[v] < _CONF_THRESHOLD:
+            continue
+        color: tuple[int, int, int] = _BONE_COLORS[idx] if idx < len(_BONE_COLORS) else (0, 220, 0)
+        cv2.line(vis, tuple(kps[u]), tuple(kps[v]), color, 2)
+
+    # Draw joints
+    for i, kp in enumerate(kps):
+        if confs[i] < _CONF_THRESHOLD:
+            continue
+        cv2.circle(vis, tuple(kp), 4, (255, 255, 255), -1)
+
+    # Draw ergo score label
+    if ergo is not None:
+        score: int = ergo.get("score", 0)
+        risk_level: int = ergo.get("risk_level", 0)
+        risk_names: dict[int, str] = {1: "negligible", 2: "low", 3: "medium", 4: "high"}
+        label: str = f"RULA: {score} ({risk_names.get(risk_level, '?')})"
+        color = _RISK_COLORS.get(risk_level, (200, 200, 200))
+        cv2.putText(vis, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+
+    return vis
 
 
 # ---------------------------------------------------------------------------
@@ -228,17 +306,47 @@ class PosePerception(Perception[cv2.typing.MatLike]):
         risk_names: dict[int, str] = {1: "negligible", 2: "low", 3: "medium", 4: "high"}
         risk_name: str = risk_names.get(risk_level, "unknown")
 
-        # Build detailed message for the agent
-        left_score: int = ergo.get("left", {}).get("score", 0)
-        right_score: int = ergo.get("right", {}).get("score", 0)
+        # Build detailed message with all body-part scores for the agent
+        left: dict[str, Any] = ergo.get("left", {})
+        right: dict[str, Any] = ergo.get("right", {})
+        left_body: dict[str, int] = left.get("body_scores", {})
+        right_body: dict[str, int] = right.get("body_scores", {})
+        left_skipped: list[str] = left.get("skipped_joints", [])
+        right_skipped: list[str] = right.get("skipped_joints", [])
+
+        def _side_detail(
+            side_name: str,
+            side_data: dict[str, Any],
+            body: dict[str, int],
+            skipped: list[str],
+        ) -> str:
+            parts: list[str] = [
+                f"{side_name} (score={side_data.get('score', '?')}, ",
+                f"risk={risk_names.get(side_data.get('risk_level', 0), '?')}): ",
+                f"upper_arm={body.get('upper_arm', '?')} ({body.get('upper_arm_angle', '?')}°), ",
+                f"lower_arm={body.get('lower_arm', '?')} ({body.get('lower_arm_angle', '?')}°), ",
+                f"wrist={body.get('wrist', '?')}, ",
+                f"neck={body.get('neck', '?')} ({body.get('neck_angle', '?')}°), ",
+                f"trunk={body.get('trunk', '?')} ({body.get('trunk_angle', '?')}°)",
+            ]
+            if skipped:
+                parts.append(f" [skipped: {', '.join(skipped)}]")
+            return "".join(parts)
+
+        left_detail: str = _side_detail("Left", left, left_body, left_skipped)
+        right_detail: str = _side_detail("Right", right, right_body, right_skipped)
+
         message: str = (
             f"Ergonomic risk detected: RULA score {score} ({risk_name} risk). "
-            f"Left side: {left_score}, Right side: {right_score}. "
+            f"{left_detail}. {right_detail}. "
             f"(camera-based posture assessment; treat as a gentle nudge, not a diagnosis.)"
         )
 
+        # Draw annotated snapshot with 2D skeleton + ergo score
+        snapshot: cv2.typing.MatLike = _draw_pose_2d(data, result.pose_2d, ergo)
+
         logger.info("[pose.ergo] %s", message)
-        self._send_event("pose.ergo_risk", message, "pose", None, None)
+        self._send_event("pose.ergo_risk", message, "pose", [snapshot], None)
 
     @override
     def cleanup(self) -> None:

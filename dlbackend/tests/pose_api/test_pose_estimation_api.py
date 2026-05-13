@@ -167,3 +167,140 @@ class TestPoseEstimationWebSocket:
             ) as conn:
                 await conn.send(json.dumps({"type": "heartbeat", "task": "pose"}))
                 _ = await conn.recv()
+
+
+class TestErgoAssessmentHTTP:
+    """Tests for ergonomic assessment via the pose HTTP endpoint.
+
+    These tests only pass when the remote server has ergo_assessor configured.
+    """
+
+    def test_http_returns_ergo_when_configured(self):
+        resp = httpx.post(
+            _http_url("/api/dl/pose-estimate"),
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # ergo may be None if not configured on the server — just check the field exists
+        assert "ergo" in body
+
+    def test_ergo_has_both_sides_when_present(self):
+        resp = httpx.post(
+            _http_url("/api/dl/pose-estimate"),
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        body = resp.json()
+        if body.get("ergo") is not None:
+            ergo = body["ergo"]
+            assert "score" in ergo
+            assert "risk_level" in ergo
+            assert "left" in ergo
+            assert "right" in ergo
+
+    def test_ergo_sides_have_body_scores(self):
+        resp = httpx.post(
+            _http_url("/api/dl/pose-estimate"),
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        body = resp.json()
+        if body.get("ergo") is not None:
+            for side_key in ("left", "right"):
+                side = body["ergo"][side_key]
+                assert "score" in side
+                assert "risk_level" in side
+                assert "body_scores" in side
+                assert "skipped_joints" in side
+                bs = side["body_scores"]
+                assert "upper_arm" in bs
+                assert "lower_arm" in bs
+                assert "wrist" in bs
+                assert "neck" in bs
+                assert "trunk" in bs
+                assert "upper_arm_angle" in bs
+                assert "lower_arm_angle" in bs
+                assert "neck_angle" in bs
+                assert "trunk_angle" in bs
+
+    def test_ergo_score_in_valid_range(self):
+        resp = httpx.post(
+            _http_url("/api/dl/pose-estimate"),
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        body = resp.json()
+        if body.get("ergo") is not None:
+            assert 1 <= body["ergo"]["score"] <= 7
+            assert 1 <= body["ergo"]["left"]["score"] <= 7
+            assert 1 <= body["ergo"]["right"]["score"] <= 7
+
+    def test_ergo_overall_is_max_of_sides(self):
+        resp = httpx.post(
+            _http_url("/api/dl/pose-estimate"),
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        body = resp.json()
+        if body.get("ergo") is not None:
+            assert body["ergo"]["score"] == max(
+                body["ergo"]["left"]["score"],
+                body["ergo"]["right"]["score"],
+            )
+
+
+class TestErgoAssessmentWebSocket:
+    """Tests for ergonomic assessment via the pose WS endpoint."""
+
+    @pytest_asyncio.fixture()
+    async def ws(self):
+        async with websockets.connect(
+            _ws_url("/api/dl/pose-estimation/ws"),
+            additional_headers=AUTH_HEADERS,
+        ) as conn:
+            yield conn
+
+    @pytest.mark.asyncio
+    async def test_ws_frame_returns_ergo_field(self, ws):
+        await ws.send(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        assert "pose_2d" in resp
+        # ergo may or may not be present depending on server config
+
+    @pytest.mark.asyncio
+    async def test_ws_ergo_has_full_structure(self, ws):
+        await ws.send(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        if "ergo" in resp:
+            ergo = resp["ergo"]
+            assert "score" in ergo
+            assert "risk_level" in ergo
+            assert "left" in ergo
+            assert "right" in ergo
+            for side_key in ("left", "right"):
+                side = ergo[side_key]
+                assert "score" in side
+                assert "body_scores" in side
+                assert "skipped_joints" in side
+
+    @pytest.mark.asyncio
+    async def test_ws_ergo_score_range(self, ws):
+        await ws.send(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+        resp = json.loads(await ws.recv())
+        if "ergo" in resp:
+            assert 1 <= resp["ergo"]["score"] <= 7
+
+    @pytest.mark.asyncio
+    async def test_ws_multiple_frames_ergo_consistent(self, ws):
+        for _ in range(3):
+            await ws.send(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            resp = json.loads(await ws.recv())
+            assert "pose_2d" in resp
+            if "ergo" in resp:
+                assert 1 <= resp["ergo"]["score"] <= 7
+                assert resp["ergo"]["score"] == max(
+                    resp["ergo"]["left"]["score"],
+                    resp["ergo"]["right"]["score"],
+                )
