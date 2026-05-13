@@ -3,10 +3,11 @@
 GPU-accelerated backend service for:
 - real-time human action recognition via WebSocket (X3D / UniformerV2 / VideoMAE),
 - facial emotion recognition via WebSocket or HTTP (POSTER V2 / EmoNet),
+- speech emotion recognition via HTTP (emotion2vec_plus_large),
 - optional person detection for action recognition preprocessing (YOLO12),
 - speaker enrollment/recognition via HTTP APIs (AudioRecognizer).
 
-LeLamp Pi streams camera frames to DL backend for action and emotion analysis, and clients can register/recognize speakers through authenticated `/api/dl/audio-recognizer/*` endpoints.
+LeLamp Pi streams camera frames to DL backend for action and emotion analysis, forwards end-of-utterance WAV blobs for speech emotion, and clients can register/recognize speakers through authenticated `/api/dl/audio-recognizer/*` endpoints.
 
 ## Architecture
 
@@ -24,6 +25,10 @@ Pi (LeLamp) / Clients               DL Backend (RunPod or local, nginx :8888 →
 │ Face crop (base64)   │ WebSocket  │ /api/dl/emotion-analysis/ws                  │
 │ streaming            │──────────→ │ Same emotion model, per-session state        │
 │                      │ ←───────── │ detections                                   │
+├──────────────────────┤            ├──────────────────────────────────────────────┤
+│ End-of-utterance WAV │   HTTP     │ /api/dl/ser/recognize                        │
+│ (same as speaker)    │──────────→ │ SER model (emotion2vec_plus_large) ONNX      │
+│                      │ ←───────── │ label + confidence (9-class)                 │
 ├──────────────────────┤            ├──────────────────────────────────────────────┤
 │ App / tools          │   HTTP     │ /api/dl/audio-recognizer/*                   │
 │ wav URL/chunks/PCM16 │──────────→ │ register/recognize/list/remove               │
@@ -55,6 +60,18 @@ Selectable via `EMOTION_RECOGNITION_MODEL` env var:
 | **EmoNet-5** | `emonet_5` | `emonet_5.onnx` | 256×256 | 5 emotions (Neutral, Happy, Sad, Surprise, Anger) + valence + arousal |
 
 Face detection for emotion uses **YuNet** (`face_detection_yunet_2023mar.onnx`) to crop faces before classification. This is separate from LeLamp's InsightFace (used for identity recognition on-device).
+
+### Speech Emotion Recognition (SER)
+
+Selectable via `SER_RECOGNITION_MODEL` env var:
+
+| Model | Enum | ONNX file | Input | Output |
+|---|---|---|---|---|
+| **emotion2vec_plus_large** (default) | `emotion2vec_plus_large` | exported from FunASR snapshot on cold start | mono 16 kHz waveform | 9 classes (angry, disgusted, fearful, happy, neutral, other, sad, surprised, `<unk>`) + softmax confidence |
+
+The engine loads once at startup. Cold-start path: if no `.onnx` is cached locally, the engine downloads the FunASR checkpoint, exports ONNX into `models/<engine>/emotion2vec.onnx`, and writes `labels.txt` from the snapshot's `tokens.txt`. After the first build, only `onnxruntime` is needed at serve time — `torch` and `funasr` can be uninstalled.
+
+LeLamp's `SpeechEmotionService` is the only known caller in this monorepo. It POSTs the same WAV bytes used for speaker recognition immediately after speaker ID succeeds.
 
 ### Person Detection (Optional)
 
@@ -131,6 +148,27 @@ POST /api/dl/emotion-recognize
 
 > **Note:** LeLamp currently uses the HTTP endpoint (not WebSocket) for emotion. Face crops are produced by InsightFace on-device, then sent to dlbackend for emotion classification only.
 
+### Speech Emotion Recognition (HTTP)
+
+```
+POST /api/dl/ser/recognize
+GET  /api/dl/ser/labels
+```
+
+Three accepted body formats (`multipart/form-data` upload, base64 JSON, or remote URL JSON). LeLamp uses the base64 JSON form so it can reuse the WAV bytes already in memory from speaker ID:
+
+**Request (base64):**
+```json
+{"audio_b64": "<base64 WAV (mono 16 kHz)>", "return_scores": false}
+```
+
+**Response:**
+```json
+{"label": "happy", "confidence": 0.9981, "scores": null}
+```
+
+`scores` is `null` when `return_scores=false`; otherwise it's the full per-label softmax map. Error codes: `400` (bad body / audio), `401`/`403` (api key), `503` (engine init failed). See `dlbackend/src/core/ser/README.md` for the full SER spec.
+
 ### Audio Recognition (HTTP)
 
 Base path: `/api/dl/audio-recognizer`
@@ -174,6 +212,16 @@ GET /api/dl/health
 6. **Pi**: Buffers, applies polarity-bucket dedup, fires `emotion.detected` event
 7. **Pi → Lumi**: `POST /api/sensing/event` with `type: "emotion.detected"`
 
+### Speech Emotion Recognition
+
+1. **Pi**: STT session ends, `voice_service._identify_and_decorate` POSTs WAV to `audio-recognizer/embed` for speaker ID
+2. **Pi**: On match (known speaker), the same `wav_bytes` are submitted to `SpeechEmotionService.submit(user, wav, duration)` (non-blocking, in-process queue)
+3. **Pi worker thread**: `POST /api/dl/ser/recognize` with `{"audio_b64": "...", "return_scores": false}`
+4. **RunPod**: `emotion2vec_plus_large` runs softmax over 9 classes
+5. **HTTP**: Returns `{"label": "sad", "confidence": 0.72}`
+6. **Pi**: Buffers per user, every `SPEECH_EMOTION_FLUSH_S` (default 10 s) computes mode + bucket, applies `(user, bucket)` TTL dedup
+7. **Pi → Lumi**: `POST /api/sensing/event` with `type: "speech_emotion.detected"` and `current_user` set
+
 ## Configuration
 
 ### RunPod (.env)
@@ -198,6 +246,14 @@ EMOTION_RECOGNITION_MODEL=posterv2
 # UNIFORMERV2__MAX_FRAMES=8
 # EMOTION__CONFIDENCE_THRESHOLD=0.5
 # EMOTION__FRAME_INTERVAL=1.0
+
+# Speech emotion recognition: emotion2vec_plus_large (default)
+# SER_RECOGNITION_MODEL=emotion2vec_plus_large
+# SER_RECOGNITION_CKPT_PATH=/abs/path/emotion2vec.onnx
+# SER_RECOGNITION_LABELS_PATH=/abs/path/labels.txt
+# SER__SAMPLE_RATE=16000
+# SER__INTRA_OP_THREADS=8
+# SER__PROVIDERS=                 # empty = auto-detect cuda → coreml → cpu
 
 # Person detector (crops person before action recognition)
 # PERSON_DETECTOR__ENABLED=false
@@ -224,7 +280,13 @@ LELAMP_MOTION_ENABLED=true
 | `MOTION_CONFIDENCE_THRESHOLD` | 0.3 | Min action confidence score |
 | `MOTION_FLUSH_S` | 10.0 | Buffer flush interval (seconds) |
 | `MOTION_EVENT_COOLDOWN_S` | 360.0 | Event cooldown to avoid spam (6 min) |
-| `EMOTION_CONFIDENCE_THRESHOLD` | configurable | Min emotion confidence to fire event |
+| `EMOTION_CONFIDENCE_THRESHOLD` | configurable | Min facial emotion confidence to fire event |
+| `SPEECH_EMOTION_ENABLED` | `true` | Master kill switch for speech emotion |
+| `SPEECH_EMOTION_CONFIDENCE_THRESHOLD` | 0.5 | Min SER confidence to buffer |
+| `SPEECH_EMOTION_FLUSH_S` | 10.0 | Per-user buffer drain cadence |
+| `SPEECH_EMOTION_DEDUP_WINDOW_S` | 300.0 | `(user, bucket)` TTL (5 min) |
+| `SPEECH_EMOTION_MIN_AUDIO_S` | 0.8 | Min utterance length |
+| `DL_SER_ENDPOINT` | `/lelamp/api/dl/ser/recognize` | Path suffix on `DL_BACKEND_URL` |
 
 ## Key Files
 
@@ -249,6 +311,11 @@ LELAMP_MOTION_ENABLED=true
 | `src/core/emotion/recognizer/emonet.py` | EmoNet classifier (256×256, 5 or 8 classes + valence/arousal) |
 | `src/core/emotion/recognizer/base.py` | Abstract `EmotionRecognizer` base class |
 | `src/core/faces/yunet.py` | YuNet face detector (for emotion pipeline face cropping) |
+| `src/core/ser/speech_emotion_recognizer/base.py` | Abstract SER base class + label dispatch |
+| `src/core/ser/speech_emotion_recognizer/emotion2vec.py` | emotion2vec_plus_large concrete engine (ONNX) |
+| `src/core/ser/speech_emotion_recognizer/factory.py` | `create_speech_emotion_recognizer()` selector |
+| `src/core/ser/prepare_onnx.py` | Cold-start FunASR → ONNX export fallback |
+| `src/protocols/htpp/ser.py` | `/api/dl/ser/recognize` + `/api/dl/ser/labels` routes |
 | `src/core/audio_recognition/audio_recognizer.py` | Speaker embedding (WeSpeaker ResNet34 / ECAPA / CAM++) |
 | `src/core/audio_recognition/speaker_db.py` | JSON-backed speaker storage |
 | `src/core/models.py` | Pydantic schemas: ActionResponse, EmotionDetection, EmotionResponse, PersonDetection |
@@ -262,7 +329,12 @@ LELAMP_MOTION_ENABLED=true
 |---|---|
 | `service/sensing/perceptions/processors/motion.py` | `RemoteMotionChecker` — WS client, frame encoding, action buffering |
 | `service/sensing/perceptions/processors/emotion.py` | `RemoteEmotionChecker` — HTTP client, face crop → emotion classify |
-| `config.py` | `DL_BACKEND_URL`, `DL_API_KEY`, thresholds |
+| `service/voice/speech_emotion/service.py` | `SpeechEmotionService` — queue + worker + flush + dedup + Lumi POST |
+| `service/voice/speech_emotion/emotion2vec.py` | `Emotion2VecRecognizer` — HTTP client to `/api/dl/ser/recognize` |
+| `service/voice/speech_emotion/base.py` | `BaseSpeechEmotionRecognizer` ABC + `SpeechEmotionResult` |
+| `service/voice/speech_emotion/utils.py` | Bucketing + hedged message formatting |
+| `service/voice/speech_emotion/constants.py` | Label vocabulary, bucket map, event type, defaults |
+| `config.py` | `DL_BACKEND_URL`, `DL_API_KEY`, thresholds, `SPEECH_EMOTION_*` knobs |
 | `service/sensing/sensing_service.py` | Orchestrates all perceptions in `_tick()` |
 
 ## Nginx Routing
@@ -280,6 +352,7 @@ Full URL examples:
 https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/action-analysis/ws
 https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/emotion-recognize
 https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/emotion-analysis/ws
+https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/ser/recognize
 https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/audio-recognizer/register
 https://<POD>-8888.proxy.runpod.net/lelamp/api/dl/health
 ```

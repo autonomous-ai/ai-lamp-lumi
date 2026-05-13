@@ -184,6 +184,46 @@ Per-face motion opens a separate WS session per detected face and runs action re
 
 ---
 
+## Speech Emotion Recognition (SER)
+
+**File:** `lelamp/config.py` — see also [Speech Emotion Recognition](speech-emotion.md) for the architecture.
+
+```python
+SPEECH_EMOTION_ENABLED = True
+SPEECH_EMOTION_CONFIDENCE_THRESHOLD = 0.5   # Min model confidence to buffer
+SPEECH_EMOTION_FLUSH_S = 10.0               # Per-user buffer drain cadence
+SPEECH_EMOTION_DEDUP_WINDOW_S = 300.0       # (user, bucket) TTL — 5 min
+SPEECH_EMOTION_MIN_AUDIO_S = 0.8            # Skip utterances shorter than this
+SPEECH_EMOTION_API_TIMEOUT_S = 15           # dlbackend HTTP timeout
+DL_SER_ENDPOINT = "/lelamp/api/dl/ser/recognize"
+```
+
+**How to read the log:**
+
+The service tags every line `[speech_emotion]`:
+
+```
+INFO lelamp.voice.speech_emotion: [speech_emotion] buffered: alice -> sad (0.72, 2.40s)
+INFO lelamp.voice.speech_emotion: [speech_emotion] flushing alice: Speech emotion detected: Sad. (weak voice cue; confidence=0.72; bucket=negative; ...) (mode of sad, fearful, sad)
+INFO lelamp.voice.speech_emotion: [speech_emotion] sent to Lumi: Speech emotion detected: Sad. ...
+INFO lelamp.voice.speech_emotion: [speech_emotion] dedup drop: angry bucket=negative (key seen 87.4s ago)
+```
+
+The `flushing` line shows the raw label list — that's the mode-over-samples that produced the dominant label.
+
+**Tuning:**
+
+| Symptom | Fix |
+|---------|-----|
+| Same-bucket events fire too often | Increase `SPEECH_EMOTION_DEDUP_WINDOW_S` (300 → 600) |
+| Single-utterance noisy reads slip through | Increase `SPEECH_EMOTION_CONFIDENCE_THRESHOLD` (0.5 → 0.65) |
+| Short "yeah" / "ok" utterances flagged | Increase `SPEECH_EMOTION_MIN_AUDIO_S` (0.8 → 1.5) |
+| Mood lag — Lumi too slow to react after a real shift | Decrease `SPEECH_EMOTION_FLUSH_S` (10 → 5) |
+| Worker queue full warnings in log | Investigate dlbackend latency; raising queue size is not enough — backlog means something downstream is wedged |
+| Events fire for `Unknown Speaker` (they should not) | Check `submit()` call site in `voice_service._identify_and_decorate` — should only submit when `match==true` and `name != "unknown"` |
+
+---
+
 ## Apply Changes
 
 After editing `lelamp/config.py` or `voice_service.py` on the Pi:

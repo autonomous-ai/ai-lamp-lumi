@@ -175,3 +175,31 @@ SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
 DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/lelamp/api/dl/audio-recognizer/embed")
 SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 SPEAKER_EMBEDDING_API_KEY: str = DL_API_KEY
+
+# --- Sensing: Speech emotion recognition (SER via dlbackend) ---
+SPEECH_EMOTION_ENABLED: bool = (
+    os.environ.get("LELAMP_SPEECH_EMOTION_ENABLED", "true").lower() == "true"
+)
+SPEECH_EMOTION_CONFIDENCE_THRESHOLD: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_CONFIDENCE_THRESHOLD", "0.5")
+)
+SPEECH_EMOTION_FLUSH_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_FLUSH_S", "10.0")
+)
+SPEECH_EMOTION_DEDUP_WINDOW_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_DEDUP_WINDOW_S", "300.0")
+)
+SPEECH_EMOTION_MIN_AUDIO_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_MIN_AUDIO_S", "0.8")
+)
+SPEECH_EMOTION_API_TIMEOUT_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_API_TIMEOUT_S", "15")
+)
+DL_SER_ENDPOINT: str = os.environ.get(
+    "DL_SER_ENDPOINT", "/lelamp/api/dl/ser/recognize"
+)
+SPEECH_EMOTION_API_URL: str = (
+    DL_BACKEND_URL.rstrip("/") + "/" + DL_SER_ENDPOINT.strip("/")
+    if DL_BACKEND_URL else ""
+)
+SPEECH_EMOTION_API_KEY: str = DL_API_KEY
