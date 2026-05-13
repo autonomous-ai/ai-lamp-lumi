@@ -237,6 +237,38 @@ export function FlowSection({
     // "newest" = default order from groupIntoTurns (newest first)
     return filtered;
   }, [turns, excludedTypes, fromTime, toTime, searchText, sortBy]);
+  // Detect adjacent turn pairs where one is a Lumi-id turn that closed with
+  // chat_final_empty (OpenClaw closed stream · no message · no lifecycle) and
+  // the adjacent turn is an OpenClaw-assigned UUID with matching input text.
+  // Purely visual correlation (shared background tint) — no semantic label.
+  const pairTintMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const PAIR_BG = "rgba(167, 139, 250, 0.10)";
+    const stripSender = (s: string) => s.replace(/^\[[^\]]+\]\s*/, "").trim();
+    const isLumi = (id: string) => id.startsWith("lumi-");
+    for (let i = 0; i < filteredTurns.length - 1; i++) {
+      const a = filteredTurns[i];
+      const b = filteredTurns[i + 1];
+      const tryPair = (lumiTurn: typeof a, uuidTurn: typeof b) => {
+        if (!isLumi(lumiTurn.id) || isLumi(uuidTurn.id)) return false;
+        const closedEmpty = lumiTurn.events.some((ev) =>
+          ev.type === "flow_event" && (
+            (ev.detail as Record<string, any>)?.node === "chat_final_empty" ||
+            (ev.detail as Record<string, any>)?.node === "turn_steered"
+          )
+        );
+        if (!closedEmpty) return false;
+        const lumiIn = stripSender(turnIO(lumiTurn).input);
+        const uuidIn = stripSender(turnIO(uuidTurn).input);
+        return !!lumiIn && lumiIn === uuidIn;
+      };
+      if (tryPair(a, b) || tryPair(b, a)) {
+        map.set(a.id, PAIR_BG);
+        map.set(b.id, PAIR_BG);
+      }
+    }
+    return map;
+  }, [filteredTurns]);
   // When user explicitly selected a turn, keep it even if new events arrive.
   // Only auto-select latest turn when nothing is selected.
   const selectedTurn = selectedTurnId
@@ -667,7 +699,7 @@ export function FlowSection({
                       cursor: "pointer",
                     }}
                   >
-                    <TurnBadge turn={turn} />
+                    <TurnBadge turn={turn} pairTint={pairTintMap.get(turn.id)} />
                   </div>
                 </div>
               ))

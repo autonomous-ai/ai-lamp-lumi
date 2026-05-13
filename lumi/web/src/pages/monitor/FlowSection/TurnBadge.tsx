@@ -3,7 +3,7 @@ import type { Turn } from "./types";
 import { SOURCE_ICON, TURN_INPUT_FALLBACK } from "./types";
 import { turnIO, turnTokenStats, turnCurrentUser } from "./helpers";
 
-export function TurnBadge({ turn }: { turn: Turn }) {
+export function TurnBadge({ turn, pairTint }: { turn: Turn; pairTint?: string }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const formatTurnTime = (iso: string): string => {
     const date = new Date(iso);
@@ -25,7 +25,6 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     : "var(--lm-text-muted)";
   const statusColor = turn.status === "done" ? "var(--lm-green)"
     : turn.status === "error" ? "var(--lm-red)"
-    : turn.status === "steered" ? "var(--lm-blue)"
     : "var(--lm-amber)";
   const icon = SOURCE_ICON[turn.type] ?? SOURCE_ICON.unknown;
   const { input, output, hwOutput, snapshotUrls } = turnIO(turn);
@@ -39,17 +38,21 @@ export function TurnBadge({ turn }: { turn: Turn }) {
     ? "DONE"
     : turn.status === "error"
       ? "ERROR"
-      : turn.status === "steered"
-        ? "↪ STEERED"
-        : "ACTIVE";
+      : "ACTIVE";
+  const hasEmptyFinalNoLifecycle = turn.events.some((ev) =>
+    ev.type === "flow_event" && (
+      (ev.detail as Record<string, any>)?.node === "chat_final_empty" ||
+      (ev.detail as Record<string, any>)?.node === "turn_steered"
+    )
+  );
   const pathLabel = turn.path === "agent" ? "OpenClaw" : turn.path === "dropped" ? "dropped" : turn.path === "queued" ? "queued" : turn.path;
 
   return (
     <div style={{
       padding: "8px 10px",
       borderRadius: 8,
-      background: "var(--lm-surface)",
-      border: "1px solid var(--lm-border)",
+      background: pairTint || "var(--lm-surface)",
+      border: pairTint ? "1px solid var(--lm-purple)" : "1px solid var(--lm-border)",
       fontSize: 11,
       cursor: "default",
     }}>
@@ -122,9 +125,9 @@ export function TurnBadge({ turn }: { turn: Turn }) {
       }}>
         {formatTurnTime(turn.startTime)}
       </div>
-      {/* Turn ID for tracing */}
+      {/* Turn ID for tracing — label by ID origin (Lumi-emitted vs OpenClaw-assigned UUID) */}
       <div style={{ fontSize: 8, color: "var(--lm-text)", fontFamily: "monospace", marginBottom: 3, opacity: 0.7 }}>
-        id: {turn.id}
+        {turn.id.startsWith("lumi-") ? "lumi id" : "openclaw uuid"}: {turn.id}
       </div>
       {/* Row 2: input */}
       <div style={{
@@ -211,12 +214,12 @@ export function TurnBadge({ turn }: { turn: Turn }) {
         }}>
           ⏸ queued — agent busy, will replay when idle
         </div>
-      ) : turn.status === "steered" ? (
+      ) : hasEmptyFinalNoLifecycle ? (
         <div style={{
-          fontSize: 10, color: "var(--lm-blue)", marginBottom: 2,
+          fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2,
           wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
         }}>
-          ↪ steered — message merged into a concurrent turn (no own reply)
+          OpenClaw closed stream · no message · no lifecycle
         </div>
       ) : turn.status === "done" ? (
         <div style={{
