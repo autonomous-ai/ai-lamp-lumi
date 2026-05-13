@@ -13,6 +13,7 @@ import (
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/internal/beclient"
 	"go-lamp.autonomous.ai/internal/network"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/server/config"
 )
 
@@ -454,9 +455,9 @@ func sttModelForLanguage(lang string) string {
 	switch lang {
 	case "":
 		return ""
-	case "en":
+	case i18n.LangEN:
 		return "flux-general-en"
-	case "zh", "zh-CN", "zh-Hans", "zh-TW", "zh-Hant":
+	case i18n.LangZh, i18n.LangZhCN, i18n.LangZhHans, i18n.LangZhTW, i18n.LangZhHant:
 		return "nova-2-general"
 	default:
 		return "nova-3-general"

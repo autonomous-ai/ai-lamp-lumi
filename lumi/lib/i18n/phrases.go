@@ -23,7 +23,7 @@ const (
 
 // fallbackLang is used when the active STT language has no entry for
 // the requested phrase. English keeps the widest TTS provider coverage.
-const fallbackLang = "en"
+const fallbackLang = LangEN
 
 // phrases is the single source of truth for hardcoded TTS templates.
 // Shape is phrase → lang → slice; single-string entries store a
