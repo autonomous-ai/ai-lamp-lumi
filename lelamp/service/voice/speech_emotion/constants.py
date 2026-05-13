@@ -19,7 +19,7 @@ DEFAULT_API_TIMEOUT_S: float = 15.0
 
 # --- Input gating ---------------------------------------------------------
 
-DEFAULT_MIN_AUDIO_S: float = 0.8
+DEFAULT_MIN_AUDIO_S: float = 3.0
 DEFAULT_CONFIDENCE_THRESHOLD: float = 0.5
 
 # --- Buffering / dedup ---------------------------------------------------
@@ -62,3 +62,4 @@ HEDGE_BY_BUCKET: dict[str, str] = {
 # --- Wire format ----------------------------------------------------------
 
 SENSING_EVENT_TYPE: str = "speech_emotion.detected"
+UNKNOWN_USER_LABEL: str = "unknown"

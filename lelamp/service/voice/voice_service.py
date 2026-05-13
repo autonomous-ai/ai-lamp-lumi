@@ -799,19 +799,32 @@ class VoiceService:
             confidence = result.get("confidence", 0.0)
 
             # Hand off the SAME wav bytes used for speaker ID to the speech
-            if (
-                self._speech_emotion is not None
-                and self._speech_emotion.available
-                and result.get("match")
-                and name
-                and name != "unknown"
-            ):
+            if self._speech_emotion is not None and self._speech_emotion.available:
+                from lelamp.service.voice.speech_emotion.constants import (
+                    UNKNOWN_USER_LABEL,
+                )
+                if result.get("match") and name and name != "unknown":
+                    se_user = name
+                    se_origin = "known"
+                else:
+                    se_user = UNKNOWN_USER_LABEL
+                    se_origin = "unknown"
+                logger.info(
+                    "Speech emotion submit: user=%r (origin=%s) duration=%.2fs wav=%d bytes",
+                    se_user, se_origin, duration_s, len(wav_bytes),
+                )
                 try:
                     self._speech_emotion.submit(
-                        user=name, wav_bytes=wav_bytes, duration_s=duration_s,
+                        user=se_user, wav_bytes=wav_bytes, duration_s=duration_s,
                     )
                 except Exception as e:
                     logger.warning("Speech emotion submit failed: %s", e)
+            else:
+                logger.info(
+                    "Speech emotion submit skipped: service_init=%s available=%s",
+                    self._speech_emotion is not None,
+                    bool(self._speech_emotion and self._speech_emotion.available),
+                )
 
             if result.get("match") and name and name != "unknown":
                 # Prefer the display_name field (preserves original casing like

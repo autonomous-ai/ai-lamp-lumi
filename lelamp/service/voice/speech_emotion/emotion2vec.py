@@ -47,36 +47,51 @@ class Emotion2VecRecognizer(BaseSpeechEmotionRecognizer):
 
     def recognize(self, wav_bytes: bytes) -> Optional[SpeechEmotionResult]:
         if not self._url:
+            logger.warning("[speech_emotion.engine] recognize skipped — empty URL")
             return None
         if not wav_bytes:
+            logger.warning("[speech_emotion.engine] recognize skipped — empty wav")
             return None
+        b64 = base64.b64encode(wav_bytes).decode("ascii")
+        logger.info(
+            "[speech_emotion.engine] POST %s (wav=%d bytes, b64=%d chars, timeout=%.1fs)",
+            self._url, len(wav_bytes), len(b64), self._timeout,
+        )
         try:
-            payload = {
-                "audio_b64": base64.b64encode(wav_bytes).decode("ascii"),
-                "return_scores": False,
-            }
+            payload = {"audio_b64": b64, "return_scores": False}
             headers = {"X-API-Key": self._api_key} if self._api_key else {}
             resp = requests.post(
                 self._url, json=payload, headers=headers, timeout=self._timeout,
             )
         except requests.RequestException as e:
-            logger.warning("[speech_emotion] request failed: %s", e)
+            logger.warning("[speech_emotion.engine] request failed: %s", e)
             return None
 
         if resp.status_code != 200:
             logger.warning(
-                "[speech_emotion] HTTP %d: %s", resp.status_code, resp.text[:200],
+                "[speech_emotion.engine] HTTP %d: %s",
+                resp.status_code, resp.text[:200],
             )
             return None
 
         try:
             data = resp.json()
         except ValueError:
-            logger.warning("[speech_emotion] non-JSON response: %s", resp.text[:200])
+            logger.warning(
+                "[speech_emotion.engine] non-JSON response: %s", resp.text[:200],
+            )
             return None
 
         label = data.get("label")
         if not label:
+            logger.warning(
+                "[speech_emotion.engine] response missing 'label': %s",
+                str(data)[:200],
+            )
             return None
         confidence = float(data.get("confidence", 0.0))
+        logger.info(
+            "[speech_emotion.engine] response OK: label=%s confidence=%.3f",
+            label, confidence,
+        )
         return SpeechEmotionResult(label=label, confidence=confidence)

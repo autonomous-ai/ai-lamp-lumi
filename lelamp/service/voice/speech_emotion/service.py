@@ -157,14 +157,16 @@ class SpeechEmotionService:
         if self.available:
             self._start_workers()
             logger.info(
-                "SpeechEmotionService started (flush=%.1fs, dedup=%.1fs, "
-                "min_audio=%.1fs, conf>=%.2f)",
+                "[speech_emotion] SERVICE STARTED — flush=%.1fs dedup=%.1fs "
+                "min_audio=%.1fs conf>=%.2f lumi_url=%s recognizer=%s",
                 flush_s, dedup_window_s, min_audio_s, confidence_threshold,
+                self._lumi_url, type(self._recognizer).__name__,
             )
         else:
-            logger.info(
-                "SpeechEmotionService idle — recognizer unavailable "
-                "(missing DL_BACKEND_URL or endpoint config)"
+            logger.warning(
+                "[speech_emotion] SERVICE IDLE — recognizer unavailable "
+                "(missing DL_BACKEND_URL or endpoint config). submit() will "
+                "be a no-op until restart."
             )
 
     # --- public API -------------------------------------------------------
@@ -183,16 +185,23 @@ class SpeechEmotionService:
         The caller passes the SAME wav_bytes used for speaker recognition;
         no defensive copy is needed because bytes are immutable in Python.
         """
+        logger.info(
+            "[speech_emotion] submit() called: user=%r duration=%.2fs wav=%d bytes",
+            user, duration_s, len(wav_bytes) if wav_bytes else 0,
+        )
         if not self.available:
+            logger.info("[speech_emotion] DROP submit — service unavailable")
             return
         norm_user = normalize_label(user)
         if not norm_user:
+            logger.info("[speech_emotion] DROP submit — user normalized to empty")
             return
         if not wav_bytes:
+            logger.info("[speech_emotion] DROP submit — wav_bytes empty")
             return
         if duration_s < self._min_audio_s:
-            logger.debug(
-                "[speech_emotion] drop submit: duration=%.2fs < min=%.2fs",
+            logger.info(
+                "[speech_emotion] DROP submit — duration=%.2fs < min=%.2fs",
                 duration_s, self._min_audio_s,
             )
             return
@@ -200,9 +209,13 @@ class SpeechEmotionService:
         job = _Job(user=norm_user, wav_bytes=wav_bytes, duration_s=duration_s)
         try:
             self._jobs.put_nowait(job)
+            logger.info(
+                "[speech_emotion] ENQUEUED — user=%r queue_size=%d",
+                norm_user, self._jobs.qsize(),
+            )
         except queue.Full:
             logger.warning(
-                "[speech_emotion] drop submit: worker queue full (size=%d)",
+                "[speech_emotion] DROP submit — worker queue full (size=%d)",
                 self._jobs.qsize(),
             )
 
@@ -241,25 +254,43 @@ class SpeechEmotionService:
         self._flush_thread.start()
 
     def _worker_loop(self) -> None:
+        logger.info("[speech_emotion] worker thread READY")
         while not self._stop_event.is_set():
             try:
                 job = self._jobs.get(timeout=1.0)
             except queue.Empty:
                 continue
             if job is None:
+                logger.info("[speech_emotion] worker thread received stop sentinel")
                 break
             try:
                 self._process_job(job)
             except Exception:
                 logger.exception("[speech_emotion] worker loop error")
+        logger.info("[speech_emotion] worker thread EXIT")
 
     def _process_job(self, job: _Job) -> None:
+        t0 = time.time()
+        logger.info(
+            "[speech_emotion] worker -> recognize: user=%r duration=%.2fs",
+            job.user, job.duration_s,
+        )
         result = self._recognizer.recognize(job.wav_bytes)
+        elapsed = time.time() - t0
         if result is None:
+            logger.warning(
+                "[speech_emotion] DROP — recognizer returned None for user=%r "
+                "(took %.2fs; check DL backend reachability / response shape)",
+                job.user, elapsed,
+            )
             return
+        logger.info(
+            "[speech_emotion] recognize OK: user=%r label=%s confidence=%.3f (took %.2fs)",
+            job.user, result.label, result.confidence, elapsed,
+        )
         if result.confidence < self._confidence_threshold:
-            logger.debug(
-                "[speech_emotion] skip low-conf: %s %.2f < %.2f",
+            logger.info(
+                "[speech_emotion] DROP — low confidence: %s %.3f < %.2f",
                 result.label, result.confidence, self._confidence_threshold,
             )
             return
@@ -273,18 +304,23 @@ class SpeechEmotionService:
         )
         with self._lock:
             self._buffer.setdefault(job.user, []).append(inf)
+            buf_len = len(self._buffer[job.user])
         logger.info(
-            "[speech_emotion] buffered: %s -> %s (%.2f, %.2fs)",
-            job.user, inf.label, inf.confidence, inf.duration_s,
+            "[speech_emotion] BUFFERED — user=%r label=%s conf=%.3f buf_len=%d",
+            job.user, inf.label, inf.confidence, buf_len,
         )
 
     # --- flush thread -----------------------------------------------------
 
     def _flush_loop(self) -> None:
+        logger.info(
+            "[speech_emotion] flush thread READY (interval=%.1fs)", self._flush_s,
+        )
         while not self._stop_event.is_set():
             # wait() returns True if the stop event fires during the wait —
             # use that as the exit signal to avoid one extra flush at shutdown.
             if self._stop_event.wait(self._flush_s):
+                logger.info("[speech_emotion] flush thread EXIT")
                 return
             try:
                 self._flush_once()
@@ -295,16 +331,23 @@ class SpeechEmotionService:
         cur_ts = time.time()
         with self._lock:
             if not self._buffer:
+                logger.debug("[speech_emotion] flush tick: buffer empty")
                 return
             buf = copy(self._buffer)
             self._buffer.clear()
             self._last_flush_ts = cur_ts
             # Prune expired dedup entries (oldest TTL window).
             cutoff = cur_ts - self._dedup_window_s
+            before = len(self._last_sent_by_key)
             self._last_sent_by_key = {
                 k: ts for k, ts in self._last_sent_by_key.items() if ts >= cutoff
             }
+            pruned = before - len(self._last_sent_by_key)
 
+        logger.info(
+            "[speech_emotion] flush tick: users=%d dedup_keys=%d (pruned=%d)",
+            len(buf), len(self._last_sent_by_key), pruned,
+        )
         for user, inferences in buf.items():
             if not user or not inferences:
                 continue
@@ -313,10 +356,15 @@ class SpeechEmotionService:
     def _flush_user(
         self, user: str, inferences: list[_Inference], cur_ts: float,
     ) -> None:
+        logger.info(
+            "[speech_emotion] flushing user=%r samples=%d labels=[%s]",
+            user, len(inferences),
+            ", ".join(inf.label for inf in inferences),
+        )
         non_neutral = [inf for inf in inferences if not is_neutral(inf.label)]
         if not non_neutral:
             logger.info(
-                "[speech_emotion] %s: all neutral (%d samples) — skipping",
+                "[speech_emotion] DROP — %s: all %d samples are neutral/<unk>/other",
                 user, len(inferences),
             )
             return
@@ -328,23 +376,27 @@ class SpeechEmotionService:
         ]
         avg_confidence = sum(dom_confidences) / len(dom_confidences)
         bucket = bucket_for(dominant_label)
+        logger.info(
+            "[speech_emotion] mode for user=%r: label=%s avg_conf=%.3f bucket=%s",
+            user, dominant_label, avg_confidence, bucket,
+        )
 
         key = (user, bucket)
         with self._lock:
             last_ts = self._last_sent_by_key.get(key)
             if last_ts is not None and (cur_ts - last_ts) < self._dedup_window_s:
                 logger.info(
-                    "[speech_emotion] dedup drop: %s bucket=%s "
-                    "(key seen %.1fs ago)",
-                    dominant_label, bucket, cur_ts - last_ts,
+                    "[speech_emotion] DROP — dedup: user=%r bucket=%s "
+                    "(last sent %.1fs ago, window=%.1fs)",
+                    user, bucket, cur_ts - last_ts, self._dedup_window_s,
                 )
                 return
             self._last_sent_by_key[key] = cur_ts
 
         message = format_message(dominant_label, avg_confidence, bucket)
         logger.info(
-            "[speech_emotion] flushing %s: %s (mode of %s)",
-            user, message, ", ".join(inf.label for inf in non_neutral),
+            "[speech_emotion] EMIT — user=%r message=%r",
+            user, message,
         )
         self._send_to_lumi(message=message, user=user)
 
@@ -357,12 +409,19 @@ class SpeechEmotionService:
         explicitly so the Lumi sensing handler doesn't have to look it up.
         """
         if not self._lumi_url:
+            logger.warning(
+                "[speech_emotion] _send_to_lumi skipped — empty lumi_url"
+            )
             return
         payload = {
             "type": SENSING_EVENT_TYPE,
             "message": message,
             "current_user": user,
         }
+        logger.info(
+            "[speech_emotion] POST -> %s payload.user=%r payload.type=%s",
+            self._lumi_url, user, SENSING_EVENT_TYPE,
+        )
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
@@ -398,5 +457,8 @@ class SpeechEmotionService:
                     resp.status_code, resp.text[:200],
                 )
                 return
-            logger.info("[speech_emotion] sent to Lumi: %s", message)
+            logger.info(
+                "[speech_emotion] SENT -> Lumi 200 OK (attempt=%d): %s",
+                attempt, message,
+            )
             return
