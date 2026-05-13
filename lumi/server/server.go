@@ -241,7 +241,10 @@ func (s *Server) Serve(closeFn func()) error {
 	go s.agentGateway.StartWS(eventCtx, s.openclawHandler.HandleEvent)
 	go s.agentGateway.WatchIdentity(eventCtx)
 	go s.agentGateway.StartSkillWatcher(eventCtx)
-	go s.agentGateway.StartModelSync(eventCtx)
+	// StartModelSync is launched from the startup-sequence goroutine AFTER
+	// EnsureOnboarding completes, so the two writers to openclaw.json don't
+	// race on first boot (sync's atomic write vs ensureAgentDefaults' plain
+	// os.WriteFile would clobber each other).
 
 	r := gin.Default()
 	r.RedirectTrailingSlash = false // avoid 301 redirect loop on /network vs /network/
@@ -480,6 +483,12 @@ func (s *Server) handleSetUpCompleteChange(setupCompleted bool) {
 			if err := s.agentGateway.EnsureOnboarding(); err != nil {
 				slog.Error("onboarding seed failed", "component", "server", "error", err)
 			}
+
+			// Start the periodic model sync only AFTER onboarding finishes —
+			// both touch openclaw.json (ensureAgentDefaults via os.WriteFile,
+			// sync via atomic tmp+rename); running them concurrently would
+			// race and could clobber sync's writes.
+			safego.Go("model-sync", func() { s.agentGateway.StartModelSync(s.monitorCtx) })
 
 			if ok := s.deviceService.WaitForAgentReady(120 * time.Second); ok {
 				slog.Info("agent gateway ready", "component", "server")
