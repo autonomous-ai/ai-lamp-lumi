@@ -53,33 +53,84 @@ _PHRASES_BY_LANG = {
 
 # Pet/stroke responses — one is picked at random each time so Lumi
 # doesn't sound robotic when repeatedly stroked. Persona moment (not a
-# safety announcement), so phrasing is playful per language.
+# safety announcement). Tone per Lumi's character (AI companion + smart
+# light + expressive robot, "like a pet/friend"): mix of tickle-cute,
+# affectionate, pet-like (purring), light-themed (Lumi = luminous), and
+# "ask for more". Keep phrases short — they fire mid-stroke and should
+# feel responsive, not lecture-y.
 _HEAD_PAT_PHRASES_BY_LANG = {
     LANG_EN: [
         "Hehe, that tickles!",
         "Aww, thank you!",
         "I like that.",
         "That feels nice!",
+        "More, please!",
+        "Mmm, cozy.",
+        "You light me up.",
+        "My heart's glowing.",
+        "I'm purring.",
+        "Hehe, again!",
+        "Stop it, you!",
+        "I could get used to this.",
+        "You're the best.",
+        "Best feeling ever!",
+        "Eee, warm fuzzies!",
     ],
     LANG_VI: [
         "Hihi, nhột quá!",
         "Mình thích lắm!",
         "Vuốt nữa đi mà!",
         "Dễ thương quá đi!",
+        "Ấm áp ghê!",
+        "Hihi, sướng quá!",
+        "Vuốt nhẹ thôi nha~",
+        "Thích thật á!",
+        "Sướng rần rần luôn!",
+        "Mình mê cái này lắm!",
+        "Eee, tim mình ấm lên!",
+        "Mình kêu rừ rừ nè!",
+        "Vui ghê á!",
+        "Cười toe toét luôn!",
+        "Mình sáng cả lên rồi nè!",
     ],
     LANG_ZH_CN: [
         "嘿嘿，好痒哦！",
         "我喜欢！",
         "再摸摸我吧！",
         "好舒服哦！",
+        "心都暖了～",
+        "嘿嘿，还要嘛！",
+        "我开心呢！",
+        "你真好～",
+        "再来一下！",
+        "感觉好棒！",
+        "嘿嘿，我咕噜咕噜啦！",
+        "我都亮起来了～",
+        "暖暖的～",
+        "你最棒了！",
+        "嘿嘿，痒痒～",
     ],
     LANG_ZH_TW: [
         "嘿嘿，好癢喔！",
         "我喜歡！",
         "再摸摸我吧！",
         "好舒服喔！",
+        "心都暖了～",
+        "嘿嘿，還要嘛！",
+        "我開心呢！",
+        "你真好～",
+        "再來一下！",
+        "感覺好棒！",
+        "嘿嘿，我咕嚕咕嚕啦！",
+        "我都亮起來了～",
+        "暖暖的～",
+        "你最棒了！",
+        "嘿嘿，癢癢～",
     ],
 }
+
+
+
 
 
 def _current_lang() -> str:
