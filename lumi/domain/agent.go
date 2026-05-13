@@ -186,6 +186,11 @@ type AgentGateway interface {
 	// StartSkillWatcher polls OTA metadata for skill version changes and notifies the agent.
 	StartSkillWatcher(ctx context.Context)
 
+	// StartModelSync periodically reconciles the upstream model list (ModelsAPIURL)
+	// into openclaw.json. Fail-soft: a failed fetch logs and continues. Restarts
+	// the gateway only when the file actually changed.
+	StartModelSync(ctx context.Context)
+
 	// GetConfiguredChannel returns the primary messaging channel type configured
 	// in the agent runtime (e.g. "telegram", "discord", "slack").
 	// Returns "channel" if none can be determined.
