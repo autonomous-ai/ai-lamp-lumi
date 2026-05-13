@@ -103,8 +103,8 @@ class TestPoseEstimationHTTP:
         assert "joints" in body["pose_2d"]
         assert "confs" in body["pose_2d"]
         assert "graph_type" in body["pose_2d"]
-        assert len(body["pose_2d"]["joints"]) > 0
-        assert len(body["pose_2d"]["confs"]) == len(body["pose_2d"]["joints"])
+        assert len(body["pose_2d"]["joints"]) == 17
+        assert len(body["pose_2d"]["confs"]) == 17
 
     def test_single_image_no_pose_3d_without_lifter(self, client):
         """Without a 3D lifter configured, pose_3d should be None."""
@@ -137,6 +137,8 @@ class TestPoseEstimationWebSocket:
             assert "pose_2d" in resp
             assert "joints" in resp["pose_2d"]
             assert "confs" in resp["pose_2d"]
+            assert len(resp["pose_2d"]["joints"]) == 17
+            assert len(resp["pose_2d"]["confs"]) == 17
 
     def test_frame_joints_have_xy(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
