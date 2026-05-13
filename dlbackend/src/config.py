@@ -46,10 +46,10 @@ class EmotionSetting(BaseModel):
 
 
 class PoseSetting(BaseModel):
-    enabled: bool = False
+    enabled: bool = True
     model: PoseEstimator2DEnum = PoseEstimator2DEnum.RTMPOSE
     ckpt_path: str | None = None
-    lifter_3d: PoseLifter3DEnum | None = None
+    lifter_3d: PoseLifter3DEnum | None = PoseLifter3DEnum.TCPFORMER
     lifter_3d_ckpt_path: str | None = None
     lifter_3d_frame_w: int | None = None
     lifter_3d_frame_h: int | None = None
