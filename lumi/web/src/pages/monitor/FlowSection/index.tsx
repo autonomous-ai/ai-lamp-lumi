@@ -260,7 +260,17 @@ export function FlowSection({
       for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
       return PAIR_BGS[Math.abs(h) % PAIR_BGS.length];
     };
-    const stripSender = (s: string) => s.replace(/^\[[^\]]+\]\s*/, "").trim();
+    // Inputs of the same logical message may differ between Lumi-side and
+    // OpenClaw-side because:
+    //   • Lumi log truncates chat_input message at 500 chars + "…" (see
+    //     service_chat.go:147) — UUID-side carries the full text.
+    //   • Lumi log keeps `[snapshot: /var/...]` paths in presence events
+    //     while OpenClaw refires with the snapshot stripped.
+    // So check substring containment either way (after stripping the
+    // sender prefix and trailing "…"). Guard with min length ≥32 to
+    // avoid coincidental short-string matches.
+    const normalizeForMatch = (s: string) =>
+      s.replace(/^\[[^\]]+\]\s*/, "").replace(/…\s*$/, "").trim();
     const isLumi = (id: string) => id.startsWith("lumi-");
     for (let i = 0; i < filteredTurns.length - 1; i++) {
       const a = filteredTurns[i];
@@ -274,9 +284,11 @@ export function FlowSection({
           )
         );
         if (!closedEmpty) return false;
-        const lumiIn = stripSender(turnIO(lumiTurn).input);
-        const uuidIn = stripSender(turnIO(uuidTurn).input);
-        if (!lumiIn || lumiIn !== uuidIn) return false;
+        const lumiIn = normalizeForMatch(turnIO(lumiTurn).input);
+        const uuidIn = normalizeForMatch(turnIO(uuidTurn).input);
+        if (!lumiIn || !uuidIn) return false;
+        if (Math.min(lumiIn.length, uuidIn.length) < 32) return false;
+        if (!lumiIn.includes(uuidIn) && !uuidIn.includes(lumiIn)) return false;
         const color = hashColor(lumiTurn.id);
         map.set(a.id, color);
         map.set(b.id, color);
