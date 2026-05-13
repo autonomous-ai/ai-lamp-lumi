@@ -137,7 +137,10 @@ func (s *Service) SetupAgent(data domain.SetupRequest) error {
 	defaultsMap["bootstrapTotalMaxChars"] = 30000
 	agentModelsMap := ensureMap(defaultsMap, "models")
 	for _, m := range modelsResp.Models {
-		agentModelsMap[m.Key] = map[string]any{
+		// Use prefixed key "{provider}/{key}" so the on-disk shape matches what
+		// the periodic model sync (mergeAgentModels) writes — avoids a one-time
+		// migrate+restart on the first sync tick after setup.
+		agentModelsMap[agentModelKey(m)] = map[string]any{
 			"params": map[string]any{
 				"cacheRetention": "short",
 			},
