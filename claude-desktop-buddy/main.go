@@ -375,7 +375,7 @@ func loadConfig(path string) Config {
 }
 
 // resolveDeviceName expands the {MAC} placeholder in name by fetching the
-// hardware MAC suffix from Lumi's /api/network/info. Buddy may start before
+// hardware MAC suffix from Lumi's /api/system/network. Buddy may start before
 // Lumi is ready, so we retry transport errors for a short window. Names
 // without the placeholder pass through untouched.
 //
@@ -403,11 +403,11 @@ func resolveDeviceName(name, lumiURL string) string {
 		log.Printf("[buddy] resolved mac=%q from Lumi", mac)
 	case reason == "empty":
 		log.Printf("[buddy] WARN: Lumi reachable at %s but mac is empty — hardware serial/MAC unreadable", lumiURL)
-		mac = "unknown"
+		mac = "unk"
 	default:
 		log.Printf("[buddy] WARN: failed to fetch mac from %s after %d attempts (%s)",
 			lumiURL, fetchAttempts, reason)
-		mac = "unknown"
+		mac = "unk"
 	}
 	short := shortMAC(mac)
 	if short != mac {
@@ -442,7 +442,7 @@ const fetchAttempts = 15
 //	retries failed.
 func fetchMAC(lumiURL string) (string, string) {
 	client := &http.Client{Timeout: 3 * time.Second}
-	url := lumiURL + "/api/network/info"
+	url := lumiURL + "/api/system/network"
 	var lastErr string
 	for i := 0; i < fetchAttempts; i++ {
 		mac, ok, errStr := tryFetchMAC(client, url)
