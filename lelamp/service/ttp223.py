@@ -185,13 +185,31 @@ class TTP223Handler:
             self._session_end_timer.start()
 
     def _on_session_end(self):
-        # One physical touch ended. If we just hit the pet threshold,
-        # fire head_pat immediately (no decision-window wait — pet
-        # should feel responsive). Otherwise schedule the decision
-        # timer to classify what we've accumulated so far.
+        # One physical touch ended.
+        #
+        # 1) If we're still inside the pet cooldown (user is mid-stroke,
+        #    a head_pat fired recently), extend the cooldown and bail —
+        #    don't count, don't fire. This prevents single_clicks from
+        #    interleaving between pets during one continuous stroke.
+        # 2) Otherwise increment the count. If it hits PET threshold,
+        #    fire head_pat immediately and arm the cooldown.
+        # 3) Else schedule the decision timer to classify accumulated
+        #    sessions as a single tap when the user stops touching.
         fire_pet = False
         with self._lock:
             self._session_end_timer = None
+            now = time.monotonic()
+            if now < self._pet_cooldown_until:
+                # Still petting — swallow this session, extend cooldown.
+                self._pet_cooldown_until = now + PET_COOLDOWN_S
+                # Also cancel any pending decision_timer left over from
+                # the pre-pet count: that count was already consumed
+                # when pet fired, so no single_click should fire.
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                    self._decision_timer = None
+                logger.debug("TTP223 session ignored (pet cooldown)")
+                return
             self._session_count += 1
             count = self._session_count
             logger.debug("TTP223 session ended (count=%d)", count)
@@ -200,6 +218,7 @@ class TTP223Handler:
                     self._decision_timer.cancel()
                     self._decision_timer = None
                 self._session_count = 0
+                self._pet_cooldown_until = now + PET_COOLDOWN_S
                 fire_pet = True
             else:
                 if self._decision_timer is not None:
