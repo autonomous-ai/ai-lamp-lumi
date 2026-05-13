@@ -50,6 +50,8 @@ class SpeechEmotionRecognizerSetting(BaseModel):
 
     sample_rate: int = 16000
     intra_op_threads: int = 4
+    # ONNX Runtime execution providers, comma-separated. Leave empty for
+    providers: str = ""
 
 
 class Settings(BaseSettings):

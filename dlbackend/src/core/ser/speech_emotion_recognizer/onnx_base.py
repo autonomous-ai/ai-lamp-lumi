@@ -16,7 +16,7 @@ import shutil
 import urllib.request
 import warnings
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Sequence, Union
 
 import numpy as np
 
@@ -28,6 +28,80 @@ except ImportError:
 from .base import SpeechEmotionRecognizer
 
 logger = logging.getLogger(__name__)
+
+
+
+_DEFAULT_PROVIDER_PREFERENCE = (
+    "CUDAExecutionProvider",       # NVIDIA GPUs (Linux/Windows)
+    "ROCMExecutionProvider",       # AMD GPUs (Linux)
+    "DmlExecutionProvider",        # Windows DirectML (Intel/AMD/NVIDIA)
+    "CoreMLExecutionProvider",     # Apple Silicon / Intel Mac
+    "CPUExecutionProvider",        # always-on fallback
+)
+
+
+_PROVIDER_ALIASES = {
+    "cuda": "CUDAExecutionProvider",
+    "gpu": "CUDAExecutionProvider",
+    "rocm": "ROCMExecutionProvider",
+    "dml": "DmlExecutionProvider",
+    "directml": "DmlExecutionProvider",
+    "coreml": "CoreMLExecutionProvider",
+    "mps": "CoreMLExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+}
+
+
+def _normalize_provider_name(name: str) -> str:
+    """Map shortcut names like ``"cuda"`` to ORT's canonical strings."""
+    key = name.strip()
+    if not key:
+        return ""
+    return _PROVIDER_ALIASES.get(key.lower(), key)
+
+
+def _resolve_providers(
+    requested: Union[Sequence[str], str, None],
+) -> list[str]:
+    """Pick an ORT provider list that the local install actually supports.
+
+    Args:
+        requested: User preference. ``None`` triggers auto-detection
+            using :data:`_DEFAULT_PROVIDER_PREFERENCE`. A string is
+            parsed as a comma-separated list. Aliases like ``"cuda"``
+            are accepted (see :data:`_PROVIDER_ALIASES`).
+
+    Returns:
+        Ordered list of provider names (always ends with
+        ``CPUExecutionProvider`` so ORT has a safety net).
+    """
+    if ort is None:
+        return ["CPUExecutionProvider"]
+
+    available = set(ort.get_available_providers())
+
+    if requested is None:
+        preference = _DEFAULT_PROVIDER_PREFERENCE
+    else:
+        if isinstance(requested, str):
+            raw_items = [tok for tok in requested.split(",") if tok.strip()]
+        else:
+            raw_items = list(requested)
+        preference = tuple(
+            name for name in (_normalize_provider_name(x) for x in raw_items) if name
+        )
+        if not preference:
+            preference = _DEFAULT_PROVIDER_PREFERENCE
+
+    resolved: list[str] = []
+    for name in preference:
+        if name in available and name not in resolved:
+            resolved.append(name)
+
+    if "CPUExecutionProvider" not in resolved:
+        resolved.append("CPUExecutionProvider")
+
+    return resolved
 
 
 class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
@@ -74,6 +148,7 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
         labels_path: Union[str, Path, None] = None,
         sample_rate: int = 16000,
         intra_op_threads: int = 4,
+        providers: Union[Sequence[str], str, None] = None,
     ) -> None:
         """
         Args:
@@ -84,12 +159,17 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
                 (default: :attr:`DEFAULT_LABELS_PATH`).
             sample_rate: Model input sample rate (default 16 kHz).
             intra_op_threads: ONNX Runtime intra-op thread count.
+            providers: ONNX Runtime execution providers. ``None`` =
+                auto-detect (CUDA → ROCm → DirectML → CoreML → CPU
         """
         self._sample_rate = int(sample_rate)
 
         self.model_path: str = self._prepare_model(model_path)
         super().__init__(labels_path=labels_path)
-        self.session = self._create_session(self.model_path, intra_op_threads)
+        self.session = self._create_session(
+            self.model_path, intra_op_threads, providers
+        )
+        self.providers: list[str] = list(self.session.get_providers())
 
         # Bind the actual graph I/O names (graceful fallback if the
         # exported graph used a different scheme).
@@ -106,7 +186,8 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
         msg = (
             f"[SER] engine='{self.ENGINE_NAME}' class={type(self).__name__} "
             f"model_path={self.model_path} input='{self.INPUT_NAME}' "
-            f"output='{self.output_name}' labels={self.num_classes}"
+            f"output='{self.output_name}' labels={self.num_classes} "
+            f"providers={self.providers}"
         )
         logger.info(msg)
         print(msg, flush=True)
@@ -206,7 +287,12 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
             output_path=dest_path,
         )
 
-    def _create_session(self, model_path: str, n_threads: int) -> Any:
+    def _create_session(
+        self,
+        model_path: str,
+        n_threads: int,
+        providers: Union[Sequence[str], str, None],
+    ) -> Any:
         if ort is None:
             raise ImportError(
                 "onnxruntime is required for OnnxSpeechEmotionRecognizer."
@@ -215,8 +301,16 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
         opts.intra_op_num_threads = int(n_threads)
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        resolved = _resolve_providers(providers)
+        logger.info(
+            "[SER] requested providers=%r -> resolved=%r (available=%r)",
+            providers,
+            resolved,
+            ort.get_available_providers(),
+        )
         return ort.InferenceSession(
             model_path,
             sess_options=opts,
-            providers=["CPUExecutionProvider"],
+            providers=resolved,
         )

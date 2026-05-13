@@ -141,6 +141,7 @@ def _get_recognizer() -> BaseSpeechEmotionRecognizer:
             labels_path=settings.ser_recognition_labels_path,
             sample_rate=settings.ser.sample_rate,
             intra_op_threads=settings.ser.intra_op_threads,
+            providers=settings.ser.providers or None,
         )
         return _recognizer
     except Exception as exc:
