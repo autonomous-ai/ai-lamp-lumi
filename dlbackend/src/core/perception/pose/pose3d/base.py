@@ -138,9 +138,14 @@ class PoseEstimator3DLifting(ABC):
         norm = np.concatenate([norm_kps, scores[..., None]], axis=-1).astype(np.float32)
         if norm.shape[0] < self._n_frames:
             norm = np.concatenate(
-                [norm, np.zeros((self._n_frames - norm.shape[0], *norm.shape[1:]), dtype=norm.dtype)],
+                [
+                    norm,
+                    np.zeros((self._n_frames - norm.shape[0], *norm.shape[1:]), dtype=norm.dtype),
+                ],
                 axis=0,
             )
+        else:
+            norm = norm[-self._n_frames :]
         return norm
 
     @staticmethod
