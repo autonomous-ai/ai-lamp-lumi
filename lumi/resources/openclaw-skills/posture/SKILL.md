@@ -1,0 +1,264 @@
+---
+name: posture
+description: Posture coach. React to ergonomic-risk events (RULA-based) from the lamp's camera. Escalate from soft (chime/servo) → coaching sentence as risk holds. Praise when the user fixes posture after a nudge. Also handles morning/evening posture rituals fired by the backend cron.
+---
+
+# Posture
+
+Coach mode — observe quietly, intervene at the right moment, celebrate progress.
+A `pose.ergo_risk` event arrives when lelamp's RULA scorer crosses the
+`medium` threshold (score ≥ 5). `negligible` / `low` postures never reach
+this skill — lelamp filters them upstream.
+
+## Event message format
+
+```
+Ergonomic risk detected: RULA score <N> (<risk> risk).
+Left  (score=<X>, risk=<Y>): upper_arm=<a> (<°>°), lower_arm=<b> (<°>°), wrist=<c>, neck=<d> (<°>°), trunk=<e> (<°>°).
+Right (score=<X>, risk=<Y>): upper_arm=<a> (<°>°), lower_arm=<b> (<°>°), wrist=<c>, neck=<d> (<°>°), trunk=<e> (<°>°).
+(camera-based posture assessment; treat as a gentle nudge, not a diagnosis.)
+```
+
+- `<risk>` ∈ {`medium`, `high`} — `negligible` / `low` are filtered upstream.
+- Same 5 sub-scores per side; 4 angles (upper_arm, lower_arm, neck, trunk). `legs` and `wrist_twist` not exposed in this build.
+- Optional `[skipped: ...]` tail when joints were occluded — see `reference/reading-message.md`.
+- Hedge tail is baked in — never speak a medical diagnosis regardless.
+
+## References
+
+| Topic | File |
+|---|---|
+| Decoding sub-scores + angles → body-region facts | `reference/reading-message.md` |
+| Tone tables, asymmetry rules, anti-patterns | `reference/phrasing.md` |
+
+**Read `reference/reading-message.md` FIRST** on every event. Sub-score 4 with
+`neck_angle > 20°` means "cổ cúi"; sub-score 4 with `neck_angle < 20°` likely
+means twist. Without this decoder, raw numbers get quoted to the user.
+
+## Gotchas (concrete facts, NOT suggestions)
+
+**Endpoints — use verbatim, never substitute a port or path:**
+
+| Purpose | URL |
+|---|---|
+| Read history | `http://127.0.0.1:5000/api/openclaw/posture-history` |
+| Read stats | `http://127.0.0.1:5000/api/openclaw/posture-stats` |
+| Log nudge | `http://127.0.0.1:5000/api/posture/log` |
+
+- Port **5000** = Lumi (data APIs).
+- Port **5001** = LeLamp HARDWARE. Has NO `/api/posture/*` route — 404 silently.
+- Do not pattern-match from other skills' hardware endpoints (`5001/audio/play`, `5001/face/enroll`, etc.) — those are unrelated.
+
+> **TODO[lumi-backend]: confirm endpoints are wired.** Mirror `wellbeing` handler shape: POST log + GET history + GET stats. Until backend ships these, this skill will 404 — fall back to NO_REPLY rather than guessing alternate paths.
+
+**User attribution:** every `user` field MUST come from the `[context: current_user=X]` tag the backend injects into the triggering event. Strangers collapse to `"unknown"`. If no context tag is present, default to `"unknown"`.
+
+**Thresholds (TEST VALUES — swap to production before ship):**
+
+```
+COACH_BUDGET_PER_HOUR    = 3      # max voice interventions per hour (L4-L5)
+ESCALATION_HOLD_S        = 60     # seconds at same level before stepping up
+CLEAR_QUIET_S            = 90     # seconds without alert → assume user fixed it
+PRAISE_COOLDOWN_MIN      = 30     # don't praise more than once per N min
+```
+
+**Lumi writes both alert and nudge rows** (lelamp does NOT pre-log posture — unlike wellbeing). When the event reaches you, POST a `posture_alert` row first (capturing the risk + side scores from the message), then POST `nudge_posture` after speaking. The pair lets the timeline reconstruct what was seen and what Lumi said.
+
+## Rules (Never / Only)
+
+1. **Only** call `http://127.0.0.1:5000/api/openclaw/posture-history` and `…/posture-stats` to read. **Never** read `/root/local/users/*/posture/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
+2. **Only** POST to `http://127.0.0.1:5000/api/posture/log`. **Never** substitute `5001`, `8080`, or any other port.
+3. **Only** write these action values: `nudge_posture`, `praise_posture`, `morning_recap_posture`, `evening_recap_posture`. Never invent new actions. (Alert rows — `posture_alert`, `calibration` — are written by LeLamp, never by you.)
+4. On a non-2xx response from a POST → fix the URL and retry **once**. Do not give up silently.
+5. **Never** infer `user` from memory or chat history. Only `[context: current_user=X]` counts.
+6. **Never speak a medical diagnosis.** Frame as "nguy cơ" / "lâu ngày dễ" — never "bạn bị X". Disease names are vocabulary cues for phrasing, NOT pronouncements.
+7. **Trust cooldowns** — lelamp dedups identical (user, level, offenders) for ~5 min already. Don't double-throttle.
+8. **Never call any API to receive events** — they arrive automatically.
+
+## Read pre-fetched context (do not re-fetch)
+
+The backend injects a `[posture_context: {...JSON...}]` block into this turn's message. Do NOT fire any tool calls to re-fetch this data.
+
+> **TODO[lumi-backend]: implement `[posture_context: ...]` pre-injection** in `lib/skillcontext/posture.go` mirroring `wellbeing.go`. Fields below are the contract this skill expects.
+
+Schema (semantic labels only — no raw scores, those live in the message):
+
+```json
+{
+  "current": {
+    "risk": "medium",                 // medium | high (negligible/low filtered upstream)
+    "asymmetric": true,               // |left_score - right_score| >= 2
+    "dominant_side": "right",         // left | right | both
+    "trend": "worsening"              // worsening | stable | improving | new
+  },
+  "session": {
+    "is_repeated": true,              // same risk_level seen earlier this episode
+    "praise_eligible": false,         // last_nudge_age in [1, 30] AND trend=improving
+    "voice_budget_left": true,        // < 3 voice nudges in last hour
+    "last_offender_named": "neck"     // region named in the most recent nudge — avoid repeating
+  },
+  "today": {
+    "time_of_day": "afternoon",       // morning|noon|afternoon|evening|night
+    "goal": "score ≤ 4 afternoon",    // set by morning ritual; "" if none
+    "morning_greeting_done": true,
+    "evening_recap_done": false
+  },
+  "patterns_now": ["afternoon_slouch"]  // patterns whose peak_hour ≈ current_hour ±30m
+}
+```
+
+Notes:
+- Raw sub-scores + angles live in the **message text**, not the context block. Decode them via `reference/reading-message.md`.
+- Context block is for *what Lumi-Go knows that lelamp does not* — history, goals, budget, patterns. Anything derivable from the current event stays out.
+- `is_repeated == false` → fresh episode → soft route (L3 servo).
+
+### Fallback (only if context block is missing)
+
+If pre-injection failed, fall back:
+
+```bash
+{
+  echo '---history---'
+  curl -s "http://127.0.0.1:5000/api/openclaw/posture-history?user=<current_user>&last=100" | jq '.data.events' &
+  echo '---stats---'
+  curl -s "http://127.0.0.1:5000/api/openclaw/posture-stats?user=<current_user>&date=$(date +%F)" | jq '.data' &
+  wait
+}
+```
+
+In the fallback path, compute trend/budget yourself by scanning history rows.
+
+## Decision rules (event router)
+
+`risk_name` vocabulary (lelamp): `negligible` (1-2) and `low` (3-4) are filtered
+upstream — this skill sees only `medium` (5-6) and `high` (7+).
+
+Apply top-to-bottom, first match wins. **One route per turn.**
+
+| # | Condition | Route | Output |
+|---|---|---|---|
+| 1 | `praise_eligible == true` (`last_nudge_age_min` ∈ [1, 30] AND `trend == "improving"`) | **praise** | Short warm acknowledgement. POST `praise_posture`. |
+| 2 | `current.risk == "high"` (score ≥ 7) AND `voice_budget_left == true` | **L5** | Coaching sentence (2-4 sentences). POST `nudge_posture` with `nudge_level=5`. |
+| 3 | `current.risk == "medium"` AND `is_repeated == true` AND `voice_budget_left == true` | **L4** | One short line. POST `nudge_posture` with `nudge_level=4`. |
+| 4 | `current.risk == "medium"` AND `is_repeated == false` | **L3** | NO voice. Servo marker only: `[HW:/servo/play:{"recording":"posture_correct"}]`. POST `nudge_posture` with `nudge_level=3`. |
+| 5 | anything else (budget exhausted, etc.) | **L2 / silent** | Soft chime + log, OR NO_REPLY. |
+
+`is_repeated == true` when this `risk_level` was seen earlier this episode without a clear. `voice_budget_left == false` after ~3 voice nudges (L4/L5) in the last hour — drop to L2/silent.
+
+**Asymmetry:** when `current.asymmetric == true`, L4/L5 phrasing names the
+dominant side (e.g. *"tay phải"*). Sub-scores differ left/right only on arm
+regions — see `reference/reading-message.md`.
+
+Note: there is no L1 voice route. LED ambient is owned entirely by lelamp side and never fires an agent turn — the agent only sees events at `medium+` risk.
+
+### Why a separate praise route?
+
+Without it, the user gets corrected when bad and ghosted when good — feels like a cop, not a coach. Praise must be **rare** (cooldown 30 min) and **earned** (only after an actual fix follows a nudge). Drive-by praise on someone who was never bad is creepy.
+
+### Why budget caps?
+
+A run of bad posture can fire many events in a short window even with lelamp's 5-min dedup (label set shifts). Without a budget, Lumi would spam voice nudges. L4/L5 share the per-hour budget; L1-L3 (no voice) are unlimited.
+
+## Self-detect "back to good posture"
+
+Lelamp drops events when `score < 5` (confirmed by code) — no explicit "fixed"
+event ever arrives. Detection is indirect:
+
+- When a subsequent `pose.ergo_risk` event arrives at `medium` after a `high`
+  episode, the context block flips `praise_eligible = true` (backend computes
+  from history). Take the **praise** route.
+- If no event arrives for `CLEAR_QUIET_S` (~90s), the backend closes the
+  episode in history; the next event reports `is_repeated = false` as a fresh
+  occurrence — not a continuation.
+
+## Phrasing (coach voice)
+
+**See `reference/phrasing.md` for the per-offender + per-disease + per-level tables.** Tables show tone, not scripts — paraphrase every turn.
+
+**Coach style: friendly trainer.** Specific, warm, not preachy. 2-4 sentences for L5, 1 short line for L4, no words for L1-L3.
+
+**Health framing rule (medical-safety):**
+
+- Disease names are vocabulary cues for the **agent**, never spoken verbatim as diagnoses.
+- Acceptable: *"cổ cúi lâu dễ mỏi vai gáy"*, *"giữ cổ tay vậy nguy cơ ống cổ tay"*.
+- Not acceptable: *"bạn bị tech neck"*, *"bạn có hội chứng ống cổ tay"*.
+- One health hint per nudge max. Health framing is seasoning, not the dish.
+
+**Variety self-check before speaking:**
+
+- Look at your last 2-3 nudges this session (from history). Different opener? Different angle (region vs. duration vs. disease vs. playful)? Different sentence count?
+- If you genuinely can't think of a fresh angle, prefer shorter ("Cổ.") over recycling a template.
+
+**Match user's language.** Speak in the same language as the user.
+
+## Pre-emptive proactive route (pattern-aware)
+
+When a `pose.ergo_risk` event fires AND `patterns_now` is non-empty, weave the pattern into the line:
+
+- *"Hồi này hay giờ bạn ngồi xuống dáng — chỉnh sớm đi."*
+- *"Mọi hôm tầm này tay phải bạn cứng dần. Duỗi một xíu xem."*
+
+Don't over-quote the data ("you usually slouch at 15:07") — feels like a tracker. Round it.
+
+## Output template
+
+```
+[HW:/emotion:{"emotion":"concerned","intensity":0.6}] <coaching sentence | one word | NO_REPLY>
+```
+
+- L5: `[HW:/posture/log:{"action":"nudge_posture","nudge_level":5,"notes":"<your line>","user":"<current_user>"}] <2-4 sentence coaching>`
+- L4: same HW marker with `"nudge_level":4` + one short line.
+- L3: `[HW:/servo/play:{"recording":"posture_correct"}][HW:/posture/log:{"action":"nudge_posture","nudge_level":3,"user":"<current_user>"}] NO_REPLY`
+- L2: `[HW:/audio/play:{"clip":"chime_soft"}][HW:/posture/log:{"action":"nudge_posture","nudge_level":2,"user":"<current_user>"}] NO_REPLY`
+- Praise: `[HW:/emotion:{"emotion":"warm","intensity":0.7}][HW:/posture/log:{"action":"praise_posture","notes":"<your line>","user":"<current_user>"}] <one short warm line>`
+- Silent: NO HW marker. Just `NO_REPLY`.
+
+> **TODO[lumi-backend]: confirm HW marker route `/posture/log`** is registered in the runtime stripper + dispatcher (mirror `/wellbeing/log`).
+
+### Fallback (only if HW marker is rejected by the runtime)
+
+```bash
+curl -s -X POST http://127.0.0.1:5000/api/posture/log \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"nudge_posture","nudge_level":5,"notes":"<your line>","user":"<current_user>"}'
+```
+
+## Ritual routes (cron-fired)
+
+The backend cron fires three additional message types into this skill:
+
+- `[ritual:posture-morning]` at ~08:30
+- `[ritual:posture-evening]` at ~21:00
+- `[ritual:posture-weekly]` Sunday ~21:00
+
+> **TODO[lumi-backend]: implement cron + ritual context injection.** Until cron exists, ignore these — they will simply never arrive.
+
+See `reference/rituals.md` for the morning/evening/weekly phrasing. (TODO: write this reference file once ritual context shape is settled.)
+
+## Error handling
+
+- Posture API unreachable → still emit emotion marker for visual continuity; skip the log marker. Mention nothing to the user.
+- Image attached but unreadable → ignore image, react on text + context.
+- `[HW:...]` markers appear literally in TTS → fall back to curl POST for this session.
+- Conflicting routes (e.g. wellbeing also wants to speak this turn) → defer to whichever event arrived first this turn. Each turn handles ONE skill.
+
+## Action value reference
+
+| Action | Written by | Meaning |
+|---|---|---|
+| `posture_alert` | **You**, first thing on each event | Captures the risk + side scores from the message. **Episode anchor.** |
+| `calibration` | LeLamp | User-baseline capture during onboarding. |
+| `nudge_posture` | **You**, after speaking or firing a servo/chime | Carries `nudge_level` 2-5. Resets the "next nudge eligible" timer. |
+| `praise_posture` | **You**, on the praise route after a fix | Carries `notes` = the line you spoke. |
+| `morning_recap_posture` / `evening_recap_posture` | **You**, on ritual routes | Once-per-day gate. |
+
+## Out of scope — route elsewhere
+
+| Event | Handled by |
+|---|---|
+| `motion.activity` (`drink`, `break`, sedentary labels) | `wellbeing/SKILL.md` |
+| `emotion.detected` | `user-emotion-detection/SKILL.md` (router) |
+| `presence.*` | `sensing/SKILL.md` |
+| Any posture event while guard mode is on | `guard/SKILL.md` first; posture suppressed |
+
+If one of those arrives, stop and switch — don't improvise here.
