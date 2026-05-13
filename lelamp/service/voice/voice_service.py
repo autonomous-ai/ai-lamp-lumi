@@ -68,6 +68,8 @@ from lelamp import config as _lelamp_config
 SPEAKER_RECOGNITION_ENABLED = _lelamp_config.SPEAKER_RECOGNITION_ENABLED
 SPEAKER_MIN_AUDIO_S = _lelamp_config.SPEAKER_MIN_AUDIO_S
 
+SPEECH_EMOTION_ENABLED = _lelamp_config.SPEECH_EMOTION_ENABLED
+
 # Wake word patterns (lowercase match) — default for agent named "Lumi"
 DEFAULT_WAKE_WORDS = ["hello lumi", "hey lumi", "hey lu mi", "này lumi", "ê lumi", "lumi ơi"]
 
@@ -182,6 +184,23 @@ class VoiceService:
             except Exception as e:
                 logger.warning("Speaker recognizer init failed: %s", e)
                 self._speaker = None
+
+        self._speech_emotion = None
+        if not SPEECH_EMOTION_ENABLED:
+            logger.info("Speech emotion recognition disabled by LELAMP_SPEECH_EMOTION_ENABLED=false")
+        else:
+            try:
+                from lelamp.service.voice.speech_emotion import SpeechEmotionService
+                self._speech_emotion = SpeechEmotionService()
+                if not self._speech_emotion.available:
+                    logger.info(
+                        "Speech emotion service idle — DL backend URL not set"
+                    )
+                else:
+                    logger.info("Speech emotion service enabled")
+            except Exception as e:
+                logger.warning("Speech emotion service init failed: %s", e)
+                self._speech_emotion = None
 
         try:
             import numpy as np
@@ -778,6 +797,22 @@ class VoiceService:
 
             name = result.get("name", "unknown")
             confidence = result.get("confidence", 0.0)
+
+            # Hand off the SAME wav bytes used for speaker ID to the speech
+            if (
+                self._speech_emotion is not None
+                and self._speech_emotion.available
+                and result.get("match")
+                and name
+                and name != "unknown"
+            ):
+                try:
+                    self._speech_emotion.submit(
+                        user=name, wav_bytes=wav_bytes, duration_s=duration_s,
+                    )
+                except Exception as e:
+                    logger.warning("Speech emotion submit failed: %s", e)
+
             if result.get("match") and name and name != "unknown":
                 # Prefer the display_name field (preserves original casing like
                 # "McDonald" or "chloe_92") — fallback to capitalize() of the
