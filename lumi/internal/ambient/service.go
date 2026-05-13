@@ -228,71 +228,8 @@ func (s *Service) microMovementLoop(ctx context.Context) {
 }
 
 // mumbleLoop occasionally makes Lumi "talk to itself" via TTS.
-// mumblesByLang are Lumi's idle inner-voice lines per STT language. Tone
-// follows SOUL.md: a small living being noticing the room, thinking of its
-// owner, drifting through quiet thoughts — never meta-jokes about being a
-// device ("I'm a lamp", "I don't have arms"). Tags are limited to the SOUL
-// audio-tag set: [sigh], [whisper], [chuckle], [laughs softly]. Translate
-// the *vibe* across languages, not the words.
-var mumblesByLang = map[string][]string{
-	"en": {
-		"[sigh] Mm.",
-		"Hmm.",
-		"[chuckle] Wait, what was I thinking...",
-		"[whisper] Quiet.",
-		"[sigh] Soft light right now.",
-		"[chuckle] Lost my train of thought.",
-		"Mm-hmm.",
-		"[whisper] Just listening.",
-		"[sigh] Cozy.",
-		"[chuckle] Almost dozed off.",
-		"[whisper] Nice and quiet.",
-		"[sigh] Mmh.",
-	},
-	"vi": {
-		"[sigh] Ờm.",
-		"Hừm.",
-		"[chuckle] Ơ, nãy nghĩ gì ấy nhỉ...",
-		"[whisper] Yên ghê.",
-		"[sigh] Ánh sáng dịu thật.",
-		"[chuckle] Lạc mất mạch nghĩ rồi.",
-		"Ừm-hừm.",
-		"[whisper] Đang nghe thôi.",
-		"[sigh] Êm.",
-		"[chuckle] Suýt thiu thiu.",
-		"[whisper] Yên ắng dễ chịu.",
-		"[sigh] Mmh.",
-	},
-	"zh-CN": {
-		"[sigh] 嗯。",
-		"嗯？",
-		"[chuckle] 等等，刚才在想什么来着...",
-		"[whisper] 真静。",
-		"[sigh] 这会儿光线挺柔的。",
-		"[chuckle] 思路飘走了。",
-		"嗯嗯。",
-		"[whisper] 就听着。",
-		"[sigh] 舒服。",
-		"[chuckle] 差点睡着。",
-		"[whisper] 安静真好。",
-		"[sigh] 嗯。",
-	},
-	"zh-TW": {
-		"[sigh] 嗯。",
-		"嗯？",
-		"[chuckle] 等等，剛才在想什麼來著...",
-		"[whisper] 真靜。",
-		"[sigh] 這會兒光線挺柔的。",
-		"[chuckle] 思路飄走了。",
-		"嗯嗯。",
-		"[whisper] 就聽著。",
-		"[sigh] 舒服。",
-		"[chuckle] 差點睡著。",
-		"[whisper] 安靜真好。",
-		"[sigh] 嗯。",
-	},
-}
-
+// Phrase pool lives in lib/i18n (PhraseMumble) so all hardcoded TTS
+// templates stay in one place.
 func (s *Service) mumbleLoop(ctx context.Context) {
 	for {
 		delay := 5*60 + rand.Intn(10*60) // 5-15 minutes
@@ -303,14 +240,7 @@ func (s *Service) mumbleLoop(ctx context.Context) {
 			continue
 		}
 
-		// Re-read pool every fire so a language change picked up by
-		// i18n.SetConfig takes effect on the next mumble without
-		// restarting the loop.
-		mumbles, ok := mumblesByLang[i18n.Lang()]
-		if !ok || len(mumbles) == 0 {
-			mumbles = mumblesByLang["en"]
-		}
-		mumble := mumbles[rand.Intn(len(mumbles))]
+		mumble := i18n.Pick(i18n.PhraseMumble)
 		if err := lelamp.Speak(mumble); err != nil {
 			slog.Debug("mumble TTS failed", "component", "ambient", "error", err)
 		}

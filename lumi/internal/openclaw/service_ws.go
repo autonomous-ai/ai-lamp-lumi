@@ -19,40 +19,6 @@ import (
 	"go-lamp.autonomous.ai/lib/i18n"
 )
 
-// reconnectPhrasesByLang holds short TTS announcements for when the WS
-// gateway reconnects after a drop. Picked per i18n.Lang() so the user hears
-// the phrase in the active STT language; "en" is the fallback.
-var reconnectPhrasesByLang = map[string][]string{
-	"en": {
-		"[gasp] Oh, I can think again!",
-		"[sigh] My mind went blank for a sec.",
-		"Whew, lost my train of thought. [chuckle]",
-		"[gasp] Where was I?",
-		"[sigh] That was fuzzy. I'm clear now.",
-	},
-	"vi": {
-		"[gasp] Ô, mình lại nghĩ được rồi!",
-		"[sigh] Vừa nãy đầu óc trống rỗng.",
-		"Phù, mất mạch suy nghĩ. [chuckle]",
-		"[gasp] Mình đang nói tới đâu nhỉ?",
-		"[sigh] Lúc nãy mơ hồ ghê. Giờ tỉnh rồi.",
-	},
-	"zh-CN": {
-		"[gasp] 啊，我又能思考了！",
-		"[sigh] 刚才脑子一片空白。",
-		"呼，思路断了一下。[chuckle]",
-		"[gasp] 我刚说到哪了？",
-		"[sigh] 刚才迷糊了。现在清醒了。",
-	},
-	"zh-TW": {
-		"[gasp] 啊，我又能思考了！",
-		"[sigh] 剛才腦子一片空白。",
-		"呼，思路斷了一下。[chuckle]",
-		"[gasp] 我剛說到哪了？",
-		"[sigh] 剛才迷糊了。現在清醒了。",
-	},
-}
-
 // StartWS connects to the gateway WebSocket and runs the read loop, calling handler for each event.
 // It runs until ctx is cancelled. Auto-reconnects when disconnected.
 func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler) {
@@ -272,11 +238,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	// On reconnect (not first boot), announce via TTS so user knows agent is back.
 	if s.wsHasConnected.Swap(true) {
 		go func() {
-			pool, ok := reconnectPhrasesByLang[i18n.Lang()]
-			if !ok || len(pool) == 0 {
-				pool = reconnectPhrasesByLang["en"]
-			}
-			phrase := pool[time.Now().UnixNano()%int64(len(pool))]
+			phrase := i18n.Pick(i18n.PhraseReconnect)
 			if err := s.SendToLeLampTTS(phrase); err != nil {
 				slog.Warn("reconnect TTS failed", "component", "openclaw", "error", err)
 			}

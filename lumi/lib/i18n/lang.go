@@ -1,7 +1,8 @@
-// Package i18n exposes the active STT language (Lumi config) to callers
-// that speak short hardcoded TTS phrases — recovery announcements, ambient
-// mumbles, "brain restarting" notices. Each caller keeps its own phrase
-// pools but uses Lang() to pick the active locale.
+// Package i18n exposes the active STT language (Lumi config) and the
+// consolidated table of short hardcoded TTS phrases — recovery
+// announcements, ambient mumbles, "brain restarting" notices, etc.
+// Phrase content lives in phrases.go; callers go through Pick/One
+// rather than holding their own pools.
 //
 // The module is a singleton because the alternative — plumbing
 // *config.Config through every Service constructor + Wire provider — would

@@ -34,25 +34,6 @@ import (
 	"go-lamp.autonomous.ai/server/serializers"
 )
 
-// brainRestartingByLang is the cooldown-throttled TTS spoken when a voice
-// command lands while the OpenClaw gateway is disconnected. Lets the user
-// know silence is intentional rather than dead. Phrasing avoids tech
-// jargon ("restarting", "重启") per SOUL.md — Lumi is a small living being
-// whose head briefly lost focus, not a device rebooting.
-var brainRestartingByLang = map[string]string{
-	"en":    "[sigh] Hold on, my head's clearing.",
-	"vi":    "[sigh] Đợi chút nhé, đầu mình đang tỉnh lại.",
-	"zh-CN": "[sigh] 稍等一下，我脑子还在回过神。",
-	"zh-TW": "[sigh] 稍等一下，我腦子還在回過神。",
-}
-
-func brainRestartingNotice() string {
-	if v, ok := brainRestartingByLang[i18n.Lang()]; ok && v != "" {
-		return v
-	}
-	return brainRestartingByLang["en"]
-}
-
 // SensingEventRequest is the payload from LeLamp sensing detectors.
 type SensingEventRequest struct {
 	// Type is the event category: motion, sound, presence.enter, presence.leave, light.level, etc.
@@ -280,7 +261,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			if last := h.lastNotReadyTTS.Load(); now-last > 60_000 {
 				if h.lastNotReadyTTS.CompareAndSwap(last, now) {
 					go func() {
-						if err := lelamp.Speak(brainRestartingNotice()); err != nil {
+						if err := lelamp.Speak(i18n.One(i18n.PhraseBrainRestart)); err != nil {
 							slog.Warn("not-ready TTS failed", "component", "sensing", "error", err)
 						}
 					}()
