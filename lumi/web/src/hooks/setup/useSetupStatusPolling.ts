@@ -108,23 +108,39 @@ export function useSetupStatusPolling({
   // mDNS transparently maps it to the lamp's new LAN IP — no manual click.
   // Android Chrome (no native mDNS) just sees probes fail and stays on the
   // AP IP — current behavior, no regression.
+  //
+  // Aggressive timing on first attempts: browsers sometimes hold negative
+  // mDNS results for a few seconds on the first lookup. Start polling at
+  // 800ms and back off so the redirect lands sub-second when mDNS is healthy
+  // without spamming the network forever on Android-blocked cases.
   useEffect(() => {
     if (!lumiMdnsHost) return;
     if (typeof window === "undefined") return;
     if (window.location.hostname !== "192.168.100.1") return;
     let cancelled = false;
+    let attempt = 0;
     const base = `http://${lumiMdnsHost}.local`;
     const target = `${base}${window.location.pathname}${window.location.search}`;
+    let timer: number | undefined;
     const probe = async () => {
+      attempt += 1;
       try {
         await fetch(`${base}/api/health`, { mode: "no-cors", cache: "no-store" });
-        if (!cancelled) window.location.replace(target);
+        if (cancelled) return;
+        console.info(`[setup] mDNS reachable after ${attempt} probe(s) — redirecting to ${target}`);
+        window.location.replace(target);
+        return;
       } catch {
         /* mDNS not resolvable from this client (Android Chrome, blocked LAN) */
       }
+      if (cancelled) return;
+      // Back-off: 800ms × 4 then 2s × ∞ — fast initial retries when mDNS is
+      // slow-resolving for the first lookup, then slow polls so we don't
+      // hammer the network on Android-blocked clients.
+      const next = attempt < 4 ? 800 : 2000;
+      timer = window.setTimeout(probe, next);
     };
     probe();
-    const id = setInterval(probe, 5000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
   }, [lumiMdnsHost]);
 }

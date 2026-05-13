@@ -43,7 +43,13 @@ function SetupGate() {
         const s = await getSetupStatus();
         if (cancelled) return;
         const here = window.location.hostname;
-        if (s.lan_ip && s.lan_ip !== here && !isTailscaleHost(here)) {
+        // Skip the lan_ip bounce when:
+        //   - on Tailscale (CGNAT) — deliberate remote-access path
+        //   - on the canonical .local mDNS name — bouncing to a raw IP would
+        //     undo the post-AP→STA redirect (URL must stay stable so the
+        //     browser auto-resolves to the new IP on every wifi change)
+        const isCanonicalMdns = here.endsWith(".local");
+        if (s.lan_ip && s.lan_ip !== here && !isTailscaleHost(here) && !isCanonicalMdns) {
           window.location.replace(`http://${s.lan_ip}${window.location.pathname}${window.location.search}`);
           return;
         }
