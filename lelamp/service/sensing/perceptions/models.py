@@ -48,5 +48,6 @@ class PerceptionConfig:
     enable_motion: bool = False
     enable_motion_per_face: bool = False
     enable_emotion: bool = False
+    enable_pose: bool = False
     enable_light: bool = False
     enable_sound: bool = False
