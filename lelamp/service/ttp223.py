@@ -49,17 +49,21 @@ OPI_SUN60_TTP223_LINES = [96, 97, 98, 99]
 SESSION_GAP_S = 0.2
 
 # Decision window: after a session ends, wait this long for more
-# sessions before classifying as a single tap. Observed strokes on
-# this hardware produce sessions ~500-700ms apart (FastMode forces
-# the user into a tap-tap-tap rhythm rather than continuous motion),
-# so 0.7s catches the next stroke beat. Cost: single tap responds
-# 0.7s after release.
-DECISION_WINDOW_S = 0.7
+# sessions before classifying as a single tap. Field-measured stroke
+# pace on this hardware is 0.8-1.2s per beat (FastMode forces a
+# tap-tap-tap rhythm rather than continuous motion). 1.2s catches the
+# slowest natural stroke. Cost: single tap responds 1.2s after release
+# — the price of preventing a spurious "single click" at the start of
+# every pet motion.
+DECISION_WINDOW_S = 1.2
 
-# Number of sessions to qualify as pet. When count reaches this on a
-# session end, head_pat fires immediately — no need to wait out the
-# decision window — so pet response stays snappy.
-PET_SESSION_THRESHOLD = 3
+# Number of sessions to qualify as pet. 2 keeps pet detection generous
+# for continuous stroking — any second touch within DECISION_WINDOW
+# fires pet immediately. The cost is that two intentional single taps
+# spaced <0.9s apart will fire pet instead of two singles; this is
+# acceptable because users who want two stops just need to space their
+# taps slightly (1s+ apart).
+PET_SESSION_THRESHOLD = 2
 
 # After head_pat fires, swallow further sessions for this long so a
 # continuous stroke doesn't produce stuttering "single click" interjections
