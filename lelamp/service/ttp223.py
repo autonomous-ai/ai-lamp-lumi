@@ -1,46 +1,80 @@
-"""TTP223 capacitive touchpad handler.
+"""TTP223 capacitive touchpad handler (4 pads = dog-head touch surface).
 
-Maps four TTP223 pads (S1-S4 on gpiochip0 lines 96-99, OrangePi
-sun60iw2) to the same three gestures handled by the GPIO button:
-- Single tap:       stop speaker / unmute mic
-- Triple tap:       reboot OS
-- Long touch (5s):  shutdown OS
+Two gestures:
+- Single tap   → stop speaker / unmute mic (same as GPIO button single click)
+- Pet / stroke → playful TTS response ("hihi nhột quá!", etc.)
 
-All four pads form one logical button surface — touching any pad
-counts as a press, release happens when the last active pad lets go.
-The user doesn't have to hit a specific pad, any of S1-S4 works.
+Destructive gestures (reboot / shutdown) are intentionally OFF on TTP223
+because the IC on this board runs in FastMode: output drops LOW within
+~50ms of touch even with finger still on the pad, so a true "hold 5s"
+is impossible without rewiring the FM pin. GPIO button still owns those.
 
-Action logic is shared with the GPIO button via `button_actions.py`.
+Gesture detection is two-layered:
+
+1. Session: any edge (rising or falling, any pad) keeps a 200ms window
+   alive. Coalesces the burst of cross-talk + FastMode auto-LOW edges
+   from one physical touch into a single "session". One session = one
+   touch event from the user's POV.
+
+2. Pet vs tap: after a session ends, wait DECISION_WINDOW (400ms) for
+   more sessions. Three or more sessions in rapid succession = the user
+   is stroking the head → head_pat_action. One session that's not
+   followed by more = single tap → single_click_action. (Two sessions
+   are treated as a single tap for tolerance — TTP223 cross-talk
+   occasionally splits one physical touch.)
+
+The 400ms decision delay is the cost of distinguishing the two gestures
+on this hardware — TTP223 FastMode can't tell us "finger currently down",
+so we infer continuous stroking from session frequency.
 """
 
 import logging
 import threading
 import time
 
-import gpiod
-from gpiod.line import Bias, Direction, EdgeDetection
-
 from lelamp.service.button_actions import (
-    DOUBLE_CLICK_WINDOW,
-    LONG_PRESS_DURATION,
-    long_press_action,
+    head_pat_action,
     single_click_action,
-    triple_click_action,
 )
 
 logger = logging.getLogger(__name__)
 
-TTP223_CHIP = "/dev/gpiochip0"
-TTP223_LINES = [96, 97, 98, 99]
-TTP223_NAMES = {96: "S1", 97: "S2", 98: "S3", 99: "S4"}
-# TTP223 is capacitive — no mechanical contact bounce — but a small
-# per-line debounce filters out near-simultaneous edges when the user
-# drags a fingertip across multiple pads.
-TTP223_DEBOUNCE_NS = 50_000_000  # 50 ms
+# OrangePi sun60iw2 (4 Pro / A733): TTP223 pads on gpiochip0 lines 96-99.
+OPI_SUN60_TTP223_CHIP = 0
+OPI_SUN60_TTP223_LINES = [96, 97, 98, 99]
+
+# Session gap: edges within this window of the previous edge belong to
+# the same session. 200ms comfortably exceeds the observed burst length
+# (~30-100ms across 4 pads) while staying below a natural inter-tap gap.
+SESSION_GAP_S = 0.2
+
+# Decision window: after a session ends, wait this long for more
+# sessions before classifying as a single tap. Field-measured stroke
+# pace on this hardware is 0.8-1.2s per beat (FastMode forces a
+# tap-tap-tap rhythm rather than continuous motion). 1.2s catches the
+# slowest natural stroke. Cost: single tap responds 1.2s after release
+# — the price of preventing a spurious "single click" at the start of
+# every pet motion.
+DECISION_WINDOW_S = 1.2
+
+# Number of sessions to qualify as pet. 2 keeps pet detection generous
+# for continuous stroking — any second touch within DECISION_WINDOW
+# fires pet immediately. The cost is that two intentional single taps
+# spaced <0.9s apart will fire pet instead of two singles; this is
+# acceptable because users who want two stops just need to space their
+# taps slightly (1s+ apart).
+PET_SESSION_THRESHOLD = 2
+
+# After head_pat fires, swallow further sessions for this long so a
+# continuous stroke doesn't produce stuttering "single click" interjections
+# between pet responses. Every session inside the window extends the
+# window — petting is finished only when the user stops touching for
+# PET_COOLDOWN_S consecutively.
+PET_COOLDOWN_S = 1.5
 
 
 def _device_tree_model() -> str:
-    """Lower-cased contents of /proc/device-tree/model, or '' if missing."""
+    """Lower-cased /proc/device-tree/model contents, or '' if missing."""
     try:
         with open("/proc/device-tree/model", "r") as f:
             return f.read().rstrip("\x00").strip().lower()
@@ -49,7 +83,6 @@ def _device_tree_model() -> str:
 
 
 def _is_orangepi_sun60() -> bool:
-    """Allwinner sun60iw2 (OrangePi 4 Pro / A733)."""
     return "sun60iw2" in _device_tree_model()
 
 
@@ -62,7 +95,6 @@ def _is_raspberry_pi_5() -> bool:
 
 
 def _board_label() -> str:
-    """Short label for logs."""
     if _is_orangepi_sun60():
         return "orangepi-sun60"
     if _is_raspberry_pi_5():
@@ -72,140 +104,147 @@ def _board_label() -> str:
     return _device_tree_model() or "unknown"
 
 
+def _resolve_board_config():
+    """Return (chip, lines) or None if TTP223 isn't wired here."""
+    if _is_orangepi_sun60():
+        return (OPI_SUN60_TTP223_CHIP, OPI_SUN60_TTP223_LINES)
+    return None
+
+
 class TTP223Handler:
     def __init__(self):
-        self._req = None
-        self._thread = None
-        # Set of line numbers currently HIGH (active). Press = transition
-        # from empty to non-empty; release = transition back to empty.
-        self._active: set[int] = set()
-        self._click_count = 0
-        self._click_timer = None
-        self._press_start = 0.0
-        self._long_press_timer = None
-        self._long_press_fired = False
-        self._last_edge_ns: dict[int, int] = {l: 0 for l in TTP223_LINES}
+        self._lgpio = None
+        self._handle = None
+        self._callbacks = []
+        self._chip = 0
+        self._lines = []
+        self._lock = threading.Lock()
+        # Session-end timer: fires SESSION_GAP_S after the last edge.
+        self._session_end_timer = None
+        # Decision timer: fires DECISION_WINDOW_S after the last session
+        # ended, resolving how many sessions accumulated → tap vs pet.
+        self._decision_timer = None
+        self._session_count = 0
+        # monotonic deadline before which incoming sessions are silently
+        # eaten (cooldown after pet to avoid stuttering single_clicks
+        # during a continuous stroke).
+        self._pet_cooldown_until = 0.0
 
     def start(self):
-        board = _board_label()
-        if not _is_orangepi_sun60():
-            # Pi 4 / Pi 5 / unknown boards don't have TTP223 wired —
-            # skip entirely so the same image runs everywhere without
-            # claiming unrelated GPIOs. If TTP223 gets added to Pi
-            # later, branch here on _is_raspberry_pi_4/5() and override
-            # TTP223_CHIP / TTP223_LINES per board (mirror gpio_button's
-            # _resolve_board_config pattern).
-            logger.info("ttp223 disabled: board is %s (only wired on orangepi-sun60)", board)
-            return
-
-        settings = gpiod.LineSettings(
-            direction=Direction.INPUT,
-            bias=Bias.PULL_DOWN,
-            edge_detection=EdgeDetection.BOTH,
-        )
-        config = {l: settings for l in TTP223_LINES}
-        try:
-            self._req = gpiod.request_lines(
-                TTP223_CHIP, consumer="ttp223-touchpad", config=config
+        config = _resolve_board_config()
+        if config is None:
+            logger.info(
+                "TTP223 disabled: board is %s (only wired on orangepi-sun60)",
+                _board_label(),
             )
-        except (OSError, FileNotFoundError) as e:
-            # Right board but lines already claimed / kernel error —
-            # log so we can investigate but don't crash the process.
-            logger.warning("ttp223 line claim failed: %s", e)
             return
-        self._thread = threading.Thread(
-            target=self._run, name="ttp223-touchpad", daemon=True
-        )
-        self._thread.start()
-        logger.info(
-            "TTP223 ready on %s lines %s (debounce %d ms)",
-            TTP223_CHIP,
-            TTP223_LINES,
-            TTP223_DEBOUNCE_NS // 1_000_000,
-        )
 
-    def _run(self):
-        while True:
+        import lgpio
+
+        self._chip, self._lines = config
+        self._lgpio = lgpio
+
+        try:
+            self._handle = lgpio.gpiochip_open(self._chip)
+        except Exception as e:
+            logger.warning("TTP223 gpiochip_open(%d) failed: %s", self._chip, e)
+            return
+
+        for line in self._lines:
             try:
-                # Block until edges arrive. Daemon thread dies on
-                # process exit; no explicit stop path needed.
-                if not self._req.wait_edge_events():
-                    continue
-                for ev in self._req.read_edge_events():
-                    self._on_event(ev)
+                lgpio.gpio_claim_alert(
+                    self._handle, line, lgpio.BOTH_EDGES, lgpio.SET_PULL_DOWN
+                )
+                cb = lgpio.callback(
+                    self._handle, line, lgpio.BOTH_EDGES, self._on_edge
+                )
+                self._callbacks.append(cb)
             except Exception as e:
-                logger.error("ttp223 event loop error: %s", e)
-                break
+                logger.warning("TTP223 claim line %d failed: %s", line, e)
 
-    def _on_event(self, ev):
-        line = ev.line_offset
-        ts = ev.timestamp_ns
-        # Per-line debounce. Tracking ticks per line (not globally) so
-        # tapping pad A then pad B in quick succession registers both
-        # edges; only bouncy repeats of the same line are dropped.
-        if ts - self._last_edge_ns[line] < TTP223_DEBOUNCE_NS:
+        if not self._callbacks:
+            logger.warning("TTP223 no lines claimed -- disabled")
             return
-        self._last_edge_ns[line] = ts
 
-        # TTP223 with pull-down bias: rising edge = touch, falling = release.
-        is_press = ev.event_type == gpiod.EdgeEvent.Type.RISING_EDGE
-        was_active = bool(self._active)
-        if is_press:
-            self._active.add(line)
-        else:
-            self._active.discard(line)
-        now_active = bool(self._active)
-
-        if not was_active and now_active:
-            self._on_press()
-        elif was_active and not now_active:
-            self._on_release()
-
-    def _on_press(self):
-        self._press_start = time.monotonic()
-        self._long_press_fired = False
-        self._long_press_timer = threading.Timer(
-            LONG_PRESS_DURATION, self._on_long_press
+        logger.info(
+            "TTP223 ready on gpiochip%d lines %s (session %dms, decision %dms, pet>=%d sessions)",
+            self._chip,
+            self._lines,
+            int(SESSION_GAP_S * 1000),
+            int(DECISION_WINDOW_S * 1000),
+            PET_SESSION_THRESHOLD,
         )
-        self._long_press_timer.daemon = True
-        self._long_press_timer.start()
 
-    def _on_release(self):
-        if self._long_press_timer:
-            self._long_press_timer.cancel()
-            self._long_press_timer = None
+    def _on_edge(self, chip, gpio, level, tick):
+        # Any edge keeps the current session alive — cross-talk and
+        # FastMode auto-LOW produce flurries of edges per physical
+        # touch; coalesce them by resetting the session-end timer.
+        with self._lock:
+            if self._session_end_timer is not None:
+                self._session_end_timer.cancel()
+            self._session_end_timer = threading.Timer(
+                SESSION_GAP_S, self._on_session_end
+            )
+            self._session_end_timer.daemon = True
+            self._session_end_timer.start()
 
-        if self._long_press_fired:
-            # Long press already shut down — ignore the trailing release.
-            return
+    def _on_session_end(self):
+        # One physical touch ended.
+        #
+        # 1) If we're still inside the pet cooldown (user is mid-stroke,
+        #    a head_pat fired recently), extend the cooldown and bail —
+        #    don't count, don't fire. This prevents single_clicks from
+        #    interleaving between pets during one continuous stroke.
+        # 2) Otherwise increment the count. If it hits PET threshold,
+        #    fire head_pat immediately and arm the cooldown.
+        # 3) Else schedule the decision timer to classify accumulated
+        #    sessions as a single tap when the user stops touching.
+        fire_pet = False
+        with self._lock:
+            self._session_end_timer = None
+            now = time.monotonic()
+            if now < self._pet_cooldown_until:
+                # Still petting — swallow this session, extend cooldown.
+                self._pet_cooldown_until = now + PET_COOLDOWN_S
+                # Also cancel any pending decision_timer left over from
+                # the pre-pet count: that count was already consumed
+                # when pet fired, so no single_click should fire.
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                    self._decision_timer = None
+                logger.debug("TTP223 session ignored (pet cooldown)")
+                return
+            self._session_count += 1
+            count = self._session_count
+            logger.debug("TTP223 session ended (count=%d)", count)
+            if count >= PET_SESSION_THRESHOLD:
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                    self._decision_timer = None
+                self._session_count = 0
+                self._pet_cooldown_until = now + PET_COOLDOWN_S
+                fire_pet = True
+            else:
+                if self._decision_timer is not None:
+                    self._decision_timer.cancel()
+                self._decision_timer = threading.Timer(
+                    DECISION_WINDOW_S, self._on_decision
+                )
+                self._decision_timer.daemon = True
+                self._decision_timer.start()
+        if fire_pet:
+            head_pat_action(source="TTP223")
 
-        held = time.monotonic() - self._press_start
-        if held >= LONG_PRESS_DURATION:
-            return
-
-        # Count as a tap
-        self._click_count += 1
-        if self._click_timer:
-            self._click_timer.cancel()
-        self._click_timer = threading.Timer(
-            DOUBLE_CLICK_WINDOW, self._on_click_timeout
-        )
-        self._click_timer.daemon = True
-        self._click_timer.start()
-
-    def _on_click_timeout(self):
-        count = self._click_count
-        self._click_count = 0
-        if count == 1:
-            single_click_action(source="ttp223")
-        elif count == 3:
-            triple_click_action(source="ttp223")
-        else:
-            # count == 2 → likely a slipped/panic double-tap of single
-            # count >= 4 → panic-tap; never trigger destructive actions
-            logger.info("ttp223 %d taps -- ignored (only 1=stop, 3=reboot)", count)
-
-    def _on_long_press(self):
-        self._long_press_timer = None
-        self._long_press_fired = True
-        long_press_action(source="ttp223")
+    def _on_decision(self):
+        with self._lock:
+            count = self._session_count
+            self._session_count = 0
+            self._decision_timer = None
+        if count >= 1:
+            # 1 or 2 sessions accumulated before the window expired →
+            # single tap. 2 is tolerated because TTP223 cross-talk
+            # occasionally splits one physical touch into two close
+            # sessions; treating both as one tap is friendlier than
+            # ignoring. Threshold-reached pet is fired inline by
+            # _on_session_end and never reaches this branch.
+            single_click_action(source="TTP223")

@@ -157,4 +157,20 @@ class GPIOButtonHandler:
 
     def _on_long_press(self):
         self._long_press_timer = None
+        # Defensive: re-read pin level before firing shutdown. With
+        # PULL_UP wiring the button reads LOW (0) only while held —
+        # any other reading means the release edge was missed and the
+        # timer fired against stale state (e.g., 2 quick taps spaced
+        # ~5s where the first release got debounced out).
+        try:
+            level = self._lgpio.gpio_read(self._handle, self._pin)
+        except Exception as e:
+            logger.warning("GPIO button pin read at long-press guard failed: %s", e)
+            level = 0  # fall through to normal behavior if read fails
+        if level != 0:
+            logger.warning(
+                "GPIO button long press timer fired but pin=%s (not held) -- ignoring",
+                level,
+            )
+            return
         long_press_action(source="GPIO button")

@@ -3,6 +3,7 @@
 import logging
 from typing import Iterator, Optional
 
+from lelamp.presets import LANG_EN, LANG_VI
 from lelamp.service.voice.tts_backend import TTSBackend, STREAM_CHUNK_SIZE
 
 logger = logging.getLogger("lelamp.voice.tts_backend")
@@ -26,8 +27,13 @@ class ElevenLabsTTSBackend(TTSBackend):
     # zh-CN and zh-TW share the same voice pool — script (Simplified vs
     # Traditional) differs in TEXT, not in speaker. Jin has a Taiwan accent
     # which the web UI may want to surface for zh-TW pickers.
+    # "zh" below is an internal meta-bucket (not a stt_language code) —
+    # both LANG_ZH_CN and LANG_ZH_TW share this voice pool since
+    # voice IDs are script-agnostic.
+    _LANG_BUCKET_ZH = "zh"
+
     VOICE_IDS_BY_LANG = {
-        "en": {
+        LANG_EN: {
             # Female — premade
             "Rachel": "21m00Tcm4TlvDq8ikWAM",       # (*) warm, natural American
             "Sarah": "EXAVITQu4vr4xnSDxMaL",        # (*) friendly, clear American
@@ -57,7 +63,7 @@ class ElevenLabsTTSBackend(TTSBackend):
             "Brooks": "sUzXYdokj3o9QQ91yPRF",       # (*) bright, affable, friendly smile — 1.5k clones
             "Erion": "BSgaLWMIhbNhOCIH1apf",        # unique, friendly, casual — 1.3k clones
         },
-        "vi": {
+        LANG_VI: {
             "Ngan": "a3AkyqGG4v8Pg7SWQ0Y3",         # (*) Female, bubbly, friendly, authentic
             "Linh": "L5c6tGA8OiORYKxez5Zu",         # (*) Female, soft, calm, beautifully expressive
             "Huyen": "foH7s9fX31wFFH2yqrFa",        # Female, calm, friendly, clear (Da Nang)
@@ -65,7 +71,7 @@ class ElevenLabsTTSBackend(TTSBackend):
             "Nathan": "u8EWWYyBDfXFxHak7WM3",       # (*) Male, soft-spoken, gentle, sing-song Central
             "Quan": "puBBfOSRT9Dbk3FUJQGd",         # Male, warm, thoughtful Central tone
         },
-        "zh": {
+        _LANG_BUCKET_ZH: {
             "Amy": "bhJUNIXWQQ94l8eI2VUf",          # (*) Female, relaxed, friendly Beijing tone
             "Sage": "APSIkVZudNbPAwyPoeVO",         # (*) Female, warm, soothing narrative voice
             "Xiaoxi": "9DMBSOAnMDPiFAsz1ZGK",       # Female, neutral, friendly, approachable
@@ -94,16 +100,16 @@ class ElevenLabsTTSBackend(TTSBackend):
         script-agnostic."""
         if not lang:
             return list(cls.VOICE_IDS.keys())
-        bucket = "en"
-        if lang.startswith("vi"):
-            bucket = "vi"
-        elif lang.startswith("zh"):
-            bucket = "zh"
-        elif lang.startswith("en"):
-            bucket = "en"
+        bucket = LANG_EN
+        if lang.startswith(LANG_VI):
+            bucket = LANG_VI
+        elif lang.startswith(cls._LANG_BUCKET_ZH):
+            bucket = cls._LANG_BUCKET_ZH
+        elif lang.startswith(LANG_EN):
+            bucket = LANG_EN
         pool = cls.VOICE_IDS_BY_LANG.get(bucket)
         if not pool:
-            pool = cls.VOICE_IDS_BY_LANG["en"]
+            pool = cls.VOICE_IDS_BY_LANG[LANG_EN]
         return list(pool.keys())
 
     def __init__(self, api_key: str, base_url: Optional[str] = None):
