@@ -247,11 +247,11 @@ var ToolFillersZhTW = map[string][]string{
 // when the requested pool is empty so a misconfigured pool stays graceful.
 func poolsForLang(lang string) (opening, continuation []string) {
 	switch lang {
-	case "vi":
+	case i18n.LangVI:
 		return OpeningFillersVI, ContinuationFillersVI
-	case "zh-CN":
+	case i18n.LangZhCN:
 		return OpeningFillersZhCN, ContinuationFillersZhCN
-	case "zh-TW":
+	case i18n.LangZhTW:
 		return OpeningFillersZhTW, ContinuationFillersZhTW
 	}
 	return OpeningFillers, ContinuationFillers
@@ -266,11 +266,11 @@ func toolPoolForLang(lang, toolName string) []string {
 	}
 	var pools map[string][]string
 	switch lang {
-	case "vi":
+	case i18n.LangVI:
 		pools = ToolFillersVI
-	case "zh-CN":
+	case i18n.LangZhCN:
 		pools = ToolFillersZhCN
-	case "zh-TW":
+	case i18n.LangZhTW:
 		pools = ToolFillersZhTW
 	default:
 		pools = ToolFillersEN
