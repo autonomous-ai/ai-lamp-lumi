@@ -30,6 +30,8 @@ import threading
 import time
 from typing import Optional
 
+from lelamp.presets import DEFAULT_LANG, LANG_EN, LANG_VI, LANG_ZH_CN, LANG_ZH_TW
+
 logger = logging.getLogger("lelamp.voice.backchannel")
 
 # Default filler pools per stt_language (read from Lumi's config.json).
@@ -38,23 +40,23 @@ logger = logging.getLogger("lelamp.voice.backchannel")
 # fine (e.g. Vietnamese keeps "Hmm" alongside "Ờ" / "Ừm") because those
 # universal interjections sound natural in any tongue.
 _DEFAULT_FILLERS_BY_LANG = {
-    "en": "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh",
-    "vi": "Ờ,Ừm,Dạ,Vâng,À,Hmm,Uhm,Ơ",
-    "zh-CN": "嗯,好,啊,是,嗯嗯,对,哦,呃",
-    "zh-TW": "嗯,好,啊,是,嗯嗯,對,哦,呃",
+    LANG_EN:    "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh",
+    LANG_VI:    "Ờ,Ừm,Dạ,Vâng,À,Hmm,Uhm,Ơ",
+    LANG_ZH_CN: "嗯,好,啊,是,嗯嗯,对,哦,呃",
+    LANG_ZH_TW: "嗯,好,啊,是,嗯嗯,對,哦,呃",
 }
 
 
 def _default_fillers_for_active_lang() -> str:
     """Pick the default filler list based on Lumi's stt_language. Falls
-    back to English when the config can't be read or the language is
+    back to DEFAULT_LANG when the config can't be read or the language is
     empty/unknown. Caller can still override with LELAMP_BACKCHANNEL_FILLERS."""
     try:
         from lelamp.config import _lumi_cfg_get
         lang = (_lumi_cfg_get("stt_language") or "").strip()
     except Exception:
         lang = ""
-    return _DEFAULT_FILLERS_BY_LANG.get(lang, _DEFAULT_FILLERS_BY_LANG["en"])
+    return _DEFAULT_FILLERS_BY_LANG.get(lang, _DEFAULT_FILLERS_BY_LANG[DEFAULT_LANG])
 
 
 # Comma-separated filler words to play as listening cues. Empty string = feature disabled.
