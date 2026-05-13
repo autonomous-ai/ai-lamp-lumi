@@ -97,4 +97,34 @@ export function useSetupStatusPolling({
     const id = setInterval(probe, 3000);
     return () => { cancelled = true; clearInterval(id); };
   }, [setupPhase, lumiMdnsHost]);
+
+  // Pre-submit canonical URL upgrade: when user lands on the AP IP
+  // (192.168.100.1) we silently bounce to `http://lumi-XXXX.local/…` once we
+  // know the hostname AND the .local name is reachable from the current
+  // network. On the AP itself avahi runs on the lamp so the same multicast
+  // reaches both peers — resolution is almost instant on Windows/macOS/iOS.
+  // Benefit: the URL stays the same through the AP→STA wifi switch, so when
+  // the user rejoins home Wi-Fi the browser reloads the same .local URL and
+  // mDNS transparently maps it to the lamp's new LAN IP — no manual click.
+  // Android Chrome (no native mDNS) just sees probes fail and stays on the
+  // AP IP — current behavior, no regression.
+  useEffect(() => {
+    if (!lumiMdnsHost) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hostname !== "192.168.100.1") return;
+    let cancelled = false;
+    const base = `http://${lumiMdnsHost}.local`;
+    const target = `${base}${window.location.pathname}${window.location.search}`;
+    const probe = async () => {
+      try {
+        await fetch(`${base}/api/health`, { mode: "no-cors", cache: "no-store" });
+        if (!cancelled) window.location.replace(target);
+      } catch {
+        /* mDNS not resolvable from this client (Android Chrome, blocked LAN) */
+      }
+    };
+    probe();
+    const id = setInterval(probe, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [lumiMdnsHost]);
 }
