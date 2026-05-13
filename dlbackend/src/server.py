@@ -27,11 +27,13 @@ from core.emotion.emotion import EmotionModel
 from core.persondetector import YOLOPersonDetector
 from enums import PersonDetectorEnum
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
+from protocols.htpp import speech_emotion_recognizer as ser_protocol
 from protocols.htpp.action import router as action_ws_router
 from protocols.htpp.audio_recognizer import router as audio_recognizer_router
 from protocols.htpp.emotion import http_router as emotion_http_router
 from protocols.htpp.emotion import ws_router as emotion_ws_router
 from protocols.htpp.health import router as health_router
+from protocols.htpp.speech_emotion_recognizer import router as ser_router
 from protocols.utils.state import (
     get_action_model,
     get_emotion_model,
@@ -121,6 +123,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Failed to load audio recognizer: %s", e)
 
+    logger.info("Loading speech emotion recognizer...")
+    try:
+        ser_protocol._get_recognizer()
+        logger.info("Speech emotion recognizer ready")
+    except Exception as e:
+        logger.warning("Failed to load speech emotion recognizer: %s", e)
+
     yield
 
     logger.info("Shutting down DL backend...")
@@ -145,6 +154,7 @@ app.include_router(health_router, prefix="/api/dl", dependencies=[Depends(verify
 app.include_router(
     audio_recognizer_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)]
 )
+app.include_router(ser_router, prefix="/api/dl", dependencies=[Depends(verify_api_key)])
 
 
 # --- CLI ---
