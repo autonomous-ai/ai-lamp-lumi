@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from core.models.pose import Point2D, Point3D, Pose2D, Pose3D
+from core.perception.pose.ergo.base import ErgoAssessment, ErgoAssessor
 from core.perception.pose.graph import coco_to_h36m
 from core.perception.pose.pose2d.base import PoseEstimator2D
 from core.perception.pose.pose3d.base import PoseEstimator3DLifting
@@ -32,12 +33,14 @@ class PoseAnalysis:
         self,
         estimator_2d: PoseEstimator2D,
         lifter_3d: PoseEstimator3DLifting | None = None,
+        ergo_assessor: ErgoAssessor | None = None,
         frame_interval: float | None = None,
         confidence_threshold_2d: float | None = None,
         min_valid_keypoints: int | None = None,
     ):
         self._estimator_2d: PoseEstimator2D = estimator_2d
         self._lifter_3d: PoseEstimator3DLifting | None = lifter_3d
+        self._ergo_assessor: ErgoAssessor | None = ergo_assessor
         self._frame_interval: float | None = frame_interval
         self._confidence_threshold_2d: float = (
             confidence_threshold_2d
@@ -92,6 +95,7 @@ class PoseAnalysis:
         return PoseSession(
             estimator_2d=self._estimator_2d,
             lifter_3d=self._lifter_3d,
+            ergo_assessor=self._ergo_assessor,
             frame_interval=frame_interval,
             confidence_threshold_2d=self._confidence_threshold_2d,
             min_valid_keypoints=self._min_valid_keypoints,
@@ -105,12 +109,14 @@ class PoseSession:
         self,
         estimator_2d: PoseEstimator2D,
         lifter_3d: PoseEstimator3DLifting | None,
+        ergo_assessor: ErgoAssessor | None,
         frame_interval: float,
         confidence_threshold_2d: float,
         min_valid_keypoints: int,
     ):
         self._estimator_2d: PoseEstimator2D = estimator_2d
         self._lifter_3d: PoseEstimator3DLifting | None = lifter_3d
+        self._ergo_assessor: ErgoAssessor | None = ergo_assessor
         self._frame_interval: float = frame_interval
         self._confidence_threshold_2d: float = confidence_threshold_2d
         self._min_valid_keypoints: int = min_valid_keypoints
@@ -141,12 +147,26 @@ class PoseSession:
             confs=[float(c) for c in confs],
         )
 
-        result: dict[str, Any] = {"pose_2d": pose_2d, "pose_3d": None}
+        result: dict[str, Any] = {"pose_2d": pose_2d, "pose_3d": None, "ergo": None}
 
-        # Optional 3D lifting — only if enough keypoints are confident
+        # Check if enough keypoints are confident for downstream processing
         num_valid: int = int((confs >= self._confidence_threshold_2d).sum())
-        if self._lifter_3d is not None and num_valid >= self._min_valid_keypoints:
+        has_valid_pose: bool = num_valid >= self._min_valid_keypoints
+
+        # Convert to H36M once for both 3D lifting and ergo assessment
+        h36m_kps: npt.NDArray[np.float32] | None = None
+        h36m_scores: npt.NDArray[np.float32] | None = None
+        if has_valid_pose and (self._lifter_3d is not None or self._ergo_assessor is not None):
             h36m_kps, h36m_scores = coco_to_h36m(keypoints, scores)
+
+        # Optional ergo assessment
+        if self._ergo_assessor is not None and h36m_kps is not None and h36m_scores is not None:
+            ergo_result: ErgoAssessment | None = self._ergo_assessor.assess(h36m_kps[0], h36m_scores[0])
+            if ergo_result is not None:
+                result["ergo"] = ergo_result
+
+        # Optional 3D lifting
+        if self._lifter_3d is not None and has_valid_pose and h36m_kps is not None and h36m_scores is not None:
             self._h36m_kps_buffer.append(h36m_kps[0])
             self._h36m_scores_buffer.append(h36m_scores[0])
 

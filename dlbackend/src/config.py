@@ -12,7 +12,7 @@ from core.enums import (
     PoseEstimator2DEnum,
     SpeechEmotionRecognizerEnum,
 )
-from core.enums.pose import PoseLifter3DEnum
+from core.enums.pose import ErgoAssessorEnum, PoseLifter3DEnum
 
 
 class PersonDetectorSetting(BaseModel):
@@ -56,6 +56,8 @@ class PoseSetting(BaseModel):
     lifter_3d_ckpt_path: str | None = None
     lifter_3d_frame_w: int | None = None
     lifter_3d_frame_h: int | None = None
+    ergo_assessor: ErgoAssessorEnum | None = None
+    ergo_confidence_threshold: float | None = None
 
 
 class SpeechEmotionRecognizerSetting(BaseModel):

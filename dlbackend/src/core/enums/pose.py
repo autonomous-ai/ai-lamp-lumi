@@ -12,3 +12,7 @@ class PoseEstimator2DEnum(StrEnum):
 
 class PoseLifter3DEnum(StrEnum):
     TCPFORMER = "tcpformer"
+
+
+class ErgoAssessorEnum(StrEnum):
+    RULA = "rula"
