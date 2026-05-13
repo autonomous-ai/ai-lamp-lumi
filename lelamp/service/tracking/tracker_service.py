@@ -87,14 +87,13 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-SERVO_MOVE_DURATION = 0.2   # seconds for move_to() yaw interpolation per gimbal fire
-SERVO_SUBSTEP_DEG   = 10.0  # max degrees per sub-step for pitch/elbow/wrist
+SERVO_SUBSTEP_DEG   = 10.0  # max degrees per sub-step
 SERVO_SUBSTEP_SLEEP = 0.02  # seconds between sub-steps
 
 # Pitch distribution across 3 joints.
 PITCH_WEIGHT_BASE  = 0.10
-PITCH_WEIGHT_ELBOW = 0.35
-PITCH_WEIGHT_WRIST = 0.55
+PITCH_WEIGHT_ELBOW = 0.70
+PITCH_WEIGHT_WRIST = 0.20
 
 # Edge proximity boost — when object nears frame edge, multiply correction
 # to pull it back toward center before it exits the frame.
@@ -379,13 +378,11 @@ class TrackerService:
     def _send_gimbal_target(self, target: dict, animation_service) -> float:
         """Send servo to target via smooth sub-steps ≤ SERVO_SUBSTEP_DEG each.
 
-        All joints (yaw, pitch, elbow, wrist) move together in each step — prevents
-        partial-command issues where the robot resets unspecified joints.
+        All 4 joints move together per step — avoids partial-command issues.
+        move_to() was tried but its 200ms ramp caused CSRT drift during camera
+        motion, leading to erratic corrections. Sub-step (~40-80ms) is fast
+        enough that the tracker stays stable.
         Returns total command time in ms.
-
-        NOTE: move_to() for yaw-only caused wrist_pitch to freeze (robot snaps unspecified
-        joints when receiving partial commands). Keep all joints in one sub-step loop.
-        TODO: investigate move_to() partial-command behaviour with hardware team.
         """
         start = {
             "base_yaw.pos":    self._track_yaw,
