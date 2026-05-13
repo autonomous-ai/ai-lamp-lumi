@@ -587,7 +587,18 @@ export default function Setup({ mode = "initial" }: SetupProps = {}) {
                           // the new host (redundant — lamp already persisted
                           // them via submit — but cheap and useful when the
                           // operator re-runs setup with different overrides).
+                          // Force reload when the user is already on the
+                          // canonical .local URL — otherwise the browser
+                          // no-ops the same-URL click and they stay stuck on
+                          // the "Lumi is online!" screen even though the lamp
+                          // is reachable in continue mode now.
                           href={`http://${lumiMdnsHost}.local${window.location.pathname}${window.location.search}`}
+                          onClick={(e) => {
+                            if (window.location.hostname === `${lumiMdnsHost}.local`) {
+                              e.preventDefault();
+                              window.location.reload();
+                            }
+                          }}
                           style={{
                             display: "inline-block", padding: "9px 18px",
                             background: C.amber, color: "#fff",

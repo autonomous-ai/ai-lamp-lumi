@@ -80,15 +80,30 @@ export function useSetupStatusPolling({
   // remain in scope on the new host even though the lamp already persisted
   // them via the form submit. Manual button in Setup.tsx renders unconditionally
   // as the safety net if mDNS is blocked on the network.
+  //
+  // Critical: when the pre-submit redirect already moved us to the .local
+  // URL, `setupPhase === "connected"` lands us with target URL == current URL.
+  // Browsers no-op `location.href = sameURL` — would leave the user stuck on
+  // the "connecting" screen even though wifi is up. Force `reload()` for the
+  // same-host case so SetupGate re-runs, hits the now-reachable
+  // `checkInternet`, and re-mounts Setup in continue mode (full menu).
   useEffect(() => {
     if (setupPhase !== "connected" || !lumiMdnsHost) return;
     let cancelled = false;
-    const base = `http://${lumiMdnsHost}.local`;
+    const targetHost = `${lumiMdnsHost}.local`;
+    const base = `http://${targetHost}`;
     const newURL = `${base}${window.location.pathname}${window.location.search}`;
+    const navigate = () => {
+      if (window.location.hostname === targetHost) {
+        window.location.reload();
+      } else {
+        window.location.href = newURL;
+      }
+    };
     const probe = async () => {
       try {
         await fetch(`${base}/api/health`, { mode: "no-cors", cache: "no-store" });
-        if (!cancelled) window.location.href = newURL;
+        if (!cancelled) navigate();
       } catch {
         /* mDNS not resolvable yet — user still on AP, or network blocks mDNS */
       }
@@ -97,4 +112,50 @@ export function useSetupStatusPolling({
     const id = setInterval(probe, 3000);
     return () => { cancelled = true; clearInterval(id); };
   }, [setupPhase, lumiMdnsHost]);
+
+  // Pre-submit canonical URL upgrade: when user lands on the AP IP
+  // (192.168.100.1) we silently bounce to `http://lumi-XXXX.local/…` once we
+  // know the hostname AND the .local name is reachable from the current
+  // network. On the AP itself avahi runs on the lamp so the same multicast
+  // reaches both peers — resolution is almost instant on Windows/macOS/iOS.
+  // Benefit: the URL stays the same through the AP→STA wifi switch, so when
+  // the user rejoins home Wi-Fi the browser reloads the same .local URL and
+  // mDNS transparently maps it to the lamp's new LAN IP — no manual click.
+  // Android Chrome (no native mDNS) just sees probes fail and stays on the
+  // AP IP — current behavior, no regression.
+  //
+  // Aggressive timing on first attempts: browsers sometimes hold negative
+  // mDNS results for a few seconds on the first lookup. Start polling at
+  // 800ms and back off so the redirect lands sub-second when mDNS is healthy
+  // without spamming the network forever on Android-blocked cases.
+  useEffect(() => {
+    if (!lumiMdnsHost) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hostname !== "192.168.100.1") return;
+    let cancelled = false;
+    let attempt = 0;
+    const base = `http://${lumiMdnsHost}.local`;
+    const target = `${base}${window.location.pathname}${window.location.search}`;
+    let timer: number | undefined;
+    const probe = async () => {
+      attempt += 1;
+      try {
+        await fetch(`${base}/api/health`, { mode: "no-cors", cache: "no-store" });
+        if (cancelled) return;
+        console.info(`[setup] mDNS reachable after ${attempt} probe(s) — redirecting to ${target}`);
+        window.location.replace(target);
+        return;
+      } catch {
+        /* mDNS not resolvable from this client (Android Chrome, blocked LAN) */
+      }
+      if (cancelled) return;
+      // Back-off: 800ms × 4 then 2s × ∞ — fast initial retries when mDNS is
+      // slow-resolving for the first lookup, then slow polls so we don't
+      // hammer the network on Android-blocked clients.
+      const next = attempt < 4 ? 800 : 2000;
+      timer = window.setTimeout(probe, next);
+    };
+    probe();
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, [lumiMdnsHost]);
 }

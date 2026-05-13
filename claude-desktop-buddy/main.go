@@ -351,7 +351,7 @@ func handleBLEMessage(data []byte, sm *StateMachine, bleSrv *BLEServer, bridge *
 func loadConfig(path string) Config {
 	cfg := Config{
 		Enabled:            true,
-		DeviceName:         "Claude-{deviceid}",
+		DeviceName:         "lumi-{MAC}",
 		HTTPPort:           5002,
 		LeLampURL:          "http://127.0.0.1:5001",
 		LumiURL:            "http://127.0.0.1:5000",
@@ -374,85 +374,83 @@ func loadConfig(path string) Config {
 	return cfg
 }
 
-// resolveDeviceName expands the {deviceid} placeholder in name by fetching
-// device_id from Lumi's /api/system/info. Buddy may start before Lumi is
-// ready, so we retry transport errors for a short window. Names without
-// the placeholder pass through untouched.
+// resolveDeviceName expands the {MAC} placeholder in name by fetching the
+// hardware MAC suffix from Lumi's /api/network/info. Buddy may start before
+// Lumi is ready, so we retry transport errors for a short window. Names
+// without the placeholder pass through untouched.
 //
-// The default uses a "Claude-" prefix because Claude Desktop's Hardware
-// Buddy device picker filters scan results to names starting with "Claude"
-// (per the BLE advertisement requirements at
-// github.com/anthropics/claude-desktop-buddy). Renaming away from that
-// prefix makes the device invisible in the official picker.
+// MAC suffix is preferred over device_id because it's hardware-derived
+// (last 4 chars of Pi serial, or eth0 MAC on non-Pi boards) and available
+// before /device/setup runs, whereas DeviceID is empty pre-provisioning.
+// Matching the mDNS hostname (`lumi-xxxx.local`) also makes the BLE name
+// recognisable to users who already know their device by its .local name.
 //
-// {deviceid} is shortened to its trailing segment (last 4 chars after the
-// last dash) so the resolved name fits in the 31-byte primary BLE
-// advertisement alongside the 128-bit Nordic UART service UUID. With a
-// long name the system pushes it to the scan response, which some
-// scanners only fetch via active scan and may miss.
+// The suffix is truncated to 4 chars so the resolved name fits in the
+// 31-byte primary BLE advertisement alongside the 128-bit Nordic UART
+// service UUID. With a long name the system pushes it to the scan
+// response, which some scanners only fetch via active scan and may miss.
 func resolveDeviceName(name, lumiURL string) string {
 	if name == "" {
-		name = "Claude-{deviceid}"
+		name = "lumi-{MAC}"
 	}
-	if !strings.Contains(name, "{deviceid}") {
+	if !strings.Contains(name, "{MAC}") {
 		return name
 	}
 
-	id, reason := fetchDeviceID(lumiURL)
+	mac, reason := fetchMAC(lumiURL)
 	switch {
-	case id != "":
-		log.Printf("[buddy] resolved device_id=%q from Lumi", id)
+	case mac != "":
+		log.Printf("[buddy] resolved mac=%q from Lumi", mac)
 	case reason == "empty":
-		log.Printf("[buddy] WARN: Lumi reachable at %s but device_id is empty — device not yet provisioned via /device/setup", lumiURL)
-		id = "unknown"
+		log.Printf("[buddy] WARN: Lumi reachable at %s but mac is empty — hardware serial/MAC unreadable", lumiURL)
+		mac = "unknown"
 	default:
-		log.Printf("[buddy] WARN: failed to fetch device_id from %s after %d attempts (%s)",
+		log.Printf("[buddy] WARN: failed to fetch mac from %s after %d attempts (%s)",
 			lumiURL, fetchAttempts, reason)
-		id = "unknown"
+		mac = "unknown"
 	}
-	short := shortDeviceID(id)
-	if short != id {
-		log.Printf("[buddy] shortened device_id %q → %q for BLE adv fit", id, short)
+	short := shortMAC(mac)
+	if short != mac {
+		log.Printf("[buddy] shortened mac %q → %q for BLE adv fit", mac, short)
 	}
-	return strings.ReplaceAll(name, "{deviceid}", short)
+	return strings.ReplaceAll(name, "{MAC}", short)
 }
 
-// shortDeviceID returns a compact form of the device id suitable for the
-// BLE local name. Takes the last dash-separated segment (e.g. "lumi-004"
-// → "004"; "abc-def-12" → "12"; "abcdef" → "abcdef") and truncates to 4
-// chars. The 4-char cap leaves room for the "Claude-" prefix plus the
-// 128-bit Nordic UART UUID inside the 31-byte primary advertisement
-// payload, so macOS picks up the name in passive scan without requiring
-// a SCAN_REQ round-trip.
-func shortDeviceID(id string) string {
-	if id == "" {
+// shortMAC returns a compact lowercase form of the MAC suitable for the
+// BLE local name. Takes the last dash-separated segment (e.g. "Lumi-A1B2"
+// → "a1b2") and truncates to 4 chars. Lowercasing matches the mDNS
+// hostname convention (`lumi-xxxx.local`).
+func shortMAC(mac string) string {
+	if mac == "" {
 		return "unk"
 	}
-	if i := strings.LastIndexByte(id, '-'); i >= 0 && i+1 < len(id) {
-		id = id[i+1:]
+	if i := strings.LastIndexByte(mac, '-'); i >= 0 && i+1 < len(mac) {
+		mac = mac[i+1:]
 	}
-	if len(id) > 4 {
-		id = id[len(id)-4:]
+	if len(mac) > 4 {
+		mac = mac[len(mac)-4:]
 	}
-	return id
+	return strings.ToLower(mac)
 }
 
 const fetchAttempts = 15
 
-// fetchDeviceID returns (id, reason). reason is one of:
-//   "" on success, "empty" if Lumi answered with an empty device_id (not
-//   provisioned), or a transport-level failure summary if all retries failed.
-func fetchDeviceID(lumiURL string) (string, string) {
+// fetchMAC returns (mac, reason). reason is one of:
+//
+//	"" on success, "empty" if Lumi answered with an empty mac (hardware
+//	serial/MAC unreadable), or a transport-level failure summary if all
+//	retries failed.
+func fetchMAC(lumiURL string) (string, string) {
 	client := &http.Client{Timeout: 3 * time.Second}
-	url := lumiURL + "/api/system/info"
+	url := lumiURL + "/api/network/info"
 	var lastErr string
 	for i := 0; i < fetchAttempts; i++ {
-		id, ok, errStr := tryFetchDeviceID(client, url)
+		mac, ok, errStr := tryFetchMAC(client, url)
 		if ok {
-			if id == "" {
+			if mac == "" {
 				return "", "empty"
 			}
-			return id, ""
+			return mac, ""
 		}
 		lastErr = errStr
 		time.Sleep(2 * time.Second)
@@ -463,10 +461,10 @@ func fetchDeviceID(lumiURL string) (string, string) {
 	return "", lastErr
 }
 
-// tryFetchDeviceID returns (id, ok, errStr). ok=true means Lumi answered with
-// a parseable response (id may still be empty if device_id is unset). ok=false
-// means transport/decode failure — caller should retry.
-func tryFetchDeviceID(client *http.Client, url string) (string, bool, string) {
+// tryFetchMAC returns (mac, ok, errStr). ok=true means Lumi answered with
+// a parseable response (mac may still be empty if hardware ID is unset).
+// ok=false means transport/decode failure — caller should retry.
+func tryFetchMAC(client *http.Client, url string) (string, bool, string) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", false, "http: " + err.Error()
@@ -477,13 +475,13 @@ func tryFetchDeviceID(client *http.Client, url string) (string, bool, string) {
 	}
 	var wrap struct {
 		Data struct {
-			DeviceID string `json:"deviceId"`
+			MAC string `json:"mac"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&wrap); err != nil {
 		return "", false, "decode: " + err.Error()
 	}
-	return wrap.Data.DeviceID, true, ""
+	return wrap.Data.MAC, true, ""
 }
 
 // heartbeatChanged reports whether enough fields differ between the
