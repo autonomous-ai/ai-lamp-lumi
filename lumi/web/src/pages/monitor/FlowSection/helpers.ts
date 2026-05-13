@@ -439,6 +439,14 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       const currentDone = current?.status === "done" || current?.status === "error";
       if (!shouldForceSplit && !currentDone && current && current.runId && evRunId && current.runId === evRunId) {
         current.events.push(ev);
+        // Channel chat_input fires twice: first as a placeholder ({run_id,source}
+        // only, summary "[chat]") before chat.history resolves the real msg/sender,
+        // then again with the real content. The placeholder pins turn.type="chat"
+        // and refineTurnTypeFromSensingInputs ignores it (not in CHANNEL_TYPES),
+        // so upgrade here when isTurnStart has now resolved a specific type.
+        if (current.type === "chat" || current.type === "unknown") {
+          current.type = start.type;
+        }
         continue;
       }
       if (current) turns.push(current);
