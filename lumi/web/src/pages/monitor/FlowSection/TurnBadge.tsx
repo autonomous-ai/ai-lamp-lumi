@@ -52,7 +52,7 @@ export function TurnBadge({ turn, pairTint }: { turn: Turn; pairTint?: string })
       padding: "8px 10px",
       borderRadius: 8,
       background: pairTint || "var(--lm-surface)",
-      border: pairTint ? "1px solid var(--lm-purple)" : "1px solid var(--lm-border)",
+      border: "1px solid var(--lm-border)",
       fontSize: 11,
       cursor: "default",
     }}>
@@ -215,11 +215,22 @@ export function TurnBadge({ turn, pairTint }: { turn: Turn; pairTint?: string })
           ⏸ queued — agent busy, will replay when idle
         </div>
       ) : hasEmptyFinalNoLifecycle ? (
-        <div style={{
-          fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 2,
-          wordBreak: "break-word" as const, lineHeight: 1.4, fontStyle: "italic",
-        }}>
-          OpenClaw closed stream · no message · no lifecycle
+        <div
+          title={
+            "OpenClaw sent state:final with empty message for this Lumi run_id, and never opened a lifecycle for it.\n\n" +
+            "To find the likely paired turn:\n" +
+            "  • Scan ±10s in the list for an 'openclaw uuid' turn with matching input text.\n" +
+            "  • If found → OpenClaw likely re-fired this message under its own UUID (source:\"channel\"), or merged it into that concurrent turn. The actual reply lives there.\n" +
+            "  • If no UUID turn with matching input → the message was steered into an already-running concurrent turn, or dropped silently.\n\n" +
+            "Adjacent paired turns are tinted purple in the list."
+          }
+          style={{
+            fontSize: 10, color: "var(--lm-red)", marginBottom: 2,
+            wordBreak: "break-word" as const, lineHeight: 1.4,
+            fontWeight: 700, cursor: "help",
+          }}
+        >
+          ⚠ OpenClaw closed stream · no message · no lifecycle
         </div>
       ) : turn.status === "done" ? (
         <div style={{

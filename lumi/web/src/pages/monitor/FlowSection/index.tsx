@@ -240,10 +240,26 @@ export function FlowSection({
   // Detect adjacent turn pairs where one is a Lumi-id turn that closed with
   // chat_final_empty (OpenClaw closed stream · no message · no lifecycle) and
   // the adjacent turn is an OpenClaw-assigned UUID with matching input text.
-  // Purely visual correlation (shared background tint) — no semantic label.
+  // Each pair gets a stable color (hashed from the lumi runId) so distinct
+  // pairs in view are visually distinguishable. Purely visual correlation —
+  // no semantic label.
   const pairTintMap = useMemo(() => {
     const map = new Map<string, string>();
-    const PAIR_BG = "rgba(167, 139, 250, 0.10)";
+    const PAIR_BGS = [
+      "rgba(167, 139, 250, 0.14)", // purple
+      "rgba(34, 211, 238, 0.14)",  // cyan
+      "rgba(244, 114, 182, 0.14)", // pink
+      "rgba(45, 212, 191, 0.14)",  // teal
+      "rgba(129, 140, 248, 0.14)", // indigo
+      "rgba(248, 113, 113, 0.12)", // soft red
+      "rgba(132, 204, 22, 0.14)",  // lime
+      "rgba(236, 72, 153, 0.12)",  // magenta
+    ];
+    const hashColor = (key: string) => {
+      let h = 0;
+      for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+      return PAIR_BGS[Math.abs(h) % PAIR_BGS.length];
+    };
     const stripSender = (s: string) => s.replace(/^\[[^\]]+\]\s*/, "").trim();
     const isLumi = (id: string) => id.startsWith("lumi-");
     for (let i = 0; i < filteredTurns.length - 1; i++) {
@@ -260,12 +276,13 @@ export function FlowSection({
         if (!closedEmpty) return false;
         const lumiIn = stripSender(turnIO(lumiTurn).input);
         const uuidIn = stripSender(turnIO(uuidTurn).input);
-        return !!lumiIn && lumiIn === uuidIn;
+        if (!lumiIn || lumiIn !== uuidIn) return false;
+        const color = hashColor(lumiTurn.id);
+        map.set(a.id, color);
+        map.set(b.id, color);
+        return true;
       };
-      if (tryPair(a, b) || tryPair(b, a)) {
-        map.set(a.id, PAIR_BG);
-        map.set(b.id, PAIR_BG);
-      }
+      tryPair(a, b) || tryPair(b, a);
     }
     return map;
   }, [filteredTurns]);
