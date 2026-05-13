@@ -123,18 +123,61 @@ USB UVC. Plug into any free USB port (prefer USB 3 if available for headroom; 10
 
 ## TTP223 capacitive touch (optional, OPi only)
 
-Four touch pads for left/right swipe gesture. Factory default mode (AB pads unsoldered): momentary, active-HIGH push-pull output.
+Four touch pads for left/right swipe gesture. Factory default mode (AB pads unsoldered): momentary, active-HIGH push-pull output. **The OPi GPIO is 3.3 V only — feeding it 5 V will damage the SoC.** So the TTP223 must run on a 3.3 V VCC (push-pull output then swings 0 ↔ 3.3 V, GPIO-safe).
 
-| Pad | OPi header pin | GPIO line | Notes |
-|---|---|---|---|
-| S1 (leftmost) | 29 | gpiochip0 line 96 (PD0) | |
-| S2 | 31 | gpiochip0 line 97 (PD1) | |
-| S3 | 33 | gpiochip0 line 98 (PD2) | |
-| S4 (rightmost) | 35 | gpiochip0 line 99 (PD3) | |
-| VCC (all 4) | 17 (3.3 V) | — | **Must be 3.3 V, NOT 5 V** — OPi GPIO is 3.3 V tolerant only |
-| GND (all 4) | 25 or 39 | — | |
+Signal lines are the same in both options:
 
-Default mode (AB pads unsoldered) gives momentary, active-HIGH output — the SoC reads HIGH while a finger is on the pad, LOW otherwise.
+| Pad | OPi header pin | GPIO line |
+|---|---|---|
+| S1 (leftmost) | 29 | gpiochip0 line 96 (PD0) |
+| S2 | 31 | gpiochip0 line 97 (PD1) |
+| S3 | 33 | gpiochip0 line 98 (PD2) |
+| S4 (rightmost) | 35 | gpiochip0 line 99 (PD3) |
+
+GND of all four modules ties to OPi header pin 25 or 39 (any GND).
+
+Two ways to deliver 3.3 V to the four VCC pins:
+
+### Option A — run a 3.3 V wire from the OPi to the head (recommended)
+
+A single ~1 m wire from OPi header **pin 1 or pin 17** (3.3 V) up the neck to the head, where it fans out to the four VCC pins. Plus the GND wire. **No resistors.**
+
+```
+OPi pin 1 (3.3V)  ──── 1 m wire ──── ●───●───●───●   →  VCC of TTP1..TTP4
+OPi pin 6 (GND)   ──── 1 m wire ──── ●───●───●───●   →  GND of TTP1..TTP4
+```
+
+Pros: regulated, stiff 3.3 V (the OPi's onboard LDO sources 100+ mA, plenty for ~12 mA worst case from 4 sensors). No extra parts. Multi-touch works fine.
+
+Cons: one extra conductor through the articulated neck.
+
+### Option B — reuse the 5 V already at the head, drop with a divider
+
+If 5 V is already routed to the head for other things (LED ring, etc.), tap that and add a resistor divider locally to make 3.3 V for the TTP223 VCC rail. Saves a wire down the neck.
+
+```
+5V (already at head) ──[R1]──┬── 3.3V rail ── ●───●───●───●  →  VCC of TTP1..TTP4
+                             │
+                            [R2]
+                             │
+                            GND
+```
+
+Sizing: pick the divider so it doesn't sag too much when more than one pad is touched. **Use small resistors.** Recommended: **R1 = 47 Ω, R2 = 91 Ω** → no-load output ≈ 3.30 V; under 12 mA load (all 4 touched) sags to ≈ 2.95 V (still above the TTP223 minimum of 2.0 V).
+
+Trade-offs vs Option A:
+- Saves one wire to the head.
+- Wastes ~180 mW continuous in the divider (5 V across 138 Ω = 36 mA always flowing).
+- VCC isn't truly regulated — it shifts ~0.35 V between idle and 4-pad touch. Touch sensitivity drifts a little with that.
+- If you size the divider too high (e.g. 1.8 k + 3.3 k), it works at idle but **collapses to ~0 V on a single touch** — the chip then resets, and you get phantom triggers on the other lines. Don't go bigger than ~100 Ω total.
+
+### Multi-touch behaviour
+
+- **Option A**: all combinations work. Touching 1, 2, 3, or 4 pads at once each register cleanly on their respective GPIO. The 3.3 V rail doesn't budge.
+- **Option B with the recommended 47 Ω + 91 Ω**: single and double touches are clean. Triple/quad touches drop VCC by ~0.3–0.4 V; the chips still detect, but right at the edge of their range — expect occasional missed events on the 3rd/4th simultaneous touch.
+- **Option B with high-value resistors (kΩ range)**: a single touch already collapses VCC. The chip browns out, output flickers, neighbouring channels glitch. **Avoid.**
+
+Software side: the swipe gesture detector needs to handle a small overlap (two adjacent pads briefly HIGH together as a finger crosses). With Option A there's no extra coupling concern; with Option B the slight VCC dip during a swipe could shift edge timing by a few ms — negligible for swipe, but tighten debounce if you see issues.
 
 ---
 
