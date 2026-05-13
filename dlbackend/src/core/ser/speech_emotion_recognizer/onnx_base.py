@@ -85,10 +85,10 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
             sample_rate: Model input sample rate (default 16 kHz).
             intra_op_threads: ONNX Runtime intra-op thread count.
         """
-        super().__init__(labels_path=labels_path)
         self._sample_rate = int(sample_rate)
 
         self.model_path: str = self._prepare_model(model_path)
+        super().__init__(labels_path=labels_path)
         self.session = self._create_session(self.model_path, intra_op_threads)
 
         # Bind the actual graph I/O names (graceful fallback if the
@@ -194,14 +194,14 @@ class OnnxSpeechEmotionRecognizer(SpeechEmotionRecognizer):
                 f"Engine '{self.ENGINE_NAME}' has no MODEL_ID; cannot build ONNX."
             )
 
-        from core.ser.prepare_onnx import prepare_onnx
+        from core.ser.prepare_onnx import prepare_onnx_export
 
         logger.info(
             "[SER] Building ONNX via FunASR export: model_id=%s -> %s",
             self.MODEL_ID,
             dest_path,
         )
-        prepare_onnx.prepare_onnx_export(
+        prepare_onnx_export(
             model_id=self.MODEL_ID,
             output_path=dest_path,
         )
