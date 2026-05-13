@@ -1,4 +1,4 @@
-.PHONY: install install-cpu install-gpu install-dev start start-runpod start-jupyter test test-api test-local test-action test-action-api test-action-local test-emotion test-emotion-api test-emotion-local lint
+.PHONY: install install-cpu install-gpu install-dev start start-runpod start-jupyter test test-api test-local test-action test-action-api test-action-local test-emotion test-emotion-api test-emotion-local test-pose test-pose-api test-pose-local lint
 
 NGINX_CONF ?= /workspace/ai-lamp-openclaw/dlbackend/nginx.conf
 
@@ -58,9 +58,9 @@ start-jupyter:
 test:
 	python -m pytest tests/ -v
 
-test-api: test-action-api test-emotion-api
+test-api: test-action-api test-emotion-api test-pose-api
 
-test-local: test-action-local test-emotion-local
+test-local: test-action-local test-emotion-local test-pose-local
 
 test-action: test-action-api test-action-local
 
@@ -77,6 +77,14 @@ test-emotion-api:
 
 test-emotion-local:
 	python -m pytest tests/emotion_local/ -v
+
+test-pose: test-pose-api test-pose-local
+
+test-pose-api:
+	python -m pytest tests/pose_api/ -v
+
+test-pose-local:
+	python -m pytest tests/pose_local/ -v
 
 lint:
 	ruff check src/ tests/
