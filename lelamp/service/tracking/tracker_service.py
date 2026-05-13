@@ -121,6 +121,7 @@ class TrackingState:
     target_label: str = ""
     tracker: Optional[cv2.Tracker] = None
     bbox: Optional[Tuple[int, int, int, int]] = None
+    confidence: Optional[float] = None
     running: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -144,6 +145,7 @@ class TrackerService:
             "tracking": s.running.is_set(),
             "target": s.target_label or None,
             "bbox": list(s.bbox) if s.bbox else None,
+            "confidence": s.confidence,
         }
 
     def detect_object(self, frame: npt.NDArray[np.uint8], target: str) -> Optional[Tuple[int, int, int, int]]:
@@ -214,6 +216,7 @@ class TrackerService:
             y = int(cy - h / 2)
             bbox = (x, y, int(w), int(h))
             latency_ms = (time.perf_counter() - t_req) * 1000
+            self._state.confidence = round(best["confidence"], 3)
             logger.info("YOLOWorld: '%s' found at bbox=%s conf=%.3f", target, bbox, best["confidence"])
             logger.info("[tracking_yolo_response] target='%s' found=True bbox=%s conf=%.3f latency=%.0fms",
                         target, bbox, best["confidence"], latency_ms)
