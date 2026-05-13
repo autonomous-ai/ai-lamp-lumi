@@ -14,12 +14,17 @@ from lelamp.models import (
 )
 from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS
 from lelamp.presets import (
+    DEFAULT_LANG,
     EMO_CURIOUS,
     EMO_EXCITED,
     EMO_HAPPY,
     EMO_IDLE,
     EMO_SLEEPY,
     EMOTION_PRESETS,
+    LANG_EN,
+    LANG_VI,
+    LANG_ZH_CN,
+    LANG_ZH_TW,
     SERVO_CMD_MUSIC_START,
     SERVO_CMD_MUSIC_STOP,
     SERVO_MUSIC_CHILL,
@@ -124,7 +129,7 @@ MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS: list[str] = [
     "[curious] Hmm, let me see.",
 ]
 
-# Vietnamese (stt_language="vi").
+# Vietnamese (stt_language=LANG_VI).
 MUSIC_BACKCHANNEL_PHRASES_VI: list[str] = [
     "Đang tìm!",
     "Một chút nhé.",
@@ -155,7 +160,7 @@ MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS: list[str] = [
     "Một giây thôi.",
 ]
 
-# Chinese Simplified (stt_language="zh-CN").
+# Chinese Simplified (stt_language=LANG_ZH_CN).
 MUSIC_BACKCHANNEL_PHRASES_ZH_CN: list[str] = [
     "好，马上！",
     "稍等一下。",
@@ -186,7 +191,7 @@ MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS: list[str] = [
     "稍等。",
 ]
 
-# Chinese Traditional (stt_language="zh-TW").
+# Chinese Traditional (stt_language=LANG_ZH_TW).
 MUSIC_BACKCHANNEL_PHRASES_ZH_TW: list[str] = [
     "好，馬上！",
     "稍等一下。",
@@ -217,17 +222,17 @@ MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS: list[str] = [
     "稍等。",
 ]
 
-# (lang, provider_is_elevenlabs) → pool. Lookup falls back to English when
-# the active language has no translated pool.
+# (lang, provider_is_elevenlabs) → pool. Lookup falls back to DEFAULT_LANG
+# when the active language has no translated pool.
 _POOLS: dict[tuple[str, bool], list[str]] = {
-    ("en", False): MUSIC_BACKCHANNEL_PHRASES,
-    ("en", True): MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS,
-    ("vi", False): MUSIC_BACKCHANNEL_PHRASES_VI,
-    ("vi", True): MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS,
-    ("zh-CN", False): MUSIC_BACKCHANNEL_PHRASES_ZH_CN,
-    ("zh-CN", True): MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS,
-    ("zh-TW", False): MUSIC_BACKCHANNEL_PHRASES_ZH_TW,
-    ("zh-TW", True): MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS,
+    (LANG_EN,    False): MUSIC_BACKCHANNEL_PHRASES,
+    (LANG_EN,    True):  MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS,
+    (LANG_VI,    False): MUSIC_BACKCHANNEL_PHRASES_VI,
+    (LANG_VI,    True):  MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS,
+    (LANG_ZH_CN, False): MUSIC_BACKCHANNEL_PHRASES_ZH_CN,
+    (LANG_ZH_CN, True):  MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS,
+    (LANG_ZH_TW, False): MUSIC_BACKCHANNEL_PHRASES_ZH_TW,
+    (LANG_ZH_TW, True):  MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS,
 }
 
 # Index of the last spoken phrase — excluded from the next pick so the lamp
@@ -247,13 +252,13 @@ def _active_stt_language() -> str:
 
 def _backchannel_pool() -> list[str]:
     """Return the phrase pool for the active language × TTS provider.
-    Unknown language falls back to English; unknown provider falls back
-    to the plain (no audio-tag) pool."""
+    Unknown language falls back to DEFAULT_LANG; unknown provider falls
+    back to the plain (no audio-tag) pool."""
     is_elevenlabs = getattr(state.tts_service, "_provider", "") == PROVIDER_ELEVENLABS
     lang = _active_stt_language()
     pool = _POOLS.get((lang, is_elevenlabs))
     if pool is None:
-        pool = _POOLS[("en", is_elevenlabs)]
+        pool = _POOLS[(DEFAULT_LANG, is_elevenlabs)]
     return pool
 
 
