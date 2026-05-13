@@ -138,7 +138,6 @@ export function aggregateEvents(events: DisplayEvent[]): PipelineRow[] {
             const parsed = typeof argsObj === "string" ? JSON.parse(argsObj) : argsObj;
             argsSummary = parsed?.command ?? JSON.stringify(parsed);
           } catch { argsSummary = String(argsObj); }
-          if (argsSummary.length > 80) argsSummary = argsSummary.slice(0, 80) + "…";
         }
         // Deduplicate the agent-stream + session.tool double-emit: if the
         // last row is a `tool · <same name>` start within 1 second, fold
