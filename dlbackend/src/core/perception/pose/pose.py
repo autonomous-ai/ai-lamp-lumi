@@ -129,6 +129,12 @@ class PoseSession:
             self._h36m_kps_buffer.append(h36m_kps[0])
             self._h36m_scores_buffer.append(h36m_scores[0])
 
+            if len(self._h36m_kps_buffer) > self._lifter_3d._n_frames:
+                self._h36m_kps_buffer = self._h36m_kps_buffer[-self._lifter_3d._n_frames :]
+
+            if len(self._h36m_scores_buffer) > self._lifter_3d._n_frames:
+                self._h36m_scores_buffer = self._h36m_scores_buffer[-self._lifter_3d._n_frames :]
+
             kps_stack: npt.NDArray[np.float32] = np.stack(self._h36m_kps_buffer, axis=0)
             scores_stack: npt.NDArray[np.float32] = np.stack(self._h36m_scores_buffer, axis=0)
 
