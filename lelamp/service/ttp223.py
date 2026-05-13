@@ -146,6 +146,8 @@ class TTP223Handler:
         )
 
     def _on_edge(self, chip, gpio, level, tick):
+        # DEBUG: raw edge trace (remove once TTP223 hold behavior confirmed)
+        logger.info("TTP223 raw edge gpio=%d level=%d tick=%d", gpio, level, tick)
         # Per-edge, per-line debounce. Mirrors gpio_button's split
         # press/release tick tracking so a quick tap (rising edge soon
         # after falling) isn't dropped, while bouncy repeats of the
@@ -215,5 +217,25 @@ class TTP223Handler:
 
     def _on_long_press(self):
         self._long_press_timer = None
+        # Defensive: re-read actual pin levels before firing shutdown.
+        # If all pads read LOW the user is NOT currently touching anything
+        # — the timer fired because a release edge got dropped (debounce
+        # race / lgpio buffer miss) and self._active leaked stale state.
+        # Without this guard, two taps separated by ~5s could incorrectly
+        # trigger shutdown when the first tap's release was missed.
+        try:
+            any_touched = any(
+                self._lgpio.gpio_read(self._handle, l) == 1
+                for l in self._lines
+            )
+        except Exception as e:
+            logger.warning("TTP223 pin read at long-press guard failed: %s", e)
+            any_touched = True  # fall through to normal behavior if read fails
+        if not any_touched:
+            logger.warning(
+                "TTP223 long press timer fired but all pads LOW -- ignoring (release missed)"
+            )
+            self._active.clear()  # resync to real hardware state
+            return
         self._long_press_fired = True
         long_press_action(source="TTP223")
