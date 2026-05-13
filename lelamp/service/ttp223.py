@@ -1,40 +1,39 @@
 """TTP223 capacitive touchpad handler (4 pads = 1 logical button).
 
-Mirrors GPIOButtonHandler structure (lgpio + callback) so both input
-devices behave identically:
-- Single tap:       stop speaker / unmute mic
-- Triple tap:       reboot OS
-- Long touch (5s):  shutdown OS
+Single tap only — stop speaker / unmute mic. Destructive gestures
+(reboot, shutdown) are intentionally OFF on TTP223 because:
+- The IC on this board runs in FastMode (max touch ~80ms): output
+  goes LOW within ~50ms of touch even with finger still on pad, so
+  a true "hold 5s" is impossible without rewiring the FM pin.
+- Cross-talk between adjacent pads makes one physical tap produce
+  1-2 spurious software clicks, so counting "exactly 3 taps" for
+  reboot is unreliable.
 
-Four pads (S1-S4) collapse into one logical button — any pad touched =
-press, all pads released = release. The user doesn't need to remember
-which pad maps to which action.
+GPIO button still handles triple-click reboot and 5s-long-press
+shutdown via its mechanical pin — destructive actions live there.
 
-Action logic is shared with the GPIO button via `button_actions.py`.
+Cross-talk fix: instead of treating each rising/falling edge as a
+press/release, every edge starts/extends a "touch session". The
+session ends when no edges have arrived for SESSION_GAP_NS. One
+session = one tap, regardless of how many edges fired inside it.
 """
 
 import logging
 import threading
-import time
 
-from lelamp.service.button_actions import (
-    DOUBLE_CLICK_WINDOW,
-    LONG_PRESS_DURATION,
-    long_press_action,
-    single_click_action,
-    triple_click_action,
-)
+from lelamp.service.button_actions import single_click_action
 
 logger = logging.getLogger(__name__)
 
 # OrangePi sun60iw2 (4 Pro / A733): TTP223 pads on gpiochip0 lines 96-99
-# (PE0-PE3 ish, verified via test_ttp223_probe_orangepi.py).
+# (verified via test_ttp223_probe_orangepi.py).
 OPI_SUN60_TTP223_CHIP = 0
 OPI_SUN60_TTP223_LINES = [96, 97, 98, 99]
-# TTP223 is capacitive — no mechanical contact bounce — but a small
-# per-line debounce filters out near-simultaneous edges when the user
-# drags a fingertip across multiple pads.
-OPI_SUN60_TTP223_DEBOUNCE_NS = 50_000_000  # 50 ms
+# Session gap: any edge within this window of the previous edge keeps
+# the session alive. 200 ms comfortably exceeds the observed burst
+# duration (~30-100 ms across 4 pads) while staying well below a
+# natural inter-tap gap, so two real taps register as two sessions.
+SESSION_GAP_S = 0.2
 
 
 def _device_tree_model() -> str:
@@ -69,14 +68,9 @@ def _board_label() -> str:
 
 
 def _resolve_board_config():
-    """Return (chip, lines, debounce_ns) or None if TTP223 isn't wired here.
-    Add Pi 4/5 branches when those boards get TTP223 hardware."""
+    """Return (chip, lines) or None if TTP223 isn't wired here."""
     if _is_orangepi_sun60():
-        return (
-            OPI_SUN60_TTP223_CHIP,
-            OPI_SUN60_TTP223_LINES,
-            OPI_SUN60_TTP223_DEBOUNCE_NS,
-        )
+        return (OPI_SUN60_TTP223_CHIP, OPI_SUN60_TTP223_LINES)
     return None
 
 
@@ -87,18 +81,10 @@ class TTP223Handler:
         self._callbacks = []
         self._chip = 0
         self._lines = []
-        self._debounce_ns = OPI_SUN60_TTP223_DEBOUNCE_NS
-        # Set of lines currently HIGH (active). Press = transition from
-        # empty to non-empty; release = transition back to empty.
-        self._active = set()
-        self._click_count = 0
-        self._click_timer = None
-        self._press_start = 0.0
-        self._long_press_timer = None
-        self._long_press_fired = False
-        # Per-line edge debounce ticks
-        self._last_press_tick = {}
-        self._last_release_tick = {}
+        # Session-end timer: fires SESSION_GAP_S after the last edge,
+        # signalling that the current touch is over → emit one click.
+        self._session_end_timer = None
+        self._session_lock = threading.Lock()
 
     def start(self):
         config = _resolve_board_config()
@@ -111,10 +97,8 @@ class TTP223Handler:
 
         import lgpio
 
-        self._chip, self._lines, self._debounce_ns = config
+        self._chip, self._lines = config
         self._lgpio = lgpio
-        self._last_press_tick = {l: 0 for l in self._lines}
-        self._last_release_tick = {l: 0 for l in self._lines}
 
         try:
             self._handle = lgpio.gpiochip_open(self._chip)
@@ -139,103 +123,27 @@ class TTP223Handler:
             return
 
         logger.info(
-            "TTP223 ready on gpiochip%d lines %s (manual debounce %d ms)",
+            "TTP223 ready on gpiochip%d lines %s (session gap %d ms, single tap only)",
             self._chip,
             self._lines,
-            self._debounce_ns // 1_000_000,
+            int(SESSION_GAP_S * 1000),
         )
 
     def _on_edge(self, chip, gpio, level, tick):
-        # DEBUG: raw edge trace (remove once TTP223 hold behavior confirmed)
-        logger.info("TTP223 raw edge gpio=%d level=%d tick=%d", gpio, level, tick)
-        # Per-edge, per-line debounce. Mirrors gpio_button's split
-        # press/release tick tracking so a quick tap (rising edge soon
-        # after falling) isn't dropped, while bouncy repeats of the
-        # same edge are filtered.
-        # TTP223 + PULL_DOWN: level==1 = touch, level==0 = release.
-        if level == 1:
-            if tick - self._last_press_tick.get(gpio, 0) < self._debounce_ns:
-                return
-            self._last_press_tick[gpio] = tick
-        elif level == 0:
-            if tick - self._last_release_tick.get(gpio, 0) < self._debounce_ns:
-                return
-            self._last_release_tick[gpio] = tick
-        else:
-            return  # watchdog / no-level event, ignore
-
-        was_active = bool(self._active)
-        if level == 1:
-            self._active.add(gpio)
-        else:
-            self._active.discard(gpio)
-        now_active = bool(self._active)
-
-        if not was_active and now_active:
-            # First pad touched — surface press begins
-            self._press_start = time.monotonic()
-            self._long_press_fired = False
-            self._long_press_timer = threading.Timer(
-                LONG_PRESS_DURATION, self._on_long_press
+        # Any edge (rising or falling, any pad) keeps the session alive.
+        # Cross-talk and FastMode auto-LOW produce a flurry of edges per
+        # physical touch; we coalesce them by resetting the session-end
+        # timer instead of trying to interpret each edge as press/release.
+        with self._session_lock:
+            if self._session_end_timer is not None:
+                self._session_end_timer.cancel()
+            self._session_end_timer = threading.Timer(
+                SESSION_GAP_S, self._on_session_end
             )
-            self._long_press_timer.daemon = True
-            self._long_press_timer.start()
-        elif was_active and not now_active:
-            # Last pad released — surface release
-            if self._long_press_timer:
-                self._long_press_timer.cancel()
-                self._long_press_timer = None
+            self._session_end_timer.daemon = True
+            self._session_end_timer.start()
 
-            if self._long_press_fired:
-                # Long press already fired shutdown — drop the trailing release.
-                return
-
-            held = time.monotonic() - self._press_start
-            if held >= LONG_PRESS_DURATION:
-                return
-
-            self._click_count += 1
-            if self._click_timer:
-                self._click_timer.cancel()
-            self._click_timer = threading.Timer(
-                DOUBLE_CLICK_WINDOW, self._on_click_timeout
-            )
-            self._click_timer.daemon = True
-            self._click_timer.start()
-
-    def _on_click_timeout(self):
-        count = self._click_count
-        self._click_count = 0
-        if count == 1:
-            single_click_action(source="TTP223")
-        elif count == 3:
-            triple_click_action(source="TTP223")
-        else:
-            # count == 2 → slipped/panic double-tap; count >= 4 → panic.
-            # Never trigger destructive actions on ambiguous counts.
-            logger.info("TTP223 %d taps -- ignored (only 1=stop, 3=reboot)", count)
-
-    def _on_long_press(self):
-        self._long_press_timer = None
-        # Defensive: re-read actual pin levels before firing shutdown.
-        # If all pads read LOW the user is NOT currently touching anything
-        # — the timer fired because a release edge got dropped (debounce
-        # race / lgpio buffer miss) and self._active leaked stale state.
-        # Without this guard, two taps separated by ~5s could incorrectly
-        # trigger shutdown when the first tap's release was missed.
-        try:
-            any_touched = any(
-                self._lgpio.gpio_read(self._handle, l) == 1
-                for l in self._lines
-            )
-        except Exception as e:
-            logger.warning("TTP223 pin read at long-press guard failed: %s", e)
-            any_touched = True  # fall through to normal behavior if read fails
-        if not any_touched:
-            logger.warning(
-                "TTP223 long press timer fired but all pads LOW -- ignoring (release missed)"
-            )
-            self._active.clear()  # resync to real hardware state
-            return
-        self._long_press_fired = True
-        long_press_action(source="TTP223")
+    def _on_session_end(self):
+        with self._session_lock:
+            self._session_end_timer = None
+        single_click_action(source="TTP223")
