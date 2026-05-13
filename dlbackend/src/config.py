@@ -5,7 +5,12 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from enums import EmotionRecognizerEnum, HumanActionRecognizerEnum, PersonDetectorEnum
+from enums import (
+    EmotionRecognizerEnum,
+    HumanActionRecognizerEnum,
+    PersonDetectorEnum,
+    SpeechEmotionRecognizerEnum,
+)
 
 
 class HumanActionRecognizerSetting(BaseModel):
@@ -34,6 +39,19 @@ class EmotionRecognizerSetting(BaseModel):
     frame_interval: float = 1.0
 
 
+class SpeechEmotionRecognizerSetting(BaseModel):
+    """Service-level knobs for the SER engine.
+
+    Engine selection and model-file path live at top level
+    (``ser_recognition_model`` / ``ser_recognition_ckpt_path``) to mirror
+    the action / emotion configs. The settings here are runtime tunables
+    forwarded to the engine constructor.
+    """
+
+    sample_rate: int = 16000
+    intra_op_threads: int = 4
+
+
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env", env_nested_delimiter="__", extra="allow"
@@ -46,10 +64,16 @@ class Settings(BaseSettings):
     emotion_recognition_model: EmotionRecognizerEnum = EmotionRecognizerEnum.POSTERV2
     emotion_recognition_ckpt_path: str | None = None
 
+    ser_recognition_model: SpeechEmotionRecognizerEnum = (
+        SpeechEmotionRecognizerEnum.EMOTION2VEC_PLUS_LARGE
+    )
+    ser_recognition_ckpt_path: str | None = None
+
     videomae: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16)
     uniformerv2: HumanActionRecognizerSetting = HumanActionRecognizerSetting()
     x3d: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16, w=256, h=256)
     emotion: EmotionRecognizerSetting = EmotionRecognizerSetting()
+    ser: SpeechEmotionRecognizerSetting = SpeechEmotionRecognizerSetting()
     person_detector: PersonDetectorSetting = PersonDetectorSetting()
 
 
