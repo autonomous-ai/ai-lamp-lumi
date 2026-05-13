@@ -479,11 +479,11 @@ func PrewarmFillers() {
 	// it as the filler getting cut off / TTS being suppressed.
 	var toolPools map[string][]string
 	switch lang {
-	case "vi":
+	case i18n.LangVI:
 		toolPools = ToolFillersVI
-	case "zh-CN":
+	case i18n.LangZhCN:
 		toolPools = ToolFillersZhCN
-	case "zh-TW":
+	case i18n.LangZhTW:
 		toolPools = ToolFillersZhTW
 	default:
 		toolPools = ToolFillersEN
