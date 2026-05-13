@@ -18,6 +18,7 @@ from .emotion2vec import Emotion2VecPlusLargeRecognizer
 from .factory import (
     DEFAULT_SER_ENGINE,
     ENV_SER_ENGINE,
+    ENV_SER_LABELS_PATH,
     ENV_SER_MODEL_PATH,
     SER_ENGINES,
     create_speech_emotion_recognizer,
@@ -32,6 +33,7 @@ __all__ = [
     "DEFAULT_SER_ENGINE",
     "Emotion2VecPlusLargeRecognizer",
     "ENV_SER_ENGINE",
+    "ENV_SER_LABELS_PATH",
     "ENV_SER_MODEL_PATH",
     "OnnxSpeechEmotionRecognizer",
     "SER_ENGINES",

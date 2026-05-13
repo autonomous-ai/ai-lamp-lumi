@@ -11,6 +11,14 @@ Model-path precedence (forwarded to the engine constructor):
 1. Explicit ``model_path`` argument.
 2. ``SER_MODEL_PATH`` env var.
 3. Engine class defaults (cached local → remote URL → FunASR export).
+
+Labels-path precedence (forwarded to the engine constructor):
+
+1. Explicit ``labels_path`` argument.
+2. ``SER_LABELS_PATH`` env var.
+3. Engine class default (:attr:`DEFAULT_LABELS_PATH`); on cold start the
+   FunASR export fallback writes a fresh ``labels.txt`` next to the
+   ONNX so this default is usually filled in automatically.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 ENV_SER_ENGINE = "SER_ENGINE"
 ENV_SER_MODEL_PATH = "SER_MODEL_PATH"
+ENV_SER_LABELS_PATH = "SER_LABELS_PATH"
 
 
 SER_ENGINES: Dict[str, Type[SpeechEmotionRecognizer]] = {
@@ -49,6 +58,7 @@ def resolve_engine_name(engine: str | None = None) -> str:
 def create_speech_emotion_recognizer(
     engine: str | None = None,
     model_path: Union[str, Path, None] = None,
+    labels_path: Union[str, Path, None] = None,
     **kwargs: Any,
 ) -> SpeechEmotionRecognizer:
     """Instantiate the configured SER engine.
@@ -58,8 +68,11 @@ def create_speech_emotion_recognizer(
             falls back to env var / default.
         model_path: Local path or http(s) URL to the ONNX file. ``None``
             falls back to ``SER_MODEL_PATH`` env, then engine defaults.
+        labels_path: Path to the per-class labels file (one English
+            label per line). ``None`` falls back to ``SER_LABELS_PATH``
+            env, then to the engine's ``DEFAULT_LABELS_PATH``.
         **kwargs: Forwarded to the engine constructor (e.g.
-            ``labels_path``, ``sample_rate``, ``intra_op_threads``).
+            ``sample_rate``, ``intra_op_threads``).
 
     Raises:
         ValueError: Unknown engine name.
@@ -76,6 +89,12 @@ def create_speech_emotion_recognizer(
         if env_path:
             resolved_model_path = env_path
 
+    resolved_labels_path = labels_path
+    if resolved_labels_path is None:
+        env_labels = os.getenv(ENV_SER_LABELS_PATH, "").strip()
+        if env_labels:
+            resolved_labels_path = env_labels
+
     source = (
         "arg" if engine
         else ("env" if os.getenv(ENV_SER_ENGINE) else "default")
@@ -83,9 +102,14 @@ def create_speech_emotion_recognizer(
     msg = (
         f"[SER] create_speech_emotion_recognizer engine='{name}' "
         f"source={source} class={cls.__name__} "
-        f"model_path={resolved_model_path!r}"
+        f"model_path={resolved_model_path!r} "
+        f"labels_path={resolved_labels_path!r}"
     )
     logger.info(msg)
     print(msg, flush=True)
 
-    return cls(model_path=resolved_model_path, **kwargs)
+    return cls(
+        model_path=resolved_model_path,
+        labels_path=resolved_labels_path,
+        **kwargs,
+    )
