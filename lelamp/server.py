@@ -180,11 +180,12 @@ except ImportError as e:
     logger.warning(f"Display service not available: {e}")
 
 _gpio_button_handler = None
+_ttp223_handler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _gpio_button_handler
+    global _gpio_button_handler, _ttp223_handler
 
     # --- Phase 1: Fire slow hardware init in background threads ---
 
@@ -480,7 +481,7 @@ async def lifespan(app: FastAPI):
     state.tracker_service = TrackerService()
     logger.info("TrackerService initialized")
 
-    # GPIO17 button (single=stop/unmute, double=reboot, long=shutdown)
+    # GPIO17 button (single=stop/unmute, triple=reboot, long=shutdown)
     try:
         from lelamp.service.gpio_button import GPIOButtonHandler
 
@@ -488,6 +489,16 @@ async def lifespan(app: FastAPI):
         _gpio_button_handler.start()
     except Exception as e:
         logger.warning(f"GPIO button init failed: {e}")
+
+    # TTP223 capacitive touchpad (OrangePi sun60 only — same gestures as
+    # GPIO button, runs independently. Skips silently on other boards.)
+    try:
+        from lelamp.service.ttp223 import TTP223Handler
+
+        _ttp223_handler = TTP223Handler()
+        _ttp223_handler.start()
+    except Exception as e:
+        logger.warning(f"TTP223 init failed: {e}")
 
     yield
 
