@@ -68,6 +68,7 @@ class Settings(BaseSettings):
         SpeechEmotionRecognizerEnum.EMOTION2VEC_PLUS_LARGE
     )
     ser_recognition_ckpt_path: str | None = None
+    ser_recognition_labels_path: str | None = None
 
     videomae: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16)
     uniformerv2: HumanActionRecognizerSetting = HumanActionRecognizerSetting()

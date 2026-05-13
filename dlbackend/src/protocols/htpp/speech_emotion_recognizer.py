@@ -138,6 +138,7 @@ def _get_recognizer() -> BaseSpeechEmotionRecognizer:
         _recognizer = create_speech_emotion_recognizer(
             engine=str(settings.ser_recognition_model),
             model_path=settings.ser_recognition_ckpt_path,
+            labels_path=settings.ser_recognition_labels_path,
             sample_rate=settings.ser.sample_rate,
             intra_op_threads=settings.ser.intra_op_threads,
         )
