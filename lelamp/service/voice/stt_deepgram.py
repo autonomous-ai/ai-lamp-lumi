@@ -13,12 +13,13 @@ import os
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
+from lelamp.presets import LANG_EN
 from lelamp.service.voice.stt_provider import STTProvider, STTSession
 
 logger = logging.getLogger("lelamp.voice.stt")
 
 DEFAULT_MODEL = "flux-general-en"
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = LANG_EN
 
 DEFAULT_INTERIM_RESULTS = "true"
 DEFAULT_ENDPOINTING_MS = 1500
