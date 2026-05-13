@@ -118,29 +118,38 @@ class PoseEstimator3DLifting(ABC):
         # output: (1, n_frames, 17, 3) -- take the last frame
         return output[0, -1]  # (17, 3)
 
+    # H36M joint index for neck (used as center for normalization)
+    _NECK_JOINT_IDX: int = 9
+
     def _normalize_2d(
         self,
         keypoints: npt.NDArray[np.float32],
         scores: npt.NDArray[np.float32],
     ) -> npt.NDArray[np.float32]:
-        """Normalize 2D keypoints to [-1, 1] and append confidence.
+        """Normalize 2D keypoints to [-1, 1], centered on neck, and append confidence.
 
         Args:
             keypoints: (T, 17, 2) H36M keypoints in pixel coordinates.
             scores:    (T, 17,) confidence scores.
 
         Returns:
-            (T, 17, 3) array of (norm_x, norm_y, confidence).
+            (n_frames, 17, 3) array of (norm_x, norm_y, confidence).
         """
         norm_kps = keypoints.copy()
-        norm_kps[..., 0] = norm_kps[..., 0] / self._input_w * 2 - 1
-        norm_kps[..., 1] = norm_kps[..., 1] / self._input_w * 2 - self._input_h / self._input_h
+        # Center around neck joint
+        neck: npt.NDArray[np.float32] = norm_kps[
+            :, self._NECK_JOINT_IDX : self._NECK_JOINT_IDX + 1, :
+        ]
+        norm_kps = norm_kps - neck
+        # Normalize to [-1, 1]
+        norm_kps[..., 0] = norm_kps[..., 0] / self._input_w * 2
+        norm_kps[..., 1] = norm_kps[..., 1] / self._input_h * 2
         norm = np.concatenate([norm_kps, scores[..., None]], axis=-1).astype(np.float32)
         if norm.shape[0] < self._n_frames:
             norm = np.concatenate(
                 [
                     norm,
-                    np.zeros((self._n_frames - norm.shape[0], *norm.shape[1:]), dtype=norm.dtype),
+                    np.repeat(norm[-1:], repeats=self._n_frames - norm.shape[0], axis=0),
                 ],
                 axis=0,
             )

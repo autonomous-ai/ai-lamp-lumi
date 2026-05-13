@@ -147,7 +147,12 @@ def _build_pose_analysis() -> PoseAnalysis:
             )
         lifter_3d = create_lifter_3d(settings.pose.lifter_3d, lifter_3d_ckpt, lifter_3d_frame_size)
 
-    return PoseAnalysis(estimator_2d=estimator_2d, lifter_3d=lifter_3d)
+    return PoseAnalysis(
+        estimator_2d=estimator_2d,
+        lifter_3d=lifter_3d,
+        confidence_threshold_2d=settings.pose.confidence_threshold_2d,
+        min_valid_keypoints=settings.pose.min_valid_keypoints,
+    )
 
 
 # --- Lifespan ---
