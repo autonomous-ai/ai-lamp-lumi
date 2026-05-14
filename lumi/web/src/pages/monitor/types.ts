@@ -158,7 +158,7 @@ export const NAV: NavEntry[] = [
       { id: "servo",       label: "Servo",     icon: "⎈" },
       { id: "logs",        label: "Logs",      icon: "☰" },
       { id: "cli",         label: "CLI",       icon: "▸" },
-      { href: "/hw/docs", external: true, label: "LeLamp API", icon: "⎗" },
+      { href: "/hw/docs", external: true, label: "API Docs", icon: "⎗" },
     ],
   },
 ];
