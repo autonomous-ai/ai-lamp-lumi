@@ -335,6 +335,8 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			msg = "[activity] " + req.Message
 		case "emotion.detected":
 			msg = "[emotion] " + req.Message
+		case "speech_emotion.detected":
+			msg = "[speech_emotion] " + req.Message
 		default:
 			msg = "[sensing:" + req.Type + "] " + req.Message
 		}
@@ -373,7 +375,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			// Saves ~9s LLM-think on the "plan reads" pass. SKILL.md keeps a
 			// fallback bash batch when this block is empty (pre-fetch failure).
 			msg += skillcontext.BuildWellbeingContext(currentUser)
-		case "emotion.detected":
+		case "emotion.detected", "speech_emotion.detected":
 			currentUser := req.CurrentUser
 			if currentUser == "" {
 				currentUser = mood.CurrentUser()
@@ -383,11 +385,15 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
 			msg += skillcontext.BuildUserContext(currentUser)
-			// Pre-fetch the reads that the emotion.detected pipeline (mood
-			// signal/decision + router gating in user-emotion-detection +
-			// music-suggestion genre lookup) would otherwise issue. SKILL.md
-			// keeps a fallback bash batch when this block is missing
-			// (pre-fetch failure).
+			// Pre-fetch the reads that the emotion pipeline (mood signal/
+			// decision + router gating in user-emotion-detection + music-
+			// suggestion genre lookup) would otherwise issue. SKILL.md keeps a
+			// fallback bash batch when this block is missing (pre-fetch fail).
+			// Same context block serves both modalities — the mapping covers
+			// face FER labels (Fear/Surprise/Disgust) and voice emotion2vec
+			// labels (Fearful/Surprised/Disgusted); the [speech_emotion] vs
+			// [emotion] prefix on the message tells the skill which source to
+			// log on the mood signal row (source=voice vs source=camera).
 			msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(req.Message), currentUser)
 		}
 	}
@@ -791,7 +797,7 @@ func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
 func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
 	switch eventType {
 	case "presence.enter", "presence.leave", "voice",
-		"motion.activity", "emotion.detected", "web_chat":
+		"motion.activity", "emotion.detected", "speech_emotion.detected", "web_chat":
 		return true
 	case "sound":
 		return strings.Contains(message, "persistent")

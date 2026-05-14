@@ -236,8 +236,8 @@ Nothing here blocks the STT path or speaker recognition — SER failures are sil
 | Pipeline | Modality | Trigger | Event type | Same skill consumes? |
 |----------|----------|---------|------------|----------------------|
 | Facial emotion (`emotion.py` perception) | Camera frame → face crop | Every face seen | `emotion.detected` | yes — `user-emotion-detection/SKILL.md` |
-| **Speech emotion (this doc)** | Mic → end-of-utterance WAV | Every speaker-identified turn | `speech_emotion.detected` | (pending Lumi-side routing) — same skill is the natural target |
+| **Speech emotion (this doc)** | Mic → end-of-utterance WAV | Every speaker-identified turn | `speech_emotion.detected` | yes — same `user-emotion-detection/SKILL.md` (router accepts both prefixes) |
 | Mood synthesis (Mood skill) | — | Any emotion signal | mood `signal` / `decision` rows | — |
 | Sound (`sound.py` perception) | Mic RMS | Loud noise | `sound` | dog-bark escalation, separate skill |
 
-Speech emotion shares the polarity vocabulary with facial emotion deliberately. When Lumi's sensing handler is wired to also accept `speech_emotion.detected`, the existing `Happy → happy / Sad → sad / Angry → frustrated / Fear → stressed` mood mapping in `user-emotion-detection/SKILL.md` applies unchanged — only the event-type switch in `handler.go` changes.
+Speech emotion shares the polarity vocabulary with facial emotion deliberately. Lumi's sensing handler tags incoming events with `[speech_emotion]` (vs `[emotion]` for face), pre-fetches the same `[emotion_context: ...]` block via `skillcontext.BuildEmotionContext`, and routes to `user-emotion-detection/SKILL.md`. The label-to-mood map covers both vocabularies (`Fear`/`Fearful → stressed`, `Surprise`/`Surprised → excited`, `Disgust`/`Disgusted → frustrated`); the only modality-specific behavior in the skill is `source:"voice"` vs `source:"camera"` on the mood signal log row. Music-suggestion cooldown is shared across modalities so voice cannot bypass a recent camera-driven suggestion, and vice versa.

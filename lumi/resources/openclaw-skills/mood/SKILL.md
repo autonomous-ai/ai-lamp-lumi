@@ -60,9 +60,9 @@ Skip only if: quoting someone else, or speaking purely hypothetically.
 
 ---
 
-## What to read (pre-fetched on emotion.detected)
+## What to read (pre-fetched on emotion.detected / speech_emotion.detected)
 
-When this skill runs as part of the `emotion.detected` pipeline, the backend injects an `[emotion_context: {...}]` block with everything you need pre-computed:
+When this skill runs as part of the emotion pipeline — either `emotion.detected` (camera) or `speech_emotion.detected` (voice) — the backend injects an `[emotion_context: {...}]` block with everything you need pre-computed:
 - `recent_signals` — array of `{age_min, mood, source, trigger}` for signals within the last 30 minutes.
 - `prior_decision` — the most recent `kind=decision` row as `{mood, age_min}`, or `null`.
 - `is_decision_stale` — boolean (`age_min >= 30` or no decision today).
@@ -152,7 +152,7 @@ curl -s -X POST http://127.0.0.1:5000/api/mood/log \
 
 ## Music suggestion handoff
 
-On `emotion.detected` turns, `user-emotion-detection/SKILL.md` is the router — it picks one of `music / checkin / action / silent` and gates whether `music-suggestion/SKILL.md` fires this turn.
+On `emotion.detected` and `speech_emotion.detected` turns, `user-emotion-detection/SKILL.md` is the router — it picks one of `music / checkin / action / silent` and gates whether `music-suggestion/SKILL.md` fires this turn. Voice and camera share one cooldown and one decision row schema; the only thing that changes per modality is the `source` field on the raw signal row.
 
 When the router picks `music` (decision mood is suggestion-worthy — `sad`, `stressed`, `tired`, `excited`, `happy`, `bored` — and audio is idle, cooldown clear, decision fresh), the decision POST and the music-suggestion POST share a single write batch — do not split them across tool turns.
 

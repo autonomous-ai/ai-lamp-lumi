@@ -115,11 +115,12 @@ func (s *Service) drainPendingEvents() {
 	// the agent reacting now is awkward and the situation may have changed.
 	const expireAfter = 60 * time.Second
 	expirable := map[string]bool{
-		"motion.activity":  true,
-		"emotion.detected": true,
-		"presence.enter":   true,
-		"presence.leave":   true,
-		"presence.away":    true,
+		"motion.activity":         true,
+		"emotion.detected":        true,
+		"speech_emotion.detected": true,
+		"presence.enter":          true,
+		"presence.leave":          true,
+		"presence.away":           true,
 	}
 	filtered := events[:0]
 	for _, ev := range events {
@@ -137,11 +138,12 @@ func (s *Service) drainPendingEvents() {
 	// OpenClaw queue (the issue this whole gatekeeper exists to prevent).
 	// Voice/voice_command keep all entries — each is a distinct user utterance.
 	coalesce := map[string]bool{
-		"presence.enter":   true,
-		"presence.leave":   true,
-		"presence.away":    true,
-		"motion.activity":  true,
-		"emotion.detected": true,
+		"presence.enter":          true,
+		"presence.leave":          true,
+		"presence.away":           true,
+		"motion.activity":         true,
+		"emotion.detected":        true,
+		"speech_emotion.detected": true,
 	}
 	lastIdx := make(map[string]int, len(events))
 	for i, ev := range events {
@@ -218,6 +220,8 @@ func (s *Service) drainPendingEvents() {
 				msg = "[activity] " + ev.msg
 			case "emotion.detected":
 				msg = "[emotion] " + ev.msg
+			case "speech_emotion.detected":
+				msg = "[speech_emotion] " + ev.msg
 			default:
 				msg = "[sensing:" + ev.eventType + "] " + ev.msg
 			}
@@ -230,10 +234,15 @@ func (s *Service) drainPendingEvents() {
 				msg += skillcontext.BuildUserContext(ev.currentUser)
 				// See sensing handler: pre-fetch wellbeing/SKILL.md reads.
 				msg += skillcontext.BuildWellbeingContext(ev.currentUser)
-			case "emotion.detected":
+			case "emotion.detected", "speech_emotion.detected":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += skillcontext.BuildUserContext(ev.currentUser)
 				// See sensing handler: pre-fetch emotion pipeline reads.
+				// Same context block serves both face and voice — the mapping
+				// covers both label vocabularies and the router rules are
+				// identical. The [speech_emotion] vs [emotion] prefix above
+				// tells the skill which source to log on the mood signal row
+				// (source=voice vs source=camera).
 				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
 			}
 		}
