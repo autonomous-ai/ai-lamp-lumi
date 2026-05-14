@@ -725,6 +725,18 @@ export function ChatSection({ events, isActive }: Props) {
     }, 50);
   }, [activeId]);
 
+  // Scroll to bottom when chat tab becomes active. Chat stays mounted with
+  // display:none on other tabs, so scrollHeight is 0 during background render
+  // — auto-scroll on activeId/messages never lands the user at the bottom on
+  // first reveal. Jumping on isActive flip closes the gap.
+  useEffect(() => {
+    if (!isActive) return;
+    setTimeout(() => {
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
+  }, [isActive]);
+
   // Auto-scroll on new messages — always scroll if last message is pending (streaming)
   useEffect(() => {
     const el = scrollContainerRef.current;
