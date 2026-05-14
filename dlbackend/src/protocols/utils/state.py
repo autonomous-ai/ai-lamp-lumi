@@ -4,20 +4,20 @@ Lifespan (server.py) calls setters during startup/shutdown.
 Routers call getters to access the loaded models.
 """
 
-from core.perception.action.action import ActionAnalysis
+from core.perception.action.perception import ActionPerception
 from core.perception.emotion.emotion import EmotionAnalysis
 from core.perception.pose.pose import PoseAnalysis
 
-_action_model: ActionAnalysis | None = None
+_action_model: ActionPerception | None = None
 _emotion_model: EmotionAnalysis | None = None
 _pose_model: PoseAnalysis | None = None
 
 
-def get_action_model() -> ActionAnalysis | None:
+def get_action_model() -> ActionPerception | None:
     return _action_model
 
 
-def set_action_model(model: ActionAnalysis | None) -> None:
+def set_action_model(model: ActionPerception | None) -> None:
     global _action_model
     _action_model = model
 

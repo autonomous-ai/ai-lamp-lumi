@@ -5,14 +5,16 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models.action import (
+from core.models.action import ActionPerceptionSessionConfigUpdate
+from protocols.models.action import (
     ActionConfigRequest,
     ActionFrameRequest,
     ActionHeartBeatRequest,
     ActionRequest,
+    ActionResponse,
 )
-from protocols.utils.state import get_action_model
 from protocols.utils.common import decode_image, verify_ws_api_key
+from protocols.utils.state import get_action_model
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +57,21 @@ async def action_analysis_ws(websocket: WebSocket):
                 match req:
                     case ActionFrameRequest():
                         frame = decode_image(req.frame_b64)
-                        result = action_recognizer.update(frame)
+                        result = await action_recognizer.update(frame)
                         if result is not None:
-                            await websocket.send_json(result.model_dump())
+                            response = ActionResponse.from_human_action_detection(result)
+                            await websocket.send_json(response.model_dump())
 
                     case ActionConfigRequest():
-                        action_recognizer.set_config(
-                            req.whitelist,
-                            req.threshold,
-                            req.person_detection_enabled,
-                            req.person_min_area_ratio,
+                        action_recognizer.update_config(
+                            ActionPerceptionSessionConfigUpdate(
+                                whitelist=req.whitelist,
+                                threshold=req.threshold,
+                                person_detection_enabled=req.person_detection_enabled,
+                                person_min_area_ratio=req.person_min_area_ratio,
+                            )
                         )
                         await websocket.send_json({"status": "config_updated"})
-
                     case ActionHeartBeatRequest():
                         await websocket.send_json({"status": "ok"})
 

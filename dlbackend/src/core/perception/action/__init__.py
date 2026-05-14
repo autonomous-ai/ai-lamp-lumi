@@ -1,3 +1,4 @@
-from .action import ActionAnalysis, ActionSession
+from .perception import ActionPerception
+from .session import ActionPerceptionSession
 
-__all__ = ["ActionAnalysis", "ActionSession"]
+__all__ = ["ActionPerception", "ActionPerceptionSession"]

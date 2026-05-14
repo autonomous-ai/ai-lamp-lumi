@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from core.perception.action.perception import ActionPerception
 from protocols.utils.state import get_action_model, set_action_model
-from core.perception.action.action import ActionAnalysis
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -40,7 +40,7 @@ def model():
     recognizer = create_recognizer(
         model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
     )
-    model = ActionAnalysis(recognizer=recognizer)
+    model = ActionPerception(action_recognizer=recognizer)
     model.start()
     return model
 
@@ -104,13 +104,19 @@ class TestActionAnalysisWebSocket:
         """Sending multiple frames should each produce a response."""
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
-                ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+                ws.send_text(
+                    json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+                )
                 resp = ws.receive_json()
                 assert "detected_classes" in resp
 
     def test_whitelist_update(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "config", "task": "action", "whitelist": ["walking", "running"]}))
+            ws.send_text(
+                json.dumps(
+                    {"type": "config", "task": "action", "whitelist": ["walking", "running"]}
+                )
+            )
             resp = ws.receive_json()
             assert resp["status"] == "config_updated"
 
@@ -130,11 +136,15 @@ class TestActionAnalysisWebSocket:
         """Set a whitelist, then send a frame — response classes should be from whitelist."""
         allowed = {"applauding", "clapping"}
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "config", "task": "action", "whitelist": list(allowed)}))
+            ws.send_text(
+                json.dumps({"type": "config", "task": "action", "whitelist": list(allowed)})
+            )
             resp = ws.receive_json()
             assert resp["status"] == "config_updated"
 
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "detected_classes" in resp
             for det in resp["detected_classes"]:
@@ -195,14 +205,18 @@ class TestActionAnalysisWebSocket:
     def test_heartbeat_interleaved_with_frames(self, client):
         """Heartbeat should work between frame requests."""
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             ws.receive_json()
 
             ws.send_text(json.dumps({"type": "heartbeat", "task": "action"}))
             resp = ws.receive_json()
             assert resp == {"status": "ok"}
 
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "detected_classes" in resp
 

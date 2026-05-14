@@ -19,11 +19,11 @@ from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from config import settings
-from core.enums import PersonDetectorEnum
-from core.perception.action.action import ActionAnalysis
+from core.models.action import ActionPerceptionSessionConfig
+from core.perception.action.perception import ActionPerception
 from core.perception.action.utils import create_recognizer
 from core.perception.emotion.emotion import EmotionAnalysis
-from core.perception.persondetector import YOLOPersonDetector
+from core.perception.person.utils import create_person_detector
 from core.perception.pose.pose import PoseAnalysis
 from core.perception.pose.utils import create_ergo_assessor, create_estimator_2d, create_lifter_3d
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
@@ -72,17 +72,14 @@ def _build_person_detector():
     if not settings.person_detector.enabled:
         return None
 
-    if settings.person_detector.model == PersonDetectorEnum.YOLO:
-        detector = YOLOPersonDetector(
-            model_name=settings.person_detector.model_name,
-            threshold=settings.person_detector.confidence_threshold,
-            bbox_expand_scale=settings.person_detector.bbox_expand_scale,
-            min_area_ratio=settings.person_detector.min_area_ratio,
-        )
-    else:
-        raise ValueError(f"Unknown person detector: {settings.person_detector.model}")
-
+    detector = create_person_detector(
+        model_name=settings.person_detector.model,
+        model_path=settings.person_detector.model_name,
+        threshold=settings.person_detector.confidence_threshold,
+        bbox_expand_scale=settings.person_detector.bbox_expand_scale,
+    )
     detector.start()
+
     logger.info(
         "Person detector ready (%s: %s)",
         settings.person_detector.model,
@@ -91,7 +88,7 @@ def _build_person_detector():
     return detector
 
 
-def _build_action_analysis() -> ActionAnalysis:
+def _build_action_analysis() -> ActionPerception:
     """Create the ActionAnalysis from config settings."""
     action_ckpt = Path(settings.action.ckpt_path) if settings.action.ckpt_path else None
     person_detector = _build_person_detector()
@@ -106,11 +103,19 @@ def _build_action_analysis() -> ActionAnalysis:
         max_frames=settings.action.max_frames,
         frame_size=action_frame_size,
     )
-    return ActionAnalysis(
-        recognizer=recognizer,
+
+    default_config = ActionPerceptionSessionConfig()
+
+    if settings.action.frame_interval is not None:
+        default_config.frame_interval = settings.action.frame_interval
+
+    if settings.action.confidence_threshold is not None:
+        default_config.threshold = settings.action.confidence_threshold
+
+    return ActionPerception(
+        action_recognizer=recognizer,
         person_detector=person_detector,
-        confidence_threshold=settings.action.confidence_threshold,
-        frame_interval=settings.action.frame_interval,
+        default_config=default_config,
     )
 
 
