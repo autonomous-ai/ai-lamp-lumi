@@ -4,7 +4,7 @@ import type { DisplayEvent } from "../types";
 export type FlowStage =
   | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
-  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "hw_mood" | "hw_music_suggestion" | "tg_out" | "tg_alert";
+  | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "hw_mood" | "hw_music_suggestion" | "hw_posture" | "tg_out" | "tg_alert";
 
 /** No pipeline node highlighted — e.g. no matching triggers in recent events */
 export type ActiveFlowStage = FlowStage | "idle";
@@ -157,6 +157,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
       "hw_led", "flow_event:hw_led",
       "hw_servo", "flow_event:hw_servo",
       "hw_audio", "flow_event:hw_audio",
+      "hw_posture", "flow_event:hw_posture",
       "flow_event:tts_send",
       "flow_event:no_reply",
       "flow_event:hw_only_reply",
@@ -241,16 +242,25 @@ export const FLOW_NODES: FlowNodeDef[] = [
       "hw_music_suggestion",
       "flow_event:hw_music_suggestion",
     ] },
+
+  { id: "hw_posture",
+    label: "Posture log", short: "POS", icon: "🪑", color: "#06b6d4", path: "agent",
+    shape: "diamond",
+    desc: "Posture coach log · async POST via [HW:/posture/log:{...}] — alert / nudge / praise / ritual recap rows",
+    triggers: [
+      "hw_posture",
+      "flow_event:hw_posture",
+    ] },
 ];
 
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", voice_command: "🎙", sound: "🔊",
-  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊",
+  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊", "pose.ergo_risk": "🪑",
   "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   web_chat: "🖥", telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", chat: "💬", schedule: "⏰",
-  emotion: "😊", activity: "🏃", wellbeing: "💧", music: "🎵", sensing: "📡",
+  emotion: "😊", activity: "🏃", wellbeing: "💧", music: "🎵", sensing: "📡", posture: "🪑",
   cron: "⏰", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",
