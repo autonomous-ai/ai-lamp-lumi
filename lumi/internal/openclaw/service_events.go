@@ -8,6 +8,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/skillcontext"
@@ -264,6 +265,10 @@ func (s *Service) drainPendingEvents() {
 					})
 				}
 			}
+			// Mirrors the direct sensing handler — see handler.go for why
+			// sensor turns need an explicit current_language tag. Voice/
+			// web_chat branches above already carry user text and skip it.
+			msg += i18n.LangContextTag()
 		}
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
 		// behaviour of the direct PostEvent path (sensing handler). The full text with

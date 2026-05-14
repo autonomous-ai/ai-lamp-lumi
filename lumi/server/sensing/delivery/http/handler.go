@@ -424,6 +424,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				})
 			}
 		}
+		// Inject the device's configured STT/TTS locale once per passive-sensing
+		// turn. Sensor events (enter/leave/activity/emotion/pose) carry no user
+		// text, so without this tag Lumi has no language signal and SOUL.md's
+		// "reply in owner's current-turn language" rule defaults to English.
+		// Voice/web_chat above already carry user text — they don't need it.
+		msg += i18n.LangContextTag()
 	}
 
 	// Strip [snapshot: ...] markers from the outgoing LLM message. The full text
