@@ -233,6 +233,12 @@
   .lm-grid-5 { grid-template-columns: repeat(2, 1fr); }
 
   .lm-content { padding: 12px !important; }
+
+  /* Flow section: stack turn list above the diagram so neither gets squeezed.
+     50vh cap leaves room for the diagram below while keeping enough body
+     height for the dense filter header + at least a handful of turns. */
+  .lm-flow-layout { flex-direction: column !important; }
+  .lm-flow-turns  { width: 100% !important; max-height: 50vh; min-height: 220px; }
 }
 
 @media (max-width: 480px) {

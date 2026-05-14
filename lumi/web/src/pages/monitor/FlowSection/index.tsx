@@ -66,6 +66,7 @@ export function FlowSection({
   const [fromTime, setFromTime] = useState("");
   const [toTime, setToTime] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "time_desc" | "time_asc" | "tokens_desc" | "tokens_asc">("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -527,10 +528,10 @@ export function FlowSection({
       )}
 
       {/* Flow diagram + turn list */}
-      <div style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
+      <div className="lm-flow-layout" style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
 
         {/* Turn history list */}
-        <div style={{
+        <div className="lm-flow-turns" style={{
           ...S.card,
           width: 280,
           flexShrink: 0,
