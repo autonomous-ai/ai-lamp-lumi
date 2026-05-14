@@ -149,7 +149,6 @@ export function OverviewSection({
         <div style={S.card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={S.cardLabel}>Network</div>
-            {net && <SignalBars value={net.signal} />}
           </div>
           {net ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -175,16 +174,8 @@ export function OverviewSection({
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Speed</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {(() => {
-                    const q = wifiQuality(net.signal);
-                    return (
-                      <span style={{
-                        fontSize: 10, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
-                        background: `${q.color}22`, color: q.color, border: `1px solid ${q.color}55`,
-                      }} title={`Signal ${net.signal} dBm`}>{q.label}</span>
-                    );
-                  })()}
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }} title={`Signal ${net.signal} dBm`}>
+                  <SignalBars value={net.signal} />
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>
                     {net.linkRate > 0 ? `${net.linkRate} Mbps` : "—"}
                   </span>
@@ -536,17 +527,6 @@ export function OverviewSection({
 
     </div>
   );
-}
-
-// wifiQuality maps a dBm signal to a friendly label + color so non-technical
-// users can read connection quality at a glance instead of decoding decibels.
-function wifiQuality(signalDbm: number): { label: string; color: string } {
-  if (signalDbm === 0)        return { label: "Unknown",   color: "var(--lm-text-muted)" };
-  if (signalDbm >= -50)       return { label: "Excellent", color: "var(--lm-green)" };
-  if (signalDbm >= -60)       return { label: "Good",      color: "var(--lm-green)" };
-  if (signalDbm >= -70)       return { label: "Fair",      color: "var(--lm-amber)" };
-  if (signalDbm >= -80)       return { label: "Weak",      color: "var(--lm-orange)" };
-  return                             { label: "Poor",      color: "var(--lm-red)" };
 }
 
 function VersionRow({ name, color, version, uptime, updateTarget }: {
