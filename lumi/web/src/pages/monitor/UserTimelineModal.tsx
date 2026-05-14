@@ -2,7 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { S } from "./styles";
 import { HW } from "./types";
 
-type Source = "mood" | "wellbeing" | "music-suggestions";
+type Source = "mood" | "wellbeing" | "music-suggestions" | "posture";
+
+const POSTURE_ICONS: Record<string, { icon: string; title: string }> = {
+  posture_alert:         { icon: "🪑",  title: "Posture alert" },
+  nudge_posture:         { icon: "🔔",  title: "Nudge: posture" },
+  praise_posture:        { icon: "👍",  title: "Praise: posture" },
+  morning_recap_posture: { icon: "🌅",  title: "Morning recap (posture)" },
+  evening_recap_posture: { icon: "🌙",  title: "Evening recap (posture)" },
+  weekly_recap_posture:  { icon: "📊",  title: "Weekly recap (posture)" },
+};
 
 interface TimelineEntry {
   ts: number;
@@ -134,10 +143,11 @@ export function UserTimelineModal({ user, onClose }: Props) {
     const file = `${date}.jsonl`;
     const merged: TimelineEntry[] = [];
 
-    const [moodText, wellbeingText, musicText] = await Promise.all([
+    const [moodText, wellbeingText, musicText, postureText] = await Promise.all([
       fetchFile("mood", file),
       fetchFile("wellbeing", file),
       fetchFile("music-suggestions", file),
+      fetchFile("posture", file),
     ]);
 
     if (moodText) {
@@ -240,6 +250,38 @@ export function UserTimelineModal({ user, onClose }: Props) {
       }
     }
 
+    if (postureText) {
+      for (const r of parseJsonl(postureText)) {
+        const ts = Number(r.ts) || 0;
+        const action = String(r.action || "");
+        const notes = String(r.notes || "");
+        const score = Number(r.score) || 0;
+        const risk = String(r.risk || "");
+        const level = Number(r.nudge_level) || 0;
+        const meta = POSTURE_ICONS[action];
+        const isAgentNudge = action === "nudge_posture" || action === "praise_posture" ||
+          action === "morning_recap_posture" || action === "evening_recap_posture" ||
+          action === "weekly_recap_posture";
+        const color = isAgentNudge ? "rgb(251,146,60)" : "rgb(6,182,212)";
+
+        const title = meta
+          ? action === "posture_alert" && risk
+            ? `${meta.title} · ${risk}${score ? ` (${score})` : ""}`
+            : action === "nudge_posture" && level
+              ? `${meta.title} · L${level}`
+              : meta.title
+          : action;
+        merged.push({
+          ts,
+          source: "posture",
+          icon: meta?.icon ?? "🪑",
+          color,
+          title,
+          detail: notes,
+        });
+      }
+    }
+
     merged.sort((a, b) => a.ts - b.ts);
     setEntries(merged);
     setLoading(false);
@@ -283,7 +325,7 @@ export function UserTimelineModal({ user, onClose }: Props) {
               {user}'s timeline
             </div>
             <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 2 }}>
-              mood + wellbeing + music-suggestions, merged chronologically
+              mood + wellbeing + music-suggestions + posture, merged chronologically
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

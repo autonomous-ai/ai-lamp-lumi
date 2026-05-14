@@ -11,7 +11,7 @@ function isChannelType(type: string): boolean {
 // Lumi emits motion.activity/emotion.detected with domain-specific prefixes
 // ([activity]/[emotion]) instead of [sensing:*] so SOUL.md's [sensing:*] rule
 // doesn't force the sensing skill into context. Parsing here supports both.
-const SENSING_PREFIX_RE = /^\s*\[(?:sensing:([^\]]+)|(activity|emotion))\]/i;
+const SENSING_PREFIX_RE = /^\s*\[(?:sensing:([^\]]+)|(activity|emotion|posture))\]/i;
 
 // Returns the internal sensing type ("motion.activity", "emotion.detected",
 // "presence.enter", …) from a message prefix, or null if the message doesn't
@@ -22,6 +22,7 @@ export function extractSensingType(msg: string): string | null {
   if (m[1]) return m[1];                          // [sensing:<type>]
   if (m[2] === "activity") return "motion.activity";
   if (m[2] === "emotion") return "emotion.detected";
+  if (m[2] === "posture") return "pose.ergo_risk";
   return null;
 }
 

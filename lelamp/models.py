@@ -343,6 +343,7 @@ class FacePersonDetail(BaseModel):
     mood_days: list[str] = []  # e.g. ["2026-04-09"]
     wellbeing_days: list[str] = []  # e.g. ["2026-04-10"]
     music_suggestion_days: list[str] = []  # e.g. ["2026-04-17"]
+    posture_days: list[str] = []  # e.g. ["2026-05-14"] — RULA ergo alerts + nudges
     audio_history_days: list[str] = []  # e.g. ["2026-04-17"]
     voice_samples: list[str] = []  # files in voice/ — wav samples + metadata.json
     habit_patterns: bool = False  # True if habit/patterns.json exists

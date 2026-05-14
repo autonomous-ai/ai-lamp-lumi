@@ -722,6 +722,18 @@ export function FaceOwnersSection() {
                       {person.music_suggestion_days.length} music suggestion day{person.music_suggestion_days.length !== 1 ? "s" : ""}
                     </span>
                   )}
+                  {person.posture_days && person.posture_days.length > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 4,
+                      background: "rgba(6,182,212,0.15)",
+                      color: "rgb(6,182,212)",
+                      fontWeight: 600,
+                    }}>
+                      🪑 {person.posture_days.length} posture day{person.posture_days.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
                   {person.audio_history_days && person.audio_history_days.length > 0 && (
                     <span style={{
                       fontSize: 10,
@@ -799,6 +811,9 @@ export function FaceOwnersSection() {
                   }
                   if (person.music_suggestion_days && person.music_suggestion_days.length > 0) {
                     items.push({ name: "music-suggestions", isDir: true, dirKey: `${person.label}:music-suggestions`, children: person.music_suggestion_days.map((d) => `${d}.jsonl`) });
+                  }
+                  if (person.posture_days && person.posture_days.length > 0) {
+                    items.push({ name: "posture", isDir: true, dirKey: `${person.label}:posture`, children: person.posture_days.map((d) => `${d}.jsonl`) });
                   }
                   if (person.audio_history_days && person.audio_history_days.length > 0) {
                     items.push({ name: "audio_history", isDir: true, dirKey: `${person.label}:audio_history`, children: person.audio_history_days.map((d) => `${d}.jsonl`) });
