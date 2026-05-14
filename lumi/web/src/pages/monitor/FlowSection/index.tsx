@@ -793,6 +793,8 @@ export function FlowSection({
                     </div>
                   )}
                   <div
+                    className="lm-turn-card"
+                    data-expanded={turn.id === selectedTurn?.id ? "true" : "false"}
                     onClick={() => setSelectedTurnId(turn.id === selectedTurn?.id ? null : turn.id)}
                     style={{
                       borderRadius: 8,
