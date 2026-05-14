@@ -209,11 +209,7 @@ GIMBAL_MAX_STEP = 5.0
 ADAPTIVE_GAIN_PX = 60
 ADAPTIVE_GAIN_MULT = 2.0
 
-# Dead zone in pixels — no servo command if offset is within this radius.
-# Raised to 40px: CSRT/ViT bbox jitters ±5-15px frame-to-frame even when the
-# subject is still. Smaller dead zone makes PID fire-on/fire-off every ~70ms,
-# which the user perceives as jerky servo pulses.
-DEAD_ZONE_PX = 40
+DEAD_ZONE_PX = 7
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
@@ -229,9 +225,7 @@ SERVO_SETTLE_S = 0.025
 # 1.5s gives the CPU breathing room while still catching tracker drift.
 YOLO_REDETECT_S = 1.5
 
-# How many consecutive tracker-update miss frames before retrying.
-# Raised: ViT honestly returns ok=False on transient low-confidence frames.
-YOLO_MAX_MISS = 30
+YOLO_MAX_MISS = 10
 
 # Motion detection: EMA-offset delta between consecutive frames to count as "moving".
 # Tuned for ~10fps CSRT (100ms/frame) — stationary CSRT jitter ≈ 5-15px EMA delta.
@@ -256,12 +250,12 @@ SERVO_SUBSTEP_SLEEP = 0.030
 SERVO_MIN_SUBSTEPS  = 2
 
 # Pitch distribution across 3 joints.
-# Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
-# camera (kinematic coupling) → object grows in frame but doesn't move toward
-# center. Use wrist alone for predictable pitch control.
-PITCH_WEIGHT_BASE  = 0.0
-PITCH_WEIGHT_ELBOW = 0.0
-PITCH_WEIGHT_WRIST = 1.0
+# Elbow carries most of the travel (large range, low kinematic coupling at typical
+# tracking poses). Wrist handles fine adjustment. Base provides extra reach when
+# the other two saturate.
+PITCH_WEIGHT_BASE  = 0.10
+PITCH_WEIGHT_ELBOW = 0.20
+PITCH_WEIGHT_WRIST = 0.70
 
 # Edge proximity boost — when object nears frame edge, multiply correction
 # to pull it back toward center before it exits the frame.
@@ -782,7 +776,7 @@ class TrackerService:
             "base_yaw.pos":    max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_step)),
             "base_pitch.pos":  max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  + pitch_correction * PITCH_WEIGHT_BASE)),
             "elbow_pitch.pos": max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_correction * PITCH_WEIGHT_ELBOW)),
-            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch + pitch_correction * PITCH_WEIGHT_WRIST)),
+            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_correction * PITCH_WEIGHT_WRIST)),
         }
         # Warn loudly when an axis has saturated against its mechanical limit and
         # the PID is still demanding more travel in that direction — camera
@@ -839,8 +833,8 @@ class TrackerService:
         last_servo_t: float = 0.0         # timestamp of last servo fire (for cooldown)
         miss_count = 0
         yolo_miss_count = 0   # consecutive YOLO misses — ghost tracking detection
-        retry_count = 0
-        MAX_TRACKING_RETRIES = 4
+        yolo_override_cx: Optional[float] = None  # YOLO ground-truth center, used next frame
+        yolo_override_cy: Optional[float] = None
         frame_count = 0
         t_csrt_acc = 0.0   # accumulated CSRT update time
         t_servo_acc = 0.0  # accumulated servo command time (only frames that fired)
@@ -849,8 +843,8 @@ class TrackerService:
         last_yolo_t = track_start_t
         # Detector-gated trust: skip servo if YOLO hasn't confirmed target recently.
         last_yolo_confirm_t = track_start_t
-        TRUST_TRACKER_S = 2.5      # With redetect=1.5s, allow ~1 missed redetect before suspect
-        STOP_NO_YOLO_S = 6.0
+        TRUST_TRACKER_S = 2.5
+        STOP_NO_YOLO_S = 15.0
         fps_t0 = track_start_t
 
         # Queue for background YOLO results (maxsize=1 → latest result only).
@@ -858,42 +852,8 @@ class TrackerService:
         yolo_running = threading.Event()
 
         def _do_retry() -> bool:
-            """Play search animation, try YOLO, reinit tracker. Returns True to continue."""
-            nonlocal retry_count, miss_count, yolo_miss_count, ema_dx, ema_dy
-            nonlocal prev_dx, prev_dy, motion_state, stable_count, last_yolo_t
-            retry_count += 1
-            if retry_count > MAX_TRACKING_RETRIES:
-                logger.warning("[retry] exhausted %d retries, stopping", MAX_TRACKING_RETRIES)
-                return False
-            logger.info("[retry] attempt %d/%d (soft)", retry_count, MAX_TRACKING_RETRIES)
-            self._yaw_pid.reset()
-            self._pitch_pid.reset()
-            # Try YOLO detect on fresh frame
-            _f = camera_capture.last_frame
-            if _f is not None:
-                _bbox = self.detect_object(_f, state.target_label)
-                if _bbox is not None:
-                    _t = self._create_tracker()
-                    if _t is not None:
-                        try:
-                            if _t.init(_f, _bbox) is not False:
-                                state.tracker = _t
-                                state.bbox = _bbox
-                                logger.info("[retry] tracker reinit OK bbox=%s", _bbox)
-                        except Exception as _e:
-                            logger.warning("[retry] tracker init failed: %s", _e)
-            # Reset per-attempt state
-            miss_count = 0
-            yolo_miss_count = 0
-            ema_dx = ema_dy = None
-            prev_dx = prev_dy = None
-            motion_state = "INIT"
-            stable_count = 0
-            last_yolo_t = 0  # force YOLO on next frame
-            while True:  # drain stale YOLO queue
-                try: yolo_q.get_nowait()
-                except queue.Empty: break
-            return True
+            """Disabled — always stop instead of retry."""
+            return False
 
         def _fire_yolo(frame_snap: npt.NDArray[np.uint8]) -> None:
             t0_yolo = time.perf_counter()
@@ -978,22 +938,35 @@ class TrackerService:
                                    bw, bh, bbox_ratio * 100)
                     break
 
-                # Bbox drifted large — fire YOLO to correct, but DON'T skip the frame.
-                # Skipping creates a dead spiral: tracker keeps bloating each iteration
-                # while YOLO misses, until bbox crosses the stop threshold. Letting the
-                # loop continue keeps the servo chasing while YOLO works in background.
-                if bbox_ratio > DETECT_MAX_AREA_RATIO:
-                    logger.warning("[bbox] large (%.1f%% > %.1f%%) — firing YOLO bg, keep tracking",
-                                   bbox_ratio * 100, DETECT_MAX_AREA_RATIO * 100)
-                    if not yolo_running.is_set() and state.target_label:
-                        yolo_running.set()
-                        snap = frame.copy()
-                        threading.Thread(
-                            target=_fire_yolo, args=(snap,), daemon=True, name="yolo-worker"
-                        ).start()
+                # Tracker has ballooned beyond the frame — it lost the object and is
+                # tracking background. Force an immediate retry instead of chasing a ghost.
+                if bbox_ratio > 1.0:
+                    logger.warning("[bbox] bloat: %.0f%% > frame — forcing retry", bbox_ratio * 100)
+                    if _do_retry():
+                        continue
+                    break
 
-                cx_obj = bx + bw / 2.0
-                cy_obj = by + bh / 2.0
+                # When bbox fills the frame the object is simply too close for YOLO to
+                # detect (our area filter rejects detections > DETECT_MAX_AREA_RATIO).
+                # Firing YOLO here only accumulates yolo_miss_count and triggers ghost-stop.
+                # Instead: trust the tracker, reset the miss counter.
+                if bbox_ratio > DETECT_MAX_AREA_RATIO:
+                    logger.info("[bbox] large (%.1f%% > %.1f%%) — object too close for YOLO, trusting tracker",
+                                bbox_ratio * 100, DETECT_MAX_AREA_RATIO * 100)
+                    yolo_miss_count = 0
+
+                # Use YOLO ground-truth center when available (set previous frame).
+                # YOLO gives a tight bbox around the real object; CSRT bbox drifts/bloats.
+                if yolo_override_cx is not None:
+                    cx_obj = yolo_override_cx
+                    cy_obj = yolo_override_cy
+                    yolo_override_cx = yolo_override_cy = None
+                else:
+                    cx_obj = bx + bw / 2.0
+                    if bbox_ratio > 0.30:
+                        cy_obj = by + bh * 0.25
+                    else:
+                        cy_obj = by + bh / 2.0
 
                 # EMA smoothing on pixel offset (not on absolute position).
                 raw_dx = cx_obj - w_fr / 2.0
@@ -1080,6 +1053,8 @@ class TrackerService:
                     if yolo_bbox is not None:
                         miss_count = 0
                         last_yolo_confirm_t = time.perf_counter()
+                        yolo_override_cx = yolo_bbox[0] + yolo_bbox[2] / 2.0
+                        yolo_override_cy = yolo_bbox[1] + yolo_bbox[3] / 2.0
                         cur_bbox = state.bbox
                         cur_area = (cur_bbox[2] * cur_bbox[3]) if cur_bbox else 0
                         yolo_area = yolo_bbox[2] * yolo_bbox[3]
@@ -1123,11 +1098,6 @@ class TrackerService:
                     else:
                         yolo_miss_count += 1
                         logger.debug("YOLO scan: target not found (%d consecutive)", yolo_miss_count)
-                        if yolo_miss_count >= 5:
-                            logger.warning("YOLO missed %d times in a row — ghost tracking", yolo_miss_count)
-                            if _do_retry():
-                                continue
-                            break
                 except queue.Empty:
                     pass
                 else:
@@ -1142,8 +1112,12 @@ class TrackerService:
                                 dx, dy, state.target_label)
 
                 # Fire background YOLO scan every YOLO_REDETECT_S.
+                # Skip when bbox already fills the frame — YOLO will reject the detection
+                # (area > DETECT_MAX_AREA_RATIO) and the miss would falsely trigger ghost-stop.
                 now = time.perf_counter()
-                if state.target_label and not yolo_running.is_set() and now - last_yolo_t >= YOLO_REDETECT_S:
+                if (state.target_label and not yolo_running.is_set()
+                        and now - last_yolo_t >= YOLO_REDETECT_S
+                        and bbox_ratio <= DETECT_MAX_AREA_RATIO):
                     last_yolo_t = now
                     yolo_running.set()
                     snap = frame.copy()
