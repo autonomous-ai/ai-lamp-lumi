@@ -135,7 +135,7 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
       >
         <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
-          Agent GW
+          Agent
         </span>
         <span style={{ fontSize: 9, color: "var(--lm-text-muted)", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
       </button>
@@ -150,7 +150,7 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
           </a>
           <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 12, lineHeight: 1 }}>◈</span>
-            GW Config
+            Config
           </a>
         </div>
       )}
@@ -321,7 +321,27 @@ export default function Monitor() {
       {/* Sidebar */}
       <aside style={S.sidebar} className={`lm-sidebar${sidebarOpen ? " lm-sidebar--open" : ""}`}>
         <nav style={{ padding: "10px 0", flex: 1 }}>
-          {NAV.map((entry) =>
+          {/* Order: Chat → Settings → Agent Gateway → System (then any other groups) */}
+          {NAV.filter((e) => !isNavGroup(e) && e.id === "chat").map((entry) => {
+            const leaf = entry as Extract<NavEntry, { id: Section }>;
+            return (
+              <a
+                key={leaf.id}
+                href={`#${leaf.id}`}
+                style={S.navItem(section === leaf.id)}
+                onClick={(e) => { e.preventDefault(); setSection(leaf.id); closeSidebar(); }}
+              >
+                <span style={{ fontSize: 14, lineHeight: 1 }}>{leaf.icon}</span>
+                {leaf.label}
+              </a>
+            );
+          })}
+          <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
+            Settings
+          </a>
+          <AgentGWMenu closeSidebar={closeSidebar} />
+          {NAV.filter((e) => isNavGroup(e) || (!isNavGroup(e) && e.id !== "chat")).map((entry) =>
             isNavGroup(entry) ? (
               <NavGroupItem key={entry.group} entry={entry} section={section} setSection={setSection} closeSidebar={closeSidebar} />
             ) : (
@@ -336,11 +356,6 @@ export default function Monitor() {
               </a>
             )
           )}
-          <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
-            Settings
-          </a>
-          <AgentGWMenu closeSidebar={closeSidebar} />
         </nav>
         <div style={{
           padding: "12px 16px",

@@ -143,13 +143,13 @@ export function isNavLink(c: NavChild): c is NavLink {
 
 export const NAV: NavEntry[] = [
   { id: "chat",     label: "Chat",     icon: "▤" },
-  { id: "overview", label: "Overview", icon: "⊞" },
   {
-    group: "system",
-    label: "System",
+    group: "device",
+    label: "Device",
     icon: "⎚",
     children: [
-      { id: "system",      label: "Info",      icon: "ℹ" },
+      { id: "overview",    label: "Overview",  icon: "⊞" },
+      { id: "system",      label: "System",    icon: "ℹ" },
       { id: "flow",        label: "Flow",      icon: "⇄" },
       { id: "face-owners", label: "Users",     icon: "☺" },
       { id: "camera",      label: "Camera",    icon: "⊙" },
@@ -158,7 +158,7 @@ export const NAV: NavEntry[] = [
       { id: "servo",       label: "Servo",     icon: "⎈" },
       { id: "logs",        label: "Logs",      icon: "☰" },
       { id: "cli",         label: "CLI",       icon: "▸" },
-      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⎗" },
+      { href: "/hw/docs", external: true, label: "LeLamp API", icon: "⎗" },
     ],
   },
 ];
