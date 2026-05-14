@@ -11,6 +11,7 @@ import (
 	"go-lamp.autonomous.ai/lib/flow"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 )
@@ -127,6 +128,7 @@ func ProvideOpenClawHandler(gw domain.AgentGateway, bus *monitor.Bus, sled *stat
 	mood.Init()
 	wellbeing.Init()
 	musicsuggestion.Init()
+	posture.Init()
 	// Populate OpenClaw version cache in the background so the first Status
 	// poll has it ready. Stays in package-level state because the handler
 	// struct is returned by value through wire — capturing &h.field here

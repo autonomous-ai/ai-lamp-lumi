@@ -11,12 +11,41 @@ package skillcontext
 import (
 	"encoding/json"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/usercanon"
 )
+
+// rePostureHeader extracts final score, risk_name, and per-side scores from the
+// lelamp pose.ergo_risk message header. Body-region detail (per-side breakdown
+// + angles + skipped joints) stays inline in the message text — the agent
+// reads it via reading-message.md, not via this parser.
+var rePostureHeader = regexp.MustCompile(
+	`RULA score (\d+) \(([a-z_]+) risk\)\. Left.*?score=(\d+).*?Right.*?score=(\d+)`,
+)
+
+// ParsePostureMessage extracts the structured header fields from a
+// pose.ergo_risk message text. Returns the zero value if the regex misses
+// — callers should treat that as "skip context injection".
+func ParsePostureMessage(msg string) PostureEvent {
+	m := rePostureHeader.FindStringSubmatch(msg)
+	if len(m) != 5 {
+		return PostureEvent{}
+	}
+	score, _ := strconv.Atoi(m[1])
+	left, _ := strconv.Atoi(m[3])
+	right, _ := strconv.Atoi(m[4])
+	return PostureEvent{
+		Score:      score,
+		Risk:       m[2],
+		LeftScore:  left,
+		RightScore: right,
+	}
+}
 
 // PostureEvent is the parsed view of a single pose.ergo_risk event. Caller
 // (service_events) extracts these from the lelamp message text.
