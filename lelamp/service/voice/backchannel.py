@@ -30,21 +30,10 @@ import threading
 import time
 from typing import Optional
 
-from lelamp.presets import DEFAULT_LANG, LANG_EN, LANG_VI, LANG_ZH_CN, LANG_ZH_TW
+from lelamp.i18n import DEFAULT_FILLERS_BY_LANG
+from lelamp.presets import DEFAULT_LANG
 
 logger = logging.getLogger("lelamp.voice.backchannel")
-
-# Default filler pools per stt_language (read from Lumi's config.json).
-# These are short listening cues — ideally 1-2 syllables — so the user
-# barely notices them when pausing mid-sentence. Mixed-language pools are
-# fine (e.g. Vietnamese keeps "Hmm" alongside "Ờ" / "Ừm") because those
-# universal interjections sound natural in any tongue.
-_DEFAULT_FILLERS_BY_LANG = {
-    LANG_EN:    "Uhm,Ok,Hmm,Yeah,Uh huh,Right,Sure,Mm,Ah,Oh",
-    LANG_VI:    "Ờ,Ừm,Dạ,Vâng,À,Hmm,Uhm,Ơ",
-    LANG_ZH_CN: "嗯,好,啊,是,嗯嗯,对,哦,呃",
-    LANG_ZH_TW: "嗯,好,啊,是,嗯嗯,對,哦,呃",
-}
 
 
 def _default_fillers_for_active_lang() -> str:
@@ -56,7 +45,7 @@ def _default_fillers_for_active_lang() -> str:
         lang = (_lumi_cfg_get("stt_language") or "").strip()
     except Exception:
         lang = ""
-    return _DEFAULT_FILLERS_BY_LANG.get(lang, _DEFAULT_FILLERS_BY_LANG[DEFAULT_LANG])
+    return DEFAULT_FILLERS_BY_LANG.get(lang, DEFAULT_FILLERS_BY_LANG[DEFAULT_LANG])
 
 
 # Comma-separated filler words to play as listening cues. Empty string = feature disabled.
