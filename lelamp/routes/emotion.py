@@ -16,6 +16,7 @@ from lelamp.presets import (
     EMO_HAPPY,
     EMO_IDLE,
     EMO_LAUGH,
+    EMO_LISTENING,
     EMO_SAD,
     EMO_SHOCK,
     EMO_SHY,
@@ -174,6 +175,10 @@ def express_emotion(req: EmotionRequest):
     if req.emotion == EMO_IDLE:
         pass
     elif req.emotion == EMO_SLEEPY:
+        pass
+    elif req.emotion == EMO_LISTENING:
+        # Hold blue-pulse for the whole STT session — next emotion (LLM
+        # response or voice_service idle-reset safety net) overwrites it.
         pass
     elif req.emotion == EMO_SHOCK:
         state._schedule_led_restore(2.0)

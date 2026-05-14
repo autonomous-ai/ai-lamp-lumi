@@ -667,6 +667,11 @@ class VoiceService:
         longest_partial = [""]
         final_segments = []
         final_sent = [False]
+        # One-shot per session: fire emotion=listening on the first STT
+        # partial so the lamp leans forward + LED blue-pulses while the user
+        # is talking. Not on mic-open — that would fire on silence-only
+        # false starts (wake word noise, accidental button press).
+        listening_emotion_sent = [False]
         # Collect every resampled 16kHz int16 PCM chunk so we can identify the
         # speaker at session end. This list is LOCAL to _stream_session — a
         # fresh empty list every call, no cross-session carry-over.
@@ -871,6 +876,16 @@ class VoiceService:
                 if len(text) > len(longest_partial[0]):
                     longest_partial[0] = text
                 self._backchannel.on_partial(text)
+                if not listening_emotion_sent[0]:
+                    listening_emotion_sent[0] = True
+                    try:
+                        requests.post(
+                            "http://127.0.0.1:5001/emotion",
+                            json={"emotion": "listening"},
+                            timeout=0.3,
+                        )
+                    except Exception as e:
+                        logger.warning("listening emotion trigger failed: %s", e)
                 return
             # Accumulate final segments — don't send yet, wait for session close.
             # Flux model fires multiple EndOfTurn events for natural pauses within
@@ -1028,6 +1043,25 @@ class VoiceService:
                               timeout=0.3)
             except Exception:
                 pass
+
+            # Safety net: if we fired emotion=listening but no follow-up
+            # emotion arrives (LLM error, silence-only after first partial,
+            # TTS interrupt before response), blue-pulse would hang. After
+            # 8s, reset to idle — but only if current emotion is still
+            # "listening" so we don't stomp on a real LLM-driven emotion.
+            if listening_emotion_sent[0]:
+                def _reset_if_still_listening():
+                    try:
+                        from lelamp import app_state
+                        if app_state._current_emotion == "listening":
+                            requests.post(
+                                "http://127.0.0.1:5001/emotion",
+                                json={"emotion": "idle"},
+                                timeout=0.3,
+                            )
+                    except Exception as e:
+                        logger.warning("listening idle-reset failed: %s", e)
+                threading.Timer(8.0, _reset_if_still_listening).start()
 
             # Buffer is a local variable — once this function returns it is
             # garbage-collected. The next _stream_session call starts with a
