@@ -122,6 +122,7 @@ export function FlowDiagram({
     hw_mood:             { x: 467, y: 1065 },
     hw_wellbeing:        { x: 467, y: 1200 },
     hw_music_suggestion: { x: 467, y: 1335 },
+    hw_posture:          { x: 467, y: 1470 },
     tts_speak:         { x: 200, y: 930 },
     // OpenClaw — agent core (cron lives in OpenClaw, fires agent_call).
     // The 2 inner nodes (agent_thinking, tool_exec) are rendered as a
@@ -175,6 +176,7 @@ export function FlowDiagram({
     ["lumi_gate",         "hw_wellbeing"],
     ["lumi_gate",         "hw_mood"],
     ["lumi_gate",         "hw_music_suggestion"],
+    ["lumi_gate",         "hw_posture"],
     ["lumi_gate",         "tts_speak"],
     ["lumi_gate",         "tg_out"],
     ["lumi_gate",         "tg_alert"],
@@ -324,7 +326,7 @@ export function FlowDiagram({
           // hw_music_suggestion) sitting BELOW tg_alert in the same column.
           // Route right out of lumi_gate, down past tg_alert, then left back
           // into the target so the line never overlaps tg_alert.
-          if (from === "lumi_gate" && (to === "hw_mood" || to === "hw_wellbeing" || to === "hw_music_suggestion")) {
+          if (from === "lumi_gate" && (to === "hw_mood" || to === "hw_wellbeing" || to === "hw_music_suggestion" || to === "hw_posture")) {
             const elbowX = f.x + 90; // offset right of source/target column
             const startX = f.x + nodeR + 4;
             const startY = f.y;
@@ -359,7 +361,7 @@ export function FlowDiagram({
 
           const isGateEdge = from === "lumi_gate" || to === "lumi_gate";
           // HW marker path: agent_response fires inline markers — shown as dashed to distinguish from LLM tool path
-          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing" || to === "hw_mood" || to === "hw_music_suggestion");
+          const isHWMarkerEdge = from === "agent_response" && (to === "hw_emotion" || to === "hw_led" || to === "hw_servo" || to === "hw_audio" || to === "hw_wellbeing" || to === "hw_mood" || to === "hw_music_suggestion" || to === "hw_posture");
 
           // tool_exec is rendered as a rect (the Event Pipeline), not a
           // circle. Anchor any edge that touches it on the rect boundary
