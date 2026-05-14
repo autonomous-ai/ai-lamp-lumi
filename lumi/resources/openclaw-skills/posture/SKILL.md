@@ -138,12 +138,15 @@ Apply top-to-bottom, first match wins. **One route per turn.**
 | # | Condition | Route | Output |
 |---|---|---|---|
 | 1 | `praise_eligible == true` (`last_nudge_age_min` ∈ [1, 30] AND `trend == "improving"`) | **praise** | Short warm acknowledgement. POST `praise_posture`. |
-| 2 | `current.risk == "high"` (score ≥ 7) AND `voice_budget_left == true` | **L5** | Coaching sentence (2-4 sentences). POST `nudge_posture` with `nudge_level=5`. |
-| 3 | `current.risk == "medium"` AND `is_repeated == true` AND `voice_budget_left == true` | **L4** | One short line. POST `nudge_posture` with `nudge_level=4`. |
-| 4 | `current.risk == "medium"` AND `is_repeated == false` | **L3** | NO voice. Servo marker only: `[HW:/servo/play:{"recording":"posture_correct"}]`. POST `nudge_posture` with `nudge_level=3`. |
-| 5 | anything else (budget exhausted, etc.) | **L2 / silent** | Soft chime + log, OR NO_REPLY. |
+| 2 | `current.risk == "high"` AND `voice_budget_left` | **L5** | Coaching sentence (2-4 sentences). POST `nudge_posture` with `nudge_level=5`. |
+| 3 | `current.risk == "medium"` AND `is_repeated == true` AND `voice_budget_left` | **L5** | Same risk seen earlier this episode — escalate. 2-3 sentence coaching. POST `nudge_posture` with `nudge_level=5`. |
+| 4 | `current.risk == "medium"` AND `is_repeated == false` AND `voice_budget_left` | **L4** | First medium event in this episode — one short caring line. POST `nudge_posture` with `nudge_level=4`. |
+| 5 | `voice_budget_left == false` (≥3 voice nudges this hour) | **L3** | NO voice. Servo gesture only: `[HW:/servo/play:{"recording":"posture_correct"}]`. POST `nudge_posture` with `nudge_level=3`. |
+| 6 | anything else | **silent** | NO_REPLY. No HW marker, no log. |
 
-`is_repeated == true` when this `risk_level` was seen earlier this episode without a clear. `voice_budget_left == false` after ~3 voice nudges (L4/L5) in the last hour — drop to L2/silent.
+`is_repeated == true` when this `risk_level` was seen earlier this episode without a clear (within ~10 min). `voice_budget_left == false` after ~3 voice nudges (L4/L5) in the last hour — drop to L3.
+
+**Why first medium gets a voice line (L4) and a repeat escalates to L5:** a silent servo on the first medium event feels cold — the user expects to be addressed warmly the first time the lamp notices something. Repeats within ~10 min mean the user didn't change posture after the first nudge, so we earn the right to say more (L5: observation + concrete fix + optional why). Budget cap prevents nag spirals.
 
 **Asymmetry:** when `current.asymmetric == true`, L4/L5 phrasing names the
 dominant side (e.g. *"tay phải"*). Sub-scores differ left/right only on arm

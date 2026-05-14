@@ -20,17 +20,24 @@ import (
 	"go-lamp.autonomous.ai/lib/usercanon"
 )
 
-// rePostureHeader extracts final score, risk_name, and per-side scores from the
-// lelamp pose.ergo_risk message header. Body-region detail (per-side breakdown
-// + angles + skipped joints) stays inline in the message text — the agent
-// reads it via reading-message.md, not via this parser.
+// rePostureHeader extracts final score, risk_name, and per-side scores from
+// the lelamp pose.ergo_risk message header.
 var rePostureHeader = regexp.MustCompile(
 	`RULA score (\d+) \(([a-z_]+) risk\)\. Left.*?score=(\d+).*?Right.*?score=(\d+)`,
 )
 
-// ParsePostureMessage extracts the structured header fields from a
-// pose.ergo_risk message text. Returns the zero value if the regex misses
-// — callers should treat that as "skip context injection".
+// rePostureArm extracts per-side upper_arm + wrist sub-scores so we can detect
+// arm asymmetry that the final side score may flatten (final side score is
+// arm+neck+trunk composite; large arm divergence shows up as ≤1 final-side
+// delta when neck/trunk dominate the score).
+var rePostureArm = regexp.MustCompile(
+	`Left.*?upper_arm=(\d+).*?wrist=(\d+).*?Right.*?upper_arm=(\d+).*?wrist=(\d+)`,
+)
+
+// ParsePostureMessage extracts the structured header + per-side arm
+// sub-scores. Returns the zero value if the header regex misses; arm
+// sub-scores default to 0 if their regex misses (still usable for the
+// final-side delta path).
 func ParsePostureMessage(msg string) PostureEvent {
 	m := rePostureHeader.FindStringSubmatch(msg)
 	if len(m) != 5 {
@@ -39,21 +46,37 @@ func ParsePostureMessage(msg string) PostureEvent {
 	score, _ := strconv.Atoi(m[1])
 	left, _ := strconv.Atoi(m[3])
 	right, _ := strconv.Atoi(m[4])
-	return PostureEvent{
+	ev := PostureEvent{
 		Score:      score,
 		Risk:       m[2],
 		LeftScore:  left,
 		RightScore: right,
 	}
+	if arm := rePostureArm.FindStringSubmatch(msg); len(arm) == 5 {
+		ev.LeftUpperArm, _ = strconv.Atoi(arm[1])
+		ev.LeftWrist, _ = strconv.Atoi(arm[2])
+		ev.RightUpperArm, _ = strconv.Atoi(arm[3])
+		ev.RightWrist, _ = strconv.Atoi(arm[4])
+	}
+	return ev
 }
 
 // PostureEvent is the parsed view of a single pose.ergo_risk event. Caller
 // (service_events) extracts these from the lelamp message text.
 type PostureEvent struct {
-	Score      int    // 1..7+
+	Score      int    // 1..7+ final
 	Risk       string // medium | high (negligible/low never reach here)
-	LeftScore  int
+	LeftScore  int    // per-side final
 	RightScore int
+
+	// Per-side arm sub-scores (zero if not parseable from message). Used to
+	// detect arm-asymmetry that the final side score flattens. Neck/trunk are
+	// bilateral and identical L/R, so a small final-side delta with large arm
+	// sub-score divergence still indicates a meaningful arm-side imbalance.
+	LeftUpperArm  int
+	RightUpperArm int
+	LeftWrist     int
+	RightWrist    int
 }
 
 const (
@@ -110,7 +133,7 @@ func BuildPostureContext(user string, ev PostureEvent) string {
 	ctx := postureContext{
 		Current: postureCurrent{
 			Risk:         strings.ToLower(ev.Risk),
-			Asymmetric:   absInt(ev.LeftScore-ev.RightScore) >= 2,
+			Asymmetric:   isAsymmetric(ev),
 			DominantSide: dominantSide(ev.LeftScore, ev.RightScore),
 			Trend:        computeTrend(events, ev.Score),
 		},
@@ -135,6 +158,24 @@ func BuildPostureContext(user string, ev PostureEvent) string {
 		return "{}"
 	}
 	return string(buf)
+}
+
+// isAsymmetric returns true when either (a) the final side scores diverge by
+// 2+ points, or (b) per-side arm sub-scores diverge by 2+ points. Threshold
+// 2 on the final score is conservative because neck/trunk (bilateral) drag
+// the side delta toward zero; the sub-score check catches arm-driven
+// imbalance that final-score totals flatten.
+func isAsymmetric(ev PostureEvent) bool {
+	if absInt(ev.LeftScore-ev.RightScore) >= 2 {
+		return true
+	}
+	if absInt(ev.LeftUpperArm-ev.RightUpperArm) >= 2 {
+		return true
+	}
+	if absInt(ev.LeftWrist-ev.RightWrist) >= 2 {
+		return true
+	}
+	return false
 }
 
 func dominantSide(left, right int) string {
