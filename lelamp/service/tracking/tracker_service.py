@@ -283,7 +283,7 @@ MAX_LOW_CONFIDENCE_FRAMES = 10
 # back to ViT's own confidence: if it's above this threshold, keep firing PID
 # (the tracker still has a solid lock — common when face moves fast and YuNet
 # misses a few frames). Below this → freeze servo, wait for detector.
-TRACKER_TRUST_CONF = 0.4
+TRACKER_TRUST_CONF = 0.25
 
 # PID gains for servo control (industry pattern: PyImageSearch face tracking).
 # KP lowered (0.04→0.025 yaw, 0.05→0.03 pitch): smaller per-fire step, gentler
@@ -946,14 +946,8 @@ class TrackerService:
                         continue
                     break
 
-                # When bbox fills the frame the object is simply too close for YOLO to
-                # detect (our area filter rejects detections > DETECT_MAX_AREA_RATIO).
-                # Firing YOLO here only accumulates yolo_miss_count and triggers ghost-stop.
-                # Instead: trust the tracker, reset the miss counter.
-                if bbox_ratio > DETECT_MAX_AREA_RATIO:
-                    logger.info("[bbox] large (%.1f%% > %.1f%%) — object too close for YOLO, trusting tracker",
-                                bbox_ratio * 100, DETECT_MAX_AREA_RATIO * 100)
-                    yolo_miss_count = 0
+                # When bbox bloats, we need YOLO more than ever to reinit the tracker.
+                # Ghost-stop from YOLO misses is disabled so it's safe to fire freely.
 
                 # Use YOLO ground-truth center when available (set previous frame).
                 # YOLO gives a tight bbox around the real object; CSRT bbox drifts/bloats.
@@ -995,9 +989,10 @@ class TrackerService:
                     moving_str = motion_state
                 else:
                     direction, moving_str = "·", "INIT"
-                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%%",
+                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%% conf=%.2f yolo_age=%.1fs",
                             state.target_label, screen_x_pct, screen_y_pct, quadrant,
-                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
+                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100,
+                            confidence, time.perf_counter() - last_yolo_confirm_t)
 
                 # --- PID continuous-fire with detector-gated trust ---
                 now_t = time.perf_counter()
@@ -1071,9 +1066,9 @@ class TrackerService:
                         # dimension so a 500-wide bbox tolerates ~200px center jitter.
                         cur_min_dim = min(cur_bbox[2], cur_bbox[3]) if cur_bbox else 0
                         diverge_threshold = max(120.0, cur_min_dim * 0.4)
-                        bloated = cur_area > 0 and cur_area > yolo_area * 2.0
+                        bloated = cur_area > 0 and cur_area > yolo_area * 1.5
                         diverged = center_dist > diverge_threshold
-                        if bloated or diverged:
+                        if bloated or diverged or bbox_ratio > 0.60:
                             logger.info("[drift-correct] reinit reason: bloated=%s diverged=%s "
                                         "cur_area=%d yolo_area=%d center_dist=%.0fpx",
                                         bloated, diverged, cur_area, yolo_area, center_dist)
@@ -1111,13 +1106,17 @@ class TrackerService:
                     logger.info("[edge] offset=(%.0f,%.0f) > 25%% frame → force YOLO target='%s'",
                                 dx, dy, state.target_label)
 
+                # ViT expands bbox ~15-20%/frame when losing lock — force YOLO immediately
+                # at 50% so it fires and reinits the tracker before bbox hits 100%.
+                if bbox_ratio > 0.50 and not yolo_running.is_set():
+                    last_yolo_t = 0
+
                 # Fire background YOLO scan every YOLO_REDETECT_S.
                 # Skip when bbox already fills the frame — YOLO will reject the detection
                 # (area > DETECT_MAX_AREA_RATIO) and the miss would falsely trigger ghost-stop.
                 now = time.perf_counter()
                 if (state.target_label and not yolo_running.is_set()
-                        and now - last_yolo_t >= YOLO_REDETECT_S
-                        and bbox_ratio <= DETECT_MAX_AREA_RATIO):
+                        and now - last_yolo_t >= YOLO_REDETECT_S):
                     last_yolo_t = now
                     yolo_running.set()
                     snap = frame.copy()
@@ -1172,11 +1171,22 @@ class TrackerService:
             animation_service._hold_mode = False
             state.running.clear()
 
+            try:
+                with animation_service.bus_lock:
+                    animation_service.robot.send_action({
+                        "base_yaw.pos": 0.0,
+                        "base_pitch.pos": 0.0,
+                        "elbow_pitch.pos": 0.0,
+                        "wrist_roll.pos": 0.0,
+                        "wrist_pitch.pos": 0.0,
+                    })
+                logger.info("Tracking ended — arm returned to zero")
+            except Exception as e:
+                logger.warning("Tracking ended — failed to zero arm: %s", e)
+
             if not animation_service._running.is_set():
                 animation_service._running.set()
                 animation_service._event_thread = threading.Thread(
                     target=animation_service._event_loop, daemon=True
                 )
                 animation_service._event_thread.start()
-
-            logger.info("Tracking ended — holding servo at current position")
