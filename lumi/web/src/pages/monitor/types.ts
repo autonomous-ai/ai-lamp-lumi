@@ -26,7 +26,8 @@ export interface NetworkInfo {
   ip: string;
   publicIp: string;
   tailscaleIp: string;
-  signal: number;
+  signal: number;      // dBm; 0 = unknown
+  linkRate: number;    // current PHY link rate in Mbps; 0 = unknown
   internet: boolean;
   mac: string;
 }

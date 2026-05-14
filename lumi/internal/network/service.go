@@ -81,11 +81,12 @@ func (s *Service) listNetworksIW() ([]domain.Network, error) {
 }
 
 var (
-	reBSS    = regexp.MustCompile(`BSS ([0-9a-f:]+)`)
-	reSSID   = regexp.MustCompile(`SSID: (.+)`)
-	reSignal = regexp.MustCompile(`signal: ([\d.-]+)`)
-	reDS     = regexp.MustCompile(`DS Parameter set: channel (\d+)`)
-	reInet   = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)`)
+	reBSS      = regexp.MustCompile(`BSS ([0-9a-f:]+)`)
+	reSSID     = regexp.MustCompile(`SSID: (.+)`)
+	reSignal   = regexp.MustCompile(`signal: ([\d.-]+)`)
+	reTxRate   = regexp.MustCompile(`tx bitrate:\s*([\d.]+)\s*MBit/s`)
+	reDS       = regexp.MustCompile(`DS Parameter set: channel (\d+)`)
+	reInet     = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)`)
 )
 
 func parseIWScan(out string) []domain.Network {
@@ -165,30 +166,38 @@ func (s *Service) CurrentNetwork() (*domain.Network, error) {
 	if ssid == "" {
 		return nil, nil
 	}
+	signal, linkRate := readCurrentLink()
 	return &domain.Network{
 		SSID:     ssid,
 		Mode:     "",
 		BSSID:    "",
 		Channel:  0,
 		Rate:     "",
-		Signal:   readCurrentSignal(),
+		Signal:   signal,
+		LinkRate: linkRate,
 		Security: "",
 	}, nil
 }
 
-// readCurrentSignal parses `iw dev <iface> link` for the associated AP's
-// signal strength in dBm. Returns 0 when the interface is not associated or
-// parsing fails — callers treat 0 as "unknown".
-func readCurrentSignal() int {
+// readCurrentLink parses `iw dev <iface> link` for the associated AP's
+// signal strength (dBm) and tx bitrate (Mbps, rounded). Returns (0, 0) when
+// the interface is not associated or parsing fails — callers treat 0 as
+// "unknown". Single shell-out keeps the two values consistent.
+func readCurrentLink() (signal int, linkRate int) {
 	out, err := exec.Command("iw", "dev", defaultInterface, "link").Output()
 	if err != nil {
-		return 0
+		return 0, 0
 	}
-	if m := reSignal.FindStringSubmatch(string(out)); len(m) > 1 {
+	s := string(out)
+	if m := reSignal.FindStringSubmatch(s); len(m) > 1 {
 		f, _ := strconv.ParseFloat(m[1], 64)
-		return int(f)
+		signal = int(f)
 	}
-	return 0
+	if m := reTxRate.FindStringSubmatch(s); len(m) > 1 {
+		f, _ := strconv.ParseFloat(m[1], 64)
+		linkRate = int(f + 0.5)
+	}
+	return signal, linkRate
 }
 
 // readCurrentSSID resolves the current SSID via a fallback chain — iwgetid
