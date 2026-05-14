@@ -17,7 +17,7 @@ export function StatusDot({ ok }: { ok: boolean }) {
   );
 }
 
-function SoftwareUpdateButton({ target, label }: { target: "lumi" | "web" | "lelamp"; label: string }) {
+export function SoftwareUpdateButton({ target, label }: { target: "lumi" | "web" | "lelamp"; label: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const trigger = async () => {
