@@ -244,7 +244,7 @@ export const FLOW_NODES: FlowNodeDef[] = [
     ] },
 
   { id: "hw_posture",
-    label: "Posture log", short: "POS", icon: "🧍", color: "#06b6d4", path: "agent",
+    label: "Posture log", short: "POS", icon: "🪑", color: "#06b6d4", path: "agent",
     shape: "diamond",
     desc: "Posture coach log · async POST via [HW:/posture/log:{...}] — alert / nudge / praise / ritual recap rows",
     triggers: [
@@ -256,11 +256,11 @@ export const FLOW_NODES: FlowNodeDef[] = [
 // Source type → icon map
 export const SOURCE_ICON: Record<string, string> = {
   voice: "🎤", voice_command: "🎙", sound: "🔊",
-  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊", "pose.ergo_risk": "🧍",
+  motion: "👁", "motion.activity": "🏃", "presence.enter": "🙂", "presence.leave": "👋", "presence.away": "😴", "light.level": "🌡", "emotion.detected": "😊", "pose.ergo_risk": "🪑",
   "wellbeing.music": "🎵",
   environment: "🌡", system: "⚙", unknown: "❓",
   web_chat: "🖥", telegram: "💬", discord: "💬", slack: "💬", wechat: "💬", channel: "💬", chat: "💬", schedule: "⏰",
-  emotion: "😊", activity: "🏃", wellbeing: "💧", music: "🎵", sensing: "📡", posture: "🧍",
+  emotion: "😊", activity: "🏃", wellbeing: "💧", music: "🎵", sensing: "📡", posture: "🪑",
   cron: "⏰", "cron:music": "🎵",
   "ambient:breathing": "💨", "ambient:movement": "🤖", "ambient:mumble": "💭",
   "ambient:idle": "😴",

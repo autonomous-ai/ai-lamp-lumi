@@ -103,6 +103,7 @@ export interface FaceOwnerDetail {
   mood_days?: string[];
   wellbeing_days?: string[];
   music_suggestion_days?: string[];
+  posture_days?: string[];
   audio_history_days?: string[];
   voice_samples?: string[];
   habit_patterns?: boolean;
