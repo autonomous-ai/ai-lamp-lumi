@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel
@@ -82,12 +83,15 @@ class Settings(BaseSettings):
 
     dl_api_key: str = ""
 
+    cache_dir: Path = Path.home() / ".dlbackend"
+
     ser_recognition_model: SpeechEmotionRecognizerEnum = (
         SpeechEmotionRecognizerEnum.EMOTION2VEC_PLUS_LARGE
     )
     ser_recognition_ckpt_path: str | None = None
     ser_recognition_labels_path: str | None = None
     ser: SpeechEmotionRecognizerSetting = SpeechEmotionRecognizerSetting()
+
     action: ActionSetting = ActionSetting()
     emotion: EmotionSetting = EmotionSetting()
     pose: PoseSetting = PoseSetting()
