@@ -51,7 +51,11 @@ func (s *Service) StartWS(ctx context.Context, handler domain.AgentEventHandler)
 
 func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandler) error {
 	s.wsConnected.Store(false)
-	defer s.wsConnected.Store(false)
+	s.wsConnectedAt.Store(0)
+	defer func() {
+		s.wsConnected.Store(false)
+		s.wsConnectedAt.Store(0)
+	}()
 	defer s.activeTurn.Store(false) // clear busy on disconnect — lifecycle_end may never arrive
 
 	connStart := flow.Start("ws_connect", map[string]any{"url": defaultGatewayWSURL})
@@ -229,6 +233,7 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 	s.wsConn = conn
 	s.wsMu.Unlock()
 	s.wsConnected.Store(true)
+	s.wsConnectedAt.Store(time.Now().Unix())
 	if s.statusLED != nil {
 		s.statusLED.Clear(statusled.StateAgentDown)
 	}

@@ -33,7 +33,7 @@ function useEmotionPresets() {
   return { emotions, colors };
 }
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
-import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
+import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime, SoftwareUpdateButtons } from "./components";
 
 export function OverviewSection({
   sys,
@@ -49,6 +49,8 @@ export function OverviewSection({
   speakerMuted,
   ledColor,
   sceneInfo,
+  webVersion,
+  lelampVersion,
   onSceneActivate,
 }: {
   sys: SystemInfo | null;
@@ -64,6 +66,8 @@ export function OverviewSection({
   speakerMuted: boolean;
   ledColor: LEDColor | null;
   sceneInfo: SceneInfo | null;
+  webVersion: string;
+  lelampVersion: string | null;
   onSceneActivate: (scene: string) => void;
 }) {
   const { emotions: ALL_EMOTIONS, colors: EMOTION_COLOR } = useEmotionPresets();
@@ -521,6 +525,40 @@ export function OverviewSection({
         </div>
       )}
 
+      {/* Row 5: Versions & software-update controls.
+          Lives in Overview (not the sidebar) so the sidebar stays compact. */}
+      <div style={S.card}>
+        <div style={{ ...S.cardLabel, marginBottom: 10 }}>Versions</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <VersionRow name="Web"    color="var(--lm-teal)"   version={webVersion}              uptime={null} />
+          <VersionRow name="Lumi"   color="var(--lm-amber)"  version={sys?.version ?? null}    uptime={sys?.serviceUptime ?? null} />
+          <VersionRow name="LeLamp" color="var(--lm-blue)"   version={lelampVersion}           uptime={sys?.lelampUptime ?? null} />
+          <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.uptime ?? null) : null} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <SoftwareUpdateButtons />
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+function VersionRow({ name, color, version, uptime }: {
+  name: string;
+  color: string;
+  version: string | null;
+  uptime: number | null;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>{name}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color, fontFamily: "monospace" }}>{version ?? "—"}</span>
+        <span style={{ fontSize: 11, color: "var(--lm-text-muted)", minWidth: 56, textAlign: "right" }}>
+          {uptime != null ? formatUptime(uptime) : "—"}
+        </span>
+      </span>
     </div>
   );
 }

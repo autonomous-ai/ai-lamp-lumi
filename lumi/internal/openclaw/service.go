@@ -37,6 +37,7 @@ type Service struct {
 	monitorBus     *monitor.Bus
 	statusLED      *statusled.Service
 	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
+	wsConnectedAt  atomic.Int64 // unix seconds when wsConnected last flipped to true; 0 when disconnected
 	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
 	busySince      atomic.Int64 // unix milli when activeTurn was last set to true; used to expire stuck busy state
 	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
@@ -181,4 +182,10 @@ func (s *Service) IsRecentOutboundChat(text string) bool {
 // IsReady returns true when the gateway WebSocket is connected and OpenClaw is ready to receive messages.
 func (s *Service) IsReady() bool {
 	return s.wsConnected.Load()
+}
+
+// ConnectedAt returns the unix-seconds timestamp when the WS connection last
+// became ready, or 0 when not currently connected.
+func (s *Service) ConnectedAt() int64 {
+	return s.wsConnectedAt.Load()
 }

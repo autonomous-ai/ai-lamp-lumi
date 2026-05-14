@@ -47,6 +47,7 @@ export interface OCStatus {
   sessionKey: boolean;
   emotion?: string;
   version?: string;
+  uptime?: number; // seconds since WS became ready; 0 when disconnected
 }
 export interface PresenceInfo {
   state: string;
