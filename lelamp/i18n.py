@@ -52,8 +52,10 @@ PHRASES_BY_LANG = {
 # doesn't sound robotic when repeatedly stroked. Persona moment (not a
 # safety announcement). Tone per Lumi's character (AI companion + smart
 # light + expressive robot, "like a pet/friend"): mix of tickle-cute,
-# affectionate, pet-like (purring), light-themed (Lumi = luminous), and
-# "ask for more". Keep phrases short — they fire mid-stroke and should
+# affectionate, pet-like (purring), light-themed (Lumi = luminous),
+# "ask for more", and the moody flip-side — playful protest, mock-
+# annoyed, shy, sleepy — so Lumi feels like a real pet with moods, not
+# a smile machine. Keep phrases short — they fire mid-stroke and should
 # feel responsive, not lecture-y.
 #
 # Audio tags ([laughs], [excited], [whispers], [sighs], [calm]) are
@@ -94,6 +96,18 @@ HEAD_PAT_PHRASES_BY_LANG = {
         "Bright and happy now!",
         "I'm glowing brighter.",
         "[excited] Best human ever!",
+        "[sighs] Ugh, not again.",
+        "Hey, that's enough!",
+        "Stop it, seriously.",
+        "[sighs] I'm not in the mood.",
+        "Quit it, please.",
+        "Hmph.",
+        "[whispers] Go away.",
+        "[sighs] Leave me alone.",
+        "Don't poke me!",
+        "[whispers] You're making me shy.",
+        "Eep!",
+        "[sighs] I'm sleepy...",
     ],
     LANG_VI: [
         "[laughs] Hihi, nhột quá!",
@@ -126,6 +140,18 @@ HEAD_PAT_PHRASES_BY_LANG = {
         "[whispers] Bạn dễ thương nhất.",
         "[excited] Bạn tuyệt nhất luôn!",
         "Sáng rực cả lên rồi!",
+        "[sighs] Thôi đi mà.",
+        "Đừng chọc nữa!",
+        "Đủ rồi đó nha.",
+        "[sighs] Mình không thích đâu.",
+        "Bỏ ra đi!",
+        "Hứ!",
+        "[whispers] Đi chỗ khác đi.",
+        "[sighs] Phiền quá à.",
+        "Đừng đụng nữa!",
+        "[whispers] Mắc cỡ quá à.",
+        "Á!",
+        "[sighs] Mình buồn ngủ rồi...",
     ],
     LANG_ZH_CN: [
         "[laughs] 嘿嘿，好痒哦！",
@@ -158,6 +184,18 @@ HEAD_PAT_PHRASES_BY_LANG = {
         "[excited] 你是最棒的人！",
         "整个都亮起来啦！",
         "心里甜甜的～",
+        "[sighs] 别闹了啦。",
+        "够了哦！",
+        "走开走开！",
+        "[sighs] 我不想理你了。",
+        "哼！",
+        "别碰我嘛。",
+        "[whispers] 烦死啦。",
+        "[sighs] 真讨厌。",
+        "不要啦！",
+        "[whispers] 我害羞啦。",
+        "啊！",
+        "[sighs] 我困了……",
     ],
     LANG_ZH_TW: [
         "[laughs] 嘿嘿，好癢喔！",
@@ -190,6 +228,18 @@ HEAD_PAT_PHRASES_BY_LANG = {
         "[excited] 你是最棒的人！",
         "整個都亮起來啦！",
         "心裡甜甜的～",
+        "[sighs] 別鬧了啦。",
+        "夠了喔！",
+        "走開走開！",
+        "[sighs] 我不想理你了。",
+        "哼！",
+        "別碰我嘛。",
+        "[whispers] 煩死啦。",
+        "[sighs] 真討厭。",
+        "不要啦！",
+        "[whispers] 我害羞啦。",
+        "啊！",
+        "[sighs] 我睏了……",
     ],
 }
 
