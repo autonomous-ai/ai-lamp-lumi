@@ -1,0 +1,223 @@
+"""Tests for the pose-estimation WebSocket + HTTP endpoints using the local RTMPose model."""
+
+import base64
+import json
+import os
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from protocols.utils.state import get_pose_model, set_pose_model
+from core.perception.pose.pose import PoseAnalysis
+from core.perception.pose.utils import create_estimator_2d
+
+TEST_API_KEY = "test-secret-key"
+os.environ["DL_API_KEY"] = TEST_API_KEY
+
+RTMPOSE_MODEL_PATH = Path.cwd() / "local" / "rtmpose-m.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not RTMPOSE_MODEL_PATH.exists(),
+    reason=f"Local RTMPose model not found at {RTMPOSE_MODEL_PATH}",
+)
+
+
+def _make_frame_b64(width: int = 320, height: int = 240) -> str:
+    """Create a base64-encoded JPEG of a random BGR image."""
+    frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".jpg", frame)
+    return base64.b64encode(buf.tobytes()).decode()
+
+
+def _make_person_frame_b64(width: int = 320, height: int = 240) -> str:
+    """Create a base64-encoded JPEG with a rough person-like silhouette."""
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    center_x = width // 2
+    # Head
+    cv2.circle(frame, (center_x, 40), 20, (200, 180, 170), -1)
+    # Torso
+    cv2.rectangle(frame, (center_x - 30, 60), (center_x + 30, 150), (150, 150, 160), -1)
+    # Legs
+    cv2.rectangle(frame, (center_x - 25, 150), (center_x - 5, 230), (140, 140, 150), -1)
+    cv2.rectangle(frame, (center_x + 5, 150), (center_x + 25, 230), (140, 140, 150), -1)
+    _, buf = cv2.imencode(".jpg", frame)
+    return base64.b64encode(buf.tobytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def model():
+    """Load the real RTMPose model once for the entire test session."""
+    from core.enums.pose import PoseEstimator2DEnum
+
+    estimator_2d = create_estimator_2d(
+        model_name=PoseEstimator2DEnum.RTMPOSE, model_path=RTMPOSE_MODEL_PATH
+    )
+    pose_model = PoseAnalysis(estimator_2d=estimator_2d)
+    pose_model.start()
+    return pose_model
+
+
+@pytest.fixture()
+def client(model):
+    """Create a TestClient with the real pose model."""
+    import config
+    import server
+
+    config.settings.dl_api_key = TEST_API_KEY
+    set_pose_model(model)
+    return TestClient(server.app)
+
+
+AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
+
+class TestHealthEndpoint:
+    def test_health_reports_pose_model(self, client):
+        resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["pose_model"] is True
+
+    def test_health_pose_not_loaded(self, client):
+        saved = get_pose_model()
+        set_pose_model(None)
+        resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
+        assert resp.json()["pose_model"] is False
+        set_pose_model(saved)
+
+
+class TestPoseEstimationHTTP:
+    def test_single_image_returns_pose_2d(self, client):
+        resp = client.post(
+            "/api/dl/pose-estimate",
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "pose_2d" in body
+        assert "joints" in body["pose_2d"]
+        assert "confs" in body["pose_2d"]
+        assert "graph_type" in body["pose_2d"]
+        assert len(body["pose_2d"]["joints"]) == 17
+        assert len(body["pose_2d"]["confs"]) == 17
+
+    def test_single_image_no_pose_3d_without_lifter(self, client):
+        """Without a 3D lifter configured, pose_3d should be None."""
+        resp = client.post(
+            "/api/dl/pose-estimate",
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body.get("pose_3d") is None
+
+    def test_pose_not_loaded_returns_503(self, client):
+        saved = get_pose_model()
+        set_pose_model(None)
+        resp = client.post(
+            "/api/dl/pose-estimate",
+            json={"image_b64": _make_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 503
+        set_pose_model(saved)
+
+
+class TestPoseEstimationWebSocket:
+    def test_frame_returns_pose_2d(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            resp = ws.receive_json()
+            assert "pose_2d" in resp
+            assert "joints" in resp["pose_2d"]
+            assert "confs" in resp["pose_2d"]
+            assert len(resp["pose_2d"]["joints"]) == 17
+            assert len(resp["pose_2d"]["confs"]) == 17
+
+    def test_frame_joints_have_xy(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_person_frame_b64()}))
+            resp = ws.receive_json()
+            assert "pose_2d" in resp
+            for joint in resp["pose_2d"]["joints"]:
+                assert len(joint) == 2
+                assert isinstance(joint[0], float)
+                assert isinstance(joint[1], float)
+
+    def test_multiple_frames(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            for _ in range(3):
+                ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+                resp = ws.receive_json()
+                assert "pose_2d" in resp
+
+    def test_config_update_frame_interval(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "config", "task": "pose", "frame_interval": 0.5}))
+            resp = ws.receive_json()
+            assert resp["status"] == "config_updated"
+
+    def test_invalid_json(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text("not json at all")
+            resp = ws.receive_json()
+            assert "error" in resp
+
+    def test_missing_type_field(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"frame_b64": "abc"}))
+            resp = ws.receive_json()
+            assert "error" in resp
+
+    def test_frame_missing_frame_b64(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame", "task": "pose"}))
+            resp = ws.receive_json()
+            assert "error" in resp
+
+    def test_model_not_loaded_closes_ws(self, client):
+        saved = get_pose_model()
+        set_pose_model(None)
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+                ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": "abc"}))
+                ws.receive_json()
+        set_pose_model(saved)
+
+    def test_heartbeat_returns_ok(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "heartbeat", "task": "pose"}))
+            resp = ws.receive_json()
+            assert resp == {"status": "ok"}
+
+    def test_heartbeat_multiple(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            for _ in range(3):
+                ws.send_text(json.dumps({"type": "heartbeat", "task": "pose"}))
+                resp = ws.receive_json()
+                assert resp == {"status": "ok"}
+
+    def test_heartbeat_interleaved_with_frames(self, client):
+        with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
+            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.receive_json()
+
+            ws.send_text(json.dumps({"type": "heartbeat", "task": "pose"}))
+            resp = ws.receive_json()
+            assert resp == {"status": "ok"}
+
+            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            resp = ws.receive_json()
+            assert "pose_2d" in resp
+
+    def test_ws_without_api_key_rejected(self, client):
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/dl/pose-estimation/ws") as ws:
+                ws.send_text(json.dumps({"type": "heartbeat", "task": "pose"}))
+                ws.receive_json()

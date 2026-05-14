@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_action_model, set_action_model
-from core.action.uniformerv2 import UniformerV2Model
+from core.perception.action.action import ActionAnalysis
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -31,7 +31,13 @@ def _make_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    m = UniformerV2Model(model_path=UNIFORMERV2_MODEL_PATH)
+    from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
+
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.UNIFORMERV2, model_path=UNIFORMERV2_MODEL_PATH
+    )
+    m = ActionAnalysis(recognizer=recognizer)
     m.start()
     return m
 

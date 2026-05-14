@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models import (
+from core.models.action import (
     ActionConfigRequest,
     ActionFrameRequest,
     ActionHeartBeatRequest,

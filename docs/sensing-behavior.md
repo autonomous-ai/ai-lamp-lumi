@@ -518,10 +518,11 @@ Includes the `face_id` in parentheses so the agent knows which person the activi
 
 ## Emotion Detection — User Emotion (UC-M1) ✅
 
-Lumi detects the **user's** emotional state via two channels:
+Lumi detects the **user's** emotional state via three channels:
 
 1. **Facial expression** (primary) — `emotion.detected` event from `lelamp/service/sensing/perceptions/emotion.py`. Uses a dedicated emotion classifier running on self-hosted dlbackend via WebSocket. Detects 7 emotions: Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral. Configurable confidence threshold (`EMOTION_CONFIDENCE_THRESHOLD`).
-2. **Body action** (secondary) — emotional X3D actions from action recognition are **intentionally dropped** from `motion.activity` (which is purely physical: sedentary/drink/break). A dedicated `motion.emotional` event type is planned for these.
+2. **Speech emotion** (secondary) — `speech_emotion.detected` event from `lelamp/service/voice/speech_emotion/`. Runs at the end of every speaker-identified STT session against the same WAV used for speaker recognition. Uses `emotion2vec_plus_large` on dlbackend via HTTP. See [Speech Emotion Recognition](speech-emotion.md) for the full pipeline.
+3. **Body action** (tertiary) — emotional X3D actions from action recognition are **intentionally dropped** from `motion.activity` (which is purely physical: sedentary/drink/break). A dedicated `motion.emotional` event type is planned for these.
 
 > **Not to be confused with Emotion Expression** (`emotion/SKILL.md`) — which controls Lumi's own emotional output (servo + LED + eyes). Emotion Detection is about sensing what the *user* feels; Emotion Expression is how *Lumi* shows its feelings.
 
@@ -566,6 +567,35 @@ Both routes share one cooldown: music logs via `POST /api/music-suggestion/log` 
 - Mood decisions trigger downstream skills: `music-suggestion` (proactive music), `wellbeing` (break/hydration nudges).
 
 See `user-emotion-detection/SKILL.md` for the agent's full response rules.
+
+### `speech_emotion.detected` event
+
+Fired by LeLamp at the end of every speaker-identified STT session, after the same WAV bytes used for speaker `/embed` are forwarded to `dlbackend /api/dl/ser/recognize` (emotion2vec_plus_large). Buffering, per-user aggregation, polarity-bucket dedup, and the Lumi POST are all handled inside `lelamp/service/voice/speech_emotion/SpeechEmotionService` — `voice_service.py` only calls `submit(user, wav, duration)`. Message format mirrors the facial pipeline:
+
+```
+Speech emotion detected: <Label>. (weak voice cue; confidence=<0.00-1.00>; bucket=<positive|negative|other>; treat as uncertain, <bucket-tuned hedge>.)
+```
+
+Concrete examples:
+
+```
+Speech emotion detected: Sad. (weak voice cue; confidence=0.72; bucket=negative; treat as uncertain, do not assume the user is distressed.)
+Speech emotion detected: Happy. (weak voice cue; confidence=0.84; bucket=positive; treat as uncertain, do not over-celebrate.)
+```
+
+Labels (from emotion2vec_plus_large): `angry`, `disgusted`, `fearful`, `happy`, `neutral`, `other`, `sad`, `surprised`, `<unk>`. Neutral / other / `<unk>` are dropped before bucketing — same rule as facial Neutral.
+
+**Anti-spam guards** (mirror the facial pipeline 1-to-1):
+
+1. Short audio (`duration_s < SPEECH_EMOTION_MIN_AUDIO_S`) dropped at `submit()`.
+2. Unknown speaker (`match=false` or `name=="unknown"`) dropped — no subject to attribute emotion to.
+3. Low-confidence inferences (`< SPEECH_EMOTION_CONFIDENCE_THRESHOLD`) dropped by the worker.
+4. Neutral labels dropped at flush time.
+5. `(user, bucket)` TTL dedup over `SPEECH_EMOTION_DEDUP_WINDOW_S` (default 5 min). Each bucket keeps an independent timer — sending a positive event does not reset the negative window.
+
+The event payload carries `current_user` explicitly so the Lumi sensing handler doesn't need to look it up. When Lumi-side routing for `speech_emotion.detected` is wired, the natural target is the existing `user-emotion-detection/SKILL.md` — the polarity vocabulary and Happy→happy / Sad→sad / Angry→frustrated / Fear→stressed mood mapping all transfer unchanged.
+
+See [Speech Emotion Recognition](speech-emotion.md) for the full architecture, threading model, configuration table, and failure modes.
 
 ---
 

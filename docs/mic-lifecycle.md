@@ -6,6 +6,8 @@ Mic mute for privacy — meetings, calls, or just don't want Lumi listening.
 
 - Voice pipeline (`VoiceService`) runs always-on: mic → VAD → wake word → STT → OpenClaw
 - Sound perception (`SoundPerception`) in sensing loop: mic → RMS → sound events
+- Speaker recognition (`SpeakerRecognizer`): at end of every STT session, forwards the buffered WAV to `dlbackend /audio-recognizer/embed` to identify the speaker
+- Speech emotion recognition (`SpeechEmotionService`): when speaker ID succeeds, the **same WAV bytes** are forwarded to `dlbackend /api/dl/ser/recognize` on a separate worker thread; results are bucketed and dedup'd per user before firing `speech_emotion.detected` sensing events. See [Speech Emotion Recognition](speech-emotion.md).
 - Wake word detection runs inside VoiceService
 - ✅ `POST /voice/mute` / `POST /voice/unmute` — stop/restart VoiceService
 - ✅ `GET /voice/status` includes `mic_muted` field
@@ -53,6 +55,8 @@ User: "đừng nghe" ──→ [HW:/voice/mute:{}] ──→ mic OFF (deaf)
 | STT | **OFF** | Privacy — no transcription |
 | Wake word | **OFF** | Fully deaf — button is the only way back |
 | Sound perception | **OFF** | No sound events |
+| Speaker recognition | **OFF** | No STT session → no audio buffer to identify |
+| Speech emotion | **OFF** | Submission path is downstream of STT — nothing arrives |
 | TTS | **ON** | Lumi can still speak (Telegram, cron triggers) |
 | Camera/sensing | **Unaffected** | Separate from mic |
 | Music | **ON** | Can still play/stop via Telegram or web |

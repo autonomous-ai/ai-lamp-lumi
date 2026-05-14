@@ -144,6 +144,13 @@ POSE_MOTION_ANGLE_THRESHOLD = float(
     os.environ.get("LELAMP_POSE_MOTION_ANGLE_THRESHOLD", "30.0")
 )
 
+# --- Sensing: Pose estimation + ergonomic assessment (via dlbackend) ---
+POSE_ENABLED = os.environ.get("LELAMP_POSE_ENABLED", "true").lower() == "true"
+DL_POSE_ENDPOINT = os.environ.get("DL_POSE_ENDPOINT", "/ws/lelamp/api/dl/pose-estimation/ws")
+DL_POSE_BACKEND_URL = DL_BACKEND_URL.rstrip("/") + "/" + DL_POSE_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
+POSE_ERGO_COOLDOWN_S = float(os.environ.get("LELAMP_POSE_ERGO_COOLDOWN_S", "300.0"))
+POSE_ERGO_HIGH_RISK_THRESHOLD = int(os.environ.get("LELAMP_POSE_ERGO_HIGH_RISK_THRESHOLD", "5"))
+
 # --- Sensing: Snapshot storage ---
 SNAPSHOT_TMP_DIR = os.environ.get(
     "LELAMP_SNAPSHOT_TMP_DIR", "/tmp/lumi-sensing-snapshots"
@@ -183,3 +190,31 @@ SPEAKER_UNKNOWN_AUDIO_DIR: str = os.environ.get(
 DL_SPEAKER_ENDPOINT = os.environ.get("DL_SPEAKER_ENDPOINT", "/lelamp/api/dl/audio-recognizer/embed")
 SPEAKER_EMBEDDING_API_URL: str = DL_BACKEND_URL.rstrip("/") + "/" + DL_SPEAKER_ENDPOINT.strip("/") if DL_BACKEND_URL else ""
 SPEAKER_EMBEDDING_API_KEY: str = DL_API_KEY
+
+# --- Sensing: Speech emotion recognition (SER via dlbackend) ---
+SPEECH_EMOTION_ENABLED: bool = (
+    os.environ.get("LELAMP_SPEECH_EMOTION_ENABLED", "true").lower() == "true"
+)
+SPEECH_EMOTION_CONFIDENCE_THRESHOLD: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_CONFIDENCE_THRESHOLD", "0.5")
+)
+SPEECH_EMOTION_FLUSH_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_FLUSH_S", "10.0")
+)
+SPEECH_EMOTION_DEDUP_WINDOW_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_DEDUP_WINDOW_S", "300.0")
+)
+SPEECH_EMOTION_MIN_AUDIO_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_MIN_AUDIO_S", "0.8")
+)
+SPEECH_EMOTION_API_TIMEOUT_S: float = float(
+    os.environ.get("LELAMP_SPEECH_EMOTION_API_TIMEOUT_S", "15")
+)
+DL_SER_ENDPOINT: str = os.environ.get(
+    "DL_SER_ENDPOINT", "/lelamp/api/dl/ser/recognize"
+)
+SPEECH_EMOTION_API_URL: str = (
+    DL_BACKEND_URL.rstrip("/") + "/" + DL_SER_ENDPOINT.strip("/")
+    if DL_BACKEND_URL else ""
+)
+SPEECH_EMOTION_API_KEY: str = DL_API_KEY

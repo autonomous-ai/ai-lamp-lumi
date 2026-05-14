@@ -10,6 +10,8 @@
 .claude/
 *.log
 dlbackend/local
+*.pt
+*.pth
 
 # Runtime config (contains device-specific values and secrets)
 config/config.json

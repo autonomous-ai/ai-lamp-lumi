@@ -5,24 +5,14 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from enums import (
+from core.enums import (
     EmotionRecognizerEnum,
     HumanActionRecognizerEnum,
     PersonDetectorEnum,
+    PoseEstimator2DEnum,
     SpeechEmotionRecognizerEnum,
 )
-
-
-class HumanActionRecognizerSetting(BaseModel):
-    confidence_threshold: float = 0.3
-    max_frames: int = 8
-    frame_interval: float = 1.0
-    w: int = 224
-    h: int = 224
-
-    @property
-    def frame_size(self) -> tuple[int, int]:
-        return (self.w, self.h)
+from core.enums.pose import ErgoAssessorEnum, PoseLifter3DEnum
 
 
 class PersonDetectorSetting(BaseModel):
@@ -34,9 +24,40 @@ class PersonDetectorSetting(BaseModel):
     min_area_ratio: float = 0.25  # skip persons covering less than 1/4 of frame
 
 
-class EmotionRecognizerSetting(BaseModel):
-    confidence_threshold: float = 0.5
-    frame_interval: float = 1.0
+class ActionSetting(BaseModel):
+    enabled: bool = True
+    model: HumanActionRecognizerEnum = HumanActionRecognizerEnum.X3D
+    ckpt_path: str | None = None
+    # Optional overrides — None means use model-specific class defaults
+    confidence_threshold: float | None = None
+    max_frames: int | None = None
+    frame_interval: float | None = None
+    w: int | None = None
+    h: int | None = None
+
+
+class EmotionSetting(BaseModel):
+    enabled: bool = True
+    model: EmotionRecognizerEnum = EmotionRecognizerEnum.POSTERV2
+    ckpt_path: str | None = None
+    # Optional overrides — None means use model-specific class defaults
+    confidence_threshold: float | None = None
+    frame_interval: float | None = None
+
+
+class PoseSetting(BaseModel):
+    enabled: bool = True
+    model: PoseEstimator2DEnum = PoseEstimator2DEnum.RTMPOSE
+    ckpt_path: str | None = None
+    # Optional overrides — None means use class defaults from PoseAnalysis
+    confidence_threshold_2d: float | None = None
+    min_valid_keypoints: int | None = None
+    lifter_3d: PoseLifter3DEnum | None = PoseLifter3DEnum.TCPFORMER
+    lifter_3d_ckpt_path: str | None = None
+    lifter_3d_frame_w: int | None = None
+    lifter_3d_frame_h: int | None = None
+    ergo_assessor: ErgoAssessorEnum | None = None
+    ergo_confidence_threshold: float | None = None
 
 
 class SpeechEmotionRecognizerSetting(BaseModel):
@@ -60,23 +81,16 @@ class Settings(BaseSettings):
     )
 
     dl_api_key: str = ""
-    action_recognition_model: HumanActionRecognizerEnum = HumanActionRecognizerEnum.X3D
-    action_recognition_ckpt_path: str | None = None
-
-    emotion_recognition_model: EmotionRecognizerEnum = EmotionRecognizerEnum.POSTERV2
-    emotion_recognition_ckpt_path: str | None = None
 
     ser_recognition_model: SpeechEmotionRecognizerEnum = (
         SpeechEmotionRecognizerEnum.EMOTION2VEC_PLUS_LARGE
     )
     ser_recognition_ckpt_path: str | None = None
     ser_recognition_labels_path: str | None = None
-
-    videomae: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16)
-    uniformerv2: HumanActionRecognizerSetting = HumanActionRecognizerSetting()
-    x3d: HumanActionRecognizerSetting = HumanActionRecognizerSetting(max_frames=16, w=256, h=256)
-    emotion: EmotionRecognizerSetting = EmotionRecognizerSetting()
     ser: SpeechEmotionRecognizerSetting = SpeechEmotionRecognizerSetting()
+    action: ActionSetting = ActionSetting()
+    emotion: EmotionSetting = EmotionSetting()
+    pose: PoseSetting = PoseSetting()
     person_detector: PersonDetectorSetting = PersonDetectorSetting()
 
 

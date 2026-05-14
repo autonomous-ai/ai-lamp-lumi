@@ -16,14 +16,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_action_model, set_action_model
-from core.action.x3d import X3DModel
-from core.persondetector import YOLOPersonDetector
+from core.perception.action.action import ActionAnalysis
+from core.perception.persondetector import YOLOPersonDetector
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 PERSON_DRINKING_IMG = FIXTURES_DIR / "person_drinking.jpg"
+X3D_MODEL_PATH = Path.cwd() / "local" / "x3d_m_16x5x1_int8.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not X3D_MODEL_PATH.exists(),
+    reason=f"Local X3D model not found at {X3D_MODEL_PATH}",
+)
 
 
 def _img_to_b64(path: Path) -> str:
@@ -58,14 +64,33 @@ def person_detector():
 
 @pytest.fixture(scope="session")
 def model_with_detector(person_detector):
-    m = X3DModel(person_detector=person_detector, frame_interval=0.0)
+    from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
+
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
+    )
+    m = ActionAnalysis(
+        recognizer=recognizer,
+        person_detector=person_detector,
+        frame_interval=0.0,
+    )
     m.start()
     return m
 
 
 @pytest.fixture(scope="session")
 def model_without_detector():
-    m = X3DModel(frame_interval=0.0)
+    from core.enums import HumanActionRecognizerEnum
+    from core.perception.action.utils import create_recognizer
+
+    recognizer = create_recognizer(
+        model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
+    )
+    m = ActionAnalysis(
+        recognizer=recognizer,
+        frame_interval=0.0,
+    )
     m.start()
     return m
 
