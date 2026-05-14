@@ -8,7 +8,9 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/mood"
+	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/skillcontext"
 )
 
@@ -118,6 +120,7 @@ func (s *Service) drainPendingEvents() {
 		"motion.activity":         true,
 		"emotion.detected":        true,
 		"speech_emotion.detected": true,
+		"pose.ergo_risk":          true,
 		"presence.enter":          true,
 		"presence.leave":          true,
 		"presence.away":           true,
@@ -144,6 +147,7 @@ func (s *Service) drainPendingEvents() {
 		"motion.activity":         true,
 		"emotion.detected":        true,
 		"speech_emotion.detected": true,
+		"pose.ergo_risk":          true,
 	}
 	lastIdx := make(map[string]int, len(events))
 	for i, ev := range events {
@@ -222,6 +226,8 @@ func (s *Service) drainPendingEvents() {
 				msg = "[emotion] " + ev.msg
 			case "speech_emotion.detected":
 				msg = "[speech_emotion] " + ev.msg
+			case "pose.ergo_risk":
+				msg = "[posture] " + ev.msg
 			default:
 				msg = "[sensing:" + ev.eventType + "] " + ev.msg
 			}
@@ -244,7 +250,26 @@ func (s *Service) drainPendingEvents() {
 				// tells the skill which source to log on the mood signal row
 				// (source=voice vs source=camera).
 				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
+			case "pose.ergo_risk":
+				msg += "\n[context: current_user=" + ev.currentUser + "]"
+				msg += skillcontext.BuildUserContext(ev.currentUser)
+				pev := skillcontext.ParsePostureMessage(ev.msg)
+				// Build context BEFORE logging the alert — see sensing handler
+				// for the rationale (avoid self-reference in trend / is_repeated).
+				msg += "\n[posture_context: " + skillcontext.BuildPostureContext(ev.currentUser, pev) + "]"
+				if pev.Score > 0 {
+					posture.LogAlert(ev.currentUser, posture.AlertExtras{
+						Score:      pev.Score,
+						Risk:       pev.Risk,
+						LeftScore:  pev.LeftScore,
+						RightScore: pev.RightScore,
+					})
+				}
 			}
+			// Mirrors the direct sensing handler — see handler.go for why
+			// sensor turns need an explicit current_language tag. Voice/
+			// web_chat branches above already carry user text and skip it.
+			msg += i18n.LangContextTag()
 		}
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
 		// behaviour of the direct PostEvent path (sensing handler). The full text with

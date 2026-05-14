@@ -25,15 +25,15 @@ If one of those arrives, stop and switch — don't improvise here.
 Type them at the very start of your reply. They are NOT tool calls. The system reads and strips them before TTS.
 
 ```
-[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["person"]}] Welcome back!
+[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["face"]}] Welcome back!
 ```
 
 ## Event → response matrix
 
 | Event | Image? | HW markers | Voice |
 |---|---|---|---|
-| `presence.enter` (friend) | Yes | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["person"]}]` | YES — warm personal greeting by name. **If the injected `[presence_context: ...]` block flags a long absence, swap to the return-after-long-absence phrasing — see section below.** |
-| `presence.enter` (stranger) | Yes | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/play:{"recording":"scanning"}]` | YES — cautious acknowledgment |
+| `presence.enter` (friend) | Yes | `[HW:/emotion:{"emotion":"greeting","intensity":0.9}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["face"]}]` | YES — warm personal greeting by name. **If the injected `[presence_context: ...]` block flags a long absence, swap to the return-after-long-absence phrasing — see section below.** |
+| `presence.enter` (stranger) | Yes | `[HW:/emotion:{"emotion":"curious","intensity":0.8}][HW:/servo/aim:{"direction":"user"}][HW:/servo/track:{"target":["face"]}]` | YES — cautious acknowledgment |
 | `presence.leave` | No | `[HW:/emotion:{"emotion":"idle","intensity":0.4}][HW:/servo/track/stop:{}]` | NO (`NO_REPLY`) — always silent |
 | `presence.away` | No | `[HW:/emotion:{"emotion":"sleepy","intensity":0.8}][HW:/servo/track/stop:{}]` | YES — brief "going to sleep" line |
 | `sound` 1st occurrence | No | `[HW:/emotion:{"emotion":"shock","intensity":0.8}]` | NO (`NO_REPLY`) |

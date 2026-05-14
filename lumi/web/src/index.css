@@ -233,6 +233,30 @@
   .lm-grid-5 { grid-template-columns: repeat(2, 1fr); }
 
   .lm-content { padding: 12px !important; }
+
+  /* Flow section: stack turn list above the diagram so neither gets squeezed.
+     50vh cap leaves room for the diagram below while keeping enough body
+     height for the dense filter header + at least a handful of turns. */
+  .lm-flow-layout { flex-direction: column !important; }
+  .lm-flow-turns  { width: 100% !important; max-height: 50vh; min-height: 220px; }
+
+  /* Mobile collapse: each turn card shows only its header row until tapped.
+     Selected turn (data-expanded="true") shows the full body. Lets the user
+     scan many turns at once on a small screen instead of swiping through
+     a few tall cards. */
+  .lm-turn-card[data-expanded="false"] {
+    max-height: 60px;
+    overflow: hidden;
+    position: relative;
+  }
+  .lm-turn-card[data-expanded="false"]::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 16px;
+    background: linear-gradient(to bottom, transparent, var(--lm-surface));
+    pointer-events: none;
+  }
 }
 
 @media (max-width: 480px) {

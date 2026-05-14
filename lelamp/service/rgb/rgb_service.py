@@ -1,3 +1,4 @@
+import time
 from typing import Any, List, Union
 from ..base import ServiceBase
 from lelamp.presets import RGB_CMD_PAINT, RGB_CMD_SOLID
@@ -108,7 +109,8 @@ class _StripSPI:
 
     _BIT0 = 0xC0
     _BIT1 = 0xF8
-    _RESET_BYTES = 64  # >280us reset at 6.4 MHz
+    _PRIMER_BYTES = 10  # ~12.5us MOSI-low before first encoded bit, so pixel 0 cannot latch a stray HIGH
+    _RESET_BYTES = 250  # ~312us reset at 6.4 MHz (>= WS2812B-V5 280us latch threshold)
 
     def __init__(self, led_count, led_brightness, spi_bus=0, spi_device=0):
         import spidev
@@ -138,7 +140,7 @@ class _StripSPI:
             self._pixels[i] = color_tuple
 
     def show(self):
-        buf = []
+        buf = [0x00] * self._PRIMER_BYTES
         for r, g, b in self._pixels:
             buf.extend(self._encode_pixel(r, g, b))
         buf.extend([0x00] * self._RESET_BYTES)
@@ -235,11 +237,20 @@ class RGBService(ServiceBase):
         self.logger.debug(f"Applied paint pattern with {max_pixels} colors")
 
     def clear(self):
-        """Turn off all LEDs"""
+        """Turn off all LEDs (double show + extra MOSI idle low for reliability)."""
         if not self._driver:
             return
         self._driver.fill((0, 0, 0), self.led_count)
         self._driver.show()
+        time.sleep(0.01)
+        self._driver.show()
+        time.sleep(0.01)
+        spi = getattr(self._driver, "_spi", None)
+        if spi is not None:
+            try:
+                spi.xfer2([0x00] * 100)
+            except Exception:
+                pass
 
     def stop(self, timeout: float = 5.0):
         """Override stop to clear LEDs before stopping"""

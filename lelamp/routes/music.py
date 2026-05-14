@@ -12,6 +12,7 @@ from lelamp.models import (
     MusicStatusResponse,
     StatusResponse,
 )
+from lelamp.i18n import MUSIC_BACKCHANNEL_POOLS
 from lelamp.service.voice.tts_backend import PROVIDER_ELEVENLABS
 from lelamp.presets import (
     DEFAULT_LANG,
@@ -21,10 +22,6 @@ from lelamp.presets import (
     EMO_IDLE,
     EMO_SLEEPY,
     EMOTION_PRESETS,
-    LANG_EN,
-    LANG_VI,
-    LANG_ZH_CN,
-    LANG_ZH_TW,
     SERVO_CMD_MUSIC_START,
     SERVO_CMD_MUSIC_STOP,
     SERVO_MUSIC_CHILL,
@@ -84,156 +81,8 @@ _MUSIC_STYLE_EMOTION: dict[str, str] = {
 #
 # yt-dlp resolve + ffmpeg startup takes 1-3s before audio actually plays.
 # A short cached TTS line fills that gap so the lamp sounds responsive.
-# Phrases are intentionally generic and short so one cache pool covers
-# every style/query. Cache is keyed by provider/voice/model in TTSService.
-#
-# Pools are split by language × provider:
-#   - language is read from Lumi's stt_language (config.json) at fire time,
-#     so changing the language picker doesn't require code edits — only a
-#     lelamp restart so the prewarm hits the new pool.
-#   - ElevenLabs variants embed eleven_v3 audio tags ([excited], [curious])
-#     which the OpenAI provider would speak aloud, hence two separate pools.
-MUSIC_BACKCHANNEL_PHRASES: list[str] = [
-    "On it!",
-    "Coming right up.",
-    "Got it.",
-    "Sure thing.",
-    "One sec.",
-    "Let me find it.",
-    "Looking it up.",
-    "Tuning in.",
-    "Spinning that up.",
-    "Music coming.",
-    "Nice pick.",
-    "Hmm, let me see.",
-]
-
-# ElevenLabs eleven_v3 audio tags — index-aligned with the plain pool so the
-# no-repeat tracker works the same regardless of provider. Tags are inline
-# directives that v3 interprets as audio direction (not spoken). OpenAI
-# provider must NOT see these — its strip regex only whitelists a subset
-# (`tts_openai.py:_strip_audio_tags`), so unknown tags would be read aloud.
-# We pick the pool by provider in `_fire_music_backchannel`.
-MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS: list[str] = [
-    "[excited] On it!",
-    "[excited] Coming right up.",
-    "Got it.",
-    "Sure thing.",
-    "One sec.",
-    "[curious] Let me find it.",
-    "[curious] Looking it up.",
-    "[excited] Tuning in.",
-    "[excited] Spinning that up.",
-    "[excited] Music coming.",
-    "Nice pick.",
-    "[curious] Hmm, let me see.",
-]
-
-# Vietnamese (stt_language=LANG_VI).
-MUSIC_BACKCHANNEL_PHRASES_VI: list[str] = [
-    "Đang tìm!",
-    "Một chút nhé.",
-    "Ok rồi.",
-    "Để mình tìm.",
-    "Đợi tí.",
-    "Đang mở đây.",
-    "Hay đấy.",
-    "Hmm, để xem.",
-    "Đang tải.",
-    "Sắp có ngay.",
-    "Pick xịn đó.",
-    "Một giây thôi.",
-]
-
-MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS: list[str] = [
-    "[excited] Đang tìm!",
-    "Một chút nhé.",
-    "Ok rồi.",
-    "[curious] Để mình tìm.",
-    "Đợi tí.",
-    "[excited] Đang mở đây.",
-    "[excited] Hay đấy.",
-    "[curious] Hmm, để xem.",
-    "Đang tải.",
-    "[excited] Sắp có ngay.",
-    "Pick xịn đó.",
-    "Một giây thôi.",
-]
-
-# Chinese Simplified (stt_language=LANG_ZH_CN).
-MUSIC_BACKCHANNEL_PHRASES_ZH_CN: list[str] = [
-    "好，马上！",
-    "稍等一下。",
-    "明白！",
-    "让我找找。",
-    "等一下。",
-    "正在播放。",
-    "选得好！",
-    "嗯，让我看看。",
-    "正在加载。",
-    "马上就来。",
-    "不错的选择。",
-    "稍等。",
-]
-
-MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS: list[str] = [
-    "[excited] 好，马上！",
-    "稍等一下。",
-    "明白！",
-    "[curious] 让我找找。",
-    "等一下。",
-    "[excited] 正在播放。",
-    "[excited] 选得好！",
-    "[curious] 嗯，让我看看。",
-    "正在加载。",
-    "[excited] 马上就来。",
-    "不错的选择。",
-    "稍等。",
-]
-
-# Chinese Traditional (stt_language=LANG_ZH_TW).
-MUSIC_BACKCHANNEL_PHRASES_ZH_TW: list[str] = [
-    "好，馬上！",
-    "稍等一下。",
-    "明白！",
-    "讓我找找。",
-    "等一下。",
-    "正在播放。",
-    "選得好！",
-    "嗯，讓我看看。",
-    "正在載入。",
-    "馬上就來。",
-    "不錯的選擇。",
-    "稍等。",
-]
-
-MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS: list[str] = [
-    "[excited] 好,馬上!",
-    "稍等一下。",
-    "明白!",
-    "[curious] 讓我找找。",
-    "等一下。",
-    "[excited] 正在播放。",
-    "[excited] 選得好!",
-    "[curious] 嗯，讓我看看。",
-    "正在載入。",
-    "[excited] 馬上就來。",
-    "不錯的選擇。",
-    "稍等。",
-]
-
-# (lang, provider_is_elevenlabs) → pool. Lookup falls back to DEFAULT_LANG
-# when the active language has no translated pool.
-_POOLS: dict[tuple[str, bool], list[str]] = {
-    (LANG_EN,    False): MUSIC_BACKCHANNEL_PHRASES,
-    (LANG_EN,    True):  MUSIC_BACKCHANNEL_PHRASES_ELEVENLABS,
-    (LANG_VI,    False): MUSIC_BACKCHANNEL_PHRASES_VI,
-    (LANG_VI,    True):  MUSIC_BACKCHANNEL_PHRASES_VI_ELEVENLABS,
-    (LANG_ZH_CN, False): MUSIC_BACKCHANNEL_PHRASES_ZH_CN,
-    (LANG_ZH_CN, True):  MUSIC_BACKCHANNEL_PHRASES_ZH_CN_ELEVENLABS,
-    (LANG_ZH_TW, False): MUSIC_BACKCHANNEL_PHRASES_ZH_TW,
-    (LANG_ZH_TW, True):  MUSIC_BACKCHANNEL_PHRASES_ZH_TW_ELEVENLABS,
-}
+# Phrase pools live in lelamp/i18n.py (MUSIC_BACKCHANNEL_POOLS) — split
+# by (language, provider_is_elevenlabs). Edit copy there, not here.
 
 # Index of the last spoken phrase — excluded from the next pick so the lamp
 # never repeats itself back-to-back. -1 = nothing spoken yet (first call
@@ -256,9 +105,9 @@ def _backchannel_pool() -> list[str]:
     back to the plain (no audio-tag) pool."""
     is_elevenlabs = getattr(state.tts_service, "_provider", "") == PROVIDER_ELEVENLABS
     lang = _active_stt_language()
-    pool = _POOLS.get((lang, is_elevenlabs))
+    pool = MUSIC_BACKCHANNEL_POOLS.get((lang, is_elevenlabs))
     if pool is None:
-        pool = _POOLS[(DEFAULT_LANG, is_elevenlabs)]
+        pool = MUSIC_BACKCHANNEL_POOLS[(DEFAULT_LANG, is_elevenlabs)]
     return pool
 
 
