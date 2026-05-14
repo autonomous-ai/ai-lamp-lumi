@@ -40,6 +40,20 @@ TTS_VOICE: str = os.environ.get("TTS_VOICE", "nova")
 # TTS instructions — style/vibe prompt for voice (e.g. "Speak warmly like a caring friend")
 TTS_INSTRUCTIONS: str = os.environ.get("LELAMP_TTS_INSTRUCTIONS", "Friendly")
 
+# --- Vision tracking ---
+# Use the local YOLOv8n model for COCO-class targets (person, cup, etc.).
+# Set LELAMP_TRACKING_DETECT_LOCAL=false to force remote YOLOWorld for everything
+# (slower, but open vocabulary and lighter on the Pi CPU).
+TRACKING_DETECT_LOCAL_ENABLED: bool = os.environ.get(
+    "LELAMP_TRACKING_DETECT_LOCAL", "true"
+).strip().lower() in ("1", "true", "yes", "on")
+
+# Use the local YuNet face detector for target='face' (COCO has no face class,
+# YOLO falls back to remote YOLOWorld ~1.3s otherwise). Disable to force remote.
+TRACKING_FACE_DETECTOR_ENABLED: bool = os.environ.get(
+    "LELAMP_TRACKING_FACE_DETECTOR", "true"
+).strip().lower() in ("1", "true", "yes", "on")
+
 # --- Data layout ---
 
 # --- Sensing: Lumi integration ---
@@ -61,7 +75,7 @@ LIGHT_CHANGE_THRESHOLD = int(os.environ.get("LELAMP_LIGHT_CHANGE_THRESHOLD", "10
 USERS_DIR: str = os.environ.get("LELAMP_USERS_DIR", "/root/local/users")
 STRANGERS_DIR: str = os.environ.get("LELAMP_STRANGERS_DIR", "/root/local/strangers")
 YUNET_CONFIDENCE_THRESHOLD = float(
-    os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.6")
+    os.environ.get("LELAMP_YUNET_CONFIDENCE_THRESHOLD", "0.35")
 )
 FACE_COOLDOWN_S = float(os.environ.get("LELAMP_FACE_COOLDOWN_S", "10.0"))
 FACE_OWNER_FORGET_S = float(os.environ.get("LELAMP_FACE_OWNER_FORGET_S", "3600.0"))

@@ -154,6 +154,7 @@ func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 		"publicIp":    "",
 		"tailscaleIp": "",
 		"signal":      0,
+		"linkRate":    0,
 		"internet":    false,
 		"mac":         device.GetDeviceMac(),
 	}
@@ -161,6 +162,7 @@ func (h *HealthHandler) NetworkInfo(c *gin.Context) {
 	if netw, err := h.networkService.CurrentNetwork(); err == nil && netw != nil {
 		info["ssid"] = netw.SSID
 		info["signal"] = netw.Signal
+		info["linkRate"] = netw.LinkRate
 	}
 
 	if ip, err := h.networkService.GetCurrentIP(); err == nil {

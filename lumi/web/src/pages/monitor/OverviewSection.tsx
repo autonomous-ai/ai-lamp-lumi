@@ -33,7 +33,7 @@ function useEmotionPresets() {
   return { emotions, colors };
 }
 import type { SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo } from "./types";
-import { StatusDot, HWBadge, SignalBars, StatPill, formatUptime } from "./components";
+import { StatusDot, HWBadge, SignalBars, formatUptime, SoftwareUpdateButton } from "./components";
 
 export function OverviewSection({
   sys,
@@ -49,6 +49,8 @@ export function OverviewSection({
   speakerMuted,
   ledColor,
   sceneInfo,
+  webVersion,
+  lelampVersion,
   onSceneActivate,
 }: {
   sys: SystemInfo | null;
@@ -64,6 +66,8 @@ export function OverviewSection({
   speakerMuted: boolean;
   ledColor: LEDColor | null;
   sceneInfo: SceneInfo | null;
+  webVersion: string;
+  lelampVersion: string | null;
   onSceneActivate: (scene: string) => void;
 }) {
   const { emotions: ALL_EMOTIONS, colors: EMOTION_COLOR } = useEmotionPresets();
@@ -145,7 +149,6 @@ export function OverviewSection({
         <div style={S.card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={S.cardLabel}>Network</div>
-            {net && <SignalBars value={net.signal} />}
           </div>
           {net ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -170,8 +173,13 @@ export function OverviewSection({
                 </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Signal</span>
-                <span style={{ fontSize: 11, color: "var(--lm-text)" }}>{net.signal} dBm</span>
+                <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>Speed</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }} title={`Signal ${net.signal} dBm`}>
+                  <SignalBars value={net.signal} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--lm-text)" }}>
+                    {net.linkRate > 0 ? `${net.linkRate} Mbps` : "—"}
+                  </span>
+                </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>MAC</span>
@@ -305,8 +313,8 @@ export function OverviewSection({
         </div>
       </div>
 
-      {/* Row 2: Emotion (left) + Hardware (right) */}
-      <div className="lm-grid-2">
+      {/* Row 2: Emotion + Hardware + Scene + Servo Pose */}
+      <div className="lm-grid-4">
         {/* Emotion */}
         <div style={{
           ...S.card, padding: "14px 16px",
@@ -403,14 +411,10 @@ export function OverviewSection({
               <HWBadge label="Sensing" ok={hw.sensing} />
               <HWBadge label="Voice" ok={hw.voice} />
               <HWBadge label="TTS" ok={hw.tts} />
-              <HWBadge label="Display" ok={hw.display} />
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
-      </div>
 
-      {/* Row 3: Scene + Servo + Display */}
-      <div className="lm-grid-3">
         {/* Scene */}
         <div style={S.card}>
           <div style={S.cardLabel}>Scene</div>
@@ -483,44 +487,71 @@ export function OverviewSection({
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
         </div>
+      </div>
 
-        {/* Display Eyes */}
-        <div style={S.card}>
-          <div style={S.cardLabel}>Display Eyes</div>
-          {displayState ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusDot ok={displayState.hardware} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-teal)" }}>{displayState.mode}</span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
-                {(displayState.available_expressions ?? []).map((e) => (
-                  <span key={e} style={{
-                    fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                    background: e === displayState.mode ? "rgba(45,212,191,0.12)" : "var(--lm-surface)",
-                    border: `1px solid ${e === displayState.mode ? "rgba(45,212,191,0.4)" : "var(--lm-border)"}`,
-                    color: e === displayState.mode ? "var(--lm-teal)" : "var(--lm-text-dim)",
-                  }}>{e}</span>
-                ))}
-              </div>
+      {/* Display Eyes — hidden via display:none, code kept for future re-enable */}
+      <div style={{ ...S.card, display: "none" }}>
+        <div style={S.cardLabel}>Display Eyes</div>
+        {displayState ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <StatusDot ok={displayState.hardware} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-teal)" }}>{displayState.mode}</span>
             </div>
-          ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
+              {(displayState.available_expressions ?? []).map((e) => (
+                <span key={e} style={{
+                  fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                  background: e === displayState.mode ? "rgba(45,212,191,0.12)" : "var(--lm-surface)",
+                  border: `1px solid ${e === displayState.mode ? "rgba(45,212,191,0.4)" : "var(--lm-border)"}`,
+                  color: e === displayState.mode ? "var(--lm-teal)" : "var(--lm-text-dim)",
+                }}>{e}</span>
+              ))}
+            </div>
+          </div>
+        ) : <span style={{ color: "var(--lm-text-muted)" }}>Loading…</span>}
+      </div>
+
+      {/* Versions & per-target software-update buttons.
+          OS uptime sits in the host row; detailed CPU/RAM/Disk live in System tab. */}
+      <div style={S.card}>
+        <div style={{ ...S.cardLabel, marginBottom: 10 }}>Versions</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <VersionRow name="Host"   color="var(--lm-text)"   version={null}                    uptime={sys?.uptime ?? null}                                   updateTarget={null} />
+          <VersionRow name="Web"    color="var(--lm-teal)"   version={webVersion}              uptime={null}                                                  updateTarget="web" />
+          <VersionRow name="Lumi"   color="var(--lm-amber)"  version={sys?.version ?? null}    uptime={sys?.serviceUptime ?? null}                            updateTarget="lumi" />
+          <VersionRow name="LeLamp" color="var(--lm-blue)"   version={lelampVersion}           uptime={sys?.lelampUptime ?? null}                             updateTarget="lelamp" />
+          <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.uptime ?? null) : null}           updateTarget={null} />
         </div>
       </div>
 
-      {/* Row 4: System stats */}
-      {sys && (
-        <div style={S.card}>
-          <div className="lm-grid-5">
-            <StatPill label="CPU" value={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" />
-            <StatPill label="RAM" value={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" />
-            <StatPill label="Disk" value={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={(sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : "var(--lm-teal)"} />
-            <StatPill label="Temp" value={`${sys.cpuTemp.toFixed(1)}°C`} color={sys.cpuTemp > 70 ? "var(--lm-red)" : "var(--lm-teal)"} />
-            <StatPill label="Uptime" value={formatUptime(sys.uptime)} />
-          </div>
-        </div>
-      )}
+    </div>
+  );
+}
 
+function VersionRow({ name, color, version, uptime, updateTarget }: {
+  name: string;
+  color: string;
+  version: string | null;
+  uptime: number | null;
+  updateTarget: "lumi" | "web" | "lelamp" | null;
+}) {
+  // 4-column grid keeps name/version/uptime/button vertically aligned across rows.
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "70px 1fr 70px 70px",
+      alignItems: "center",
+      gap: 10,
+    }}>
+      <span style={{ fontSize: 12.5, color: "var(--lm-text-dim)" }}>{name}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color, fontFamily: "monospace" }}>{version ?? "—"}</span>
+      <span style={{ fontSize: 11, color: "var(--lm-text-muted)", textAlign: "right" }}>
+        {uptime != null ? formatUptime(uptime) : "—"}
+      </span>
+      <span style={{ display: "flex", justifyContent: "flex-end" }}>
+        {updateTarget && <SoftwareUpdateButton target={updateTarget} label="update" />}
+      </span>
     </div>
   );
 }

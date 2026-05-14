@@ -523,6 +523,7 @@ def start_tracking(req: ServoTrackRequest):
         "tracking": True,
         "target": s.get("target"),
         "bbox": s.get("bbox"),
+        "confidence": s.get("confidence"),
     }
 
 

@@ -80,12 +80,23 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 		version = *v
 	}
 
+	// Uptime: seconds since the WS connection last became ready. 0 when
+	// disconnected — the frontend renders "—" in that case.
+	var uptime int64
+	if connectedAt := h.agentGateway.ConnectedAt(); connectedAt > 0 {
+		uptime = time.Now().Unix() - connectedAt
+		if uptime < 0 {
+			uptime = 0
+		}
+	}
+
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"name":       h.agentGateway.Name(),
 		"connected":  h.agentGateway.IsReady(),
 		"sessionKey": h.agentGateway.GetSessionKey() != "",
 		"emotion":    emotion,
 		"version":    version,
+		"uptime":     uptime,
 	}))
 }
 

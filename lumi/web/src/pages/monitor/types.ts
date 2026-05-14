@@ -26,7 +26,8 @@ export interface NetworkInfo {
   ip: string;
   publicIp: string;
   tailscaleIp: string;
-  signal: number;
+  signal: number;      // dBm; 0 = unknown
+  linkRate: number;    // current PHY link rate in Mbps; 0 = unknown
   internet: boolean;
   mac: string;
 }
@@ -47,6 +48,7 @@ export interface OCStatus {
   sessionKey: boolean;
   emotion?: string;
   version?: string;
+  uptime?: number; // seconds since WS became ready; 0 when disconnected
 }
 export interface PresenceInfo {
   state: string;
@@ -143,13 +145,13 @@ export function isNavLink(c: NavChild): c is NavLink {
 
 export const NAV: NavEntry[] = [
   { id: "chat",     label: "Chat",     icon: "▤" },
-  { id: "overview", label: "Overview", icon: "⊞" },
   {
-    group: "system",
-    label: "System",
+    group: "device",
+    label: "Device",
     icon: "⎚",
     children: [
-      { id: "system",      label: "Info",      icon: "ℹ" },
+      { id: "overview",    label: "Overview",  icon: "⊞" },
+      { id: "system",      label: "System",    icon: "ℹ" },
       { id: "flow",        label: "Flow",      icon: "⇄" },
       { id: "face-owners", label: "Users",     icon: "☺" },
       { id: "camera",      label: "Camera",    icon: "⊙" },
@@ -158,7 +160,7 @@ export const NAV: NavEntry[] = [
       { id: "servo",       label: "Servo",     icon: "⎈" },
       { id: "logs",        label: "Logs",      icon: "☰" },
       { id: "cli",         label: "CLI",       icon: "▸" },
-      { href: "/hw/docs", external: true, label: "HW Docs", icon: "⎗" },
+      { href: "/hw/docs", external: true, label: "API Docs", icon: "⎗" },
     ],
   },
 ];

@@ -26,6 +26,7 @@ dependencies = [
     "yt-dlp>=2025.3.0",
     "Pillow>=10.0.0",
     "opencv-python>=4.8.0",
+    "ultralytics>=8.4,<9",
     "soundfile>=0.12",
     "scipy>=1.8",
     "sounddevice",

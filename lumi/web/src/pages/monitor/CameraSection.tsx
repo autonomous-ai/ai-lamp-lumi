@@ -177,8 +177,8 @@ export function CameraSection({
           )}
         </div>
 
-        {/* Display eyes preview */}
-        <div style={S.card}>
+        {/* Display eyes preview — hidden via display:none, code kept for future re-enable */}
+        <div style={{ ...S.card, display: "none" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={S.cardLabel}>Display Eyes (GC9A01)</div>
             <button

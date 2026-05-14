@@ -34,6 +34,10 @@ type AgentGateway interface {
 	// IsReady returns true when the agent runtime is connected and ready.
 	IsReady() bool
 
+	// ConnectedAt returns the unix-seconds timestamp when the runtime
+	// connection last became ready, or 0 when not currently connected.
+	ConnectedAt() int64
+
 	// IsBusy returns true when the agent is currently processing a turn.
 	// Passive sensing events should be dropped while busy to avoid interrupting active commands.
 	IsBusy() bool

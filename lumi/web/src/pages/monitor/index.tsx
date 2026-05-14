@@ -4,15 +4,6 @@ import { useTheme } from "@/lib/useTheme";
 import { usePolling } from "../../hooks/usePolling";
 import { useEventSource } from "../../hooks/useEventSource";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-
-function fmtDur(s: number): string {
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d ${h % 24}h`;
-}
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -29,7 +20,6 @@ import {
 import { S } from "./styles";
 import { API, HW, HISTORY_LEN, FLOW_EVENTS_MAX, NAV, isNavGroup, isNavLink } from "./types";
 import type { Section, SystemInfo, NetworkInfo, HWHealth, OCStatus, PresenceInfo, VoiceStatus, ServoState, DisplayState, AudioVolume, LEDColor, SceneInfo, MonitorEvent, DisplayEvent, NavEntry } from "./types";
-import { StatusDot, SoftwareUpdateButtons } from "./components";
 import { OverviewSection } from "./OverviewSection";
 import { SystemSection } from "./SystemSection";
 import { FlowSection } from "./FlowSection";
@@ -135,7 +125,7 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
       >
         <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ fontSize: 14, lineHeight: 1 }}>⬡</span>
-          Agent GW
+          Agent
         </span>
         <span style={{ fontSize: 9, color: "var(--lm-text-muted)", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▶</span>
       </button>
@@ -150,7 +140,7 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
           </a>
           <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
             <span style={{ fontSize: 12, lineHeight: 1 }}>◈</span>
-            GW Config
+            Config
           </a>
         </div>
       )}
@@ -192,17 +182,10 @@ export default function Monitor() {
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [ramHistory, setRamHistory] = useState<number[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string>("");
-  const [webTick, setWebTick] = useState(0);
 
   const evtIdRef = useRef(0);
   const clearFlowEvents = useCallback(() => {
     setEvents([]);
-  }, []);
-
-  // Ticker for web lifetime display
-  useEffect(() => {
-    const id = setInterval(() => setWebTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
   }, []);
 
   // Fetch LeLamp version once
@@ -308,8 +291,6 @@ export default function Monitor() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
 
-  const ocOnline = oc?.connected ?? false;
-
   return (
     <div className={`lm-root ${themeClass}`} style={S.root}>
       {/* Mobile overlay */}
@@ -321,7 +302,27 @@ export default function Monitor() {
       {/* Sidebar */}
       <aside style={S.sidebar} className={`lm-sidebar${sidebarOpen ? " lm-sidebar--open" : ""}`}>
         <nav style={{ padding: "10px 0", flex: 1 }}>
-          {NAV.map((entry) =>
+          {/* Order: Chat → Settings → Agent Gateway → System (then any other groups) */}
+          {NAV.filter((e) => !isNavGroup(e) && e.id === "chat").map((entry) => {
+            const leaf = entry as Extract<NavEntry, { id: Section }>;
+            return (
+              <a
+                key={leaf.id}
+                href={`#${leaf.id}`}
+                style={S.navItem(section === leaf.id)}
+                onClick={(e) => { e.preventDefault(); setSection(leaf.id); closeSidebar(); }}
+              >
+                <span style={{ fontSize: 14, lineHeight: 1 }}>{leaf.icon}</span>
+                {leaf.label}
+              </a>
+            );
+          })}
+          <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
+            Settings
+          </a>
+          <AgentGWMenu closeSidebar={closeSidebar} />
+          {NAV.filter((e) => isNavGroup(e) || (!isNavGroup(e) && e.id !== "chat")).map((entry) =>
             isNavGroup(entry) ? (
               <NavGroupItem key={entry.group} entry={entry} section={section} setSection={setSection} closeSidebar={closeSidebar} />
             ) : (
@@ -336,11 +337,6 @@ export default function Monitor() {
               </a>
             )
           )}
-          <a href="/edit" style={S.navItem(false)} onClick={closeSidebar}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
-            Settings
-          </a>
-          <AgentGWMenu closeSidebar={closeSidebar} />
         </nav>
         <div style={{
           padding: "12px 16px",
@@ -351,31 +347,29 @@ export default function Monitor() {
           flexDirection: "column",
           gap: 3,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <StatusDot ok={ocOnline} />
-            <span>{ocOnline ? "Agent Online" : "Agent Offline"}</span>
-          </div>
           {lastUpdate && <div>Updated {lastUpdate}</div>}
-          <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2, fontSize: 9.5, color: "var(--lm-text-muted)" }}>
-            <div>Web <span style={{ color: "var(--lm-teal)", fontWeight: 600 }}>{__WEB_VERSION__}</span>{" "}<span style={{ opacity: 0.65 }}>{fmtDur(webTick)}</span></div>
-            <div>Lumi <span style={{ color: "var(--lm-amber)", fontWeight: 600 }}>{sys?.version ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.serviceUptime != null ? fmtDur(sys.serviceUptime) : "—"}</span></div>
-            <div>LeLamp <span style={{ color: "var(--lm-blue)", fontWeight: 600 }}>{lelampVersion ?? "—"}</span>{" "}<span style={{ opacity: 0.65 }}>{sys?.lelampUptime != null ? fmtDur(sys.lelampUptime) : "—"}</span></div>
-            <SoftwareUpdateButtons />
-          </div>
-          <button onClick={toggleTheme} style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 13, color: "var(--lm-text-muted)", padding: "4px 0", marginTop: 4,
-            textAlign: "left",
-          }} title={`Theme: ${theme}`}>
-            {theme === "dark" ? "◑ Dark" : "◐ Light"}
-          </button>
         </div>
       </aside>
 
       {/* Main */}
       <main style={S.main}>
-        {/* Mobile hamburger */}
-        <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
+        {/* Topbar: hamburger (mobile-only, left) + theme toggle (right). */}
+        <div style={S.topbar}>
+          <button
+            className="lm-hamburger"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label="Menu"
+          >☰</button>
+          {/* Spacer when hamburger is hidden on desktop, keeps theme toggle right-aligned */}
+          <span style={{ flex: 1 }} />
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "1px solid var(--lm-border)", cursor: "pointer",
+            fontSize: 12, color: "var(--lm-text-muted)", padding: "4px 10px",
+            borderRadius: 6,
+          }} title={`Theme: ${theme}`}>
+            {theme === "dark" ? "◑ Dark" : "◐ Light"}
+          </button>
+        </div>
 
         {/* Content */}
         <div style={{ ...S.content, ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}) }} className="lm-content lm-fade-in">
@@ -394,6 +388,8 @@ export default function Monitor() {
               speakerMuted={speakerMuted}
               ledColor={ledColor}
               sceneInfo={sceneInfo}
+              webVersion={__WEB_VERSION__}
+              lelampVersion={lelampVersion}
               onSceneActivate={(scene) => {
                 const url = scene === "off" ? `${HW}/scene/off` : `${HW}/scene`;
                 const opts: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" } };

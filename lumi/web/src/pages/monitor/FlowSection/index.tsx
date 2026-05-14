@@ -66,6 +66,29 @@ export function FlowSection({
   const [fromTime, setFromTime] = useState("");
   const [toTime, setToTime] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "time_desc" | "time_asc" | "tokens_desc" | "tokens_asc">("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Shared button styles for the Flow Panel toolbar. Keeping them as plain
+  // objects (not className) so existing inline-style patterns in this file
+  // stay consistent — see flowDangerBtn etc. below.
+  const flowGhostBtn = {
+    fontSize: 11, padding: "4px 10px", borderRadius: 6,
+    background: "transparent", border: "1px solid var(--lm-border)",
+    color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
+    whiteSpace: "nowrap" as const,
+  };
+  const flowPrimaryBtn = {
+    ...flowGhostBtn,
+    background: "var(--lm-amber-dim)", border: "1px solid var(--lm-amber)",
+    color: "var(--lm-amber)", fontWeight: 700,
+  };
+  const flowDangerBtn = {
+    ...flowGhostBtn,
+    border: "1px solid rgba(248,113,113,0.35)", color: "var(--lm-red)", fontWeight: 700,
+  };
+  const flowSep = {
+    width: 1, height: 18, background: "var(--lm-border)", margin: "0 2px",
+  };
   const [firing, setFiring] = useState<string | null>(null);
 
   async function fireEvent(ev: typeof FAKE_EVENTS[0]) {
@@ -402,10 +425,13 @@ export function FlowSection({
         />
       )}
 
-      {/* Header card */}
-      <div style={{ ...S.card, padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {/* Header card — neutral toolbar with one primary action (Canvas)
+          and one destructive (Clear). All other actions share the same
+          ghost-button style so the eye lands on the meaningful color,
+          not a rainbow of competing fills. */}
+      <div style={{ ...S.card, padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as const }}>
             <span style={S.cardLabel}>Flow Panel</span>
             {currentUser && (() => {
               const isUnknown = currentUser === "unknown";
@@ -414,18 +440,19 @@ export function FlowSection({
                 <span
                   title={isUnknown ? "LeLamp currently sees only strangers" : `LeLamp's current user: ${currentUser}`}
                   style={{
-                    fontSize: 12,
-                    padding: "4px 10px",
-                    borderRadius: 6,
-                    background: `${color}20`,
-                    color,
-                    fontWeight: 700,
-                    textTransform: "capitalize",
+                    fontSize: 11, padding: "3px 9px", borderRadius: 6,
+                    background: `${color}18`, color,
+                    fontWeight: 700, textTransform: "capitalize",
                     border: `1px solid ${color}55`,
                   }}
                 >👤 {currentUser}</span>
               );
             })()}
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, alignItems: "center" }}>
+            {/* Modals — Canvas is the primary visual entry, Summary is a
+                deep-dive button next to it. */}
             <button
               onClick={() => setShowCompaction(true)}
               title={
@@ -434,61 +461,38 @@ export function FlowSection({
                 "• Rủi ro: nếu summary vô tình copy/méo rule từ SKILL.md, KNOWLEDGE.md, SOUL.md → agent sẽ theo summary (đứng đầu prompt) thay vì SKILL.md → Lumi trả lời sai lý do không giải thích nổi.\n\n" +
                 "Click để xem: timestamp, summary chars, session file, và TOÀN VĂN summary đang điều khiển Lumi."
               }
-              style={{
-                fontSize: 11, padding: "4px 10px", borderRadius: 6,
-                background: "var(--lm-purple)", border: "1px solid var(--lm-purple)",
-                color: "#fff", cursor: "pointer", fontWeight: 700,
-              }}
-            >
-              📋 Summary prompt
-            </button>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, alignItems: "center" }}>
+              style={flowGhostBtn}
+            >📋 Summary</button>
+            <button
+              onClick={() => setShowCanvas(true)}
+              title="Open the flow canvas — a stacked timeline of all turns."
+              style={flowPrimaryBtn}
+            >⬢ Canvas</button>
+
+            <div style={flowSep} />
+
+            {/* Downloads */}
             <button
               type="button"
               onClick={() => void downloadFlowBundle()}
               title={`Downloads 3 files: (1) server JSONL last ${FLOW_EVENTS_MAX} lines — same tail as this panel; (2) UI snapshot JSON (events + turns); (3) OpenClaw debug payload JSONL.`}
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-dim)", cursor: "pointer", fontWeight: 600,
-              }}
-            >
-              ↓ Bundle
-            </button>
+              style={flowGhostBtn}
+            >↓ Bundle</button>
             <a
               href={`${API}/openclaw/flow-logs`}
               download
               title="Full day JSONL on server (all lines today — wider than the panel window)"
-              style={{
-                fontSize: 10, padding: "4px 8px", borderRadius: 6,
-                color: "var(--lm-text-muted)", cursor: "pointer", fontWeight: 600,
-                textDecoration: "underline", display: "inline-flex", alignItems: "center",
-              }}
-            >
-              full day
-            </a>
+              style={{ ...flowGhostBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >📅 Full day</a>
+
+            <div style={flowSep} />
+
+            {/* Destructive */}
             <button
               onClick={clearServerFlowLog}
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)",
-                color: "var(--lm-red)", cursor: "pointer", fontWeight: 700,
-              }}
               title="Clear server flow log + OpenClaw debug logs"
-            >
-              🗑 Log
-            </button>
-            <button
-              onClick={() => setShowCanvas(true)}
-              style={{
-                fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                background: "var(--lm-amber-dim)", border: "1px solid var(--lm-amber)",
-                color: "var(--lm-amber)", cursor: "pointer", fontWeight: 600,
-              }}
-            >
-              ⬢ Canvas
-            </button>
+              style={flowDangerBtn}
+            >🗑 Clear</button>
           </div>
         </div>
       </div>
@@ -527,10 +531,10 @@ export function FlowSection({
       )}
 
       {/* Flow diagram + turn list */}
-      <div style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
+      <div className="lm-flow-layout" style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
 
         {/* Turn history list */}
-        <div style={{
+        <div className="lm-flow-turns" style={{
           ...S.card,
           width: 280,
           flexShrink: 0,
@@ -541,73 +545,57 @@ export function FlowSection({
           overflow: "hidden",
         }}>
           <div style={{ padding: "10px 12px 8px", borderBottom: "1px solid var(--lm-border)" }}>
-            {/* Title + count + All button */}
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+            {/* Title + count + filters toggle.
+                Primary row stays compact: identity (Turns N/M) + a single
+                toggle that reveals advanced filters. Avoids the 6-row
+                tall header that earlier crowded the list area. */}
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 6, gap: 6 }}>
               <span style={S.cardLabel}>Turns</span>
-              <span style={{ fontSize: 10, color: "var(--lm-text-muted)", marginLeft: 6 }}>
+              <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
                 {filteredTurns.length}/{turns.length}
               </span>
-              <button
-                onClick={() => {
-                  const allOn = availableTypes.every((t) => !excludedTypes.has(t));
-                  setExcludedTypes((prev) => {
-                    const next = new Set(prev);
-                    if (allOn) { availableTypes.forEach((t) => next.add(t)); }
-                    else { availableTypes.forEach((t) => next.delete(t)); }
-                    saveExcluded(next);
-                    return next;
-                  });
-                }}
-                style={{
-                  marginLeft: "auto", padding: "1px 6px", borderRadius: 4, fontSize: 9,
-                  cursor: "pointer", fontWeight: 600,
-                  border: `1px solid ${availableTypes.every((t) => !excludedTypes.has(t)) ? "var(--lm-amber)" : "var(--lm-border)"}`,
-                  background: availableTypes.every((t) => !excludedTypes.has(t)) ? "rgba(245,158,11,0.15)" : "transparent",
-                  color: availableTypes.every((t) => !excludedTypes.has(t)) ? "var(--lm-amber)" : "var(--lm-text-muted)",
-                }}
-              >All</button>
+              {(() => {
+                const activeFilters =
+                  (searchText.trim() ? 1 : 0) +
+                  (fromTime || toTime ? 1 : 0) +
+                  (sortBy !== "newest" ? 1 : 0) +
+                  (availableTypes.filter((t) => excludedTypes.has(t)).length > 0 ? 1 : 0);
+                return (
+                  <button
+                    onClick={() => setFiltersOpen((v) => !v)}
+                    style={{
+                      marginLeft: "auto", padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                      cursor: "pointer", fontWeight: 600,
+                      border: `1px solid ${activeFilters > 0 ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                      background: activeFilters > 0 ? "rgba(245,158,11,0.12)" : "transparent",
+                      color: activeFilters > 0 ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                    }}
+                    title={filtersOpen ? "Hide filters" : "Show filters"}
+                  >
+                    Filters{activeFilters > 0 ? ` · ${activeFilters}` : ""}
+                    <span style={{ fontSize: 8, transition: "transform 0.15s", transform: filtersOpen ? "rotate(180deg)" : "none" }}>▾</span>
+                  </button>
+                );
+              })()}
             </div>
 
-            {/* Sort */}
-            <div style={{ display: "flex", gap: 3, marginBottom: 5 }}>
-              {([
-                { key: "newest", label: "Newest" },
-                { key: "oldest", label: "Oldest" },
-                { key: "time_desc", label: "Slowest" },
-                { key: "time_asc", label: "Fastest" },
-                { key: "tokens_desc", label: "Most tokens" },
-                { key: "tokens_asc", label: "Least tokens" },
-              ] as const).map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSortBy(s.key)}
-                  style={{
-                    padding: "1px 5px", borderRadius: 3, fontSize: 9, cursor: "pointer",
-                    border: `1px solid ${sortBy === s.key ? "var(--lm-amber)" : "var(--lm-border)"}`,
-                    background: sortBy === s.key ? "rgba(245,158,11,0.15)" : "transparent",
-                    color: sortBy === s.key ? "var(--lm-amber)" : "var(--lm-text-muted)",
-                    fontWeight: sortBy === s.key ? 600 : 400,
-                  }}
-                >{s.label}</button>
-              ))}
-            </div>
-
-            {/* Search */}
+            {/* Search — always visible (most common quick-filter). */}
             <input
               type="text"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              placeholder="search input / output…"
+              placeholder="🔍 search input / output…"
               style={{
                 width: "100%", boxSizing: "border-box" as const,
-                padding: "4px 8px", borderRadius: 5, fontSize: 10,
+                padding: "5px 9px", borderRadius: 5, fontSize: 11,
                 background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
                 color: "var(--lm-text)", marginBottom: 6, outline: "none",
               }}
             />
 
-            {/* Category quick-toggle */}
-            <div style={{ display: "flex", gap: 4, marginBottom: 5, flexWrap: "wrap" as const }}>
+            {/* Category quick-toggle — always visible (primary filter UX). */}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
               {([
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
@@ -624,7 +612,7 @@ export function FlowSection({
                 const color = active ? "var(--lm-amber)" : partial ? "var(--lm-teal)" : "var(--lm-text-muted)";
                 return (
                   <button key={f.key} onClick={() => toggleCategory(f.key)} style={{
-                    padding: "2px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer",
+                    padding: "3px 8px", borderRadius: 4, fontSize: 10, cursor: "pointer",
                     border: `1px solid ${border}`,
                     background: active ? "rgba(245,158,11,0.15)" : partial ? "rgba(45,212,191,0.1)" : "transparent",
                     color, fontWeight: active || partial ? 600 : 400,
@@ -633,12 +621,12 @@ export function FlowSection({
                   </button>
                 );
               })}
-              {/* Dropped filter — only show if there are dropped turns */}
+              {/* Dropped — appears inline when relevant */}
               {turns.some((t) => t.path === "dropped") && (() => {
                 const on = !excludedTypes.has("__dropped");
                 return (
                   <button onClick={() => toggleType("__dropped")} style={{
-                    padding: "2px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer",
+                    padding: "3px 8px", borderRadius: 4, fontSize: 10, cursor: "pointer",
                     border: `1px solid ${on ? "var(--lm-red)" : "var(--lm-border)"}`,
                     background: on ? "rgba(239,68,68,0.15)" : "transparent",
                     color: on ? "var(--lm-red)" : "var(--lm-text-muted)",
@@ -650,60 +638,144 @@ export function FlowSection({
               })()}
             </div>
 
-            {/* Sub-type chips — only for types that actually appear */}
-            {availableTypes.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3, marginBottom: 5 }}>
-                {availableTypes.map((type) => {
-                  const on = !excludedTypes.has(type);
-                  const icon = TYPE_ICON[type] ?? "•";
-                  const label = TYPE_LABEL[type] ?? type.replace("ambient:", "~");
-                  return (
-                    <button key={type} onClick={() => toggleType(type)} title={type} style={{
-                      padding: "1px 5px", borderRadius: 3, fontSize: 9, cursor: "pointer",
-                      border: `1px solid ${on ? "var(--lm-teal)" : "var(--lm-border)"}`,
-                      background: on ? "rgba(45,212,191,0.12)" : "transparent",
-                      color: on ? "var(--lm-teal)" : "var(--lm-text-muted)",
-                      fontWeight: on ? 600 : 400,
+            {/* Advanced filters: sort + sub-types + time range. Hidden by
+                default; click "Filters" to expand. Keeps power-user controls
+                accessible without dominating the header. */}
+            {filtersOpen && (
+              <div style={{
+                marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--lm-border)",
+                display: "flex", flexDirection: "column" as const, gap: 8,
+              }}>
+                {/* Sort */}
+                <div>
+                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Sort</div>
+                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap" as const }}>
+                    {([
+                      { key: "newest", label: "Newest" },
+                      { key: "oldest", label: "Oldest" },
+                      { key: "time_desc", label: "Slowest" },
+                      { key: "time_asc", label: "Fastest" },
+                      { key: "tokens_desc", label: "↑ Tokens" },
+                      { key: "tokens_asc", label: "↓ Tokens" },
+                    ] as const).map((s) => (
+                      <button
+                        key={s.key}
+                        onClick={() => setSortBy(s.key)}
+                        style={{
+                          padding: "2px 7px", borderRadius: 3, fontSize: 10, cursor: "pointer",
+                          border: `1px solid ${sortBy === s.key ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                          background: sortBy === s.key ? "rgba(245,158,11,0.15)" : "transparent",
+                          color: sortBy === s.key ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                          fontWeight: sortBy === s.key ? 600 : 400,
+                        }}
+                      >{s.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sub-types */}
+                {availableTypes.length > 0 && (
+                  <div>
+                    <div style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      fontSize: 9, color: "var(--lm-text-muted)", marginBottom: 3,
+                      textTransform: "uppercase", letterSpacing: "0.06em",
                     }}>
-                      {icon} {label}
-                    </button>
-                  );
-                })}
+                      <span>Sub-types</span>
+                      {(() => {
+                        const allOn = availableTypes.every((t) => !excludedTypes.has(t));
+                        return (
+                          <button
+                            onClick={() => {
+                              setExcludedTypes((prev) => {
+                                const next = new Set(prev);
+                                if (allOn) { availableTypes.forEach((t) => next.add(t)); }
+                                else { availableTypes.forEach((t) => next.delete(t)); }
+                                saveExcluded(next);
+                                return next;
+                              });
+                            }}
+                            style={{
+                              padding: "1px 6px", borderRadius: 3, fontSize: 9, cursor: "pointer", fontWeight: 600,
+                              border: `1px solid ${allOn ? "var(--lm-amber)" : "var(--lm-border)"}`,
+                              background: allOn ? "rgba(245,158,11,0.15)" : "transparent",
+                              color: allOn ? "var(--lm-amber)" : "var(--lm-text-muted)",
+                              textTransform: "none", letterSpacing: 0,
+                            }}
+                          >{allOn ? "All on" : "Enable all"}</button>
+                        );
+                      })()}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3 }}>
+                      {availableTypes.map((type) => {
+                        const on = !excludedTypes.has(type);
+                        const icon = TYPE_ICON[type] ?? "•";
+                        const label = TYPE_LABEL[type] ?? type.replace("ambient:", "~");
+                        return (
+                          <button key={type} onClick={() => toggleType(type)} title={type} style={{
+                            padding: "2px 6px", borderRadius: 3, fontSize: 10, cursor: "pointer",
+                            border: `1px solid ${on ? "var(--lm-teal)" : "var(--lm-border)"}`,
+                            background: on ? "rgba(45,212,191,0.12)" : "transparent",
+                            color: on ? "var(--lm-teal)" : "var(--lm-text-muted)",
+                            fontWeight: on ? 600 : 400,
+                          }}>
+                            {icon} {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Time range */}
+                <div>
+                  <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Time range</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <input
+                      type="time"
+                      value={fromTime}
+                      onChange={(e) => setFromTime(e.target.value)}
+                      style={{
+                        flex: 1, padding: "3px 6px", borderRadius: 4, fontSize: 10,
+                        background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+                        color: fromTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
+                      }}
+                    />
+                    <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>→</span>
+                    <input
+                      type="time"
+                      value={toTime}
+                      onChange={(e) => setToTime(e.target.value)}
+                      style={{
+                        flex: 1, padding: "3px 6px", borderRadius: 4, fontSize: 10,
+                        background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+                        color: toTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
+                      }}
+                    />
+                    {(fromTime || toTime) && (
+                      <button onClick={() => { setFromTime(""); setToTime(""); }} style={{
+                        padding: "2px 6px", borderRadius: 3, fontSize: 10, cursor: "pointer",
+                        border: "1px solid var(--lm-border)", background: "transparent",
+                        color: "var(--lm-red)", fontWeight: 700,
+                      }}>✕</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reset all */}
+                <button
+                  onClick={() => {
+                    setSearchText(""); setFromTime(""); setToTime(""); setSortBy("newest");
+                    setExcludedTypes(() => { saveExcluded(new Set()); return new Set(); });
+                  }}
+                  style={{
+                    alignSelf: "flex-start", padding: "3px 9px", borderRadius: 4, fontSize: 10,
+                    cursor: "pointer", border: "1px solid var(--lm-border)", background: "transparent",
+                    color: "var(--lm-text-muted)",
+                  }}
+                >Reset all</button>
               </div>
             )}
-
-            {/* Time range */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>from</span>
-              <input
-                type="time"
-                value={fromTime}
-                onChange={(e) => setFromTime(e.target.value)}
-                style={{
-                  flex: 1, padding: "2px 4px", borderRadius: 4, fontSize: 9,
-                  background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
-                  color: fromTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
-                }}
-              />
-              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>to</span>
-              <input
-                type="time"
-                value={toTime}
-                onChange={(e) => setToTime(e.target.value)}
-                style={{
-                  flex: 1, padding: "2px 4px", borderRadius: 4, fontSize: 9,
-                  background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
-                  color: toTime ? "var(--lm-text)" : "var(--lm-text-muted)", outline: "none",
-                }}
-              />
-              {(fromTime || toTime) && (
-                <button onClick={() => { setFromTime(""); setToTime(""); }} style={{
-                  padding: "1px 4px", borderRadius: 3, fontSize: 9, cursor: "pointer",
-                  border: "1px solid var(--lm-border)", background: "transparent",
-                  color: "var(--lm-red)", fontWeight: 700,
-                }}>✕</button>
-              )}
-            </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5 }} className="lm-hide-scroll">
             {filteredTurns.length === 0 ? (
@@ -721,6 +793,8 @@ export function FlowSection({
                     </div>
                   )}
                   <div
+                    className="lm-turn-card"
+                    data-expanded={turn.id === selectedTurn?.id ? "true" : "false"}
                     onClick={() => setSelectedTurnId(turn.id === selectedTurn?.id ? null : turn.id)}
                     style={{
                       borderRadius: 8,
