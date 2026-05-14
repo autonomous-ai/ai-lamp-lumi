@@ -56,8 +56,9 @@ Right (score=<X>, risk=<Y>): upper_arm=<a> (<°>°), lower_arm=<b> (<°>°), wri
 | Pattern-aware phrasing (peak hour, side bias, progress) | `reference/profile.md` |
 
 **Read `reference/reading-message.md` FIRST** on every event. Sub-score 4 with
-`neck_angle > 20°` means "cổ cúi"; sub-score 4 with `neck_angle < 20°` likely
-means twist. Without this decoder, raw numbers get quoted to the user.
+`neck_angle > 20°` means "neck flexed forward"; sub-score 4 with `neck_angle
+< 20°` likely means twist. Without this decoder, raw numbers get quoted to
+the user.
 
 ## Gotchas (concrete facts, NOT suggestions)
 
@@ -95,7 +96,7 @@ PRAISE_COOLDOWN_MIN      = 30     # don't praise more than once per N min
 3. **Only** write these action values: `nudge_posture`, `praise_posture`, `morning_recap_posture`, `evening_recap_posture`. Never invent new actions. (Alert rows — `posture_alert`, `calibration` — are written by LeLamp, never by you.)
 4. On a non-2xx response from a POST → fix the URL and retry **once**. Do not give up silently.
 5. **Never** infer `user` from memory or chat history. Only `[context: current_user=X]` counts.
-6. **Never speak a medical diagnosis.** Frame as "nguy cơ" / "lâu ngày dễ" — never "bạn bị X". Disease names are vocabulary cues for phrasing, NOT pronouncements.
+6. **Never speak a medical diagnosis.** Frame as "risk over time" / "you'll feel it later" — never "you have X". Disease names are vocabulary cues for phrasing, NOT pronouncements.
 7. **Trust cooldowns** — lelamp dedups identical (user, level, offenders) for ~5 min already. Don't double-throttle.
 8. **Never call any API to receive events** — they arrive automatically.
 
@@ -183,7 +184,7 @@ Apply top-to-bottom, first match wins. **One route per turn.**
 **Why first medium gets a voice line (L4) and a repeat escalates to L5:** a silent servo on the first medium event feels cold — the user expects to be addressed warmly the first time the lamp notices something. Repeats within ~10 min mean the user didn't change posture after the first nudge, so we earn the right to say more (L5: observation + concrete fix + optional why). Budget cap prevents nag spirals.
 
 **Asymmetry:** when `current.asymmetric == true`, L4/L5 phrasing names the
-dominant side (e.g. *"tay phải"*). Sub-scores differ left/right only on arm
+dominant side (e.g. *"right arm"*). Sub-scores differ left/right only on arm
 regions — see `reference/reading-message.md`.
 
 Note: there is no L1 voice route. LED ambient is owned entirely by lelamp side and never fires an agent turn — the agent only sees events at `medium+` risk.
@@ -217,8 +218,8 @@ event ever arrives. Detection is indirect:
 **Health framing rule (medical-safety):**
 
 - Disease names are vocabulary cues for the **agent**, never spoken verbatim as diagnoses.
-- Acceptable: *"cổ cúi lâu dễ mỏi vai gáy"*, *"giữ cổ tay vậy nguy cơ ống cổ tay"*.
-- Not acceptable: *"bạn bị tech neck"*, *"bạn có hội chứng ống cổ tay"*.
+- Acceptable: *"shoulders will be sore if you hold this"*, *"the wrist takes a beating in that position"*.
+- Not acceptable: *"you've got tech neck"*, *"you have carpal tunnel"*.
 - One health hint per nudge max. Health framing is seasoning, not the dish.
 
 **Variety self-check before speaking:**
@@ -232,8 +233,8 @@ event ever arrives. Detection is indirect:
 
 When a `pose.ergo_risk` event fires AND `patterns_now` is non-empty, weave the pattern into the line:
 
-- *"Hồi này hay giờ bạn ngồi xuống dáng — chỉnh sớm đi."*
-- *"Mọi hôm tầm này tay phải bạn cứng dần. Duỗi một xíu xem."*
+- *"Around this hour you usually slip. Sit up from the start, see if that holds."*
+- *"Afternoons the right arm tends to stiffen. Stretch it for a beat."*
 
 Don't over-quote the data ("you usually slouch at 15:07") — feels like a tracker. Round it.
 
