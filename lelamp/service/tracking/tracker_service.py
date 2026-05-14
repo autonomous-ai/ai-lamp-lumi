@@ -282,6 +282,11 @@ DETECT_MIN_CONFIDENCE = 0.25  # local YOLOv8n detects small objects (mouse, etc.
 # Ghost-lock detection via tracker confidence (ViT only).
 CONFIDENCE_THRESHOLD = 0.15
 MAX_LOW_CONFIDENCE_FRAMES = 10
+# When the detector (YuNet / YOLO) hasn't confirmed for TRUST_TRACKER_S, fall
+# back to ViT's own confidence: if it's above this threshold, keep firing PID
+# (the tracker still has a solid lock — common when face moves fast and YuNet
+# misses a few frames). Below this → freeze servo, wait for detector.
+TRACKER_TRUST_CONF = 0.4
 
 # PID gains for servo control (industry pattern: PyImageSearch face tracking).
 # KP lowered (0.04→0.025 yaw, 0.05→0.03 pitch): smaller per-fire step, gentler
@@ -344,6 +349,10 @@ class TrackerService:
     def __init__(self):
         self._state = TrackingState()
         self._lock = threading.Lock()
+        # Serializes start() so two near-simultaneous /servo/track requests don't
+        # both enter detect_object (5-7s) and end up spawning two tracking
+        # threads that fight over the same servo state.
+        self._start_lock = threading.Lock()
         self.last_error: str = ""
         self._yaw_pid = PID(PID_YAW_KP, PID_YAW_KI, PID_YAW_KD)
         self._pitch_pid = PID(PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD)
@@ -510,7 +519,28 @@ class TrackerService:
         if isinstance(target_label, (list, tuple)):
             target_label = next((t for t in target_label if t), "")
 
-        self.stop()
+        # Serialize concurrent /servo/track calls. detect_object can take 5-7s
+        # (remote YOLOWorld or first-time local YOLO load). Without this lock,
+        # two near-simultaneous calls both pass self.stop() (nothing to stop yet)
+        # and spawn two tracking threads that race over servo state.
+        if not self._start_lock.acquire(blocking=False):
+            self.last_error = "another tracking session is initializing — ignoring duplicate request"
+            logger.warning("tracker start: %s target='%s'", self.last_error, target_label)
+            return False
+        try:
+            self.stop()
+            return self._start_locked(bbox, target_label, camera_capture, animation_service)
+        finally:
+            self._start_lock.release()
+
+    def _start_locked(
+        self,
+        bbox: Optional[Tuple[int, int, int, int]],
+        target_label: str,
+        camera_capture,
+        animation_service,
+    ) -> bool:
+        """Body of start() — runs while _start_lock is held."""
 
         # Freeze servos so YOLO + tracker init see a sharp, stable frame.
         settle_s = 0.30
@@ -601,7 +631,13 @@ class TrackerService:
             t = self._state.thread
 
         if t and t.is_alive():
-            t.join(timeout=3.0)
+            # Tracking loop iterations can take up to ~250ms (CSRT + 5 sub-step
+            # ramp + frame settle). 10s gives ~40 iterations of headroom so we
+            # never return while the old thread is still racing the servo with a
+            # new session's commands.
+            t.join(timeout=10.0)
+            if t.is_alive():
+                logger.error("[tracker.stop] previous tracking thread refused to exit after 10s")
 
         logger.info("Tracking stopped: '%s'", self._state.target_label)
 
@@ -729,14 +765,21 @@ class TrackerService:
     def _fire_pid(self, yaw_step: float, pitch_correction: float, animation_service) -> float:
         """Apply PID outputs. yaw → base_yaw. pitch → distributed across base/elbow/wrist.
 
-        Per-joint pitch signs verified empirically 2026-05-13:
-        base+ = UP, elbow+ = DOWN, wrist+ = UP. Positive pitch_correction = look DOWN.
+        Pitch sign — empirical evidence over time:
+          2026-05-13: claimed base+ = UP, elbow+ = DOWN, wrist+ = UP, code used
+                      `wrist - pitch_correction` to look UP when dy<0.
+          2026-05-14: log shows face dy=-180 → pid pitch=-5 → code wrote
+                      wrist -67→-7 (INCREASE), and the lamp visibly tilted DOWN.
+                      So wrist+ is actually DOWN at the poses we encounter, and
+                      the sign was inverted. Flipped to `wrist + pitch_correction`
+                      so the camera now moves toward dy (per the long-standing
+                      memory rule pitch_deg = dy*k applied as wrist_new = wrist + pitch_deg).
         """
         target = {
             "base_yaw.pos":    max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_step)),
-            "base_pitch.pos":  max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  - pitch_correction * PITCH_WEIGHT_BASE)),
+            "base_pitch.pos":  max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  + pitch_correction * PITCH_WEIGHT_BASE)),
             "elbow_pitch.pos": max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_correction * PITCH_WEIGHT_ELBOW)),
-            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_correction * PITCH_WEIGHT_WRIST)),
+            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch + pitch_correction * PITCH_WEIGHT_WRIST)),
         }
         # Warn loudly when an axis has saturated against its mechanical limit and
         # the PID is still demanding more travel in that direction — camera
@@ -748,8 +791,8 @@ class TrackerService:
             logger.warning("[saturation] yaw at limit %.1f° but PID still demanding %.2f° — recenter lamp",
                            self._track_yaw, yaw_step)
         if abs(pitch_correction) >= 0.1 and PITCH_WEIGHT_WRIST > 0 and (
-            (pitch_correction > 0 and self._track_wrist_pitch <= WRIST_PITCH_MIN + 0.5) or
-            (pitch_correction < 0 and self._track_wrist_pitch >= WRIST_PITCH_MAX - 0.5)
+            (pitch_correction > 0 and self._track_wrist_pitch >= WRIST_PITCH_MAX - 0.5) or
+            (pitch_correction < 0 and self._track_wrist_pitch <= WRIST_PITCH_MIN + 0.5)
         ):
             logger.warning("[saturation] wrist at limit %.1f° but PID still demanding pitch=%.2f° — recenter lamp",
                            self._track_wrist_pitch, pitch_correction)
@@ -1004,9 +1047,12 @@ class TrackerService:
                     logger.warning("[yolo-trust] no YOLO confirm for %.1fs > %.1fs — stopping ghost",
                                    yolo_age, STOP_NO_YOLO_S)
                     break
-                elif yolo_age >= TRUST_TRACKER_S:
+                elif yolo_age >= TRUST_TRACKER_S and confidence < TRACKER_TRUST_CONF:
+                    # Tracker AND detector both unsure — hold servo, don't chase
+                    # phantom. If ViT confidence is high we trust the tracker
+                    # even without detector confirm (face moving fast often makes
+                    # YuNet miss while ViT keeps a good lock).
                     motion_state = "WAIT-YOLO"
-                    # Tracker suspect — hold servo, don't chase phantom.
                 elif (now_t - last_servo_t) >= SERVO_COOLDOWN_S:
                     motion_state = "CHASING"
                     # Yaw sign: dx>0 (object on right) → base_yaw must INCREASE
