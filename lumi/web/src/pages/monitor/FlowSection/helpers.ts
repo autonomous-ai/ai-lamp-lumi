@@ -706,7 +706,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
     mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
-    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], hw_mood: [], hw_music_suggestion: [], tg_out: [], tg_alert: [],
+    lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], hw_mood: [], hw_music_suggestion: [], hw_posture: [], tg_out: [], tg_alert: [],
     ambient: [],
   };
   const fmtToken = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
@@ -1033,6 +1033,14 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
         pushUnique(info.hw_music_suggestion, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
         const triggerMatch = body.match(/"trigger"\s*:\s*"([^"]+)"/);
         pushUnique(info.lumi_gate, `🎼 → music-suggest ${triggerMatch ? triggerMatch[1] : path}`);
+      }
+    }
+    if (ev.type === "hw_posture" || (ev.type === "flow_event" && ev.detail?.node === "hw_posture")) {
+      const { path, body } = parseHWEvent(ev, "/posture/log");
+      if (body && body.startsWith("{")) {
+        pushUnique(info.hw_posture, `⚡ HW marker → curl -s -X POST http://127.0.0.1:5000/api${path} -d '${body}'`);
+        const kindMatch = body.match(/"kind"\s*:\s*"([^"]+)"/);
+        pushUnique(info.lumi_gate, `🪑 → posture ${kindMatch ? kindMatch[1] : path}`);
       }
     }
     if (ev.type === "flow_event" && (ev.detail?.node === "tts_send" || ev.detail?.node === "tts_suppressed")) {
