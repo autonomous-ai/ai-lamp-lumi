@@ -188,8 +188,11 @@ def _detect_face_yunet(frame: npt.NDArray[np.uint8]) -> Optional[Tuple[int, int,
 
 # --- Tuning knobs ---
 
-# Fast loop target FPS — CSRT on Pi runs ~15-25ms/frame so 15 FPS is stable.
-FAST_LOOP_FPS = 15
+# Fast loop target FPS — CSRT on Pi runs ~15-25ms/frame. Lowered from 15→10:
+# Feetech STS3215 makes an audible click on each send_action (motor accel/decel
+# spike). At 15fps × 4 substeps that's ~60 writes/sec = audible 60 Hz buzz.
+# 10fps × 2 substeps ≈ 20 writes/sec → softer continuous motion.
+FAST_LOOP_FPS = 10
 
 # Camera field-of-view in degrees (horizontal). Used to convert px offset → degrees.
 CAMERA_FOV_DEG = 60.0
@@ -216,9 +219,9 @@ DEAD_ZONE_PX = 40
 # Lower = smoother (less jitter) but slower response.
 EMA_ALPHA = 0.5
 
-# Settle delay (seconds) after each servo command. Reduced because the
-# substep sleep already provides natural settle time at the end of the ramp.
-SERVO_SETTLE_S = 0.01
+# Settle delay (seconds) after each servo command — let motor reach final
+# position and stop accelerating before next CSRT update grabs a frame.
+SERVO_SETTLE_S = 0.025
 
 # YOLO background re-detect interval (seconds).
 # Local YOLOv8n runs ~300-700ms/call on Allwinner A523. At 500ms interval
@@ -242,15 +245,15 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-SERVO_SUBSTEP_DEG   = 1.0   # for big moves: 1 substep per degree
-# Stretched the gap between substeps so motor motion bridges the idle window
-# between PID fires. 15ms × 4 substeps = 60ms ≈ one loop period at 15fps,
-# so the motor never has the "burst-then-idle" gap that reads as jerk.
-SERVO_SUBSTEP_SLEEP = 0.015
-# Minimum substeps per fire — keeps the motor command continuous even for
-# very small PID outputs (0.2-0.5° near center). Without this, fires near
-# the target sent a single 2ms pulse and the motor felt twitchy.
-SERVO_MIN_SUBSTEPS  = 4
+SERVO_SUBSTEP_DEG   = 1.5   # bigger per-substep: fewer total writes → fewer audible clicks
+# Spaced wider so the motor has time between commands to glide smoothly to
+# each intermediate point, instead of getting retargeted before it settles
+# (which produced the click train).
+SERVO_SUBSTEP_SLEEP = 0.030
+# Minimum substeps per fire. Lowered from 4→2: ramping over 4 writes turned
+# the motor into a high-frequency clicker. 2 writes per fire is enough to
+# avoid the worst burst-then-idle gap without the audible buzz.
+SERVO_MIN_SUBSTEPS  = 2
 
 # Pitch distribution across 3 joints.
 # Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
