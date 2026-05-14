@@ -242,11 +242,15 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-SERVO_SUBSTEP_DEG   = 1.0   # smaller substep = finer ramp; a 5° fire = 5 substeps
+SERVO_SUBSTEP_DEG   = 1.0   # for big moves: 1 substep per degree
 # Stretched the gap between substeps so motor motion bridges the idle window
-# between PID fires (~100ms). Without this the servo bursts for 30ms then sits
-# idle 100ms — visible as discrete chunks. 20ms × ~5 substeps ≈ one loop period.
-SERVO_SUBSTEP_SLEEP = 0.020
+# between PID fires. 15ms × 4 substeps = 60ms ≈ one loop period at 15fps,
+# so the motor never has the "burst-then-idle" gap that reads as jerk.
+SERVO_SUBSTEP_SLEEP = 0.015
+# Minimum substeps per fire — keeps the motor command continuous even for
+# very small PID outputs (0.2-0.5° near center). Without this, fires near
+# the target sent a single 2ms pulse and the motor felt twitchy.
+SERVO_MIN_SUBSTEPS  = 4
 
 # Pitch distribution across 3 joints.
 # Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
@@ -656,7 +660,11 @@ class TrackerService:
         }
         deltas = {k: target[k] - start[k] for k in start}
         max_delta = max(abs(v) for v in deltas.values())
-        n_steps = max(1, math.ceil(max_delta / SERVO_SUBSTEP_DEG))
+        # Force a minimum number of substeps even for tiny moves so the motor
+        # ramps over the whole loop interval instead of bursting in 2ms then
+        # sitting idle 60ms. This is what produces the "continuous joint glide"
+        # feel rather than discrete chunks.
+        n_steps = max(SERVO_MIN_SUBSTEPS, math.ceil(max_delta / SERVO_SUBSTEP_DEG))
 
         t0 = time.perf_counter()
         for i in range(1, n_steps + 1):
