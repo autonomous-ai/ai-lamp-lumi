@@ -313,6 +313,7 @@ export default function EditConfig() {
         @media (max-width: 640px) {
           .lm-edit .lm-sidebar { display: none !important; }
           .lm-edit .lm-mobile-tabs { display: flex !important; }
+          .lm-edit .lm-mobile-footer { display: block !important; }
           .lm-edit .lm-main-content { padding: 16px !important; }
         }
       `}</style>
@@ -534,6 +535,17 @@ export default function EditConfig() {
               </form>
             )}
           </div>
+        </div>
+
+        {/* Mobile footer — back to Monitor. Hidden on desktop (sidebar has it). */}
+        <div className="lm-mobile-footer" style={{
+          display: "none", padding: "10px 16px",
+          borderTop: `1px solid ${C.border}`, background: C.sidebar, flexShrink: 0,
+        }}>
+          <a href="/monitor" style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            color: C.textMuted, textDecoration: "none", fontSize: 13,
+          }}>← Monitor</a>
         </div>
       </main>
     </div>

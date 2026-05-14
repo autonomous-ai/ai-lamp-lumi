@@ -348,20 +348,28 @@ export default function Monitor() {
           gap: 3,
         }}>
           {lastUpdate && <div>Updated {lastUpdate}</div>}
-          <button onClick={toggleTheme} style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 13, color: "var(--lm-text-muted)", padding: "4px 0", marginTop: 4,
-            textAlign: "left",
-          }} title={`Theme: ${theme}`}>
-            {theme === "dark" ? "◑ Dark" : "◐ Light"}
-          </button>
         </div>
       </aside>
 
       {/* Main */}
       <main style={S.main}>
-        {/* Mobile hamburger */}
-        <button className="lm-hamburger" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">☰</button>
+        {/* Topbar: hamburger (mobile-only, left) + theme toggle (right). */}
+        <div style={S.topbar}>
+          <button
+            className="lm-hamburger"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label="Menu"
+          >☰</button>
+          {/* Spacer when hamburger is hidden on desktop, keeps theme toggle right-aligned */}
+          <span style={{ flex: 1 }} />
+          <button onClick={toggleTheme} style={{
+            background: "none", border: "1px solid var(--lm-border)", cursor: "pointer",
+            fontSize: 12, color: "var(--lm-text-muted)", padding: "4px 10px",
+            borderRadius: 6,
+          }} title={`Theme: ${theme}`}>
+            {theme === "dark" ? "◑ Dark" : "◐ Light"}
+          </button>
+        </div>
 
         {/* Content */}
         <div style={{ ...S.content, ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}) }} className="lm-content lm-fade-in">
