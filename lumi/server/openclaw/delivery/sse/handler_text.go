@@ -110,6 +110,8 @@ func labelForLumiInternal(text string) string {
 		return "[voice]"
 	case strings.HasPrefix(text, "[emotion]"):
 		return "[emotion]"
+	case strings.HasPrefix(text, "[speech_emotion]"):
+		return "[speech_emotion]"
 	case strings.HasPrefix(text, "[activity]"):
 		return "[activity]"
 	case strings.HasPrefix(text, "[wellbeing]"):
@@ -187,6 +189,7 @@ var lumiInternalPrefixes = []string{
 	"[ambient]",
 	"[activity]",
 	"[emotion]",
+	"[speech_emotion]",
 	"[wellbeing]",
 	"[music-proactive]",
 	"[system]",
