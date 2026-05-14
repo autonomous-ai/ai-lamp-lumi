@@ -29,7 +29,7 @@ NO_IDLE_RECORDINGS = {EMO_SLEEPY}
 # Search-mode animation ("tracking") runs at this FPS so the arm sweeps slowly
 # enough for YOLO to register the object before passing it. Full 30fps was too
 # fast — the arm blew past the phone before each 2s YOLO poll could fire.
-TRACKING_SEARCH_FPS = 10
+TRACKING_SEARCH_FPS = 6
 
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:

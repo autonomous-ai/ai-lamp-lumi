@@ -301,7 +301,7 @@ PID_INTEGRAL_MAX = 30.0
 
 # Search mode: sweep arm via tracking animation while YOLO polls for re-acquisition.
 SEARCH_TIMEOUT_S = 30.0       # give up searching after this long
-SEARCH_YOLO_INTERVAL_S = 2.0  # YOLO poll rate during sweep (arm is moving)
+SEARCH_YOLO_INTERVAL_S = 1.0  # YOLO poll rate during sweep (arm is moving)
 
 
 class PID:
