@@ -171,9 +171,24 @@ func (s *Service) CurrentNetwork() (*domain.Network, error) {
 		BSSID:    "",
 		Channel:  0,
 		Rate:     "",
-		Signal:   0,
+		Signal:   readCurrentSignal(),
 		Security: "",
 	}, nil
+}
+
+// readCurrentSignal parses `iw dev <iface> link` for the associated AP's
+// signal strength in dBm. Returns 0 when the interface is not associated or
+// parsing fails — callers treat 0 as "unknown".
+func readCurrentSignal() int {
+	out, err := exec.Command("iw", "dev", defaultInterface, "link").Output()
+	if err != nil {
+		return 0
+	}
+	if m := reSignal.FindStringSubmatch(string(out)); len(m) > 1 {
+		f, _ := strconv.ParseFloat(m[1], 64)
+		return int(f)
+	}
+	return 0
 }
 
 // readCurrentSSID resolves the current SSID via a fallback chain — iwgetid
