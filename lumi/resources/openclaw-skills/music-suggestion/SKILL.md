@@ -1,6 +1,6 @@
 ---
 name: music-suggestion
-description: Proactive music suggestion. Routed in by user-emotion-detection/SKILL.md (the router) on emotion.detected events when the synthesized mood is suggestion-worthy (sad/stressed/tired/excited/happy/bored) AND audio is idle AND cooldown is clear. Reads, decision, and writes share the same parallel batch in a single turn. Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
+description: Proactive music suggestion. Routed in by user-emotion-detection/SKILL.md (the router) on emotion.detected (camera) and speech_emotion.detected (voice) events when the synthesized mood is suggestion-worthy (sad/stressed/tired/excited/happy/bored) AND audio is idle AND cooldown is clear. Reads, decision, and writes share the same parallel batch in a single turn. Does NOT fire on motion.activity / [activity] events — those route to wellbeing/SKILL.md only. NOT for user-initiated music requests (those use the music skill).
 ---
 
 # Music Suggestion (Proactive)
@@ -17,7 +17,7 @@ Only one trigger: **Mood** — after logging a mood `decision` that is suggestio
 
 ## What to read (pre-fetched in `[emotion_context: ...]`)
 
-The backend injects everything you need on `emotion.detected`:
+The backend injects everything you need on `emotion.detected` (face) or `speech_emotion.detected` (voice) — same block, same fields:
 
 - `audio_playing` (bool) — replaces `GET /audio/status`.
 - `last_suggestion_age_min` (int, `-1` if none today) — replaces `music-suggestion-history?last=1`.

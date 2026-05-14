@@ -18,12 +18,14 @@ import (
 	"go-lamp.autonomous.ai/lib/usercanon"
 )
 
-// detectedEmotionRe pulls the FER label out of an emotion.detected message
-// like "Emotion detected: Sad. (weak camera cue; ...)".
+// detectedEmotionRe pulls the label out of either an emotion.detected or
+// speech_emotion.detected message ("Emotion detected: Sad." /
+// "Speech emotion detected: Sad."). Case-insensitive + unanchored so the
+// "Speech " prefix is harmless — both formats end with the same anchor.
 var detectedEmotionRe = regexp.MustCompile(`(?i)Emotion detected:\s*([A-Za-z]+)`)
 
-// ExtractDetectedEmotion returns the FER label from an emotion.detected
-// payload, or "" if it cannot be parsed.
+// ExtractDetectedEmotion returns the emotion label from an emotion.detected
+// or speech_emotion.detected payload, or "" if it cannot be parsed.
 func ExtractDetectedEmotion(message string) string {
 	m := detectedEmotionRe.FindStringSubmatch(message)
 	if m == nil {
@@ -82,15 +84,22 @@ type musicPatternDigest struct {
 }
 
 // emotionToMood mirrors user-emotion-detection/SKILL.md's mapping table so the
-// skill no longer has to look it up on the fly.
+// skill no longer has to look it up on the fly. Covers both the face FER
+// vocabulary (Happy/Sad/Angry/Fear/Surprise/Disgust/Neutral) and the
+// emotion2vec voice vocabulary (happy/sad/angry/fearful/surprised/disgusted/
+// neutral). The two are bucketed identically so the same downstream mood
+// route applies regardless of source.
 var emotionToMood = map[string]string{
-	"happy":    "happy",
-	"sad":      "sad",
-	"angry":    "frustrated",
-	"fear":     "stressed",
-	"surprise": "excited",
-	"disgust":  "frustrated",
-	"neutral":  "normal",
+	"happy":     "happy",
+	"sad":       "sad",
+	"angry":     "frustrated",
+	"fear":      "stressed",
+	"fearful":   "stressed",
+	"surprise":  "excited",
+	"surprised": "excited",
+	"disgust":   "frustrated",
+	"disgusted": "frustrated",
+	"neutral":   "normal",
 }
 
 var suggestionWorthyMoods = map[string]bool{

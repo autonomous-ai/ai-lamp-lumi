@@ -244,10 +244,11 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += skillcontext.BuildUserContext(ev.currentUser)
 				// See sensing handler: pre-fetch emotion pipeline reads.
-				// Same emotion_context block serves both face and voice — the
-				// emotion → mood mapping covers both label vocabularies and the
-				// router rules are identical. The `[speech_emotion]` vs
-				// `[emotion]` prefix tells the skill which source to log.
+				// Same context block serves both face and voice — the mapping
+				// covers both label vocabularies and the router rules are
+				// identical. The [speech_emotion] vs [emotion] prefix above
+				// tells the skill which source to log on the mood signal row
+				// (source=voice vs source=camera).
 				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
 			case "pose.ergo_risk":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"

@@ -13,7 +13,7 @@ import { CompactionModal } from "./CompactionModal";
 
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
-  mic: ["voice", "voice_command", "sound"],
+  mic: ["voice", "voice_command", "sound", "speech_emotion.detected"],
   cam: ["motion", "motion.activity", "emotion.detected", "pose.ergo_risk", "presence.enter", "presence.leave", "presence.away", "light.level", "environment"],
   channel: ["telegram", "discord", "slack", "wechat", "channel"],
   web: ["web_chat"],
@@ -26,7 +26,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
+  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "speech_emotion.detected": "voice_emo", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
   cron: "cron", "cron:music": "🎵music",
@@ -363,14 +363,16 @@ export function FlowSection({
     const d = ev.detail as Record<string, any> | undefined;
     const sensingType = d?.data?.type ?? d?.type;
     const fromSensingAgentCall = (ev.type === "flow_event" && ev.detail?.node === "agent_call") &&
-      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "emotion.detected" || sensingType === "pose.ergo_risk" || sensingType === "sound");
+      (sensingType === "voice" || sensingType === "voice_command" || sensingType === "motion" || sensingType === "motion.activity" || sensingType === "emotion.detected" || sensingType === "speech_emotion.detected" || sensingType === "pose.ergo_risk" || sensingType === "sound");
     if (isSensingInput || fromSensingChatSend || fromSensingAgentCall) {
-      // Determine mic vs cam from sensing type or summary prefix
+      // Determine mic vs cam from sensing type or summary prefix.
+      // speech_emotion.detected is mic-sourced even though its label contains "emotion".
       let detectedType = sensingType;
       if (!detectedType && ev.summary) {
         detectedType = extractSensingType(ev.summary) ?? "";
       }
-      const isCam = /motion|presence|light|emotion/i.test(detectedType ?? "");
+      const isMicEmotion = /speech_emotion/i.test(detectedType ?? "");
+      const isCam = !isMicEmotion && /motion|presence|light|emotion/i.test(detectedType ?? "");
       visitedStages.add(isCam ? "cam_input" : "mic_input");
       break;
     }

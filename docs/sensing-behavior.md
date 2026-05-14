@@ -593,7 +593,18 @@ Labels (from emotion2vec_plus_large): `angry`, `disgusted`, `fearful`, `happy`, 
 4. Neutral labels dropped at flush time.
 5. `(user, bucket)` TTL dedup over `SPEECH_EMOTION_DEDUP_WINDOW_S` (default 5 min). Each bucket keeps an independent timer — sending a positive event does not reset the negative window.
 
-The event payload carries `current_user` explicitly so the Lumi sensing handler doesn't need to look it up. When Lumi-side routing for `speech_emotion.detected` is wired, the natural target is the existing `user-emotion-detection/SKILL.md` — the polarity vocabulary and Happy→happy / Sad→sad / Angry→frustrated / Fear→stressed mood mapping all transfer unchanged.
+The event payload carries `current_user` explicitly so the Lumi sensing handler doesn't need to look it up.
+
+### Agent behavior (shared with face emotion)
+
+`speech_emotion.detected` routes through the **same** skill as `emotion.detected` — `user-emotion-detection/SKILL.md`. The sensing handler tags the incoming message with `[speech_emotion]` (vs `[emotion]` for face), pre-fetches the same `[emotion_context: ...]` block, and forwards to the agent. The skill:
+
+1. Parses the prefix to decide `source` on the mood signal log (`"voice"` for `[speech_emotion]`, `"camera"` for `[emotion]`).
+2. Maps the label via the shared table: `Happy → happy`, `Sad → sad`, `Angry → frustrated`, `Fear`/`Fearful → stressed`, `Surprise`/`Surprised → excited`, `Disgust`/`Disgusted → frustrated`, `Neutral → normal`. Voice variants (`Fearful`, `Surprised`, `Disgusted`) bucket identically to their face counterparts.
+3. Runs the same `music / checkin / action / silent` router on the same `[emotion_context: ...]` fields (`audio_playing`, `suggestion_worthy`, `last_suggestion_age_min`, `is_decision_stale`).
+4. Shares one music-suggestion cooldown across both modalities — voice cannot bypass a cooldown that a recent camera signal set, and vice versa.
+
+The hedge `(weak voice cue; ...)` in the message is the model's signal to prefer Comfort/Invite checkin phrasing over Ask on voice-only negative reads, since short-utterance emotion2vec is noisier than face FER. See `user-emotion-detection/SKILL.md` for the full rules.
 
 See [Speech Emotion Recognition](speech-emotion.md) for the full architecture, threading model, configuration table, and failure modes.
 
