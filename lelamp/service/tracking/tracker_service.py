@@ -299,6 +299,10 @@ PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD = 0.03, 0.002, 0.0025
 PID_OUTPUT_MAX_DEG = 5.0
 PID_INTEGRAL_MAX = 30.0
 
+# Search mode: sweep arm via tracking animation while YOLO polls for re-acquisition.
+SEARCH_TIMEOUT_S = 30.0       # give up searching after this long
+SEARCH_YOLO_INTERVAL_S = 2.0  # YOLO poll rate during sweep (arm is moving)
+
 
 class PID:
     """Time-aware PID with anti-windup. Industry-standard servo control."""
@@ -568,15 +572,32 @@ class TrackerService:
                     logger.error("tracker start: %s", self.last_error)
                     animation_service.unfreeze()
                     return False
+                # Play search animation before detection so the arm sweeps
+                # while YOLO scans — gives visual feedback and covers more FOV.
+                animation_service.unfreeze()
+                animation_service.dispatch("play", "tracking")
                 t_yolo0 = time.perf_counter()
                 bbox = self.detect_object(frame, target_label)
                 t_yolo_ms = (time.perf_counter() - t_yolo0) * 1000
                 if bbox is None:
-                    self.last_error = f"'{target_label}' not found in frame"
-                    logger.info("[track-start] settle=%.0fms yolo=%.0fms result=missed target='%s'",
-                                (t_after_settle - t_req) * 1000, t_yolo_ms, target_label)
-                    animation_service.unfreeze()
-                    return False
+                    logger.info(
+                        "[track-start] settle=%.0fms yolo=%.0fms result=missed target='%s' — entering search mode",
+                        (t_after_settle - t_req) * 1000, t_yolo_ms, target_label,
+                    )
+                    # Not found yet — arm is already sweeping (animation dispatched above).
+                    # Spawn tracking thread in search mode: YOLO polls while animation runs.
+                    with self._lock:
+                        self._state = TrackingState(target_label=target_label)
+                        self._state.running.set()
+                        self._state.thread = threading.Thread(
+                            target=self._track_loop,
+                            args=(camera_capture, animation_service),
+                            kwargs={"initial_search": True},
+                            daemon=True,
+                            name="servo-tracker",
+                        )
+                        self._state.thread.start()
+                    return True
         except Exception:
             animation_service.unfreeze()
             raise
@@ -765,6 +786,63 @@ class TrackerService:
         except (AttributeError, Exception):
             return 1.0
 
+    def _run_search(
+        self,
+        target_label: str,
+        camera_capture,
+        animation_service,
+        state,
+    ) -> Optional[Tuple[int, int, int, int]]:
+        """Sweep and poll YOLO until object found or SEARCH_TIMEOUT_S elapsed.
+
+        Releases _tracking_active so the tracking animation sweeps the arm
+        through the scene while YOLO scans each new view. On first confirmed
+        detection: freezes arm, re-detects on settled frame to get accurate
+        bbox, then re-locks _tracking_active before returning.
+
+        Returns stable bbox on success, None on timeout or external stop.
+        """
+        animation_service._tracking_active = False
+        animation_service._hold_mode = False
+        animation_service.dispatch("play", "tracking")
+
+        t_start = time.perf_counter()
+        last_yolo_t = 0.0
+        while state.running.is_set():
+            elapsed = time.perf_counter() - t_start
+            if elapsed >= SEARCH_TIMEOUT_S:
+                logger.info("[search] '%s' not found after %.1fs", target_label, elapsed)
+                return None
+
+            now = time.perf_counter()
+            if now - last_yolo_t >= SEARCH_YOLO_INTERVAL_S:
+                last_yolo_t = now
+                frame = camera_capture.last_frame
+                if frame is not None:
+                    bbox = self.detect_object(frame.copy(), target_label)
+                    if bbox is not None:
+                        logger.info("[search] '%s' spotted t=%.1fs bbox=%s — freezing to confirm",
+                                    target_label, elapsed, bbox)
+                        animation_service.freeze()
+                        time.sleep(0.30)  # let arm settle
+                        stable_frame = camera_capture.last_frame
+                        stable_bbox: Optional[Tuple[int, int, int, int]] = None
+                        if stable_frame is not None:
+                            stable_bbox = self.detect_object(stable_frame.copy(), target_label)
+                        if stable_bbox is not None:
+                            logger.info("[search] stable confirmation '%s' bbox=%s", target_label, stable_bbox)
+                            animation_service._tracking_active = True
+                            animation_service._hold_mode = True
+                            return stable_bbox
+                        # Stable re-detect failed — resume sweep
+                        logger.info("[search] stable re-detect failed — resuming sweep")
+                        animation_service.unfreeze()
+                        animation_service.dispatch("play", "tracking")
+
+            time.sleep(0.20)
+
+        return None  # stopped externally
+
     def _fire_pid(self, yaw_step: float, pitch_correction: float, animation_service) -> float:
         """Apply PID outputs. yaw → base_yaw. pitch → distributed across base/elbow/wrist.
 
@@ -803,13 +881,18 @@ class TrackerService:
 
     # --- Internal tracking loop ---
 
-    def _track_loop(self, camera_capture, animation_service):
+    def _track_loop(self, camera_capture, animation_service, *, initial_search: bool = False):
         """Background loop: CSRT at FAST_LOOP_FPS + YOLO background correction."""
         state = self._state
 
-        animation_service._hold_mode = True
-        animation_service._tracking_active = True
-        logger.info("Servo hold mode + tracking lock ON")
+        if initial_search:
+            # Arm is already sweeping via tracking animation — don't lock it out yet.
+            # _run_search will set _tracking_active=True when it locks the object.
+            animation_service._hold_mode = False
+        else:
+            animation_service._hold_mode = True
+            animation_service._tracking_active = True
+            logger.info("Servo hold mode + tracking lock ON")
 
         # Read initial servo positions — track internally after this.
         try:
@@ -863,8 +946,46 @@ class TrackerService:
             nonlocal prev_dx, prev_dy, motion_state, stable_count, last_yolo_t
             retry_count += 1
             if retry_count > MAX_TRACKING_RETRIES:
-                logger.warning("[retry] exhausted %d retries, stopping", MAX_TRACKING_RETRIES)
-                return False
+                logger.warning("[retry] exhausted %d retries — entering search mode", MAX_TRACKING_RETRIES)
+                found_bbox = self._run_search(state.target_label, camera_capture, animation_service, state)
+                if found_bbox is None:
+                    return False
+                # Re-locked — reinit tracker on settled frame
+                _t = self._create_tracker()
+                _f = camera_capture.last_frame
+                if _t is not None and _f is not None:
+                    try:
+                        if _t.init(_f, found_bbox) is not False:
+                            state.tracker = _t
+                            state.bbox = found_bbox
+                            try:
+                                from lelamp.service.motors.animation_service import _motor_positions_from_bus
+                                with animation_service.bus_lock:
+                                    _pos = _motor_positions_from_bus(animation_service.robot)
+                                self._track_yaw = _pos.get("base_yaw.pos", self._track_yaw)
+                                self._track_base_pitch = _pos.get("base_pitch.pos", self._track_base_pitch)
+                                self._track_elbow_pitch = _pos.get("elbow_pitch.pos", self._track_elbow_pitch)
+                                self._track_wrist_pitch = _pos.get("wrist_pitch.pos", self._track_wrist_pitch)
+                            except Exception:
+                                pass
+                            self._yaw_pid.reset()
+                            self._pitch_pid.reset()
+                            retry_count = 0
+                            logger.info("[search→track] re-locked '%s' bbox=%s", state.target_label, found_bbox)
+                    except Exception as _e:
+                        logger.warning("[retry] reinit after search: %s", _e)
+                miss_count = 0
+                yolo_miss_count = 0
+                ema_dx = ema_dy = None
+                prev_dx = prev_dy = None
+                motion_state = "INIT"
+                stable_count = 0
+                last_yolo_t = 0
+                while True:
+                    try: yolo_q.get_nowait()
+                    except queue.Empty: break
+                return True
+
             logger.info("[retry] attempt %d/%d (soft)", retry_count, MAX_TRACKING_RETRIES)
             self._yaw_pid.reset()
             self._pitch_pid.reset()
@@ -911,6 +1032,43 @@ class TrackerService:
                 yolo_running.clear()
 
         try:
+            # Initial search phase: object wasn't found at start — sweep and poll YOLO.
+            if initial_search:
+                found_bbox = self._run_search(state.target_label, camera_capture, animation_service, state)
+                if found_bbox is None:
+                    logger.info("[search] '%s' never found — stopping", state.target_label)
+                    return  # finally still runs
+                _frame = camera_capture.last_frame
+                _tracker = self._create_tracker()
+                if _tracker is None or _frame is None:
+                    logger.error("[search→track] no tracker or frame after search")
+                    return
+                try:
+                    if _tracker.init(_frame, found_bbox) is False:
+                        logger.error("[search→track] tracker init failed bbox=%s", found_bbox)
+                        return
+                except Exception as _e:
+                    logger.error("[search→track] tracker init exception: %s", _e)
+                    return
+                state.tracker = _tracker
+                state.bbox = found_bbox
+                animation_service._hold_mode = True
+                # Re-read servo positions — arm moved during the search sweep.
+                try:
+                    from lelamp.service.motors.animation_service import _motor_positions_from_bus
+                    with animation_service.bus_lock:
+                        _pos = _motor_positions_from_bus(animation_service.robot)
+                    self._track_yaw = _pos.get("base_yaw.pos", self._track_yaw)
+                    self._track_base_pitch = _pos.get("base_pitch.pos", self._track_base_pitch)
+                    self._track_elbow_pitch = _pos.get("elbow_pitch.pos", self._track_elbow_pitch)
+                    self._track_wrist_pitch = _pos.get("wrist_pitch.pos", self._track_wrist_pitch)
+                except Exception:
+                    pass
+                self._yaw_pid.reset()
+                self._pitch_pid.reset()
+                logger.info("[search→track] locked '%s' bbox=%s — starting tracking loop",
+                            state.target_label, found_bbox)
+
             while state.running.is_set():
                 t0 = time.perf_counter()
 
@@ -1205,4 +1363,6 @@ class TrackerService:
                 )
                 animation_service._event_thread.start()
 
+            # Search animation is handled inside _run_search() while sweeping.
+            # Nothing extra to dispatch here — animation_service resumes normally.
             logger.info("Tracking ended — holding servo at current position")

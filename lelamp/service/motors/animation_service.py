@@ -26,6 +26,11 @@ STARTUP_MOVE_DURATION = 5.0
 # (e.g. sleepy — lamp stays still until woken by presence/wake-word)
 NO_IDLE_RECORDINGS = {EMO_SLEEPY}
 
+# Search-mode animation ("tracking") runs at this FPS so the arm sweeps slowly
+# enough for YOLO to register the object before passing it. Full 30fps was too
+# fast — the arm blew past the phone before each 2s YOLO poll could fire.
+TRACKING_SEARCH_FPS = 10
+
 
 def _motor_positions_from_bus(robot: LeLampFollower) -> Dict[str, float]:
     """Read Present_Position only — same numeric scale as CSV, no camera/LED path.
@@ -219,9 +224,12 @@ class AnimationService:
             # Continue current playback
             self._continue_playback()
 
-            # Idle breathing runs at reduced FPS to save CPU
+            # Idle breathing runs at reduced FPS to save CPU.
+            # Search animation runs slower so arm sweeps don't blow past the target.
             if self._idle_settled:
                 time.sleep(1.0 / 5)  # ~5 FPS for idle breathing
+            elif self._current_recording == "tracking" and not self._tracking_active:
+                time.sleep(1.0 / TRACKING_SEARCH_FPS)  # slow sweep for search mode
             else:
                 time.sleep(1.0 / self.fps)  # full FPS for active animations
     
