@@ -40,6 +40,14 @@ TTS_VOICE: str = os.environ.get("TTS_VOICE", "nova")
 # TTS instructions — style/vibe prompt for voice (e.g. "Speak warmly like a caring friend")
 TTS_INSTRUCTIONS: str = os.environ.get("LELAMP_TTS_INSTRUCTIONS", "Friendly")
 
+# --- Vision tracking ---
+# Use the local YOLOv8n model for COCO-class targets (person, cup, etc.).
+# Set LELAMP_TRACKING_DETECT_LOCAL=false to force remote YOLOWorld for everything
+# (slower, but open vocabulary and lighter on the Pi CPU).
+TRACKING_DETECT_LOCAL_ENABLED: bool = os.environ.get(
+    "LELAMP_TRACKING_DETECT_LOCAL", "true"
+).strip().lower() in ("1", "true", "yes", "on")
+
 # --- Data layout ---
 
 # --- Sensing: Lumi integration ---

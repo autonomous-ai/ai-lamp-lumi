@@ -25,18 +25,83 @@ import numpy as np
 import numpy.typing as npt
 import requests
 
+from lelamp.config import TRACKING_DETECT_LOCAL_ENABLED as _DETECT_LOCAL_ENABLED
+
 logger = logging.getLogger(__name__)
 
-# --- Detection API ---
+# --- Detection ---
 
-# Available models on the autonomous backend:
-#   "owlv2"
-#   "yoloe"
-#   "grounding-dino"
-#   "yoloworld"
+# Local YOLOv8n (COCO) — ~300ms/frame on Allwinner A523 CPU. Used by default
+# when target maps to a COCO class. Falls back to remote API for open-vocab.
+# Weights are checked into the repo next to this file so deploy is one rsync
+# and the Pi never needs internet at boot to start tracking. Source:
+# https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
+_LOCAL_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "yolov8n.pt")
+_LOCAL_IMGSZ = 320
+
+# Target label → COCO class index. Add aliases for natural Vietnamese/English usage.
+_COCO_CLASSES = {
+    # NOTE: "hand" / "face" intentionally NOT mapped — COCO has no hand/face class.
+    # Mapping them to "person" caused bbox to lock onto whole body (25-78% frame),
+    # triggering "object too close" stop. Let them fall through to YOLOWorld remote.
+    "person": 0, "people": 0, "human": 0,
+    "bicycle": 1, "car": 2, "motorcycle": 3, "airplane": 4, "bus": 5,
+    "train": 6, "truck": 7, "boat": 8, "traffic light": 9, "fire hydrant": 10,
+    "stop sign": 11, "parking meter": 12, "bench": 13,
+    "bird": 14, "cat": 15, "dog": 16, "horse": 17, "sheep": 18, "cow": 19,
+    "elephant": 20, "bear": 21, "zebra": 22, "giraffe": 23,
+    "backpack": 24, "umbrella": 25, "handbag": 26, "tie": 27, "suitcase": 28,
+    "frisbee": 29, "skis": 30, "snowboard": 31, "sports ball": 32, "ball": 32,
+    "kite": 33, "baseball bat": 34, "baseball glove": 35, "skateboard": 36,
+    "surfboard": 37, "tennis racket": 38, "bottle": 39, "wine glass": 40,
+    "cup": 41, "fork": 42, "knife": 43, "spoon": 44, "bowl": 45,
+    "banana": 46, "apple": 47, "sandwich": 48, "orange": 49, "broccoli": 50,
+    "carrot": 51, "hot dog": 52, "pizza": 53, "donut": 54, "cake": 55,
+    "chair": 56, "couch": 57, "potted plant": 58, "bed": 59, "dining table": 60,
+    "toilet": 61, "tv": 62, "laptop": 63, "mouse": 64, "remote": 65,
+    "keyboard": 66, "cell phone": 67, "phone": 67, "microwave": 68, "oven": 69,
+    "toaster": 70, "sink": 71, "refrigerator": 72, "book": 73, "clock": 74,
+    "vase": 75, "scissors": 76, "teddy bear": 77, "hair drier": 78, "toothbrush": 79,
+}
+# Remote API fallback (open vocabulary).
 _DETECT_MODEL = "yoloworld"
 _YOLO_ENDPOINT = f"/detect/{_DETECT_MODEL}"
 _YOLO_TIMEOUT = 10.0
+
+# Singleton local YOLO model — loaded lazily on first detection.
+_local_yolo = None
+_local_yolo_lock = threading.Lock()
+
+
+def _get_local_yolo():
+    """Lazy-load YOLOv8n model from the repo path. Thread-safe singleton."""
+    global _local_yolo
+    if _local_yolo is not None:
+        return _local_yolo
+    with _local_yolo_lock:
+        if _local_yolo is not None:
+            return _local_yolo
+        if not os.path.exists(_LOCAL_MODEL_PATH):
+            logger.error(
+                "YOLO weights missing at %s — re-deploy from repo (file is checked in). "
+                "Falling back to remote YOLOWorld until present.",
+                _LOCAL_MODEL_PATH,
+            )
+            return None
+        try:
+            from ultralytics import YOLO
+            logger.info("Loading local YOLO model from %s", _LOCAL_MODEL_PATH)
+            t0 = time.perf_counter()
+            _local_yolo = YOLO(_LOCAL_MODEL_PATH)
+            # Warm-up inference to trigger model compile/cache.
+            import numpy as _np
+            _local_yolo(_np.zeros((480, 640, 3), dtype=_np.uint8),
+                        verbose=False, imgsz=_LOCAL_IMGSZ)
+            logger.info("Local YOLO loaded + warmed up in %.0fms", (time.perf_counter() - t0) * 1000)
+        except Exception as e:
+            logger.error("Local YOLO load failed: %s", e)
+            _local_yolo = None
+    return _local_yolo
 
 # --- Tuning knobs ---
 
@@ -59,21 +124,28 @@ ADAPTIVE_GAIN_PX = 60
 ADAPTIVE_GAIN_MULT = 2.0
 
 # Dead zone in pixels — no servo command if offset is within this radius.
-DEAD_ZONE_PX = 7
+# Raised from 7→25: at small offsets PID output is <1°/fire, which servo
+# resolves visibly as small jerks every 70ms. 25px ≈ 4% of 640px width.
+DEAD_ZONE_PX = 25
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
 EMA_ALPHA = 0.5
 
 # Settle delay (seconds) after each servo command.
-# Short enough for 15fps; long enough for the servo to physically move.
-SERVO_SETTLE_S = 0.02
+# Long enough for the servo to physically settle before next CSRT update
+# reads a frame — otherwise motion blur drifts the tracker.
+SERVO_SETTLE_S = 0.05
 
 # YOLO background re-detect interval (seconds).
-YOLO_REDETECT_S = 2.0
+# Local YOLOv8n runs ~300-700ms/call on Allwinner A523. At 500ms interval
+# it saturated all CPU cores → camera MJPEG stream stalled.
+# 1.5s gives the CPU breathing room while still catching tracker drift.
+YOLO_REDETECT_S = 1.5
 
-# How many consecutive CSRT miss frames before stopping (YOLO may recover first).
-YOLO_MAX_MISS = 4
+# How many consecutive tracker-update miss frames before retrying.
+# Raised: ViT honestly returns ok=False on transient low-confidence frames.
+YOLO_MAX_MISS = 30
 
 # Motion detection: EMA-offset delta between consecutive frames to count as "moving".
 # Tuned for ~10fps CSRT (100ms/frame) — stationary CSRT jitter ≈ 5-15px EMA delta.
@@ -87,13 +159,16 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-SERVO_SUBSTEP_DEG   = 10.0  # max degrees per sub-step
-SERVO_SUBSTEP_SLEEP = 0.02  # seconds between sub-steps
+SERVO_SUBSTEP_DEG   = 2.0   # max degrees per sub-step — smaller = smoother ramp, less camera shake
+SERVO_SUBSTEP_SLEEP = 0.012 # seconds between sub-steps
 
 # Pitch distribution across 3 joints.
-PITCH_WEIGHT_BASE  = 0.10
-PITCH_WEIGHT_ELBOW = 0.70
-PITCH_WEIGHT_WRIST = 0.20
+# Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
+# camera (kinematic coupling) → object grows in frame but doesn't move toward
+# center. Use wrist alone for predictable pitch control.
+PITCH_WEIGHT_BASE  = 0.0
+PITCH_WEIGHT_ELBOW = 0.0
+PITCH_WEIGHT_WRIST = 1.0
 
 # Edge proximity boost — when object nears frame edge, multiply correction
 # to pull it back toward center before it exits the frame.
@@ -112,7 +187,51 @@ WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
 # YOLOWorld detection quality filters.
 DETECT_MIN_AREA_RATIO = 0.003
 DETECT_MAX_AREA_RATIO = 0.80
-DETECT_MIN_CONFIDENCE = 0.45
+DETECT_MIN_CONFIDENCE = 0.25  # local YOLOv8n detects small objects (mouse, etc.) ~0.25-0.35
+
+# Ghost-lock detection via tracker confidence (ViT only).
+CONFIDENCE_THRESHOLD = 0.15
+MAX_LOW_CONFIDENCE_FRAMES = 10
+
+# PID gains for servo control (industry pattern: PyImageSearch face tracking).
+PID_YAW_KP, PID_YAW_KI, PID_YAW_KD = 0.04, 0.003, 0.004
+PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD = 0.05, 0.003, 0.005
+PID_OUTPUT_MAX_DEG = 5.0
+PID_INTEGRAL_MAX = 30.0
+
+
+class PID:
+    """Time-aware PID with anti-windup. Industry-standard servo control."""
+
+    def __init__(self, kp: float, ki: float, kd: float,
+                 output_min: float = -PID_OUTPUT_MAX_DEG,
+                 output_max: float = PID_OUTPUT_MAX_DEG,
+                 integral_min: float = -PID_INTEGRAL_MAX,
+                 integral_max: float = PID_INTEGRAL_MAX):
+        self.kp, self.ki, self.kd = kp, ki, kd
+        self.output_min, self.output_max = output_min, output_max
+        self.integral_min, self.integral_max = integral_min, integral_max
+        self._prev_error: float = 0.0
+        self._integral: float = 0.0
+        self._last_t: Optional[float] = None
+
+    def reset(self) -> None:
+        self._prev_error = 0.0
+        self._integral = 0.0
+        self._last_t = None
+
+    def update(self, error: float) -> float:
+        now = time.perf_counter()
+        dt = 0.0 if self._last_t is None else (now - self._last_t)
+        self._last_t = now
+        p = self.kp * error
+        if dt > 0:
+            self._integral += error * dt
+            self._integral = max(self.integral_min, min(self.integral_max, self._integral))
+        i = self.ki * self._integral
+        d = self.kd * (error - self._prev_error) / dt if dt > 0 else 0.0
+        self._prev_error = error
+        return max(self.output_min, min(self.output_max, p + i + d))
 
 
 @dataclass
@@ -122,6 +241,7 @@ class TrackingState:
     tracker: Optional[cv2.Tracker] = None
     bbox: Optional[Tuple[int, int, int, int]] = None
     confidence: Optional[float] = None
+    low_confidence_frames: int = 0
     running: threading.Event = field(default_factory=threading.Event)
     thread: Optional[threading.Thread] = None
 
@@ -133,6 +253,8 @@ class TrackerService:
         self._state = TrackingState()
         self._lock = threading.Lock()
         self.last_error: str = ""
+        self._yaw_pid = PID(PID_YAW_KP, PID_YAW_KI, PID_YAW_KD)
+        self._pitch_pid = PID(PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD)
 
     @property
     def is_tracking(self) -> bool:
@@ -149,10 +271,51 @@ class TrackerService:
         }
 
     def detect_object(self, frame: npt.NDArray[np.uint8], target: str) -> Optional[Tuple[int, int, int, int]]:
-        """Detect an object by name using YOLOWorld API.
+        """Detect an object by name. Tries local YOLOv8n first (fast, COCO classes),
+        falls back to remote YOLOWorld API for open-vocab targets.
 
         Returns (x, y, w, h) top-left bbox or None if not found.
         """
+        # --- Path 1: local YOLOv8n (if target maps to COCO class) ---
+        target_key = (target or "").lower().strip()
+        coco_idx = _COCO_CLASSES.get(target_key)
+        if _DETECT_LOCAL_ENABLED and coco_idx is not None:
+            model = _get_local_yolo()
+            if model is not None:
+                t_req = time.perf_counter()
+                try:
+                    results = model(frame, verbose=False, imgsz=_LOCAL_IMGSZ,
+                                    classes=[coco_idx], conf=DETECT_MIN_CONFIDENCE)
+                    t_ms = (time.perf_counter() - t_req) * 1000
+                    h_fr, w_fr = frame.shape[:2]
+                    frame_area = float(h_fr * w_fr)
+                    best = None
+                    for r in results:
+                        if r.boxes is None or len(r.boxes) == 0:
+                            continue
+                        for b in r.boxes:
+                            x1, y1, x2, y2 = b.xyxy[0].tolist()
+                            conf = float(b.conf[0])
+                            bw = int(x2 - x1)
+                            bh = int(y2 - y1)
+                            area_ratio = (bw * bh) / frame_area if frame_area > 0 else 0.0
+                            if not (DETECT_MIN_AREA_RATIO <= area_ratio <= DETECT_MAX_AREA_RATIO):
+                                continue
+                            if best is None or conf > best[1]:
+                                best = ((int(x1), int(y1), bw, bh), conf, area_ratio)
+                    if best is not None:
+                        bbox, conf, area_ratio = best
+                        logger.info("[tracking_yolo_local] target='%s' bbox=%s conf=%.3f area=%.1f%% latency=%.0fms",
+                                    target, bbox, conf, area_ratio * 100, t_ms)
+                        return bbox
+                    logger.info("[tracking_yolo_local] target='%s' not found latency=%.0fms", target, t_ms)
+                    return None
+                except Exception as e:
+                    logger.warning("Local YOLO inference failed: %s — falling back to remote", e)
+        elif coco_idx is None:
+            logger.info("[tracking_yolo] target='%s' not in COCO — using remote", target)
+
+        # --- Path 2: remote YOLOWorld API (open-vocab fallback) ---
         from lelamp.config import DL_BACKEND_URL, DL_API_KEY
         if not DL_BACKEND_URL:
             logger.error("YOLOWorld: DL_BACKEND_URL not configured")
@@ -422,7 +585,7 @@ class TrackerService:
         time.sleep(SERVO_SETTLE_S)
         return t_ms
 
-    _VIT_MODEL = os.path.join(os.path.dirname(__file__), "vittrack.onnx")
+    _VIT_MODEL = os.path.join(os.path.dirname(__file__), "models", "vittrack.onnx")
 
     @staticmethod
     def _create_tracker():
@@ -433,20 +596,43 @@ class TrackerService:
             params.net = TrackerService._VIT_MODEL
             return cv2.TrackerVit.create(params)
 
+        # ViT first — has getTrackingScore() for ghost-lock detection.
         candidates = [
-            ("MIL",  lambda: cv2.TrackerMIL.create()),
+            ("ViT",  _make_vit),
             ("CSRT", lambda: cv2.TrackerCSRT.create()),
             ("KCF",  lambda: cv2.TrackerKCF.create()),
-            ("ViT",  _make_vit),
+            ("MIL",  lambda: cv2.TrackerMIL.create()),
         ]
         for name, factory in candidates:
             try:
                 tracker = factory()
-                logger.info("Using OpenCV tracker: %s", name)
+                has_score = hasattr(tracker, "getTrackingScore")
+                logger.info("Using OpenCV tracker: %s (confidence=%s)", name, "yes" if has_score else "no")
                 return tracker
             except (AttributeError, cv2.error, Exception):
                 continue
         return None
+
+    def _get_confidence(self) -> float:
+        """ViT confidence score; other trackers return 1.0 (no signal)."""
+        try:
+            return float(self._state.tracker.getTrackingScore())
+        except (AttributeError, Exception):
+            return 1.0
+
+    def _fire_pid(self, yaw_step: float, pitch_correction: float, animation_service) -> float:
+        """Apply PID outputs. yaw → base_yaw. pitch → distributed across base/elbow/wrist.
+
+        Per-joint pitch signs verified empirically 2026-05-13:
+        base+ = UP, elbow+ = DOWN, wrist+ = UP. Positive pitch_correction = look DOWN.
+        """
+        target = {
+            "base_yaw.pos":    max(YAW_MIN,         min(YAW_MAX,         self._track_yaw         + yaw_step)),
+            "base_pitch.pos":  max(BASE_PITCH_MIN,  min(BASE_PITCH_MAX,  self._track_base_pitch  - pitch_correction * PITCH_WEIGHT_BASE)),
+            "elbow_pitch.pos": max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_correction * PITCH_WEIGHT_ELBOW)),
+            "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_correction * PITCH_WEIGHT_WRIST)),
+        }
+        return self._send_gimbal_target(target, animation_service)
 
     # --- Internal tracking loop ---
 
@@ -473,6 +659,9 @@ class TrackerService:
             self._track_elbow_pitch = 0.0
             self._track_wrist_pitch = 0.0
 
+        # Reset PID state for a clean session.
+        self._yaw_pid.reset()
+        self._pitch_pid.reset()
 
         ema_dx: Optional[float] = None
         ema_dy: Optional[float] = None
@@ -491,6 +680,10 @@ class TrackerService:
         servo_count = 0    # frames where servo actually fired
         track_start_t = time.perf_counter()
         last_yolo_t = track_start_t
+        # Detector-gated trust: skip servo if YOLO hasn't confirmed target recently.
+        last_yolo_confirm_t = track_start_t
+        TRUST_TRACKER_S = 2.5      # With redetect=1.5s, allow ~1 missed redetect before suspect
+        STOP_NO_YOLO_S = 6.0
         fps_t0 = track_start_t
 
         # Queue for background YOLO results (maxsize=1 → latest result only).
@@ -505,12 +698,9 @@ class TrackerService:
             if retry_count > MAX_TRACKING_RETRIES:
                 logger.warning("[retry] exhausted %d retries, stopping", MAX_TRACKING_RETRIES)
                 return False
-            anim = "tracking"
-            logger.info("[retry] attempt %d/%d → %s", retry_count, MAX_TRACKING_RETRIES, anim)
-            animation_service._tracking_active = False
-            animation_service.dispatch("play", anim)
-            time.sleep(4.0)
-            animation_service._tracking_active = True
+            logger.info("[retry] attempt %d/%d (soft)", retry_count, MAX_TRACKING_RETRIES)
+            self._yaw_pid.reset()
+            self._pitch_pid.reset()
             # Try YOLO detect on fresh frame
             _f = camera_capture.last_frame
             if _f is not None:
@@ -568,6 +758,22 @@ class TrackerService:
                 t_csrt_ms = (time.perf_counter() - t_csrt0) * 1000
                 t_csrt_acc += t_csrt_ms
 
+                # Confidence-based ghost-lock detection (ViT only).
+                confidence = self._get_confidence()
+                state.confidence = confidence
+                if ok and confidence < CONFIDENCE_THRESHOLD:
+                    state.low_confidence_frames += 1
+                    logger.info("[conf] low %.3f (%d/%d) target='%s'",
+                                confidence, state.low_confidence_frames,
+                                MAX_LOW_CONFIDENCE_FRAMES, state.target_label)
+                    if state.low_confidence_frames >= MAX_LOW_CONFIDENCE_FRAMES:
+                        logger.warning("Tracker lost '%s' (conf=%.3f for %d frames) — stopping",
+                                       state.target_label, confidence, state.low_confidence_frames)
+                        break
+                    time.sleep(1.0 / FAST_LOOP_FPS)
+                    continue
+                state.low_confidence_frames = 0
+
                 if not ok:
                     miss_count += 1
                     logger.info("[search] CSRT miss %d/%d target='%s'", miss_count, YOLO_MAX_MISS, state.target_label)
@@ -593,24 +799,31 @@ class TrackerService:
 
                 frame_area = float(h_fr * w_fr)
                 bbox_ratio = (bw * bh) / frame_area
-                # Object too close — bbox takes up too much frame, stop tracking.
-                if bbox_ratio > 0.45:
-                    logger.warning("[bbox] object too close (%.1f%% of frame), stopping", bbox_ratio * 100)
+                # "Object too close" stop removed intentionally — servo PID drives off
+                # the centroid, not bbox size, so a person filling the frame can still
+                # be tracked. Stopping just because they stood up close was killing
+                # every session within 1–2s on the Pi. If they back away, bbox shrinks
+                # naturally and tracking continues.
+
+                # Ghost-lock: bbox shrunk to a sliver (typically locked on frame edge).
+                if bbox_ratio < DETECT_MIN_AREA_RATIO:
+                    logger.warning("[bbox] ghost-lock: %dx%d area=%.2f%% — stopping",
+                                   bw, bh, bbox_ratio * 100)
                     break
 
-                # Bbox drifted (tracker expanded) — trigger YOLO to correct.
+                # Bbox drifted large — fire YOLO to correct, but DON'T skip the frame.
+                # Skipping creates a dead spiral: tracker keeps bloating each iteration
+                # while YOLO misses, until bbox crosses the stop threshold. Letting the
+                # loop continue keeps the servo chasing while YOLO works in background.
                 if bbox_ratio > DETECT_MAX_AREA_RATIO:
-                    logger.warning("[bbox] too large (%.1f%% > %.1f%%) → reinit YOLO",
+                    logger.warning("[bbox] large (%.1f%% > %.1f%%) — firing YOLO bg, keep tracking",
                                    bbox_ratio * 100, DETECT_MAX_AREA_RATIO * 100)
-                    ema_dx = ema_dy = None
                     if not yolo_running.is_set() and state.target_label:
                         yolo_running.set()
                         snap = frame.copy()
                         threading.Thread(
                             target=_fire_yolo, args=(snap,), daemon=True, name="yolo-worker"
                         ).start()
-                    time.sleep(1.0 / FAST_LOOP_FPS)
-                    continue
 
                 cx_obj = bx + bw / 2.0
                 cy_obj = by + bh / 2.0
@@ -646,72 +859,85 @@ class TrackerService:
                             state.target_label, screen_x_pct, screen_y_pct, quadrant,
                             dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
 
-                # --- Motion state machine ---
-                # During cooldown: accumulate stable_count but suppress firing.
-                # This way when cooldown expires and object is already settled,
-                # the next frame fires immediately instead of waiting MOTION_SETTLE_FRAMES more.
-                if time.perf_counter() - last_servo_t < SERVO_COOLDOWN_S:
-                    if prev_dx is not None and prev_dy is not None:
-                        delta_px = ((dx - prev_dx) ** 2 + (dy - prev_dy) ** 2) ** 0.5
-                        if delta_px > MOTION_THRESHOLD_PX:
-                            stable_count = 0
-                        else:
-                            stable_count = min(stable_count + 1, MOTION_SETTLE_FRAMES)
-                    prev_dx, prev_dy = dx, dy
-                elif prev_dx is not None and prev_dy is not None:
-                    delta_px = ((dx - prev_dx) ** 2 + (dy - prev_dy) ** 2) ** 0.5
-                    if delta_px > MOTION_THRESHOLD_PX:
-                        stable_count = 0
-                        if motion_state != "MOVING":
-                            motion_state = "MOVING"
-                            logger.info("[motion] MOVE  offset=(%.0f,%.0f) delta=%.0fpx target='%s'",
-                                        dx, dy, delta_px, state.target_label)
-                    else:
-                        stable_count += 1
-                        if stable_count >= MOTION_SETTLE_FRAMES and motion_state != "STILL":
-                            motion_state = "STILL"
-                            in_zone = abs(dx) <= DEAD_ZONE_PX and abs(dy) <= DEAD_ZONE_PX
-                            if in_zone:
-                                logger.info("[motion] STILL offset=(%.0f,%.0f) → hold (dead-zone) target='%s'",
-                                            dx, dy, state.target_label)
-                            else:
-                                logger.info("[motion] STILL offset=(%.0f,%.0f) → FIRE servo target='%s'",
-                                            dx, dy, state.target_label)
-                                t_servo_ms = self._fire_gimbal(dx, dy, w_fr, h_fr, animation_service)
-                                t_servo_acc += t_servo_ms
-                                servo_count += 1
-                                last_servo_t = time.perf_counter()
-                                # Keep STILL — no re-fire until phone moves again (STILL→MOVING→STILL).
-                    prev_dx, prev_dy = dx, dy
-                else:
-                    # First frame — no previous offset to compare yet.
-                    motion_state = "INIT"
-                    stable_count = 0
-                    prev_dx, prev_dy = dx, dy
+                # --- PID continuous-fire with detector-gated trust ---
+                now_t = time.perf_counter()
+                in_zone = abs(dx) <= DEAD_ZONE_PX and abs(dy) <= DEAD_ZONE_PX
+                yolo_age = now_t - last_yolo_confirm_t
+                if in_zone:
+                    self._yaw_pid.reset()
+                    self._pitch_pid.reset()
+                    motion_state = "CENTERED"
+                elif yolo_age >= STOP_NO_YOLO_S:
+                    logger.warning("[yolo-trust] no YOLO confirm for %.1fs > %.1fs — stopping ghost",
+                                   yolo_age, STOP_NO_YOLO_S)
+                    break
+                elif yolo_age >= TRUST_TRACKER_S:
+                    motion_state = "WAIT-YOLO"
+                    # Tracker suspect — hold servo, don't chase phantom.
+                elif (now_t - last_servo_t) >= SERVO_COOLDOWN_S:
+                    motion_state = "CHASING"
+                    # Yaw sign: dx>0 (object on right) → base_yaw must INCREASE
+                    # to chase right (verified empirically vs legacy _fire_gimbal,
+                    # log shows camera moving the wrong way when this was negated).
+                    yaw_step = self._yaw_pid.update(dx)
+                    pitch_correction = self._pitch_pid.update(dy)
+                    logger.info("[pid-fire] offset=(%.0f,%.0f) → yaw=%.2f pitch=%.2f target='%s'",
+                                dx, dy, yaw_step, pitch_correction, state.target_label)
+                    t_servo_ms = self._fire_pid(yaw_step, pitch_correction, animation_service)
+                    t_servo_acc += t_servo_ms
+                    servo_count += 1
+                    last_servo_t = now_t
+                prev_dx, prev_dy = dx, dy
 
-                # Drain YOLO result queue — re-init CSRT if a new bbox arrived.
+                # Drain YOLO result queue — re-init tracker ONLY when it has
+                # clearly diverged. Blindly reiniting on every YOLO confirm causes
+                # ViT to bbox-bloat after re-init, which "teleports" the centroid
+                # and lurches the servo (the main cause of jerky tracking).
                 try:
                     yolo_bbox = yolo_q.get_nowait()
                     if yolo_bbox is not None:
                         miss_count = 0
-                        # Reset EMA so stale offset doesn't bias new lock position.
-                        ema_dx = ema_dy = None
-                        new_tracker = self._create_tracker()
-                        if new_tracker is not None:
-                            reinit_frame = camera_capture.last_frame
-                            if reinit_frame is not None:
-                                try:
-                                    ok_r = new_tracker.init(reinit_frame, yolo_bbox)
-                                    if ok_r is not False:
-                                        state.tracker = new_tracker
-                                        state.bbox = yolo_bbox
-                                        logger.info("YOLO drift-correct OK: bbox=%s", yolo_bbox)
-                                        # Re-arm motion machine so servo can fire again if
-                                        # object is still off-center after reinit.
-                                        motion_state = "INIT"
-                                        stable_count = 0
-                                except Exception as e:
-                                    logger.warning("YOLO re-init failed: %s", e)
+                        last_yolo_confirm_t = time.perf_counter()
+                        cur_bbox = state.bbox
+                        cur_area = (cur_bbox[2] * cur_bbox[3]) if cur_bbox else 0
+                        yolo_area = yolo_bbox[2] * yolo_bbox[3]
+                        # Center distance between tracker bbox and YOLO bbox
+                        cdx = cdy = 0.0
+                        if cur_bbox is not None:
+                            cdx = (cur_bbox[0] + cur_bbox[2] / 2.0) - (yolo_bbox[0] + yolo_bbox[2] / 2.0)
+                            cdy = (cur_bbox[1] + cur_bbox[3] / 2.0) - (yolo_bbox[1] + yolo_bbox[3] / 2.0)
+                        center_dist = (cdx ** 2 + cdy ** 2) ** 0.5
+                        # Reinit only when truly drifted. For a large bbox (e.g. full person
+                        # at 70%+ frame), YOLO and tracker can legitimately disagree on
+                        # center by 100–200px frame-to-frame just from how each draws the
+                        # bbox edges. Scale the divergence threshold by the smaller bbox
+                        # dimension so a 500-wide bbox tolerates ~200px center jitter.
+                        cur_min_dim = min(cur_bbox[2], cur_bbox[3]) if cur_bbox else 0
+                        diverge_threshold = max(120.0, cur_min_dim * 0.4)
+                        bloated = cur_area > 0 and cur_area > yolo_area * 2.0
+                        diverged = center_dist > diverge_threshold
+                        if bloated or diverged:
+                            logger.info("[drift-correct] reinit reason: bloated=%s diverged=%s "
+                                        "cur_area=%d yolo_area=%d center_dist=%.0fpx",
+                                        bloated, diverged, cur_area, yolo_area, center_dist)
+                            ema_dx = ema_dy = None
+                            new_tracker = self._create_tracker()
+                            if new_tracker is not None:
+                                reinit_frame = camera_capture.last_frame
+                                if reinit_frame is not None:
+                                    try:
+                                        ok_r = new_tracker.init(reinit_frame, yolo_bbox)
+                                        if ok_r is not False:
+                                            state.tracker = new_tracker
+                                            state.bbox = yolo_bbox
+                                            motion_state = "INIT"
+                                            stable_count = 0
+                                    except Exception as e:
+                                        logger.warning("YOLO re-init failed: %s", e)
+                        else:
+                            logger.debug("[drift-correct] tracker OK, skipping reinit "
+                                         "(cur_area=%d yolo_area=%d center_dist=%.0fpx)",
+                                         cur_area, yolo_area, center_dist)
                     else:
                         yolo_miss_count += 1
                         logger.debug("YOLO scan: target not found (%d consecutive)", yolo_miss_count)
