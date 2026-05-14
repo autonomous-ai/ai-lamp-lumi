@@ -25,25 +25,29 @@ logger = logging.getLogger(__name__)
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 5.0  # seconds to hold for shutdown
 
+PHRASE_LISTENING = "listening"
+PHRASE_REBOOT = "reboot"
+PHRASE_SHUTDOWN = "shutdown"
+
 # Localized action announcements. reboot/shutdown phrases stay literal
 # in every language ("rebooting", "shutting down") because the user just
 # triggered a destructive gesture and needs explicit confirmation of
 # which action fired — this is a safety announcement, not a persona
 # moment. Empty/unknown stt_language → DEFAULT_LANG.
 _PHRASES_BY_LANG = {
-    "listening": {
+    PHRASE_LISTENING: {
         LANG_EN:    "I'm listening!",
         LANG_VI:    "Mình nghe đây!",
         LANG_ZH_CN: "我在听！",
         LANG_ZH_TW: "我在聽！",
     },
-    "reboot": {
+    PHRASE_REBOOT: {
         LANG_EN:    "Rebooting now.",
         LANG_VI:    "Đang khởi động lại.",
         LANG_ZH_CN: "正在重启。",
         LANG_ZH_TW: "正在重啟。",
     },
-    "shutdown": {
+    PHRASE_SHUTDOWN: {
         LANG_EN:    "Shutting down now.",
         LANG_VI:    "Đang tắt máy.",
         LANG_ZH_CN: "正在关机。",
@@ -168,7 +172,7 @@ def _announce_listening():
     break finish. Retry with backoff so the cue lands as soon as the
     lock releases. ~6s total cap covers a worst-case fresh render before
     giving up silently."""
-    text = _phrase("listening")
+    text = _phrase(PHRASE_LISTENING)
     state.tts_service.stop()
     for delay in (0.15, 0.4, 0.8, 1.6, 3.0):
         time.sleep(delay)
@@ -215,7 +219,7 @@ def triple_click_action(source: str = "button"):
     """Announce + reboot OS."""
     logger.info("%s triple click -- rebooting OS", source)
     if _tts_available():
-        state.tts_service.speak_cached(_phrase("reboot"))
+        state.tts_service.speak_cached(_phrase(PHRASE_REBOOT))
         # speak_cached is async; reboot kicks the OS before audio plays
         # without this. ~5s covers the cached "Rebooting now" clip
         # (matches long_press_action shutdown delay).
@@ -246,7 +250,7 @@ def long_press_action(source: str = "button"):
 
     # Step 1: TTS announce.
     if _tts_available():
-        state.tts_service.speak_cached(_phrase("shutdown"))
+        state.tts_service.speak_cached(_phrase(PHRASE_SHUTDOWN))
         time.sleep(5)
 
     # Step 2: park servo in safe pose then cut torque, otherwise the
