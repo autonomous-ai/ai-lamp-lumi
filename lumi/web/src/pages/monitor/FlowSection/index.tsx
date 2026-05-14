@@ -13,7 +13,7 @@ import { CompactionModal } from "./CompactionModal";
 
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
-  mic: ["voice", "voice_command", "sound", "speech_emotion.detected"],
+  mic: ["voice", "voice_command", "sound", "speech_emotion", "speech_emotion.detected"],
   cam: ["motion", "motion.activity", "emotion.detected", "pose.ergo_risk", "presence.enter", "presence.leave", "presence.away", "light.level", "environment"],
   channel: ["telegram", "discord", "slack", "wechat", "channel"],
   web: ["web_chat"],
@@ -26,7 +26,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "speech_emotion.detected": "voice_emo", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
+  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "speech_emotion": "voice_emo", "speech_emotion.detected": "voice_emo", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
   cron: "cron", "cron:music": "🎵music",

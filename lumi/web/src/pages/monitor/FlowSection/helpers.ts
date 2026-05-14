@@ -274,6 +274,8 @@ export function sensingInputBracketType(ev: DisplayEvent): string | null {
   if (ev.type !== "sensing_input" && !(ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
     return null;
   }
+  const sensingType = extractSensingType(ev.summary);
+  if (sensingType) return sensingType;
   const m = ev.summary.match(/^\[([^\]]+)\]/);
   return m ? m[1] : null;
 }
@@ -379,8 +381,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
       return { type: t, path: "queued", forceNewTurn: true };
     }
     if (ev.type === "sensing_input" || (ev.type === "flow_enter" && ev.detail?.node === "sensing_input")) {
-      const m = ev.summary.match(/^\[([^\]]+)\]/);
-      const t = m ? m[1] : "unknown";
+      const t = sensingInputBracketType(ev) ?? "unknown";
       return {
         type: t,
         path: "unknown",
