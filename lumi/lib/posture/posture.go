@@ -65,7 +65,11 @@ const (
 const (
 	postureSubdir = "posture"
 	fileSuffix    = ".jsonl"
-	retentionDays = 7
+	// retentionDays is intentionally longer than mood / wellbeing / music
+	// (7 days) so the posture coach can do weekly/monthly trend framing
+	// — "tuần này vs tuần trước", future habit-integration patterns.
+	// Daily file caps at ~16 KB → 30 days ≈ 480 KB / user. Negligible.
+	retentionDays = 30
 	DefaultUser   = "unknown"
 )
 
@@ -158,6 +162,26 @@ func logSimple(user, action, notes string) {
 		Notes:  notes,
 	}
 	global.writeJSONL(now, user, evt)
+}
+
+// QueryLastDays reads posture events across the last `days` daily files
+// (1 = today only, 7 = today + 6 prior). Events are returned oldest-first
+// across the whole window. perDayCap limits rows per file (0 = no cap).
+//
+// Used by the skillcontext builder to compute a multi-day user profile
+// (peak hour, side bias, weekly trend) without a fresh tool turn.
+func QueryLastDays(user string, days, perDayCap int) []Event {
+	user = usercanon.Resolve(user)
+	if days <= 0 {
+		days = 1
+	}
+	now := time.Now()
+	out := make([]Event, 0, days*8)
+	for i := days - 1; i >= 0; i-- {
+		day := now.AddDate(0, 0, -i).Format("2006-01-02")
+		out = append(out, Query(user, day, perDayCap)...)
+	}
+	return out
 }
 
 // Query reads posture events for the user/day. Up to last n rows. n<=0 → all.
