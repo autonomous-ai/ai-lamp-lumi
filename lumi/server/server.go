@@ -300,6 +300,9 @@ func (s *Server) Serve(closeFn func()) error {
 	wellbeingGroup := api.Group("wellbeing")
 	wellbeingGroup.POST("log", s.sensingHandler.PostWellbeingLog)
 
+	postureGroup := api.Group("posture")
+	postureGroup.POST("log", s.sensingHandler.PostPostureLog)
+
 	musicSuggGroup := api.Group("music-suggestion")
 	musicSuggGroup.POST("log", s.sensingHandler.PostMusicSuggestionLog)
 	musicSuggGroup.POST("status", s.sensingHandler.PostMusicSuggestionStatus)
@@ -316,6 +319,7 @@ func (s *Server) Serve(closeFn func()) error {
 	oc.GET("flow-events", s.openclawHandler.FlowEvents)
 	oc.GET("mood-history", s.openclawHandler.MoodHistory)
 	oc.GET("wellbeing-history", s.openclawHandler.WellbeingHistory)
+	oc.GET("posture-history", s.openclawHandler.PostureHistory)
 	oc.GET("music-suggestion-history", s.openclawHandler.MusicSuggestionHistory)
 	oc.GET("flow-stream", s.openclawHandler.FlowStream)
 	oc.GET("flow-logs", s.openclawHandler.FlowLogs)

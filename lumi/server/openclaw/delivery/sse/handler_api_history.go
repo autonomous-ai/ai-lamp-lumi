@@ -11,6 +11,7 @@ import (
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
 	"go-lamp.autonomous.ai/lib/usercanon"
+	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/serializers"
 )
@@ -60,6 +61,31 @@ func (h *OpenClawHandler) WellbeingHistory(c *gin.Context) {
 	events := wellbeing.Query(user, day, last)
 	if events == nil {
 		events = []wellbeing.Event{}
+	}
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
+		"user":   user,
+		"date":   day,
+		"events": events,
+	}))
+}
+
+// PostureHistory returns posture coach events for a user and day.
+// Query params: user=<name> (default: current user), date=YYYY-MM-DD (default today), last=<n> (default 100, max 500).
+func (h *OpenClawHandler) PostureHistory(c *gin.Context) {
+	user := usercanon.Resolve(c.DefaultQuery("user", mood.CurrentUser()))
+	day := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	last := 100
+	if s := c.Query("last"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			last = n
+		}
+	}
+	if last > 500 {
+		last = 500
+	}
+	events := posture.Query(user, day, last)
+	if events == nil {
+		events = []posture.Event{}
 	}
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
 		"user":   user,

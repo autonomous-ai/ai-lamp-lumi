@@ -29,6 +29,7 @@ import (
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
 	"go-lamp.autonomous.ai/lib/skillcontext"
 	"go-lamp.autonomous.ai/lib/usercanon"
+	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -335,6 +336,10 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			msg = "[activity] " + req.Message
 		case "emotion.detected":
 			msg = "[emotion] " + req.Message
+		case "speech_emotion.detected":
+			msg = "[speech_emotion] " + req.Message
+		case "pose.ergo_risk":
+			msg = "[posture] " + req.Message
 		default:
 			msg = "[sensing:" + req.Type + "] " + req.Message
 		}
@@ -373,7 +378,7 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			// Saves ~9s LLM-think on the "plan reads" pass. SKILL.md keeps a
 			// fallback bash batch when this block is empty (pre-fetch failure).
 			msg += skillcontext.BuildWellbeingContext(currentUser)
-		case "emotion.detected":
+		case "emotion.detected", "speech_emotion.detected":
 			currentUser := req.CurrentUser
 			if currentUser == "" {
 				currentUser = mood.CurrentUser()
@@ -383,12 +388,41 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			}
 			msg += "\n[context: current_user=" + currentUser + "]"
 			msg += skillcontext.BuildUserContext(currentUser)
-			// Pre-fetch the reads that the emotion.detected pipeline (mood
-			// signal/decision + router gating in user-emotion-detection +
-			// music-suggestion genre lookup) would otherwise issue. SKILL.md
-			// keeps a fallback bash batch when this block is missing
-			// (pre-fetch failure).
+			// Pre-fetch the reads that the emotion pipeline (mood signal/
+			// decision + router gating in user-emotion-detection + music-
+			// suggestion genre lookup) would otherwise issue. SKILL.md keeps a
+			// fallback bash batch when this block is missing (pre-fetch fail).
+			// Same context block serves both modalities — the mapping covers
+			// face FER labels (Fear/Surprise/Disgust) and voice emotion2vec
+			// labels (Fearful/Surprised/Disgusted); the [speech_emotion] vs
+			// [emotion] prefix on the message tells the skill which source to
+			// log on the mood signal row (source=voice vs source=camera).
 			msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(req.Message), currentUser)
+		case "pose.ergo_risk":
+			currentUser := req.CurrentUser
+			if currentUser == "" {
+				currentUser = mood.CurrentUser()
+			}
+			if currentUser == "" {
+				currentUser = "unknown"
+			}
+			msg += "\n[context: current_user=" + currentUser + "]"
+			msg += skillcontext.BuildUserContext(currentUser)
+			ev := skillcontext.ParsePostureMessage(req.Message)
+			// Build the slim context block BEFORE logging the alert — otherwise
+			// computeTrend / isRepeatedEpisode would scan the just-written row
+			// and compare it against itself (trend always "stable", is_repeated
+			// always true). Skill writes its nudge / praise row later via the
+			// /posture/log HW marker; the alert row goes in after the context.
+			msg += "\n[posture_context: " + skillcontext.BuildPostureContext(currentUser, ev) + "]"
+			if ev.Score > 0 {
+				posture.LogAlert(currentUser, posture.AlertExtras{
+					Score:      ev.Score,
+					Risk:       ev.Risk,
+					LeftScore:  ev.LeftScore,
+					RightScore: ev.RightScore,
+				})
+			}
 		}
 	}
 
@@ -715,6 +749,73 @@ func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
 	}))
 }
 
+// --- Posture History API ---
+
+// PostureLogRequest is the JSON body the agent / HW marker dispatcher sends to
+// /api/posture/log. `action` is one of the constants in lib/posture (alert,
+// nudge, praise, recap variants); only the fields relevant to that action are
+// expected.
+type PostureLogRequest struct {
+	Action     string `json:"action" validate:"required"`
+	NudgeLevel int    `json:"nudge_level,omitempty"`
+	Score      int    `json:"score,omitempty"`
+	Risk       string `json:"risk,omitempty"`
+	LeftScore  int    `json:"left_score,omitempty"`
+	RightScore int    `json:"right_score,omitempty"`
+	Notes      string `json:"notes,omitempty"`
+	User       string `json:"user"`
+}
+
+// PostPostureLog appends a posture-history row. Dispatches to LogAlert /
+// LogNudge / LogPraise / LogMorningRecap / LogEveningRecap / LogWeeklyRecap
+// depending on `action`; unknown actions return 400.
+func (h *SensingHandler) PostPostureLog(c *gin.Context) {
+	var req PostureLogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+	if err := validator.New().Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, serializers.ResponseError(err.Error()))
+		return
+	}
+
+	user := req.User
+	if strings.TrimSpace(user) == "" {
+		user = mood.CurrentUser()
+	}
+	user = usercanon.Resolve(user)
+
+	switch req.Action {
+	case posture.ActionAlert:
+		posture.LogAlert(user, posture.AlertExtras{
+			Score:      req.Score,
+			Risk:       req.Risk,
+			LeftScore:  req.LeftScore,
+			RightScore: req.RightScore,
+		})
+	case posture.ActionNudge:
+		posture.LogNudge(user, req.NudgeLevel, req.Notes)
+	case posture.ActionPraise:
+		posture.LogPraise(user, req.Notes)
+	case posture.ActionMorningRecap:
+		posture.LogMorningRecap(user, req.Notes)
+	case posture.ActionEveningRecap:
+		posture.LogEveningRecap(user, req.Notes)
+	case posture.ActionWeeklyRecap:
+		posture.LogWeeklyRecap(user, req.Notes)
+	default:
+		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown posture action: "+req.Action))
+		return
+	}
+
+	slog.Info("posture logged", "component", "posture", "user", user, "action", req.Action, "level", req.NudgeLevel)
+	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]string{
+		"user":   user,
+		"action": req.Action,
+	}))
+}
+
 // --- Guard helpers ---
 
 var reSnapshotPath = regexp.MustCompile(`\[snapshot:\s*([^\]]+)\]`)
@@ -791,7 +892,8 @@ func (h *SensingHandler) PostMusicSuggestionStatus(c *gin.Context) {
 func shouldQueueEvent(eventType, message string, inVoiceWindow bool) bool {
 	switch eventType {
 	case "presence.enter", "presence.leave", "voice",
-		"motion.activity", "emotion.detected", "web_chat":
+		"motion.activity", "emotion.detected", "speech_emotion.detected",
+		"pose.ergo_risk", "web_chat":
 		return true
 	case "sound":
 		return strings.Contains(message, "persistent")
