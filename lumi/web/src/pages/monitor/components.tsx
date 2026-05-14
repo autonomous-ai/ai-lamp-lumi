@@ -212,6 +212,12 @@ export function Sparkline({
 export function SignalBars({ value }: { value: number }) {
   const bars = 4;
   const active = value >= -50 ? 4 : value >= -65 ? 3 : value >= -75 ? 2 : value >= -85 ? 1 : 0;
+  // Tier color: green when signal is strong, amber/red when weak.
+  // Reading amber for a 360 Mbps link is misleading — that's a strong connection.
+  const tierColor =
+    active >= 3 ? "var(--lm-green)" :
+    active === 2 ? "var(--lm-amber)" :
+    "var(--lm-red)";
   return (
     <div style={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
       {Array.from({ length: bars }).map((_, i) => (
@@ -221,7 +227,7 @@ export function SignalBars({ value }: { value: number }) {
             width: 4,
             height: 6 + i * 3,
             borderRadius: 1,
-            background: i < active ? "var(--lm-amber)" : "var(--lm-border-hi)",
+            background: i < active ? tierColor : "var(--lm-border-hi)",
           }}
         />
       ))}
