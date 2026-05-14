@@ -8,20 +8,22 @@ function isChannelType(type: string): boolean {
   return CHANNEL_TYPES.has(type);
 }
 
-// Lumi emits motion.activity/emotion.detected with domain-specific prefixes
-// ([activity]/[emotion]) instead of [sensing:*] so SOUL.md's [sensing:*] rule
-// doesn't force the sensing skill into context. Parsing here supports both.
-const SENSING_PREFIX_RE = /^\s*\[(?:sensing:([^\]]+)|(activity|emotion))\]/i;
+// Lumi emits motion.activity/emotion.detected/speech_emotion.detected with
+// domain-specific prefixes ([activity]/[emotion]/[speech_emotion]) instead of
+// [sensing:*] so SOUL.md's [sensing:*] rule doesn't force the sensing skill
+// into context. Parsing here supports all three.
+const SENSING_PREFIX_RE = /^\s*\[(?:sensing:([^\]]+)|(activity|emotion|speech_emotion))\]/i;
 
 // Returns the internal sensing type ("motion.activity", "emotion.detected",
-// "presence.enter", …) from a message prefix, or null if the message doesn't
-// start with one.
+// "speech_emotion.detected", "presence.enter", …) from a message prefix, or
+// null if the message doesn't start with one.
 export function extractSensingType(msg: string): string | null {
   const m = msg.match(SENSING_PREFIX_RE);
   if (!m) return null;
-  if (m[1]) return m[1];                          // [sensing:<type>]
+  if (m[1]) return m[1];                                       // [sensing:<type>]
   if (m[2] === "activity") return "motion.activity";
   if (m[2] === "emotion") return "emotion.detected";
+  if (m[2] === "speech_emotion") return "speech_emotion.detected";
   return null;
 }
 
@@ -32,7 +34,7 @@ export function hasSensingPrefix(msg: string): boolean {
 
 // Same as hasSensingPrefix but without the ^ anchor — matches anywhere in the
 // string. Useful for node-host echo detection where the prefix may be embedded.
-const SENSING_PREFIX_ANYWHERE_RE = /\[(?:sensing:[^\]]+|activity|emotion)\]/i;
+const SENSING_PREFIX_ANYWHERE_RE = /\[(?:sensing:[^\]]+|activity|emotion|speech_emotion)\]/i;
 export function containsSensingPrefix(msg: string): boolean {
   return SENSING_PREFIX_ANYWHERE_RE.test(msg);
 }
@@ -1415,8 +1417,8 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
         if (!snapshotUrls.includes(url)) snapshotUrls.push(url);
       }
       if (!input) {
-        // Strip the sensing prefix ([sensing:<type>], [activity], or [emotion]) to get the payload body.
-        const m = raw.match(/^\s*\[(?:sensing:[^\]]+|activity|emotion)\]\s*(.*)$/is);
+        // Strip the sensing prefix ([sensing:<type>], [activity], [emotion], or [speech_emotion]) to get the payload body.
+        const m = raw.match(/^\s*\[(?:sensing:[^\]]+|activity|emotion|speech_emotion)\]\s*(.*)$/is);
         const extracted = (m?.[1] ?? "").replace(/\n?\[snapshot:[^\]]+\]/g, "").trim();
         if (extracted) input = extracted;
       }
@@ -1468,10 +1470,10 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
 
 // Scan a turn for the backend-injected `[context: current_user=X]` tag and
 // return X (or null if not present). The handler adds this tag to
-// motion.activity and emotion.detected messages so downstream skills
-// attribute rows to the right user — showing it on the Flow card makes
-// user-attribution visible at a glance (which is specially useful when
-// stranger flicker or multi-friend scenes are being debugged).
+// motion.activity, emotion.detected, and speech_emotion.detected messages so
+// downstream skills attribute rows to the right user — showing it on the
+// Flow card makes user-attribution visible at a glance (which is specially
+// useful when stranger flicker or multi-friend scenes are being debugged).
 export function turnCurrentUser(turn: Turn): string | null {
   const re = /\[context:\s*current_user=([^\]]+)\]/i;
   for (const ev of turn.events) {

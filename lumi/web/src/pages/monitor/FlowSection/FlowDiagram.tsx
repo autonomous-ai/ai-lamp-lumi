@@ -822,8 +822,9 @@ export function FlowDiagram({
               {hasInfo && (() => {
                 const textLines = lines.filter((l) => !l.startsWith("🖼"));
                 // agent_call carries the full chat_send message (often the
-                // pre-injected context for emotion.detected / motion.activity
-                // Phase 2 — several KB of JSON). Widen its box and anchor the
+                // pre-injected context for emotion.detected /
+                // speech_emotion.detected / motion.activity Phase 2 — several
+                // KB of JSON). Widen its box and anchor the
                 // left edge at the original centered position so it grows
                 // rightward into the empty space toward channel_input.
                 const isWide = node.id === "agent_call";
