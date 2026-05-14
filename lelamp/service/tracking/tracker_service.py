@@ -207,18 +207,18 @@ ADAPTIVE_GAIN_PX = 60
 ADAPTIVE_GAIN_MULT = 2.0
 
 # Dead zone in pixels — no servo command if offset is within this radius.
-# Raised from 7→25: at small offsets PID output is <1°/fire, which servo
-# resolves visibly as small jerks every 70ms. 25px ≈ 4% of 640px width.
-DEAD_ZONE_PX = 25
+# Raised to 40px: CSRT/ViT bbox jitters ±5-15px frame-to-frame even when the
+# subject is still. Smaller dead zone makes PID fire-on/fire-off every ~70ms,
+# which the user perceives as jerky servo pulses.
+DEAD_ZONE_PX = 40
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
 EMA_ALPHA = 0.5
 
-# Settle delay (seconds) after each servo command.
-# Long enough for the servo to physically settle before next CSRT update
-# reads a frame — otherwise motion blur drifts the tracker.
-SERVO_SETTLE_S = 0.05
+# Settle delay (seconds) after each servo command. Reduced because the
+# substep sleep already provides natural settle time at the end of the ramp.
+SERVO_SETTLE_S = 0.01
 
 # YOLO background re-detect interval (seconds).
 # Local YOLOv8n runs ~300-700ms/call on Allwinner A523. At 500ms interval
@@ -242,8 +242,11 @@ MOTION_SETTLE_FRAMES = 2
 # stabilises after a move. Prevents servo shake → fake MOVE → immediate re-fire loop.
 SERVO_COOLDOWN_S = 0.10
 
-SERVO_SUBSTEP_DEG   = 2.0   # max degrees per sub-step — smaller = smoother ramp, less camera shake
-SERVO_SUBSTEP_SLEEP = 0.012 # seconds between sub-steps
+SERVO_SUBSTEP_DEG   = 1.0   # smaller substep = finer ramp; a 5° fire = 5 substeps
+# Stretched the gap between substeps so motor motion bridges the idle window
+# between PID fires (~100ms). Without this the servo bursts for 30ms then sits
+# idle 100ms — visible as discrete chunks. 20ms × ~5 substeps ≈ one loop period.
+SERVO_SUBSTEP_SLEEP = 0.020
 
 # Pitch distribution across 3 joints.
 # Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
@@ -277,8 +280,10 @@ CONFIDENCE_THRESHOLD = 0.15
 MAX_LOW_CONFIDENCE_FRAMES = 10
 
 # PID gains for servo control (industry pattern: PyImageSearch face tracking).
-PID_YAW_KP, PID_YAW_KI, PID_YAW_KD = 0.04, 0.003, 0.004
-PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD = 0.05, 0.003, 0.005
+# KP lowered (0.04→0.025 yaw, 0.05→0.03 pitch): smaller per-fire step, gentler
+# chase. KD lowered too — D term amplifies CSRT bbox jitter into servo jerks.
+PID_YAW_KP, PID_YAW_KI, PID_YAW_KD = 0.025, 0.002, 0.002
+PID_PITCH_KP, PID_PITCH_KI, PID_PITCH_KD = 0.03, 0.002, 0.0025
 PID_OUTPUT_MAX_DEG = 5.0
 PID_INTEGRAL_MAX = 30.0
 
@@ -725,6 +730,21 @@ class TrackerService:
             "elbow_pitch.pos": max(ELBOW_PITCH_MIN, min(ELBOW_PITCH_MAX, self._track_elbow_pitch + pitch_correction * PITCH_WEIGHT_ELBOW)),
             "wrist_pitch.pos": max(WRIST_PITCH_MIN, min(WRIST_PITCH_MAX, self._track_wrist_pitch - pitch_correction * PITCH_WEIGHT_WRIST)),
         }
+        # Warn loudly when an axis has saturated against its mechanical limit and
+        # the PID is still demanding more travel in that direction — camera
+        # physically can't follow further; only re-centering the lamp helps.
+        if abs(yaw_step) >= 0.1 and (
+            (yaw_step < 0 and self._track_yaw <= YAW_MIN + 0.5) or
+            (yaw_step > 0 and self._track_yaw >= YAW_MAX - 0.5)
+        ):
+            logger.warning("[saturation] yaw at limit %.1f° but PID still demanding %.2f° — recenter lamp",
+                           self._track_yaw, yaw_step)
+        if abs(pitch_correction) >= 0.1 and PITCH_WEIGHT_WRIST > 0 and (
+            (pitch_correction > 0 and self._track_wrist_pitch <= WRIST_PITCH_MIN + 0.5) or
+            (pitch_correction < 0 and self._track_wrist_pitch >= WRIST_PITCH_MAX - 0.5)
+        ):
+            logger.warning("[saturation] wrist at limit %.1f° but PID still demanding pitch=%.2f° — recenter lamp",
+                           self._track_wrist_pitch, pitch_correction)
         return self._send_gimbal_target(target, animation_service)
 
     # --- Internal tracking loop ---
@@ -956,6 +976,18 @@ class TrackerService:
                 now_t = time.perf_counter()
                 in_zone = abs(dx) <= DEAD_ZONE_PX and abs(dy) <= DEAD_ZONE_PX
                 yolo_age = now_t - last_yolo_confirm_t
+                # Ghost-lock recovery: ViT/CSRT sometimes reports ok=True with a
+                # bbox larger than the frame (lock dissolved into background).
+                # If that persists with no detector confirm, _do_retry instead of
+                # breaking — gives one chance to relocate via YOLO/YuNet before
+                # giving up the session.
+                if bbox_ratio > 0.95 and yolo_age >= 3.0:
+                    logger.warning("[ghost-lock] bbox=%.0f%% no-detect=%.1fs → forced retry",
+                                   bbox_ratio * 100, yolo_age)
+                    if _do_retry():
+                        last_yolo_confirm_t = time.perf_counter()
+                        continue
+                    break
                 if in_zone:
                     self._yaw_pid.reset()
                     self._pitch_pid.reset()
