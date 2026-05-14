@@ -25,7 +25,11 @@ import numpy as np
 import numpy.typing as npt
 import requests
 
-from lelamp.config import TRACKING_DETECT_LOCAL_ENABLED as _DETECT_LOCAL_ENABLED
+from lelamp.config import (
+    TRACKING_DETECT_LOCAL_ENABLED as _DETECT_LOCAL_ENABLED,
+    TRACKING_FACE_DETECTOR_ENABLED as _FACE_DETECTOR_ENABLED,
+    YUNET_CONFIDENCE_THRESHOLD as _YUNET_CONF,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,14 @@ logger = logging.getLogger(__name__)
 # https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
 _LOCAL_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "yolov8n.pt")
 _LOCAL_IMGSZ = 320
+
+# YuNet face detector (OpenCV built-in). Lighter than InsightFace, ~30ms/frame on
+# Pi, no extra dependency. Used for target='face' so we don't fall back to the
+# remote YOLOWorld (~1.3s) for what's a very common tracking target.
+_YUNET_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models",
+                                 "face_detection_yunet_2023mar.onnx")
+# Aliases that route to the face detector instead of YOLO.
+_FACE_TARGET_ALIASES = {"face", "human face", "khuôn mặt", "mặt"}
 
 # Target label → COCO class index. Add aliases for natural Vietnamese/English usage.
 _COCO_CLASSES = {
@@ -72,6 +84,10 @@ _YOLO_TIMEOUT = 10.0
 _local_yolo = None
 _local_yolo_lock = threading.Lock()
 
+# Singleton YuNet face detector — same lazy pattern.
+_yunet = None
+_yunet_lock = threading.Lock()
+
 
 def _get_local_yolo():
     """Lazy-load YOLOv8n model from the repo path. Thread-safe singleton."""
@@ -102,6 +118,73 @@ def _get_local_yolo():
             logger.error("Local YOLO load failed: %s", e)
             _local_yolo = None
     return _local_yolo
+
+
+def _get_yunet():
+    """Lazy-load YuNet face detector. Thread-safe singleton.
+
+    Input size is set per-call via setInputSize before detect(), so we can keep
+    one shared detector across frames of different sizes.
+    """
+    global _yunet
+    if _yunet is not None:
+        return _yunet
+    with _yunet_lock:
+        if _yunet is not None:
+            return _yunet
+        if not os.path.exists(_YUNET_MODEL_PATH):
+            logger.error("YuNet weights missing at %s — face detection disabled",
+                         _YUNET_MODEL_PATH)
+            return None
+        try:
+            t0 = time.perf_counter()
+            _yunet = cv2.FaceDetectorYN.create(
+                _YUNET_MODEL_PATH,
+                "",
+                (320, 320),
+                score_threshold=_YUNET_CONF,
+                nms_threshold=0.3,
+                top_k=50,
+            )
+            logger.info("YuNet face detector loaded in %.0fms (conf>=%.2f)",
+                        (time.perf_counter() - t0) * 1000, _YUNET_CONF)
+        except Exception as e:
+            logger.error("YuNet load failed: %s", e)
+            _yunet = None
+    return _yunet
+
+
+def _detect_face_yunet(frame: npt.NDArray[np.uint8]) -> Optional[Tuple[int, int, int, int]]:
+    """Run YuNet on the frame, return the largest face bbox (x,y,w,h) or None.
+
+    Largest-face policy: most prominent / closest face — predictable for a single
+    tracking session. If multiple people, the closest one wins.
+    """
+    detector = _get_yunet()
+    if detector is None:
+        return None
+    h, w = frame.shape[:2]
+    try:
+        detector.setInputSize((w, h))
+        t0 = time.perf_counter()
+        _, faces = detector.detect(frame)
+        latency_ms = (time.perf_counter() - t0) * 1000
+    except Exception as e:
+        logger.warning("YuNet detect failed: %s", e)
+        return None
+    if faces is None or len(faces) == 0:
+        logger.info("[tracking_yunet] not found latency=%.0fms", latency_ms)
+        return None
+    # faces rows: [x, y, w, h, lm_x1..lm_y5, score]. Pick the largest by area.
+    best = max(faces, key=lambda f: float(f[2]) * float(f[3]))
+    x, y, fw, fh = int(best[0]), int(best[1]), int(best[2]), int(best[3])
+    score = float(best[-1])
+    # Clamp to frame in case the detector returns slightly negative coords.
+    x = max(0, x); y = max(0, y)
+    fw = max(1, min(fw, w - x)); fh = max(1, min(fh, h - y))
+    logger.info("[tracking_yunet] face bbox=(%d,%d,%d,%d) score=%.3f count=%d latency=%.0fms",
+                x, y, fw, fh, score, len(faces), latency_ms)
+    return (x, y, fw, fh)
 
 # --- Tuning knobs ---
 
@@ -276,8 +359,18 @@ class TrackerService:
 
         Returns (x, y, w, h) top-left bbox or None if not found.
         """
-        # --- Path 1: local YOLOv8n (if target maps to COCO class) ---
         target_key = (target or "").lower().strip()
+
+        # --- Path 0: YuNet face detector (target = face) ---
+        # COCO has no face class; this avoids the ~1.3s remote round-trip for what
+        # is a common tracking target.
+        if _FACE_DETECTOR_ENABLED and target_key in _FACE_TARGET_ALIASES:
+            face_bbox = _detect_face_yunet(frame)
+            if face_bbox is not None:
+                return face_bbox
+            # YuNet missed — fall through to remote YOLOWorld below.
+
+        # --- Path 1: local YOLOv8n (if target maps to COCO class) ---
         coco_idx = _COCO_CLASSES.get(target_key)
         if _DETECT_LOCAL_ENABLED and coco_idx is not None:
             model = _get_local_yolo()
