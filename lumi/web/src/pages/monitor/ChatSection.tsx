@@ -1641,6 +1641,7 @@ export function ChatSection({ events, isActive }: Props) {
                 title="Send (Enter)"
                 aria-label="Send message"
               >{sending ? <span style={{ fontSize: 14, fontWeight: 700 }}>…</span> : <ArrowDown size={16} style={{ transform: "rotate(180deg)" }} strokeWidth={2.5} />}</button>
+              </div>
             </div>
             <div style={{
               fontSize: 10, color: "var(--lm-text-muted)",
