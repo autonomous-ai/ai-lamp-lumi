@@ -351,6 +351,22 @@ PULSE_EOF
 load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-anon-lumi
 PULSE_EOF
   fi
+
+  # Tell PulseAudio to ignore the lamp speaker sound card (sndi2s4 on
+  # OrangePi, wm8960soundcard on Pi). lelamp's TTS opens the device directly
+  # via ALSA hw for low-latency persistent playback; if PA also grabs it, the
+  # next TTS OutputStream open fails with PaErrorCode -9985 (EBUSY).
+  PA_IGNORE_RULE="/etc/udev/rules.d/91-pulseaudio-lelamp-ignore.rules"
+  if [ ! -f "$PA_IGNORE_RULE" ]; then
+    echo "[stage] Adding udev rule so PulseAudio ignores the lamp speaker card"
+    cat > "$PA_IGNORE_RULE" <<'UDEV_EOF'
+# Keep PulseAudio away from the lamp speaker codec so lelamp can own it.
+SUBSYSTEM=="sound", ATTR{id}=="sndi2s4", ENV{PULSE_IGNORE}="1"
+SUBSYSTEM=="sound", ATTR{id}=="wm8960soundcard", ENV{PULSE_IGNORE}="1"
+UDEV_EOF
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger --subsystem-match=sound 2>/dev/null || true
+  fi
   if ! command -v uv &>/dev/null; then
     echo "[stage] Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
