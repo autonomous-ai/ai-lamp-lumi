@@ -32,15 +32,17 @@ export function SystemSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Performance gauges — grid so they wrap cleanly on narrow screens. */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={S.cardLabel}>Performance</div>
-          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-            updated {lastUpdate.toLocaleTimeString()}
-          </span>
-        </div>
-        <div className="lm-grid-4" style={{ paddingTop: 8, justifyItems: "center" }}>
+      {/* Performance — one card per metric so each gets a clean visual unit.
+          CPU card includes a compact per-core strip so spikes pinned to a single
+          core (e.g. STT thread) are visible against an otherwise low aggregate. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ ...S.cardLabel, fontSize: 11 }}>Performance</div>
+        <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+          updated {lastUpdate.toLocaleTimeString()}
+        </span>
+      </div>
+      <div className="lm-grid-4">
+        <div style={{ ...S.card, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
           <GaugeRing
             value={sys.cpuLoad}
             label="CPU"
@@ -48,6 +50,11 @@ export function SystemSection({
             color="var(--lm-amber)"
             size={110}
           />
+          {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
+            <CoreStrip values={sys.cpuPerCore} />
+          )}
+        </div>
+        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
           <GaugeRing
             value={sys.memPercent}
             label="Memory"
@@ -55,6 +62,8 @@ export function SystemSection({
             color="var(--lm-blue)"
             size={110}
           />
+        </div>
+        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
           <GaugeRing
             value={sys.diskPercent ?? 0}
             label="Disk"
@@ -62,6 +71,8 @@ export function SystemSection({
             color={diskColor}
             size={110}
           />
+        </div>
+        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
           <GaugeRing
             value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / TEMP_MAX) * 100) : 0}
             label="Temp"
@@ -70,21 +81,6 @@ export function SystemSection({
             size={110}
           />
         </div>
-
-        {/* Per-core CPU bars — one row per core so spikes localized to a single core
-            (e.g. STT thread pinned to core 0) are visible against an otherwise low aggregate. */}
-        {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
-          <div style={{
-            marginTop: 14,
-            paddingTop: 12,
-            borderTop: "1px solid var(--lm-border)",
-            display: "grid",
-            gridTemplateColumns: `repeat(${Math.min(sys.cpuPerCore.length, 4)}, 1fr)`,
-            gap: 10,
-          }}>
-            {sys.cpuPerCore.map((pct, i) => <CoreBar key={i} index={i} pct={pct} />)}
-          </div>
-        )}
       </div>
 
       {/* Sparklines */}
@@ -135,30 +131,50 @@ export function SystemSection({
   );
 }
 
-// CoreBar shows a single CPU core's load. Color tier hints at saturation.
-function CoreBar({ index, pct }: { index: number; pct: number }) {
-  const clamped = Math.max(0, Math.min(100, pct));
-  const color = clamped > 85 ? "var(--lm-red)" : clamped > 60 ? "var(--lm-amber)" : "var(--lm-teal)";
+// CoreStrip renders per-core load as small vertical bars side by side —
+// the compact "CPU history" look from system monitors. Hover for exact %.
+function CoreStrip({ values }: { values: number[] }) {
+  const coreColor = (p: number) =>
+    p > 85 ? "var(--lm-red)" : p > 60 ? "var(--lm-amber)" : "var(--lm-teal)";
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5 }}>
-        <span style={{ color: "var(--lm-text-dim)", fontFamily: "monospace" }}>C{index}</span>
-        <span style={{ color, fontWeight: 600 }}>{clamped.toFixed(0)}%</span>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%" }}>
       <div style={{
-        height: 5,
-        background: "var(--lm-border)",
-        borderRadius: 3,
-        overflow: "hidden",
+        display: "flex",
+        gap: 3,
+        alignItems: "flex-end",
+        height: 22,
+        padding: "0 4px",
       }}>
-        <div style={{
-          width: `${clamped}%`,
-          height: "100%",
-          background: color,
-          transition: "width 0.5s ease, background 0.3s ease",
-          boxShadow: `0 0 4px ${color}80`,
-        }} />
+        {values.map((p, i) => {
+          const clamped = Math.max(0, Math.min(100, p));
+          const c = coreColor(clamped);
+          return (
+            <div
+              key={i}
+              title={`Core ${i}: ${clamped.toFixed(0)}%`}
+              style={{
+                width: 7,
+                height: "100%",
+                background: "var(--lm-surface)",
+                borderRadius: 2,
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: `${Math.max(4, clamped)}%`,
+                background: c,
+                transition: "height 0.6s ease, background 0.3s ease",
+              }} />
+            </div>
+          );
+        })}
       </div>
+      <span style={{ fontSize: 9.5, color: "var(--lm-text-muted)", letterSpacing: 0.3 }}>per-core</span>
     </div>
   );
 }
