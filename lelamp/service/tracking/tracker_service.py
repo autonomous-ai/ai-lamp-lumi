@@ -230,7 +230,7 @@ DEAD_ZONE_PITCH_PCT = 0.05
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
-EMA_ALPHA = 0.5
+EMA_ALPHA = 0.3
 
 # Settle delay (seconds) after each servo command.
 # Doubled 0.025→0.05: more settle time = camera stabilises before ViT grabs
