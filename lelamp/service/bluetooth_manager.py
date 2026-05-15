@@ -211,27 +211,93 @@ class BluetoothManager:
             self.set_active_mac(None)
         return ok
 
-    # --- sounddevice index resolution ---
+    # --- PulseAudio routing helpers ---
+    #
+    # PortAudio (used by sounddevice) only enumerates a single generic `pulse`
+    # device for the whole PulseAudio server, not one device per bluez sink.
+    # So the route-swap strategy is:
+    #   1. Find the PulseAudio sink name matching this MAC (bluez_sink.XX...).
+    #   2. `pactl set-default-sink <that>` so anything written to `pulse` lands
+    #      on the BT device.
+    #   3. Point TTS/voice at the `pulse` PortAudio device for the active period.
+    # Switching back to the lamp restores the previously-default sink.
 
-    def find_sd_indices(self, mac: str, sd_module) -> tuple[Optional[int], Optional[int]]:
-        """Find PortAudio output/input indices matching this MAC.
+    def pa_default_sink(self) -> Optional[str]:
+        try:
+            r = _run(["pactl", "get-default-sink"], timeout=3)
+            return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+        except Exception:
+            return None
 
-        Forces PortAudio re-enumeration first — sounddevice caches the device
-        list at import time and a freshly-paired BT sink won't appear otherwise.
-        """
+    def pa_default_source(self) -> Optional[str]:
+        try:
+            r = _run(["pactl", "get-default-source"], timeout=3)
+            return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+        except Exception:
+            return None
+
+    def set_pa_default_sink(self, sink_name: str) -> bool:
+        try:
+            r = _run(["pactl", "set-default-sink", sink_name], timeout=3)
+            return r.returncode == 0
+        except Exception as e:
+            logger.warning("set-default-sink %s failed: %s", sink_name, e)
+            return False
+
+    def set_pa_default_source(self, source_name: str) -> bool:
+        try:
+            r = _run(["pactl", "set-default-source", source_name], timeout=3)
+            return r.returncode == 0
+        except Exception as e:
+            logger.warning("set-default-source %s failed: %s", source_name, e)
+            return False
+
+    def pa_sink_for_mac(self, mac: str) -> Optional[str]:
+        """Return the PulseAudio sink name exposing this BT device, or None."""
+        try:
+            r = _run(["pactl", "list", "short", "sinks"], timeout=5)
+            if r.returncode != 0:
+                return None
+            needle = mac.upper().replace(":", "_")
+            for line in r.stdout.splitlines():
+                cols = line.split("\t")
+                if len(cols) < 2:
+                    continue
+                name = cols[1]
+                if "bluez" in name.lower() and needle in name.upper():
+                    return name
+        except Exception as e:
+            logger.warning("pa_sink_for_mac %s failed: %s", mac, e)
+        return None
+
+    def pa_source_for_mac(self, mac: str) -> Optional[str]:
+        """Return the PulseAudio source for this BT device (HFP profile only;
+        A2DP-only headphones have no real source)."""
+        try:
+            r = _run(["pactl", "list", "short", "sources"], timeout=5)
+            if r.returncode != 0:
+                return None
+            needle = mac.upper().replace(":", "_")
+            for line in r.stdout.splitlines():
+                cols = line.split("\t")
+                if len(cols) < 2:
+                    continue
+                name = cols[1]
+                if "bluez" in name.lower() and needle in name.upper() and not name.endswith(".monitor"):
+                    return name
+        except Exception as e:
+            logger.warning("pa_source_for_mac %s failed: %s", mac, e)
+        return None
+
+    def pulse_sd_index(self, sd_module) -> Optional[int]:
+        """Find the PortAudio index of the generic `pulse` device, forcing
+        re-enumeration first so a freshly-started PulseAudio server is seen."""
         try:
             sd_module._terminate()
             sd_module._initialize()
         except Exception:
-            logger.exception("PortAudio reinit failed during BT lookup")
-
-        needles = (mac.upper().replace(":", "_"), mac.upper().replace(":", "-"))
-        out_idx = in_idx = None
+            logger.exception("PortAudio reinit failed during pulse lookup")
         for i, dev in enumerate(sd_module.query_devices()):
-            up = dev.get("name", "").upper()
-            if any(n in up for n in needles):
-                if dev.get("max_output_channels", 0) > 0 and out_idx is None:
-                    out_idx = i
-                if dev.get("max_input_channels", 0) > 0 and in_idx is None:
-                    in_idx = i
-        return out_idx, in_idx
+            if dev.get("name", "").lower() == "pulse":
+                return i
+        return None
