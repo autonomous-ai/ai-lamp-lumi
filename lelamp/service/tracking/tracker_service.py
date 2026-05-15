@@ -225,7 +225,7 @@ ADAPTIVE_GAIN_MULT = 1.0
 # Per-axis dead zones as fraction of frame.
 # Yaw larger (5%) — horizontal jitter is common, small dx not worth a motor move.
 # Pitch smaller (3%) — vertical needs finer response for elbow tracking.
-DEAD_ZONE_YAW_PCT   = 0.07
+DEAD_ZONE_YAW_PCT   = 0.12
 DEAD_ZONE_PITCH_PCT = 0.05
 
 # EMA smoothing on pixel offset before servo command (0-1).
@@ -1126,7 +1126,7 @@ class TrackerService:
                         # bbox edges. Scale the divergence threshold by the smaller bbox
                         # dimension so a 500-wide bbox tolerates ~200px center jitter.
                         cur_min_dim = min(cur_bbox[2], cur_bbox[3]) if cur_bbox else 0
-                        diverge_threshold = max(120.0, cur_min_dim * 0.4)
+                        diverge_threshold = max(250.0, cur_min_dim * 0.6)
                         bloated = cur_area > 0 and cur_area > yolo_area * 2.0
                         diverged = center_dist > diverge_threshold
                         if bloated or diverged:
