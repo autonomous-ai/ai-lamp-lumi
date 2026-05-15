@@ -1198,11 +1198,23 @@ class TrackerService:
             animation_service._hold_mode = False
             state.running.clear()
 
+            try:
+                time.sleep(0.8)
+                with animation_service.bus_lock:
+                    animation_service.robot.send_action({
+                        "base_yaw.pos": 0.0,
+                        "base_pitch.pos": 0.0,
+                        "elbow_pitch.pos": 0.0,
+                        "wrist_roll.pos": 0.0,
+                        "wrist_pitch.pos": 0.0,
+                    })
+                logger.info("Tracking ended — arm returned to zero")
+            except Exception as e:
+                logger.warning("Tracking ended — failed to zero arm: %s", e)
+
             if not animation_service._running.is_set():
                 animation_service._running.set()
                 animation_service._event_thread = threading.Thread(
                     target=animation_service._event_loop, daemon=True
                 )
                 animation_service._event_thread.start()
-
-            logger.info("Tracking ended — holding servo at current position")
