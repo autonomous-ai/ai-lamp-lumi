@@ -19,6 +19,11 @@ export function ServoSection() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Manual move target — populated to 0 for each known joint, editable via sliders.
+  // `Sync from current` reads live angles into this map.
+  const [moveTargets, setMoveTargets] = useState<Record<string, number>>({});
+  const [moveDuration, setMoveDuration] = useState<number>(2.0);
+  const [moving, setMoving] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -52,7 +57,7 @@ export function ServoSection() {
   };
 
   const playAnim = async (recording: string) => {
-    flash(`Playing ${recording}...`);
+    flash(`Playing ${recording}…`);
     await fetch(`${HW}/servo/play`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -62,7 +67,7 @@ export function ServoSection() {
   };
 
   const aimTo = async (direction: string) => {
-    flash(`Aiming ${direction}...`);
+    flash(`Aiming ${direction}…`);
     await fetch(`${HW}/servo/aim`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,7 +77,7 @@ export function ServoSection() {
   };
 
   const release = async () => {
-    flash("Releasing...");
+    flash("Releasing…");
     await fetch(`${HW}/servo/release`, {
       method: "POST",
       headers: { accept: "application/json" },
@@ -81,34 +86,24 @@ export function ServoSection() {
   };
 
   const uploadCsv = async (file: File | null) => {
-    if (!file) return;
-    if (uploading) return;
-
+    if (!file || uploading) return;
     const rawName = file.name || "recording";
     const recordingName = rawName.replace(/\.csv$/i, "").trim();
     if (!recordingName) {
       flash("Upload failed: missing recording name");
       return;
     }
-
     try {
       setUploading(true);
-      flash(`Uploading ${recordingName}...`);
-
+      flash(`Uploading ${recordingName}…`);
       const form = new FormData();
       form.append("file", file);
       form.append("recording_name", recordingName);
-
-      const resp = await fetch(`${HW}/servo/upload`, {
-        method: "POST",
-        body: form,
-      });
-
+      const resp = await fetch(`${HW}/servo/upload`, { method: "POST", body: form });
       if (!resp.ok) {
         const msg = await resp.text().catch(() => "");
         throw new Error(msg || `HTTP ${resp.status}`);
       }
-
       flash(`Uploaded ${recordingName}`);
       setTimeout(refresh, 1000);
     } catch (e) {
@@ -121,212 +116,404 @@ export function ServoSection() {
   };
 
   const zeroServos = async () => {
-    flash("Moving to 0° (hold mode)...");
-    await fetch(`${HW}/servo/zero`, {
-      method: "POST",
-      headers: { accept: "application/json" },
-    }).catch(() => {});
+    flash("Moving to 0° (hold mode)…");
+    await fetch(`${HW}/servo/zero`, { method: "POST", headers: { accept: "application/json" } }).catch(() => {});
     setTimeout(refresh, 2500);
   };
-
   const holdServos = async () => {
-    flash("Hold — freezing current pose...");
-    await fetch(`${HW}/servo/hold`, {
-      method: "POST",
-      headers: { accept: "application/json" },
-    }).catch(() => {});
+    flash("Hold — freezing current pose");
+    await fetch(`${HW}/servo/hold`, { method: "POST", headers: { accept: "application/json" } }).catch(() => {});
+    setTimeout(refresh, 500);
+  };
+  const resumeServos = async () => {
+    flash("Resuming animation");
+    await fetch(`${HW}/servo/resume`, { method: "POST", headers: { accept: "application/json" } }).catch(() => {});
     setTimeout(refresh, 500);
   };
 
-  const resumeServos = async () => {
-    flash("Resuming animation...");
-    await fetch(`${HW}/servo/resume`, {
-      method: "POST",
-      headers: { accept: "application/json" },
-    }).catch(() => {});
-    setTimeout(refresh, 500);
+  // Seed moveTargets the first time the servo list arrives so sliders render at 0
+  // for every known joint. After that, the user owns the values.
+  useEffect(() => {
+    if (!servos) return;
+    setMoveTargets((prev) => {
+      if (Object.keys(prev).length > 0) return prev;
+      const seed: Record<string, number> = {};
+      Object.keys(servos).forEach((j) => { seed[j] = 0; });
+      return seed;
+    });
+  }, [servos]);
+
+  const syncMoveFromCurrent = () => {
+    if (!servos) return;
+    const next: Record<string, number> = {};
+    Object.entries(servos).forEach(([j, info]) => {
+      next[j] = info.angle != null ? Math.round(info.angle * 10) / 10 : 0;
+    });
+    setMoveTargets(next);
+    flash("Synced sliders to current pose");
+  };
+
+  const moveServo = async () => {
+    if (moving) return;
+    const positions = Object.fromEntries(Object.entries(moveTargets).map(([j, v]) => [j, Number(v)]));
+    if (Object.keys(positions).length === 0) {
+      flash("No joints to move");
+      return;
+    }
+    setMoving(true);
+    flash(`Moving (duration ${moveDuration}s)…`);
+    try {
+      const resp = await fetch(`${HW}/servo/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ positions, duration: moveDuration }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        flash(`Move failed: HTTP ${resp.status}`);
+      } else if (json?.errors) {
+        const keys = Object.keys(json.errors);
+        flash(`Move warnings: ${keys.join(", ")}`);
+      } else {
+        flash("Move complete");
+      }
+    } catch (e) {
+      flash(`Move failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMoving(false);
+      setTimeout(refresh, Math.max(500, moveDuration * 1000 + 200));
+    }
   };
 
   const onlineCount = servos ? Object.values(servos).filter((s) => s.online).length : 0;
   const totalCount = servos ? Object.keys(servos).length : 0;
+  const allOnline = totalCount > 0 && onlineCount === totalCount;
+  const headerColor = totalCount === 0 ? "var(--lm-text-muted)"
+    : allOnline ? "var(--lm-green)"
+    : onlineCount === 0 ? "var(--lm-red)"
+    : "var(--lm-amber)";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {actionMsg && (
-        <div style={{
-          padding: "8px 14px", borderRadius: 6,
-          background: "var(--lm-amber-dim, rgba(245,158,11,0.1))",
-          border: "1px solid var(--lm-amber, #f59e0b)",
-          color: "var(--lm-amber, #f59e0b)", fontSize: 12, fontWeight: 600,
-        }}>{actionMsg}</div>
-      )}
 
-      {/* Per-servo status */}
+      {/* Per-servo status (full width — list can be long) */}
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={S.cardLabel}>Servos ({onlineCount}/{totalCount} online)</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber, #f59e0b)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={S.cardLabel}>Servos</div>
+            <span style={{
+              fontSize: 10, padding: "2px 7px", borderRadius: 4,
+              background: `${headerColor}22`, color: headerColor,
+              border: `1px solid ${headerColor}55`,
+              fontWeight: 700, letterSpacing: "0.05em",
+            }}>
+              {onlineCount}/{totalCount} ONLINE
+            </span>
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber)" }}>
             {servo?.current || "idle"}
           </div>
         </div>
         {servos ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginTop: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
             {Object.entries(servos).sort(([,a], [,b]) => a.id - b.id).map(([joint, info]) => (
-              <div key={joint} style={{
-                padding: "10px 12px", borderRadius: 6,
-                background: "var(--lm-surface)",
-                border: `1px solid ${info.online ? "var(--lm-border)" : "rgba(239,68,68,0.4)"}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)" }}>
-                    {joint.replace(".pos", "")}
-                  </span>
-                  <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>ID {info.id}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <StatusDot ok={info.online} />
-                  {info.online && info.angle != null ? (
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
-                        <div style={{
-                          width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
-                          height: "100%", borderRadius: 3,
-                          background: "var(--lm-teal, #14b8a6)", transition: "width 0.3s ease",
-                        }} />
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal, #14b8a6)", minWidth: 48, textAlign: "right" }}>
-                        {info.angle.toFixed(1)}&deg;
-                      </span>
-                    </div>
-                  ) : (
-                    <span style={{ fontSize: 11, color: "var(--lm-red, #ef4444)" }}>
-                      {info.error || "offline"}
-                    </span>
-                  )}
-                </div>
-              </div>
+              <ServoCard key={joint} joint={joint} info={info} />
             ))}
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)", marginTop: 8 }}>Loading...</div>
+          <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>Loading…</div>
         )}
       </div>
 
-      {/* Aim */}
-      {aims.length > 0 && (
-        <div style={S.card}>
+      {/* Row 2: Aim + Motor Control side-by-side */}
+      <div className="lm-grid-2">
+
+        <div style={{ ...S.card, alignSelf: "start" }}>
           <div style={S.cardLabel}>Aim Direction</div>
-          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
-            {aims.map((dir) => (
-              <button key={dir} onClick={() => aimTo(dir)} style={{
-                fontSize: 11, padding: "5px 14px", borderRadius: 5,
+          <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
+            Move head to a preset direction (2s).
+          </div>
+          {aims.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {aims.map((dir) => (
+                <ChipButton key={dir} onClick={() => aimTo(dir)}>{dir}</ChipButton>
+              ))}
+            </div>
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>No directions configured</span>}
+        </div>
+
+        <div style={{ ...S.card, alignSelf: "start" }}>
+          <div style={S.cardLabel}>Motor Control</div>
+          <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
+            Emergency overrides — bypass normal animation pipeline.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <ControlButton onClick={zeroServos} color="var(--lm-teal)"   title="Zero (0°)"   hint="Hold at 0°; blocks all play calls" />
+            <ControlButton onClick={holdServos} color="var(--lm-amber)"  title="Hold"        hint="Freeze pose; emotions still play" />
+            <ControlButton onClick={resumeServos} color="var(--lm-indigo, #6366f1)" title="Resume" hint="Exit hold, restart idle" />
+            <ControlButton onClick={release}    color="var(--lm-red)"    title="Release"     hint="Disable torque; move by hand" />
+          </div>
+        </div>
+      </div>
+
+      {/* Manual Move — direct /servo/move call with per-joint sliders + smooth duration. */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={S.cardLabel}>Manual Move</div>
+            <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
+              direct /servo/move — clamped to ±90°
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={syncMoveFromCurrent}
+              disabled={!servos}
+              style={{
+                fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600,
                 background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-dim)", cursor: "pointer",
-              }}>{dir}</button>
+                color: "var(--lm-text-dim)", cursor: servos ? "pointer" : "not-allowed",
+              }}
+            >Sync from current</button>
+            <label style={{ fontSize: 11, color: "var(--lm-text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
+              duration
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={moveDuration}
+                onChange={(e) => setMoveDuration(Math.max(0, Math.min(10, Number(e.target.value))))}
+                style={{
+                  width: 60, padding: "4px 6px", borderRadius: 4, fontSize: 11,
+                  background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                  color: "var(--lm-text)", fontFamily: "monospace",
+                }}
+              />
+              s
+            </label>
+            <button
+              onClick={moveServo}
+              disabled={moving || !servos}
+              style={{
+                fontSize: 12, padding: "6px 16px", borderRadius: 6, fontWeight: 600,
+                background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)",
+                color: "var(--lm-green)",
+                cursor: moving ? "wait" : (servos ? "pointer" : "not-allowed"),
+                opacity: servos && !moving ? 1 : 0.5,
+              }}
+            >{moving ? "Moving…" : "Move"}</button>
+          </div>
+        </div>
+        {servos && Object.keys(moveTargets).length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {Object.entries(servos).sort(([,a], [,b]) => a.id - b.id).map(([joint]) => (
+              <JointSlider
+                key={joint}
+                joint={joint}
+                value={moveTargets[joint] ?? 0}
+                actual={servos[joint]?.angle ?? null}
+                onChange={(v) => setMoveTargets((m) => ({ ...m, [joint]: v }))}
+              />
             ))}
           </div>
-        </div>
-      )}
+        ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading joints…</span>}
+      </div>
 
-      {/* Animations */}
+      {/* Animations: presets + upload action separated so neither competes for attention. */}
       <div style={S.card}>
-        <div style={S.cardLabel}>Animations</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const, marginTop: 8 }}>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            style={{ display: "none" }}
-            ref={fileInputRef}
-            onChange={(e) => uploadCsv(e.target.files?.[0] ?? null)}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            style={{
-              fontSize: 11,
-              padding: "5px 14px",
-              borderRadius: 5,
-              background: "var(--lm-surface)",
-              border: `1px solid ${uploading ? "var(--lm-border)" : "var(--lm-border)"}`,
-              color: uploading ? "var(--lm-text-muted)" : "var(--lm-text-dim)",
-              cursor: uploading ? "not-allowed" : "pointer",
-              fontWeight: 600,
-            }}
-          >
-            {uploading ? "Uploading..." : "Upload CSV"}
-          </button>
-          <div style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-            Uses file name as recording name.
-          </div>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginTop: 10 }}>
-          {(servo?.available_recordings ?? []).map((anim) => (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+          <div style={S.cardLabel}>Animations</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: "none" }}
+              ref={fileInputRef}
+              onChange={(e) => uploadCsv(e.target.files?.[0] ?? null)}
+            />
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+              file name = recording name
+            </span>
             <button
-              key={anim}
-              onClick={() => playAnim(anim)}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
               style={{
-                fontSize: 11,
-                padding: "5px 14px",
-                borderRadius: 5,
-                background: anim === servo?.current ? "var(--lm-amber-dim, rgba(245,158,11,0.1))" : "var(--lm-surface)",
-                border: `1px solid ${anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-border)"}`,
-                color: anim === servo?.current ? "var(--lm-amber, #f59e0b)" : "var(--lm-text-dim)",
-                cursor: "pointer",
-                fontWeight: anim === servo?.current ? 600 : 400,
+                fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                color: uploading ? "var(--lm-text-muted)" : "var(--lm-amber)",
+                cursor: uploading ? "not-allowed" : "pointer",
               }}
             >
-              {anim}
+              {uploading ? "Uploading…" : "↑ Upload CSV"}
             </button>
-          ))}
+          </div>
         </div>
+        {(servo?.available_recordings ?? []).length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {(servo?.available_recordings ?? []).map((anim) => (
+              <ChipButton key={anim} active={anim === servo?.current} onClick={() => playAnim(anim)}>
+                {anim}
+              </ChipButton>
+            ))}
+          </div>
+        ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>No recordings available</span>}
       </div>
 
-      {/* Motor Control */}
-      <div style={S.card}>
-        <div style={S.cardLabel}>Motor Control</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
-          <div>
-            <button onClick={zeroServos} style={{
-              fontSize: 12, padding: "6px 18px", borderRadius: 5,
-              background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.35)",
-              color: "var(--lm-teal, #14b8a6)", cursor: "pointer", fontWeight: 600,
-            }}>Zero All (0°)</button>
-            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Hold at 0° — blocks all play calls
-            </div>
-          </div>
-          <div>
-            <button onClick={holdServos} style={{
-              fontSize: 12, padding: "6px 18px", borderRadius: 5,
-              background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)",
-              color: "var(--lm-amber, #f59e0b)", cursor: "pointer", fontWeight: 600,
-            }}>Hold</button>
-            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Freeze current pose — emotions still play
-            </div>
-          </div>
-          <div>
-            <button onClick={resumeServos} style={{
-              fontSize: 12, padding: "6px 18px", borderRadius: 5,
-              background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.35)",
-              color: "var(--lm-indigo, #6366f1)", cursor: "pointer", fontWeight: 600,
-            }}>Resume</button>
-            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Exit hold mode, restart idle
-            </div>
-          </div>
-          <div>
-            <button onClick={release} style={{
-              fontSize: 12, padding: "6px 18px", borderRadius: 5,
-              background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
-              color: "var(--lm-red, #ef4444)", cursor: "pointer", fontWeight: 600,
-            }}>Release All</button>
-            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 4 }}>
-              Disables torque — move by hand
-            </div>
-          </div>
-        </div>
+      {/* Toast — pinned bottom-right so action feedback doesn't shift the page. */}
+      {actionMsg && (
+        <div style={{
+          position: "fixed",
+          bottom: 20,
+          right: 20,
+          zIndex: 50,
+          padding: "10px 16px",
+          borderRadius: 8,
+          background: "var(--lm-card)",
+          border: "1px solid var(--lm-amber)",
+          color: "var(--lm-amber)",
+          fontSize: 12,
+          fontWeight: 600,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+          maxWidth: 360,
+        }}>{actionMsg}</div>
+      )}
+    </div>
+  );
+}
+
+// Per-servo card: joint name, ID, online dot, angle progress bar + value.
+function ServoCard({ joint, info }: { joint: string; info: ServoDetail }) {
+  return (
+    <div style={{
+      padding: "10px 12px", borderRadius: 6,
+      background: "var(--lm-surface)",
+      border: `1px solid ${info.online ? "var(--lm-border)" : "rgba(239,68,68,0.4)"}`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)" }}>
+          {joint.replace(".pos", "")}
+        </span>
+        <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>ID {info.id}</span>
       </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <StatusDot ok={info.online} />
+        {info.online && info.angle != null ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
+              <div style={{
+                width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
+                height: "100%", borderRadius: 3,
+                background: "var(--lm-teal)", transition: "width 0.3s ease",
+              }} />
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal)", minWidth: 48, textAlign: "right", fontFamily: "monospace" }}>
+              {info.angle.toFixed(1)}°
+            </span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--lm-red)" }}>
+            {info.error || "offline"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// JointSlider: one row for /servo/move target — slider + numeric input + delta vs actual.
+function JointSlider({ joint, value, actual, onChange }: {
+  joint: string;
+  value: number;
+  actual: number | null;
+  onChange: (v: number) => void;
+}) {
+  const delta = actual != null ? value - actual : null;
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "140px 1fr 70px 80px",
+      alignItems: "center",
+      gap: 10,
+      padding: "5px 10px",
+      background: "var(--lm-surface)",
+      borderRadius: 6,
+      border: "1px solid var(--lm-border)",
+    }}>
+      <span style={{ fontSize: 11, color: "var(--lm-text-dim)", fontWeight: 600, fontFamily: "monospace" }}>
+        {joint.replace(".pos", "")}
+      </span>
+      <input
+        type="range"
+        min={-90}
+        max={90}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: "100%", accentColor: "var(--lm-teal)" }}
+      />
+      <input
+        type="number"
+        min={-90}
+        max={90}
+        step={0.5}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (!isNaN(n)) onChange(Math.max(-90, Math.min(90, n)));
+        }}
+        style={{
+          width: "100%", padding: "3px 6px", borderRadius: 4, fontSize: 11,
+          background: "var(--lm-bg)", border: "1px solid var(--lm-border)",
+          color: "var(--lm-text)", fontFamily: "monospace", textAlign: "right",
+        }}
+      />
+      <span style={{
+        fontSize: 10,
+        color: delta == null ? "var(--lm-text-muted)" : Math.abs(delta) < 1 ? "var(--lm-green)" : "var(--lm-amber)",
+        fontFamily: "monospace",
+        textAlign: "right",
+      }}>
+        {actual != null ? `cur ${actual.toFixed(0)}°` : "—"}
+      </span>
+    </div>
+  );
+}
+
+// ChipButton is the consistent style shared by Aim presets and Animation presets.
+function ChipButton({ children, onClick, active }: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button onClick={onClick} style={{
+      fontSize: 11, padding: "5px 14px", borderRadius: 6,
+      background: active ? "rgba(245,158,11,0.12)" : "var(--lm-surface)",
+      border: `1px solid ${active ? "var(--lm-amber)" : "var(--lm-border)"}`,
+      color: active ? "var(--lm-amber)" : "var(--lm-text-dim)",
+      cursor: "pointer",
+      fontWeight: active ? 600 : 500,
+      transition: "all 0.15s",
+    }}>{children}</button>
+  );
+}
+
+// ControlButton: emergency motor action with caption underneath.
+function ControlButton({ onClick, color, title, hint }: {
+  onClick: () => void;
+  color: string;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <button onClick={onClick} style={{
+        fontSize: 12, padding: "7px 0", borderRadius: 6, width: "100%",
+        background: `${color}14`, border: `1px solid ${color}55`,
+        color, cursor: "pointer", fontWeight: 600,
+      }}>{title}</button>
+      <span style={{ fontSize: 10, color: "var(--lm-text-muted)", lineHeight: 1.4 }}>{hint}</span>
     </div>
   );
 }
