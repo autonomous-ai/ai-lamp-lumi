@@ -89,6 +89,39 @@ var (
 	reInet     = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)`)
 )
 
+// decodeIWSSIDEscape reverses the byte-escape format that `iw` (and wpa_cli)
+// emit for SSIDs containing non-printable / non-ASCII bytes — required for
+// Chinese (UTF-8 3-byte chars) and other non-Latin SSIDs. iw prints those
+// bytes as `\xNN` and leading/trailing space as `\ `; printable ASCII passes
+// through unchanged. Without decoding, the scan list shows literal `\xE4...`
+// and the post-connect SSID comparison in SetupNetwork fails byte-equality
+// even when WiFi associated correctly.
+func decodeIWSSIDEscape(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		if s[i] == '\\' && i+1 < len(s) {
+			if s[i+1] == 'x' && i+3 < len(s) {
+				if v, err := strconv.ParseUint(s[i+2:i+4], 16, 8); err == nil {
+					b = append(b, byte(v))
+					i += 4
+					continue
+				}
+			}
+			if s[i+1] == ' ' {
+				b = append(b, ' ')
+				i += 2
+				continue
+			}
+		}
+		b = append(b, s[i])
+		i++
+	}
+	return string(b)
+}
+
 func parseIWScan(out string) []domain.Network {
 	var list []domain.Network
 	var current struct {
@@ -119,7 +152,7 @@ func parseIWScan(out string) []domain.Network {
 			continue
 		}
 		if m := reSSID.FindStringSubmatch(line); len(m) > 1 {
-			current.ssid = strings.TrimSpace(m[1])
+			current.ssid = decodeIWSSIDEscape(strings.TrimSpace(m[1]))
 			continue
 		}
 		if m := reSignal.FindStringSubmatch(line); len(m) > 1 {
@@ -214,23 +247,26 @@ func readCurrentSSID() string {
 	// `iw dev <iface> link` lines like:
 	//   Connected to aa:bb:...
 	//   SSID: Glinks
+	// Non-ASCII bytes come back as `\xNN` escapes — decode so the value
+	// matches the raw UTF-8 the user typed (e.g. Chinese SSIDs).
 	if out, err := exec.Command("iw", "dev", defaultInterface, "link").Output(); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "SSID:") {
 				if s := strings.TrimSpace(strings.TrimPrefix(line, "SSID:")); s != "" {
-					return s
+					return decodeIWSSIDEscape(s)
 				}
 			}
 		}
 	}
-	// `wpa_cli -i <iface> status` lines include `ssid=Glinks`.
+	// `wpa_cli -i <iface> status` lines include `ssid=Glinks`. wpa_cli
+	// uses the same `\xNN` escape format as iw for non-printable bytes.
 	if out, err := exec.Command("wpa_cli", "-i", defaultInterface, "status").Output(); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "ssid=") {
 				if s := strings.TrimSpace(strings.TrimPrefix(line, "ssid=")); s != "" {
-					return s
+					return decodeIWSSIDEscape(s)
 				}
 			}
 		}
