@@ -71,7 +71,7 @@ Selectable via `SER_RECOGNITION_MODEL` env var:
 
 The engine loads once at startup. Cold-start path: if no `.onnx` is cached locally, the engine downloads the FunASR checkpoint, exports ONNX into `models/<engine>/emotion2vec.onnx`, and writes `labels.txt` from the snapshot's `tokens.txt`. After the first build, only `onnxruntime` is needed at serve time — `torch` and `funasr` can be uninstalled.
 
-LeLamp's `SpeechEmotionService` is the only known caller in this monorepo. It POSTs the same WAV bytes used for speaker recognition immediately after speaker ID succeeds.
+LeLamp's `SpeechEmotionService` is the only known caller in this monorepo. After each STT session, `VoiceService._finalize_voice_turn` builds a mono 16 kHz WAV from the session buffer and POSTs it to `/api/dl/ser/recognize` (speaker decorate and SER submit are separate steps in `voice_service.py`).
 
 ### Person Detection (Optional)
 
@@ -214,8 +214,8 @@ GET /api/dl/health
 
 ### Speech Emotion Recognition
 
-1. **Pi**: STT session ends, `voice_service._identify_and_decorate` POSTs WAV to `audio-recognizer/embed` for speaker ID
-2. **Pi**: On match (known speaker), the same `wav_bytes` are submitted to `SpeechEmotionService.submit(user, wav, duration)` (non-blocking, in-process queue)
+1. **Pi**: STT session ends; `_finalize_voice_turn` runs `_identify_and_decorate` (speaker `/embed` for Lumi prefix) then `_session_wav_for_ser` + `SpeechEmotionService.submit`
+2. **Pi**: `user` is the enrolled speaker label on match, otherwise `unknown` (including when speaker recognize fails but audio is long enough)
 3. **Pi worker thread**: `POST /api/dl/ser/recognize` with `{"audio_b64": "...", "return_scores": false}`
 4. **RunPod**: `emotion2vec_plus_large` runs softmax over 9 classes
 5. **HTTP**: Returns `{"label": "sad", "confidence": 0.72}`
