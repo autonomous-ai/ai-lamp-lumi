@@ -198,30 +198,31 @@ FAST_LOOP_FPS = 10
 CAMERA_FOV_DEG = 60.0
 
 # Gimbal gain: fraction of offset to correct each step (0-1).
-# 0.25 = 25% correction per fire — converges in ~4-5 cooldown cycles.
-GIMBAL_GAIN = 0.9
+# Lowered 0.9→0.6: less aggressive correction reduces camera shake on large
+# offsets, giving ViT time to re-lock between servo fires.
+GIMBAL_GAIN = 0.6
 
-# Maximum servo step per fire (degrees). 5° balances convergence speed vs camera shake.
-GIMBAL_MAX_STEP = 5.0
+# Maximum servo step per fire (degrees).
+# Lowered 5→3°: smaller steps = less camera pan per fire = ViT stays locked.
+GIMBAL_MAX_STEP = 3.0
 
-# Adaptive step: when offset > ADAPTIVE_GAIN_PX, multiply max step by ADAPTIVE_GAIN_MULT.
-# Large offsets get bigger steps (fast chase), small offsets keep fine control.
+# Adaptive step: disabled amplification on large offsets (was ×2.0).
+# Large offsets caused 10°/fire camera pan → ViT lost lock in <2s.
+# Keeping multiplier at 1.0 so large offsets get the same small steps.
 ADAPTIVE_GAIN_PX = 60
-ADAPTIVE_GAIN_MULT = 2.0
+ADAPTIVE_GAIN_MULT = 1.0
 
-# Dead zone in pixels — no servo command if offset is within this radius.
-# Raised to 40px: CSRT/ViT bbox jitters ±5-15px frame-to-frame even when the
-# subject is still. Smaller dead zone makes PID fire-on/fire-off every ~70ms,
-# which the user perceives as jerky servo pulses.
+# Dead zone in pixels.
 DEAD_ZONE_PX = 40
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
 EMA_ALPHA = 0.5
 
-# Settle delay (seconds) after each servo command — let motor reach final
-# position and stop accelerating before next CSRT update grabs a frame.
-SERVO_SETTLE_S = 0.025
+# Settle delay (seconds) after each servo command.
+# Doubled 0.025→0.05: more settle time = camera stabilises before ViT grabs
+# next frame, reducing motion blur that causes bbox drift.
+SERVO_SETTLE_S = 0.05
 
 # YOLO background re-detect interval (seconds).
 # Local YOLOv8n runs ~300-700ms/call on Allwinner A523. At 500ms interval
@@ -1022,9 +1023,10 @@ class TrackerService:
                     moving_str = motion_state
                 else:
                     direction, moving_str = "·", "INIT"
-                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%%",
+                logger.info("[tracking_object] target='%s' pos=(%.0f%%,%.0f%%) quad=%s offset=(%.0f,%.0f) dist=%.0fpx state=%s dir=%s bbox_area=%.1f%% conf=%.2f yolo_age=%.1fs",
                             state.target_label, screen_x_pct, screen_y_pct, quadrant,
-                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100)
+                            dx, dy, offset_mag, moving_str, direction, bbox_ratio * 100,
+                            confidence, time.perf_counter() - last_yolo_confirm_t)
 
                 # --- PID continuous-fire with detector-gated trust ---
                 now_t = time.perf_counter()
