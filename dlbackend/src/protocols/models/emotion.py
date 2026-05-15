@@ -62,12 +62,12 @@ class EmotionItem(BaseModel):
 class EmotionRecognizeResponse(BaseModel):
     """HTTP response for single-image emotion recognition."""
 
-    emotions: list[EmotionItem]
+    detections: list[EmotionItem]
 
     @staticmethod
     def from_emotion_detection(detection: EmotionDetection) -> "EmotionRecognizeResponse":
         return EmotionRecognizeResponse(
-            emotions=[
+            detections=[
                 EmotionItem(
                     emotion=e.emotion,
                     confidence=e.confidence,
@@ -84,12 +84,12 @@ class EmotionRecognizeResponse(BaseModel):
 class EmotionResponse(BaseModel):
     """WS response for a single frame."""
 
-    emotions: list[EmotionItem]
+    detections: list[EmotionItem]
 
     @staticmethod
     def from_emotion_detection(detection: EmotionDetection) -> "EmotionResponse":
         return EmotionResponse(
-            emotions=[
+            detections=[
                 EmotionItem(
                     emotion=e.emotion,
                     confidence=e.confidence,

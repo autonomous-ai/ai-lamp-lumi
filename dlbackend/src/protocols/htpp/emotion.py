@@ -78,6 +78,8 @@ async def emotion_analysis_ws(websocket: WebSocket):
 
                     case _:
                         logger.warning("Unknown emotion WS message type: %s", raw[:200])
+            except WebSocketDisconnect:
+                raise
             except Exception as e:
                 logger.exception("Error processing emotion WS message")
                 await websocket.send_json({"error": str(e)})
