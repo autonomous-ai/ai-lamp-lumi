@@ -131,7 +131,11 @@ export function SystemSection({
             <div style={S.cardLabel}>CPU History</div>
             <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
           </div>
-          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={110} max={100} grid />
+          <div style={{ height: 140 }}>
+            {cpuHistory.length > 1 ? (
+              (() => { const c = historyChart(cpuHistory, "rgba(245,158,11,0.85)", "CPU"); return <Line data={c.data} options={c.options} />; })()
+            ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Collecting samples…</span>}
+          </div>
         </div>
       </div>
 
@@ -144,16 +148,42 @@ export function SystemSection({
               {formatSize(sys.memUsed, "KB")} / {formatSize(sys.memTotal, "KB")}
             </span>
           </div>
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <GaugeRing value={sys.memPercent} label="" detail={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" size={110} />
+          {/* RAM + Swap side-by-side. Swap is smaller (size 80 vs 110) since RAM
+              is the primary metric; it's hidden entirely when no swap is configured. */}
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12 }}>
+            <GaugeRing
+              value={sys.memPercent}
+              label="RAM"
+              detail={`${sys.memPercent.toFixed(0)}%`}
+              color="var(--lm-blue)"
+              size={110}
+            />
+            {sys.swapTotal > 0 && (
+              <GaugeRing
+                value={sys.swapPercent}
+                label="SWAP"
+                detail={`${sys.swapPercent.toFixed(0)}%`}
+                color={sys.swapPercent > 80 ? "var(--lm-red)" : sys.swapPercent > 50 ? "var(--lm-amber)" : "var(--lm-green)"}
+                size={80}
+              />
+            )}
           </div>
+          {sys.swapTotal > 0 && (
+            <div style={{ fontSize: 10, color: "var(--lm-text-muted)", textAlign: "center", marginTop: 6, fontFamily: "monospace" }}>
+              swap {formatSize(sys.swapUsed, "KB")} / {formatSize(sys.swapTotal, "KB")}
+            </div>
+          )}
         </div>
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>RAM History</div>
             <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
           </div>
-          <Sparkline data={ramHistory} color="var(--lm-blue)" height={110} max={100} grid />
+          <div style={{ height: 140 }}>
+            {ramHistory.length > 1 ? (
+              (() => { const c = historyChart(ramHistory, "rgba(96,165,250,0.85)", "RAM"); return <Line data={c.data} options={c.options} />; })()
+            ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Collecting samples…</span>}
+          </div>
         </div>
       </div>
 
