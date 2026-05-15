@@ -37,21 +37,23 @@ export default function GwConfig() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "monospace" }}>
-      {/* Topbar */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 20px",
-        background: C.sidebar,
-        borderBottom: `1px solid ${C.border}`,
-      }}>
-        <a href="/monitor" style={{ color: C.textMuted, textDecoration: "none", fontSize: 13 }}>
-          ← Monitor
-        </a>
-        <span style={{ color: C.border }}>|</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.teal }}>⬡ openclaw.json</span>
-      </div>
+      {/* Topbar — hide back-link when embedded inside Monitor's iframe (window.top !== self). */}
+      {window.top === window.self && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "12px 20px",
+          background: C.sidebar,
+          borderBottom: `1px solid ${C.border}`,
+        }}>
+          <a href="/monitor" style={{ color: C.textMuted, textDecoration: "none", fontSize: 13 }}>
+            ← Monitor
+          </a>
+          <span style={{ color: C.border }}>|</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.teal }}>⬡ openclaw.json</span>
+        </div>
+      )}
 
       {/* Content */}
       <div style={{ padding: "24px 28px", maxWidth: 900 }}>
