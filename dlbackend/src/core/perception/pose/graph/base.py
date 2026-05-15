@@ -28,6 +28,10 @@ class SkeletonGraph(ABC):
         """Reverse mapping: name → joint index."""
         return {name: idx for idx, name in self.joint_names.items()}
 
+    def joint(self, name: str) -> int:
+        """Look up joint index by name. Raises KeyError if not found."""
+        return self.name_to_joint[name]
+
     @property
     def num_joints(self) -> int:
         return len(self.joint_names)

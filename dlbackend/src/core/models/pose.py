@@ -58,12 +58,33 @@ class RiskLevel(IntEnum):
 
 
 @dataclass
+class BodyPartScores:
+    """Individual body-part scores and angles from ergonomic assessment."""
+
+    upper_arm: int
+    lower_arm: int
+    wrist: int
+    wrist_twist: int
+    neck: int
+    trunk: int
+    legs: int
+    table_a: int
+    table_b: int
+    score_a: int
+    score_b: int
+    upper_arm_angle: int
+    lower_arm_angle: int
+    neck_angle: int
+    trunk_angle: int
+
+
+@dataclass
 class SideAssessment:
     """Ergonomic assessment result for one side of the body."""
 
     score: int
     risk_level: RiskLevel
-    body_scores: dict[str, int]
+    body_scores: BodyPartScores
     skipped_joints: list[str] = field(default_factory=list)
 
 

@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from protocols.utils.state import get_pose_model, set_pose_model
 from core.models.pose import PosePerceptionSessionConfig
 from core.perception.pose.perception import PosePerception
 from core.perception.pose.utils import create_ergo_assessor, create_estimator_2d
+from protocols.utils.state import get_pose_model, set_pose_model
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -73,14 +73,18 @@ class TestErgoViaWebSocket:
     def test_frame_returns_ergo(self, client):
         """With ergo assessor configured, response should include ergo field."""
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "pose_2d" in resp
             assert "ergo" in resp
 
     def test_ergo_has_expected_fields(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             ergo = resp["ergo"]
             assert "score" in ergo
@@ -90,7 +94,9 @@ class TestErgoViaWebSocket:
 
     def test_ergo_side_has_body_scores(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             for side_key in ("left", "right"):
                 side = resp["ergo"][side_key]
@@ -104,7 +110,9 @@ class TestErgoViaWebSocket:
 
     def test_ergo_score_range(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert 1 <= resp["ergo"]["score"] <= 7
             assert 1 <= resp["ergo"]["left"]["score"] <= 7
@@ -112,7 +120,9 @@ class TestErgoViaWebSocket:
 
     def test_ergo_overall_is_max_of_sides(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert resp["ergo"]["score"] == max(
                 resp["ergo"]["left"]["score"], resp["ergo"]["right"]["score"]
@@ -121,7 +131,9 @@ class TestErgoViaWebSocket:
     def test_multiple_frames_all_have_ergo(self, client):
         with client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
-                ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+                ws.send_text(
+                    json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+                )
                 resp = ws.receive_json()
                 assert "ergo" in resp
 
@@ -168,8 +180,12 @@ class TestNoErgoWithoutAssessor:
         set_pose_model(pose_model_no_ergo)
         test_client = TestClient(server.app)
 
-        with test_client.websocket_connect("/api/dl/pose-estimation/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()}))
+        with test_client.websocket_connect(
+            "/api/dl/pose-estimation/ws", headers=AUTH_HEADERS
+        ) as ws:
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "pose", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "pose_2d" in resp
             assert "ergo" not in resp
