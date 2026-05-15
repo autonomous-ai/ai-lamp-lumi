@@ -1021,6 +1021,12 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					"lifecycle_started": "false",
 				},
 			})
+			// No lifecycle.end will fire for this run — release the busy flag
+			// here so subsequent sensing/chat events aren't queued for the
+			// full busyTTL (5 min). chat.send sets activeTurn=true before
+			// every write, including slash commands and steered/merged turns
+			// that resolve via this empty-final path.
+			h.agentGateway.SetBusy(false)
 		}
 
 		// Slash commands (e.g. /status, /new) are pre-LLM dispatched by OpenClaw
@@ -1053,6 +1059,11 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 				"lifecycle_started": false,
 				"message":           msgPreview,
 			}, flowRunID)
+			// Slash commands bypass the LLM lifecycle so lifecycle.end never
+			// fires for this run. Without this, every /status (or /new etc.)
+			// wedges the busy flag for the full busyTTL (5 min), queueing
+			// every subsequent sensing/chat event behind it.
+			h.agentGateway.SetBusy(false)
 		}
 
 		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input).
