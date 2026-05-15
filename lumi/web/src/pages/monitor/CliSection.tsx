@@ -92,8 +92,8 @@ export function CliSection() {
   );
 }
 
-function TabPill({ session, active, onSelect, onClose }: {
-  session: SessionMeta;
+function TabPill({ name, active, onSelect, onClose }: {
+  name: string;
   active: boolean;
   onSelect: () => void;
   onClose: () => void;
@@ -111,7 +111,7 @@ function TabPill({ session, active, onSelect, onClose }: {
         userSelect: "none",
       }}
     >
-      <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{session.name}</span>
+      <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{name}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         title="Close session"
