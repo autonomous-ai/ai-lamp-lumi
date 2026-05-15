@@ -84,12 +84,17 @@ class YOLOPersonDetector(PersonDetector):
         return [x1, y1, x2, y2]
 
     @override
-    def predict(self, input: list[cv2t.MatLike]) -> list[RawPersonDetection | None]:
-        """Run person detection on *frame* and return all person detections."""
+    def predict(self, input: list[cv2t.MatLike], *, preprocess: bool = True) -> list[RawPersonDetection]:
+        """Run person detection on each frame and return all person detections."""
         if not self.is_ready() or self._model is None:
             raise RuntimeError("Predictor is not ready")
 
-        person_detections: list[RawPersonDetection | None] = []
+        _EMPTY: RawPersonDetection = RawPersonDetection(
+            bbox_xyxy=np.zeros((0, 4), dtype=np.float32),
+            confidence=np.zeros(0, dtype=np.float32),
+        )
+
+        person_detections: list[RawPersonDetection] = []
         for frame in input:
             try:
                 H, W = frame.shape[:2]
@@ -99,27 +104,37 @@ class YOLOPersonDetector(PersonDetector):
                     conf=self._threshold,
                     verbose=False,
                 )
-                bbox_xyxy_list = []
-                conf_list = []
+                bbox_xyxy_list: list[list[int]] = []
+                conf_list: list[float] = []
                 for r in results:
                     if r.boxes is None or len(r.boxes) == 0:
                         continue
 
                     for box in r.boxes:
-                        raw = [int(v) for v in box.xyxy[0].tolist()]
+                        raw: list[int] = [int(v) for v in box.xyxy[0].tolist()]
                         x1, y1, x2, y2 = self._scale_and_clamp_bbox(
                             raw, H, W, self._bbox_expand_scale
                         )
 
                         bbox_xyxy_list.append([x1, y1, x2, y2])
-                        conf_list.append(box.conf[0])
-                person_detections.append(
-                    RawPersonDetection(
-                        bbox_xyxy=np.array(bbox_xyxy_list), confidence=np.array(conf_list)
+                        conf_list.append(float(box.conf[0]))
+
+                if not bbox_xyxy_list:
+                    person_detections.append(_EMPTY)
+                else:
+                    person_detections.append(
+                        RawPersonDetection(
+                            bbox_xyxy=np.array(bbox_xyxy_list, dtype=np.float32),
+                            confidence=np.array(conf_list, dtype=np.float32),
+                        )
                     )
-                )
             except Exception:
                 self._logger.exception("Inference error")
-                person_detections.append(None)
+                person_detections.append(_EMPTY)
 
         return person_detections
+
+    @override
+    def preprocess(self, input: list[cv2t.MatLike]) -> list[cv2t.MatLike]:
+        """No preprocessing needed — YOLO handles internally."""
+        return input

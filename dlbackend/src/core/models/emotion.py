@@ -1,35 +1,29 @@
-from typing import Annotated, Literal
+"""Internal emotion models — dataclasses for core logic, not HTTP."""
 
-from pydantic import BaseModel, Discriminator, Tag
+from dataclasses import dataclass, field
 
-
-class EmotionFrameRequest(BaseModel):
-    type: Literal["frame"] = "frame"
-    task: Literal["emotion"] = "emotion"
-    frame_b64: str
+import numpy as np
+import numpy.typing as npt
 
 
-class EmotionConfigRequest(BaseModel):
-    type: Literal["config"] = "config"
-    task: Literal["emotion"] = "emotion"
-    threshold: float = 0.5
+@dataclass
+class RawEmotionDetection:
+    """Raw recognizer output for a single face crop.
+
+    Contains only what the emotion ONNX model outputs.
+    Face-related info (bbox, face_confidence) is added by the session.
+    """
+
+    expression_probs: npt.NDArray[np.float32]
+    """Shape: (C,) — softmaxed expression probabilities."""
+
+    valence: float | None = None
+    arousal: float | None = None
 
 
-class EmotionHeartBeatRequest(BaseModel):
-    type: Literal["heartbeat"] = "heartbeat"
-    task: Literal["emotion"] = "emotion"
-
-
-EmotionRequest = Annotated[
-    Annotated[EmotionFrameRequest, Tag("frame")]
-    | Annotated[EmotionConfigRequest, Tag("config")]
-    | Annotated[EmotionHeartBeatRequest, Tag("heartbeat")],
-    Discriminator("type"),
-]
-
-
-class EmotionDetection(BaseModel):
-    """Single face emotion detection result."""
+@dataclass
+class Emotion:
+    """Single classified emotion for one face."""
 
     emotion: str
     confidence: float
@@ -39,20 +33,14 @@ class EmotionDetection(BaseModel):
     arousal: float | None = None
 
 
-class EmotionResponse(BaseModel):
-    """Emotion analysis response."""
+@dataclass
+class EmotionDetection:
+    """Session output: filtered emotions for a single frame."""
 
-    detections: list[EmotionDetection]
-
-
-class EmotionRecognizeRequest(BaseModel):
-    """HTTP request for single-image emotion recognition."""
-
-    image_b64: str
-    threshold: float = 0.5
+    emotions: list[Emotion] = field(default_factory=list)
 
 
-class EmotionRecognizeResponse(BaseModel):
-    """HTTP response for single-image emotion recognition."""
-
-    detections: list[EmotionDetection]
+@dataclass
+class EmotionPerceptionSessionConfig:
+    confidence_threshold: float = 0.5
+    frame_interval: float = 1.0

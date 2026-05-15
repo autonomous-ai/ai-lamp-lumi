@@ -5,23 +5,24 @@ import logging
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models.emotion import (
+from protocols.models.emotion import (
     EmotionConfigRequest,
     EmotionFrameRequest,
     EmotionHeartBeatRequest,
+    EmotionItem,
     EmotionRecognizeRequest,
     EmotionRecognizeResponse,
     EmotionRequest,
+    EmotionResponse,
 )
 from protocols.utils.common import decode_image, verify_ws_api_key
 from protocols.utils.state import get_emotion_model
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
-# WS router does manual API key validation; HTTP router uses Depends(verify_api_key) at registration.
-ws_router = APIRouter()
-http_router = APIRouter()
-_request_adapter = TypeAdapter(EmotionRequest)
+ws_router: APIRouter = APIRouter()
+http_router: APIRouter = APIRouter()
+_request_adapter: TypeAdapter = TypeAdapter(EmotionRequest)
 
 
 @ws_router.websocket("/emotion-analysis/ws")
@@ -31,6 +32,7 @@ async def emotion_analysis_ws(websocket: WebSocket):
     Accepts JSON messages with a "type" field:
     - {"type": "frame", "task": "emotion", "frame_b64": "<base64>"} — feed a frame
     - {"type": "config", "task": "emotion", "threshold": 0.5} — update threshold
+    - {"type": "heartbeat", "task": "emotion"} — keep-alive
 
     API key is validated from the X-API-Key header on connect.
     """
@@ -46,8 +48,9 @@ async def emotion_analysis_ws(websocket: WebSocket):
 
     try:
         session = emotion_model.create_session()
+        await session.start()
         while True:
-            raw = await websocket.receive_text()
+            raw: str = await websocket.receive_text()
             try:
                 req = _request_adapter.validate_json(raw)
             except ValidationError as e:
@@ -58,12 +61,16 @@ async def emotion_analysis_ws(websocket: WebSocket):
                 match req:
                     case EmotionFrameRequest():
                         frame = decode_image(req.frame_b64)
-                        result = session.update(frame)
+                        result = await session.update(frame)
                         if result is not None:
-                            await websocket.send_json(result.model_dump())
+                            response = EmotionResponse.from_emotion_detection(result)
+                            await websocket.send_json(response.model_dump())
 
                     case EmotionConfigRequest():
-                        session.set_config(req.threshold)
+                        session.update_config(
+                            confidence_threshold=req.threshold,
+                            frame_interval=req.frame_interval,
+                        )
                         await websocket.send_json({"status": "config_updated"})
 
                     case EmotionHeartBeatRequest():
@@ -81,19 +88,27 @@ async def emotion_analysis_ws(websocket: WebSocket):
 
 @http_router.post("/emotion-recognize", response_model=EmotionRecognizeResponse)
 async def emotion_recognize(req: EmotionRecognizeRequest):
-    """Single-shot emotion recognition from a base64-encoded image.
-
-    Detects faces, classifies emotion for each, returns detections above threshold.
-    """
+    """Single-shot emotion recognition from a pre-cropped face image."""
     emotion_model = get_emotion_model()
     if emotion_model is None or not emotion_model.is_ready():
         raise HTTPException(status_code=503, detail="Emotion model not loaded")
 
-    frame = decode_image(req.image_b64)
-    detections = emotion_model.detect_single_face(frame)
-    filtered = [d for d in detections if d.confidence >= req.threshold]
-    logger.info(
-        "[Emotion] Detected %s",
-        ", ".join([f"{f.emotion} ({f.confidence})" for f in filtered]),
+    face_crop = decode_image(req.image_b64)
+    emotion = emotion_model.predict_face(face_crop)
+
+    if emotion is None or emotion.confidence < req.threshold:
+        return EmotionRecognizeResponse(emotions=[])
+
+    logger.info("[Emotion] Detected %s (%.2f)", emotion.emotion, emotion.confidence)
+    return EmotionRecognizeResponse(
+        emotions=[
+            EmotionItem(
+                emotion=emotion.emotion,
+                confidence=emotion.confidence,
+                face_confidence=emotion.face_confidence,
+                bbox=emotion.bbox,
+                valence=emotion.valence,
+                arousal=emotion.arousal,
+            )
+        ]
     )
-    return EmotionRecognizeResponse(detections=filtered)

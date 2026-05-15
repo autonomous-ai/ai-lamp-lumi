@@ -116,13 +116,18 @@ class HumanActionRecognizer(PredictorBase[Video, RawHumanActionDetection]):
     def predict(
         self,
         input: list[Video],
+        *,
+        preprocess: bool = True,
         class_mask: npt.NDArray[np.bool_] | None = None,
     ) -> list[RawHumanActionDetection]:
         """Run inference on buffered frames, return raw prediction (numpy arrays)."""
         if not self.is_ready() or self._session is None:
             raise RuntimeError("Predictor is not ready")
 
-        input_np = np.array([i.frames for i in input], dtype=np.float32)
+        if preprocess:
+            input = self.preprocess(input)
+
+        input_np: npt.NDArray[np.float32] = np.array([i.frames for i in input], dtype=np.float32)
         N, T, H, W, C = input_np.shape
         input_np = (input_np - self.MEAN) / self.STD
 
@@ -152,23 +157,36 @@ class HumanActionRecognizer(PredictorBase[Video, RawHumanActionDetection]):
 
         return [RawHumanActionDetection(prob_np=prob) for prob in probs]
 
-    def preprocess(
+    def preprocess_single_frame(
         self,
-        input: cv2t.MatLike,
+        frame: cv2t.MatLike,
     ) -> cv2t.MatLike:
-        """Resize, center-crop, and append to frame buffer."""
-        frame_rgb = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)
+        """Resize and center-crop a single frame. Used by session for buffering."""
+        frame_rgb: cv2t.MatLike = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         H, W = frame_rgb.shape[:2]
         target_h, target_w = self._frame_size
-        r = max(target_w / W, target_h / H)
-        resized = cv2.resize(frame_rgb, None, fx=r, fy=r)
+        r: float = max(target_w / W, target_h / H)
+        resized: cv2t.MatLike = cv2.resize(frame_rgb, None, fx=r, fy=r)
         nh, nw = resized.shape[:2]
         half_h, half_w = target_h // 2, target_w // 2
-        preprocessed_input = resized[
+        return resized[
             nh // 2 - half_h : nh // 2 + half_h, nw // 2 - half_w : nw // 2 + half_w
         ]
-        return preprocessed_input
+
+    @override
+    def preprocess(
+        self,
+        input: list[Video],
+    ) -> list[Video]:
+        """Resize and center-crop each frame in each video."""
+        return [
+            Video(
+                frames=[self.preprocess_single_frame(frame) for frame in video.frames],
+                fps=video.fps,
+            )
+            for video in input
+        ]
 
     def _load_classes(
         self, classes_path: Path, whitelist_path: Path | None

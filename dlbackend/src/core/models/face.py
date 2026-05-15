@@ -1,16 +1,29 @@
+"""Internal face detection models — dataclasses for core logic."""
+
 from dataclasses import dataclass, field
 from typing import cast
 
+import cv2.typing as cv2t
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel
 
 
 @dataclass
-class RawPersonDetection:
+class RawFaceDetection:
+    """Raw face detector output for a single frame — batched numpy arrays.
+
+    Each array's first dimension is N (number of detected faces).
+    Empty arrays (N=0) when no faces detected.
+    """
+
     bbox_xyxy: npt.NDArray[np.float32]
+    """Shape: (N, 4) — [x1, y1, x2, y2] per face."""
+
     confidence: npt.NDArray[np.float32]
+    """Shape: (N,) — detection confidence per face."""
+
     area: npt.NDArray[np.float32] = field(init=False)
+    """Shape: (N,) — computed from bbox."""
 
     def __post_init__(self) -> None:
         if self.bbox_xyxy.size == 0:
@@ -30,9 +43,10 @@ class RawPersonDetection:
         self.area = dx * dy
 
 
-class PersonDetection(BaseModel):
-    """Single person detection bounding box."""
+@dataclass
+class FaceCrop:
+    """Single face crop with metadata — convenience for downstream consumers."""
 
-    bbox_xyxy: tuple[int, int, int, int]
+    crop: cv2t.MatLike
+    bbox_xyxy: list[int]  # [x1, y1, x2, y2]
     confidence: float
-    area: int

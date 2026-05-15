@@ -1,3 +1,4 @@
-from .emotion import EmotionAnalysis, EmotionSession
+from .perception import EmotionPerception
+from .session import EmotionPerceptionSession
 
-__all__ = ["EmotionAnalysis", "EmotionSession"]
+__all__ = ["EmotionPerception", "EmotionPerceptionSession"]

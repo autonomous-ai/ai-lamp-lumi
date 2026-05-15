@@ -3,8 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from core.types import Omit, omit
-
 
 @dataclass
 class HumanAction:
@@ -30,12 +28,3 @@ class ActionPerceptionSessionConfig:
     threshold: float = 0.3
     person_detection_enabled: bool | None = None
     person_min_area_ratio: float = 0
-
-
-@dataclass
-class ActionPerceptionSessionConfigUpdate:
-    frame_interval: float | Omit = omit
-    whitelist: list[str] | None | Omit = omit
-    threshold: float | Omit = omit
-    person_detection_enabled: bool | None | Omit = omit
-    person_min_area_ratio: float | Omit = omit

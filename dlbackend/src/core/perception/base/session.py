@@ -1,18 +1,16 @@
 import logging
 import secrets
 from abc import ABC, abstractmethod
-from dataclasses import asdict
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from core.types import Omit
 
 INPUT_T = TypeVar("INPUT_T")
 OUTPUT_T = TypeVar("OUTPUT_T")
 CONFIG_T = TypeVar("CONFIG_T")
-CONFIG_UPDATE_T = TypeVar("CONFIG_UPDATE_T")
 
 
-class PerceptionSessionBase(Generic[INPUT_T, OUTPUT_T, CONFIG_T, CONFIG_UPDATE_T], ABC):
+class PerceptionSessionBase(Generic[INPUT_T, OUTPUT_T, CONFIG_T], ABC):
     def __init__(self, config: CONFIG_T) -> None:
         self._logger: logging.Logger = logging.getLogger(
             f"{self.__class__.__module__}.{self.__class__.__name__}"
@@ -41,17 +39,22 @@ class PerceptionSessionBase(Generic[INPUT_T, OUTPUT_T, CONFIG_T, CONFIG_UPDATE_T
     def is_ready(self) -> bool:
         pass
 
-    def _post_config_update(self):
+    def _post_config_update(self) -> None:
         pass
 
     def set_config(self, config: CONFIG_T) -> None:
         self._config = config
         self._post_config_update()
 
-    def update_config(self, config: CONFIG_UPDATE_T) -> None:
-        for k, v in asdict(config).items():
+    def update_config(self, **kwargs: Any) -> None:
+        """Update config fields. Only non-Omit values are applied.
+
+        Subclasses should override with explicit typed kwargs and call
+        super().update_config(**kwargs) to get the Omit filtering.
+        """
+        for k, v in kwargs.items():
             if not isinstance(v, Omit):
-                self._config.__setattr__(k, v)
+                setattr(self._config, k, v)
         self._post_config_update()
 
     @abstractmethod
@@ -59,5 +62,5 @@ class PerceptionSessionBase(Generic[INPUT_T, OUTPUT_T, CONFIG_T, CONFIG_UPDATE_T
         pass
 
     @property
-    def last_prediction(self):
+    def last_prediction(self) -> OUTPUT_T | None:
         return self._last_prediction
