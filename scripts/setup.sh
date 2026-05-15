@@ -639,6 +639,19 @@ server {
     try_files \$uri /index.html;
   }
 
+  # Interactive shell WebSocket (xterm.js PTY). Must come BEFORE the generic
+  # /api/ block so the more-specific match wins. Needs HTTP/1.1 + Upgrade
+  # forwarding and a long read timeout (sessions stay open while idle).
+  location = /api/system/shell {
+    proxy_pass http://backend;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
+  }
+
   location /api/ {
     proxy_pass http://backend;
     proxy_set_header Host \$host;

@@ -20,8 +20,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: proxy ? {
-        "/api": proxy,
-        "/hw": proxy,
+        // ws: true is required so /api/system/shell (xterm.js PTY WebSocket)
+        // is upgraded through the proxy to the Pi.
+        "/api": { target: proxy, ws: true, changeOrigin: true },
+        "/hw":  { target: proxy, ws: true, changeOrigin: true },
       } : undefined,
     },
     resolve: {

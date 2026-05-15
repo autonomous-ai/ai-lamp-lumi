@@ -1,301 +1,180 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { API } from "./types";
+import { useEffect, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
-interface CliEntry {
-  id: number;
-  cmd: string;
-  stdout: string;
-  stderr: string;
-  exitCode: number | null; // null = running
-  ts: string;
-}
-
-const HISTORY_KEY = "lumi.cli.history";
-const HISTORY_MAX = 200;
-const SUGGESTIONS = ["uptime", "df -h /", "free -m", "systemctl status lumi-lelamp"];
-
-let _entryId = 0;
-
-function loadHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
+// Real interactive shell — opens a WebSocket to /api/system/shell which pipes
+// stdin/stdout/stderr from a /bin/bash PTY. xterm.js handles ANSI escape codes,
+// cursor movement, color, line editing, history, tab-complete (from bash), etc.
+// Use this for top, vim, nano, less, htop, etc. — anything that needs a TTY.
 export function CliSection() {
-  const [input, setInput] = useState("");
-  const [entries, setEntries] = useState<CliEntry[]>([]);
-  const [running, setRunning] = useState(false);
-  const [histIdx, setHistIdx] = useState(-1);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const termHostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const history = useRef<string[]>(loadHistory());
-
-  // Auto-scroll on new output
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries]);
+    if (!termHostRef.current) return;
 
-  const runCmd = useCallback(async (cmd: string) => {
-    const trimmed = cmd.trim();
-    if (!trimmed) return;
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+      fontSize: 12.5,
+      lineHeight: 1.2,
+      convertEol: true,
+      scrollback: 5000,
+      theme: {
+        // Mirror Lumi monitor palette so the terminal blends with the surrounding UI.
+        background: "#0c0b09",
+        foreground: "#dad6cd",
+        cursor: "#f59e0b",
+        cursorAccent: "#0c0b09",
+        selectionBackground: "rgba(245,158,11,0.35)",
+        black: "#1f1b16", red: "#ef4444", green: "#34d399", yellow: "#f59e0b",
+        blue: "#60a5fa", magenta: "#c084fc", cyan: "#2dd4bf", white: "#dad6cd",
+        brightBlack: "#504a3c", brightRed: "#fca5a5", brightGreen: "#6ee7b7",
+        brightYellow: "#fcd34d", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
+        brightCyan: "#5eead4", brightWhite: "#f5f5f5",
+      },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(termHostRef.current);
+    fit.fit();
 
-    // Push to history (dedupe consecutive same command) and persist.
-    if (history.current[0] !== trimmed) {
-      history.current = [trimmed, ...history.current.slice(0, HISTORY_MAX - 1)];
-      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history.current)); } catch {}
-    }
-    setHistIdx(-1);
+    termRef.current = term;
+    fitRef.current = fit;
 
-    const id = ++_entryId;
-    const ts = new Date().toLocaleTimeString();
-    setEntries((prev) => [...prev, { id, cmd: trimmed, stdout: "", stderr: "", exitCode: null, ts }]);
-    setInput("");
-    setRunning(true);
+    // Re-fit when the container resizes (sidebar toggle, window resize).
+    const ro = new ResizeObserver(() => {
+      try { fit.fit(); } catch {}
+      sendResize();
+    });
+    ro.observe(termHostRef.current);
 
-    try {
-      const resp = await fetch(`${API}/system/exec`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cmd: trimmed }),
-      });
-      const r = await resp.json();
-      const d = r?.data ?? {};
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id === id
-            ? { ...e, stdout: d.stdout ?? "", stderr: d.stderr ?? "", exitCode: d.exit_code ?? 0 }
-            : e,
-        ),
-      );
-    } catch (err) {
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id === id
-            ? { ...e, stderr: err instanceof Error ? err.message : String(err), exitCode: -1 }
-            : e,
-        ),
-      );
-    } finally {
-      setRunning(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    // Build WebSocket URL respecting current protocol so it works behind
+    // either http or https serving Lumi.
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/api/system/shell`);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    const sendResize = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "resize", rows: term.rows, cols: term.cols }));
+    };
+
+    ws.onopen = () => {
+      setStatus("open");
+      sendResize();
+      term.focus();
+    };
+    ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(e.data));
+      } else if (typeof e.data === "string") {
+        term.write(e.data);
+      }
+    };
+    ws.onclose = () => {
+      setStatus("closed");
+      term.write("\r\n\x1b[90m[shell closed]\x1b[0m\r\n");
+    };
+    ws.onerror = () => {
+      term.write("\r\n\x1b[31m[shell connection error]\x1b[0m\r\n");
+    };
+
+    // Forward every keystroke to the PTY. xterm gives us bytes that include
+    // arrow keys (ESC sequences), Ctrl combos, etc. — exactly what bash wants.
+    const dataDisposable = term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    });
+
+    // xterm's internal fit relies on the container having a stable size, so
+    // also re-fit when the window resizes.
+    const onWinResize = () => {
+      try { fit.fit(); } catch {}
+      sendResize();
+    };
+    window.addEventListener("resize", onWinResize);
+
+    return () => {
+      window.removeEventListener("resize", onWinResize);
+      ro.disconnect();
+      dataDisposable.dispose();
+      try { ws.close(); } catch {}
+      term.dispose();
+      termRef.current = null;
+      wsRef.current = null;
+      fitRef.current = null;
+    };
   }, []);
 
-  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      runCmd(input);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = Math.min(histIdx + 1, history.current.length - 1);
-      setHistIdx(next);
-      setInput(history.current[next] ?? "");
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = histIdx - 1;
-      if (next < 0) {
-        setHistIdx(-1);
-        setInput("");
-      } else {
-        setHistIdx(next);
-        setInput(history.current[next] ?? "");
-      }
-    } else if (e.key === "l" && e.ctrlKey) {
-      e.preventDefault();
-      setEntries([]);
-    } else if (e.key === "Tab") {
-      // Block default focus shift — terminal-like behavior keeps input focused.
-      e.preventDefault();
+  const reconnect = () => {
+    if (wsRef.current && wsRef.current.readyState <= 1) {
+      wsRef.current.close();
     }
-  };
-
-  const copyEntry = (entry: CliEntry) => {
-    const text = [entry.stdout, entry.stderr].filter(Boolean).join("\n").trim();
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(entry.id);
-      setTimeout(() => setCopiedId((id) => id === entry.id ? null : id), 1500);
-    }).catch(() => {});
-  };
-
-  const btnStyle: React.CSSProperties = {
-    fontSize: 10, padding: "3px 9px", borderRadius: 5,
-    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-    color: "var(--lm-text-dim)", cursor: "pointer",
+    // Trigger re-mount of the effect by toggling status — simpler than tearing
+    // down xterm manually. Force unmount/mount via key would also work; this
+    // page only has one CLI tab so we just reload the section.
+    location.reload();
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
-      {/* Toolbar */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 8 }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "0 0 8px 0", flexShrink: 0, flexWrap: "wrap",
+        display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
+        fontSize: 11, color: "var(--lm-text-muted)",
       }}>
-        <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
-          Shell — Pi (30s timeout)
-        </span>
-        <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>
-          {entries.length} {entries.length === 1 ? "entry" : "entries"} · {history.current.length} in history
+        <span>Shell — Pi (interactive PTY)</span>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "2px 7px", borderRadius: 4,
+          background:
+            status === "open"       ? "rgba(52,211,153,0.15)"
+            : status === "closed"   ? "rgba(248,113,113,0.15)"
+            :                         "rgba(245,158,11,0.15)",
+          color:
+            status === "open"       ? "var(--lm-green)"
+            : status === "closed"   ? "var(--lm-red)"
+            :                         "var(--lm-amber)",
+          fontWeight: 700, fontSize: 9.5, letterSpacing: "0.05em",
+        }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: "currentColor",
+            boxShadow: "0 0 4px currentColor",
+          }} />
+          {status.toUpperCase()}
         </span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 9.5, color: "var(--lm-text-muted)", fontFamily: "monospace" }}>
-          ↑↓ history · Ctrl+L clear
+        <span style={{ fontSize: 9.5, fontFamily: "monospace" }}>
+          Ctrl+C/Z · arrows · tab-complete
         </span>
-        <button onClick={() => setEntries([])} style={btnStyle}>Clear</button>
+        {status === "closed" && (
+          <button
+            onClick={reconnect}
+            style={{
+              fontSize: 10, padding: "3px 10px", borderRadius: 5,
+              background: "var(--lm-amber)", border: "none",
+              color: "#0C0B09", cursor: "pointer", fontWeight: 600,
+            }}
+          >Reconnect</button>
+        )}
       </div>
 
-      {/* Output area */}
       <div
-        ref={scrollRef}
-        onClick={() => inputRef.current?.focus()}
+        ref={termHostRef}
         style={{
-          flex: 1, minHeight: 0, overflowY: "auto",
-          background: "var(--lm-card)", border: "1px solid var(--lm-border)",
-          borderRadius: 10, padding: "10px 14px",
-          fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-          fontSize: 11, lineHeight: 1.6, cursor: "text",
+          flex: 1, minHeight: 0, width: "100%",
+          background: "#0c0b09",
+          border: "1px solid var(--lm-border)",
+          borderRadius: 10,
+          padding: "8px 10px",
+          overflow: "hidden",
         }}
-        className="lm-hide-scroll"
-      >
-        {entries.length === 0 && (
-          <div style={{ color: "var(--lm-text-muted)", fontSize: 10.5 }}>
-            <div style={{ marginBottom: 8 }}>
-              Type a command below. ↑↓ for history. Ctrl+L to clear.
-            </div>
-            <div style={{ fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 4 }}>Try:</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                  style={{
-                    fontSize: 10, padding: "2px 8px", borderRadius: 4,
-                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                    color: "var(--lm-text-dim)", cursor: "pointer",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >{s}</button>
-              ))}
-            </div>
-          </div>
-        )}
-        {entries.map((entry) => (
-          <div key={entry.id} style={{ marginBottom: 10 }}>
-            {/* Command line */}
-            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 2 }}>
-              <span style={{ color: "var(--lm-amber)", userSelect: "none", flexShrink: 0 }}>
-                pi@lumi ~$
-              </span>
-              <span style={{ color: "var(--lm-text)", flex: 1, overflowWrap: "anywhere" }}>{entry.cmd}</span>
-              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>
-                {entry.ts}
-              </span>
-              {(entry.stdout || entry.stderr) && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); copyEntry(entry); }}
-                  title="Copy output"
-                  style={{
-                    fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                    color: copiedId === entry.id ? "var(--lm-green)" : "var(--lm-text-muted)",
-                    cursor: "pointer", flexShrink: 0, lineHeight: 1.4,
-                  }}
-                >{copiedId === entry.id ? "✓" : "⎘"}</button>
-              )}
-            </div>
-            {/* Running indicator */}
-            {entry.exitCode === null && (
-              <div style={{ color: "var(--lm-text-muted)", fontSize: 10 }}>running…</div>
-            )}
-            {/* Stdout */}
-            {entry.stdout && (
-              <pre style={{
-                margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
-                color: "var(--lm-text-dim)", fontSize: 11,
-              }}>
-                {entry.stdout}
-              </pre>
-            )}
-            {/* Stderr */}
-            {entry.stderr && (
-              <pre style={{
-                margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
-                color: "var(--lm-red)", fontSize: 11,
-              }}>
-                {entry.stderr}
-              </pre>
-            )}
-            {/* Exit status — green tick when 0, red code otherwise. Helps confirm success. */}
-            {entry.exitCode !== null && (
-              <div style={{
-                fontSize: 9, marginTop: 2,
-                color: entry.exitCode === 0 ? "var(--lm-green)" : "var(--lm-red)",
-              }}>
-                {entry.exitCode === 0 ? "✓ exit 0" : `✗ exit ${entry.exitCode}`}
-              </div>
-            )}
-          </div>
-        ))}
-
-        {/* Inline current prompt when running */}
-        {running && (
-          <div style={{ color: "var(--lm-text-muted)", fontSize: 10 }}>…</div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexShrink: 0,
-        background: "var(--lm-card)", border: "1px solid var(--lm-border)",
-        borderRadius: 8, padding: "6px 10px",
-      }}>
-        <span style={{
-          color: "var(--lm-amber)", fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 11, flexShrink: 0, userSelect: "none",
-        }}>
-          pi@lumi ~$
-        </span>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKey}
-          disabled={running}
-          autoFocus
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={running ? "running…" : "command"}
-          style={{
-            flex: 1, background: "none", border: "none", outline: "none",
-            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-            fontSize: 11, color: "var(--lm-text)",
-            opacity: running ? 0.4 : 1,
-          }}
-        />
-        <button
-          onClick={() => runCmd(input)}
-          disabled={running || !input.trim()}
-          style={{
-            ...btnStyle,
-            background: running || !input.trim() ? "var(--lm-surface)" : "var(--lm-amber)",
-            color: running || !input.trim() ? "var(--lm-text-muted)" : "#0C0B09",
-            border: "none", fontWeight: 600,
-            opacity: running || !input.trim() ? 0.5 : 1,
-          }}
-        >
-          ↵
-        </button>
-      </div>
+      />
     </div>
   );
 }
