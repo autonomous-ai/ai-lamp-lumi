@@ -635,6 +635,11 @@ server {
   root /usr/share/nginx/html/setup;
   index index.html;
 
+  # Monitor chat attaches files as base64 inside JSON (up to 10 MB raw → ~13 MB
+  # after base64). Default nginx limit is 1 MB, which 413s any non-trivial
+  # attachment. 20 MB leaves headroom for future bumps to the client-side cap.
+  client_max_body_size 20M;
+
   location / {
     try_files \$uri /index.html;
   }
