@@ -5,7 +5,7 @@ import pytest
 
 from core.models.pose import RiskLevel
 from core.perception.pose.graph.h36m import H36MJoint
-from core.perception.pose.predictors.ergo.rula import RULAAssessor, _align_to_vertical
+from core.perception.pose.predictors.ergo.rula import RULAAssessor, align_to_vertical
 from core.utils.compute import ensure_3d
 
 
@@ -83,7 +83,7 @@ class TestEnsure3D:
 class TestAlignToVertical:
     def test_already_vertical_unchanged(self):
         kps = _upright_skeleton_3d()
-        aligned = _align_to_vertical(kps)
+        aligned = align_to_vertical(kps)
         trunk = aligned[H36MJoint.THORAX] - aligned[H36MJoint.SPINE]
         # After alignment, trunk should point in +Z direction
         assert abs(trunk[0]) < 1.0
@@ -100,7 +100,7 @@ class TestAlignToVertical:
             kps[i, 1] = y * cos_a - z * sin_a
             kps[i, 2] = y * sin_a + z * cos_a
 
-        aligned = _align_to_vertical(kps)
+        aligned = align_to_vertical(kps)
         trunk = aligned[H36MJoint.THORAX] - aligned[H36MJoint.SPINE]
         trunk_norm = trunk / (np.linalg.norm(trunk) + 1e-8)
         # Should be close to [0, 0, 1]
@@ -153,13 +153,15 @@ class TestRULAAssessor:
         result = assessor.predict([(_upright_skeleton_2d(), _all_confident())])[0]
         assert result is not None
         for side_result in (result.left, result.right):
-            expected_keys = {
-                "upper_arm", "lower_arm", "wrist", "wrist_twist",
-                "neck", "trunk", "legs",
-                "table_a", "table_b", "score_a", "score_b",
-                "upper_arm_angle", "lower_arm_angle", "neck_angle", "trunk_angle",
-            }
-            assert set(side_result.body_scores.keys()) == expected_keys
+            bs = side_result.body_scores
+            assert bs.upper_arm >= 1
+            assert bs.lower_arm >= 1
+            assert bs.wrist >= 1
+            assert bs.neck >= 1
+            assert bs.trunk >= 1
+            assert bs.legs >= 1
+            assert bs.table_a >= 1
+            assert bs.table_b >= 1
 
 
 class TestConfidenceFiltering:
@@ -187,7 +189,7 @@ class TestConfidenceFiltering:
         assert "r_shoulder" in result.right.skipped_joints
         assert "r_elbow" in result.right.skipped_joints
         # Skipped joints should get neutral scores
-        assert result.right.body_scores["upper_arm"] == 1
+        assert result.right.body_scores.upper_arm == 1
         # Left side should be unaffected
         assert len(result.left.skipped_joints) == 0
 
@@ -198,7 +200,7 @@ class TestConfidenceFiltering:
         result = assessor.predict([(_upright_skeleton_2d(), scores)])[0]
         assert result is not None
         assert "neck" in result.left.skipped_joints
-        assert result.left.body_scores["neck"] == 1
+        assert result.left.body_scores.neck == 1
 
     def test_all_low_confidence_except_core(self):
         """Only spine+thorax confident -> arms skipped, neck skipped, still returns."""

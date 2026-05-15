@@ -139,39 +139,26 @@ class PoseEstimator3DLifting(PredictorBase[Pose3DInput, RawPose3DDetection | Non
             raise RuntimeError("Lifter not started")
 
         results: list[RawPose3DDetection | None] = []
-        preprocessed: list[npt.NDArray[np.float32] | None] = []
+        preprocessed: list[npt.NDArray[np.float32]] = []
 
         # Check minimum frame count and preprocess
         for keypoints, scores in input:
-            T: int = keypoints.shape[0]
-            if T < self._n_frames // 2:
-                preprocessed.append(None)
+            if preprocess:
+                preprocessed.append(self.preprocess([(keypoints, scores)])[0])
             else:
-                if preprocess:
-                    preprocessed.append(self.preprocess([(keypoints, scores)])[0])
-                else:
-                    preprocessed.append(keypoints)  # type: ignore
-
-        # Collect valid indices for batched inference
-        valid_indices: list[int] = [i for i, p in enumerate(preprocessed) if p is not None]
-        valid_preprocesed: list[npt.NDArray[np.float32]] = [
-            p for p in preprocessed if p is not None
-        ]
-
-        if not valid_indices:
-            return [None] * len(input)
+                preprocessed.append(keypoints)  # type: ignore
 
         # Stack valid inputs: (B, n_frames, K, 3)
-        batch: npt.NDArray[np.float32] = np.stack(valid_preprocesed, axis=0).astype(np.float32)
+        batch: npt.NDArray[np.float32] = np.stack(preprocessed, axis=0).astype(np.float32)
 
         (output,) = self._session.run(["output"], {"input": batch})
         output = cast(npt.NDArray[np.float32], output)  # (B, n_frames, K, 3)
 
         # Map results back — trim padded frames to original T
         result_map: dict[int, npt.NDArray[np.float32]] = {}
-        for b, idx in enumerate(valid_indices):
+        for idx in range(output.shape[0]):
             original_T: int = input[idx][0].shape[0]
-            result_map[idx] = output[b, :original_T]  # (T, K, 3)
+            result_map[idx] = output[idx, :original_T]  # (T, K, 3)
 
         for i in range(len(input)):
             if i in result_map:
