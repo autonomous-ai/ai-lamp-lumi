@@ -140,7 +140,7 @@ export interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli" | "sensing" | "api-docs" | "agent-config";
+export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli" | "sensing" | "bluetooth" | "api-docs" | "agent-config";
 
 export type NavLeaf = { id: Section; label: string; icon: string };
 export type NavLink = { href: string; label: string; icon: string; external?: boolean };
@@ -170,6 +170,7 @@ export const NAV: NavEntry[] = [
       { id: "sensing",     label: "Sensing",   icon: "◉" },
       { id: "analytics",   label: "Analytics", icon: "⊟" },
       { id: "servo",       label: "Servo",     icon: "⎈" },
+      { id: "bluetooth",   label: "Bluetooth", icon: "✦" },
       { id: "logs",        label: "Logs",      icon: "☰" },
       { id: "cli",         label: "CLI",       icon: "▸" },
       { id: "api-docs",    label: "API Docs",  icon: "⎗" },

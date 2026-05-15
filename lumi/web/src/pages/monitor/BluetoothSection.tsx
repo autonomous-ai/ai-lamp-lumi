@@ -1,0 +1,407 @@
+import { useCallback, useEffect, useState } from "react";
+import { HW } from "./types";
+import { usePolling } from "../../hooks/usePolling";
+import { S } from "./styles";
+
+interface BTDevice {
+  mac: string;
+  name: string | null;
+  paired: boolean;
+  connected: boolean;
+  trusted: boolean;
+  active?: boolean;
+}
+
+interface BTStatus {
+  available: boolean;
+  active_mac: string | null;
+  label: string;
+  scanning: boolean;
+  paired: BTDevice[];
+}
+
+interface DiscoveredDevice {
+  mac: string;
+  name: string;
+}
+
+function Pill({ text, tone }: { text: string; tone: "ok" | "warn" | "off" }) {
+  const palette = {
+    ok:   { fg: "#3ad29f", bg: "#3ad29f26", bd: "#3ad29f55" },
+    warn: { fg: "#e8a849", bg: "#e8a84926", bd: "#e8a84955" },
+    off:  { fg: "var(--lm-text-muted)", bg: "transparent", bd: "var(--lm-border)" },
+  }[tone];
+  return (
+    <span style={{
+      fontSize: 10, padding: "2px 7px", borderRadius: 4,
+      background: palette.bg, color: palette.fg, border: `1px solid ${palette.bd}`,
+      fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase",
+    }}>{text}</span>
+  );
+}
+
+function deviceLabel(d: { mac: string; name: string | null }): string {
+  return d.name && d.name.trim() ? d.name : d.mac;
+}
+
+export function BluetoothSection() {
+  const [status, setStatus] = useState<BTStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  // Pair-modal state
+  const [pairOpen, setPairOpen] = useState(false);
+  const [discovered, setDiscovered] = useState<DiscoveredDevice[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [pairingMac, setPairingMac] = useState<string | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+
+  // Per-row busy flags (so the right button shows a spinner / disables).
+  const [busyMac, setBusyMac] = useState<string | null>(null);
+  const [forgetConfirm, setForgetConfirm] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Reload the headset list. Used by both poll and post-mutation refresh.
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const r = await fetch(`${HW}/bluetooth/status`, { signal });
+      const j = (await r.json()) as BTStatus;
+      setStatus(j);
+      setStatusError(null);
+    } catch (e) {
+      if ((e as any)?.name !== "AbortError") {
+        setStatusError("Không lấy được trạng thái Bluetooth");
+      }
+    }
+  }, []);
+
+  usePolling(refresh, 5_000);
+
+  // Scan poller: when pair modal is open, refresh discovered list every 2s
+  // until the scan window closes.
+  useEffect(() => {
+    if (!pairOpen) return;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      try {
+        const r = await fetch(`${HW}/bluetooth/scan/results`);
+        const j = await r.json();
+        setDiscovered(j.devices || []);
+        setScanning(!!j.scanning);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => { stop = true; clearInterval(id); };
+  }, [pairOpen]);
+
+  // --- Actions ---
+
+  const startScan = async () => {
+    setPairOpen(true);
+    setPairError(null);
+    setDiscovered([]);
+    try {
+      const r = await fetch(`${HW}/bluetooth/scan/start`, { method: "POST" });
+      if (!r.ok) throw new Error(await r.text());
+      setScanning(true);
+    } catch (e: any) {
+      setPairError(e?.message || "Không bắt đầu quét được");
+    }
+  };
+
+  const pairDevice = async (mac: string) => {
+    setPairingMac(mac);
+    setPairError(null);
+    try {
+      const r = await fetch(`${HW}/bluetooth/pair`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || "Ghép nối thất bại");
+      }
+      setPairOpen(false);
+      await refresh();
+    } catch (e: any) {
+      setPairError(e?.message || "Ghép nối thất bại");
+    } finally {
+      setPairingMac(null);
+    }
+  };
+
+  const setActive = async (mac: string | null) => {
+    setBusyMac(mac || "__lamp__");
+    setActionError(null);
+    try {
+      const r = await fetch(`${HW}/bluetooth/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac: mac || "" }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || "Không chuyển được route");
+      }
+      await refresh();
+    } catch (e: any) {
+      setActionError(e?.message || "Không chuyển được route");
+    } finally {
+      setBusyMac(null);
+    }
+  };
+
+  const forgetDevice = async (mac: string) => {
+    setBusyMac(mac);
+    setActionError(null);
+    try {
+      const r = await fetch(`${HW}/bluetooth/forget`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || "Không quên được thiết bị");
+      }
+      await refresh();
+    } catch (e: any) {
+      setActionError(e?.message || "Không quên được thiết bị");
+    } finally {
+      setBusyMac(null);
+      setForgetConfirm(null);
+    }
+  };
+
+  // --- Render ---
+
+  if (status && !status.available) {
+    return (
+      <div style={S.card}>
+        <div style={S.cardLabel}>Bluetooth Headset</div>
+        <p style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
+          Thiết bị này chưa có Bluetooth khả dụng (bluetoothctl không chạy).
+          Cần BlueZ + PipeWire/PulseAudio trên Pi để dùng tai nghe BT.
+        </p>
+      </div>
+    );
+  }
+
+  const active = status?.active_mac || null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={S.cardLabel}>Bluetooth Headset</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {active
+              ? <Pill text="Private mode" tone="ok" />
+              : <Pill text="Lamp" tone="off" />}
+          </div>
+        </div>
+
+        <p style={{ fontSize: 12, color: "var(--lm-text-muted)", marginTop: 0, marginBottom: 12 }}>
+          Khi bật, TTS và STT sẽ đi qua tai nghe BT thay vì loa/mic của đèn.
+          Mic sensing nền vẫn ở mic đèn để Lumi nghe ngóng môi trường.
+        </p>
+
+        {statusError && (
+          <div style={errBox}>{statusError}</div>
+        )}
+        {actionError && (
+          <div style={errBox}>{actionError}</div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(status?.paired || []).length === 0 && (
+            <div style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
+              Chưa có tai nghe nào được ghép nối.
+            </div>
+          )}
+          {(status?.paired || []).map((d) => {
+            const isActive = active === d.mac;
+            const rowBusy = busyMac === d.mac;
+            return (
+              <div key={d.mac} style={deviceRow}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {deviceLabel(d)}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginTop: 2 }}>
+                    {d.mac} · {d.connected ? "Đã kết nối" : "Chưa kết nối"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActive(isActive ? null : d.mac)}
+                  disabled={rowBusy || busyMac === "__lamp__"}
+                  style={isActive ? toggleBtnOn : toggleBtnOff}
+                  title={isActive ? "Tắt private mode" : "Bật private mode"}
+                >
+                  {rowBusy ? "..." : (isActive ? "Đang dùng" : "Dùng tai nghe")}
+                </button>
+                <button
+                  onClick={() => setForgetConfirm(d.mac)}
+                  disabled={rowBusy}
+                  style={ghostBtn}
+                  title="Quên thiết bị"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={startScan} style={primaryBtn}>
+            + Kết nối tai nghe
+          </button>
+        </div>
+      </div>
+
+      {/* --- Pair modal --- */}
+      {pairOpen && (
+        <Modal onClose={() => setPairOpen(false)} title="Kết nối tai nghe Bluetooth">
+          <p style={{ fontSize: 13, color: "var(--lm-text-muted)", marginTop: 0 }}>
+            Đưa tai nghe về chế độ pairing (giữ nút nguồn 3-5s tới khi đèn nhấp nháy
+            xanh / mở hộp AirPods rồi giữ nút sau hộp).
+          </p>
+          <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 8 }}>
+            {scanning ? "🔍 Đang tìm..." : "Quét đã dừng — bấm Quét lại nếu chưa thấy thiết bị"}
+          </div>
+          {pairError && <div style={errBox}>{pairError}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+            {discovered.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--lm-text-muted)", padding: "8px 0" }}>
+                Chưa thấy thiết bị nào...
+              </div>
+            )}
+            {discovered.map((d) => (
+              <button
+                key={d.mac}
+                onClick={() => pairDevice(d.mac)}
+                disabled={!!pairingMac}
+                style={listRowBtn}
+              >
+                <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{deviceLabel(d)}</div>
+                  <div style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>{d.mac}</div>
+                </div>
+                <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
+                  {pairingMac === d.mac ? "Đang ghép..." : "Ghép nối"}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+            <button onClick={startScan} style={ghostBtn}>Quét lại</button>
+            <button onClick={() => setPairOpen(false)} style={primaryBtn}>Đóng</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* --- Forget confirm modal --- */}
+      {forgetConfirm && (
+        <Modal onClose={() => setForgetConfirm(null)} title="Quên thiết bị?">
+          <p style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
+            Sau khi quên, bạn sẽ phải ghép nối lại (30-60s) lần sau muốn dùng tai nghe này.
+          </p>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+            <button onClick={() => setForgetConfirm(null)} style={ghostBtn}>Huỷ</button>
+            <button
+              onClick={() => forgetDevice(forgetConfirm)}
+              style={{ ...primaryBtn, background: "#d24a4a", border: "1px solid #d24a4a" }}
+            >
+              Quên
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// --- Local style atoms (kept inline to avoid bloating styles.ts) ---
+
+const errBox: React.CSSProperties = {
+  fontSize: 12, padding: "6px 10px", marginBottom: 10,
+  background: "#d24a4a26", color: "#e88080", borderRadius: 6,
+  border: "1px solid #d24a4a55",
+};
+
+const deviceRow: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 8,
+  padding: "10px 12px",
+  background: "var(--lm-bg)",
+  border: "1px solid var(--lm-border)",
+  borderRadius: 8,
+};
+
+const baseBtn: React.CSSProperties = {
+  padding: "6px 12px", fontSize: 12, fontWeight: 600,
+  borderRadius: 6, cursor: "pointer",
+  transition: "all 0.15s",
+};
+
+const toggleBtnOn: React.CSSProperties = {
+  ...baseBtn,
+  background: "var(--lm-amber)", color: "var(--lm-bg)",
+  border: "1px solid var(--lm-amber)",
+};
+
+const toggleBtnOff: React.CSSProperties = {
+  ...baseBtn,
+  background: "transparent", color: "var(--lm-text)",
+  border: "1px solid var(--lm-border)",
+};
+
+const ghostBtn: React.CSSProperties = {
+  ...baseBtn,
+  background: "transparent", color: "var(--lm-text-muted)",
+  border: "1px solid var(--lm-border)",
+};
+
+const primaryBtn: React.CSSProperties = {
+  ...baseBtn,
+  background: "var(--lm-amber)", color: "var(--lm-bg)",
+  border: "1px solid var(--lm-amber)",
+};
+
+const listRowBtn: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 8,
+  padding: "10px 12px", borderRadius: 8,
+  background: "var(--lm-bg)",
+  border: "1px solid var(--lm-border)",
+  cursor: "pointer", color: "inherit",
+};
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--lm-card)", border: "1px solid var(--lm-border)",
+          borderRadius: 12, padding: 20, maxWidth: 480, width: "100%",
+          maxHeight: "calc(100vh - 64px)", overflow: "auto",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
+          <button onClick={onClose} style={{ ...ghostBtn, padding: "4px 8px" }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

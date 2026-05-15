@@ -500,6 +500,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"TTP223 init failed: {e}")
 
+    # Restore Bluetooth headset route if the user had one active before reboot.
+    # Best effort — silent fallback to lamp speaker/mic if anything goes wrong.
+    try:
+        from lelamp.service.audio_route import maybe_restore_bt_route
+        threading.Thread(
+            target=maybe_restore_bt_route, daemon=True, name="bt-route-restore"
+        ).start()
+    except Exception as e:
+        logger.warning(f"BT route restore scheduling failed: {e}")
+
     yield
 
     # Shutdown
@@ -599,7 +609,7 @@ app = FastAPI(
 
 # --- Include route modules ---
 
-from lelamp.routes import servo, led, camera, audio, emotion, scene, sensing, display, voice, music, system
+from lelamp.routes import servo, led, camera, audio, emotion, scene, sensing, display, voice, music, system, bluetooth
 
 app.include_router(servo.router)
 app.include_router(led.router)
@@ -612,6 +622,7 @@ app.include_router(display.router)
 app.include_router(voice.router)
 app.include_router(music.router)
 app.include_router(system.router)
+app.include_router(bluetooth.router)
 
 # Speaker recognition routes (lazy import — import failure tolerated so the
 # rest of the server still boots if speaker deps are missing).

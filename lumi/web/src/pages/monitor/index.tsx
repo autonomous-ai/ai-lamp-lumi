@@ -30,6 +30,7 @@ import { AnalyticsSection } from "./AnalyticsSection";
 import { LogsSection } from "./LogsSection";
 import { ChatSection } from "./ChatSection";
 import { FaceOwnersSection } from "./FaceOwnersSection";
+import { BluetoothSection } from "./BluetoothSection";
 import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -452,6 +453,7 @@ export default function Monitor() {
           {section === "camera"    && <CameraSection displayTs={displayTs} />}
           {section === "sensing"   && <SensingSection />}
           {section === "servo"     && <ServoSection />}
+          {section === "bluetooth" && <BluetoothSection />}
           {section === "face-owners" && <FaceOwnersSection />}
           {section === "analytics" && <AnalyticsSection />}
           {section === "logs"      && <LogsSection />}
