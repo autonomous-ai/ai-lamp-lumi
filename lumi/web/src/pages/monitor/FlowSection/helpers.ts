@@ -1460,9 +1460,12 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
     // Slash command success: state:"final" with payload but no lifecycle.
     // Backend persists the message in chat_final_ok so this path doesn't
     // depend on SSE chat_response (which may not be replayed for old turns).
+    // The flow event JSON puts the payload under `data.message` (top-level
+    // fields are kind/node/ts/seq/trace_id), so read d.data.message first
+    // and fall back to d.message for any flat shape variant.
     if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "chat_final_ok") {
       const d = ev.detail as Record<string, any> | undefined;
-      output = d?.message ?? "";
+      output = d?.data?.message ?? d?.message ?? "";
     }
     // Detect no_reply from flow event (persisted in JSONL, unlike SSE chat_response)
     if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "no_reply") {
