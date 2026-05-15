@@ -43,6 +43,7 @@ import (
 	_openclawSseDeliver "go-lamp.autonomous.ai/server/openclaw/delivery/sse"
 	_sensingHttpDeliver "go-lamp.autonomous.ai/server/sensing/delivery/http"
 	"go-lamp.autonomous.ai/server/serializers"
+	systemshell "go-lamp.autonomous.ai/server/system"
 )
 
 type Server struct {
@@ -263,6 +264,7 @@ func (s *Server) Serve(closeFn func()) error {
 	system.GET("dashboard", s.healthHandler.Dashboard)
 	system.POST("software-update/:target", s.softwareUpdate)
 	system.POST("exec", s.execCommand)
+	system.GET("shell", systemshell.ShellHandler)
 
 	device := api.Group("device")
 	device.POST("setup", s.deviceHandler.Setup)
