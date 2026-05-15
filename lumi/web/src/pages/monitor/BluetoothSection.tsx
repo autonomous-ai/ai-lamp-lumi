@@ -54,6 +54,7 @@ export function BluetoothSection() {
   const [scanning, setScanning] = useState(false);
   const [pairingMac, setPairingMac] = useState<string | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Per-row busy flags (so the right button shows a spinner / disables).
   const [busyMac, setBusyMac] = useState<string | null>(null);
@@ -101,6 +102,7 @@ export function BluetoothSection() {
     setPairOpen(true);
     setPairError(null);
     setDiscovered([]);
+    setSearchQuery("");
     try {
       const r = await fetch(`${HW}/bluetooth/scan/start`, { method: "POST" });
       if (!r.ok) throw new Error(await r.text());
@@ -273,13 +275,34 @@ export function BluetoothSection() {
             {scanning ? "Scanning..." : "Scan stopped — press Rescan if your device isn't listed"}
           </div>
           {pairError && <div style={errBox}>{pairError}</div>}
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter by name or MAC..."
+            style={searchInput}
+          />
+          {(() => {
+            const q = searchQuery.trim().toLowerCase();
+            const filtered = q
+              ? discovered.filter((d) =>
+                  (d.name || "").toLowerCase().includes(q) ||
+                  d.mac.toLowerCase().includes(q),
+                )
+              : discovered;
+            return (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
             {discovered.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--lm-text-muted)", padding: "8px 0" }}>
                 No devices found yet...
               </div>
             )}
-            {discovered.map((d) => (
+            {discovered.length > 0 && filtered.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--lm-text-muted)", padding: "8px 0" }}>
+                No devices match "{searchQuery}"
+              </div>
+            )}
+            {filtered.map((d) => (
               <button
                 key={d.mac}
                 onClick={() => pairDevice(d.mac)}
@@ -296,6 +319,8 @@ export function BluetoothSection() {
               </button>
             ))}
           </div>
+            );
+          })()}
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
             <button onClick={startScan} style={ghostBtn}>Rescan</button>
             <button onClick={() => setPairOpen(false)} style={primaryBtn}>Close</button>
@@ -368,6 +393,19 @@ const primaryBtn: React.CSSProperties = {
   ...baseBtn,
   background: "var(--lm-amber)", color: "var(--lm-bg)",
   border: "1px solid var(--lm-amber)",
+};
+
+const searchInput: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 12px",
+  fontSize: 13,
+  borderRadius: 6,
+  background: "var(--lm-bg)",
+  color: "var(--lm-text)",
+  border: "1px solid var(--lm-border)",
+  marginBottom: 10,
+  outline: "none",
+  boxSizing: "border-box",
 };
 
 const listRowBtn: React.CSSProperties = {
