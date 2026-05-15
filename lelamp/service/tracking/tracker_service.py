@@ -196,8 +196,13 @@ FAST_LOOP_FPS = 10
 
 # Hardware velocity limit for tracking (Feetech STS3215 Goal_Velocity register).
 # 0 = unlimited (default). Lower = slower, smoother camera pan → ViT stays locked.
-# Unit: steps/s. ~200 ≈ moderate tracking speed. Set to 0 to disable.
+# Unit: steps/s. ~150 ≈ moderate tracking speed. Set to 0 to disable.
 TRACKING_GOAL_VELOCITY = 150
+
+# Hardware acceleration for tracking (Feetech STS3215 Acceleration register).
+# 254 = max (default, snappy). Lower = gentler ramp up/down → less jerk.
+# Range: 0-254. ~30 gives smooth glide without being too sluggish.
+TRACKING_ACCELERATION = 30
 
 # Camera field-of-view in degrees (horizontal). Used to convert px offset → degrees.
 CAMERA_FOV_DEG = 60.0
@@ -265,9 +270,9 @@ SERVO_MIN_SUBSTEPS  = 2
 # Empirical: only wrist_pitch is pure rotation. base+elbow primarily translate
 # camera (kinematic coupling) → object grows in frame but doesn't move toward
 # center. Use wrist alone for predictable pitch control.
-PITCH_WEIGHT_BASE  = 0.0
-PITCH_WEIGHT_ELBOW = 0.0
-PITCH_WEIGHT_WRIST = 1.0
+PITCH_WEIGHT_BASE  = 0.10
+PITCH_WEIGHT_ELBOW = 0.90
+PITCH_WEIGHT_WRIST = 0.0
 
 # Edge proximity boost — when object nears frame edge, multiply correction
 # to pull it back toward center before it exits the frame.
@@ -818,15 +823,18 @@ class TrackerService:
         logger.info("Servo hold mode + tracking lock ON")
 
         _tracking_motors = ["base_yaw", "base_pitch", "elbow_pitch", "wrist_pitch"]
-        if TRACKING_GOAL_VELOCITY > 0:
-            try:
-                with animation_service.bus_lock:
+        try:
+            with animation_service.bus_lock:
+                if TRACKING_GOAL_VELOCITY > 0:
                     animation_service.robot.bus.sync_write(
                         "Goal_Velocity", {m: TRACKING_GOAL_VELOCITY for m in _tracking_motors}
                     )
-                logger.info("[tracking] Goal_Velocity set to %d for all joints", TRACKING_GOAL_VELOCITY)
-            except Exception as e:
-                logger.warning("[tracking] Failed to set Goal_Velocity: %s", e)
+                animation_service.robot.bus.sync_write(
+                    "Acceleration", {m: TRACKING_ACCELERATION for m in _tracking_motors}
+                )
+            logger.info("[tracking] Goal_Velocity=%d Acceleration=%d", TRACKING_GOAL_VELOCITY, TRACKING_ACCELERATION)
+        except Exception as e:
+            logger.warning("[tracking] Failed to set motor params: %s", e)
 
         # Read initial servo positions — track internally after this.
         try:
@@ -1217,11 +1225,8 @@ class TrackerService:
             state.running.clear()
 
             try:
-                if TRACKING_GOAL_VELOCITY > 0:
-                    with animation_service.bus_lock:
-                        animation_service.robot.bus.sync_write(
-                            "Goal_Velocity", {m: 0 for m in _tracking_motors}
-                        )
+                # Return to zero at tracking speed — keep velocity+accel low so
+                # arm glides back instead of snapping.
                 time.sleep(0.8)
                 with animation_service.bus_lock:
                     animation_service.robot.send_action({
@@ -1232,6 +1237,16 @@ class TrackerService:
                         "wrist_pitch.pos": 0.0,
                     })
                 logger.info("Tracking ended — arm returned to zero")
+                # Restore full speed after arm has started moving to zero.
+                time.sleep(1.0)
+                with animation_service.bus_lock:
+                    if TRACKING_GOAL_VELOCITY > 0:
+                        animation_service.robot.bus.sync_write(
+                            "Goal_Velocity", {m: 0 for m in _tracking_motors}
+                        )
+                    animation_service.robot.bus.sync_write(
+                        "Acceleration", {m: 254 for m in _tracking_motors}
+                    )
             except Exception as e:
                 logger.warning("Tracking ended — failed to zero arm: %s", e)
 
