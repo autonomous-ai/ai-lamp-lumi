@@ -181,8 +181,12 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			SessionKey string `json:"sessionKey"`
 		} `json:"result"`
 		Payload struct {
+			// uptimeMs may live at payload top level (older gateway responses) or
+			// inside snapshot (current 2026.5.7 hello-ok shape) — capture both,
+			// prefer the non-zero one.
 			UptimeMs int64 `json:"uptimeMs"`
 			Snapshot struct {
+				UptimeMs        int64 `json:"uptimeMs"`
 				SessionDefaults struct {
 					MainSessionKey string `json:"mainSessionKey"`
 				} `json:"sessionDefaults"`
@@ -198,9 +202,14 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			s.SetSessionKey(sk)
 			slog.Info("session key from connect", "component", "openclaw", "sessionKey", sk)
 		}
-		// Compute the OpenClaw process start time from payload.uptimeMs so the
-		// monitor UI can show the gateway's true age, not Lumi's WS connection age.
-		if upMs := connectResult.Payload.UptimeMs; upMs > 0 {
+		// Compute the OpenClaw process start time so the monitor UI can show the
+		// gateway's true age, not Lumi's WS connection age. Try both known
+		// locations of uptimeMs in the hello-ok payload.
+		upMs := connectResult.Payload.UptimeMs
+		if upMs <= 0 {
+			upMs = connectResult.Payload.Snapshot.UptimeMs
+		}
+		if upMs > 0 {
 			s.agentStartedAt.Store(time.Now().Unix() - upMs/1000)
 		}
 	}
