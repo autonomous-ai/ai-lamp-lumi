@@ -69,7 +69,7 @@ export function BluetoothSection() {
       setStatusError(null);
     } catch (e) {
       if ((e as any)?.name !== "AbortError") {
-        setStatusError("Không lấy được trạng thái Bluetooth");
+        setStatusError("Failed to fetch Bluetooth status");
       }
     }
   }, []);
@@ -106,7 +106,7 @@ export function BluetoothSection() {
       if (!r.ok) throw new Error(await r.text());
       setScanning(true);
     } catch (e: any) {
-      setPairError(e?.message || "Không bắt đầu quét được");
+      setPairError(e?.message || "Failed to start scan");
     }
   };
 
@@ -121,12 +121,12 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Ghép nối thất bại");
+        throw new Error(err.detail || "Pairing failed");
       }
       setPairOpen(false);
       await refresh();
     } catch (e: any) {
-      setPairError(e?.message || "Ghép nối thất bại");
+      setPairError(e?.message || "Pairing failed");
     } finally {
       setPairingMac(null);
     }
@@ -143,11 +143,11 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Không chuyển được route");
+        throw new Error(err.detail || "Failed to switch audio route");
       }
       await refresh();
     } catch (e: any) {
-      setActionError(e?.message || "Không chuyển được route");
+      setActionError(e?.message || "Failed to switch audio route");
     } finally {
       setBusyMac(null);
     }
@@ -164,11 +164,11 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Không quên được thiết bị");
+        throw new Error(err.detail || "Failed to forget device");
       }
       await refresh();
     } catch (e: any) {
-      setActionError(e?.message || "Không quên được thiết bị");
+      setActionError(e?.message || "Failed to forget device");
     } finally {
       setBusyMac(null);
       setForgetConfirm(null);
@@ -182,8 +182,8 @@ export function BluetoothSection() {
       <div style={S.card}>
         <div style={S.cardLabel}>Bluetooth Headset</div>
         <p style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
-          Thiết bị này chưa có Bluetooth khả dụng (bluetoothctl không chạy).
-          Cần BlueZ + PipeWire/PulseAudio trên Pi để dùng tai nghe BT.
+          Bluetooth is not available on this host (bluetoothctl missing).
+          Install BlueZ + PipeWire/PulseAudio on the Pi to use a BT headset.
         </p>
       </div>
     );
@@ -204,8 +204,8 @@ export function BluetoothSection() {
         </div>
 
         <p style={{ fontSize: 12, color: "var(--lm-text-muted)", marginTop: 0, marginBottom: 12 }}>
-          Khi bật, TTS và STT sẽ đi qua tai nghe BT thay vì loa/mic của đèn.
-          Mic sensing nền vẫn ở mic đèn để Lumi nghe ngóng môi trường.
+          When on, TTS and STT route through the BT headset instead of the lamp speaker/mic.
+          Background sensing mic stays on the lamp so Lumi keeps listening to the room.
         </p>
 
         {statusError && (
@@ -218,7 +218,7 @@ export function BluetoothSection() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {(status?.paired || []).length === 0 && (
             <div style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
-              Chưa có tai nghe nào được ghép nối.
+              No headset paired yet.
             </div>
           )}
           {(status?.paired || []).map((d) => {
@@ -231,22 +231,22 @@ export function BluetoothSection() {
                     {deviceLabel(d)}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginTop: 2 }}>
-                    {d.mac} · {d.connected ? "Đã kết nối" : "Chưa kết nối"}
+                    {d.mac} · {d.connected ? "Connected" : "Disconnected"}
                   </div>
                 </div>
                 <button
                   onClick={() => setActive(isActive ? null : d.mac)}
                   disabled={rowBusy || busyMac === "__lamp__"}
                   style={isActive ? toggleBtnOn : toggleBtnOff}
-                  title={isActive ? "Tắt private mode" : "Bật private mode"}
+                  title={isActive ? "Turn off private mode" : "Turn on private mode"}
                 >
-                  {rowBusy ? "..." : (isActive ? "Đang dùng" : "Dùng tai nghe")}
+                  {rowBusy ? "..." : (isActive ? "In use" : "Use headset")}
                 </button>
                 <button
                   onClick={() => setForgetConfirm(d.mac)}
                   disabled={rowBusy}
                   style={ghostBtn}
-                  title="Quên thiết bị"
+                  title="Forget device"
                 >
                   ✕
                 </button>
@@ -257,26 +257,26 @@ export function BluetoothSection() {
 
         <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
           <button onClick={startScan} style={primaryBtn}>
-            + Kết nối tai nghe
+            + Connect headset
           </button>
         </div>
       </div>
 
       {/* --- Pair modal --- */}
       {pairOpen && (
-        <Modal onClose={() => setPairOpen(false)} title="Kết nối tai nghe Bluetooth">
+        <Modal onClose={() => setPairOpen(false)} title="Connect Bluetooth headset">
           <p style={{ fontSize: 13, color: "var(--lm-text-muted)", marginTop: 0 }}>
-            Đưa tai nghe về chế độ pairing (giữ nút nguồn 3-5s tới khi đèn nhấp nháy
-            xanh / mở hộp AirPods rồi giữ nút sau hộp).
+            Put the headset in pairing mode (hold the power button 3-5s until the LED blinks,
+            or open the AirPods case and hold the rear button).
           </p>
           <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 8 }}>
-            {scanning ? "🔍 Đang tìm..." : "Quét đã dừng — bấm Quét lại nếu chưa thấy thiết bị"}
+            {scanning ? "Scanning..." : "Scan stopped — press Rescan if your device isn't listed"}
           </div>
           {pairError && <div style={errBox}>{pairError}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
             {discovered.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--lm-text-muted)", padding: "8px 0" }}>
-                Chưa thấy thiết bị nào...
+                No devices found yet...
               </div>
             )}
             {discovered.map((d) => (
@@ -291,31 +291,31 @@ export function BluetoothSection() {
                   <div style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>{d.mac}</div>
                 </div>
                 <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
-                  {pairingMac === d.mac ? "Đang ghép..." : "Ghép nối"}
+                  {pairingMac === d.mac ? "Pairing..." : "Pair"}
                 </span>
               </button>
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-            <button onClick={startScan} style={ghostBtn}>Quét lại</button>
-            <button onClick={() => setPairOpen(false)} style={primaryBtn}>Đóng</button>
+            <button onClick={startScan} style={ghostBtn}>Rescan</button>
+            <button onClick={() => setPairOpen(false)} style={primaryBtn}>Close</button>
           </div>
         </Modal>
       )}
 
       {/* --- Forget confirm modal --- */}
       {forgetConfirm && (
-        <Modal onClose={() => setForgetConfirm(null)} title="Quên thiết bị?">
+        <Modal onClose={() => setForgetConfirm(null)} title="Forget device?">
           <p style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
-            Sau khi quên, bạn sẽ phải ghép nối lại (30-60s) lần sau muốn dùng tai nghe này.
+            After forgetting, you'll have to pair the headset again (30-60s) next time you want to use it.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-            <button onClick={() => setForgetConfirm(null)} style={ghostBtn}>Huỷ</button>
+            <button onClick={() => setForgetConfirm(null)} style={ghostBtn}>Cancel</button>
             <button
               onClick={() => forgetDevice(forgetConfirm)}
               style={{ ...primaryBtn, background: "#d24a4a", border: "1px solid #d24a4a" }}
             >
-              Quên
+              Forget
             </button>
           </div>
         </Modal>
