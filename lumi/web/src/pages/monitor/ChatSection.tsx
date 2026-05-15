@@ -247,11 +247,13 @@ interface ToolEventInput {
   summary: string;
   id: string;
   detail?: Record<string, any> | null;
+  phase?: string;
 }
 
-// parseToolChip turns a flow event into a chip. For `tool_call` it also
-// extracts the args from `ev.detail.data.args` so the chip can show what the
-// model actually asked for (e.g. the search query).
+// parseToolChip turns a flow event into a chip. For `tool_call`:
+// - start phase carries the args in `detail.args` (JSON string)
+// - end phase summary is `"Tool <name> done: <result up to 100 chars>"` —
+//   we extract the result tail so users see what the tool actually returned.
 function parseToolChip(ev: ToolEventInput): ToolChip | null {
   const s = ev.summary;
   switch (ev.type) {
@@ -281,30 +283,35 @@ function parseToolChip(ev: ToolEventInput): ToolChip | null {
     }
     case "tool_call": {
       const d = ev.detail as Record<string, any> | undefined;
-      const phase: string = d?.data?.phase ?? d?.phase ?? "";
+      // Server (handler_events.go) sets phase as a top-level event field; older
+      // flow_event paths nest it under detail.data.phase — accept both.
+      const phase: string = ev.phase ?? d?.data?.phase ?? d?.phase ?? "";
       const name: string =
-        d?.data?.name ?? d?.data?.tool ?? d?.name ?? d?.tool
+        d?.tool ?? d?.data?.tool ?? d?.data?.name ?? d?.name
         ?? (s.match(/^(\w+)/)?.[1] ?? "tool");
       if (HW_SHADOW_TOOLS.has(name)) return null;
       let argsObj: Record<string, any> | undefined;
-      const rawArgs = d?.data?.args ?? d?.args;
+      const rawArgs = d?.args ?? d?.data?.args;
       if (rawArgs) {
         try {
           argsObj = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
         } catch { /* keep undefined */ }
       }
-      // The "result" phase fires after the model gets a tool result back.
-      // We can't reliably capture the raw result from this event stream
-      // (the server doesn't relay tool output bytes), so just mark the chip
-      // as completed and surface the phase.
       const isResult = phase === "result" || phase === "end";
+      // Lift the truncated result text out of the summary for end-phase events.
+      // Format: "Tool <name> done: <result>" — we keep what comes after ": ".
+      let resultText: string | undefined;
+      if (isResult) {
+        const m = s.match(/done:\s*(.+)$/);
+        resultText = m ? m[1] : "completed";
+      }
       return {
         id: ev.id,
         iconKind: iconForTool(name),
         label: name,
         detail: summarizeArgs(argsObj),
         args: argsObj,
-        result: isResult ? "completed" : undefined,
+        result: resultText,
       };
     }
     default: return null;
@@ -636,7 +643,7 @@ export function ChatSection({ events, isActive }: Props) {
         // phases of the same tool merge into a single chip — the latest event
         // wins so `result`'s completion flag overwrites the placeholder.
         if (TOOL_EVENT_TYPES.has(ev.type)) {
-          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id, detail: ev.detail });
+          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id, detail: ev.detail, phase: ev.phase });
           if (chip) {
             const key = chip.iconKind + ":" + chip.label;
             const existing = toolChipsRef.current.get(key);
@@ -1848,18 +1855,48 @@ function ToolChipView({ chip }: { chip: ToolChip }) {
           </span>
         )}
       </button>
-      {open && chip.args && (
-        <pre style={{
-          margin: 0, padding: "6px 10px 8px",
-          fontSize: 10, lineHeight: 1.45, fontFamily: "monospace",
-          color: "var(--lm-text-dim)",
-          background: "color-mix(in srgb, var(--lm-text) 4%, transparent)",
+      {open && (
+        <div style={{
+          padding: "6px 10px 8px",
           borderTop: `1px solid color-mix(in srgb, ${accent} 18%, transparent)`,
-          whiteSpace: "pre-wrap", overflowWrap: "anywhere",
-          maxWidth: 560, maxHeight: 240, overflowY: "auto",
+          background: "color-mix(in srgb, var(--lm-text) 4%, transparent)",
+          display: "flex", flexDirection: "column", gap: 6,
+          maxWidth: 560,
         }}>
-          {JSON.stringify(chip.args, null, 2)}
-        </pre>
+          {chip.args && (
+            <div>
+              <div style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+                color: "var(--lm-text-muted)", marginBottom: 3,
+              }}>ARGS</div>
+              <pre style={{
+                margin: 0, padding: 0,
+                fontSize: 10, lineHeight: 1.45, fontFamily: "monospace",
+                color: "var(--lm-text-dim)",
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+                maxHeight: 200, overflowY: "auto",
+              }}>{JSON.stringify(chip.args, null, 2)}</pre>
+            </div>
+          )}
+          {chip.result && chip.result !== "completed" && (
+            <div>
+              <div style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+                color: "var(--lm-text-muted)", marginBottom: 3,
+              }}>RESULT</div>
+              <pre style={{
+                margin: 0, padding: 0,
+                fontSize: 10, lineHeight: 1.45, fontFamily: "monospace",
+                color: "var(--lm-text)",
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+                maxHeight: 200, overflowY: "auto",
+              }}>{chip.result}</pre>
+              <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3, fontStyle: "italic" }}>
+                (truncated to 100 chars by server)
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
