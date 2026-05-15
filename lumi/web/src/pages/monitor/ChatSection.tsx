@@ -695,16 +695,19 @@ export function ChatSection({ events, isActive }: Props) {
             phase: ev.phase ?? (ev.detail as any)?.data?.phase,
           });
           if (chip) {
-            const key = chip.iconKind + ":" + chip.label;
+            // Dedup key on iconKind+label+args so the start+result phases of
+            // the SAME invocation merge — but two distinct invocations of the
+            // same tool (e.g. two `Read` calls on different files) each get
+            // their own chip. Earlier the key was just iconKind:label, which
+            // collapsed all Read/Bash calls in a turn into one row.
+            const argsKey = chip.detail ?? (chip.args ? JSON.stringify(chip.args) : "");
+            const key = chip.iconKind + ":" + chip.label + ":" + argsKey;
             const existing = toolChipsRef.current.get(key);
-            // Preserve args/detail from earlier "start" phase if the later
-            // event (result) doesn't carry them.
             const merged: ToolChip = existing ? {
               ...existing,
               ...chip,
               args: chip.args ?? existing.args,
               detail: chip.detail ?? existing.detail,
-              // result-phase event marks completion
               result: chip.result ?? existing.result,
             } : chip;
             toolChipsRef.current.set(key, merged);
