@@ -158,7 +158,7 @@ export const NAV: NavEntry[] = [
       { id: "system",      label: "System",    icon: "⚙" },
       { id: "flow",        label: "Flow",      icon: "⇄" },
       { id: "face-owners", label: "Users",     icon: "☺" },
-      { id: "camera",      label: "Camera",    icon: "⊙" },
+      { id: "camera",      label: "Camera",    icon: "◎" },
       { id: "sensing",     label: "Sensing",   icon: "◉" },
       { id: "analytics",   label: "Analytics", icon: "⊟" },
       { id: "servo",       label: "Servo",     icon: "⎈" },

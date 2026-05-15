@@ -16,6 +16,8 @@ export function CameraSection({
   displayTs: number;
 }) {
   const [snapTs, setSnapTs] = useState(Date.now());
+  const [snapError, setSnapError] = useState(false);
+  const [streamError, setStreamError] = useState(false);
   const [cameraDisabled, setCameraDisabled] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -23,11 +25,6 @@ export function CameraSection({
   const [trackTarget, setTrackTarget] = useState("object");
   const [trackBbox, setTrackBbox] = useState("");
 
-  // Gate the MJPEG stream on tab visibility. <img src="/camera/stream">
-  // holds one persistent HTTP/1.1 connection open for as long as the
-  // element is mounted — if the tab is backgrounded or the component
-  // unmounts, keeping it alive steals one of Chrome's 6 per-origin
-  // connection slots and also wastes Pi bandwidth.
   const [streamActive, setStreamActive] = useState(!document.hidden);
   useEffect(() => {
     const onVis = () => setStreamActive(!document.hidden);
@@ -63,9 +60,6 @@ export function CameraSection({
   };
 
   const startTracking = async () => {
-    // Split on commas so the user can enter synonyms as "cup, mug, coffee cup".
-    // A single label with no commas is sent as a plain string for readability
-    // in the request body; multiple labels are sent as an array.
     const labels = trackTarget.split(",").map((s) => s.trim()).filter(Boolean);
     const body: Record<string, unknown> = {};
     if (labels.length === 1) body.target = labels[0];
@@ -94,255 +88,280 @@ export function CameraSection({
     } catch {}
   };
 
+  const refreshSnapshot = () => {
+    setSnapError(false);
+    setSnapTs(Date.now());
+  };
+
+  const statusText = cameraDisabled
+    ? (manualOverride ? "Disabled by you" : "Auto-disabled (scene/emotion)")
+    : "Streaming";
+  const statusColor = cameraDisabled ? "var(--lm-red)" : "var(--lm-green)";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Camera toggle */}
-      <div style={S.card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={S.cardLabel}>Camera</div>
-            <div style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
-              {cameraDisabled
-                ? manualOverride
-                  ? "Disabled by you — face/motion detection paused"
-                  : "Auto-disabled (scene/emotion) — face/motion paused"
-                : "Active — streaming, face/motion detection running"}
-            </div>
-          </div>
-          <button
-            onClick={toggleCamera}
-            disabled={toggling}
-            style={{
-              padding: "6px 16px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              cursor: toggling ? "wait" : "pointer",
-              background: cameraDisabled ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
-              border: `1px solid ${cameraDisabled ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
-              color: cameraDisabled ? "var(--lm-green)" : "var(--lm-red)",
-            }}
-          >
-            {toggling ? "…" : cameraDisabled ? "Enable" : "Disable"}
-          </button>
-        </div>
-      </div>
-
-      {!cameraDisabled && ( <>
       <div className="lm-grid-2">
-        {/* Live camera stream */}
+
+        {/* Live Stream card with Snapshot embedded as a sub-card */}
         <div style={S.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={S.cardLabel}>Camera Stream</div>
-            <span style={{
-              fontSize: 10,
-              padding: "2px 7px",
-              borderRadius: 4,
-              background: track.tracking ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)",
-              color: track.tracking ? "var(--lm-green)" : "var(--lm-red)",
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-            }}>{track.tracking ? `TRACKING: ${track.target || "?"}` : "LIVE"}</span>
-          </div>
-          {streamActive ? (
-            <img
-              src={`${HW}/camera/stream`}
-              alt="camera"
-              style={{
-                width: "100%",
-                maxHeight: 240,
-                objectFit: "contain",
-                borderRadius: 8,
-                border: `1px solid ${track.tracking ? "var(--lm-green)" : "var(--lm-border)"}`,
-                display: "block",
-                background: "var(--lm-surface)",
-              }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
-          ) : (
-            <div style={{
-              width: "100%",
-              height: 240,
-              borderRadius: 8,
-              border: `1px solid var(--lm-border)`,
-              background: "var(--lm-surface)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              color: "var(--lm-text-muted)",
-            }}>Stream paused (tab hidden)</div>
-          )}
-          {track.tracking && track.bbox && (
-            <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginTop: 6 }}>
-              bbox: [{track.bbox.join(", ")}]
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={S.cardLabel}>Live Stream</div>
+              <span style={{
+                fontSize: 10, padding: "2px 7px", borderRadius: 4,
+                background: track.tracking ? "rgba(52,211,153,0.15)" : (cameraDisabled ? "rgba(248,113,113,0.15)" : "rgba(245,158,11,0.15)"),
+                color: track.tracking ? "var(--lm-green)" : (cameraDisabled ? "var(--lm-red)" : "var(--lm-amber)"),
+                fontWeight: 700, letterSpacing: "0.05em",
+              }}>
+                {cameraDisabled ? "OFF" : track.tracking ? "TRACK" : "LIVE"}
+              </span>
             </div>
-          )}
-        </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>{statusText}</span>
+              <button
+                onClick={toggleCamera}
+                disabled={toggling}
+                style={{
+                  padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                  cursor: toggling ? "wait" : "pointer",
+                  background: cameraDisabled ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+                  border: `1px solid ${cameraDisabled ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
+                  color: cameraDisabled ? "var(--lm-green)" : "var(--lm-red)",
+                }}
+              >
+                {toggling ? "…" : cameraDisabled ? "Enable" : "Disable"}
+              </button>
+            </div>
+          </div>
 
-        {/* Display eyes preview — hidden via display:none, code kept for future re-enable */}
-        <div style={{ ...S.card, display: "none" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={S.cardLabel}>Display Eyes (GC9A01)</div>
-            <button
-              onClick={() => setSnapTs(Date.now())}
-              style={{
-                fontSize: 10,
-                padding: "3px 10px",
-                borderRadius: 6,
-                background: "var(--lm-amber-dim)",
-                border: "1px solid var(--lm-amber)",
-                color: "var(--lm-amber)",
-                cursor: "pointer",
-              }}
+          {/* Stream frame with Snapshot mini-card overlaid at bottom-right (picture-in-picture). */}
+          <div style={{ position: "relative" }}>
+            <MediaFrame
+              disabled={cameraDisabled}
+              paused={!streamActive}
+              error={streamError}
+              disabledText="Camera disabled"
+              pausedText="Stream paused (tab hidden)"
+              errorText="Stream unavailable"
+              highlight={track.tracking}
             >
-              Refresh
-            </button>
-          </div>
-          <div style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 16,
-          }}>
-            <img
-              src={`${HW}/display/snapshot?t=${snapTs}`}
-              alt="display"
-              style={{
-                width: 160,
-                height: 160,
-                borderRadius: "50%",
-                border: "3px solid var(--lm-amber)",
-                boxShadow: "0 0 20px var(--lm-amber-glow)",
-                objectFit: "cover",
-                display: "block",
-                background: "var(--lm-surface)",
-              }}
-              onError={(e) => {
-                const el = e.target as HTMLImageElement;
-                el.style.display = "none";
-              }}
-            />
-          </div>
-          <div style={{ textAlign: "center" as const, fontSize: 11, color: "var(--lm-text-muted)" }}>
-            1.28″ round LCD — 240×240
-          </div>
-        </div>
-      </div>
+              <img
+                src={`${HW}/camera/stream`}
+                alt="camera"
+                style={mediaImgStyle(track.tracking)}
+                onError={() => setStreamError(true)}
+                onLoad={() => setStreamError(false)}
+              />
+            </MediaFrame>
 
-      {/* Vision Tracking */}
-      <div style={S.card}>
-        <div style={S.cardLabel}>Vision Tracking</div>
-        <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
-          Enter one label or several comma-separated (sent as an array of candidates). Optional bbox [x, y, w, h] skips YOLO detection.
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-          <input
-            value={trackTarget}
-            onChange={(e) => setTrackTarget(e.target.value)}
-            placeholder="cup, mug, coffee cup"
-            style={{
-              flex: 1, minWidth: 100, padding: "5px 8px", borderRadius: 6, fontSize: 12,
-              background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-              color: "var(--lm-text)",
-            }}
-          />
-          <input
-            value={trackBbox}
-            onChange={(e) => setTrackBbox(e.target.value)}
-            placeholder="x, y, w, h"
-            style={{
-              width: 140, padding: "5px 8px", borderRadius: 6, fontSize: 12,
-              background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-              color: "var(--lm-text)", fontFamily: "monospace",
-            }}
-          />
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={startTracking}
-            disabled={track.tracking}
-            style={{
-              padding: "6px 16px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              cursor: track.tracking ? "not-allowed" : "pointer",
-              background: "rgba(52,211,153,0.1)",
-              border: "1px solid rgba(52,211,153,0.3)",
-              color: "var(--lm-green)",
-              opacity: track.tracking ? 0.5 : 1,
-            }}
-          >
-            Start
-          </button>
-          <button
-            onClick={stopTracking}
-            disabled={!track.tracking}
-            style={{
-              padding: "6px 16px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              cursor: !track.tracking ? "not-allowed" : "pointer",
-              background: "rgba(248,113,113,0.1)",
-              border: "1px solid rgba(248,113,113,0.3)",
-              color: "var(--lm-red)",
-              opacity: !track.tracking ? 0.5 : 1,
-            }}
-          >
-            Stop
-          </button>
-          <button
-            onClick={fetchTrackStatus}
-            style={{
-              padding: "6px 16px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              cursor: "pointer",
-              background: "var(--lm-surface)",
-              border: "1px solid var(--lm-border)",
-              color: "var(--lm-text-dim)",
-            }}
-          >
-            Status
-          </button>
-        </div>
-        {track.tracking && (
-          <div style={{
-            marginTop: 10, padding: "6px 10px", borderRadius: 6, fontSize: 11,
-            background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)",
-            color: "var(--lm-green)", fontFamily: "monospace",
-          }}>
-            Tracking "{track.target}" — conf: {track.confidence?.toFixed(3) ?? "?"} — bbox: [{track.bbox?.join(", ")}]
-          </div>
-        )}
-      </div>
-
-      {/* Camera snapshot */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Camera Snapshot</div>
-          <button
-            onClick={() => setSnapTs(Date.now())}
-            style={{
-              fontSize: 10,
-              padding: "3px 10px",
+            {/* Snapshot PiP — sub-card pinned to bottom-right of stream */}
+            <div style={{
+              position: "absolute",
+              bottom: 8,
+              right: 8,
+              width: 130,
               borderRadius: 6,
-              background: "var(--lm-surface)",
-              border: "1px solid var(--lm-border)",
-              color: "var(--lm-text-dim)",
-              cursor: "pointer",
-            }}
-          >
-            Capture
-          </button>
+              border: `1px solid ${statusColor === "var(--lm-green)" ? "rgba(52,211,153,0.4)" : "var(--lm-border)"}`,
+              background: "var(--lm-card)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+              padding: 6,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+                  color: "var(--lm-text-dim)", textTransform: "uppercase",
+                }}>Snapshot</span>
+                <button
+                  onClick={refreshSnapshot}
+                  disabled={cameraDisabled}
+                  title="Capture fresh snapshot"
+                  style={{
+                    fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                    color: "var(--lm-text-dim)", cursor: cameraDisabled ? "not-allowed" : "pointer",
+                    opacity: cameraDisabled ? 0.5 : 1,
+                  }}
+                >↻</button>
+              </div>
+              <div style={{
+                width: "100%",
+                aspectRatio: "4 / 3",
+                borderRadius: 4,
+                background: "var(--lm-surface)",
+                border: "1px solid var(--lm-border)",
+                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}>
+                {cameraDisabled || snapError ? (
+                  <span style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>
+                    {cameraDisabled ? "off" : "—"}
+                  </span>
+                ) : (
+                  <img
+                    src={`${HW}/camera/snapshot?t=${snapTs}`}
+                    alt="snapshot"
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                    onError={() => setSnapError(true)}
+                    onLoad={() => setSnapError(false)}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-        <img
-          src={`${HW}/camera/snapshot?t=${snapTs}`}
-          alt="snapshot"
-          style={{
-            width: "100%",
-            maxHeight: 280,
-            objectFit: "contain",
-            borderRadius: 8,
-            border: "1px solid var(--lm-border)",
-            display: "block",
-            background: "var(--lm-surface)",
-          }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-        />
+
+        {/* Vision Tracking — alignSelf:start so the card hugs its content
+            instead of stretching to match the taller Live Stream card. */}
+        <div style={{ ...S.card, alignSelf: "start" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={S.cardLabel}>Vision Tracking</div>
+            <span style={{
+              fontSize: 10, padding: "2px 7px", borderRadius: 4,
+              background: track.tracking ? "rgba(52,211,153,0.15)" : "var(--lm-surface)",
+              color: track.tracking ? "var(--lm-green)" : "var(--lm-text-muted)",
+              border: `1px solid ${track.tracking ? "rgba(52,211,153,0.3)" : "var(--lm-border)"}`,
+              fontWeight: 700, letterSpacing: "0.05em",
+            }}>
+              {track.tracking ? "ACTIVE" : "IDLE"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input
+              value={trackTarget}
+              onChange={(e) => setTrackTarget(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !track.tracking) startTracking(); }}
+              placeholder="cup, mug, coffee cup"
+              style={inputStyle}
+            />
+            <input
+              value={trackBbox}
+              onChange={(e) => setTrackBbox(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !track.tracking) startTracking(); }}
+              placeholder="x, y, w, h (optional bbox)"
+              style={{ ...inputStyle, fontFamily: "monospace" }}
+            />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onClick={startTracking}
+                disabled={track.tracking}
+                style={{
+                  flex: 1,
+                  padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  cursor: track.tracking ? "not-allowed" : "pointer",
+                  background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)",
+                  color: "var(--lm-green)", opacity: track.tracking ? 0.5 : 1,
+                }}
+              >Start</button>
+              <button
+                onClick={stopTracking}
+                disabled={!track.tracking}
+                style={{
+                  flex: 1,
+                  padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  cursor: !track.tracking ? "not-allowed" : "pointer",
+                  background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)",
+                  color: "var(--lm-red)", opacity: !track.tracking ? 0.5 : 1,
+                }}
+              >Stop</button>
+            </div>
+
+            <div style={{ fontSize: 10.5, color: "var(--lm-text-muted)", lineHeight: 1.5 }}>
+              One label or comma-separated synonyms. Bbox optional — skips YOLO detection.
+            </div>
+
+            {track.tracking && (
+              <div style={{
+                marginTop: 4, padding: "8px 12px", borderRadius: 6, fontSize: 11,
+                background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)",
+                color: "var(--lm-green)", fontFamily: "monospace",
+                display: "flex", flexDirection: "column", gap: 4,
+              }}>
+                <span>target: <strong>{track.target}</strong></span>
+                <span>conf: {track.confidence?.toFixed(3) ?? "?"}</span>
+                {track.bbox && <span style={{ fontSize: 10 }}>bbox: [{track.bbox.join(", ")}]</span>}
+                <button
+                  onClick={fetchTrackStatus}
+                  style={{
+                    marginTop: 4, padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                    background: "transparent", border: "1px solid rgba(52,211,153,0.3)",
+                    color: "var(--lm-green)", cursor: "pointer", alignSelf: "flex-start",
+                  }}
+                >Refresh status</button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      </> )}
     </div>
   );
 }
+
+// MediaFrame keeps stream at a stable aspect ratio and shows a friendly
+// fallback when off/paused/errored — so the card doesn't collapse to zero.
+function MediaFrame({
+  disabled,
+  paused,
+  error,
+  disabledText,
+  pausedText,
+  errorText,
+  highlight,
+  children,
+}: {
+  disabled?: boolean;
+  paused?: boolean;
+  error?: boolean;
+  disabledText: string;
+  pausedText?: string;
+  errorText: string;
+  highlight?: boolean;
+  children: React.ReactNode;
+}) {
+  const showFallback = disabled || paused || error;
+  const fallbackText = disabled ? disabledText : paused ? (pausedText ?? "Paused") : errorText;
+  return (
+    <div style={{
+      width: "100%",
+      aspectRatio: "4 / 3",
+      borderRadius: 8,
+      border: `1px solid ${highlight ? "var(--lm-green)" : "var(--lm-border)"}`,
+      background: "var(--lm-surface)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      position: "relative",
+    }}>
+      {showFallback ? (
+        <div style={{ fontSize: 11, color: "var(--lm-text-muted)", textAlign: "center", padding: 12 }}>
+          {fallbackText}
+        </div>
+      ) : children}
+    </div>
+  );
+}
+
+const mediaImgStyle = (highlight: boolean): React.CSSProperties => ({
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+  display: "block",
+  background: "var(--lm-surface)",
+  borderRadius: 7,
+  outline: highlight ? "1px solid var(--lm-green)" : "none",
+});
+
+const inputStyle: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 6,
+  fontSize: 12,
+  background: "var(--lm-surface)",
+  border: "1px solid var(--lm-border)",
+  color: "var(--lm-text)",
+};
