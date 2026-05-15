@@ -410,22 +410,37 @@ function ServoCard({ joint, info }: { joint: string; info: ServoDetail }) {
         #{info.id}
       </span>
       {info.online && info.angle != null ? (
-        <div style={{ height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
-          <div style={{
-            width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
-            height: "100%", borderRadius: 3,
-            background: "var(--lm-teal)", transition: "width 0.3s ease",
-          }} />
-        </div>
-      ) : <span />}
-      <span style={{
-        fontSize: 11, fontWeight: 600,
-        color: info.online && info.angle != null ? "var(--lm-teal)" : "var(--lm-red)",
-        textAlign: "right", fontFamily: "monospace",
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>
-        {info.online && info.angle != null ? `${info.angle.toFixed(1)}°` : (info.error || "off")}
-      </span>
+        <>
+          <div style={{ height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
+            <div style={{
+              width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
+              height: "100%", borderRadius: 3,
+              background: "var(--lm-teal)", transition: "width 0.3s ease",
+            }} />
+          </div>
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: "var(--lm-teal)",
+            textAlign: "right", fontFamily: "monospace",
+          }}>
+            {info.angle.toFixed(1)}°
+          </span>
+        </>
+      ) : (
+        // Error / offline — let the message span both bar and value columns
+        // and wrap fully so things like "read fail Goal_Velocity (timeout 50ms)"
+        // stay readable instead of being truncated to "read fa…".
+        <span style={{
+          gridColumn: "span 2",
+          fontSize: 10.5, fontWeight: 500,
+          color: "var(--lm-red)",
+          fontFamily: "monospace",
+          lineHeight: 1.35,
+          overflowWrap: "anywhere" as const,
+          whiteSpace: "normal" as const,
+        }} title={info.error || "offline"}>
+          {info.error || "offline"}
+        </span>
+      )}
     </div>
   );
 }
@@ -518,12 +533,30 @@ function ControlButton({ onClick, color, title, hint }: {
 }) {
   return (
     <>
-      <button onClick={onClick} style={{
-        fontSize: 12, padding: "7px 12px", borderRadius: 6, width: "100%",
-        background: `${color}14`, border: `1px solid ${color}55`,
-        color, cursor: "pointer", fontWeight: 600,
-        whiteSpace: "nowrap",
-      }}>{title}</button>
+      <button
+        onClick={onClick}
+        // Stronger bg + border than before so this clearly reads as a button,
+        // not a label. The previous 0.08/0.33 alpha pair was nearly invisible
+        // in light theme.
+        style={{
+          fontSize: 12, padding: "8px 14px", borderRadius: 6, width: "100%",
+          background: `color-mix(in srgb, ${color} 18%, transparent)`,
+          border: `1.5px solid color-mix(in srgb, ${color} 70%, transparent)`,
+          color,
+          cursor: "pointer", fontWeight: 700,
+          whiteSpace: "nowrap",
+          transition: "background 0.15s, transform 0.05s",
+          boxShadow: `0 1px 0 color-mix(in srgb, ${color} 30%, transparent) inset`,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = `color-mix(in srgb, ${color} 30%, transparent)`;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = `color-mix(in srgb, ${color} 18%, transparent)`;
+        }}
+        onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
+        onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
+      >{title}</button>
       <span style={{ fontSize: 10, color: "var(--lm-text-muted)", lineHeight: 1.35 }}>{hint}</span>
     </>
   );

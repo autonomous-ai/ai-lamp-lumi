@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Line } from "react-chartjs-2";
+import type { TooltipItem } from "chart.js";
 import { S } from "./styles";
 import type { SystemInfo, NetworkInfo } from "./types";
 import { GaugeRing, StatPill, formatUptime, formatSize } from "./components";
@@ -41,7 +42,10 @@ function historyChart(data: number[], color: string, label: string) {
           mode: "index" as const,
           intersect: false,
           callbacks: {
-            label: (ctx: { parsed: { y: number } }) => `${ctx.parsed.y.toFixed(1)}%`,
+            label: (ctx: TooltipItem<"line">) => {
+              const y = ctx.parsed.y;
+              return y == null ? "—" : `${y.toFixed(1)}%`;
+            },
           },
         },
       },
@@ -130,7 +134,7 @@ export function SystemSection({
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-            <GaugeRing value={sys.cpuLoad} label="" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={110} />
+            <GaugeRing value={sys.cpuLoad} label="" detail={`${sys.cpuLoad.toFixed(1)}%`} color={pctColor(sys.cpuLoad, "var(--lm-amber)")} size={110} />
             {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
               <CoreStrip values={sys.cpuPerCore} />
             )}
@@ -139,7 +143,7 @@ export function SystemSection({
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>CPU History</div>
-            <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
+            <span style={{ fontSize: 11, color: pctColor(sys.cpuLoad, "var(--lm-amber)"), fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
           </div>
           <div style={{ height: 140 }}>
             {cpuHistory.length > 1 ? (
@@ -165,7 +169,7 @@ export function SystemSection({
               value={sys.memPercent}
               label="RAM"
               detail={`${sys.memPercent.toFixed(0)}%`}
-              color="var(--lm-blue)"
+              color={pctColor(sys.memPercent, "var(--lm-blue)")}
               size={110}
             />
             {sys.swapTotal > 0 && (
@@ -187,7 +191,7 @@ export function SystemSection({
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>RAM History</div>
-            <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
+            <span style={{ fontSize: 11, color: pctColor(sys.memPercent, "var(--lm-blue)"), fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
           </div>
           <div style={{ height: 140 }}>
             {ramHistory.length > 1 ? (
