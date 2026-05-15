@@ -1039,11 +1039,19 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		if isSlashFinalOk {
 			slog.Info("chat final ok, no lifecycle for runId (slash dispatcher)",
 				"component", "agent", "run_id", flowRunID)
+			// Include the reply payload (truncated like chat_input) so Flow
+			// Monitor can render OUT for slash turns — without it, turnIO
+			// has no source for the output field on these no-lifecycle turns.
+			msgPreview := payload.Message
+			if len(msgPreview) > 500 {
+				msgPreview = msgPreview[:500] + "…"
+			}
 			flow.Log("chat_final_ok", map[string]any{
 				"run_id":            flowRunID,
 				"state":             "final",
 				"message_empty":     false,
 				"lifecycle_started": false,
+				"message":           msgPreview,
 			}, flowRunID)
 		}
 
