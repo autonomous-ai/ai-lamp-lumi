@@ -5,7 +5,6 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models.action import ActionPerceptionSessionConfigUpdate
 from protocols.models.action import (
     ActionConfigRequest,
     ActionFrameRequest,
@@ -64,12 +63,10 @@ async def action_analysis_ws(websocket: WebSocket):
 
                     case ActionConfigRequest():
                         action_recognizer.update_config(
-                            ActionPerceptionSessionConfigUpdate(
-                                whitelist=req.whitelist,
-                                threshold=req.threshold,
-                                person_detection_enabled=req.person_detection_enabled,
-                                person_min_area_ratio=req.person_min_area_ratio,
-                            )
+                            whitelist=req.whitelist,
+                            threshold=req.threshold,
+                            person_detection_enabled=req.person_detection_enabled,
+                            person_min_area_ratio=req.person_min_area_ratio,
                         )
                         await websocket.send_json({"status": "config_updated"})
                     case ActionHeartBeatRequest():

@@ -5,11 +5,11 @@ Routers call getters to access the loaded models.
 """
 
 from core.perception.action.perception import ActionPerception
-from core.perception.emotion.emotion import EmotionAnalysis
+from core.perception.emotion.perception import EmotionPerception
 from core.perception.pose.pose import PoseAnalysis
 
 _action_model: ActionPerception | None = None
-_emotion_model: EmotionAnalysis | None = None
+_emotion_model: EmotionPerception | None = None
 _pose_model: PoseAnalysis | None = None
 
 
@@ -22,11 +22,11 @@ def set_action_model(model: ActionPerception | None) -> None:
     _action_model = model
 
 
-def get_emotion_model() -> EmotionAnalysis | None:
+def get_emotion_model() -> EmotionPerception | None:
     return _emotion_model
 
 
-def set_emotion_model(model: EmotionAnalysis | None) -> None:
+def set_emotion_model(model: EmotionPerception | None) -> None:
     global _emotion_model
     _emotion_model = model
 

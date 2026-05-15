@@ -9,7 +9,6 @@ from typing_extensions import override
 
 from core.models.action import (
     ActionPerceptionSessionConfig,
-    ActionPerceptionSessionConfigUpdate,
     HumanAction,
     HumanActionDetection,
     RawHumanActionDetection,
@@ -18,6 +17,7 @@ from core.models.media import Video
 from core.perception.action.predictors import HumanActionRecognizer
 from core.perception.base import PerceptionSessionBase
 from core.perception.person.predictors import PersonDetector
+from core.types import Omit, omit
 
 
 class ActionPerceptionSession(
@@ -25,7 +25,6 @@ class ActionPerceptionSession(
         cv2t.MatLike,
         HumanActionDetection,
         ActionPerceptionSessionConfig,
-        ActionPerceptionSessionConfigUpdate,
     ]
 ):
     DEFAULT_CONFIG: ActionPerceptionSessionConfig = ActionPerceptionSessionConfig()
@@ -92,14 +91,16 @@ class ActionPerceptionSession(
 
                 input = crop
 
-            preprocessed_input = self._action_recognizer.preprocess(input)
+            preprocessed_input = self._action_recognizer.preprocess_single_frame(input)
 
             self._frame_buffer.append(preprocessed_input)
             while len(self._frame_buffer) > self._action_recognizer.max_frames:
                 _ = self._frame_buffer.popleft()
 
             raw_prediction: RawHumanActionDetection = self._action_recognizer.predict(
-                [Video(frames=list(self._frame_buffer))], self._class_mask
+                [Video(frames=list(self._frame_buffer))],
+                preprocess=False,
+                class_mask=self._class_mask,
             )[0]
 
             action_ids = np.where(raw_prediction.prob_np > self._config.threshold)[0]
@@ -127,6 +128,24 @@ class ActionPerceptionSession(
                 )
 
         return self._last_prediction
+
+    @override
+    def update_config(
+        self,
+        *,
+        frame_interval: float | Omit = omit,
+        whitelist: list[str] | None | Omit = omit,
+        threshold: float | Omit = omit,
+        person_detection_enabled: bool | None | Omit = omit,
+        person_min_area_ratio: float | Omit = omit,
+    ) -> None:
+        super().update_config(
+            frame_interval=frame_interval,
+            whitelist=whitelist,
+            threshold=threshold,
+            person_detection_enabled=person_detection_enabled,
+            person_min_area_ratio=person_min_area_ratio,
+        )
 
     @override
     def _post_config_update(self) -> None:

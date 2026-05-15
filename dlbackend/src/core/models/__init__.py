@@ -1,32 +1,18 @@
 from .emotion import (
-    EmotionConfigRequest,
+    Emotion,
     EmotionDetection,
-    EmotionFrameRequest,
-    EmotionHeartBeatRequest,
-    EmotionRecognizeRequest,
-    EmotionRecognizeResponse,
-    EmotionRequest,
-    EmotionResponse,
+    EmotionPerceptionSessionConfig,
+    RawEmotionDetection,
 )
 from .object import DetectionRequest, DetectionResult
 from .person import PersonDetection
 
 __all__ = [
-    "ActionConfigRequest",
-    "ActionDetection",
-    "ActionFrameRequest",
-    "ActionHeartBeatRequest",
-    "ActionRequest",
-    "ActionResponse",
     "DetectionRequest",
     "DetectionResult",
-    "EmotionConfigRequest",
+    "Emotion",
     "EmotionDetection",
-    "EmotionFrameRequest",
-    "EmotionHeartBeatRequest",
-    "EmotionRecognizeRequest",
-    "EmotionRecognizeResponse",
-    "EmotionRequest",
-    "EmotionResponse",
+    "EmotionPerceptionSessionConfig",
     "PersonDetection",
+    "RawEmotionDetection",
 ]

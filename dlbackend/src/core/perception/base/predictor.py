@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 INPUT_T = TypeVar("INPUT_T")
 OUTPUT_T = TypeVar("OUTPUT_T")
@@ -26,6 +26,16 @@ class PredictorBase(Generic[INPUT_T, OUTPUT_T], ABC):
         pass
 
     @abstractmethod
-    def predict(self, input: list[INPUT_T]) -> list[OUTPUT_T]:
-        """Make prediction on a batch of input."""
-        pass
+    def preprocess(self, input: list[INPUT_T]) -> list[Any]:
+        """Preprocess a batch of inputs for inference."""
+
+    @abstractmethod
+    def predict(self, input: list[INPUT_T], *, preprocess: bool = True) -> list[OUTPUT_T]:
+        """Make prediction on a batch of input.
+
+        Args:
+            input: Batch of inputs.
+            preprocess: If True (default), run preprocess on each input
+                before inference. Set to False when input is already
+                preprocessed (e.g. from a buffer).
+        """
