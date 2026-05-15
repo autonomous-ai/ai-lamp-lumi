@@ -34,12 +34,27 @@ import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+// Sections rendered as full-bleed iframes — they need their own padding/overflow override.
+const EMBED_SECTIONS = new Set<Section>(["api-docs", "agent-gateway", "agent-config"]);
+
+const iframeStyle: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  border: "none",
+  display: "block",
+  background: "var(--lm-card)",
+};
+
 function allNavLeaves(): { id: Section; label: string; icon: string }[] {
   const leaves: { id: Section; label: string; icon: string }[] = [];
   for (const entry of NAV) {
     if (isNavGroup(entry)) entry.children.forEach((c) => { if (!isNavLink(c)) leaves.push(c); });
     else leaves.push(entry);
   }
+  // Agent gateway/config aren't in NAV (rendered by AgentGWMenu) — register
+  // them here so hash routing + topbar title work for these embedded views.
+  leaves.push({ id: "agent-gateway", label: "Agent Gateway", icon: "◉" });
+  leaves.push({ id: "agent-config",  label: "Agent Config",  icon: "◈" });
   return leaves;
 }
 
@@ -96,23 +111,13 @@ function NavGroupItem({ entry, section, setSection, closeSidebar }: {
   );
 }
 
-function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
-  const [open, setOpen] = useState(false);
-  // Pull the gateway auth token from openclaw.json so the Gateway link can
-  // include it as a URL fragment — Control UI 5.2 requires `#token=…` (query
-  // string is rejected with a deprecation warning) and won't render without it.
-  const [gwToken, setGwToken] = useState<string>("");
-  useEffect(() => {
-    fetch("/api/openclaw/config-json")
-      .then((r) => r.json())
-      .then((res) => {
-        const cfg = res?.data;
-        const token = cfg?.gateway?.auth?.token;
-        if (typeof token === "string" && token) setGwToken(token);
-      })
-      .catch(() => {});
-  }, []);
-  const gwHref = `/gw/chat?session=agent:main:main${gwToken ? `#token=${gwToken}` : ""}`;
+function AgentGWMenu({ section, setSection, closeSidebar }: {
+  section: Section;
+  setSection: (s: Section) => void;
+  closeSidebar: () => void;
+}) {
+  const hasActive = section === "agent-gateway" || section === "agent-config";
+  const [open, setOpen] = useState(hasActive);
   return (
     <div>
       <button
@@ -131,14 +136,19 @@ function AgentGWMenu({ closeSidebar }: { closeSidebar: () => void }) {
       </button>
       {open && (
         <div style={{ paddingLeft: 12 }}>
-          {/* OpenClaw chat for the main agent session — webchat + Telegram + Lumi
-              all share sessionKey=agent:main:main, so this opens the live
-              transcript directly. */}
-          <a href={gwHref} style={S.navItem(false)} target="_blank" rel="noreferrer" onClick={closeSidebar}>
-            <span style={{ fontSize: 12, lineHeight: 1 }}>↗</span>
+          <a
+            href="#agent-gateway"
+            style={S.navItem(section === "agent-gateway")}
+            onClick={(e) => { e.preventDefault(); setSection("agent-gateway"); closeSidebar(); }}
+          >
+            <span style={{ fontSize: 12, lineHeight: 1 }}>◉</span>
             Gateway
           </a>
-          <a href="/gw-config" style={S.navItem(false)} onClick={closeSidebar}>
+          <a
+            href="#agent-config"
+            style={S.navItem(section === "agent-config")}
+            onClick={(e) => { e.preventDefault(); setSection("agent-config"); closeSidebar(); }}
+          >
             <span style={{ fontSize: 12, lineHeight: 1 }}>◈</span>
             Config
           </a>
@@ -184,6 +194,22 @@ export default function Monitor() {
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [ramHistory, setRamHistory] = useState<number[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string>("");
+
+  // Gateway auth token — Control UI 5.2 requires `#token=…` in URL fragment.
+  // Lazily fetched once; the iframe URL is built from it when the section opens.
+  const [gwToken, setGwToken] = useState<string>("");
+  useEffect(() => {
+    if (gwToken) return;
+    if (section !== "agent-gateway") return;
+    fetch("/api/openclaw/config-json")
+      .then((r) => r.json())
+      .then((res) => {
+        const t = res?.data?.gateway?.auth?.token;
+        if (typeof t === "string" && t) setGwToken(t);
+      })
+      .catch(() => {});
+  }, [section, gwToken]);
+  const gwHref = `/gw/chat?session=agent:main:main${gwToken ? `#token=${gwToken}` : ""}`;
 
   const evtIdRef = useRef(0);
   const clearFlowEvents = useCallback(() => {
@@ -323,7 +349,7 @@ export default function Monitor() {
             <span style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
             Settings
           </a>
-          <AgentGWMenu closeSidebar={closeSidebar} />
+          <AgentGWMenu section={section} setSection={setSection} closeSidebar={closeSidebar} />
           {NAV.filter((e) => isNavGroup(e) || (!isNavGroup(e) && e.id !== "chat")).map((entry) =>
             isNavGroup(entry) ? (
               <NavGroupItem key={entry.group} entry={entry} section={section} setSection={setSection} closeSidebar={closeSidebar} />
@@ -384,7 +410,7 @@ export default function Monitor() {
         <div style={{
           ...S.content,
           ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}),
-          ...(section === "api-docs" ? { padding: 0, overflow: "hidden" } : {}),
+          ...(EMBED_SECTIONS.has(section) ? { padding: 0, overflow: "hidden" } : {}),
         }} className="lm-content lm-fade-in">
           {section === "overview" && (
             <OverviewSection
@@ -437,13 +463,21 @@ export default function Monitor() {
             <iframe
               title="API Docs"
               src="/hw/docs"
-              style={{
-                width: "100%",
-                height: "100%",
-                border: "none",
-                display: "block",
-                background: "var(--lm-card)",
-              }}
+              style={iframeStyle}
+            />
+          )}
+          {section === "agent-gateway" && (
+            <iframe
+              title="Agent Gateway"
+              src={gwHref}
+              style={iframeStyle}
+            />
+          )}
+          {section === "agent-config" && (
+            <iframe
+              title="Agent Config"
+              src="/gw-config"
+              style={iframeStyle}
             />
           )}
         </div>

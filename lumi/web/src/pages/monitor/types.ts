@@ -132,7 +132,7 @@ export interface DisplayEvent extends MonitorEvent {
   _seq: number;
 }
 
-export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli" | "sensing" | "api-docs";
+export type Section = "overview" | "system" | "flow" | "camera" | "servo" | "face-owners" | "analytics" | "logs" | "chat" | "cli" | "sensing" | "api-docs" | "agent-gateway" | "agent-config";
 
 export type NavLeaf = { id: Section; label: string; icon: string };
 export type NavLink = { href: string; label: string; icon: string; external?: boolean };
