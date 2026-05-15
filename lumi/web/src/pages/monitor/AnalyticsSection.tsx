@@ -97,10 +97,32 @@ export function AnalyticsSection() {
   useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
   const dates = analytics?.dates ?? [];
-  const versions = analytics?.versions ?? [];
-  const rows = analytics?.rows ?? [];
+  const allVersions = analytics?.versions ?? [];
+  const allRows = analytics?.rows ?? [];
   const labels = dates.map((d) => d.slice(5));
+
+  // Cap to the 10 most recent versions — old versions clutter the legend and
+  // dilute chart colors. "Most recent" = max date each version appears on.
+  const VERSION_LIMIT = 10;
+  const versions = useMemo(() => {
+    if (allVersions.length <= VERSION_LIMIT) return allVersions;
+    const lastSeen: Record<string, string> = {};
+    for (const r of allRows) {
+      if (!lastSeen[r.version] || r.date > lastSeen[r.version]) {
+        lastSeen[r.version] = r.date;
+      }
+    }
+    return [...allVersions]
+      .sort((a, b) => (lastSeen[b] ?? "").localeCompare(lastSeen[a] ?? ""))
+      .slice(0, VERSION_LIMIT);
+  }, [allVersions, allRows]);
+
+  // Filter rows to only the kept versions so summary totals match what's plotted.
+  const versionSet = useMemo(() => new Set(versions), [versions]);
+  const rows = useMemo(() => allRows.filter((r) => versionSet.has(r.version)), [allRows, versionSet]);
+
   const multiVersion = versions.length > 1;
+  const hiddenVersionCount = allVersions.length - versions.length;
 
   const rowMap = useMemo(() => {
     const m: Record<string, Record<string, VersionMetrics>> = {};
@@ -153,13 +175,26 @@ export function AnalyticsSection() {
     padding: "16px 12px",
   };
 
+  const dateInputStyle: React.CSSProperties = {
+    background: "var(--lm-surface)",
+    color: "var(--lm-text)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 6,
+    padding: "5px 10px",
+    fontSize: 11,
+    fontFamily: "monospace",
+    colorScheme: "dark",
+  };
+
   const makeVersionDatasets = (
     fn: (m: VersionMetrics) => number,
-    opts?: { type?: "bar" | "line"; fill?: boolean },
+    opts?: { type?: "bar" | "line"; fill?: boolean; singleLabel?: string },
   ) => {
     const type = opts?.type ?? "line";
     return versions.map((ver, vi) => ({
-      label: multiVersion ? `v${ver}` : fn.name || "Value",
+      // arrow functions have .name === "" so fall back to the caller-provided
+      // singleLabel for the single-version case.
+      label: multiVersion ? `v${ver}` : (opts?.singleLabel ?? "Value"),
       data: dates.map((d) => val(d, ver, fn)),
       ...(type === "bar"
         ? { backgroundColor: vColor(vi).border, borderRadius: 4, barPercentage: multiVersion ? 0.8 : 0.6 }
@@ -173,42 +208,102 @@ export function AnalyticsSection() {
     }));
   };
 
+  const exportCsv = () => {
+    const headers = ["date", "version", "turns", "billed_tokens", "raw_tokens", "duration_avg_ms", "duration_p50_ms", "duration_p95_ms", "tokens_avg", "inner_avg", "inner_max"];
+    const lines = [headers.join(",")];
+    for (const r of rows) {
+      lines.push([
+        r.date, r.version,
+        r.metrics.turnCount, r.metrics.tokensBilled, r.metrics.tokensTotal,
+        r.metrics.durationAvg, r.metrics.durationP50, r.metrics.durationP95,
+        Math.round(r.metrics.tokensAvg), r.metrics.innerAvg.toFixed(2), r.metrics.innerMax,
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lumi-analytics-${dateRange.from}_to_${dateRange.to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Date range picker */}
-      <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 11, color: "var(--lm-text-muted)", fontWeight: 600 }}>RANGE</span>
-        {(["7d", "14d", "30d", "custom"] as Preset[]).map((p) => (
-          <button key={p} style={pillStyle(preset === p)} onClick={() => setPreset(p)}>
-            {p === "custom" ? "Custom" : p}
-          </button>
-        ))}
-        {preset === "custom" && (
-          <>
-            <input
-              type="date"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              style={{ background: "var(--lm-card)", color: "var(--lm-text)", border: "1px solid var(--lm-border)", borderRadius: 6, padding: "4px 8px", fontSize: 11 }}
-            />
-            <span style={{ color: "var(--lm-text-muted)" }}>—</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              style={{ background: "var(--lm-card)", color: "var(--lm-text)", border: "1px solid var(--lm-border)", borderRadius: 6, padding: "4px 8px", fontSize: 11 }}
-            />
-          </>
-        )}
-        {loading && <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading...</span>}
+      {/* Range bar — split into two rows so presets+actions and legend each get their own line. */}
+      <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--lm-text-muted)", fontWeight: 600 }}>RANGE</span>
+          {(["7d", "14d", "30d", "custom"] as Preset[]).map((p) => (
+            <button key={p} style={pillStyle(preset === p)} onClick={() => setPreset(p)}>
+              {p === "custom" ? "Custom" : p}
+            </button>
+          ))}
+          {preset === "custom" && (
+            <>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                style={dateInputStyle}
+              />
+              <span style={{ color: "var(--lm-text-muted)" }}>—</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                style={dateInputStyle}
+              />
+            </>
+          )}
+          <span style={{ flex: 1 }} />
+          {loading && (
+            <span style={{
+              fontSize: 10, padding: "2px 8px", borderRadius: 4,
+              background: "rgba(245,158,11,0.15)", color: "var(--lm-amber)",
+              fontWeight: 700, letterSpacing: "0.05em",
+            }}>LOADING…</span>
+          )}
+          <button
+            onClick={fetchAnalytics}
+            disabled={loading}
+            title="Refresh"
+            style={{
+              padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+              color: "var(--lm-text-dim)", cursor: loading ? "wait" : "pointer",
+            }}
+          >↻</button>
+          <button
+            onClick={exportCsv}
+            disabled={rows.length === 0}
+            title="Download as CSV"
+            style={{
+              padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+              color: rows.length === 0 ? "var(--lm-text-muted)" : "var(--lm-amber)",
+              cursor: rows.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >↓ CSV</button>
+        </div>
+
         {versions.length > 0 && (
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "var(--lm-text-muted)", fontWeight: 600, letterSpacing: "0.05em" }}>VERSIONS</span>
             {versions.map((v, i) => (
-              <span key={v} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--lm-text-muted)" }}>
-                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: vColor(i).border }} />
+              <span key={v} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--lm-text-dim)" }}>
+                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: vColor(i).border }} />
                 v{v}
               </span>
             ))}
+            {hiddenVersionCount > 0 && (
+              <span
+                style={{ fontSize: 10, color: "var(--lm-text-muted)", fontStyle: "italic" }}
+                title="Older versions are excluded so colors stay distinct. Narrow the range to inspect them."
+              >
+                +{hiddenVersionCount} older hidden
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -244,35 +339,35 @@ export function AnalyticsSection() {
         <>
           {/* Row 1: Turn count + Duration */}
           <div className="lm-grid-2">
-            <div style={{ ...S.card, height: 260 }}>
+            <div style={{ ...S.card, height: 280 }}>
               <div style={S.cardLabel}>Turn Count per Day {multiVersion && "— by version"}</div>
-              <div style={{ height: 210 }}>
+              <div style={{ height: 230 }}>
                 <Bar
-                  data={{ labels, datasets: makeVersionDatasets((m) => m.turnCount, { type: "bar" }) }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => m.turnCount, { type: "bar", singleLabel: "Turns" }) }}
                   options={commonOptions}
                 />
               </div>
             </div>
 
-            <div style={{ ...S.card, height: 260 }}>
+            <div style={{ ...S.card, height: 280 }}>
               <div style={S.cardLabel}>Avg Duration (seconds) {multiVersion && "— by version"}</div>
-              <div style={{ height: 210 }}>
+              <div style={{ height: 230 }}>
                 <Line
-                  data={{ labels, datasets: makeVersionDatasets((m) => +(m.durationAvg / 1000).toFixed(2)) }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => +(m.durationAvg / 1000).toFixed(2), { singleLabel: "Duration (s)" }) }}
                   options={commonOptions}
                 />
               </div>
             </div>
           </div>
 
-          {/* Row 2: Tokens stacked bar + Tokens per turn */}
+          {/* Row 2: Tokens billed bar + Tokens per turn */}
           <div className="lm-grid-2">
-            <div style={{ ...S.card, height: 260 }}>
+            <div style={{ ...S.card, height: 280 }}>
               <div style={S.cardLabel}>Billed Tokens {multiVersion && "— by version"}</div>
-              <div style={{ height: 210 }}>
+              <div style={{ height: 230 }}>
                 {multiVersion ? (
                   <Bar
-                    data={{ labels, datasets: makeVersionDatasets((m) => m.tokensBilled, { type: "bar" }) }}
+                    data={{ labels, datasets: makeVersionDatasets((m) => m.tokensBilled, { type: "bar", singleLabel: "Billed" }) }}
                     options={commonOptions}
                   />
                 ) : (
@@ -290,23 +385,28 @@ export function AnalyticsSection() {
               </div>
             </div>
 
-            <div style={{ ...S.card, height: 260 }}>
+            <div style={{ ...S.card, height: 280 }}>
               <div style={S.cardLabel}>Tokens per Turn {multiVersion && "— by version"}</div>
-              <div style={{ height: 210 }}>
+              <div style={{ height: 230 }}>
                 <Line
-                  data={{ labels, datasets: makeVersionDatasets((m) => Math.round(m.tokensAvg)) }}
+                  data={{ labels, datasets: makeVersionDatasets((m) => Math.round(m.tokensAvg), { singleLabel: "Avg tokens" }) }}
                   options={commonOptions}
                 />
               </div>
             </div>
           </div>
 
-          {/* Row 3: Inner steps */}
-          <div style={{ ...S.card, height: 260 }}>
-            <div style={S.cardLabel}>Inner Loop Steps {multiVersion && "— by version"}</div>
-            <div style={{ height: 210 }}>
+          {/* Row 3: Inner steps — average reasoning steps per turn (agent loop iterations) */}
+          <div style={{ ...S.card, height: 280 }}>
+            <div
+              style={S.cardLabel}
+              title="Average number of inner agent loop steps per turn (tool calls + reasoning iterations before final response)"
+            >
+              Inner Loop Steps {multiVersion && "— by version"}
+            </div>
+            <div style={{ height: 230 }}>
               <Line
-                data={{ labels, datasets: makeVersionDatasets((m) => +m.innerAvg.toFixed(1)) }}
+                data={{ labels, datasets: makeVersionDatasets((m) => +m.innerAvg.toFixed(1), { singleLabel: "Inner steps" }) }}
                 options={commonOptions}
               />
             </div>
