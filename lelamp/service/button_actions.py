@@ -117,10 +117,29 @@ def _tts_available() -> bool:
     )
 
 
+def _wake_if_sleepy(source: str):
+    """If Lumi is currently sleeping, fire a stretching wake emotion so a
+    click pulls her out of sleep before the listening cue lands. Calls
+    the /emotion handler in-process — it clears `_sleeping`, cancels the
+    sleepy auto-release timer, plays the wake animation, and auto-deactivates
+    any active scene (e.g. Night mode)."""
+    if not state._sleeping:
+        return
+    logger.info("%s single click -- waking from sleep", source)
+    try:
+        from lelamp.models import EmotionRequest
+        from lelamp.routes.emotion import express_emotion
+        express_emotion(EmotionRequest(emotion="stretching"))
+    except Exception as e:
+        logger.warning("Wake emotion call failed: %s", e)
+
+
 def single_click_action(source: str = "button"):
     """Stop in-flight speech / unmute mic, then announce listening cue."""
     from lelamp.routes.music import audio_stop
     from lelamp.routes.voice import stop_tts, unmute_mic
+
+    _wake_if_sleepy(source)
 
     if state._mic_muted:
         logger.info("%s single click -- unmuting mic", source)
