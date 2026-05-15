@@ -46,7 +46,8 @@ lelamp/
 ├── config.py                     — Hằng số runtime (ngưỡng sensing, timeout, URL)
 ├── devices/                      — Camera device abstraction (LocalVideoCaptureDevice)
 ├── service/
-│   ├── voice/voice_service.py    — Local VAD + Deepgram STT
+│   ├── voice/voice_service.py    — Local VAD + Deepgram STT, speaker ID, SER submit
+│   ├── voice/speech_emotion/     — Queue SER → dlbackend → Lumi speech_emotion.detected
 │   ├── voice/tts_service.py      — OpenAI-compatible TTS
 │   ├── sensing/
 │   │   ├── sensing_service.py    — Vòng lặp sensing nền
@@ -77,7 +78,10 @@ Mic (always on) → Local VAD (RMS energy, free)
         → "hey lumi, tắt đèn" → voice_command → local intent → thực thi
         → "anh ơi đi ăn không" → voice (ambient) → OpenClaw
     → Silence 3s → Disconnect Deepgram
+    → _finalize_voice_turn: speaker decorate + speech emotion (WAV → dlbackend SER → Lumi event)
 ```
+
+Chi tiết SER: [speech-emotion_vi.md](speech-emotion_vi.md).
 
 ## Sensing Flow
 

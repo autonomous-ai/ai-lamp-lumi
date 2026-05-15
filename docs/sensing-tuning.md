@@ -186,14 +186,16 @@ Per-face motion opens a separate WS session per detected face and runs action re
 
 ## Speech Emotion Recognition (SER)
 
-**File:** `lelamp/config.py` — see also [Speech Emotion Recognition](speech-emotion.md) for the architecture.
+**Files:** `lelamp/config.py`, `lelamp/service/voice/voice_service.py` (`_finalize_voice_turn`, `_identify_and_decorate`, `_session_wav_for_ser`) — see also [Speech Emotion Recognition](speech-emotion.md) for the full architecture. **Vietnamese:** [docs/vi/sensing-tuning_vi.md](vi/sensing-tuning_vi.md) (SER section), [speech-emotion_vi.md](vi/speech-emotion_vi.md).
+
+**Voice integration (post-STT):** `_identify_and_decorate` only decorates the Lumi transcript and returns `(message, user_name | None)`. `_finalize_voice_turn` then builds WAV from `audio_buffer`, uses `user_name` or falls back to `"unknown"`, and calls `_submit_speech_emotion_after_speaker`. Unknown / no-match speakers still enqueue SER under the shared `unknown` dedup key when audio is long enough.
 
 ```python
 SPEECH_EMOTION_ENABLED = True
 SPEECH_EMOTION_CONFIDENCE_THRESHOLD = 0.5   # Min model confidence to buffer
 SPEECH_EMOTION_FLUSH_S = 10.0               # Per-user buffer drain cadence
 SPEECH_EMOTION_DEDUP_WINDOW_S = 300.0       # (user, bucket) TTL — 5 min
-SPEECH_EMOTION_MIN_AUDIO_S = 0.8            # Skip utterances shorter than this
+SPEECH_EMOTION_MIN_AUDIO_S = 3.0            # Skip utterances shorter than this (lelamp.config default)
 SPEECH_EMOTION_API_TIMEOUT_S = 15           # dlbackend HTTP timeout
 DL_SER_ENDPOINT = "/lelamp/api/dl/ser/recognize"
 ```
@@ -217,10 +219,10 @@ The `flushing` line shows the raw label list — that's the mode-over-samples th
 |---------|-----|
 | Same-bucket events fire too often | Increase `SPEECH_EMOTION_DEDUP_WINDOW_S` (300 → 600) |
 | Single-utterance noisy reads slip through | Increase `SPEECH_EMOTION_CONFIDENCE_THRESHOLD` (0.5 → 0.65) |
-| Short "yeah" / "ok" utterances flagged | Increase `SPEECH_EMOTION_MIN_AUDIO_S` (0.8 → 1.5) |
+| Short "yeah" / "ok" utterances flagged | Increase `SPEECH_EMOTION_MIN_AUDIO_S` (3.0 → 4.0) |
 | Mood lag — Lumi too slow to react after a real shift | Decrease `SPEECH_EMOTION_FLUSH_S` (10 → 5) |
 | Worker queue full warnings in log | Investigate dlbackend latency; raising queue size is not enough — backlog means something downstream is wedged |
-| Events fire for `Unknown Speaker` (they should not) | Check `submit()` call site in `voice_service._identify_and_decorate` — should only submit when `match==true` and `name != "unknown"` |
+| Too many `speech_emotion.detected` for strangers | Expected: unknown speakers use `user="unknown"`; tighten `SPEECH_EMOTION_CONFIDENCE_THRESHOLD` or dedup window — do not disable SER solely because Lumi transcript says `Unknown Speaker:` |
 
 ---
 

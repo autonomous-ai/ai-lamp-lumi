@@ -211,7 +211,7 @@ SPEECH_EMOTION_DEDUP_WINDOW_S: float = float(
     os.environ.get("LELAMP_SPEECH_EMOTION_DEDUP_WINDOW_S", "300.0")
 )
 SPEECH_EMOTION_MIN_AUDIO_S: float = float(
-    os.environ.get("LELAMP_SPEECH_EMOTION_MIN_AUDIO_S", "0.8")
+    os.environ.get("LELAMP_SPEECH_EMOTION_MIN_AUDIO_S", "3.0")
 )
 SPEECH_EMOTION_API_TIMEOUT_S: float = float(
     os.environ.get("LELAMP_SPEECH_EMOTION_API_TIMEOUT_S", "15")
