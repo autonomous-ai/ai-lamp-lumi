@@ -381,8 +381,9 @@ export function FlowSection({
         detectedType = extractSensingType(ev.summary) ?? "";
       }
       const isMicEmotion = /speech_emotion/i.test(detectedType ?? "");
-      const isCam = !isMicEmotion && /motion|presence|light|emotion|touch/i.test(detectedType ?? "");
-      visitedStages.add(isCam ? "cam_input" : "mic_input");
+      const isButton = /^touch\./i.test(detectedType ?? "");
+      const isCam = !isMicEmotion && !isButton && /motion|presence|light|emotion/i.test(detectedType ?? "");
+      visitedStages.add(isButton ? "button_input" : isCam ? "cam_input" : "mic_input");
       break;
     }
   }
