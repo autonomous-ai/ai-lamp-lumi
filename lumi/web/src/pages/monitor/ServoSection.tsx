@@ -388,41 +388,44 @@ export function ServoSection() {
   );
 }
 
-// Per-servo card: joint name, ID, online dot, angle progress bar + value.
+// Per-servo row — flat single-row grid so every joint name, ID, bar, and
+// angle value lines up vertically across all servos.
 function ServoCard({ joint, info }: { joint: string; info: ServoDetail }) {
   return (
     <div style={{
-      padding: "10px 12px", borderRadius: 6,
+      display: "grid",
+      gridTemplateColumns: "10px minmax(72px, max-content) 28px 1fr 50px",
+      alignItems: "center",
+      gap: 8,
+      padding: "6px 10px",
+      borderRadius: 6,
       background: "var(--lm-surface)",
       border: `1px solid ${info.online ? "var(--lm-border)" : "rgba(239,68,68,0.4)"}`,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)" }}>
-          {joint.replace(".pos", "")}
-        </span>
-        <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>ID {info.id}</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <StatusDot ok={info.online} />
-        {info.online && info.angle != null ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
-              <div style={{
-                width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
-                height: "100%", borderRadius: 3,
-                background: "var(--lm-teal)", transition: "width 0.3s ease",
-              }} />
-            </div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lm-teal)", minWidth: 48, textAlign: "right", fontFamily: "monospace" }}>
-              {info.angle.toFixed(1)}°
-            </span>
-          </div>
-        ) : (
-          <span style={{ fontSize: 11, color: "var(--lm-red)" }}>
-            {info.error || "offline"}
-          </span>
-        )}
-      </div>
+      <StatusDot ok={info.online} />
+      <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-text-dim)", fontFamily: "monospace" }}>
+        {joint.replace(".pos", "")}
+      </span>
+      <span style={{ fontSize: 10, color: "var(--lm-text-muted)", textAlign: "right" }}>
+        #{info.id}
+      </span>
+      {info.online && info.angle != null ? (
+        <div style={{ height: 6, borderRadius: 3, background: "var(--lm-border)", overflow: "hidden" }}>
+          <div style={{
+            width: `${Math.min(100, Math.max(0, ((info.angle + 180) / 360) * 100))}%`,
+            height: "100%", borderRadius: 3,
+            background: "var(--lm-teal)", transition: "width 0.3s ease",
+          }} />
+        </div>
+      ) : <span />}
+      <span style={{
+        fontSize: 11, fontWeight: 600,
+        color: info.online && info.angle != null ? "var(--lm-teal)" : "var(--lm-red)",
+        textAlign: "right", fontFamily: "monospace",
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {info.online && info.angle != null ? `${info.angle.toFixed(1)}°` : (info.error || "off")}
+      </span>
     </div>
   );
 }
