@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Pencil, Trash2, History, ChevronDown, ChevronRight } from "lucide-react";
 import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
@@ -111,6 +112,10 @@ export function FaceOwnersSection() {
 
   // Timeline modal state
   const [timelineUser, setTimelineUser] = useState<string | null>(null);
+
+  // Person card expand state — cards start collapsed so the grid stays dense.
+  // Auto-expands the currently-active user the first time it appears.
+  const [expandedPerson, setExpandedPerson] = useState<Record<string, boolean>>({});
 
   // Unknown voice clusters (/voice/strangers).
   const [strangers, setStrangers] = useState<StrangersData | null>(null);
@@ -478,6 +483,20 @@ export function FaceOwnersSection() {
     fontWeight: 600,
   };
 
+  // Square icon button — used for the per-person action row (Edit / Timeline /
+  // Delete / Expand) so each is the same compact size regardless of label width.
+  const iconBtnStyle: React.CSSProperties = {
+    width: 26, height: 26,
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    padding: 0, borderRadius: 5,
+    background: "var(--lm-surface)",
+    color: "var(--lm-text-dim)",
+    border: "1px solid var(--lm-border)",
+    cursor: "pointer",
+    fontSize: 13,
+    lineHeight: 1,
+  };
+
   const allCooldownEntries = [
     ...(cooldowns?.owners ?? []),
     ...(cooldowns?.strangers ?? []),
@@ -486,68 +505,59 @@ export function FaceOwnersSection() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Summary */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Users</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={() => setShowEnroll(!showEnroll)}
-              style={{
-                ...btnStyle,
-                background: showEnroll ? "var(--lm-amber-dim)" : "var(--lm-surface)",
-                color: showEnroll ? "var(--lm-amber)" : "var(--lm-text-dim)",
-              }}
-            >
-              + Enroll
-            </button>
-            <button
-              onClick={refresh}
-              style={{
-                ...btnStyle,
-                background: "var(--lm-surface)",
-                color: "var(--lm-text-dim)",
-              }}
-            >
-              Refresh
-            </button>
-          </div>
+      {/* Summary — single-row strip: label + counts + "here now" pill + actions.
+          Everything inline so it reads at a glance and doesn't waste vertical space. */}
+      <div style={{ ...S.card, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ ...S.cardLabel, marginBottom: 0 }}>Users</div>
+
+        {error ? (
+          <span style={{ fontSize: 11, color: "var(--lm-red)" }}>
+            User recognizer unavailable
+          </span>
+        ) : data ? (
+          <span style={{ fontSize: 12, color: "var(--lm-text-dim)" }}>
+            <span style={{ fontWeight: 700, color: "var(--lm-amber)" }}>{data.enrolled_count}</span>
+            {" "}enrolled
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading…</span>
+        )}
+
+        {currentUser && (
+          <span style={{
+            fontSize: 11,
+            padding: "3px 9px",
+            borderRadius: 4,
+            background: currentUser === "unknown" ? "rgba(148,163,184,0.15)" : "rgba(45,212,191,0.18)",
+            color: currentUser === "unknown" ? "var(--lm-text-muted)" : "var(--lm-teal)",
+            fontWeight: 700,
+            textTransform: "capitalize",
+            letterSpacing: "0.03em",
+          }}>
+            ● {currentUser}
+          </span>
+        )}
+
+        <span style={{ flex: 1 }} />
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setShowEnroll(!showEnroll)}
+            style={{
+              ...btnStyle,
+              background: showEnroll ? "var(--lm-amber-dim)" : "var(--lm-surface)",
+              color: showEnroll ? "var(--lm-amber)" : "var(--lm-text-dim)",
+            }}
+          >
+            + Enroll
+          </button>
+          <button
+            onClick={refresh}
+            style={{ ...btnStyle, background: "var(--lm-surface)", color: "var(--lm-text-dim)" }}
+          >
+            ↻
+          </button>
         </div>
-
-        {error && (
-          <div style={{ fontSize: 12, color: "var(--lm-red)" }}>
-            User recognizer unavailable (sensing not started?)
-          </div>
-        )}
-
-        {!error && data && (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 24, fontWeight: 700, color: "var(--lm-amber)" }}>
-              {data.enrolled_count}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>
-              enrolled user{data.enrolled_count !== 1 ? "s" : ""}
-            </span>
-            {currentUser && (
-              <span style={{
-                marginLeft: "auto",
-                fontSize: 12,
-                padding: "4px 10px",
-                borderRadius: 6,
-                background: currentUser === "unknown" ? "var(--lm-text-muted-bg, rgba(148,163,184,0.15))" : "rgba(45,212,191,0.18)",
-                color: currentUser === "unknown" ? "var(--lm-text-muted)" : "var(--lm-teal)",
-                fontWeight: 700,
-                textTransform: "capitalize",
-              }}>
-                👤 Here now: {currentUser}
-              </span>
-            )}
-          </div>
-        )}
-
-        {!error && !data && (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>Loading...</div>
-        )}
       </div>
 
       {/* Enroll form */}
@@ -610,9 +620,12 @@ export function FaceOwnersSection() {
 
       {/* Person cards */}
       {data && data.persons.length > 0 && (
-        <div className="lm-grid-2">
+        <div className="lm-grid-4">
           {data.persons.map((person) => {
             const isCurrent = !!currentUser && currentUser === person.label;
+            // Expand active user by default so the most-relevant card is open;
+            // others stay collapsed until clicked.
+            const isExpanded = expandedPerson[person.label] ?? isCurrent;
             const cardStyle: React.CSSProperties = isCurrent
               ? {
                   ...S.card,
@@ -622,186 +635,181 @@ export function FaceOwnersSection() {
               : S.card;
             return (
             <div key={person.label} style={cardStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      color: "var(--lm-amber)",
-                      textTransform: "capitalize",
-                    }}>
-                      {person.label}
-                    </div>
-                    {person.label !== "unknown" && (
-                      <span
-                        onClick={() => handleRename(person.label)}
-                        title={`Rename ${person.label}`}
-                        style={{
-                          cursor: "pointer", fontSize: 11, opacity: 0.55,
-                          color: "var(--lm-text-muted)", padding: "0 2px",
-                        }}
-                      >✎</span>
-                    )}
-                    {isCurrent && (
-                      <span style={{
-                        fontSize: 9,
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        background: "var(--lm-teal)",
-                        color: "#0b1220",
-                        fontWeight: 700,
-                        letterSpacing: 0.5,
-                      }}>● HERE NOW</span>
-                    )}
-                    <button
-                      onClick={() => setTimelineUser(person.label)}
-                      style={{
-                        ...btnStyle,
-                        padding: "2px 7px",
-                        background: "rgba(96,165,250,0.15)",
-                        color: "rgb(96,165,250)",
-                        border: "1px solid rgba(96,165,250,0.25)",
-                      }}
-                    >
-                      📊 Timeline
-                    </button>
-                  </div>
-                  {(person.telegram_username || person.telegram_id) && (
-                    <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginTop: 2 }}>
-                      {person.telegram_username && <span>@{person.telegram_username}</span>}
-                      {person.telegram_username && person.telegram_id && <span> · </span>}
-                      {person.telegram_id && <span>ID: {person.telegram_id}</span>}
-                    </div>
-                  )}
+
+              {/* Row 1 — name + actions (Edit / Timeline / Delete / expand) */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <div style={{
+                  fontSize: 14, fontWeight: 700,
+                  color: "var(--lm-amber)",
+                  textTransform: "capitalize",
+                }}>
+                  {person.label}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {isCurrent && (
                   <span style={{
-                    fontSize: 10,
-                    padding: "2px 7px",
-                    borderRadius: 4,
-                    background: "var(--lm-amber-dim)",
-                    color: "var(--lm-amber)",
-                    fontWeight: 600,
-                  }}>
-                    {person.photo_count} photo{person.photo_count !== 1 ? "s" : ""}
-                  </span>
-                  {person.mood_days && person.mood_days.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(74,222,128,0.15)",
-                      color: "rgb(74,222,128)",
-                      fontWeight: 600,
-                    }}>
-                      {person.mood_days.length} mood day{person.mood_days.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {person.wellbeing_days && person.wellbeing_days.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(96,165,250,0.15)",
-                      color: "rgb(96,165,250)",
-                      fontWeight: 600,
-                    }}>
-                      {person.wellbeing_days.length} wellbeing day{person.wellbeing_days.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {person.music_suggestion_days && person.music_suggestion_days.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(168,85,247,0.15)",
-                      color: "rgb(168,85,247)",
-                      fontWeight: 600,
-                    }}>
-                      {person.music_suggestion_days.length} music suggestion day{person.music_suggestion_days.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {person.posture_days && person.posture_days.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(6,182,212,0.15)",
-                      color: "rgb(6,182,212)",
-                      fontWeight: 600,
-                    }}>
-                      🪑 {person.posture_days.length} posture day{person.posture_days.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {person.audio_history_days && person.audio_history_days.length > 0 && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(96,165,250,0.15)",
-                      color: "rgb(96,165,250)",
-                      fontWeight: 600,
-                    }}>
-                      {person.audio_history_days.length} audio history day{person.audio_history_days.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {person.habit_patterns && (
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: "rgba(251,191,36,0.15)",
-                      color: "rgb(251,191,36)",
-                      fontWeight: 600,
-                    }}>
-                      habit
-                    </span>
-                  )}
-                  {(() => {
-                    const audioCount = person.voice_samples?.filter((f) => /\.(wav|mp3|ogg)$/i.test(f)).length ?? 0;
-                    if (audioCount === 0) return null;
-                    return (
-                      <span style={{
-                        fontSize: 10,
-                        padding: "2px 7px",
-                        borderRadius: 4,
-                        background: "rgba(168,85,247,0.15)",
-                        color: "rgb(168,85,247)",
-                        fontWeight: 600,
-                      }}>
-                        🎤 {audioCount} voice sample{audioCount !== 1 ? "s" : ""}
-                      </span>
-                    );
-                  })()}
+                    fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                    background: "var(--lm-teal)", color: "#0b1220",
+                    fontWeight: 700, letterSpacing: 0.5,
+                  }}>● HERE NOW</span>
+                )}
+                <span style={{ flex: 1 }} />
+                {/* Actions: Delete / Edit / Timeline / expand toggle.
+                    Edit is hidden for the special "unknown" bucket since it
+                    isn't a real user that can be renamed. */}
+                {person.label !== "unknown" && (
                   <button
-                    onClick={() => handleRemove(person.label)}
-                    disabled={deleting === person.label}
-                    style={{
-                      ...btnStyle,
-                      padding: "2px 7px",
-                      background: "rgba(239,68,68,0.1)",
-                      color: "rgb(239,68,68)",
-                      border: "1px solid rgba(239,68,68,0.2)",
-                      cursor: deleting === person.label ? "not-allowed" : "pointer",
-                      opacity: deleting === person.label ? 0.5 : 1,
-                    }}
-                  >
-                    {deleting === person.label ? "..." : "Remove"}
-                  </button>
-                </div>
+                    onClick={() => handleRename(person.label)}
+                    title="Rename"
+                    aria-label="Rename"
+                    style={iconBtnStyle}
+                  ><Pencil size={14} /></button>
+                )}
+                <button
+                  onClick={() => setTimelineUser(person.label)}
+                  title="Timeline"
+                  aria-label="Timeline"
+                  style={{
+                    ...iconBtnStyle,
+                    background: "color-mix(in srgb, var(--lm-blue) 15%, transparent)",
+                    color: "var(--lm-blue)",
+                    border: "1px solid color-mix(in srgb, var(--lm-blue) 30%, transparent)",
+                  }}
+                ><History size={14} /></button>
+                <button
+                  onClick={() => handleRemove(person.label)}
+                  disabled={deleting === person.label}
+                  title="Delete user"
+                  aria-label="Delete user"
+                  style={{
+                    ...iconBtnStyle,
+                    background: "color-mix(in srgb, var(--lm-red) 12%, transparent)",
+                    color: "var(--lm-red)",
+                    border: "1px solid color-mix(in srgb, var(--lm-red) 35%, transparent)",
+                    cursor: deleting === person.label ? "not-allowed" : "pointer",
+                    opacity: deleting === person.label ? 0.5 : 1,
+                  }}
+                >{deleting === person.label ? "…" : <Trash2 size={14} />}</button>
+                <button
+                  onClick={() => setExpandedPerson((p) => ({ ...p, [person.label]: !isExpanded }))}
+                  title={isExpanded ? "Collapse" : "Expand details"}
+                  aria-label={isExpanded ? "Collapse" : "Expand"}
+                  style={iconBtnStyle}
+                >{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
               </div>
 
-              {/* Folder tree */}
+              {(person.telegram_username || person.telegram_id) && (
+                <div style={{ fontSize: 10, color: "var(--lm-text-muted)", marginBottom: 12 }}>
+                  {person.telegram_username && <span>@{person.telegram_username}</span>}
+                  {person.telegram_username && person.telegram_id && <span> · </span>}
+                  {person.telegram_id && <span>ID: {person.telegram_id}</span>}
+                </div>
+              )}
+
+              {/* Row 2 — metric tokens (counts of photos/mood/wb/etc.) */}
+              {(() => {
+                const audioCount = person.voice_samples?.filter((f) => /\.(wav|mp3|ogg)$/i.test(f)).length ?? 0;
+                  // Compact metric strip — short tokens, color-coded by category,
+                  // tooltip on hover for the full label. Keeps the person card
+                  // dense even when 4 cards sit on one row.
+                  const tags: Array<{ n: number | string; label: string; full: string; color: string }> = [
+                    { n: person.photo_count, label: "photos", full: `${person.photo_count} face photos`, color: "var(--lm-amber)" },
+                  ];
+                  if (person.mood_days?.length)              tags.push({ n: person.mood_days.length,             label: "mood",     full: `${person.mood_days.length} mood days`,             color: "var(--lm-green)"  });
+                  if (person.wellbeing_days?.length)         tags.push({ n: person.wellbeing_days.length,        label: "wb",       full: `${person.wellbeing_days.length} wellbeing days`,    color: "var(--lm-blue)"   });
+                  if (person.music_suggestion_days?.length)  tags.push({ n: person.music_suggestion_days.length, label: "music",    full: `${person.music_suggestion_days.length} music suggestion days`, color: "var(--lm-purple)" });
+                  if (person.posture_days?.length)           tags.push({ n: person.posture_days.length,          label: "posture",  full: `${person.posture_days.length} posture days`,        color: "var(--lm-cyan, #06b6d4)" });
+                  if (person.audio_history_days?.length)     tags.push({ n: person.audio_history_days.length,    label: "audio",    full: `${person.audio_history_days.length} audio history days`, color: "var(--lm-blue)" });
+                  if (person.habit_patterns)                 tags.push({ n: "✓",                                  label: "habit",    full: "Habit patterns recorded",                            color: "var(--lm-amber)"  });
+                  if (audioCount > 0)                        tags.push({ n: audioCount,                          label: "voice",    full: `${audioCount} voice samples`,                       color: "var(--lm-purple)" });
+
+                  return (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", fontSize: 10, marginBottom: 8 }}>
+                      {tags.map((t, i) => (
+                        <span
+                          key={i}
+                          title={t.full}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            padding: "2px 6px", borderRadius: 4,
+                            background: `color-mix(in srgb, ${t.color} 14%, transparent)`,
+                            color: t.color,
+                            fontWeight: 600,
+                            fontFamily: "monospace",
+                            letterSpacing: "0.02em",
+                          }}
+                        >
+                          <strong>{t.n}</strong> {t.label}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+              {/* Expandable detail section — photos gallery, folder tree, preview.
+                  Hidden when card is collapsed to keep the grid dense. */}
+              {isExpanded && (<>
               <div style={{
                 fontFamily: "monospace",
                 fontSize: 11,
                 lineHeight: 1.7,
                 color: "var(--lm-text-muted)",
               }}>
+                {/* Photos gallery — single horizontal row of thumbnails so the
+                    person card stays dense. Hover a thumbnail to reveal its ✕
+                    delete button. */}
+                {person.photos.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    {person.photos.map((photo) => {
+                      const delKey = `${person.label}/${photo}`;
+                      const isDeleting = deletingPhoto === delKey;
+                      return (
+                        <div
+                          key={photo}
+                          title={photo}
+                          style={{ position: "relative", width: 48, height: 48 }}
+                        >
+                          <img
+                            src={`${HW}/face/photo/${person.label}/${photo}`}
+                            style={{
+                              width: "100%", height: "100%",
+                              objectFit: "cover",
+                              borderRadius: 4,
+                              border: "1px solid var(--lm-border)",
+                              display: "block",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => openFile(person.label, photo)}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRemovePhoto(person.label, photo); }}
+                            disabled={isDeleting}
+                            title={`Remove ${photo}`}
+                            style={{
+                              position: "absolute", top: -4, right: -4,
+                              width: 16, height: 16,
+                              borderRadius: "50%",
+                              background: "var(--lm-red)",
+                              color: "#fff",
+                              border: "1.5px solid var(--lm-card)",
+                              fontSize: 10, fontWeight: 700, lineHeight: 1,
+                              cursor: isDeleting ? "wait" : "pointer",
+                              padding: 0,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              opacity: isDeleting ? 0.5 : 1,
+                              boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                            }}
+                          >×</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {(() => {
                   const items: { name: string; isDir?: boolean; dirKey?: string; children?: string[]; filePath?: string }[] = [];
-                  person.photos.forEach((f) => items.push({ name: f, filePath: f }));
+                  // Photos render as the gallery above — exclude from tree so the
+                  // filename listing doesn't repeat what the thumbnails already show.
                   person.files?.filter((f) => !person.photos.includes(f)).forEach((f) => items.push({ name: f, filePath: f }));
                   if (person.mood_days && person.mood_days.length > 0) {
                     items.push({ name: "mood", isDir: true, dirKey: `${person.label}:mood`, children: person.mood_days.map((d) => `${d}.jsonl`) });
@@ -836,8 +844,8 @@ export function FaceOwnersSection() {
                             onClick={() => toggleDir(item.dirKey!)}
                           >
                             <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
-                            <span style={{ color: "rgb(74,222,128)" }}>{isOpen ? "\u25BE" : "\u25B8"}</span>
-                            <span style={{ color: "rgb(74,222,128)", fontWeight: 600 }}> {item.name}/</span>
+                            <span style={{ color: "var(--lm-green)" }}>{isOpen ? "\u25BE" : "\u25B8"}</span>
+                            <span style={{ color: "var(--lm-green)", fontWeight: 600 }}> {item.name}/</span>
                           </span>
                           {isOpen && item.children?.map((child, ci) => {
                             const childPrefix = isLastTop ? "    " : "\u2502   ";
@@ -860,7 +868,7 @@ export function FaceOwnersSection() {
                                 >
                                   <span style={{ color: "var(--lm-text-dim)" }}>{childPrefix}{childBranch}</span>
                                   {isChildAudio && (
-                                    <span style={{ color: isPlaying ? "var(--lm-amber)" : "rgb(168,85,247)", marginRight: 4 }}>
+                                    <span style={{ color: isPlaying ? "var(--lm-amber)" : "var(--lm-purple)", marginRight: 4 }}>
                                       {isPlaying ? "⏸" : "▶"}
                                     </span>
                                   )}
@@ -878,7 +886,7 @@ export function FaceOwnersSection() {
                                     style={{
                                       cursor: isDeleting ? "wait" : "pointer",
                                       fontSize: 10,
-                                      color: "rgb(239,68,68)",
+                                      color: "var(--lm-red)",
                                       opacity: isDeleting ? 0.5 : 0.6,
                                       fontWeight: 600,
                                     }}
@@ -890,7 +898,6 @@ export function FaceOwnersSection() {
                         </div>
                       );
                     }
-                    const isImg = /\.(jpg|jpeg|png|bmp)$/i.test(item.name);
                     const isActive = preview?.label === person.label && preview?.path === item.filePath;
                     return (
                       <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -900,36 +907,12 @@ export function FaceOwnersSection() {
                         >
                           <span style={{ color: "var(--lm-text-dim)" }}>{prefix}</span>
                           <span style={{
-                            color: isImg ? "var(--lm-amber)" : (isActive ? "var(--lm-amber)" : "inherit"),
+                            color: isActive ? "var(--lm-amber)" : "inherit",
                             textDecoration: "underline",
                             textDecorationStyle: "dotted" as const,
                             textUnderlineOffset: 3,
                           }}>{item.name}</span>
                         </span>
-                        {isImg && (<>
-                          <img
-                            src={`${HW}/face/photo/${person.label}/${item.name}`}
-                            style={{
-                              width: 28,
-                              height: 28,
-                              objectFit: "cover",
-                              borderRadius: 4,
-                              border: "1px solid var(--lm-border)",
-                            }}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                          <span
-                            onClick={() => handleRemovePhoto(person.label, item.name)}
-                            style={{
-                              cursor: deletingPhoto === `${person.label}/${item.name}` ? "wait" : "pointer",
-                              fontSize: 10,
-                              color: "rgb(239,68,68)",
-                              opacity: deletingPhoto === `${person.label}/${item.name}` ? 0.5 : 0.6,
-                              fontWeight: 600,
-                            }}
-                            title={`Remove ${item.name}`}
-                          >✕</span>
-                        </>)}
                       </div>
                     );
                   });
@@ -970,6 +953,7 @@ export function FaceOwnersSection() {
                   {previewLoading ? "Loading..." : preview.content}
                 </div>
               )}
+              </> )}{/* /isExpanded */}
             </div>
             );
           })}
@@ -984,10 +968,15 @@ export function FaceOwnersSection() {
         </div>
       )}
 
+      {/* Bottom row: 3 diagnostic cards side-by-side so we get the same
+          horizontal density as Sensing/Analytics, instead of three full-width
+          stacks. */}
+      <div className="lm-grid-3">
+
       {/* Unknown Voice Clusters */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>🔊 Unknown Voices</div>
+          <div style={S.cardLabel}>Unknown Voices</div>
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
             {strangers ? `${strangers.total} cluster${strangers.total !== 1 ? "s" : ""}` : ""}
           </span>
@@ -1006,7 +995,7 @@ export function FaceOwnersSection() {
         )}
 
         {!strangersError && strangers && strangers.clusters.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 320, overflowY: "auto" }} className="lm-hide-scroll">
             {strangers.clusters.map((cluster) => {
               const isOpen = expandedCluster[cluster.hash] ?? false;
               return (
@@ -1021,11 +1010,11 @@ export function FaceOwnersSection() {
                       style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1, minWidth: 0 }}
                       onClick={() => setExpandedCluster((p) => ({ ...p, [cluster.hash]: !isOpen }))}
                     >
-                      <span style={{ color: "rgb(168,85,247)", fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "rgb(168,85,247)", fontFamily: "monospace" }}>
+                      <span style={{ color: "var(--lm-purple)", fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-purple)", fontFamily: "monospace" }}>
                         {cluster.hash}
                       </span>
-                      <span style={{ fontSize: 9, color: "rgb(168,85,247)", fontWeight: 600 }}>
+                      <span style={{ fontSize: 9, color: "var(--lm-purple)", fontWeight: 600 }}>
                         ×{cluster.sample_count}
                       </span>
                       <span style={{ fontSize: 9, color: "var(--lm-text-muted)" }}>
@@ -1037,7 +1026,7 @@ export function FaceOwnersSection() {
                       title={`Delete cluster ${cluster.hash}`}
                       style={{
                         cursor: deletingCluster === cluster.hash ? "wait" : "pointer",
-                        fontSize: 11, color: "rgb(239,68,68)",
+                        fontSize: 11, color: "var(--lm-red)",
                         opacity: deletingCluster === cluster.hash ? 0.5 : 0.7,
                         fontWeight: 600, flexShrink: 0, padding: "0 4px",
                       }}
@@ -1072,7 +1061,7 @@ export function FaceOwnersSection() {
                               title={`Remove ${s.filename}`}
                               style={{
                                 cursor: isDeletingFile ? "wait" : "pointer",
-                                fontSize: 11, color: "rgb(239,68,68)",
+                                fontSize: 11, color: "var(--lm-red)",
                                 opacity: isDeletingFile ? 0.5 : 0.7,
                                 fontWeight: 600, flexShrink: 0, padding: "0 2px",
                               }}
@@ -1092,7 +1081,7 @@ export function FaceOwnersSection() {
       {/* Unknown Faces (visit stats per stranger_id) */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>👁 Unknown Faces</div>
+          <div style={S.cardLabel}>Unknown Faces</div>
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
             {faceStrangers ? `${faceStrangers.length} stranger${faceStrangers.length !== 1 ? "s" : ""}` : ""}
           </span>
@@ -1111,10 +1100,12 @@ export function FaceOwnersSection() {
         )}
 
         {!faceStrangersError && faceStrangers && faceStrangers.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          // Local scroll — list can grow unbounded as new strangers are tracked,
+          // and the surrounding 3-col row should stay aligned with sibling cards.
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }} className="lm-hide-scroll">
             {faceStrangers.map((s) => {
               const familiar = s.count >= FAMILIAR_VISIT_THRESHOLD;
-              const accent = familiar ? "rgb(251,191,36)" : "rgb(239,68,68)";
+              const accent = familiar ? "var(--lm-amber)" : "var(--lm-red)";
               const accentBg = familiar ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.1)";
               return (
                 <div key={s.stranger_id} style={{
@@ -1151,7 +1142,7 @@ export function FaceOwnersSection() {
                             padding: "1px 6px",
                             borderRadius: 4,
                             background: "rgba(251,191,36,0.15)",
-                            color: "rgb(251,191,36)",
+                            color: "var(--lm-amber)",
                             fontWeight: 700,
                             letterSpacing: 0.3,
                           }}
@@ -1210,14 +1201,14 @@ export function FaceOwnersSection() {
         )}
 
         {!cdError && allCooldownEntries.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }} className="lm-hide-scroll">
             {allCooldownEntries.map((entry) => {
               const pct = entry.cooldown_total > 0
                 ? (entry.cooldown_remaining / entry.cooldown_total) * 100
                 : 0;
               const kindColor =
-                entry.kind === "stranger" ? "rgb(239,68,68)"
-                : "rgb(96,165,250)";
+                entry.kind === "stranger" ? "var(--lm-red)"
+                : "var(--lm-blue)";
               return (
                 <div key={`${entry.kind}-${entry.person_id}`} style={{
                   padding: "8px 12px",
@@ -1250,7 +1241,7 @@ export function FaceOwnersSection() {
                       fontSize: 11,
                       fontWeight: 600,
                       fontFamily: "monospace",
-                      color: entry.cooldown_remaining > 0 ? "var(--lm-text)" : "rgb(74,222,128)",
+                      color: entry.cooldown_remaining > 0 ? "var(--lm-text)" : "var(--lm-green)",
                     }}>
                       {fmtCountdown(entry.cooldown_remaining)}
                     </span>
@@ -1279,6 +1270,8 @@ export function FaceOwnersSection() {
           </div>
         )}
       </div>
+
+      </div>{/* /lm-grid-3 bottom row */}
 
       {timelineUser && (
         <UserTimelineModal user={timelineUser} onClose={() => setTimelineUser(null)} />
