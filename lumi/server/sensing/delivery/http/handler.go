@@ -348,11 +348,24 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	}
 
 	var err error
+	// Web monitor chat starting with "/" is a slash command — forward via
+	// chat.send with deliver:false so OpenClaw routes the reply back to the
+	// web client only (matches gw web). Without this, slash replies can be
+	// swallowed by bound-channel routing and the SSE stream times out.
+	isSlashCommand := isWebChat && strings.HasPrefix(msg, "/")
 	// motion.activity: snapshot saved for UI but NOT sent to agent (save tokens — action name is enough)
 	if req.Image != "" && req.Type != "motion.activity" {
-		_, err = h.agentGateway.SendChatMessageWithImageAndRun(msg, req.Image, reqID, runID)
+		if isSlashCommand {
+			_, err = h.agentGateway.SendSlashCommandWithImageAndRun(msg, req.Image, reqID, runID)
+		} else {
+			_, err = h.agentGateway.SendChatMessageWithImageAndRun(msg, req.Image, reqID, runID)
+		}
 	} else {
-		_, err = h.agentGateway.SendChatMessageWithRun(msg, reqID, runID)
+		if isSlashCommand {
+			_, err = h.agentGateway.SendSlashCommandWithRun(msg, reqID, runID)
+		} else {
+			_, err = h.agentGateway.SendChatMessageWithRun(msg, reqID, runID)
+		}
 	}
 
 	if err != nil {

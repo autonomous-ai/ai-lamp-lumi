@@ -998,9 +998,9 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 		// "merged" / "self-reply" — those are downstream interpretations
 		// the operator makes from the timeline (e.g. a UUID lifecycle
 		// arriving later with matching input).
-		isEmptyFinalNoLifecycle := payload.State == "final" &&
+		isLumiOutboundFinal := payload.State == "final" && isLumiOutboundChatRunID(flowRunID)
+		isEmptyFinalNoLifecycle := isLumiOutboundFinal &&
 			strings.TrimSpace(payload.Message) == "" &&
-			isLumiOutboundChatRunID(flowRunID) &&
 			h.agentGateway.RemovePendingChatTraceByRunID(flowRunID)
 		if isEmptyFinalNoLifecycle {
 			slog.Info("chat final empty, no lifecycle for runId",
@@ -1021,6 +1021,30 @@ func (h *OpenClawHandler) HandleEvent(ctx context.Context, evt domain.WSEvent) e
 					"lifecycle_started": "false",
 				},
 			})
+		}
+
+		// Slash commands (e.g. /status, /new) are pre-LLM dispatched by OpenClaw
+		// so they emit `state:"final"` with the reply payload but never open a
+		// lifecycle. Without a closing flow event, Flow Monitor renders the turn
+		// as active forever. Mirror chat_final_empty but record the success case.
+		// RemovePendingChatTraceByRunID is the no-lifecycle witness: lifecycle_start
+		// removes the entry, so a returning true here proves no lifecycle ran.
+		// The existing isEmptyFinalNoLifecycle check above already consumed the
+		// pending entry when it fires, so this Remove call is naturally false
+		// when both conditions could match — no double-emit possible.
+		isSlashFinalOk := isLumiOutboundFinal &&
+			!isEmptyFinalNoLifecycle &&
+			strings.TrimSpace(payload.Message) != "" &&
+			h.agentGateway.RemovePendingChatTraceByRunID(flowRunID)
+		if isSlashFinalOk {
+			slog.Info("chat final ok, no lifecycle for runId (slash dispatcher)",
+				"component", "agent", "run_id", flowRunID)
+			flow.Log("chat_final_ok", map[string]any{
+				"run_id":            flowRunID,
+				"state":             "final",
+				"message_empty":     false,
+				"lifecycle_started": false,
+			}, flowRunID)
 		}
 
 		// Push assistant/partial chat events to monitor (user input tracked via lifecycle_start — already tracked as chat_input).
