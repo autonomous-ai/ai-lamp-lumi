@@ -169,22 +169,39 @@ export function CameraSection({
               flexDirection: "column",
               gap: 4,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
                 <span style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
                   color: "var(--lm-text-dim)", textTransform: "uppercase",
                 }}>Snapshot</span>
-                <button
-                  onClick={refreshSnapshot}
-                  disabled={cameraDisabled}
-                  title="Capture fresh snapshot"
-                  style={{
-                    fontSize: 9, padding: "2px 6px", borderRadius: 4,
-                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                    color: "var(--lm-text-dim)", cursor: cameraDisabled ? "not-allowed" : "pointer",
-                    opacity: cameraDisabled ? 0.5 : 1,
-                  }}
-                >↻</button>
+                <div style={{ display: "flex", gap: 3 }}>
+                  <a
+                    href={cameraDisabled ? undefined : `${HW}/camera/snapshot?t=${snapTs}`}
+                    download={`lumi-snapshot-${new Date(snapTs).toISOString().replace(/[:.]/g, "-")}.jpg`}
+                    title="Download snapshot"
+                    aria-disabled={cameraDisabled}
+                    onClick={(e) => { if (cameraDisabled) e.preventDefault(); }}
+                    style={{
+                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                      background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                      color: "var(--lm-text-dim)", cursor: cameraDisabled ? "not-allowed" : "pointer",
+                      opacity: cameraDisabled ? 0.5 : 1, textDecoration: "none",
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      minWidth: 16, lineHeight: 1,
+                    }}
+                  >↓</a>
+                  <button
+                    onClick={refreshSnapshot}
+                    disabled={cameraDisabled}
+                    title="Capture fresh snapshot"
+                    style={{
+                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                      background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                      color: "var(--lm-text-dim)", cursor: cameraDisabled ? "not-allowed" : "pointer",
+                      opacity: cameraDisabled ? 0.5 : 1,
+                    }}
+                  >↻</button>
+                </div>
               </div>
               <div style={{
                 width: "100%",
