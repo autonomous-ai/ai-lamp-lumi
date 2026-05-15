@@ -40,8 +40,8 @@ export function SystemSection({
           updated {lastUpdate.toLocaleTimeString()}
         </span>
       </div>
-      {/* Row 1: CPU + CPU history */}
-      <div className="lm-grid-2">
+      {/* Row 1: CPU (1/4) + CPU history (3/4) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 3fr", gap: 14 }}>
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>CPU</div>
@@ -50,7 +50,7 @@ export function SystemSection({
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-            <GaugeRing value={sys.cpuLoad} label="" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={140} />
+            <GaugeRing value={sys.cpuLoad} label="" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={110} />
             {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
               <CoreStrip values={sys.cpuPerCore} />
             )}
@@ -61,12 +61,12 @@ export function SystemSection({
             <div style={S.cardLabel}>CPU History</div>
             <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
           </div>
-          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={140} max={100} grid />
+          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={110} max={100} grid />
         </div>
       </div>
 
-      {/* Row 2: Memory + RAM history */}
-      <div className="lm-grid-2">
+      {/* Row 2: Memory (1/4) + RAM history (3/4) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 3fr", gap: 14 }}>
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>Memory</div>
@@ -75,7 +75,7 @@ export function SystemSection({
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <GaugeRing value={sys.memPercent} label="" detail={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" size={140} />
+            <GaugeRing value={sys.memPercent} label="" detail={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" size={110} />
           </div>
         </div>
         <div style={{ ...S.card, padding: 12 }}>
@@ -83,12 +83,12 @@ export function SystemSection({
             <div style={S.cardLabel}>RAM History</div>
             <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
           </div>
-          <Sparkline data={ramHistory} color="var(--lm-blue)" height={140} max={100} grid />
+          <Sparkline data={ramHistory} color="var(--lm-blue)" height={110} max={100} grid />
         </div>
       </div>
 
-      {/* Row 3: Disk + Temp */}
-      <div className="lm-grid-2">
+      {/* Row 3: Disk + Temp + Service + Network Detail — 4 cards one row */}
+      <div className="lm-grid-4">
         <div style={{ ...S.card, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>Disk</div>
@@ -97,7 +97,7 @@ export function SystemSection({
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <GaugeRing value={sys.diskPercent ?? 0} label="" detail={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={diskColor} size={140} />
+            <GaugeRing value={sys.diskPercent ?? 0} label="" detail={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={diskColor} size={60} />
           </div>
         </div>
         <div style={{ ...S.card, padding: 12 }}>
@@ -111,14 +111,10 @@ export function SystemSection({
               label=""
               detail={`${sys.cpuTemp.toFixed(1)}°C`}
               color={tempColor(sys.cpuTemp)}
-              size={140}
+              size={60}
             />
           </div>
         </div>
-      </div>
-
-      {/* Detail stats — version+SSID/IP already on Overview, so focus on uptimes + extended network. */}
-      <div className="lm-grid-2">
         <div style={S.card}>
           <div style={S.cardLabel}>Service</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -129,7 +125,6 @@ export function SystemSection({
             <DeviceIdPill deviceId={sys.deviceId} />
           </div>
         </div>
-
         <div style={S.card}>
           <div style={S.cardLabel}>Network Detail</div>
           {net ? (

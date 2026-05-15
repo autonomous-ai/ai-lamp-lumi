@@ -195,9 +195,10 @@ export function Sparkline({
     pts.join(" L ") +
     ` L ${w},${h} Z`;
 
-  const gridLevels = grid ? [0.25, 0.5, 0.75] : [];
+  // Always label 0 and yMax bounds when grid is on; add 25/50/75 intermediates too.
+  const gridLevels = grid ? [0, 0.25, 0.5, 0.75, 1] : [];
 
-  return (
+  const svg = (
     <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
       <defs>
         <linearGradient id={`sg-${color.replace(/[^a-z]/gi, "")}`} x1="0" y1="0" x2="0" y2="1">
@@ -205,7 +206,7 @@ export function Sparkline({
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
-      {/* Horizontal gridlines (25/50/75%). Dashed and faint so they don't fight the line. */}
+      {/* Horizontal gridlines. Dashed and faint so they don't fight the line. */}
       {gridLevels.map((g) => {
         const y = h - g * (h - 4) - 2;
         return (
@@ -233,6 +234,37 @@ export function Sparkline({
         vectorEffect="non-scaling-stroke"
       />
     </svg>
+  );
+
+  if (!grid) return svg;
+
+  // Y-axis labels overlaid on the right edge. Using absolute HTML positioning
+  // instead of SVG <text> so labels keep a fixed pixel size regardless of
+  // the SVG's non-uniform stretching from preserveAspectRatio="none".
+  return (
+    <div style={{ position: "relative", paddingRight: 28 }}>
+      {svg}
+      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 26 }}>
+        {gridLevels.map((g) => {
+          const yPct = (1 - g) * 100;
+          return (
+            <span key={g} style={{
+              position: "absolute",
+              right: 0,
+              top: `${yPct}%`,
+              transform: g === 1 ? "translateY(0)" : g === 0 ? "translateY(-100%)" : "translateY(-50%)",
+              fontSize: 9,
+              color: "var(--lm-text-muted)",
+              fontFamily: "monospace",
+              lineHeight: 1,
+              padding: "0 2px",
+            }}>
+              {Math.round(yMax * g)}
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
