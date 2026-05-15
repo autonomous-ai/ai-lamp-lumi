@@ -103,7 +103,7 @@ Monitor polls system/HW APIs every **3 seconds**. Flow uses file-backed hybrid m
 |----------|------|
 | `GET /api/system/info` | CPU load, RAM (KB), temperature, uptime, goroutines, version, deviceId |
 | `GET /api/system/network` | SSID, IP, public IP, Tailscale IP, signal (dBm), internet (bool) |
-| `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool) |
+| `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool), version, emotion, uptime (Lumi WS uptime, secs), agentUptime (OpenClaw process uptime from hello-ok `server.uptimeMs`, secs — survives Lumi restarts) |
 | `GET /api/openclaw/recent` | Latest flow events from today's JSONL file (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | File-backed flow events API used for Flow seed/history |
 | `GET /api/openclaw/flow-stream` | File-backed live stream (SSE) for Flow updates when JSONL changes |

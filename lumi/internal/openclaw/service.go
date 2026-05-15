@@ -38,6 +38,11 @@ type Service struct {
 	statusLED      *statusled.Service
 	wsConnected    atomic.Bool // true when gateway WebSocket is connected and ready to receive messages
 	wsConnectedAt  atomic.Int64 // unix seconds when wsConnected last flipped to true; 0 when disconnected
+	// agentStartedAt is the unix-seconds timestamp the OpenClaw gateway process
+	// started, derived from the server.uptimeMs field of the hello-ok response
+	// at handshake. Survives Lumi restarts because each fresh hello-ok carries
+	// the gateway's own age. 0 when not yet observed or disconnected.
+	agentStartedAt atomic.Int64
 	activeTurn     atomic.Bool // true while agent is processing a turn (lifecycle start → end)
 	busySince      atomic.Int64 // unix milli when activeTurn was last set to true; used to expire stuck busy state
 	wsHasConnected atomic.Bool // true after first successful WS connect (skip reconnect TTS on boot)
@@ -188,4 +193,23 @@ func (s *Service) IsReady() bool {
 // became ready, or 0 when not currently connected.
 func (s *Service) ConnectedAt() int64 {
 	return s.wsConnectedAt.Load()
+}
+
+// AgentUptime returns the OpenClaw gateway process uptime in seconds, derived
+// from server.uptimeMs in the hello-ok response. Independent of Lumi's WS
+// reconnect cycles — restarting Lumi does not reset this value. Returns 0 when
+// the gateway uptime has not yet been observed or the WS is disconnected.
+func (s *Service) AgentUptime() int64 {
+	if !s.wsConnected.Load() {
+		return 0
+	}
+	startedAt := s.agentStartedAt.Load()
+	if startedAt <= 0 {
+		return 0
+	}
+	uptime := time.Now().Unix() - startedAt
+	if uptime < 0 {
+		return 0
+	}
+	return uptime
 }

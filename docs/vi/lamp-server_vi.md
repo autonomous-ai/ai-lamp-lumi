@@ -98,7 +98,7 @@ Config field: `guard_mode` trong `config/config.json` (bool, mặc định `fals
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| GET | `/api/openclaw/status` | Trạng thái kết nối WS |
+| GET | `/api/openclaw/status` | Trạng thái kết nối WS; gồm `uptime` (uptime WS phía Lumi) và `agentUptime` (uptime tiến trình OpenClaw, không reset khi Lumi restart) |
 | GET | `/api/openclaw/events` | SSE stream events real-time |
 | GET | `/api/openclaw/recent` | 100 events gần nhất (ring buffer) |
 

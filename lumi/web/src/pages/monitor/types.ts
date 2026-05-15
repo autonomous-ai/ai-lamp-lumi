@@ -48,7 +48,8 @@ export interface OCStatus {
   sessionKey: boolean;
   emotion?: string;
   version?: string;
-  uptime?: number; // seconds since WS became ready; 0 when disconnected
+  uptime?: number; // seconds since Lumi WS became ready; 0 when disconnected (debug only)
+  agentUptime?: number; // OpenClaw gateway process uptime in seconds; survives Lumi restarts
 }
 export interface PresenceInfo {
   state: string;

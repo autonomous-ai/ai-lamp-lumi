@@ -80,8 +80,10 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 		version = *v
 	}
 
-	// Uptime: seconds since the WS connection last became ready. 0 when
-	// disconnected — the frontend renders "—" in that case.
+	// uptime: seconds since the WS connection last became ready (resets when
+	// Lumi reconnects). agentUptime: actual OpenClaw process uptime sourced from
+	// the gateway's hello-ok payload — survives Lumi restarts. The UI shows
+	// agentUptime; uptime stays for debugging WS reconnect cadence.
 	var uptime int64
 	if connectedAt := h.agentGateway.ConnectedAt(); connectedAt > 0 {
 		uptime = time.Now().Unix() - connectedAt
@@ -91,12 +93,13 @@ func (h *OpenClawHandler) Status(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-		"name":       h.agentGateway.Name(),
-		"connected":  h.agentGateway.IsReady(),
-		"sessionKey": h.agentGateway.GetSessionKey() != "",
-		"emotion":    emotion,
-		"version":    version,
-		"uptime":     uptime,
+		"name":        h.agentGateway.Name(),
+		"connected":   h.agentGateway.IsReady(),
+		"sessionKey":  h.agentGateway.GetSessionKey() != "",
+		"emotion":     emotion,
+		"version":     version,
+		"uptime":      uptime,
+		"agentUptime": h.agentGateway.AgentUptime(),
 	}))
 }
 
