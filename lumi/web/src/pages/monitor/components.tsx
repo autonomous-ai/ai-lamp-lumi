@@ -235,7 +235,14 @@ export function SignalBars({ value }: { value: number }) {
   );
 }
 
-export function StatPill({ label, value, color }: { label: string; value: string | number; color?: string }) {
+export function StatPill({ label, value, color, bullet }: {
+  label: string;
+  value: string | number;
+  color?: string;
+  // bullet draws a small colored disc before the label so visually-related rows
+  // (e.g. Lumi vs LeLamp uptimes) can be scanned apart at a glance.
+  bullet?: string;
+}) {
   return (
     <div style={{
       display: "flex",
@@ -245,8 +252,21 @@ export function StatPill({ label, value, color }: { label: string; value: string
       background: "var(--lm-surface)",
       borderRadius: 8,
       border: "1px solid var(--lm-border)",
+      borderLeft: bullet ? `3px solid ${bullet}` : "1px solid var(--lm-border)",
     }}>
-      <span style={{ fontSize: 11.5, color: "var(--lm-text-dim)" }}>{label}</span>
+      <span style={{ fontSize: 11.5, color: "var(--lm-text-dim)", display: "flex", alignItems: "center", gap: 7 }}>
+        {bullet && (
+          <span style={{
+            display: "inline-block",
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: bullet,
+            boxShadow: `0 0 5px ${bullet}80`,
+          }} />
+        )}
+        {label}
+      </span>
       <span style={{ fontSize: 12, fontWeight: 600, color: color || "var(--lm-text)" }}>{value}</span>
     </div>
   );
@@ -256,4 +276,18 @@ export function formatUptime(s: number) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// formatSize converts a value in `unit` (KB or MB) to a human-readable string,
+// promoting to MB/GB/TB as needed. Keeps decimals only above MB to avoid noise.
+export function formatSize(value: number, unit: "KB" | "MB"): string {
+  if (!value || value < 0) return "—";
+  let bytes = unit === "KB" ? value * 1024 : value * 1024 * 1024;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
+  }
+  return i >= 3 ? `${bytes.toFixed(1)} ${units[i]}` : `${Math.round(bytes)} ${units[i]}`;
 }

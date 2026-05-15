@@ -514,14 +514,16 @@ export function OverviewSection({
 
       {/* Versions & per-target software-update buttons.
           OS uptime sits in the host row; detailed CPU/RAM/Disk live in System tab. */}
-      <div style={S.card}>
-        <div style={{ ...S.cardLabel, marginBottom: 10 }}>Versions</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <VersionRow name="Host"   color="var(--lm-text)"   version={null}                    uptime={sys?.uptime ?? null}                                   updateTarget={null} />
-          <VersionRow name="Web"    color="var(--lm-teal)"   version={webVersion}              uptime={null}                                                  updateTarget="web" />
-          <VersionRow name="Lumi"   color="var(--lm-amber)"  version={sys?.version ?? null}    uptime={sys?.serviceUptime ?? null}                            updateTarget="lumi" />
-          <VersionRow name="LeLamp" color="var(--lm-blue)"   version={lelampVersion}           uptime={sys?.lelampUptime ?? null}                             updateTarget="lelamp" />
-          <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.agentUptime ?? null) : null}      updateTarget={null} />
+      <div className="lm-grid-4">
+        <div style={S.card}>
+          <div style={{ ...S.cardLabel, marginBottom: 10 }}>Versions</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <VersionRow name="Host"   color="var(--lm-text)"   version={null}                    uptime={sys?.uptime ?? null}                                   updateTarget={null} />
+            <VersionRow name="Web"    color="var(--lm-teal)"   version={webVersion}              uptime={null}                                                  updateTarget="web" />
+            <VersionRow name="Lumi"   color="var(--lm-amber)"  version={sys?.version ?? null}    uptime={sys?.serviceUptime ?? null}                            updateTarget="lumi" />
+            <VersionRow name="LeLamp" color="var(--lm-blue)"   version={lelampVersion}           uptime={sys?.lelampUptime ?? null}                             updateTarget="lelamp" />
+            <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.agentUptime ?? null) : null}      updateTarget={null} />
+          </div>
         </div>
       </div>
 
