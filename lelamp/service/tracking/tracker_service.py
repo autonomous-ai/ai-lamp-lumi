@@ -291,7 +291,7 @@ WRIST_PITCH_MIN, WRIST_PITCH_MAX = -90.0, 90.0
 # YOLOWorld detection quality filters.
 DETECT_MIN_AREA_RATIO = 0.003
 DETECT_MAX_AREA_RATIO = 0.80
-DETECT_MIN_CONFIDENCE = 0.25  # local YOLOv8n detects small objects (mouse, etc.) ~0.25-0.35
+DETECT_MIN_CONFIDENCE = 0.15  # lowered to catch phone at angles/back-facing
 
 # Ghost-lock detection via tracker confidence (ViT only).
 CONFIDENCE_THRESHOLD = 0.15
@@ -875,7 +875,7 @@ class TrackerService:
         # Detector-gated trust: skip servo if YOLO hasn't confirmed target recently.
         last_yolo_confirm_t = track_start_t
         TRUST_TRACKER_S = 2.5      # With redetect=1.5s, allow ~1 missed redetect before suspect
-        STOP_NO_YOLO_S = 6.0
+        STOP_NO_YOLO_S = 20.0
         fps_t0 = track_start_t
 
         # Queue for background YOLO results (maxsize=1 → latest result only).
